@@ -520,7 +520,8 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::ContinueOptimizations(TExprNod
                 TRBOContext rboCtx(KqpCtx, ctx, TypeCtx, *RBOTypeAnnTransformer.Get(), FuncRegistry);
                 rboCtx.EmptyPreamble = emptyPreamble;
                 TRBOTraceOutput traceOutput(rboCtx);
-                auto output = RBO.Optimize(Roots, rboCtx);
+                const auto semanticSnapshotSink = TransformCtx->RBOSemanticSnapshotSink;
+                auto output = RBO.Optimize(Roots, rboCtx, semanticSnapshotSink.get());
                 traceOutput.Flush();
                 AddPlans(rboCtx.ExecutionJson, rboCtx.ExplainJson);
                 return output;
