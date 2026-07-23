@@ -8103,6 +8103,14 @@ FROM (
             )",
             R"(
                 PRAGMA YqlSelect = 'force';
+                SELECT (
+                    SELECT same_name.id FROM `/Root/foo` as same_name WHERE same_name.id == 2
+                ) AS scalar
+                FROM `/Root/bar` as same_name
+                WHERE same_name.id == 0;
+            )",
+            R"(
+                PRAGMA YqlSelect = 'force';
                 SELECT bar.id + (
                     SELECT foo.id FROM `/Root/foo` as foo WHERE foo.id == 2
                 ) AS scalar
@@ -8116,6 +8124,14 @@ FROM (
                 ) AS scalar
                 FROM `/Root/bar` as bar
                 WHERE bar.id == 0;
+            )",
+            R"(
+                PRAGMA YqlSelect = 'force';
+                SELECT (
+                    SELECT foo.id FROM `/Root/foo` as foo WHERE foo.id < 2
+                ) AS scalar
+                FROM `/Root/bar` as bar
+                WHERE bar.id < 0;
             )",
             R"(
                 PRAGMA YqlSelect = 'force';
@@ -8167,7 +8183,9 @@ FROM (
             R"([[[3]]])",
             R"([[[2]]])",
             R"([[[2]]])",
+            R"([[[2]]])",
             R"([[#]])",
+            R"([])",
             R"([[3]])",
             R"([[0]])",
             R"([[0]])",
