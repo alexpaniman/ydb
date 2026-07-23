@@ -8049,6 +8049,7 @@ FROM (
             CREATE TABLE `/Root/bar` (
                 id	Int64	NOT NULL,
                 lastname	String,
+                flag Bool NOT NULL,
                 primary key(id)
             ) with (Store = Column);
         )").GetValueSync();
@@ -8074,6 +8075,7 @@ FROM (
                 .BeginStruct()
                 .AddMember("id").Int64(i)
                 .AddMember("lastname").String(std::to_string(i) + "_name")
+                .AddMember("flag").Bool(i != 0)
                 .EndStruct();
         }
         rowsTableBar.EndList();
@@ -8105,11 +8107,18 @@ FROM (
                 PRAGMA YqlSelect = 'force';
                 SELECT bar.id FROM `/Root/bar` as bar where bar.id == 0 AND NOT EXISTS (SELECT foo.id FROM `/Root/foo` as foo WHERE foo.id == 6);
             )",
+            R"(
+                PRAGMA YqlSelect = 'force';
+                SELECT bar.id FROM `/Root/bar` as bar
+                WHERE NOT bar.flag AND EXISTS (SELECT foo.id FROM `/Root/foo` as foo)
+                ORDER BY bar.id;
+            )",
         };
 
         // TODO: The order of result is not defined, we need order by to add more interesting tests.
         std::vector<std::string> results = {
             R"([[3]])",
+            R"([[0]])",
             R"([[0]])",
             R"([[0]])",
             R"([[0]])",
