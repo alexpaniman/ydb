@@ -9,6 +9,7 @@
 #include <ydb/core/kqp/query_compiler/kqp_mkql_compiler.h>
 #include <ydb/core/kqp/query_compiler/kqp_olap_compiler.h>
 #include <ydb/core/kqp/query_data/kqp_predictor.h>
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include <ydb/core/kqp/query_data/kqp_request_predictor.h>
 #include <ydb/core/scheme/scheme_tabledefs.h>
 #include <ydb/core/ydb_convert/ydb_convert.h>
@@ -964,6 +965,23 @@ public:
     }
 
 private:
+    TCompileTrace* GetCompileTrace() const {
+        return OptimizeCtx.QueryCtx ? OptimizeCtx.QueryCtx->CompileTrace.Get() : nullptr;
+    }
+
+    static void AddOlapProgramInputAttributes(NWilson::TSpan& span, const TString& table, const TExprNode::TPtr& input) {
+        if (!span) {
+            return;
+        }
+        i64 nodes = 0;
+        VisitExpr(input, [&](const TExprNode::TPtr&) {
+            ++nodes;
+            return true;
+        });
+        span.Attribute("db.collection.name", table);
+        span.Attribute("ydb.expr.nodes", nodes);
+    }
+
     NKikimr::NMiniKQL::TType* CompileType(TProgramBuilder& pgmBuilder, const TTypeAnnotationNode& inputType) {
         TStringStream errorStream;
         auto type = NCommon::BuildType(inputType, pgmBuilder, errorStream);
@@ -1049,7 +1067,12 @@ private:
                 FillColumns(readTableRanges.Columns(), *tableMeta, tableOp, true);
                 FillReadRanges(readTableRanges, *tableMeta, *tableOp.MutableReadOlapRange());
                 auto miniKqlResultType = GetMKqlResultType(readTableRanges.Process().Ref().GetTypeAnn());
-                FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx);
+                {
+                    TCompileTraceScope traceScope(GetCompileTrace(), TCompileTraceLevels::Step, "Compile OLAP program", "KqpQueryCompiler");
+                    AddOlapProgramInputAttributes(traceScope.Span(), tableMeta->Name, readTableRanges.Ptr());
+                    FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx);
+                    traceScope.Span().Attribute("ydb.olap.program_bytes", static_cast<i64>(tableOp.GetReadOlapRange().GetOlapProgram().size()));
+                }
                 FillResultType(miniKqlResultType, *tableOp.MutableReadOlapRange());
                 if (auto stats = OptimizeCtx.KqpStats.GetStats(exprNode.get())) {
                     tableOp.SetEstimatedRows(stats->Nrows);
@@ -1067,7 +1090,12 @@ private:
                 FillColumns(readTableRanges.Columns(), *tableMeta, tableOp, true);
                 FillReadRanges(readTableRanges, *tableMeta, *tableOp.MutableReadOlapRange());
                 auto miniKqlResultType = GetMKqlResultType(readTableRanges.Process().Ref().GetTypeAnn());
-                FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx);
+                {
+                    TCompileTraceScope traceScope(GetCompileTrace(), TCompileTraceLevels::Step, "Compile OLAP program", "KqpQueryCompiler");
+                    AddOlapProgramInputAttributes(traceScope.Span(), tableMeta->Name, readTableRanges.Ptr());
+                    FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx);
+                    traceScope.Span().Attribute("ydb.olap.program_bytes", static_cast<i64>(tableOp.GetReadOlapRange().GetOlapProgram().size()));
+                }
                 FillResultType(miniKqlResultType, *tableOp.MutableReadOlapRange());
                 tableOp.MutableReadOlapRange()->SetReadType(NKqpProto::TKqpPhyOpReadOlapRanges::BLOCKS);
                 if (auto stats = OptimizeCtx.KqpStats.GetStats(exprNode.get())) {

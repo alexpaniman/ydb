@@ -75,17 +75,28 @@ TRuleBasedStage::TRuleBasedStage(TString&& stageName, TVector<std::unique_ptr<IR
 }
 
 void EnsureRequiredProps(TOpRoot& root, ui32 props, ui32& computedProps, TRBOContext& ctx, const TString& stageName) {
+    auto* trace = ctx.GetCompileTrace();
+    auto traceScope = [&](const char* name) {
+        return TCompileTraceScope(trace, TCompileTraceLevels::Detail, name, "NewRBO");
+    };
+
     if (HasProperty(props, ERuleProperties::RequireOutputIUs) && !HasProperty(computedProps, ERuleProperties::RequireOutputIUs)) {
+        auto scope = traceScope("Compute output IUs");
+        scope.Span().Attribute("ydb.rbo.property", TString("output IUs"));
         root.RecomputeOutputIUsSubtree();
         computedProps |= ERuleProperties::RequireOutputIUs;
     }
 
     if (HasProperty(props, ERuleProperties::RequireParents) && !HasProperty(computedProps, ERuleProperties::RequireParents)) {
+        auto scope = traceScope("Compute parents");
+        scope.Span().Attribute("ydb.rbo.property", TString("parents"));
         root.ComputeParents();
         computedProps |= ERuleProperties::RequireParents;
     }
 
     if (HasProperty(props, ERuleProperties::RequireTypes) && !HasProperty(computedProps, ERuleProperties::RequireTypes)) {
+        auto scope = traceScope("Compute types");
+        scope.Span().Attribute("ydb.rbo.property", TString("types"));
         if (root.ComputeTypes(ctx) != IGraphTransformer::TStatus::Ok) {
             Y_ENSURE(false, TStringBuilder() << "RBO type annotation failed in stage " << stageName);
         }
@@ -93,16 +104,22 @@ void EnsureRequiredProps(TOpRoot& root, ui32 props, ui32& computedProps, TRBOCon
     }
 
     if (HasProperty(props, ERuleProperties::RequireMetadata) && !HasProperty(computedProps, ERuleProperties::RequireMetadata)) {
+        auto scope = traceScope("Compute metadata");
+        scope.Span().Attribute("ydb.rbo.property", TString("metadata"));
         root.ComputePlanMetadata(ctx);
         computedProps |= ERuleProperties::RequireMetadata;
     }
 
     if (HasProperty(props, ERuleProperties::RequireStatistics) && !HasProperty(computedProps, ERuleProperties::RequireStatistics)) {
+        auto scope = traceScope("Compute statistics");
+        scope.Span().Attribute("ydb.rbo.property", TString("statistics"));
         root.ComputePlanStatistics(ctx);
         computedProps |= ERuleProperties::RequireStatistics;
     }
 
     if (HasProperty(props, ERuleProperties::RequireLiveness) && !HasProperty(computedProps, ERuleProperties::RequireLiveness)) {
+        auto scope = traceScope("Compute liveness");
+        scope.Span().Attribute("ydb.rbo.property", TString("liveness"));
         ComputePlanLiveness(root);
         computedProps |= ERuleProperties::RequireLiveness;
     }
@@ -128,6 +145,11 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
     const ui32 maxNumOfMatches = 1000;
     bool needToLog = NYql::NLog::YqlLogger().NeedToLog(NYql::NLog::EComponent::CoreDq, NYql::NLog::ELevel::TRACE);
     ui32 computedProps = 0;
+    auto* trace = ctx.GetCompileTrace();
+    const bool traceRules = trace && trace->IsEnabled(TCompileTraceLevels::Step);
+    const bool traceRuleSpans = traceRules && trace->IsEnabled(TCompileTraceLevels::Detail);
+    auto& traceStats = ctx.RuleStageTraceStats;
+    ctx.TraceRules = traceRuleSpans;
 
     while (fired && numMatches < maxNumOfMatches) {
         fired = false;
@@ -152,9 +174,31 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
                 auto& op = parent ? parent->MutableChild(childIndex)
                     : subplanIU ? root.PlanProps.Subplans.MutablePlan(*subplanIU)
                     : root.MutableChild(0);
+                const TInstant ruleStart = traceRules ? trace->Now() : TInstant::Zero();
+                const ui64 ruleCpuStart = traceRuleSpans ? trace->GetCpuTime() : 0;
+                ctx.RuleTraceAttributes.clear();
                 const bool ruleApplied = rule->MatchAndApply(op, ctx, root.PlanProps);
                 Y_ENSURE(op, "Rule left a null plan edge");
                 traceAttempt.CloseRule();
+                if (traceRules) {
+                    const ui64 ruleCpuEnd = traceRuleSpans ? trace->GetCpuTime() : 0;
+                    const TInstant ruleEnd = trace->Now();
+                    ++traceStats.Attempts;
+                    if (!ruleApplied) {
+                        traceStats.UnappliedTime += ruleEnd - ruleStart;
+                    } else {
+                        ++traceStats.Applied;
+                        if (traceRuleSpans) {
+                            auto span = trace->StartFinishedSpan(TCompileTraceLevels::Detail, "Rule: " + rule->RuleName, ruleStart, ruleEnd);
+                            span.Attribute("ydb.rbo.rule", rule->RuleName);
+                            span.Attribute("ydb.cpu_us", static_cast<i64>(ruleCpuEnd - ruleCpuStart));
+                            for (const auto& [name, value] : ctx.RuleTraceAttributes) {
+                                span.Attribute(name, value);
+                            }
+                            span.End();
+                        }
+                    }
+                }
 
                 if (!ruleApplied) {
                     traceAttempt.SubmitIfHasInfo(root, StageName);
@@ -196,6 +240,7 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
 TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoot>>& roots, TRBOContext& rboCtx) {
     bool needToLog = NYql::NLog::YqlLogger().NeedToLog(NYql::NLog::EComponent::CoreDq, NYql::NLog::ELevel::TRACE);
     auto& ctx = rboCtx.ExprCtx;
+    auto* trace = rboCtx.GetCompileTrace();
     int stageCounter = 0;
 
     for (auto & rootPtr : roots) {
@@ -207,23 +252,36 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
             YQL_CLOG(TRACE, CoreDq) << "Original plan:\n" << root.PlanToString(ctx);
         }
 
-        for (const auto& stage : Stages) {
-            if (rboCtx.NeedToLog()) {
-                rboCtx.TraceLog.stage(std::string(stage->StageName.c_str()));
-            }
-            YQL_CLOG(TRACE, CoreDq) << "Running stage: " << stage->StageName;
-            if (stage->NeedsInitialProps()) {
-                ComputeRequiredProps(root, stage->Props, rboCtx, stage->StageName);
-            }
-            if (needToLog) {
-                YQL_CLOG(TRACE, CoreDq) << "Before stage:\n" << root.PlanToString(ctx);
-            }
-            stage->RunStage(root, rboCtx);
-            if (needToLog) {
-                YQL_CLOG(TRACE, CoreDq) << "After stage:\n" << root.PlanToString(ctx);
+        {
+            TCompileTraceScope rulesTraceScope(trace, TCompileTraceLevels::Phase, "Rule-based optimization", "NewRBO");
+            for (const auto& stage : Stages) {
+                TCompileTraceScope traceScope(trace, TCompileTraceLevels::Step, "RBO stage: " + stage->StageName, "NewRBO");
+                traceScope.Span().Attribute("ydb.rbo.stage", stage->StageName);
+                rboCtx.RuleStageTraceStats = {};
+                if (rboCtx.NeedToLog()) {
+                    rboCtx.TraceLog.stage(std::string(stage->StageName.c_str()));
+                }
+                YQL_CLOG(TRACE, CoreDq) << "Running stage: " << stage->StageName;
+                if (stage->NeedsInitialProps()) {
+                    ComputeRequiredProps(root, stage->Props, rboCtx, stage->StageName);
+                }
+                if (needToLog) {
+                    YQL_CLOG(TRACE, CoreDq) << "Before stage:\n" << root.PlanToString(ctx);
+                }
+                stage->RunStage(root, rboCtx);
+                if (needToLog) {
+                    YQL_CLOG(TRACE, CoreDq) << "After stage:\n" << root.PlanToString(ctx);
+                }
+                if (const auto& stats = rboCtx.RuleStageTraceStats; stats.Attempts) {
+                    traceScope.Span()
+                        .Attribute("ydb.rbo.rule_attempts", static_cast<i64>(stats.Attempts))
+                        .Attribute("ydb.rbo.rules_applied", static_cast<i64>(stats.Applied))
+                        .Attribute("ydb.rbo.unapplied_rules_us", static_cast<i64>(stats.UnappliedTime.MicroSeconds()));
+                }
             }
         }
 
+        TCompileTraceScope finalizeTraceScope(trace, TCompileTraceLevels::Step, "Finalize RBO plan", "NewRBO");
         auto convertProps = ERuleProperties::RequireParents | ERuleProperties::RequireStatistics
             | ERuleProperties::RequireLiveness | ERuleProperties::RequireTypes;
         ComputeRequiredProps(root, convertProps, rboCtx, "Physical plan generaion");
@@ -241,9 +299,12 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
 
     YQL_CLOG(TRACE, CoreDq) << "New RBO finished, generating physical plan";
 
-    auto [execJson, explainJson] = BuildPlans(roots);
-    rboCtx.ExecutionJson = execJson;
-    rboCtx.ExplainJson = explainJson;
+    {
+        TCompileTraceScope traceScope(trace, TCompileTraceLevels::Step, "Build plan JSON", "NewRBO");
+        auto [execJson, explainJson] = BuildPlans(roots);
+        rboCtx.ExecutionJson = execJson;
+        rboCtx.ExplainJson = explainJson;
+    }
 
     return ConvertToPhysical(roots, rboCtx);
 }

@@ -1,5 +1,6 @@
 #include <ydb/library/yql/providers/ydb_external/common/provider_names.h>
 #include "kqp_host_impl.h"
+#include "kqp_compile_trace_transformer.h"
 #include "kqp_statement_rewrite.h"
 
 #include <ydb/core/base/appdata.h>
@@ -1451,6 +1452,8 @@ private:
                 .SetQueryParameters(query.ParameterTypes)
                 .SetApplicationName(ApplicationName)
                 .SetFromConfig(SessionCtx->Config());
+            TCompileTraceScope traceScope(SessionCtx->Query().CompileTrace.Get(), TCompileTraceLevels::Phase,
+                "Parse query", "KqpHost");
             NSQLTranslation::TTranslationSettings effectiveSettings;
             auto astRes = ParseQuery(
                 query.Text,
@@ -1489,6 +1492,7 @@ private:
                     effectiveSettings = std::move(samplingSettings);
                 }
             }
+            traceScope.SetSuccess(astRes.IsOk() && astRes.Root);
             SessionCtx->Query().TranslationSettings = std::move(effectiveSettings);
             queryAst = std::make_shared<NYql::TAstParseResult>(std::move(astRes));
         } else {
@@ -1646,6 +1650,7 @@ private:
         TExprContext& ctx)
     {
         SetupYqlTransformer(EKikimrQueryType::Dml);
+        SessionCtx->Query().CompileTrace = settings.CompileTrace;
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();
@@ -1683,6 +1688,7 @@ private:
     {
         IKikimrQueryExecutor::TExecuteSettings execSettings;
         SetupDataQueryAstTransformer(execSettings, EKikimrQueryType::Dml);
+        SessionCtx->Query().CompileTrace = settings.CompileTrace;
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();
@@ -1729,6 +1735,7 @@ private:
             SessionCtx->Query().ConcurrentResults = *settings.ConcurrentResults;
         }
         SessionCtx->Query().IsolateEffects = settings.UsePessimisticLocks;
+        SessionCtx->Query().CompileTrace = settings.CompileTrace;
         if (settings.RuntimeParameterSizeLimitSatisfied) {
             SessionCtx->Query().RuntimeParameterSizeLimitSatisfied = settings.RuntimeParameterSizeLimitSatisfied;
         }
@@ -1826,6 +1833,7 @@ private:
         EKikimrStatsMode statsMode = EKikimrStatsMode::None)
     {
         SetupYqlTransformer(EKikimrQueryType::Scan);
+        SessionCtx->Query().CompileTrace = prepareSettings.CompileTrace;
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().StatsMode = statsMode;
@@ -1849,6 +1857,7 @@ private:
     IAsyncQueryResultPtr PrepareScanQueryAstInternal(const TKqpQueryRef& queryAst, TExprContext& ctx, const TPrepareSettings& prepareSettings) {
         IKikimrQueryExecutor::TExecuteSettings settings;
         SetupDataQueryAstTransformer(settings, EKikimrQueryType::Scan);
+        SessionCtx->Query().CompileTrace = prepareSettings.CompileTrace;
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();
@@ -2349,23 +2358,40 @@ private:
                 false
             );
 
+        // Compilation spans of the pipeline phases.
+        const auto queryCtx = SessionCtx->QueryPtr();
+        const auto beginTrace = [&](const TString& name) {
+            return CreateCompileTraceBegin(queryCtx, TCompileTraceLevels::Phase, name, "KqpHost", &YqlTransformerNewRBO);
+        };
+        const auto endTrace = [&](const TString& name) {
+            return CreateCompileTraceEnd(queryCtx, name);
+        };
+
         YqlTransformerNewRBO = TTransformationPipeline(TypesCtx)
             .AddServiceTransformers()
             .Add(TLogExprTransformer::Sync("YqlTransformerNewRBO", NYql::NLog::EComponent::ProviderKqp,
                 NYql::NLog::ELevel::TRACE), "LogYqlTransformNewRBO")
+            .Add(beginTrace("IO annotation"), "TraceBeginIOAnnotation")
             .AddPreTypeAnnotation()
             .Add(TSecretValueExprTransformer::Sync(SessionCtx->QueryPtr()), "SecretValueExpr")
             .AddExpressionEvaluation(*FuncRegistry)
             .Add(new TFailExpressionEvaluation(queryType), "FailExpressionEvaluation")
             .AddIOAnnotation(false)
+            .Add(endTrace("IO annotation"), "TraceEndIOAnnotation")
+            .Add(beginTrace("Type annotation"), "TraceBeginTypeAnnotation")
             .AddTypeAnnotation()
             .Add(TCollectParametersTransformer::Sync(SessionCtx->QueryPtr()), "CollectParameters")
             .AddPostTypeAnnotation()
+            .Add(endTrace("Type annotation"), "TraceEndTypeAnnotation")
+            .Add(beginTrace("Provider optimization"), "TraceBeginProviderOptimization")
             //.AddOptimization(true, false, TIssuesIds::CORE_OPTIMIZATION)
             .Add(RBOOptimizationTransformer.Release(), "RBOOptimizationTransformer")
             .Add(GetDqIntegrationPeepholeTransformer(true, TypesCtx), "DqIntegrationPeephole")
+            .Add(endTrace("Provider optimization"), "TraceEndProviderOptimization")
             .Add(TLogExprTransformer::Sync("Optimized expr"), "LogExpr")
+            .Add(beginTrace("Prepare physical query"), "TraceBeginPreparePhysicalQuery")
             .AddRun(&NullProgressWriter)
+            .Add(endTrace("Prepare physical query"), "TraceEndPreparePhysicalQuery")
             .Build();
 
         DataQueryAstTransformer = TTransformationPipeline(TypesCtx)

@@ -26,6 +26,7 @@
 #include <ranges>
 #include <set>
 #include <util/folder/dirut.h>
+#include <util/generic/is_in.h>
 
 namespace NKikimr {
 using namespace Tests;
@@ -731,6 +732,169 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
             {"GrpcRequestProxy", "Explain query", "Compile query", "Execute plan"});
         AssertDescendant(snapshot, "Compile query", "GrpcRequestProxy");
         AssertDescendant(snapshot, "Execute plan", "Compile query");
+    }
+
+    Y_UNIT_TEST_TWIN(ParseFailureTrace, AstCache) {
+        NKikimrConfig::TAppConfig config;
+        config.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        config.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
+        config.MutableTableServiceConfig()->SetEnableAstCache(AstCache);
+        auto [runtime, server, sender] = CreateServer(1, config);
+        auto* uploader = RegisterUploader(runtime);
+        ExecSQL(runtime, sender, "SELECT FROM;", 15, Ydb::StatusIds::GENERIC_ERROR);
+        AssertStatus(*uploader, "Parse query", NTraceProto::Status::STATUS_CODE_ERROR);
+        AssertStatus(*uploader, "Compile query", NTraceProto::Status::STATUS_CODE_ERROR);
+        UNIT_ASSERT(FindAttribute(*FindSpan(*uploader, "Parse query"), "ydb.cpu_us"));
+    }
+
+    Y_UNIT_TEST_TWIN(TableApiCompilationTrace, ScanQuery) {
+        auto settings = ExternalTracingSettings();
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
+        NKqp::TKikimrRunner kikimr(settings);
+        auto& runtime = *kikimr.GetTestServer().GetRuntime();
+        RegisterUploader(runtime);
+        auto client = kikimr.GetTableClient();
+        auto session = client.CreateSession().GetValueSync().GetSession();
+        auto created = session.ExecuteSchemeQuery(R"(
+            CREATE TABLE `/Root/CompileTrace` (Id Uint64, PRIMARY KEY (Id));
+        )").GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+
+        const TString traceparent = "00-77777777777777777777777777777777-7777777777777777-01";
+        const TString sql = "SELECT Id FROM `/Root/CompileTrace` WHERE Id > 0;";
+        if constexpr (ScanQuery) {
+            auto iterator = client.StreamExecuteScanQuery(sql,
+                NYdb::NTable::TStreamExecScanQuerySettings().TraceParent(traceparent)).GetValueSync();
+            UNIT_ASSERT_C(iterator.IsSuccess(), iterator.GetIssues().ToString());
+            while (true) {
+                auto part = iterator.ReadNext().GetValueSync();
+                if (!part.IsSuccess()) {
+                    UNIT_ASSERT_C(part.EOS(), part.GetIssues().ToString());
+                    break;
+                }
+            }
+        } else {
+            auto result = session.ExplainDataQuery(sql,
+                NYdb::NTable::TExplainDataQuerySettings().TraceParent(traceparent)).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        }
+
+        const auto snapshot = WaitForExternalTrace(runtime, traceparent, {"Compile query"});
+        AssertDescendant(snapshot, "Parse query", "Compile query");
+        AssertDescendant(snapshot, "Build KQL query", "Compile query");
+        if constexpr (!ScanQuery) {
+            AssertDescendant(snapshot, "IO annotation", "Compile query");
+            AssertDescendant(snapshot, "Load metadata", "IO annotation");
+            AssertDescendant(snapshot, "Optimize (new RBO)", "Prepare physical query");
+        }
+    }
+
+    Y_UNIT_TEST_TWIN(NewRboCompilationTrace, ColumnStore) {
+        auto settings = ExternalTracingSettings();
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
+        settings.AppConfig.MutableTableServiceConfig()->SetAllowOlapDataQuery(true);
+        NKqp::TKikimrRunner kikimr(settings);
+        auto& runtime = *kikimr.GetTestServer().GetRuntime();
+        RegisterUploader(runtime);
+        auto client = kikimr.GetQueryClient();
+        const TString store = ColumnStore ? "WITH (STORE = COLUMN)" : "";
+        for (const TString table : {"Customers", "Orders"}) {
+            auto result = client.ExecuteQuery(TStringBuilder()
+                << "CREATE TABLE `/Root/" << table << "` (Id Int64 NOT NULL, Ref Int64, Value Int64, PRIMARY KEY (Id)) "
+                << store << ";", NYdb::NQuery::TTxControl::NoTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        }
+
+        const TString traceparent = "00-66666666666666666666666666666666-6666666666666666-01";
+        auto result = client.ExecuteQuery(R"(
+            SELECT c.Id, SUM(o.Value) AS Total
+            FROM `/Root/Customers` AS c JOIN `/Root/Orders` AS o ON c.Id = o.Ref
+            WHERE o.Value > 10
+            GROUP BY c.Id;
+        )", NYdb::NQuery::TTxControl::NoTx(), NYdb::NQuery::TExecuteQuerySettings()
+            .ExecMode(NYdb::NQuery::EExecMode::Explain).TraceParent(traceparent)).GetValueSync();
+        UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+
+        auto snapshot = WaitForExternalTrace(runtime, traceparent, {"Compile query", "Build explain plan"});
+        for (const TStringBuf phase : {"Parse query", "IO annotation", "Type annotation", "Provider optimization",
+                "Prepare physical query"}) {
+            AssertDescendant(snapshot, phase, "Compile query");
+        }
+        for (const TStringBuf phase : {"Build KQL query", "Rewrite select", "Optimize (new RBO)",
+                "Compile physical query", "Build explain plan"}) {
+            AssertDescendant(snapshot, phase, "Prepare physical query");
+        }
+        for (const TStringBuf step : {"Convert to RBO plan", "Rule-based optimization",
+                "Finalize RBO plan", "Build plan JSON", "Convert to physical plan"}) {
+            AssertDescendant(snapshot, step, "Optimize (new RBO)");
+        }
+        for (const auto& span : snapshot.Spans) {
+            if (span.name().StartsWith("RBO stage: ")) {
+                const auto* parent = FindParent(snapshot, span);
+                UNIT_ASSERT_C(parent && parent->name() == "Rule-based optimization", span.DebugString());
+            }
+        }
+        for (const TStringBuf step : {"RBO stage: Early pruning", "RBO stage: Invoke CBO"}) {
+            AssertDescendant(snapshot, step, "Rule-based optimization");
+        }
+        const auto* rules = FindSpan(snapshot, "Rule-based optimization");
+        const auto* physical = FindSpan(snapshot, "Convert to physical plan");
+        UNIT_ASSERT_C(rules && physical && rules->parent_span_id() == physical->parent_span_id(), snapshot.PrintTraces());
+        for (const TStringBuf step : {"Convert operators", "Build stage graph", "Prepare physical stages",
+                "Build physical query"}) {
+            AssertDescendant(snapshot, step, "Convert to physical plan");
+        }
+        AssertDescendant(snapshot, "Compute types", "Optimize (new RBO)");
+        if (ColumnStore) {
+            AssertDescendant(snapshot, "Compile OLAP program", "Compile physical query");
+        }
+
+        const auto* rule = FindSpanByPrefix(snapshot, "Rule: ");
+        UNIT_ASSERT_C(rule, snapshot.PrintTraces());
+        const auto* stage = FindParent(snapshot, *rule);
+        UNIT_ASSERT_C(stage && stage->name().StartsWith("RBO stage: "), snapshot.PrintTraces());
+        UNIT_ASSERT_C(FindAttribute(*stage, "ydb.rbo.rules_applied"), stage->DebugString());
+        UNIT_ASSERT_C(FindAttribute(*stage, "ydb.rbo.stage"), stage->DebugString());
+        UNIT_ASSERT_C(FindAttribute(*rule, "ydb.rbo.rule"), rule->DebugString());
+        UNIT_ASSERT_C(FindAttribute(*rule, "ydb.cpu_us"), rule->DebugString());
+        // Rules are timed on the clock of their stage, so they nest within it.
+        UNIT_ASSERT_GE_C(rule->start_time_unix_nano(), stage->start_time_unix_nano(), rule->DebugString());
+        UNIT_ASSERT_LE_C(rule->end_time_unix_nano(), stage->end_time_unix_nano(), rule->DebugString());
+
+        // Metadata requests are children of the phase that issued them.
+        AssertDescendant(snapshot, "Load metadata", "IO annotation");
+
+        for (const TStringBuf name : {"IO annotation", "Type annotation", "Optimize (new RBO)",
+                "Rule-based optimization", "RBO stage: Early pruning"}) {
+            const auto* span = FindSpan(snapshot, name);
+            UNIT_ASSERT_C(span, snapshot.PrintTraces());
+            const auto* cpu = FindAttribute(*span, "ydb.cpu_us");
+            UNIT_ASSERT_C(cpu, span->DebugString());
+            UNIT_ASSERT_LE_C(cpu->value().int_value() * 1000,
+                static_cast<i64>(span->end_time_unix_nano() - span->start_time_unix_nano()) + 1'000'000, span->DebugString());
+        }
+        for (const TStringBuf name : {"IO annotation", "Optimize (new RBO)"}) {
+            const auto* span = FindSpan(snapshot, name);
+            UNIT_ASSERT_C(FindAttribute(*span, "ydb.compile.iteration"), span->DebugString());
+            UNIT_ASSERT_C(FindAttribute(*span, "ydb.expr.nodes"), span->DebugString());
+        }
+        UNIT_ASSERT_C(FindAttribute(*FindSpan(snapshot, "Compute types"), "ydb.rbo.property"), snapshot.PrintTraces());
+        const auto* peephole = FindSpan(snapshot, "Peephole stage");
+        UNIT_ASSERT_C(peephole, snapshot.PrintTraces());
+        UNIT_ASSERT_C(FindAttribute(*peephole, "ydb.expr.nodes_after"), peephole->DebugString());
+
+        size_t compilationSpans = 0;
+        for (const auto& span : snapshot.Spans) {
+            const auto* component = FindAttribute(span, "ydb.code.component");
+            if (component && IsIn({"KqpHost", "KqpRunner", "NewRBO", "KqpQueryCompiler"}, component->value().string_value())) {
+                ++compilationSpans;
+                UNIT_ASSERT_VALUES_UNEQUAL_C(static_cast<int>(span.status().code()),
+                    static_cast<int>(NTraceProto::Status::STATUS_CODE_ERROR), span.DebugString());
+            }
+        }
+        UNIT_ASSERT_GT(compilationSpans, 20);
     }
 
     Y_UNIT_TEST_TWIN(SnapshotManagerTracePropagation, Mvcc) {

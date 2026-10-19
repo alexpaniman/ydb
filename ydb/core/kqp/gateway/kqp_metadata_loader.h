@@ -6,6 +6,7 @@
 #include <ydb/core/kqp/federated_query/kqp_federated_query_helpers.h>
 #include <ydb/core/kqp/provider/yql_kikimr_gateway.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include <ydb/core/scheme/scheme_tabledefs.h>
 #include <ydb/core/tx/scheme_cache/scheme_cache.h>
 
@@ -24,7 +25,8 @@ public:
         bool needCollectSchemeData = false,
         TKqpTempTablesState::TConstPtr tempTablesState = nullptr,
         const std::optional<TKqpFederatedQuerySetup>& federatedQuerySetup = std::nullopt,
-        NWilson::TTraceId traceId = {})
+        NWilson::TTraceId traceId = {},
+        TCompileTrace::TPtr compileTrace = nullptr)
         : Cluster(cluster)
         , NeedCollectSchemeData(needCollectSchemeData)
         , ActorSystem(actorSystem)
@@ -32,6 +34,7 @@ public:
         , TempTablesState(std::move(tempTablesState))
         , FederatedQuerySetup(federatedQuerySetup)
         , TraceId(std::move(traceId))
+        , CompileTrace(std::move(compileTrace))
     {}
 
     NThreading::TFuture<NYql::IKikimrGateway::TTableMetadataResult> LoadTableMetadata(
@@ -80,6 +83,12 @@ private:
     TKqpTempTablesState::TConstPtr TempTablesState;
     std::optional<TKqpFederatedQuerySetup> FederatedQuerySetup;
     NWilson::TTraceId TraceId;
+    // Parents the request spans under the compilation span running at the time of the request.
+    TCompileTrace::TPtr CompileTrace;
+
+    NWilson::TTraceId GetTraceParent() const {
+        return CompileTrace ? CompileTrace->GetCurrentParent() : NWilson::TTraceId(TraceId);
+    }
 };
 
 } // namespace NKikimr::NKqp

@@ -86,6 +86,7 @@ TIntrusivePtr<IOperator> TOptimizeCBOTreeRule::SimpleMatchAndApply(const TIntrus
 
     TVector<std::shared_ptr<TRelOptimizerNode>> rels;
     auto joinTree = ConvertJoinTree(cboTree, ctx.TypeCtx, props.ColumnLineage, rels, leaves);
+    ctx.AddRuleTraceAttribute("ydb.cbo.relations", static_cast<i64>(rels.size()));
 
     bool allRowStorage = std::any_of(
         rels.begin(),
@@ -105,6 +106,7 @@ TIntrusivePtr<IOperator> TOptimizeCBOTreeRule::SimpleMatchAndApply(const TIntrus
     bool enableShuffleElimination = ctx.KqpCtx.Config->OptShuffleElimination.Get().GetOrElse(ctx.KqpCtx.Config->GetDefaultEnableShuffleElimination());
 
     const bool canBuildShuffleCtx = rels.size() <= MaxShuffleEliminationRelationCount;
+    ctx.AddRuleTraceAttribute("ydb.cbo.shuffle_elimination", enableShuffleElimination && canBuildShuffleCtx);
     std::optional<TShuffleEliminationContext> shuffleCtx;
     if (enableShuffleElimination && canBuildShuffleCtx) {
         shuffleCtx.emplace(BuildShuffleEliminationContext(joinTree, rels, leaves));

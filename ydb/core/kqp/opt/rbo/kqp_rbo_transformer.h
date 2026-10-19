@@ -84,6 +84,7 @@ private:
     bool IsSuitableToCollectStatistics(IOperator* op) const;
     void ApplyColumnStatistics();
     void InitializeRBOOptimizationStages();
+    TCompileTrace* GetCompileTrace() const;
 
     NYql::TTypeAnnotationContext& TypeCtx;
     NOpt::TKqpOptimizeContext& KqpCtx;
@@ -101,6 +102,7 @@ private:
     NActors::TActorSystem* ActorSystem;
     std::shared_ptr<TColumnStatisticsSharedState> SharedState;
     NThreading::TFuture<void> ColumnStatisticsReadiness;
+    NWilson::TSpan ColumnStatisticsSpan;
     THashMap<TString, THashSet<TString>> CMColumnsByTableName;
     THashMap<TString, THashSet<TString>> HistColumnsByTableName;
     THashMap<TString, THashMap<TString, TVector<TString>>> EqHeightHistTuplesByTableName;
