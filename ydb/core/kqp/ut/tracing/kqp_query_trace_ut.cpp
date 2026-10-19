@@ -26,6 +26,7 @@
 #include <ranges>
 #include <set>
 #include <util/folder/dirut.h>
+#include <util/generic/is_in.h>
 
 namespace NKikimr {
 using namespace Tests;
@@ -731,6 +732,73 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
             {"GrpcRequestProxy", "Explain query", "Compile query", "Execute plan"});
         AssertDescendant(snapshot, "Compile query", "GrpcRequestProxy");
         AssertDescendant(snapshot, "Execute plan", "Compile query");
+    }
+
+    Y_UNIT_TEST_TWIN(NewRboCompilationTrace, ColumnStore) {
+        auto settings = ExternalTracingSettings();
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
+        settings.AppConfig.MutableTableServiceConfig()->SetAllowOlapDataQuery(true);
+        NKqp::TKikimrRunner kikimr(settings);
+        auto& runtime = *kikimr.GetTestServer().GetRuntime();
+        RegisterUploader(runtime);
+        auto client = kikimr.GetQueryClient();
+        const TString store = ColumnStore ? "WITH (STORE = COLUMN)" : "";
+        for (const TString table : {"Customers", "Orders"}) {
+            auto result = client.ExecuteQuery(TStringBuilder()
+                << "CREATE TABLE `/Root/" << table << "` (Id Int64 NOT NULL, Ref Int64, Value Int64, PRIMARY KEY (Id)) "
+                << store << ";", NYdb::NQuery::TTxControl::NoTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        }
+
+        const TString traceparent = "00-66666666666666666666666666666666-6666666666666666-01";
+        auto result = client.ExecuteQuery(R"(
+            SELECT c.Id, SUM(o.Value) AS Total
+            FROM `/Root/Customers` AS c JOIN `/Root/Orders` AS o ON c.Id = o.Ref
+            WHERE o.Value > 10
+            GROUP BY c.Id;
+        )", NYdb::NQuery::TTxControl::NoTx(), NYdb::NQuery::TExecuteQuerySettings()
+            .ExecMode(NYdb::NQuery::EExecMode::Explain).TraceParent(traceparent)).GetValueSync();
+        UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+
+        auto snapshot = WaitForExternalTrace(runtime, traceparent, {"Compile query", "Build explain plan"});
+        for (const TStringBuf phase : {"Parse query", "IO annotation", "Type annotation", "Provider optimization",
+                "Prepare physical query"}) {
+            AssertDescendant(snapshot, phase, "Compile query");
+        }
+        for (const TStringBuf phase : {"Build KQL query", "Rewrite select", "Optimize (new RBO)",
+                "Compile physical query", "Build explain plan"}) {
+            AssertDescendant(snapshot, phase, "Prepare physical query");
+        }
+        for (const TStringBuf step : {"Convert to RBO plan", "RBO stage: Early pruning", "RBO stage: Invoke CBO",
+                "Finalize RBO plan", "Build plan JSON", "Convert to physical plan"}) {
+            AssertDescendant(snapshot, step, "Optimize (new RBO)");
+        }
+        for (const TStringBuf step : {"Convert operators", "Build stage graph", "Prepare physical stages",
+                "Build physical query"}) {
+            AssertDescendant(snapshot, step, "Convert to physical plan");
+        }
+        AssertDescendant(snapshot, "Compute types", "Optimize (new RBO)");
+        if (ColumnStore) {
+            AssertDescendant(snapshot, "Compile OLAP program", "Compile physical query");
+        }
+
+        const auto* rule = FindSpanByPrefix(snapshot, "Rule: ");
+        UNIT_ASSERT_C(rule, snapshot.PrintTraces());
+        const auto* stage = FindParent(snapshot, *rule);
+        UNIT_ASSERT_C(stage && stage->name().StartsWith("RBO stage: "), snapshot.PrintTraces());
+        UNIT_ASSERT_C(FindAttribute(*stage, "ydb.rbo.rules_applied"), stage->DebugString());
+
+        size_t compilationSpans = 0;
+        for (const auto& span : snapshot.Spans) {
+            const auto* component = FindAttribute(span, "ydb.code.component");
+            if (component && IsIn({"KqpHost", "KqpRunner", "NewRBO", "KqpQueryCompiler"}, component->value().string_value())) {
+                ++compilationSpans;
+                UNIT_ASSERT_VALUES_UNEQUAL_C(static_cast<int>(span.status().code()),
+                    static_cast<int>(NTraceProto::Status::STATUS_CODE_ERROR), span.DebugString());
+            }
+        }
+        UNIT_ASSERT_GT(compilationSpans, 20);
     }
 
     Y_UNIT_TEST_TWIN(SnapshotManagerTracePropagation, Mvcc) {

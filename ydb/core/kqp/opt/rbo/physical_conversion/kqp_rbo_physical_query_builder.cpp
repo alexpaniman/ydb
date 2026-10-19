@@ -17,6 +17,7 @@
 
 #include <cctype>
 #include <optional>
+#include <type_traits>
 #include <sstream>
 
 namespace NKikimr::NKqp {
@@ -130,22 +131,32 @@ TPhysicalQueryBuilder::TPhysicalQueryBuilder(const TVector<TIntrusivePtr<TOpRoot
 TExprNode::TPtr TPhysicalQueryBuilder::BuildPhysicalQuery() {
     TVector<TVector<TExprNode::TPtr>> allPhyStages;
 
+    auto* trace = RBOCtx.GetCompileTrace();
+    const auto traced = [&](const char* name, auto&& func) {
+        TCompileTraceScope traceScope(trace, TCompileTraceLevels::Step, name, "NewRBO");
+        auto result = func();
+        if constexpr (std::is_same_v<decltype(result), TVector<TExprNode::TPtr>>) {
+            traceScope.Span().Attribute("ydb.rbo.physical_stages", static_cast<i64>(result.size()));
+        }
+        return result;
+    };
+
     for (size_t i=0; i<Roots.size(); i++) {
-        auto phyStages = BuildPhysicalStageGraph(i);
+        auto phyStages = traced("Build stage graph", [&] { return BuildPhysicalStageGraph(i); });
         SubmitPhysicalStagesTrace(RBOCtx, "After physical stage graph build", phyStages);
         const bool fullPeephole = RBOCtx.KqpCtx.Config->GetEnableNewRBOPhysicalStagePeephole();
-        phyStages = PreparePhysicalStages(std::move(phyStages), fullPeephole);
+        phyStages = traced("Prepare physical stages", [&] { return PreparePhysicalStages(std::move(phyStages), fullPeephole); });
         SubmitPhysicalStagesTrace(RBOCtx, "After physical stage preparation", phyStages);
         if (!fullPeephole) {
-            phyStages = LowerPhysicalStageCompatibility(std::move(phyStages));
+            phyStages = traced("Lower stage compatibility", [&] { return LowerPhysicalStageCompatibility(std::move(phyStages)); });
             SubmitPhysicalStagesTrace(RBOCtx, "After compatibility lowering", phyStages);
         } else {
-            phyStages = PeepHoleOptimizePhysicalStages(std::move(phyStages));
+            phyStages = traced("Peephole physical stages", [&] { return PeepHoleOptimizePhysicalStages(std::move(phyStages)); });
             SubmitPhysicalStagesTrace(RBOCtx, "After physical peephole", phyStages);
         }
         allPhyStages.push_back(std::move(phyStages));
     }
-    auto physicalQuery = BuildPhysicalQuery(std::move(allPhyStages));
+    auto physicalQuery = traced("Build physical query", [&] { return BuildPhysicalQuery(std::move(allPhyStages)); });
     SubmitPhysicalExprTrace(RBOCtx, "Final physical query", physicalQuery);
     return physicalQuery;
 }
@@ -937,7 +948,11 @@ TVector<TExprNode::TPtr> TPhysicalQueryBuilder::PeepHoleOptimizePhysicalStages(T
             argsType.push_back(argTypeAnn);
         }
 
-        newProgram = PeepHoleOptimize(newProgram, argsType);
+        {
+            TCompileTraceScope traceScope(RBOCtx.GetCompileTrace(), TCompileTraceLevels::Detail, "Peephole stage", "NewRBO");
+            traceScope.Span().Attribute("ydb.rbo.stage_index", static_cast<i64>(&stage - physicalStages.data()));
+            newProgram = PeepHoleOptimize(newProgram, argsType);
+        }
         Y_ENSURE(newProgram);
         // Collect program after peephole.
         programsMap[program.Raw()] = newProgram;

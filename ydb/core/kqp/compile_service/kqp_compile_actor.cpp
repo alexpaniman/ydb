@@ -1,6 +1,7 @@
 #include "kqp_compile_service.h"
 #include "kqp_warmup_compile_actor.h"
 
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include <ydb/core/kqp/tracing/kqp_query_rendering.h>
 #include <ydb/core/actorlib_impl/long_timer.h>
 #include <ydb/core/base/appdata.h>
@@ -206,7 +207,10 @@ private:
             .SetQueryParameters(QueryId.QueryParameterTypes)
             .SetFromConfig(*Config);
 
-        return ParseStatements(QueryId.Text, QueryId.Settings.Syntax, QueryId.IsSql(), settingsBuilder, PerStatementResult);
+        auto span = CompileActorSpan.CreateChild(TCompileTraceLevels::Phase, "Parse query");
+        auto statements = ParseStatements(QueryId.Text, QueryId.Settings.Syntax, QueryId.IsSql(), settingsBuilder, PerStatementResult);
+        span.EndOk();
+        return statements;
     }
 
     void ReplySplitResult(const TActorContext &ctx, IKqpHost::TSplitResult&& result) {
@@ -224,6 +228,7 @@ private:
 
         Counters->ReportCompileFinish(DbCounters);
 
+        FinishCompileTrace(GetYdbStatus(result));
         EndQueryTraceSpan(CompileActorSpan, GetYdbStatus(result));
 
         PassAway();
@@ -366,6 +371,11 @@ private:
     }
 
     IKqpHost::TPrepareSettings PrepareCompilationSettings(const TActorContext &ctx) {
+        // A restarted compilation gets its own trace.
+        FinishCompileTrace(Ydb::StatusIds::ABORTED);
+        if (CompileActorSpan) {
+            CompileTrace = MakeIntrusive<TCompileTrace>(CompileActorSpan.GetTraceId(), ctx.ActorSystem());
+        }
         TKqpRequestCounters::TPtr counters = new TKqpRequestCounters;
         counters->Counters = Counters;
         counters->DbCounters = DbCounters;
@@ -397,6 +407,7 @@ private:
             prepareSettings.YqlSelect = NSQLTranslation::EYqlSelect::Force;
         }
         prepareSettings.UsePessimisticLocks = UsePessimisticLocks;
+        prepareSettings.CompileTrace = CompileTrace;
 
         switch (QueryId.Settings.Syntax) {
             case Ydb::Query::Syntax::SYNTAX_YQL_V1:
@@ -409,6 +420,13 @@ private:
         }
 
         return prepareSettings;
+    }
+
+    void FinishCompileTrace(Ydb::StatusIds::StatusCode status) {
+        if (CompileTrace) {
+            CompileTrace->Finish(status == Ydb::StatusIds::SUCCESS);
+            CompileTrace.Reset();
+        }
     }
 
     void AddMessageToReplayLog(const TString& queryPlan) {
@@ -495,6 +513,8 @@ private:
 
         CompileActorSpan.Attribute("ydb.actor.type", TString("TKqpCompileActor"));
         CompileActorSpan.Attribute("ydb.cpu_us", static_cast<i64>(CompileCpuTime.MicroSeconds()));
+        CompileActorSpan.Attribute("ydb.compile.new_rbo", EnableNewRBO);
+        FinishCompileTrace(KqpCompileResult->Status);
         EndQueryTraceSpan(CompileActorSpan, KqpCompileResult->Status);
 
         PassAway();
@@ -567,6 +587,7 @@ private:
 
         Counters->ReportCompileFinish(DbCounters);
 
+        FinishCompileTrace(Ydb::StatusIds::SUCCESS);
         EndQueryTraceSpan(CompileActorSpan, Ydb::StatusIds::SUCCESS);
 
         PassAway();
@@ -613,6 +634,7 @@ private:
                                                        << kqpResult.Issues().ToOneLineString());
             FallbackToYqlOptimizerIssue->SetCode(NYql::DEFAULT_ERROR, NYql::TSeverityIds::S_INFO);
             TString logMessage = "Compilation with new RBO failed, retrying with YQL optimizer";
+            CompileActorSpan.Event("Fallback to YQL optimizer");
             RebuildConfigAndStartCompilation(ctx, std::move(logMessage), status, kqpResult.Issues());
             return;
         } else if (IsSuitableToReportSuccessOnNewRBO(status)) {
@@ -785,6 +807,7 @@ private:
 
     TIntrusivePtr<TUserRequestContext> UserRequestContext;
     NWilson::TSpan CompileActorSpan;
+    TCompileTrace::TPtr CompileTrace;
 
     TKqpTempTablesState::TConstPtr TempTablesState;
     bool CollectFullDiagnostics;

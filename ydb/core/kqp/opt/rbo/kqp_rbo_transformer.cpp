@@ -151,6 +151,8 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr in
     settings.VisitTuples = true;
 
     // At first step convert KqpOps to RBO Ops.
+    std::optional<TCompileTraceScope> traceScope(std::in_place, GetCompileTrace(), TCompileTraceLevels::Step,
+        "Convert to RBO plan", "NewRBO");
     auto status = OptimizeExpr(
         output, output,
         [this](const TExprNode::TPtr& node, TExprContext& ctx) -> TExprNode::TPtr {
@@ -200,6 +202,7 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr in
         },
         ctx, settings);
 
+    traceScope.reset();
     if (status != TStatus::Ok) {
         return status;
     }
@@ -402,6 +405,9 @@ void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(TExprContext& ctx) {
 }
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::RequestColumnStatistics(TExprContext& ctx) {
+    if (auto* trace = GetCompileTrace()) {
+        ColumnStatisticsSpan = trace->StartSpan(TCompileTraceLevels::Phase, "Load column statistics", "NewRBO");
+    }
     CollectTablesAndColumnsNames(ctx);
 
     TVector<NThreading::TFuture<TColumnStatisticsResponse>> futures;
@@ -412,7 +418,9 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::RequestColumnStatistics(TExprC
     AddStatRequest(ActorSystem, futures, Tables, Cluster, Database, TypeCtx, NStat::EStatType::EQ_HEIGHT_HISTOGRAM, EqHeightHistTuplesByTableName,
                    [](const NYql::TMultiColumnStatistics& stats) { return !!stats.EqHeightHistogram; });
 
+    ColumnStatisticsSpan.Attribute("ydb.statistics.requests", static_cast<i64>(futures.size()));
     if (futures.empty()) {
+        ColumnStatisticsSpan.EndOk();
         return TStatus::Ok;
     }
 
@@ -548,6 +556,11 @@ void TKqpNewRBOTransformer::ApplyColumnStatistics() {
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::DoApplyAsyncChanges(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) {
     ApplyColumnStatistics();
+    if (!SharedState->Response->Issues().Empty()) {
+        ColumnStatisticsSpan.EndError(SharedState->Response->Issues().ToOneLineString());
+    } else {
+        ColumnStatisticsSpan.EndOk();
+    }
     return ContinueOptimizations(input, output, ctx);
 }
 
@@ -570,6 +583,11 @@ void TKqpNewRBOTransformer::AddPlans(std::optional<NJson::TJsonValue> execPlan, 
 }
 
 void TKqpNewRBOTransformer::Rewind() {
+    ColumnStatisticsSpan.EndError("Transformer rewound");
+}
+
+TCompileTrace* TKqpNewRBOTransformer::GetCompileTrace() const {
+    return KqpCtx.QueryCtx ? KqpCtx.QueryCtx->CompileTrace.Get() : nullptr;
 }
 
 IGraphTransformer::TStatus TKqpRBOCleanupTransformer::DoTransform(TExprNode::TPtr input, TExprNode::TPtr &output, TExprContext &ctx) {
