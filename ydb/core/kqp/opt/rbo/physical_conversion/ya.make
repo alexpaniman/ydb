@@ -24,3 +24,5 @@ PEERDIR(
 )
 
 END()
+
+RECURSE_FOR_TESTS(sort_ut)
