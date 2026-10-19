@@ -62,4 +62,5 @@ END()
 RECURSE_FOR_TESTS(
     ut
     verification/cpp_ut
+    verification/native_cpp_ut
 )
