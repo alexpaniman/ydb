@@ -512,6 +512,12 @@ Y_UNIT_TEST_SUITE(KqpRboYql) {
         const std::vector<std::pair<TString, TString>> cases = {
             {"SELECT COUNT(*) AS c FROM (SELECT MAX(a) AS m FROM `/Root/t1` UNION ALL SELECT MAX(b) AS m FROM `/Root/t2`);",
              "[[2u]]"},
+            {"SELECT t1.a, (SELECT COALESCE(SUM(t2.b), CAST(0 AS Int64)) FROM `/Root/t2` AS t2 WHERE t2.a = t1.a) AS value FROM `/Root/t1` AS t1 ORDER BY t1.a;",
+             "[[1;[10]];[3;[0]]]"},
+            {"SELECT t1.a, (SELECT COALESCE(MIN(t2.b), CAST(0 AS Int64)) FROM `/Root/t2` AS t2 WHERE t2.a = t1.a) AS value FROM `/Root/t1` AS t1 ORDER BY t1.a;",
+             "[[1;[10]];[3;[0]]]"},
+            {"SELECT t1.a, (SELECT COALESCE(MAX(t2.b), CAST(0 AS Int64)) FROM `/Root/t2` AS t2 WHERE t2.a = t1.a) AS value FROM `/Root/t1` AS t1 ORDER BY t1.a;",
+             "[[1;[10]];[3;[0]]]"},
             {"SELECT t1.a FROM `/Root/t1` AS t1 WHERE EXISTS (SELECT MAX(t2.b) FROM `/Root/t2` AS t2) ORDER BY t1.a;",
              "[[1];[3]]"},
             {"SELECT t1.a FROM `/Root/t1` AS t1 WHERE EXISTS (SELECT MAX(t2.b) FROM `/Root/t2` AS t2 WHERE t2.a = t1.a) ORDER BY t1.a;",
