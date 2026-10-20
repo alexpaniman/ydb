@@ -46,20 +46,23 @@ TOrderedIUs<> ComputeKeysAfterJoin(TOpJoin* join) {
         return {};
     }
 
-    // If right join keys covers all the keys of the right hand side,
-    // we don't need the key of the right side at all
-    if (rightKeys.Unordered().IsSubsetOf(join->JoinKeys.Right())) {
-        return leftKeys;
-    }
-    // Same for the left side
-    else if (leftKeys.Unordered().IsSubsetOf(join->JoinKeys.Left())) {
-        return rightKeys;
+    // Null extension can introduce repeated NULL keys on either side. Full
+    // and exclusion joins cannot retain either input's uniqueness guarantee.
+    if (join->JoinKind == "Full" || join->JoinKind == "Exclusion") {
+        return {};
     }
 
-    else {
-        leftKeys.AppendMissing(rightKeys.Items());
+    // A one-sided key can survive only when its side is not null-extended.
+    // Otherwise preserve the pair of input keys, which distinguishes matches
+    // and the at-most-one unmatched row for each preserved-side input row.
+    if (join->JoinKind != "Right" && rightKeys.Unordered().IsSubsetOf(join->JoinKeys.Right())) {
         return leftKeys;
     }
+    if (join->JoinKind != "Left" && leftKeys.Unordered().IsSubsetOf(join->JoinKeys.Left())) {
+        return rightKeys;
+    }
+    leftKeys.AppendMissing(rightKeys.Items());
+    return leftKeys;
 }
 
 using TStorageBindings = THashMap<TString, TInfoUnitId>;

@@ -7731,6 +7731,32 @@ FROM (
         UNIT_ASSERT(newMap->GetOutputIUs() == (TUnorderedIUs{source, fresh}));
     }
 
+    Y_UNIT_TEST(OuterJoinUniquenessDoesNotUseOnlyNullExtendedKeys) {
+        for (const TString& kind : {TString("Inner"), TString("Left"), TString("Right"),
+                                   TString("Full"), TString("Exclusion")}) {
+            for (const bool joinsRightKey : {false, true}) {
+                NTests::TIdTestContext f;
+                const auto a = f.Id("a"), b = f.Id("b"), payload = f.Id("payload");
+                auto left = f.Read({a}), right = f.Read({b, payload});
+                left->Props.Metadata.emplace();
+                right->Props.Metadata.emplace();
+                left->Props.Metadata->ColumnsCount = 1;
+                right->Props.Metadata->ColumnsCount = 2;
+                left->Props.Metadata->KeyColumns = {a};
+                right->Props.Metadata->KeyColumns = {b};
+                auto join = MakeIntrusive<TOpJoin>(left, right, f.Pos, kind,
+                    TJoinIUs{{a, joinsRightKey ? b : payload}});
+                join->ComputeMetadata(f.RboCtx, f.Props);
+                const TOrderedIUs<> expected = kind == "Full" || kind == "Exclusion" ? TOrderedIUs<>{}
+                    : kind == "Right" ? TOrderedIUs<>{b}
+                    : joinsRightKey ? TOrderedIUs<>{a}
+                    : kind == "Left" ? TOrderedIUs<>{a, b} : TOrderedIUs<>{b};
+                UNIT_ASSERT_C(join->Props.Metadata->KeyColumns == expected,
+                    kind << " uses null-extended columns as its only unique key");
+            }
+        }
+    }
+
     Y_UNIT_TEST(DontEliminateLeftJoinWhenNoPK) {
         NTests::TIdTestContext f;
         const auto a = f.Id(), payload = f.Id(), b = f.Id(), rightPayload = f.Id();
