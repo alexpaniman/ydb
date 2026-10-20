@@ -500,7 +500,8 @@ void TOpAggregate::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
         // Like DistinctAll: the whole grouping tuple is unique, even when the
         // input has no known key.
         Props.Metadata->KeyColumns = KeyColumns;
-    } else if (inputMetadata.KeyColumns.Unordered().IsSubsetOf(KeyColumns.Unordered()))
+    } else if (!inputMetadata.KeyColumns.Items().empty() &&
+        inputMetadata.KeyColumns.Unordered().IsSubsetOf(KeyColumns.Unordered()))
     {
         Props.Metadata->KeyColumns = inputMetadata.KeyColumns;
     } else {
