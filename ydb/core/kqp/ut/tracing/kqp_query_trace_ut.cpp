@@ -788,6 +788,33 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
         const auto* stage = FindParent(snapshot, *rule);
         UNIT_ASSERT_C(stage && stage->name().StartsWith("RBO stage: "), snapshot.PrintTraces());
         UNIT_ASSERT_C(FindAttribute(*stage, "ydb.rbo.rules_applied"), stage->DebugString());
+        UNIT_ASSERT_C(FindAttribute(*stage, "ydb.rbo.stage"), stage->DebugString());
+        UNIT_ASSERT_C(FindAttribute(*rule, "ydb.rbo.rule"), rule->DebugString());
+        UNIT_ASSERT_C(FindAttribute(*rule, "ydb.cpu_us"), rule->DebugString());
+        // Rules are timed on the clock of their stage, so they nest within it.
+        UNIT_ASSERT_GE_C(rule->start_time_unix_nano(), stage->start_time_unix_nano(), rule->DebugString());
+        UNIT_ASSERT_LE_C(rule->end_time_unix_nano(), stage->end_time_unix_nano(), rule->DebugString());
+
+        // Metadata requests are children of the phase that issued them.
+        AssertDescendant(snapshot, "Load metadata", "IO annotation");
+
+        for (const TStringBuf name : {"IO annotation", "Type annotation", "Optimize (new RBO)", "RBO stage: Early pruning"}) {
+            const auto* span = FindSpan(snapshot, name);
+            UNIT_ASSERT_C(span, snapshot.PrintTraces());
+            const auto* cpu = FindAttribute(*span, "ydb.cpu_us");
+            UNIT_ASSERT_C(cpu, span->DebugString());
+            UNIT_ASSERT_LE_C(cpu->value().int_value() * 1000,
+                static_cast<i64>(span->end_time_unix_nano() - span->start_time_unix_nano()) + 1'000'000, span->DebugString());
+        }
+        for (const TStringBuf name : {"IO annotation", "Optimize (new RBO)"}) {
+            const auto* span = FindSpan(snapshot, name);
+            UNIT_ASSERT_C(FindAttribute(*span, "ydb.compile.iteration"), span->DebugString());
+            UNIT_ASSERT_C(FindAttribute(*span, "ydb.expr.nodes"), span->DebugString());
+        }
+        UNIT_ASSERT_C(FindAttribute(*FindSpan(snapshot, "Compute types"), "ydb.rbo.property"), snapshot.PrintTraces());
+        const auto* peephole = FindSpan(snapshot, "Peephole stage");
+        UNIT_ASSERT_C(peephole, snapshot.PrintTraces());
+        UNIT_ASSERT_C(FindAttribute(*peephole, "ydb.expr.nodes_after"), peephole->DebugString());
 
         size_t compilationSpans = 0;
         for (const auto& span : snapshot.Spans) {

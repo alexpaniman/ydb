@@ -2,6 +2,11 @@
 
 #include <ydb/library/actors/core/actorsystem.h>
 
+#include <util/datetime/cputimer.h>
+#include <util/system/datetime.h>
+#include <util/system/guard.h>
+#include <util/system/thread.h>
+
 #include <algorithm>
 
 namespace NKikimr::NKqp {
@@ -16,7 +21,12 @@ TCompileTrace::~TCompileTrace() {
 }
 
 NWilson::TTraceId TCompileTrace::Parent() const {
-    return NWilson::TTraceId(Parents.empty() ? Root : Parents.back());
+    return NWilson::TTraceId(Parents.empty() ? Root : Parents.back().Id);
+}
+
+NWilson::TTraceId TCompileTrace::GetCurrentParent() const {
+    auto guard = Guard(ParentsLock);
+    return Parent();
 }
 
 NWilson::TSpan TCompileTrace::StartSpan(ui8 verbosity, TString name, const char* component) const {
@@ -24,15 +34,34 @@ NWilson::TSpan TCompileTrace::StartSpan(ui8 verbosity, TString name, const char*
         return {};
     }
     NWilson::TSpan span(verbosity, Parent(), std::move(name), NWilson::EFlags::NONE, ActorSystem);
-    if (span && component) {
-        span.Attribute("ydb.code.component", TString(component));
+    if (span) {
+        if (component) {
+            span.Attribute("ydb.code.component", TString(component));
+        }
+        span.Attribute("thread.id", static_cast<i64>(TThread::CurrentThreadNumericId()));
     }
     return span;
 }
 
+void TCompileTrace::EndSpan(NWilson::TSpan& span, ui64 cpuStart, bool success) const {
+    if (!span) {
+        return;
+    }
+    if (CpuCounted) {
+        span.Attribute("ydb.cpu_us", static_cast<i64>(GetCpuTime() - cpuStart));
+    }
+    if (success) {
+        span.EndOk();
+    } else {
+        span.EndError("Compilation failed");
+    }
+}
+
 void TCompileTrace::Push(const NWilson::TSpan& span) {
     if (span) {
-        Parents.emplace_back(span.GetTraceId());
+        TParent parent{span.GetTraceId(), TInstant::Now(), GetCycleCount()};
+        auto guard = Guard(ParentsLock);
+        Parents.push_back(std::move(parent));
     }
 }
 
@@ -43,16 +72,26 @@ void TCompileTrace::Pop(const NWilson::TSpan& span) {
     // Asynchronous continuations may interleave sibling spans, so the span is
     // not necessarily the innermost one.
     const auto id = span.GetTraceId();
-    const auto it = std::find(Parents.rbegin(), Parents.rend(), id);
+    auto guard = Guard(ParentsLock);
+    const auto it = std::find_if(Parents.rbegin(), Parents.rend(), [&](const TParent& parent) {
+        return parent.Id == id;
+    });
     if (it != Parents.rend()) {
         Parents.erase(std::next(it).base());
     }
 }
 
-void TCompileTrace::AddFinishedSpan(ui8 verbosity, const TString& name, TInstant start, TInstant end,
-        std::initializer_list<std::pair<const char*, i64>> attributes) const {
+TInstant TCompileTrace::Now() const {
+    if (Parents.empty()) {
+        return TInstant::Now();
+    }
+    const auto& parent = Parents.back();
+    return parent.Start + CyclesToDuration(GetCycleCount() - parent.StartCycles);
+}
+
+NWilson::TSpan TCompileTrace::StartFinishedSpan(ui8 verbosity, const TString& name, TInstant start, TInstant end) const {
     if (!IsEnabled(verbosity)) {
-        return;
+        return {};
     }
     const auto parent = Parent();
     auto span = NWilson::TSpan::ConstructTerminated(parent, parent.Span(verbosity), start, end,
@@ -60,29 +99,63 @@ void TCompileTrace::AddFinishedSpan(ui8 verbosity, const TString& name, TInstant
     if (ActorSystem) {
         span.Attribute("node_id", ActorSystem->NodeId);
     }
-    for (const auto& [key, value] : attributes) {
-        span.Attribute(key, value);
-    }
-    span.End();
+    span.Attribute("thread.id", static_cast<i64>(TThread::CurrentThreadNumericId()));
+    return span;
 }
 
-void TCompileTrace::BeginRegion(ui8 verbosity, const TString& name, const char* component, const void* group) {
+ui32 TCompileTrace::NextIteration(const TString& name) {
+    return ++Iterations[name];
+}
+
+ui64 TCompileTrace::GetCpuTime() const {
+    return Running ? Cpu + ThreadCPUTime() - RunningSince : Cpu;
+}
+
+void TCompileTrace::Resume() {
+    if (Running++ == 0) {
+        RunningSince = ThreadCPUTime();
+        CpuCounted = true;
+    }
+}
+
+void TCompileTrace::Suspend() {
+    if (Running > 0 && --Running == 0) {
+        Cpu += ThreadCPUTime() - RunningSince;
+    }
+}
+
+NWilson::TSpan* TCompileTrace::BeginRegion(ui8 verbosity, const TString& name, const char* component, const void* group) {
+    // Opening a region the group has already opened means the pipeline
+    // restarted inside the region that is open now.
+    const bool restart = GroupRegions[group].contains(name);
+    TString restartedIn;
     for (size_t i = 0; i < Regions.size(); ++i) {
         if (Regions[i].Group != group) {
             continue;
         }
         if (Regions[i].Name == name) {
-            return;
+            return nullptr;
+        }
+        if (restart) {
+            restartedIn = Regions[i].Name;
+            Regions[i].Span.Attribute("ydb.compile.restarted", true);
         }
         EndRegions(Regions.size() - i, true);
         break;
     }
+    GroupRegions[group].insert(name);
+    const ui32 iteration = NextIteration(name);
     auto span = StartSpan(verbosity, name, component);
     if (!span) {
-        return;
+        return nullptr;
+    }
+    span.Attribute("ydb.compile.iteration", static_cast<i64>(iteration));
+    if (!restartedIn.empty()) {
+        span.Attribute("ydb.compile.restart_from", restartedIn);
     }
     Push(span);
-    Regions.push_back({name, group, std::move(span)});
+    Regions.push_back({name, group, std::move(span), GetCpuTime()});
+    return &Regions.back().Span;
 }
 
 void TCompileTrace::EndRegion(TStringBuf name) {
@@ -96,13 +169,9 @@ void TCompileTrace::EndRegion(TStringBuf name) {
 
 void TCompileTrace::EndRegions(size_t count, bool success) {
     for (; count > 0; --count) {
-        auto& span = Regions.back().Span;
-        Pop(span);
-        if (success) {
-            span.EndOk();
-        } else {
-            span.EndError("Compilation failed");
-        }
+        auto& region = Regions.back();
+        Pop(region.Span);
+        EndSpan(region.Span, region.CpuStart, success);
         Regions.pop_back();
     }
 }
@@ -118,16 +187,32 @@ TCompileTraceScope::TCompileTraceScope(TCompileTrace* trace, ui8 verbosity, TStr
     if (Trace) {
         Span_ = Trace->StartSpan(verbosity, std::move(name), component);
         Trace->Push(Span_);
+        CpuStart = Trace->GetCpuTime();
     }
 }
 
 TCompileTraceScope::~TCompileTraceScope() {
-    if (Trace) {
-        Trace->Pop(Span_);
+    if (!Trace) {
+        return;
     }
+    Trace->Pop(Span_);
     // On stack unwinding the span ends itself with an error.
     if (std::uncaught_exceptions() == UncaughtExceptions) {
-        Span_.EndOk();
+        Trace->EndSpan(Span_, CpuStart);
+    }
+}
+
+TCompileTraceRunScope::TCompileTraceRunScope(TCompileTrace* trace)
+    : Trace(trace)
+{
+    if (Trace) {
+        Trace->Resume();
+    }
+}
+
+TCompileTraceRunScope::~TCompileTraceRunScope() {
+    if (Trace) {
+        Trace->Suspend();
     }
 }
 

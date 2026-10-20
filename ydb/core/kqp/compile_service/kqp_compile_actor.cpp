@@ -25,6 +25,7 @@
 #include <library/cpp/digest/md5/md5.h>
 
 #include <util/string/escape.h>
+#include <util/system/datetime.h>
 
 #include <ydb/core/base/cputime.h>
 
@@ -208,7 +209,11 @@ private:
             .SetFromConfig(*Config);
 
         auto span = CompileActorSpan.CreateChild(TCompileTraceLevels::Phase, "Parse query");
+        const ui64 cpuStart = span ? ThreadCPUTime() : 0;
         auto statements = ParseStatements(QueryId.Text, QueryId.Settings.Syntax, QueryId.IsSql(), settingsBuilder, PerStatementResult);
+        if (span) {
+            span.Attribute("ydb.cpu_us", static_cast<i64>(ThreadCPUTime() - cpuStart));
+        }
         span.EndOk();
         return statements;
     }
@@ -322,6 +327,7 @@ private:
 
     void StartCompilationWithSettings(IKqpHost::TPrepareSettings& prepareSettings) {
         NCpuTime::TCpuTimer timer(CompileCpuTime);
+        TCompileTraceRunScope traceRun(CompileTrace.Get());
 
         switch (QueryId.Settings.QueryType) {
             case NKikimrKqp::QUERY_TYPE_SQL_DML:
@@ -367,6 +373,9 @@ private:
             actorSystem->Send(selfId, processEv.Release());
         };
 
+        // Continue runs the compilation until its next asynchronous wait.
+        NCpuTime::TCpuTimer timer(CompileCpuTime);
+        TCompileTraceRunScope traceRun(CompileTrace.Get());
         AsyncCompileResult->Continue().Apply(callback);
     }
 
@@ -383,9 +392,9 @@ private:
         std::shared_ptr<NYql::IKikimrGateway::IKqpTableMetadataLoader> loader =
             std::make_shared<TKqpTableMetadataLoader>(
                 QueryId.Cluster, TlsActivationContext->ActorSystem(), Config, true, TempTablesState, FederatedQuerySetup,
-                CompileActorSpan.GetTraceId());
+                CompileActorSpan.GetTraceId(), CompileTrace);
         Gateway = CreateKikimrIcGateway(QueryId.Cluster, QueryId.Settings.QueryType, QueryId.Database, QueryId.DatabaseId, std::move(loader),
-            ctx.ActorSystem(), ctx.SelfID.NodeId(), counters, QueryServiceConfig, CompileActorSpan.GetTraceId());
+            ctx.ActorSystem(), ctx.SelfID.NodeId(), counters, QueryServiceConfig, CompileActorSpan.GetTraceId(), CompileTrace);
         Gateway->SetToken(QueryId.Cluster, UserToken);
         Gateway->SetClientAddress(ClientAddress);
 
@@ -609,7 +618,6 @@ private:
         TYqlLogScope logScope(ctx, NKikimrServices::KQP_YQL, YqlName, UserRequestContext->TraceId);
 
         if (!ev->Get()->Finished) {
-            NCpuTime::TCpuTimer timer(CompileCpuTime);
             Continue(ctx);
             return;
         }

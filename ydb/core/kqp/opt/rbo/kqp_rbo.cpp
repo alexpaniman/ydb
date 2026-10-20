@@ -82,18 +82,21 @@ void EnsureRequiredProps(TOpRoot& root, ui32 props, ui32& computedProps, TRBOCon
 
     if (HasProperty(props, ERuleProperties::RequireOutputIUs) && !HasProperty(computedProps, ERuleProperties::RequireOutputIUs)) {
         auto scope = traceScope("Compute output IUs");
+        scope.Span().Attribute("ydb.rbo.property", TString("output IUs"));
         root.RecomputeOutputIUsSubtree();
         computedProps |= ERuleProperties::RequireOutputIUs;
     }
 
     if (HasProperty(props, ERuleProperties::RequireParents) && !HasProperty(computedProps, ERuleProperties::RequireParents)) {
         auto scope = traceScope("Compute parents");
+        scope.Span().Attribute("ydb.rbo.property", TString("parents"));
         root.ComputeParents();
         computedProps |= ERuleProperties::RequireParents;
     }
 
     if (HasProperty(props, ERuleProperties::RequireTypes) && !HasProperty(computedProps, ERuleProperties::RequireTypes)) {
         auto scope = traceScope("Compute types");
+        scope.Span().Attribute("ydb.rbo.property", TString("types"));
         if (root.ComputeTypes(ctx) != IGraphTransformer::TStatus::Ok) {
             Y_ENSURE(false, TStringBuilder() << "RBO type annotation failed in stage " << stageName);
         }
@@ -102,18 +105,21 @@ void EnsureRequiredProps(TOpRoot& root, ui32 props, ui32& computedProps, TRBOCon
 
     if (HasProperty(props, ERuleProperties::RequireMetadata) && !HasProperty(computedProps, ERuleProperties::RequireMetadata)) {
         auto scope = traceScope("Compute metadata");
+        scope.Span().Attribute("ydb.rbo.property", TString("metadata"));
         root.ComputePlanMetadata(ctx);
         computedProps |= ERuleProperties::RequireMetadata;
     }
 
     if (HasProperty(props, ERuleProperties::RequireStatistics) && !HasProperty(computedProps, ERuleProperties::RequireStatistics)) {
         auto scope = traceScope("Compute statistics");
+        scope.Span().Attribute("ydb.rbo.property", TString("statistics"));
         root.ComputePlanStatistics(ctx);
         computedProps |= ERuleProperties::RequireStatistics;
     }
 
     if (HasProperty(props, ERuleProperties::RequireLiveness) && !HasProperty(computedProps, ERuleProperties::RequireLiveness)) {
         auto scope = traceScope("Compute liveness");
+        scope.Span().Attribute("ydb.rbo.property", TString("liveness"));
         ComputePlanLiveness(root);
         computedProps |= ERuleProperties::RequireLiveness;
     }
@@ -141,7 +147,9 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
     ui32 computedProps = 0;
     auto* trace = ctx.GetCompileTrace();
     const bool traceRules = trace && trace->IsEnabled(TCompileTraceLevels::Step);
+    const bool traceRuleSpans = traceRules && trace->IsEnabled(TCompileTraceLevels::Detail);
     auto& traceStats = ctx.RuleStageTraceStats;
+    ctx.TraceRules = traceRuleSpans;
 
     while (fired && numMatches < maxNumOfMatches) {
         fired = false;
@@ -166,19 +174,27 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
                 auto& op = parent ? parent->MutableChild(childIndex)
                     : subplanIU ? root.PlanProps.Subplans.MutablePlan(*subplanIU)
                     : root.MutableChild(0);
-                const TInstant ruleStart = traceRules ? TInstant::Now() : TInstant::Zero();
+                const TInstant ruleStart = traceRules ? trace->Now() : TInstant::Zero();
+                const ui64 ruleCpuStart = traceRuleSpans ? trace->GetCpuTime() : 0;
+                ctx.RuleTraceAttributes.clear();
                 const bool ruleApplied = rule->MatchAndApply(op, ctx, root.PlanProps);
                 Y_ENSURE(op, "Rule left a null plan edge");
                 traceAttempt.CloseRule();
                 if (traceRules) {
-                    const TInstant ruleEnd = TInstant::Now();
+                    const TInstant ruleEnd = trace->Now();
                     ++traceStats.Attempts;
                     if (!ruleApplied) {
                         traceStats.UnappliedTime += ruleEnd - ruleStart;
                     } else {
                         ++traceStats.Applied;
-                        if (trace->IsEnabled(TCompileTraceLevels::Detail)) {
-                            trace->AddFinishedSpan(TCompileTraceLevels::Detail, "Rule: " + rule->RuleName, ruleStart, ruleEnd);
+                        if (traceRuleSpans) {
+                            auto span = trace->StartFinishedSpan(TCompileTraceLevels::Detail, "Rule: " + rule->RuleName, ruleStart, ruleEnd);
+                            span.Attribute("ydb.rbo.rule", rule->RuleName);
+                            span.Attribute("ydb.cpu_us", static_cast<i64>(trace->GetCpuTime() - ruleCpuStart));
+                            for (const auto& [name, value] : ctx.RuleTraceAttributes) {
+                                span.Attribute(name, value);
+                            }
+                            span.End();
                         }
                     }
                 }
@@ -237,6 +253,7 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
 
         for (const auto& stage : Stages) {
             TCompileTraceScope traceScope(trace, TCompileTraceLevels::Step, "RBO stage: " + stage->StageName, "NewRBO");
+            traceScope.Span().Attribute("ydb.rbo.stage", stage->StageName);
             rboCtx.RuleStageTraceStats = {};
             if (rboCtx.NeedToLog()) {
                 rboCtx.TraceLog.stage(std::string(stage->StageName.c_str()));

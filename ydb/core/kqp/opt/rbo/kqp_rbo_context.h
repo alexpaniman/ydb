@@ -73,6 +73,17 @@ public:
         TDuration UnappliedTime;
     };
     TRuleStageTraceStats RuleStageTraceStats;
+
+    // Attributes a rule reports for the compilation span of its application,
+    // e.g. the size of its input. Collected only while rules are traced.
+    TVector<std::pair<const char*, i64>> RuleTraceAttributes;
+    bool TraceRules = false;
+
+    void AddRuleTraceAttribute(const char* name, i64 value) {
+        if (TraceRules) {
+            RuleTraceAttributes.emplace_back(name, value);
+        }
+    }
 };
 
 } // namespace NKikimr::NKqp

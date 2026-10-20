@@ -969,6 +969,19 @@ private:
         return OptimizeCtx.QueryCtx ? OptimizeCtx.QueryCtx->CompileTrace.Get() : nullptr;
     }
 
+    static void AddOlapProgramInputAttributes(NWilson::TSpan& span, const TString& table, const TExprNode::TPtr& input) {
+        if (!span) {
+            return;
+        }
+        i64 nodes = 0;
+        VisitExpr(input, [&](const TExprNode::TPtr&) {
+            ++nodes;
+            return true;
+        });
+        span.Attribute("db.collection.name", table);
+        span.Attribute("ydb.expr.nodes", nodes);
+    }
+
     NKikimr::NMiniKQL::TType* CompileType(TProgramBuilder& pgmBuilder, const TTypeAnnotationNode& inputType) {
         TStringStream errorStream;
         auto type = NCommon::BuildType(inputType, pgmBuilder, errorStream);
@@ -1056,8 +1069,9 @@ private:
                 auto miniKqlResultType = GetMKqlResultType(readTableRanges.Process().Ref().GetTypeAnn());
                 {
                     TCompileTraceScope traceScope(GetCompileTrace(), TCompileTraceLevels::Step, "Compile OLAP program", "KqpQueryCompiler");
-                    traceScope.Span().Attribute("db.collection.name", tableMeta->Name);
+                    AddOlapProgramInputAttributes(traceScope.Span(), tableMeta->Name, readTableRanges.Ptr());
                     FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx);
+                    traceScope.Span().Attribute("ydb.olap.program_bytes", static_cast<i64>(tableOp.GetReadOlapRange().GetOlapProgram().size()));
                 }
                 FillResultType(miniKqlResultType, *tableOp.MutableReadOlapRange());
                 if (auto stats = OptimizeCtx.KqpStats.GetStats(exprNode.get())) {
@@ -1078,8 +1092,9 @@ private:
                 auto miniKqlResultType = GetMKqlResultType(readTableRanges.Process().Ref().GetTypeAnn());
                 {
                     TCompileTraceScope traceScope(GetCompileTrace(), TCompileTraceLevels::Step, "Compile OLAP program", "KqpQueryCompiler");
-                    traceScope.Span().Attribute("db.collection.name", tableMeta->Name);
+                    AddOlapProgramInputAttributes(traceScope.Span(), tableMeta->Name, readTableRanges.Ptr());
                     FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx);
+                    traceScope.Span().Attribute("ydb.olap.program_bytes", static_cast<i64>(tableOp.GetReadOlapRange().GetOlapProgram().size()));
                 }
                 FillResultType(miniKqlResultType, *tableOp.MutableReadOlapRange());
                 tableOp.MutableReadOlapRange()->SetReadType(NKqpProto::TKqpPhyOpReadOlapRanges::BLOCKS);

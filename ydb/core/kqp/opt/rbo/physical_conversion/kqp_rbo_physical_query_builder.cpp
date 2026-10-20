@@ -950,8 +950,23 @@ TVector<TExprNode::TPtr> TPhysicalQueryBuilder::PeepHoleOptimizePhysicalStages(T
 
         {
             TCompileTraceScope traceScope(RBOCtx.GetCompileTrace(), TCompileTraceLevels::Detail, "Peephole stage", "NewRBO");
-            traceScope.Span().Attribute("ydb.rbo.stage_index", static_cast<i64>(&stage - physicalStages.data()));
+            auto& span = traceScope.Span();
+            const auto countNodes = [](const TExprNode::TPtr& root) {
+                i64 nodes = 0;
+                VisitExpr(root, [&](const TExprNode::TPtr&) {
+                    ++nodes;
+                    return true;
+                });
+                return nodes;
+            };
+            if (span) {
+                span.Attribute("ydb.rbo.stage_index", static_cast<i64>(&stage - physicalStages.data()));
+                span.Attribute("ydb.expr.nodes", countNodes(newProgram));
+            }
             newProgram = PeepHoleOptimize(newProgram, argsType);
+            if (span && newProgram) {
+                span.Attribute("ydb.expr.nodes_after", countNodes(newProgram));
+            }
         }
         Y_ENSURE(newProgram);
         // Collect program after peephole.

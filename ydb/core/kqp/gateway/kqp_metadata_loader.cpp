@@ -1344,7 +1344,7 @@ NThreading::TFuture<TTableMetadataResult> TKqpTableMetadataLoader::LoadTableMeta
             } catch (const yexception& e) {
                 promise.SetValue(ResultFromException<TResult>(e));
             }
-        }, TraceId, EMetadataTraceOperation::LoadMetadata, table, purpose,
+        }, GetTraceParent(), EMetadataTraceOperation::LoadMetadata, table, purpose,
         [](const TResult& result) {
             return result.Success() && result.Metadata && result.Metadata->DoesExist
                 ? Ydb::StatusIds::SUCCESS : Ydb::StatusIds::SCHEME_ERROR;
@@ -1398,7 +1398,7 @@ NThreading::TFuture<TTableMetadataResult> TKqpTableMetadataLoader::LoadTableMeta
                     result.Metadata->StatsLoaded = resp.Success;
                 }
                 promise.SetValue(result);
-        }, loader->TraceId, EMetadataTraceOperation::LoadStatistics, table, purpose,
+        }, loader->GetTraceParent(), EMetadataTraceOperation::LoadStatistics, table, purpose,
         [](const TResult& result) {
             return result.Success() && result.Metadata && result.Metadata->DoesExist && result.Metadata->StatsLoaded
                 ? Ydb::StatusIds::SUCCESS : Ydb::StatusIds::UNAVAILABLE;

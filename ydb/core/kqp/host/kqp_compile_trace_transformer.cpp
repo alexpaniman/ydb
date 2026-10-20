@@ -1,10 +1,26 @@
 #include "kqp_compile_trace_transformer.h"
 
+#include <yql/essentials/core/yql_expr_optimize.h>
+
 namespace NKikimr::NKqp {
 
 using namespace NYql;
 
 namespace {
+
+// Size of the expression a span works on, recorded at Diagnostic verbosity
+// since counting visits the whole graph.
+void AddExprSize(NWilson::TSpan& span, const TCompileTrace& trace, const TExprNode::TPtr& input) {
+    if (!span || !input || !trace.IsEnabled(TCompileTraceLevels::Step)) {
+        return;
+    }
+    i64 nodes = 0;
+    VisitExpr(input, [&](const TExprNode::TPtr&) {
+        ++nodes;
+        return true;
+    });
+    span.Attribute("ydb.expr.nodes", nodes);
+}
 
 class TCompileTraceTransformer : public TGraphTransformerBase {
 public:
@@ -19,8 +35,12 @@ public:
 
     TStatus DoTransform(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) final {
         auto* trace = QueryCtx->CompileTrace.Get();
-        if (!Span && trace) {
+        if (!Span && trace && trace->IsEnabled(Verbosity)) {
+            const ui32 iteration = trace->NextIteration(Name);
             Span = trace->StartSpan(Verbosity, Name, Component);
+            Span.Attribute("ydb.compile.iteration", static_cast<i64>(iteration));
+            AddExprSize(Span, *trace, input);
+            CpuStart = trace->GetCpuTime();
         }
         return Traced(trace, [&] {
             return Transformer->Transform(input, output, ctx);
@@ -64,10 +84,16 @@ private:
         if (trace) {
             trace->Pop(Span);
         }
+        if (!trace) {
+            return status;
+        }
+        if (status.HasRestart) {
+            Span.Attribute("ydb.compile.restarted", true);
+        }
         if (status == TStatus::Ok || status.HasRestart) {
-            Span.EndOk();
+            trace->EndSpan(Span, CpuStart);
         } else if (status == TStatus::Error) {
-            Span.EndError("Transformer failed");
+            trace->EndSpan(Span, CpuStart, false);
         }
         return status;
     }
@@ -79,6 +105,7 @@ private:
     const TString Name;
     const char* const Component;
     NWilson::TSpan Span;
+    ui64 CpuStart = 0;
 };
 
 class TCompileTraceMarker : public TSyncTransformerBase {
@@ -97,7 +124,9 @@ public:
         output = input;
         if (auto* trace = QueryCtx->CompileTrace.Get()) {
             if (Begin) {
-                trace->BeginRegion(Verbosity, Name, Component, Group);
+                if (auto* span = trace->BeginRegion(Verbosity, Name, Component, Group)) {
+                    AddExprSize(*span, *trace, input);
+                }
             } else {
                 trace->EndRegion(Name);
             }
