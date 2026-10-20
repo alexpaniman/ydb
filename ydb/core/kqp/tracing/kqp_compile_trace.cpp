@@ -196,10 +196,7 @@ TCompileTraceScope::~TCompileTraceScope() {
         return;
     }
     Trace->Pop(Span_);
-    // On stack unwinding the span ends itself with an error.
-    if (std::uncaught_exceptions() == UncaughtExceptions) {
-        Trace->EndSpan(Span_, CpuStart);
-    }
+    Trace->EndSpan(Span_, CpuStart, Success && std::uncaught_exceptions() == UncaughtExceptions);
 }
 
 TCompileTraceRunScope::TCompileTraceRunScope(TCompileTrace* trace)

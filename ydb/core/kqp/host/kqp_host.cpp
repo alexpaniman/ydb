@@ -1492,6 +1492,7 @@ private:
                     effectiveSettings = std::move(samplingSettings);
                 }
             }
+            traceScope.SetSuccess(astRes.IsOk() && astRes.Root);
             SessionCtx->Query().TranslationSettings = std::move(effectiveSettings);
             queryAst = std::make_shared<NYql::TAstParseResult>(std::move(astRes));
         } else {

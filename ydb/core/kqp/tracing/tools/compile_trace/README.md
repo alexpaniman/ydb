@@ -9,7 +9,7 @@ Compilation spans are children of the `Compile query` span of the compile actor:
 
 | Verbosity | Spans |
 |-----------|-------|
-| 10 (Detailed) | phases: parsing, IO and type annotation, provider optimization, KQL building, `Optimize (new RBO)`, physical conversion, physical query compilation, explain plan |
+| 10 (Detailed) | phases: parsing, IO and type annotation, provider optimization, KQL building, `Optimize (new RBO)`, `Rule-based optimization`, physical conversion, physical query compilation, explain plan |
 | 14 (Diagnostic) | steps: RBO stages, physical conversion steps, OLAP programs |
 | 15 (Trace) | applied RBO rules, recomputed plan properties, peephole of each stage |
 
@@ -29,6 +29,8 @@ Attributes:
 
 Metadata and statistics requests (`Load metadata`, `Load statistics`) and literal
 executions (`Execute plan`) are children of the phase that issued them.
+`Rule-based optimization` groups the RBO stages for each plan root, separately
+from finalization, plan JSON generation and conversion to the physical plan.
 
 ## Collecting
 
@@ -95,6 +97,13 @@ SQL, e.g. with `sqlite3`, Datasette or DuckDB.
 Reloading an input file updates existing spans by trace/span ID and replaces
 that file's run records, so an appended benchmark file can be imported again.
 Overlapping JSON lines and Jaeger exports do not duplicate spans.
+
+Reports average calls and times across independent runs of each query, then sum
+those averages over the selected queries. The slowest-query table and `diff`
+use per-query medians instead. A trace identifies one run, including all its
+compilations, so appending benchmark invocations that reuse repeat numbers does
+not inflate the totals. Queries are identified by both benchmark and query
+number, including in `folded --by-query` output.
 
 ### CPU profile of a span
 

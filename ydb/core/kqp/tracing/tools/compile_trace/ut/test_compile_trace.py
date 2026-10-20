@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import unittest
@@ -130,6 +131,118 @@ class TestCompileTrace(unittest.TestCase):
         self.load(relative_path)
         self.assertEqual(self.query('SELECT COUNT(*) FROM runs'), [(3,)])
         self.assert_tree()
+
+    def measurement(self, trace_id, bench='tpch', query=1, duration=100_000, phase=True):
+        records = [
+            {'kind': 'run', 'trace_id': trace_id, 'bench': bench, 'query': query,
+             'level': 15, 'repeat': 0, 'client_us': duration, 'ok': True},
+            self.span(self.ROOT_ID, None, 'Compile query', 1_000_000, duration, {'ydb.cpu_us': duration}),
+        ]
+        if phase:
+            records.append(self.span(self.PHASE_ID, self.ROOT_ID, 'Phase', 1_000_000, duration * 4 // 5, {
+                'ydb.cpu_us': duration * 4 // 5, 'ydb.rbo.rule': 'Test rule', 'ydb.compile.iteration': 2,
+            }))
+        return [dict(record, trace_id=trace_id) for record in records]
+
+    def report(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            compile_trace.cmd_report(SimpleNamespace(db=self.db, level=15, bench=None, top=25))
+        return output.getvalue()
+
+    def diff(self, before, metric='wall'):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            compile_trace.cmd_diff(SimpleNamespace(
+                before=str(before), after=self.db, level=15, bench=None, metric=metric, top=25,
+            ))
+        return output.getvalue()
+
+    @staticmethod
+    def table_rows(output, section):
+        section = output.split(section, 1)[1].split('\n## ', 1)[0]
+        rows = [[cell.strip() for cell in line.split('|')[1:-1]]
+                for line in section.splitlines() if line.startswith('| ')][1:]
+        return {row[0]: row[1:] for row in rows}
+
+    def test_appended_invocations_do_not_inflate_report_or_diff(self):
+        records = self.measurement(self.TRACE_ID)
+        path = self.write_jsonl(records)
+        self.load(path)
+        before = self.directory / 'before.db'
+        shutil.copyfile(self.db, before)
+        report = self.report()
+
+        # Both invocations use repeat=0, but their trace IDs identify distinct measurements.
+        records.extend(self.measurement('b' * 32))
+        self.write_jsonl(records)
+        self.load(path)
+        after = self.report()
+        self.assertIn('1 queries, 2 runs', after)
+        self.assertEqual(report.split('## Own time')[1], after.split('## Own time')[1])
+        for metric in ('wall', 'cpu'):
+            diff = self.diff(before, metric)
+            self.assertIn('100 ms -> 100 ms (+0.0%), 1 vs 2 runs', diff)
+            for row in self.table_rows(diff, '# Diff:').values():
+                self.assertEqual(float(row[2]), 0)
+
+    def test_queries_are_averaged_independently_with_unequal_run_counts(self):
+        self.load(self.write_jsonl([
+            *self.measurement('a' * 32, duration=100_000),
+            *self.measurement('b' * 32, duration=300_000),
+            *self.measurement('c' * 32, query=2, duration=1_000_000),
+        ]))
+        report = self.report()
+        self.assertIn('2 queries, 3 runs', report)
+        rows = self.table_rows(report, '## Own time')
+        self.assertEqual(float(rows['Compile query'][3]), 1200)
+        self.assertEqual(float(rows['Phase'][0]), 2)
+        self.assertEqual(float(rows['Phase'][1]), 960)
+        rules = self.table_rows(report, '## Applied RBO rules')
+        self.assertEqual(float(rules['Test rule'][0]), 2)
+        self.assertEqual(float(rules['Test rule'][1]), 960)
+        restarts = self.table_rows(report, '## Repeated runs')
+        self.assertEqual(float(restarts['Phase'][0]), 2)
+        self.assertEqual(float(restarts['Phase'][1]), 960)
+
+    def test_benchmarks_keep_distinct_query_names_in_reports_and_profiles(self):
+        self.load(self.write_jsonl([
+            *self.measurement('a' * 32, bench='tpch', duration=100_000),
+            *self.measurement('b' * 32, bench='tpcds', duration=1_000_000),
+        ]))
+        rows = self.table_rows(self.report(), '## Slowest queries')
+        self.assertEqual(rows, {'tpcds Q1': ['1000.0', '90.9'], 'tpch Q1': ['100.0', '9.1']})
+        with contextlib.closing(sqlite3.connect(self.db)) as con:
+            stacks = compile_trace.folded_stacks(con, 15, None, 'wall', True, False)
+        self.assertEqual(sum(value for name, value in stacks.items() if name.startswith('tpch Q1;')), 100_000)
+        self.assertEqual(sum(value for name, value in stacks.items() if name.startswith('tpcds Q1;')), 1_000_000)
+
+    def test_multiple_compilations_in_one_trace_count_as_one_measurement(self):
+        extra = dict(self.span('9' * 16, None, 'Compile query', 2_000_000, 50_000), trace_id='a' * 32)
+        self.load(self.write_jsonl([
+            *self.measurement('a' * 32, duration=100_000, phase=False), extra,
+            *self.measurement('b' * 32, duration=150_000, phase=False),
+        ]))
+        report = self.report()
+        self.assertIn('1 queries, 2 runs', report)
+        self.assertEqual(self.table_rows(report, '## Slowest queries')['tpch Q1'][0], '150.0')
+        self.assertEqual(float(self.table_rows(report, '## Own time')['Compile query'][3]), 150)
+        before = self.directory / 'before.db'
+        shutil.copyfile(self.db, before)
+        self.assertIn('150 ms -> 150 ms (+0.0%), 2 vs 2 runs', self.diff(before))
+
+    def test_diff_counts_missing_spans_as_zero_in_each_measurement(self):
+        records = self.measurement('a' * 32)
+        path = self.write_jsonl(records)
+        self.load(path)
+        before = self.directory / 'before.db'
+        shutil.copyfile(self.db, before)
+        records.extend(self.measurement('b' * 32, phase=False))
+        records.extend(self.measurement('c' * 32, phase=False))
+        self.write_jsonl(records)
+        self.load(path)
+        rows = self.table_rows(self.diff(before), '# Diff:')
+        self.assertEqual(rows['Phase'], ['80.0', '0.0', '-80.0', '-100%'])
 
     def filter_samples(self, spans, samples):
         self.load(self.write_jsonl([

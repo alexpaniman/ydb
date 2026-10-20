@@ -181,6 +181,7 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
                 Y_ENSURE(op, "Rule left a null plan edge");
                 traceAttempt.CloseRule();
                 if (traceRules) {
+                    const ui64 ruleCpuEnd = traceRuleSpans ? trace->GetCpuTime() : 0;
                     const TInstant ruleEnd = trace->Now();
                     ++traceStats.Attempts;
                     if (!ruleApplied) {
@@ -190,7 +191,7 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
                         if (traceRuleSpans) {
                             auto span = trace->StartFinishedSpan(TCompileTraceLevels::Detail, "Rule: " + rule->RuleName, ruleStart, ruleEnd);
                             span.Attribute("ydb.rbo.rule", rule->RuleName);
-                            span.Attribute("ydb.cpu_us", static_cast<i64>(trace->GetCpuTime() - ruleCpuStart));
+                            span.Attribute("ydb.cpu_us", static_cast<i64>(ruleCpuEnd - ruleCpuStart));
                             for (const auto& [name, value] : ctx.RuleTraceAttributes) {
                                 span.Attribute(name, value);
                             }
@@ -251,29 +252,32 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
             YQL_CLOG(TRACE, CoreDq) << "Original plan:\n" << root.PlanToString(ctx);
         }
 
-        for (const auto& stage : Stages) {
-            TCompileTraceScope traceScope(trace, TCompileTraceLevels::Step, "RBO stage: " + stage->StageName, "NewRBO");
-            traceScope.Span().Attribute("ydb.rbo.stage", stage->StageName);
-            rboCtx.RuleStageTraceStats = {};
-            if (rboCtx.NeedToLog()) {
-                rboCtx.TraceLog.stage(std::string(stage->StageName.c_str()));
-            }
-            YQL_CLOG(TRACE, CoreDq) << "Running stage: " << stage->StageName;
-            if (stage->NeedsInitialProps()) {
-                ComputeRequiredProps(root, stage->Props, rboCtx, stage->StageName);
-            }
-            if (needToLog) {
-                YQL_CLOG(TRACE, CoreDq) << "Before stage:\n" << root.PlanToString(ctx);
-            }
-            stage->RunStage(root, rboCtx);
-            if (needToLog) {
-                YQL_CLOG(TRACE, CoreDq) << "After stage:\n" << root.PlanToString(ctx);
-            }
-            if (const auto& stats = rboCtx.RuleStageTraceStats; stats.Attempts) {
-                traceScope.Span()
-                    .Attribute("ydb.rbo.rule_attempts", static_cast<i64>(stats.Attempts))
-                    .Attribute("ydb.rbo.rules_applied", static_cast<i64>(stats.Applied))
-                    .Attribute("ydb.rbo.unapplied_rules_us", static_cast<i64>(stats.UnappliedTime.MicroSeconds()));
+        {
+            TCompileTraceScope rulesTraceScope(trace, TCompileTraceLevels::Phase, "Rule-based optimization", "NewRBO");
+            for (const auto& stage : Stages) {
+                TCompileTraceScope traceScope(trace, TCompileTraceLevels::Step, "RBO stage: " + stage->StageName, "NewRBO");
+                traceScope.Span().Attribute("ydb.rbo.stage", stage->StageName);
+                rboCtx.RuleStageTraceStats = {};
+                if (rboCtx.NeedToLog()) {
+                    rboCtx.TraceLog.stage(std::string(stage->StageName.c_str()));
+                }
+                YQL_CLOG(TRACE, CoreDq) << "Running stage: " << stage->StageName;
+                if (stage->NeedsInitialProps()) {
+                    ComputeRequiredProps(root, stage->Props, rboCtx, stage->StageName);
+                }
+                if (needToLog) {
+                    YQL_CLOG(TRACE, CoreDq) << "Before stage:\n" << root.PlanToString(ctx);
+                }
+                stage->RunStage(root, rboCtx);
+                if (needToLog) {
+                    YQL_CLOG(TRACE, CoreDq) << "After stage:\n" << root.PlanToString(ctx);
+                }
+                if (const auto& stats = rboCtx.RuleStageTraceStats; stats.Attempts) {
+                    traceScope.Span()
+                        .Attribute("ydb.rbo.rule_attempts", static_cast<i64>(stats.Attempts))
+                        .Attribute("ydb.rbo.rules_applied", static_cast<i64>(stats.Applied))
+                        .Attribute("ydb.rbo.unapplied_rules_us", static_cast<i64>(stats.UnappliedTime.MicroSeconds()));
+                }
             }
         }
 

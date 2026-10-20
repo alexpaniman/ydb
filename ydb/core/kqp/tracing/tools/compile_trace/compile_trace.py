@@ -240,6 +240,28 @@ def subtree(con, trace_id, span_id):
     return result
 
 
+def query_name(query):
+    bench, number = query
+    return f'{bench or ""} Q{number}'.strip()
+
+
+def compilation_samples(compilations):
+    """Independent runs per query, including all compilations within each trace.
+
+    Repeat numbers restart when the benchmark is invoked again. Trace IDs
+    distinguish appended measurements, including older exports without a batch ID.
+    """
+    samples = defaultdict(lambda: defaultdict(list))
+    for run, spans in compilations:
+        samples[(run['bench'], run['query'])][run['trace_id']].append((run, spans))
+    return samples
+
+
+def query_durations(samples):
+    return {query: [sum(run['dur_us'] for run, _ in compilations) for compilations in runs.values()]
+            for query, runs in samples.items()}
+
+
 def cmd_report(args):
     con = sqlite3.connect(args.db)
     out = sys.stdout
@@ -247,18 +269,17 @@ def cmd_report(args):
     roots = compile_spans(con, level, args.bench)
     if not roots:
         sys.exit(f'No "{COMPILE_ROOT}" spans at level {level}')
-    repeats = sorted({r['repeat'] for r in roots})
-    queries = sorted({(r['bench'], r['query']) for r in roots}, key=lambda x: (x[0] or '', x[1] or 0))
-    out.write(f'# Compilation spans: level {level}, {len(queries)} queries x {len(repeats)} repeats\n\n')
-
     # Per compilation: its spans, used by the checks and the breakdowns.
     compilations = []
     for r in roots:
         spans = subtree(con, r['trace_id'], r['span_id'])
         compilations.append((r, spans))
 
+    samples = compilation_samples(compilations)
+    count = sum(len(runs) for runs in samples.values())
+    out.write(f'# Compilation spans: level {level}, {len(samples)} queries, {count} runs\n\n')
     health(con, compilations, level, out)
-    breakdowns(compilations, len(repeats), args.top, out)
+    breakdowns(compilations, args.top, out)
 
 
 def health(con, compilations, level, out):
@@ -326,16 +347,14 @@ def health(con, compilations, level, out):
                      'the rest is waiting: metadata, statistics, scheduling'))
 
     # Outliers among queries.
-    per_query = defaultdict(list)
-    for r, _ in compilations:
-        per_query[(r['bench'], r['query'])].append(r['dur_us'])
+    per_query = query_durations(compilation_samples(compilations))
     med = {q: statistics.median(v) for q, v in per_query.items()}
     overall = statistics.median(med.values())
     outliers = sorted(((q, v) for q, v in med.items() if v > 5 * overall), key=lambda x: -x[1])
     share = pct(sum(v for _, v in outliers), sum(med.values()))
     rows.append(('Outlier queries (> 5x median compile time)',
                  f'{len(outliers)}, {share:.1f}% of total' if outliers else '0',
-                 ', '.join(f'Q{q[1]} {ms(v):.0f} ms' for q, v in outliers[:4]) + f' (median {ms(overall):.0f} ms)'))
+                 ', '.join(f'{query_name(q)} {ms(v):.0f} ms' for q, v in outliers[:4]) + f' (median {ms(overall):.0f} ms)'))
 
     # Noise between repeats.
     cvs = [statistics.stdev(v) / statistics.mean(v) * 100 for v in per_query.values() if len(v) > 1 and statistics.mean(v)]
@@ -372,27 +391,32 @@ def level_overhead(con):
     return result
 
 
-def breakdowns(compilations, repeats, top, out):
-    total = sum(r['dur_us'] for r, _ in compilations)
-    cpu_total = sum(r['cpu_us'] or 0 for r, _ in compilations)
+def breakdowns(compilations, top, out):
+    samples = compilation_samples(compilations)
+    # Average each query independently before summing the suite. Appending more
+    # measurements of one query must not increase its weight in the report.
+    weighted = [(run, spans, 1 / len(runs)) for runs in samples.values()
+                for sample in runs.values() for run, spans in sample]
+    total = sum(r['dur_us'] * weight for r, _, weight in weighted)
+    cpu_total = sum((r['cpu_us'] or 0) * weight for r, _, weight in weighted)
     by_name = defaultdict(lambda: [0, 0, 0, 0])
     callers = defaultdict(Counter)
-    for root, spans in compilations:
+    for root, spans, weight in weighted:
         for s in spans:
             entry = by_name[s[2]]
-            entry[0] += 1
-            entry[1] += s[4]
-            entry[2] += s[5]
-            entry[3] += s[6] or 0
-            callers[s[2]][s[9] or '-'] += s[4]
+            entry[0] += weight
+            entry[1] += s[4] * weight
+            entry[2] += s[5] * weight
+            entry[3] += (s[6] or 0) * weight
+            callers[s[2]][s[9] or '-'] += s[4] * weight
 
-    out.write(f'## Own time by span (wall {ms(total) / repeats:.0f} ms per repeat'
+    out.write(f'## Own time by span (wall {ms(total):.0f} ms, sum of per-query means'
               + (f', CPU {pct(cpu_total, total):.0f}% of it' if cpu_total else '') + ')\n\n')
     out.write('Own time is the span duration minus the time its children cover. CPU is the compilation CPU time '
-              'while the span was open (children included).\n\n')
+              'while the span was open (children included). Calls and times are averaged per query, then summed.\n\n')
     rows = []
     for name, (n, dur, own, cpu) in sorted(by_name.items(), key=lambda x: -x[1][2])[:top]:
-        rows.append((name, n // repeats, ms(own) / repeats, pct(own, total), ms(dur) / repeats,
+        rows.append((name, n, ms(own), pct(own, total), ms(dur),
                      f'{pct(cpu, dur):.0f}%' if cpu else ''))
     table(['Span', 'Calls', 'Own ms', 'Own %', 'Total ms', 'CPU/wall'], rows, out)
 
@@ -404,40 +428,38 @@ def breakdowns(compilations, repeats, top, out):
         rows.append((name, ', '.join(f'{p} {pct(v, t):.0f}%' for p, v in c.most_common(4))))
     table(['Span', 'Share of its time by parent'], rows, out)
 
-    family(compilations, repeats, total, 'ydb.rbo.property', 'Plan properties', out)
-    family(compilations, repeats, total, 'ydb.rbo.rule', 'Applied RBO rules', out, top)
+    family(weighted, total, 'ydb.rbo.property', 'Plan properties', out)
+    family(weighted, total, 'ydb.rbo.rule', 'Applied RBO rules', out, top)
 
     # Per query: which queries dominate, and the median query's breakdown.
-    per_query = defaultdict(list)
-    for r, _ in compilations:
-        per_query[r['query']].append(r['dur_us'])
+    per_query = query_durations(samples)
     med = sorted(((q, statistics.median(v)) for q, v in per_query.items()), key=lambda x: -x[1])
     out.write('## Slowest queries\n\n')
     qtotal = sum(v for _, v in med)
-    table(['Query', 'Median compile ms', '% of all'], [(f'Q{q}', ms(v), pct(v, qtotal)) for q, v in med[:10]], out)
+    table(['Query', 'Median compile ms', '% of all'], [(query_name(q), ms(v), pct(v, qtotal)) for q, v in med[:10]], out)
 
     sizes(compilations, out)
-    restarts(compilations, repeats, total, out)
+    restarts(weighted, total, out)
 
 
-def family(compilations, repeats, total, key, title, out, top=None):
+def family(weighted, total, key, title, out, top=None):
     stats = defaultdict(lambda: [0, 0, 0])
-    for _, spans in compilations:
+    for _, spans, weight in weighted:
         for s in spans:
             attrs = json.loads(s[8])
             if key in attrs:
                 e = stats[attrs[key]]
-                e[0] += 1
-                e[1] += s[4]
-                e[2] += s[6] or 0
+                e[0] += weight
+                e[1] += s[4] * weight
+                e[2] += (s[6] or 0) * weight
     if not stats:
         return
     out.write(f'## {title}\n\n')
-    rows = [(n, c // repeats, ms(d) / repeats, pct(d, total), d / c if c else 0)
+    rows = [(n, c, ms(d), pct(d, total), d / c if c else 0)
             for n, (c, d, _) in sorted(stats.items(), key=lambda x: -x[1][1])[:top]]
     allc = sum(v[0] for v in stats.values())
     alld = sum(v[1] for v in stats.values())
-    rows.append(('All', allc // repeats, ms(alld) / repeats, pct(alld, total), alld / allc if allc else 0))
+    rows.append(('All', allc, ms(alld), pct(alld, total), alld / allc if allc else 0))
     table(['Name', 'Calls', 'Total ms', '% of compile', 'us per call'], rows, out)
 
 
@@ -471,17 +493,17 @@ def sizes(compilations, out):
         table(['Span', 'Samples', 'Median size', 'Fixed us', 'Slope us', 'Correlation'], rows, out)
 
 
-def restarts(compilations, repeats, total, out):
+def restarts(weighted, total, out):
     repeated = defaultdict(lambda: [0, 0])
-    for _, spans in compilations:
+    for _, spans, weight in weighted:
         for s in spans:
             it = json.loads(s[8]).get('ydb.compile.iteration')
             if it and it > 1:
-                repeated[s[2]][0] += 1
-                repeated[s[2]][1] += s[4]
+                repeated[s[2]][0] += weight
+                repeated[s[2]][1] += s[4] * weight
     if repeated:
         out.write('## Repeated runs after pipeline restarts\n\n')
-        rows = [(n, c // repeats, ms(d) / repeats, pct(d, total)) for n, (c, d) in sorted(repeated.items(), key=lambda x: -x[1][1])]
+        rows = [(n, c, ms(d), pct(d, total)) for n, (c, d) in sorted(repeated.items(), key=lambda x: -x[1][1])]
         table(['Span', 'Extra runs', 'Total ms', '% of compile'], rows, out)
 
 
@@ -557,7 +579,7 @@ def folded_stacks(con, level, bench, metric, by_query, from_root):
     acc = Counter()
     for run, spans in compile_trees(con, level, bench, from_root):
         info = {s[0]: s for s in spans}
-        prefix = [f'Q{run["query"]}'] if by_query else []
+        prefix = [query_name((run['bench'], run['query'])).replace(';', ',')] if by_query else []
         for s in spans:
             path, cur = [], s
             while cur is not None:
@@ -589,24 +611,33 @@ def cmd_folded(args):
 
 
 def cmd_diff(args):
-    """Compares two databases by span name: median over repeats of the per-repeat total own time."""
+    """Compare sums of per-query medians across independent trace measurements."""
     def totals(path):
-        con = sqlite3.connect(path)
-        level = pick_level(con, args.level)
-        per = defaultdict(lambda: defaultdict(int))
-        compile_total = defaultdict(int)
-        for run, spans in compile_trees(con, level, args.bench, False):
-            for s in spans:
-                per[s[2]][run['repeat']] += s[5] if args.metric == 'wall' else own_cpu(s, spans)
-            compile_total[run['repeat']] += run['dur_us']
-        med = {n: statistics.median(list(v.values()) + [0] * (len(compile_total) - len(v))) for n, v in per.items()}
-        return med, statistics.median(compile_total.values()), len(compile_total)
+        with closing(sqlite3.connect(path)) as con:
+            level = pick_level(con, args.level)
+            samples = compilation_samples(compile_trees(con, level, args.bench, False))
+        if not samples:
+            sys.exit(f'No "{COMPILE_ROOT}" spans at level {level} in {path}')
+        med = Counter()
+        for runs in samples.values():
+            per_run = []
+            for compilations in runs.values():
+                values = Counter()
+                for _, spans in compilations:
+                    for s in spans:
+                        values[s[2]] += s[5] if args.metric == 'wall' else own_cpu(s, spans)
+                per_run.append(values)
+            for name in set().union(*(values.keys() for values in per_run)):
+                med[name] += statistics.median(values[name] for values in per_run)
+        total = sum(statistics.median(values) for values in query_durations(samples).values())
+        return med, total, sum(len(runs) for runs in samples.values())
 
     a, at, an = totals(args.before)
     b, bt, bn = totals(args.after)
     out = sys.stdout
     out.write(f'# Diff: compile time {ms(at):.0f} ms -> {ms(bt):.0f} ms ({pct(bt - at, at):+.1f}%), '
-              f'{an} vs {bn} repeats\n\n')
+              f'{an} vs {bn} runs\n\n')
+    out.write('Times are sums of per-query medians across independent runs.\n\n')
     rows = []
     for n in sorted(set(a) | set(b), key=lambda n: -abs(b.get(n, 0) - a.get(n, 0)))[:args.top]:
         x, y = a.get(n, 0), b.get(n, 0)

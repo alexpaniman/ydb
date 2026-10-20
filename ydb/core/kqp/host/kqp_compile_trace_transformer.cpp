@@ -80,6 +80,7 @@ private:
         } catch (...) {
             if (trace) {
                 trace->Pop(Span);
+                trace->EndSpan(Span, CpuStart, false);
             }
             throw;
         }

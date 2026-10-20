@@ -29,6 +29,8 @@
 
 #include <ydb/core/base/cputime.h>
 
+#include <algorithm>
+
 #define YDB_LOG_THIS_FILE_COMPONENT NKikimrServices::KQP_COMPILE_ACTOR
 
 namespace NKikimr::NKqp {
@@ -214,7 +216,14 @@ private:
         if (span) {
             span.Attribute("ydb.cpu_us", static_cast<i64>(ThreadCPUTime() - cpuStart));
         }
-        span.EndOk();
+        const bool success = !statements.empty() && std::all_of(statements.begin(), statements.end(), [](const auto& statement) {
+            return statement.Ast && statement.Ast->IsOk() && statement.Ast->Root;
+        });
+        if (success) {
+            span.EndOk();
+        } else {
+            span.EndError("Parsing failed");
+        }
         return statements;
     }
 

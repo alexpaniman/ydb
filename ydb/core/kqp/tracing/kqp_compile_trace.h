@@ -134,11 +134,17 @@ public:
         return Span_;
     }
 
+    // For operations that return an error result without throwing.
+    void SetSuccess(bool success) {
+        Success = success;
+    }
+
 private:
     TCompileTrace* const Trace;
     const int UncaughtExceptions;
     NWilson::TSpan Span_;
     ui64 CpuStart = 0;
+    bool Success = true;
 };
 
 // The compilation runs on the current thread for the lifetime of the scope.

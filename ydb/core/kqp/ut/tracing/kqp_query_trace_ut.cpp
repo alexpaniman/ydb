@@ -734,6 +734,19 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
         AssertDescendant(snapshot, "Execute plan", "Compile query");
     }
 
+    Y_UNIT_TEST_TWIN(ParseFailureTrace, AstCache) {
+        NKikimrConfig::TAppConfig config;
+        config.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        config.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
+        config.MutableTableServiceConfig()->SetEnableAstCache(AstCache);
+        auto [runtime, server, sender] = CreateServer(1, config);
+        auto* uploader = RegisterUploader(runtime);
+        ExecSQL(runtime, sender, "SELECT FROM;", 15, Ydb::StatusIds::GENERIC_ERROR);
+        AssertStatus(*uploader, "Parse query", NTraceProto::Status::STATUS_CODE_ERROR);
+        AssertStatus(*uploader, "Compile query", NTraceProto::Status::STATUS_CODE_ERROR);
+        UNIT_ASSERT(FindAttribute(*FindSpan(*uploader, "Parse query"), "ydb.cpu_us"));
+    }
+
     Y_UNIT_TEST_TWIN(TableApiCompilationTrace, ScanQuery) {
         auto settings = ExternalTracingSettings();
         settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
@@ -813,10 +826,22 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
                 "Compile physical query", "Build explain plan"}) {
             AssertDescendant(snapshot, phase, "Prepare physical query");
         }
-        for (const TStringBuf step : {"Convert to RBO plan", "RBO stage: Early pruning", "RBO stage: Invoke CBO",
+        for (const TStringBuf step : {"Convert to RBO plan", "Rule-based optimization",
                 "Finalize RBO plan", "Build plan JSON", "Convert to physical plan"}) {
             AssertDescendant(snapshot, step, "Optimize (new RBO)");
         }
+        for (const auto& span : snapshot.Spans) {
+            if (span.name().StartsWith("RBO stage: ")) {
+                const auto* parent = FindParent(snapshot, span);
+                UNIT_ASSERT_C(parent && parent->name() == "Rule-based optimization", span.DebugString());
+            }
+        }
+        for (const TStringBuf step : {"RBO stage: Early pruning", "RBO stage: Invoke CBO"}) {
+            AssertDescendant(snapshot, step, "Rule-based optimization");
+        }
+        const auto* rules = FindSpan(snapshot, "Rule-based optimization");
+        const auto* physical = FindSpan(snapshot, "Convert to physical plan");
+        UNIT_ASSERT_C(rules && physical && rules->parent_span_id() == physical->parent_span_id(), snapshot.PrintTraces());
         for (const TStringBuf step : {"Convert operators", "Build stage graph", "Prepare physical stages",
                 "Build physical query"}) {
             AssertDescendant(snapshot, step, "Convert to physical plan");
@@ -841,7 +866,8 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
         // Metadata requests are children of the phase that issued them.
         AssertDescendant(snapshot, "Load metadata", "IO annotation");
 
-        for (const TStringBuf name : {"IO annotation", "Type annotation", "Optimize (new RBO)", "RBO stage: Early pruning"}) {
+        for (const TStringBuf name : {"IO annotation", "Type annotation", "Optimize (new RBO)",
+                "Rule-based optimization", "RBO stage: Early pruning"}) {
             const auto* span = FindSpan(snapshot, name);
             UNIT_ASSERT_C(span, snapshot.PrintTraces());
             const auto* cpu = FindAttribute(*span, "ydb.cpu_us");
