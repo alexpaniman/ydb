@@ -475,6 +475,61 @@ Y_UNIT_TEST_SUITE(KqpRboYql) {
     }
 
     // A scalar aggregate yields one row even when none of its results is used.
+    Y_UNIT_TEST(LegacyScalarAggregateRowsSurviveEmptyCorrelatedInput) {
+        NKikimrConfig::TAppConfig appConfig;
+        auto* config = appConfig.MutableTableServiceConfig();
+        config->SetEnableNewRBO(false);
+        config->SetEnableFallbackToYqlOptimizer(false);
+        config->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+        config->SetDefaultLangVer(NYql::GetMaxLangVersion());
+        TKikimrRunner kikimr(NKqp::TKikimrSettings(appConfig).SetWithSampleTables(false));
+        auto db = kikimr.GetTableClient();
+        auto session = db.CreateSession().GetValueSync().GetSession();
+        auto scheme = session.ExecuteSchemeQuery(R"(
+            CREATE TABLE `/Root/t1` (a Int64 NOT NULL, PRIMARY KEY(a));
+            CREATE TABLE `/Root/t2` (a Int64 NOT NULL, b Int64, PRIMARY KEY(a));
+        )").GetValueSync();
+        UNIT_ASSERT_C(scheme.IsSuccess(), scheme.GetIssues().ToString());
+        NYdb::TValueBuilder outer;
+        outer.BeginList();
+        for (const i64 value : {1, 2, 3}) {
+            outer.AddListItem().BeginStruct().AddMember("a").Int64(value).EndStruct();
+        }
+        auto inserted = db.BulkUpsert("/Root/t1", outer.EndList().Build()).GetValueSync();
+        UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+        for (const bool populated : {false, true}) {
+            if (populated) {
+                auto inner = NYdb::TValueBuilder().BeginList()
+                    .AddListItem().BeginStruct().AddMember("a").Int64(1).AddMember("b").OptionalInt64(5).EndStruct()
+                    .AddListItem().BeginStruct().AddMember("a").Int64(2).AddMember("b").OptionalInt64(std::nullopt).EndStruct()
+                    .EndList().Build();
+                const auto result = db.BulkUpsert("/Root/t2", std::move(inner)).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            }
+            for (const TString& function : {TString("SUM"), TString("MIN"), TString("MAX")}) {
+                const TString query = TStringBuilder()
+                    << "PRAGMA YqlSelect = 'force'; SELECT t1.a, (SELECT COALESCE(" << function
+                    << "(t2.b), CAST(0 AS Int64)) FROM `/Root/t2` AS t2 WHERE t2.a = t1.a) AS value "
+                       "FROM `/Root/t1` AS t1 ORDER BY t1.a;";
+                const auto result = session.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), query << "\n" << result.GetIssues().ToString());
+                UNIT_ASSERT_VALUES_EQUAL_C(FormatResultSetYson(result.GetResultSet(0)),
+                    populated ? "[[1;[5]];[2;[0]];[3;[0]]]" : "[[1;[0]];[2;[0]];[3;[0]]]", query);
+            }
+            for (const TString& argument : {TString("*"), TString("t2.b")}) {
+                const TString query = TStringBuilder()
+                    << "PRAGMA YqlSelect = 'force'; SELECT t1.a, (SELECT COUNT(" << argument
+                    << ") FROM `/Root/t2` AS t2 WHERE t2.a = t1.a) AS value "
+                       "FROM `/Root/t1` AS t1 ORDER BY t1.a;";
+                const auto result = session.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), query << "\n" << result.GetIssues().ToString());
+                const TString expected = !populated ? "[[1;[0u]];[2;[0u]];[3;[0u]]]"
+                    : argument == "*" ? "[[1;[1u]];[2;[1u]];[3;[0u]]]" : "[[1;[1u]];[2;[0u]];[3;[0u]]]";
+                UNIT_ASSERT_VALUES_EQUAL_C(FormatResultSetYson(result.GetResultSet(0)), expected, query);
+            }
+        }
+    }
+
     Y_UNIT_TEST(ScalarAggregatesWithoutUsedResults) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
