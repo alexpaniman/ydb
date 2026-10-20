@@ -17,7 +17,7 @@ from .types import (
     DATE,
     DOUBLE,
     INTEGER_TYPES,
-    MAX_DATE,
+    DATE_TIME_BOUNDS,
     VOID,
     equality_comparison_compatible,
     family,
@@ -606,7 +606,7 @@ def _literal(value: Any, scalar_type: str, path: str) -> bool | int | str | deci
         or (
             scalar_family == "date"
             and type(value) is int
-            and 0 <= value < MAX_DATE
+            and 0 <= value < DATE_TIME_BOUNDS[scalar_type]
         )
         or (scalar_family == "string" and isinstance(value, str))
     )
@@ -1653,12 +1653,12 @@ def _parse_subplan(value: Any, path: str) -> Subplan:
             )
         if (
             integer_bounds(lookup.type) is None
-            and lookup.type not in {DATE, "String"}
+            and lookup.type not in {DATE, "String", "Utf8"}
         ):
             _fail(
                 path,
                 "this IN slice supports only fixed-width integral, "
-                "Date, or String columns",
+                "Date, or String/Utf8 columns",
             )
         return InSubplan(
             binding=binding,

@@ -49,7 +49,7 @@ from .scalar import (
     decimal_sum_state_terms,
 )
 from .scalar import Value, date_domain, integer_domain, smt_sort
-from .types import BOOL, DATE, DOUBLE, family, is_decimal_type, is_ordered_type
+from .types import BOOL, DATE_TIME_BOUNDS, DOUBLE, family, is_decimal_type, is_ordered_type
 from .value_transport import (
     ValueTransportError,
     select_scalar,
@@ -467,8 +467,8 @@ class Database:
                     )
                     if family(column.type) == "string":
                         script.register_string_term(value)
-                    elif column.type == DATE:
-                        script.assert_global(date_domain(value))
+                    elif column.type in DATE_TIME_BOUNDS:
+                        script.assert_global(date_domain(value, column.type))
                     elif family(column.type) == "int":
                         script.assert_global(integer_domain(value, column.type))
                     elif decimal.is_type(column.type):

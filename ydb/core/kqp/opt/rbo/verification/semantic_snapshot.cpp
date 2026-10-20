@@ -120,7 +120,7 @@ bool IsSupportedType(TStringBuf type) {
         "Bool",
         "Int8", "Int16", "Int32", "Int64",
         "Uint8", "Uint16", "Uint32", "Uint64",
-        "String", "Utf8", "Date",
+        "String", "Utf8", "Date", "Datetime", "Timestamp",
     };
     if (Types.contains(type)) {
         return true;
@@ -133,7 +133,7 @@ bool IsSupportedLiteralType(TStringBuf type) {
         "Bool",
         "Int8", "Int16", "Int32", "Int64",
         "Uint8", "Uint16", "Uint32", "Uint64",
-        "String", "Utf8", "Date",
+        "String", "Utf8", "Date", "Datetime", "Timestamp",
     };
     return Types.contains(type);
 }
@@ -810,14 +810,16 @@ NJson::TJsonValue LiteralExpr(const TExprNode& node) {
         return result;
     }
 
-    if (type == "Date") {
+    if (type == "Date" || type == "Datetime" || type == "Timestamp") {
+        const ui64 limit = type == "Date" ? NUdf::MAX_DATE :
+            type == "Datetime" ? NUdf::MAX_DATETIME : NUdf::MAX_TIMESTAMP;
         const ui64 parsed = ParseInteger<ui64>(value, type);
-        if (parsed >= NUdf::MAX_DATE) {
+        if (parsed >= limit) {
             Unsupported(TStringBuilder()
-                << "Date literal is out of range [0, "
-                << NUdf::MAX_DATE << "): " << value);
+                << type << " literal is out of range [0, "
+                << limit << "): " << value);
         }
-        result["value"] = static_cast<ui64>(static_cast<ui16>(parsed));
+        result["value"] = parsed;
         return result;
     }
 
@@ -944,9 +946,9 @@ bool IsExactDynamicInColumnType(TStringBuf type) {
     // Dynamic IN is modeled as same-type equality over one scalar domain.
     // Nullable columns are admitted only under the separately
     // validated positive-Filter contract.  Keep this narrower than general
-    // comparison compatibility: Utf8 and coercing comparisons have not been
-    // audited.
-    return IsIntegerType(type) || type == "Date" || type == "String";
+    // comparison compatibility: String and Utf8 use exact byte equality,
+    // and coercing comparisons remain excluded.
+    return IsIntegerType(type) || type == "Date" || IsStringType(type);
 }
 
 bool StringComparisonCompatible(TStringBuf left, TStringBuf right) {
@@ -1071,13 +1073,14 @@ bool ScalarEqualityComparisonCompatible(TStringBuf left, TStringBuf right) {
 
 bool ScalarOrderingComparisonCompatible(TStringBuf left, TStringBuf right) {
     return IntegralDataComparisonCompatible(left, right) ||
-        (left == "Date" && right == "Date") ||
+        (left == right && (left == "Date" || left == "Datetime" || left == "Timestamp")) ||
         StringComparisonCompatible(left, right) ||
         DecimalComparisonCompatible(left, right);
 }
 
 bool IsModeledOrderingType(TStringBuf type) {
-    return IsIntegerType(type) || type == "Date" || IsStringType(type) ||
+    return IsIntegerType(type) || type == "Date" || type == "Datetime" ||
+        type == "Timestamp" || IsStringType(type) ||
         IsCanonicalDecimalType(type);
 }
 
@@ -1933,7 +1936,7 @@ TIntegralDivisionSignature CheckIntegralDivisionCallable(
 bool CheckCanonicalStringPredicateCallable(const TExprNode& node) {
     CheckScalarArity(node, 2, 2);
     if (!node.Child(0)->IsCallable("Member") ||
-        !node.Child(1)->IsCallable("String"))
+        !node.Child(1)->IsCallable({"String", "Utf8"}))
     {
         Unsupported(TStringBuilder()
             << node.Content()
@@ -1943,21 +1946,21 @@ bool CheckCanonicalStringPredicateCallable(const TExprNode& node) {
     bool leftNullable = false;
     bool rightNullable = false;
     bool resultNullable = false;
-    if (ScalarTypeName(*node.Child(0), &leftNullable) != "String" ||
-        !leftNullable ||
-        ScalarTypeName(*node.Child(1), &rightNullable) != "String" ||
+    if (!StringComparisonCompatible(
+            ScalarTypeName(*node.Child(0), &leftNullable),
+            ScalarTypeName(*node.Child(1), &rightNullable)) ||
         rightNullable)
     {
         Unsupported(TStringBuilder()
             << node.Content()
-            << " requires Optional<String> and non-null String operands");
+            << " requires a String/Utf8 member and a non-null text literal");
     }
     if (ScalarTypeName(node, &resultNullable) != "Bool" ||
         resultNullable != leftNullable)
     {
         Unsupported(TStringBuilder()
             << node.Content()
-            << " result must be Optional<Bool>");
+            << " result must preserve the text member's nullability");
     }
     LiteralExpr(*node.Child(1));
     return resultNullable;
@@ -2246,7 +2249,7 @@ void ValidateExactBinaryStringMembership(
         for (const auto& operand : comparison->Children()) {
             if (operand->IsCallable("Member") && !member) {
                 member = operand.Get();
-            } else if (operand->IsCallable("String") && !literal) {
+            } else if (operand->IsCallable({"String", "Utf8"}) && !literal) {
                 literal = operand.Get();
             } else {
                 Unsupported(
@@ -2276,10 +2279,10 @@ void ValidateExactBinaryStringMembership(
         const TString memberType = ScalarTypeName(*member, &memberNullable);
         const TString literalType = ScalarTypeName(*literal, &literalNullable);
         if (!memberNullable || literalNullable ||
-            memberType != "String" || literalType != "String")
+            !StringComparisonCompatible(memberType, literalType))
         {
             Unsupported(
-                "Exact binary String membership requires one Optional<String> member and matching literals");
+                "Exact binary text membership requires one optional text member and non-null text literals");
         }
 
         const TString memberName(member->Child(1)->Content());
@@ -3658,6 +3661,67 @@ struct TScalarCompiledLike {
     TString Pattern;
 };
 
+const TExprNode* CompiledLikeUtf8MapInput(const TExprNode& node) {
+    if (!node.IsCallable("Map") || node.ChildrenSize() != 2) {
+        Unsupported("Compiled LIKE Utf8 conversion must be an optional Map");
+    }
+    const auto& lambda = *node.Child(1);
+    if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+        !lambda.Child(0)->IsArguments() || lambda.Child(0)->ChildrenSize() != 1 ||
+        !lambda.Child(0)->Child(0)->IsArgument())
+    {
+        Unsupported("Compiled LIKE Utf8 Map must have a unary lambda");
+    }
+    const auto* argument = lambda.Child(0)->Child(0);
+    const auto& body = *lambda.Child(1);
+    if (!body.IsCallable("ToString") || body.ChildrenSize() != 1 || body.Child(0) != argument ||
+        !IsExactDataAnnotation(argument->GetTypeAnn(), NUdf::EDataSlot::Utf8, false) ||
+        !IsExactDataAnnotation(body.GetTypeAnn(), NUdf::EDataSlot::String, false))
+    {
+        Unsupported("Compiled LIKE Utf8 Map must convert only its bound Utf8 value to String");
+    }
+    // Unlike arbitrary scalar Map, this total conversion copies UTF-8 bytes
+    // unchanged and maps NULL to NULL (TryConvertToImpl's exact lowering).
+    return node.Child(0);
+}
+
+const TExprNode* CompiledLikeUtf8IfPresentInput(const TExprNode& node) {
+    // OptimizeMap lowers the optional byte-preserving conversion to exactly
+    // IfPresent(input, x -> Just(ToString(x)), Nothing(OptionalType(String))).
+    // Pushdown rebuilds ancestors of column references without annotations.
+    if (!node.IsCallable("IfPresent") || node.ChildrenSize() != 3) {
+        Unsupported("Compiled LIKE Utf8 conversion requires a three-child IfPresent");
+    }
+    const auto& lambda = *node.Child(1);
+    if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+        !lambda.Child(0)->IsArguments() || lambda.Child(0)->ChildrenSize() != 1 ||
+        !lambda.Child(0)->Child(0)->IsArgument())
+    {
+        Unsupported("Compiled LIKE Utf8 IfPresent requires a unary lambda");
+    }
+    const auto* argument = lambda.Child(0)->Child(0);
+    const auto& present = *lambda.Child(1);
+    const auto& missing = *node.Child(2);
+    if (!present.IsCallable("Just") || present.ChildrenSize() != 1 ||
+        !missing.IsCallable("Nothing") || missing.ChildrenSize() != 1)
+    {
+        Unsupported("Compiled LIKE Utf8 IfPresent requires Just conversion and Nothing fallback");
+    }
+    const auto& conversion = *present.Child(0);
+    if (!conversion.IsCallable("ToString") || conversion.ChildrenSize() != 1 ||
+        conversion.Child(0) != argument ||
+        (argument->GetTypeAnn() && !IsExactDataAnnotation(argument->GetTypeAnn(), NUdf::EDataSlot::Utf8, false)) ||
+        (conversion.GetTypeAnn() && !IsExactDataAnnotation(conversion.GetTypeAnn(), NUdf::EDataSlot::String, false)) ||
+        (present.GetTypeAnn() && !IsCompiledLikeType(present.GetTypeAnn(), ECompiledLikeType::OptionalString)) ||
+        (missing.GetTypeAnn() && !IsCompiledLikeType(missing.GetTypeAnn(), ECompiledLikeType::OptionalString)))
+    {
+        Unsupported("Compiled LIKE Utf8 IfPresent must convert only its bound Utf8 value to String");
+    }
+    CheckCompiledLikeTypeDescriptor(*missing.Child(0), ECompiledLikeType::OptionalString,
+        "Compiled LIKE Utf8 IfPresent fallback");
+    return node.Child(0);
+}
+
 TScalarCompiledLike CheckScalarCompiledLike(
     const TExprNode& node,
     const TExprNode* rowArgument,
@@ -3665,12 +3729,28 @@ TScalarCompiledLike CheckScalarCompiledLike(
     size_t sourceDepth)
 {
     auto like = CheckCompiledLikeApply(node, sourceDepth);
-    const auto& member = *like.Input;
+    const TExprNode* input = like.Input;
+    if (input->IsCallable("Map")) {
+        input = CompiledLikeUtf8MapInput(*input);
+        if (!IsExactDataAnnotation(input->GetTypeAnn(), NUdf::EDataSlot::Utf8, true)) {
+            Unsupported("Compiled LIKE Utf8 Map must read an Optional<Utf8> value");
+        }
+    }
+    if (input->IsCallable("ToString")) {
+        bool nullable = false;
+        if (input->ChildrenSize() != 1 ||
+            ScalarTypeName(*input->Child(0), &nullable) != "Utf8" || !nullable)
+        {
+            Unsupported("Compiled LIKE ToString must preserve a nullable Utf8 input");
+        }
+        input = input->Child(0);
+    }
+    const auto& member = *input;
     if (!member.IsCallable("Member") || member.ChildrenSize() != 2 ||
         !member.Child(1)->IsAtom() || member.Child(0) != rowArgument)
     {
         Unsupported(
-            "Compiled LIKE requires a direct Optional<String> input member");
+            TStringBuilder() << "Compiled LIKE requires a direct nullable text member; got " << member.Content());
     }
     const TString column(member.Child(1)->Content());
     if (column.empty() || !visibleColumns.contains(column)) {
@@ -5843,10 +5923,10 @@ NJson::TJsonValue ExportExprNode(
 
     if (IsSupportedType(node.Content())) {
         auto result = LiteralExpr(node);
-        if (node.Content() == "Date") {
+        if (node.IsCallable({"Date", "Datetime", "Timestamp"})) {
             bool nullable = false;
             if (ScalarTypeName(node, &nullable, binary64Mode) != node.Content() || nullable) {
-                Unsupported("Date literal type annotation does not match its callable");
+                Unsupported(TStringBuilder() << node.Content() << " literal type annotation does not match its callable");
             }
         }
         return result;
@@ -6222,15 +6302,8 @@ NJson::TJsonValue ExportExprNode(
         if (!dict.IsCallable("ToDict") || dict.ChildrenSize() != 4) {
             Unsupported("Static-set Contains input must be the exact ToDict shape");
         }
-        if (!lookup.IsArgument()) {
-            Unsupported("Static-set Contains lookup must be an IfPresent bound value");
-        }
-        const auto bound = std::find(
-            boundArguments.begin(),
-            boundArguments.end(),
-            &lookup);
-        if (bound == boundArguments.end()) {
-            Unsupported("Static-set Contains lookup is a free Argument");
+        if (!lookup.IsArgument() && !lookup.IsCallable("Member")) {
+            Unsupported("Static-set Contains lookup must be a bound value or direct input member");
         }
 
         const auto& values = *dict.Child(0);
@@ -6351,7 +6424,6 @@ NJson::TJsonValue ExportExprNode(
         CheckScalarSafetyMetadata(payload);
         CheckScalarSafetyMetadata(settings);
 
-        budget.Charge(normalizedDepth + 1); // Emitted bound lookup.
         auto items = JsonArray();
         for (size_t index = 1; index < values.ChildrenSize(); ++index) {
             const auto& item = *values.Child(index);
@@ -6371,8 +6443,12 @@ NJson::TJsonValue ExportExprNode(
 
         auto result = JsonMap();
         result["kind"] = "in";
-        result["lookup"] = BoundExpr(static_cast<size_t>(
-            bound - boundArguments.begin()));
+        // A required input needs no IfPresent binder. Export through the
+        // ordinary scalar path so visibility, binding and metadata audits
+        // apply equally to a direct member and a nullable input's bound value.
+        result["lookup"] = ExportExprNode(
+            lookup, rowArgument, visibleColumns, boundArguments, budget,
+            normalizedDepth + 1, sourceDepth + 1, binary64Mode);
         result["items"] = std::move(items);
         return result;
     }
@@ -7182,21 +7258,33 @@ TOlapCompiledLike CheckOlapCompiledLike(
     const TString columnName(columnNameNode.Content());
 
     const auto& rowTypeNode = *columnArg.Child(0);
-    if (!rowTypeNode.IsCallable("StructType") ||
-        rowTypeNode.GetTypeAnn() ||
-        rowTypeNode.ChildrenSize() == 0)
+    if (!rowTypeNode.IsCallable("StructType") || rowTypeNode.ChildrenSize() == 0)
     {
         Unsupported(
             "Compiled LIKE OLAP Apply table row type is not StructType");
+    }
+    // ExpandType now preserves the Type<Struct<...>> annotation. Check every
+    // descriptor field against it, rather than accepting a contradictory type
+    // or requiring the obsolete, entirely unannotated representation.
+    const TStructExprType* annotatedRow = nullptr;
+    if (rowTypeNode.GetTypeAnn()) {
+        const auto& described = DescribedType(rowTypeNode, "Compiled LIKE OLAP row");
+        if (described.GetKind() != ETypeAnnotationKind::Struct) {
+            Unsupported("Compiled LIKE OLAP row annotation is not a Struct type");
+        }
+        annotatedRow = described.Cast<TStructExprType>();
+        if (annotatedRow->GetSize() != rowTypeNode.ChildrenSize()) {
+            Unsupported("Compiled LIKE OLAP row annotation has different fields");
+        }
     }
     const TExprNode* selectedDescriptor = nullptr;
     TString previousName;
     for (size_t index = 0; index < rowTypeNode.ChildrenSize(); ++index) {
         const auto& field = *rowTypeNode.Child(index);
         if (!field.IsList() || field.ChildrenSize() != 2 ||
-            field.GetTypeAnn() ||
             !field.Child(0)->IsAtom() ||
-            field.Child(0)->GetTypeAnn() ||
+            (field.Child(0)->GetTypeAnn() &&
+             field.Child(0)->GetTypeAnn()->GetKind() != ETypeAnnotationKind::Unit) ||
             field.Child(0)->Content().empty())
         {
             Unsupported(
@@ -7214,8 +7302,24 @@ TOlapCompiledLike CheckOlapCompiledLike(
         bool nullable = false;
         const TString type =
             CheckOlapDataTypeDescriptor(*field.Child(1), &nullable);
+        if (const auto annotation = field.GetTypeAnn()) {
+            // The type annotator assigns Unit to a list containing a Unit
+            // atom (type_ann_expr.cpp), including StructType field pairs.
+            if (annotation->GetKind() != ETypeAnnotationKind::Unit) {
+                Unsupported("Compiled LIKE OLAP row field annotation is not Unit");
+            }
+        }
+        if (annotatedRow) {
+            const auto* annotatedField = annotatedRow->FindItemType(fieldName);
+            bool annotatedNullable = false;
+            if (!annotatedField || TypeName(annotatedField, &annotatedNullable) != type ||
+                annotatedNullable != nullable)
+            {
+                Unsupported("Compiled LIKE OLAP row annotation disagrees with its descriptor");
+            }
+        }
         if (fieldName == columnName) {
-            if (type != "String" || !nullable) {
+            if (!IsStringType(type) || !nullable) {
                 Unsupported(
                     "Compiled LIKE OLAP Apply selected row field is not "
                     "Optional<String>");
@@ -7229,10 +7333,16 @@ TOlapCompiledLike CheckOlapCompiledLike(
     }
 
     const auto* column = ResolveOlapColumn(columnName, columns);
-    if (column->Type != "String" || !column->Nullable) {
+    if (!IsStringType(column->Type) || !column->Nullable) {
         Unsupported(
             "Compiled LIKE OLAP Apply requires a nullable String read "
             "column");
+    }
+    bool selectedNullable = false;
+    if (CheckOlapDataTypeDescriptor(*selectedDescriptor, &selectedNullable) != column->Type ||
+        selectedNullable != column->Nullable)
+    {
+        Unsupported("Compiled LIKE OLAP selected descriptor disagrees with the read column");
     }
     const auto& kernelName = *node.Child(2);
     if (!kernelName.IsAtom() || !kernelName.Content().empty() ||
@@ -7260,7 +7370,22 @@ TOlapCompiledLike CheckOlapCompiledLike(
         sourceDepth,
         false,
         ECompiledLikeOuterAnnotations::Absent);
-    if (like.Input != lambdaArgument) {
+    const TExprNode* likeInput = like.Input;
+    if (column->Type == "Utf8") {
+        if (likeInput->IsCallable("Map")) {
+            likeInput = CompiledLikeUtf8MapInput(*likeInput);
+        } else if (likeInput->IsCallable("IfPresent")) {
+            likeInput = CompiledLikeUtf8IfPresentInput(*likeInput);
+        } else {
+            if (!likeInput->IsCallable("ToString") || likeInput->ChildrenSize() != 1 ||
+                likeInput->GetTypeAnn())
+            {
+                Unsupported("Compiled LIKE OLAP Utf8 input requires exact ToString conversion");
+            }
+            likeInput = likeInput->Child(0);
+        }
+    }
+    if (likeInput != lambdaArgument) {
         Unsupported(
             "Compiled LIKE OLAP Apply must apply to its sole lambda "
             "argument");
@@ -7413,14 +7538,14 @@ NJson::TJsonValue ExportOlapBinary(
                 "OLAP String predicate left operand must be a read column");
         }
         const auto* column = ResolveOlapColumn(left.Content(), columns);
-        if (column->Type != "String" || !column->Nullable) {
+        if (column->Type != "String" && column->Type != "Utf8") {
             Unsupported(
-                "OLAP String predicate requires an Optional<String> column");
+                "OLAP String predicate requires a String/Utf8 column");
         }
 
         bool literalNullable = false;
-        if (!right.IsCallable("String") ||
-            ScalarTypeName(right, &literalNullable) != "String" ||
+        if (!right.IsCallable({"String", "Utf8"}) ||
+            !StringComparisonCompatible(column->Type, ScalarTypeName(right, &literalNullable)) ||
             literalNullable)
         {
             Unsupported(

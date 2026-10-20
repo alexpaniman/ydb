@@ -14,6 +14,7 @@
 #include <library/cpp/time_provider/time_provider.h>
 
 #include <yql/essentials/core/yql_graph_transformer.h>
+#include <yql/essentials/core/yql_expr_type_annotation.h>
 #include <yql/essentials/core/yql_type_annotation.h>
 #include <yql/essentials/core/type_ann/type_ann_expr.h>
 #include <yql/essentials/minikql/invoke_builtins/mkql_builtins.h>
@@ -564,7 +565,7 @@ void CheckNativeInitialScalarTypes(bool predicate) {
 }
 
 TString CheckNativeTextMembership(const TString& sourceType, const TString& itemType,
-    bool nullable, bool negate, bool changeLastItem = false)
+    bool nullable, bool negate, bool changeLastItem = false, bool dictionary = false)
 {
     TFixture beforeFixture(sourceType, !nullable);
     TFixture afterFixture(sourceType, !nullable);
@@ -586,7 +587,22 @@ TString CheckNativeTextMembership(const TString& sourceType, const TString& item
             items.push_back(fixture.Expr.NewCallable(pos, itemType, {fixture.Expr.NewAtom(pos, value)}));
         }
         TExprNode::TPtr body;
-        if (rewrite) {
+        if (rewrite && dictionary) {
+            UNIT_ASSERT(!nullable);
+            UNIT_ASSERT_VALUES_EQUAL(sourceType, itemType);
+            auto key = fixture.Expr.NewArgument(pos, "key");
+            auto payload = fixture.Expr.NewArgument(pos, "payload");
+            const auto* listType = fixture.Expr.MakeType<TListExprType>(textType);
+            auto descriptor = ExpandType(pos, *listType, fixture.Expr);
+            items.insert(items.begin(), std::move(descriptor));
+            auto dict = fixture.Expr.NewCallable(pos, "ToDict", {
+                fixture.Expr.NewCallable(pos, "List", std::move(items)),
+                fixture.Expr.NewLambda(pos, fixture.Expr.NewArguments(pos, {key}), TExprNode::TPtr(key)),
+                fixture.Expr.NewLambda(pos, fixture.Expr.NewArguments(pos, {payload}),
+                    fixture.Expr.NewCallable(pos, "Void", {})),
+                fixture.Expr.NewList(pos, {fixture.Expr.NewAtom(pos, "One"), fixture.Expr.NewAtom(pos, "Auto")})});
+            body = fixture.Expr.NewCallable(pos, "Contains", {dict, member});
+        } else if (rewrite) {
             TExprNode::TListType comparisons;
             for (const auto& item : items) {
                 comparisons.push_back(fixture.Expr.NewCallable(pos, "==", {member, item}));
@@ -718,6 +734,28 @@ TSemanticSnapshotExportResult StagedRead(ui32 firstStage) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(TNativeSemanticSnapshot) {
+    Y_UNIT_TEST(NativeTemporalColumnsPreserveUnitsAcrossStages) {
+        for (const TString& type : {TString("Date"), TString("Datetime"), TString("Timestamp")}) {
+            TFixture fixture(type);
+            auto read = fixture.Read();
+            read->GetColumns() = TUnorderedIUs{fixture.Key, fixture.Group};
+            fixture.SetType(*read, {
+                {fixture.Key, fixture.Expr.MakeType<TDataExprType>(NUdf::EDataSlot::Int32)},
+                {fixture.Group, fixture.Expr.MakeType<TOptionalExprType>(
+                    fixture.Expr.MakeType<TDataExprType>(*NUdf::FindDataSlot(type)))}});
+            auto sorted = MakeIntrusive<TOpSort>(read, TPositionHandle(),
+                TSortIUs{{fixture.Group, {true, true}}});
+            sorted->Type = read->Type;
+            TOpRoot root(sorted, TPositionHandle(), {{fixture.Key, "key"}, {fixture.Group, "time"}});
+            const auto before = fixture.Export(root);
+            Parse(before);
+            fixture.StageSerial(root);
+            const auto after = fixture.Export(root);
+            Parse(after);
+            UNIT_ASSERT_VALUES_EQUAL(Verify(before.Json, after.Json), "VERIFIED_BOUNDED");
+        }
+    }
+
     Y_UNIT_TEST(NativeSortUsesPhysicalNullPlacement) {
         CheckNativeSortNullPlacement(false);
     }
@@ -776,6 +814,17 @@ Y_UNIT_TEST_SUITE(TNativeSemanticSnapshot) {
         for (bool negate : {false, true}) {
             UNIT_ASSERT_VALUES_EQUAL(CheckNativeTextMembership("Utf8", "String", true, negate, true),
                 "COUNTEREXAMPLE");
+        }
+    }
+
+    Y_UNIT_TEST(NativeRequiredTextMembershipMatchesDictionaryLowering) {
+        for (const TString& type : {TString("String"), TString("Utf8")}) {
+            for (bool negate : {false, true}) {
+                UNIT_ASSERT_VALUES_EQUAL(CheckNativeTextMembership(type, type, false, negate, false, true),
+                    "VERIFIED_BOUNDED");
+                UNIT_ASSERT_VALUES_EQUAL(CheckNativeTextMembership(type, type, false, negate, true, true),
+                    "COUNTEREXAMPLE");
+            }
         }
     }
 

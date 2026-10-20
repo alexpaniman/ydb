@@ -7,7 +7,7 @@ from typing import Mapping, TypeAlias
 
 from . import decimal, floating, smt
 from .ir import Expr
-from .types import BOOL, DATE, DOUBLE, MAX_DATE, VOID, family, integer_bounds, integer_width
+from .types import BOOL, DATE, DATE_TIME_BOUNDS, DOUBLE, VOID, family, integer_bounds, integer_width
 
 
 DecimalSumState = decimal.DecimalSumState
@@ -17,10 +17,10 @@ def smt_sort(scalar_type: str) -> str:
     return smt.BOOL if family(scalar_type) in {"bool", "unit"} else smt.INT
 
 
-def date_domain(value: smt.Term) -> smt.Term:
+def date_domain(value: smt.Term, scalar_type: str = DATE) -> smt.Term:
     return smt.and_(
         smt.not_(smt.lt(value, smt.ZERO)),
-        smt.lt(value, smt.int_value(MAX_DATE)),
+        smt.lt(value, smt.int_value(DATE_TIME_BOUNDS[scalar_type])),
     )
 
 
@@ -619,9 +619,9 @@ class Encoder:
         )
         if family(result.type) == "string":
             self.script.register_string_term(result.value)
-        elif result.type == DATE:
+        elif result.type in DATE_TIME_BOUNDS:
             self.script.assert_choice_invariant(
-                smt.or_(result.is_null, date_domain(result.value))
+                smt.or_(result.is_null, date_domain(result.value, result.type))
             )
         elif family(result.type) == "int":
             self.script.assert_choice_invariant(

@@ -28,6 +28,7 @@ TEST_SRCS(
     test_subplans.py
     test_union_all_variadic.py
     test_smt.py
+    test_temporal.py
     test_verify.py
     test_window_avg.py
     test_window_rank.py

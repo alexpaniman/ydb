@@ -3015,6 +3015,23 @@ Y_UNIT_TEST_SUITE(TRBOSemanticSnapshotIntegration) {
         UNIT_ASSERT_VALUES_EQUAL(verdict["task_bound"].GetIntegerSafe(), 2);
     }
 
+    Y_UNIT_TEST(RealHostVerifiesPushedTextPredicates) {
+        TKikimrRunner kikimr;
+        CreateTextOrderedColumnTable(kikimr);
+        for (const TString& column : {TString("Bytes"), TString("Text")}) {
+            for (const TString& predicate : {
+                    column + " LIKE '%special%requests%'",
+                    column + " NOT LIKE '%special%requests%'",
+                    column + " LIKE '%BRASS'",
+                    column + " LIKE '%green%'",
+                    column + " IN ('red', 'blue', 'green')"})
+            {
+                VerifyRealHostSnapshotPair(kikimr, TStringBuilder()
+                    << "SELECT Id, " << column << " FROM `/Root/RboTextOrdered` WHERE " << predicate << ";");
+            }
+        }
+    }
+
     Y_UNIT_TEST(RealHostVerifiesPushedOlapFilter) {
         TKikimrRunner kikimr;
         CreateOrderedColumnTable(kikimr);
