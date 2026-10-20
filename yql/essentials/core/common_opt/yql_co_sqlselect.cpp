@@ -2712,8 +2712,14 @@ TExprNode::TPtr BuildGroup(
 
     TExprNode::TListType payloadItems;
     TVector<ui32> nonNullDefAggs;
+    bool knownScalarDefaults = true;
     for (ui32 i = 0; i < aggs.size(); ++i) {
-        if (aggs[i].first->Head().Content() == "count") {
+        const auto function = aggs[i].first->Head().Content();
+        // Other factories can define a non-NULL empty value of their own.
+        knownScalarDefaults = knownScalarDefaults &&
+            (function == "count" || function == "sum" || function == "min" ||
+             function == "max" || function == "avg" || function == "some" || function == "variance_1_1");
+        if (function == "count") {
             nonNullDefAggs.push_back(i);
         }
 
@@ -2864,7 +2870,10 @@ TExprNode::TPtr BuildGroup(
             .Build();
         // clang-format on
 
-        if (!extKeysItems.empty() && currentKeys.empty() && !nonNullDefAggs.empty()) {
+        // Restore the scalar row before projection/HAVING even when all
+        // aggregate defaults are NULL. Preserve the existing COUNT repair;
+        // arbitrary factories need their own empty-default contract.
+        if (!extKeysItems.empty() && currentKeys.empty() && (!nonNullDefAggs.empty() || knownScalarDefaults)) {
             // restore aggregation keys
             auto joinColumns = ctx.NewList(pos, TExprNode::TListType(extKeysItems));
             auto joined = JoinColumns(pos, joinedUniqueExt, aggregate, joinColumns, {}, ctx);
