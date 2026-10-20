@@ -7921,6 +7921,27 @@ FROM (
         }
     }
 
+    Y_UNIT_TEST(GroupedAggregateRetainsKnownGroupingUniqueness) {
+        for (const bool knownInputKey : {true, false}) {
+            NTests::TIdTestContext f;
+            const auto key = f.Id("key"), value = f.Id("value"), total = f.Id("total");
+            auto read = f.Read({key, value});
+            read->Props.Metadata.emplace();
+            read->Props.Metadata->ColumnsCount = 2;
+            if (knownInputKey) {
+                read->Props.Metadata->KeyColumns = {key};
+            }
+            auto aggregate = MakeIntrusive<TOpAggregate>(read,
+                TAggregationIUs{{total, {value, "sum", false, false}}},
+                TOrderedIUs<>{key, value}, EOpPhase::Undefined, false, f.Pos);
+            aggregate->ComputeMetadata(f.RboCtx, f.Props);
+            const auto expected = knownInputKey ? TOrderedIUs<>{key} : TOrderedIUs<>{key, value};
+            UNIT_ASSERT_C(aggregate->Props.Metadata->KeyColumns == expected,
+                "Grouped aggregate lost uniqueness when its input key was unknown");
+        }
+    }
+
+
     Y_UNIT_TEST(PhysicalSemiJoinUsesPerEdgeLiveIn) {
         NTests::TIdTestContext f;
         const auto a = f.Id("a"), b = f.Id("b");
