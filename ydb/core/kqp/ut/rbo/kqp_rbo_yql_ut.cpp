@@ -1392,6 +1392,76 @@ FROM (
         UNIT_ASSERT_C(mergeConnection->GetMapSafe().contains("SortColumns"), sortPlan);
     }
 
+    Y_UNIT_TEST_TWIN(RepeatedSortAliasesKeepTheFirstDirection, ColumnStore) {
+        NKikimrConfig::TAppConfig appConfig;
+        auto* config = appConfig.MutableTableServiceConfig();
+        config->SetEnableNewRBO(true);
+        config->SetEnableFallbackToYqlOptimizer(false);
+        config->SetAllowOlapDataQuery(true);
+        config->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+        config->SetDefaultLangVer(NYql::GetMaxLangVersion());
+        TKikimrRunner kikimr(NKqp::TKikimrSettings(appConfig).SetWithSampleTables(false));
+        auto client = kikimr.GetTableClient();
+        auto session = client.CreateSession().GetValueSync().GetSession();
+        const TString schema = TStringBuilder() << R"(
+            CREATE TABLE `/Root/repeated_sort_keys` (
+                Id Int64 NOT NULL,
+                K Int64,
+                PRIMARY KEY (Id)
+            )
+        )" << (ColumnStore ? "WITH (STORE = COLUMN);" : ";");
+        const auto scheme = session.ExecuteSchemeQuery(schema).GetValueSync();
+        UNIT_ASSERT_C(scheme.IsSuccess(), scheme.GetIssues().ToString());
+
+        const std::array<std::optional<i64>, 6> keys = {2, std::nullopt, 1, 1, std::nullopt, 0};
+        TValueBuilder rows;
+        rows.BeginList();
+        for (size_t i = 0; i < keys.size(); ++i) {
+            rows.AddListItem().BeginStruct()
+                .AddMember("Id").Int64(i + 1)
+                .AddMember("K").OptionalInt64(keys[i])
+                .EndStruct();
+        }
+        const auto upsert = client.BulkUpsert("/Root/repeated_sort_keys", rows.EndList().Build()).GetValueSync();
+        UNIT_ASSERT_C(upsert.IsSuccess(), upsert.GetIssues().ToString());
+
+        for (bool ascending : {true, false}) {
+            const std::array<i64, 6> expected = ascending
+                ? std::array<i64, 6>{2, 5, 6, 3, 4, 1}
+                : std::array<i64, 6>{1, 3, 4, 6, 2, 5};
+            for (const TString& suffix : {TString(""), TString(" LIMIT 2"), TString(" LIMIT 3 OFFSET 1")}) {
+                TString control;
+                for (bool repeated : {false, true}) {
+                    const TString query = TStringBuilder()
+                        << "PRAGMA YqlSelect = 'force';\n"
+                        << "SELECT Id, K AS a, K AS b FROM `/Root/repeated_sort_keys` ORDER BY "
+                        << (repeated ? "a" : "K") << (ascending ? " ASC" : " DESC")
+                        << (repeated ? (ascending ? ", b DESC" : ", b ASC") : "")
+                        << ", Id" << suffix << ";";
+                    const auto result = session.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                    UNIT_ASSERT_C(result.IsSuccess(), query << "\n" << result.GetIssues().ToString());
+                    const auto& resultSet = result.GetResultSet(0);
+                    const auto formatted = FormatResultSetYson(resultSet);
+                    if (repeated) {
+                        UNIT_ASSERT_VALUES_EQUAL_C(formatted, control, query);
+                    } else {
+                        control = formatted;
+                    }
+                    const size_t offset = suffix.Contains("OFFSET") ? 1 : 0;
+                    const size_t count = suffix.empty() ? 6 : (offset ? 3 : 2);
+                    UNIT_ASSERT_VALUES_EQUAL_C(resultSet.RowsCount(), count, query);
+                    TResultSetParser parser(resultSet);
+                    for (size_t i = 0; i < count; ++i) {
+                        UNIT_ASSERT_C(parser.TryNextRow(), query);
+                        UNIT_ASSERT_VALUES_EQUAL_C(parser.ColumnParser(0).GetInt64(), expected[offset + i], query);
+                        UNIT_ASSERT_C(parser.ColumnParser(1).GetOptionalInt64() == keys[expected[offset + i] - 1], query);
+                        UNIT_ASSERT_C(parser.ColumnParser(2).GetOptionalInt64() == keys[expected[offset + i] - 1], query);
+                    }
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(TopSortPushedToRowReadAndKept) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
