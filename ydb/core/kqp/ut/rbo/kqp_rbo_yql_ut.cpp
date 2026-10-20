@@ -7921,6 +7921,37 @@ FROM (
         }
     }
 
+    Y_UNIT_TEST(FullJoinDoesNotAdvertiseOneSidedShuffling) {
+        for (const auto algo : {EJoinAlgoType::GraceJoin, EJoinAlgoType::MapJoin}) {
+            for (const TString& kind : {TString("Inner"), TString("Left"), TString("Right"),
+                                       TString("Full"), TString("Exclusion")}) {
+                NTests::TIdTestContext f;
+                f.Config->OptShuffleElimination = true;
+                const auto leftKey = f.Id("left"), rightKey = f.Id("right"), count = f.Id("count");
+                auto left = f.Read({leftKey}), right = f.Read({rightKey});
+                left->Props.Metadata.emplace();
+                right->Props.Metadata.emplace();
+                left->Props.Metadata->ColumnsCount = right->Props.Metadata->ColumnsCount = 1;
+                left->Props.Metadata->ShuffledByColumns = {leftKey};
+                right->Props.Metadata->ShuffledByColumns = {rightKey};
+                auto join = MakeIntrusive<TOpJoin>(left, right, f.Pos, kind, TJoinIUs{{leftKey, rightKey}});
+                join->Props.JoinAlgo = algo;
+                join->ComputeMetadata(f.RboCtx, f.Props);
+                const bool bothSidesNullable = kind == "Full" || kind == "Exclusion";
+                const auto expected = bothSidesNullable || (kind == "Right" && algo == EJoinAlgoType::MapJoin)
+                    ? TOrderedIUs<>{} : TOrderedIUs<>{kind == "Right" ? rightKey : leftKey};
+                UNIT_ASSERT_C(join->Props.Metadata->ShuffledByColumns == expected,
+                    kind << " advertises a distribution that unmatched rows need not preserve");
+                if (bothSidesNullable) {
+                    auto aggregate = MakeIntrusive<TOpAggregate>(join,
+                        TAggregationIUs{{count, {rightKey, "count", false, false}}},
+                        TOrderedIUs<>{leftKey}, EOpPhase::Undefined, false, f.Pos);
+                    UNIT_ASSERT(!CanEliminateAggregateShuffle(*aggregate, f.RboCtx));
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(PhysicalSemiJoinUsesPerEdgeLiveIn) {
         NTests::TIdTestContext f;
         const auto a = f.Id("a"), b = f.Id("b");
