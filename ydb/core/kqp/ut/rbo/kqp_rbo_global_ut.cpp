@@ -984,4 +984,54 @@ Y_UNIT_TEST_SUITE(KqpRboRebindConsumers) {
     }
 }
 
+Y_UNIT_TEST_SUITE(KqpRboFilterFusion) {
+    Y_UNIT_TEST(ReportsTheRewriteAndRetainsBothPredicates) {
+        TIdTestContext f;
+        const auto key = f.Id("key");
+        auto read = f.Read({key});
+        auto lower = MakeIntrusive<TOpFilter>(read, f.Pos,
+            MakeBinaryPredicate(">", f.Column(key), MakeConstant("Int32", "0", f.Pos, &f.ExprCtx)));
+        auto upper = MakeIntrusive<TOpFilter>(lower, f.Pos,
+            MakeBinaryPredicate("<", f.Column(key), MakeConstant("Int32", "5", f.Pos, &f.ExprCtx)));
+        auto root = f.Root(upper, {{key, "key"}});
+        TFuseFiltersRule rule;
+        auto& input = root->MutableChild(0);
+        const bool changed = rule.MatchAndApply(input, f.RboCtx, root->PlanProps);
+        UNIT_ASSERT_C(changed, "Filter fusion changed the plan without reporting the rewrite");
+        auto fused = CastOperator<TOpFilter>(input);
+        UNIT_ASSERT(fused->GetInput() == read);
+        UNIT_ASSERT_VALUES_EQUAL(fused->GetFilterExpression().SplitConjunct().size(), 2);
+        UNIT_ASSERT(!rule.MatchAndApply(input, f.RboCtx, root->PlanProps));
+    }
+
+    Y_UNIT_TEST(RecomputesParentsBeforeTheFollowingRule) {
+        class TCheckParents final : public IRule {
+        public:
+            TCheckParents() : IRule("Check fused filter parents", ERuleProperties::RequireParents) {}
+            bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override {
+                return input->Kind == EOperator::Filter && input->GetChild(0)->Kind == EOperator::Source;
+            }
+            bool MatchAndApply(TIntrusivePtr<IOperator>& input, TRBOContext&, TPlanProps&) override {
+                const auto& parents = input->GetChild(0)->Parents;
+                UNIT_ASSERT_VALUES_EQUAL(parents.size(), 1);
+                UNIT_ASSERT_C(parents.front().first == input.Get(), "Filter fusion left stale parent metadata");
+                return false;
+            }
+        };
+        TIdTestContext f;
+        const auto key = f.Id("key");
+        auto read = f.Read({key});
+        auto lower = MakeIntrusive<TOpFilter>(read, f.Pos,
+            MakeBinaryPredicate(">", f.Column(key), MakeConstant("Int32", "0", f.Pos, &f.ExprCtx)));
+        auto upper = MakeIntrusive<TOpFilter>(lower, f.Pos,
+            MakeBinaryPredicate("<", f.Column(key), MakeConstant("Int32", "5", f.Pos, &f.ExprCtx)));
+        auto root = f.Root(upper, {{key, "key"}});
+        TVector<std::unique_ptr<IRule>> rules;
+        rules.emplace_back(std::make_unique<TFuseFiltersRule>());
+        rules.emplace_back(std::make_unique<TCheckParents>());
+        TRuleBasedStage("Filter fusion", std::move(rules)).RunStage(*root, f.RboCtx);
+        UNIT_ASSERT_VALUES_EQUAL(CountOperators(*root, EOperator::Filter), 1);
+    }
+}
+
 } // namespace NKikimr::NKqp
