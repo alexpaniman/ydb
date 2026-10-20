@@ -7815,6 +7815,44 @@ FROM (
         }
     }
 
+    Y_UNIT_TEST(TableLookupRequiresTheCompletePrimaryKeyForUniqueness) {
+        for (ui32 mask = 0; mask < 4; ++mask) {
+            for (const bool joinMode : {false, true}) {
+                NTests::TIdTestContext f;
+                auto& table = f.Tables->GetOrAddTable("ut", "/Root", "/Root/table");
+                table.Metadata = MakeIntrusive<TKikimrTableMetadata>("ut", "/Root/table");
+                table.Metadata->DoesExist = true;
+                table.Metadata->PathId = TKikimrPathId(1, 1);
+                table.Metadata->SchemaVersion = 1;
+                table.Metadata->Kind = EKikimrTableKind::Datashard;
+                table.Metadata->KeyColumnNames = {"a", "b"};
+                ui32 columnId = 0;
+                for (const TString& name : {TString("a"), TString("b"), TString("payload")}) {
+                    table.Metadata->Columns.emplace(name, TKikimrColumnMetadata(name, ++columnId, "Int32", true));
+                    table.Metadata->ColumnOrder.push_back(name);
+                }
+                UNIT_ASSERT(table.Load(f.ExprCtx));
+                const auto sourceA = f.Id("a"), sourceB = f.Id("b");
+                const auto outputA = f.Id("a"), outputB = f.Id("b"), payload = f.Id("payload");
+                auto source = f.Read({sourceA, sourceB});
+                source->ComputeMetadata(f.RboCtx, f.Props);
+                TUnorderedIUs columns{payload};
+                if (mask & 1) { columns.Add(outputA); }
+                if (mask & 2) { columns.Add(outputB); }
+                TOpTableLookup::TLookupKeys keys;
+                keys.Append(sourceA, "a");
+                keys.Append(sourceB, "b");
+                auto lookup = joinMode
+                    ? MakeIntrusive<TOpTableLookup>(source, f.Pos, source->GetTable(), columns, keys, "Inner", std::nullopt)
+                    : MakeIntrusive<TOpTableLookup>(source, f.Pos, source->GetTable(), columns, keys);
+                lookup->ComputeMetadata(f.RboCtx, f.Props);
+                const auto expected = !joinMode && mask == 3 ? TOrderedIUs<>{outputA, outputB} : TOrderedIUs<>{};
+                UNIT_ASSERT_C(lookup->Props.Metadata->KeyColumns == expected,
+                    "Lookup advertised a partial composite key as unique: mask=" << mask << " join=" << joinMode);
+            }
+        }
+    }
+
     Y_UNIT_TEST(PhysicalSemiJoinUsesPerEdgeLiveIn) {
         NTests::TIdTestContext f;
         const auto a = f.Id("a"), b = f.Id("b");
