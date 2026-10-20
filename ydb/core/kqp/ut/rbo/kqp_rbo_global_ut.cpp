@@ -70,6 +70,35 @@ void CheckMapPullup(const TString& kind, bool fromLeft, EMapUse use, bool expect
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
+    Y_UNIT_TEST(PruningKeepsGroupingSetsAggregateTemplate) {
+        for (const bool keepCount : {false, true}) {
+            NTests::TIdTestContext f;
+            const auto value = f.Id("value"), count = f.Id("count"), output = f.Id("count_output");
+            auto aggregate = MakeIntrusive<TOpAggregate>(f.Read({value}),
+                TAggregationIUs{{count, {value, "count", false, false}}},
+                TOrderedIUs<>{}, EOpPhase::Undefined, false, f.Pos);
+            auto grouping = MakeIntrusive<TOpGroupingSets>(aggregate,
+                TVector<TUnorderedIUs>{{}, {}}, TMappedIUs<TInfoUnitId>{{output, count}}, f.Pos);
+            auto root = f.Root(grouping, keepCount ? TOrderedIUs<TString>{{output, "count"}} : TOrderedIUs<TString>{});
+            TGlobalPruningStage("early pruning").RunStage(*root, f.RboCtx);
+            UNIT_ASSERT_C(grouping->GetInput()->Kind == EOperator::Aggregate,
+                "GroupingSets lost its Aggregate template during pruning");
+            UNIT_ASSERT_VALUES_EQUAL(aggregate->GetAggregationTraits().Keys().Empty(), !keepCount);
+            UNIT_ASSERT_VALUES_EQUAL(grouping->GetGroupingSets().size(), 2);
+        }
+    }
+
+
+    Y_UNIT_TEST(CleanupFoldsOrdinaryResultlessScalarAggregate) {
+        NTests::TIdTestContext f;
+        const auto value = f.Id("value");
+        auto aggregate = MakeIntrusive<TOpAggregate>(f.Read({value}), TAggregationIUs{},
+            TOrderedIUs<>{}, EOpPhase::Undefined, false, f.Pos);
+        auto root = f.Root(aggregate, {});
+        FinishLogicalRewrite(*root, f.ExprCtx);
+        UNIT_ASSERT(root->GetInput()->Kind == EOperator::EmptySource);
+    }
+
     Y_UNIT_TEST(ExpandReplicateReplacesAllPorts) {
         TIdTestContext f;
         f.Config->_KqpEnableSpilling = false;
