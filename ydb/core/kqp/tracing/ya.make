@@ -26,5 +26,6 @@ PEERDIR(
 END()
 
 RECURSE_FOR_TESTS(
+    tools/compile_trace
     ut
 )

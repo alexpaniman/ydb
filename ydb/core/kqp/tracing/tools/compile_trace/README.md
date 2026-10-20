@@ -92,6 +92,10 @@ The database has a `spans_view` view (one row per span with its benchmark,
 query, level, repeat, parent, ancestors, own time and attributes) for ad hoc
 SQL, e.g. with `sqlite3`, Datasette or DuckDB.
 
+Reloading an input file updates existing spans by trace/span ID and replaces
+that file's run records, so an appended benchmark file can be imported again.
+Overlapping JSON lines and Jaeger exports do not duplicate spans.
+
 ### CPU profile of a span
 
 To see what a span spends its time on, record a CPU profile with the wall clock
@@ -111,8 +115,10 @@ compile_trace.py load compile_traces.jsonl -o traces.db
 compile_trace.py perf-filter traces.db --perf-script perf.txt --name 'Peephole stage' -o peephole.folded
 ```
 
-Samples are matched to spans by time and by `thread.id`, so spans that wait
-asynchronously and continue on another thread are matched by time only.
+Samples are matched by time and, when present, `thread.id`. Spans without a
+thread ID are matched by time only, which can include unrelated concurrent
+work. For asynchronous spans, `thread.id` identifies only the starting thread;
+filter their synchronous child spans to capture work after thread migrations.
 
 ## Limitations
 

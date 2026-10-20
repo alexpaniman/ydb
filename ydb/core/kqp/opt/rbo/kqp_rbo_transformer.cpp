@@ -583,7 +583,9 @@ void TKqpNewRBOTransformer::AddPlans(std::optional<NJson::TJsonValue> execPlan, 
 }
 
 void TKqpNewRBOTransformer::Rewind() {
-    ColumnStatisticsSpan.EndError("Transformer rewound");
+    if (ColumnStatisticsSpan) {
+        ColumnStatisticsSpan.EndError("Transformer rewound");
+    }
 }
 
 TCompileTrace* TKqpNewRBOTransformer::GetCompileTrace() const {

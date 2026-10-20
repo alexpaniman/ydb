@@ -734,6 +734,49 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
         AssertDescendant(snapshot, "Execute plan", "Compile query");
     }
 
+    Y_UNIT_TEST_TWIN(TableApiCompilationTrace, ScanQuery) {
+        auto settings = ExternalTracingSettings();
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
+        NKqp::TKikimrRunner kikimr(settings);
+        auto& runtime = *kikimr.GetTestServer().GetRuntime();
+        RegisterUploader(runtime);
+        auto client = kikimr.GetTableClient();
+        auto session = client.CreateSession().GetValueSync().GetSession();
+        auto created = session.ExecuteSchemeQuery(R"(
+            CREATE TABLE `/Root/CompileTrace` (Id Uint64, PRIMARY KEY (Id));
+        )").GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+
+        const TString traceparent = "00-77777777777777777777777777777777-7777777777777777-01";
+        const TString sql = "SELECT Id FROM `/Root/CompileTrace` WHERE Id > 0;";
+        if constexpr (ScanQuery) {
+            auto iterator = client.StreamExecuteScanQuery(sql,
+                NYdb::NTable::TStreamExecScanQuerySettings().TraceParent(traceparent)).GetValueSync();
+            UNIT_ASSERT_C(iterator.IsSuccess(), iterator.GetIssues().ToString());
+            while (true) {
+                auto part = iterator.ReadNext().GetValueSync();
+                if (!part.IsSuccess()) {
+                    UNIT_ASSERT_C(part.EOS(), part.GetIssues().ToString());
+                    break;
+                }
+            }
+        } else {
+            auto result = session.ExplainDataQuery(sql,
+                NYdb::NTable::TExplainDataQuerySettings().TraceParent(traceparent)).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        }
+
+        const auto snapshot = WaitForExternalTrace(runtime, traceparent, {"Compile query"});
+        AssertDescendant(snapshot, "Parse query", "Compile query");
+        AssertDescendant(snapshot, "Build KQL query", "Compile query");
+        if constexpr (!ScanQuery) {
+            AssertDescendant(snapshot, "IO annotation", "Compile query");
+            AssertDescendant(snapshot, "Load metadata", "IO annotation");
+            AssertDescendant(snapshot, "Optimize (new RBO)", "Prepare physical query");
+        }
+    }
+
     Y_UNIT_TEST_TWIN(NewRboCompilationTrace, ColumnStore) {
         auto settings = ExternalTracingSettings();
         settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);

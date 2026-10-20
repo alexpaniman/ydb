@@ -58,7 +58,9 @@ public:
     }
 
     void Rewind() final {
-        Span.EndError("Transformer rewound");
+        if (Span) {
+            Span.EndError("Transformer rewound");
+        }
         Transformer->Rewind();
     }
 

@@ -1649,6 +1649,7 @@ private:
         TExprContext& ctx)
     {
         SetupYqlTransformer(EKikimrQueryType::Dml);
+        SessionCtx->Query().CompileTrace = settings.CompileTrace;
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();
@@ -1686,6 +1687,7 @@ private:
     {
         IKikimrQueryExecutor::TExecuteSettings execSettings;
         SetupDataQueryAstTransformer(execSettings, EKikimrQueryType::Dml);
+        SessionCtx->Query().CompileTrace = settings.CompileTrace;
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();
@@ -1830,6 +1832,7 @@ private:
         EKikimrStatsMode statsMode = EKikimrStatsMode::None)
     {
         SetupYqlTransformer(EKikimrQueryType::Scan);
+        SessionCtx->Query().CompileTrace = prepareSettings.CompileTrace;
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().StatsMode = statsMode;
@@ -1853,6 +1856,7 @@ private:
     IAsyncQueryResultPtr PrepareScanQueryAstInternal(const TKqpQueryRef& queryAst, TExprContext& ctx, const TPrepareSettings& prepareSettings) {
         IKikimrQueryExecutor::TExecuteSettings settings;
         SetupDataQueryAstTransformer(settings, EKikimrQueryType::Scan);
+        SessionCtx->Query().CompileTrace = prepareSettings.CompileTrace;
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();

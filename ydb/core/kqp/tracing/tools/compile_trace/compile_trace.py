@@ -10,11 +10,14 @@ import argparse
 import bisect
 import json
 import math
+import os
 import re
 import sqlite3
 import statistics
 import sys
 from collections import Counter, defaultdict
+from contextlib import closing
+from itertools import accumulate
 
 COMPILE_ROOT = 'Compile query'
 STATUS_ERROR = 2
@@ -26,6 +29,14 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE TABLE IF NOT EXISTS spans (
     trace_id TEXT, span_id TEXT, parent_id TEXT, name TEXT,
     start_us INTEGER, dur_us INTEGER, status INTEGER, attrs TEXT, source TEXT);
+
+-- Repair databases imported before span and traced-run identities were enforced.
+DELETE FROM spans WHERE rowid NOT IN (
+    SELECT MAX(rowid) FROM spans GROUP BY trace_id, span_id);
+CREATE UNIQUE INDEX IF NOT EXISTS spans_identity ON spans(trace_id, span_id);
+DELETE FROM runs WHERE trace_id IS NOT NULL AND rowid NOT IN (
+    SELECT MAX(rowid) FROM runs WHERE trace_id IS NOT NULL GROUP BY trace_id);
+CREATE UNIQUE INDEX IF NOT EXISTS runs_trace ON runs(trace_id) WHERE trace_id IS NOT NULL;
 '''
 
 
@@ -43,15 +54,18 @@ def load_jsonl(path, con):
                 continue
             rec = json.loads(line)
             if rec.get('kind') == 'run':
-                runs.append((rec.get('trace_id'), rec['bench'], rec['query'], rec['level'], rec['repeat'],
+                runs.append((hex_id(rec.get('trace_id')), rec['bench'], rec['query'], rec['level'], rec['repeat'],
                              rec['client_us'], int(rec['ok']), rec.get('load1'), path))
             elif rec.get('kind') == 'span':
                 parent = rec.get('parent_span_id') or None
                 spans.append((hex_id(rec['trace_id']), hex_id(rec['span_id']), hex_id(parent), rec['name'],
                               rec['start_ns'] // 1000, (rec['end_ns'] - rec['start_ns']) // 1000,
                               rec.get('status', 0), json.dumps(rec.get('attrs', {})), path))
-    con.executemany('INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?)', runs)
-    con.executemany('INSERT INTO spans VALUES (?,?,?,?,?,?,?,?,?)', spans)
+    # Untraced runs have no identity: replace this file's run records on reload,
+    # preserving distinct measurements even if their values happen to be equal.
+    con.execute('DELETE FROM runs WHERE source = ?', (path,))
+    con.executemany('INSERT OR REPLACE INTO runs VALUES (?,?,?,?,?,?,?,?,?)', runs)
+    con.executemany('INSERT OR REPLACE INTO spans VALUES (?,?,?,?,?,?,?,?,?)', spans)
     return len(runs), len(spans)
 
 
@@ -67,7 +81,7 @@ def load_jaeger(path, con):
             spans.append((hex_id(s['traceID']).rjust(32, '0'), hex_id(s['spanID']).rjust(16, '0'),
                           hex_id(parent).rjust(16, '0') if parent else None, s['operationName'],
                           s['startTime'], s['duration'], status, json.dumps(attrs), path))
-    con.executemany('INSERT INTO spans VALUES (?,?,?,?,?,?,?,?,?)', spans)
+    con.executemany('INSERT OR REPLACE INTO spans VALUES (?,?,?,?,?,?,?,?,?)', spans)
     return 0, len(spans)
 
 
@@ -76,7 +90,6 @@ def derive(con):
     con.executescript('''
         DROP TABLE IF EXISTS tree;
         DROP TABLE IF EXISTS trace_runs;
-        CREATE INDEX IF NOT EXISTS spans_id ON spans(trace_id, span_id);
         CREATE INDEX IF NOT EXISTS spans_parent ON spans(trace_id, parent_id);
     ''')
     spans = con.execute('SELECT trace_id, span_id, parent_id, name, start_us, dur_us, status, attrs FROM spans').fetchall()
@@ -156,16 +169,24 @@ def interval_union(intervals, lo=None, hi=None):
 
 
 def cmd_load(args):
-    con = sqlite3.connect(args.output)
-    con.executescript(SCHEMA)
-    for path in args.inputs:
-        with open(path) as f:
-            first = f.readline()
-        runs, spans = (load_jsonl if '"kind"' in first else load_jaeger)(path, con)
-        print(f'{path}: {runs} runs, {spans} spans', file=sys.stderr)
-    derive(con)
-    n = con.execute('SELECT count(*) FROM tree').fetchone()[0]
-    print(f'{args.output}: {n} spans in {con.execute("SELECT count(*) FROM trace_runs").fetchone()[0]} traces', file=sys.stderr)
+    with closing(sqlite3.connect(args.output)) as con:
+        con.executescript(SCHEMA)
+        for path in args.inputs:
+            # Also replace run records from older imports that stored the
+            # input's relative path instead of its canonical path.
+            source = path
+            path = os.path.realpath(path)
+            with open(path) as f:
+                first = f.readline()
+            if '"kind"' in first:
+                con.execute('DELETE FROM runs WHERE source = ?', (source,))
+                runs, spans = load_jsonl(path, con)
+            else:
+                runs, spans = load_jaeger(path, con)
+            print(f'{path}: {runs} runs, {spans} spans', file=sys.stderr)
+        derive(con)
+        n = con.execute('SELECT count(*) FROM tree').fetchone()[0]
+        print(f'{args.output}: {n} spans in {con.execute("SELECT count(*) FROM trace_runs").fetchone()[0]} traces', file=sys.stderr)
 
 
 # Reporting
@@ -595,24 +616,28 @@ def cmd_diff(args):
 
 def cmd_perf_filter(args):
     """Keeps the perf samples taken inside spans of the given name, as folded stacks."""
-    con = sqlite3.connect(args.db)
-    level = pick_level(con, args.level)
     intervals = defaultdict(list)
-    for run, spans in compile_trees(con, level, args.bench, False):
-        for s in spans:
-            if re.fullmatch(args.name, s[2]):
-                tid = json.loads(s[8]).get('thread.id')
-                intervals[tid].append((s[3], s[3] + s[4]))
-    any_thread = sorted(iv for ivs in intervals.values() for iv in ivs)
+    with closing(sqlite3.connect(args.db)) as con:
+        level = pick_level(con, args.level)
+        for run, spans in compile_trees(con, level, args.bench, False):
+            for s in spans:
+                if re.fullmatch(args.name, s[2]):
+                    tid = json.loads(s[8]).get('thread.id')
+                    intervals[tid].append((s[3], s[3] + s[4]))
     for v in intervals.values():
         v.sort()
     starts = {t: [a for a, _ in v] for t, v in intervals.items()}
-    any_starts = [a for a, _ in any_thread]
+    # Prefix maxima also cover overlapping/nested spans whose latest start
+    # belongs to a shorter interval that has already ended.
+    ends = {t: list(accumulate((b for _, b in v), max)) for t, v in intervals.items()}
 
     def inside(tid, ts):
-        ivs, st = (intervals[tid], starts[tid]) if tid in intervals else (any_thread, any_starts)
-        i = bisect.bisect_right(st, ts) - 1
-        return i >= 0 and ivs[i][0] <= ts <= ivs[i][1]
+        # Only spans without a thread ID can match samples from any thread.
+        for thread in (tid, None):
+            i = bisect.bisect_right(starts.get(thread, ()), ts) - 1
+            if i >= 0 and ts <= ends[thread][i]:
+                return True
+        return False
 
     acc, kept, seen = Counter(), 0, 0
     header = re.compile(r'^\s*\S.*?\s+(\d+)(?:/(\d+))?\s+(?:\[\d+\]\s+)?(\d+\.\d+):')
