@@ -6,6 +6,148 @@ are different evidence. The [archived finding inventory](history/pre-audit-refac
 retains the original observations and fix commits; do not read its milestone
 statuses as fresh results.
 
+## Native representation audit (2026-10-20, in progress)
+
+The current audit is pinned to fetched main
+`28f390e18e92099a29444d74faf294cd3a2f4c00`. The fresh census below covers
+all 290 selected queries at two rows per table, two tasks and a 10-second solver
+budget, with a separate 120-second construction deadline. Sources stayed fixed
+through all eleven batches, and each batch's snapshots, formulas, verdicts,
+process diagnostics and source hashes were archived before the next batch.
+Full TPCH/TPCDS coverage remains an open goal.
+
+| Suite | Queries | Prepared | Verified bounded | Unknown | Unsupported | Preparation failed | Counterexample |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| TPCH | 22 | 22 | 12 | 8 | 2 | 0 | 0 |
+| TPCDS | 99 | 92 | 20 | 50 | 20 | 7 | 2 |
+| CLICKBENCH | 43 | 39 | 29 | 1 | 9 | 4 | 0 |
+| JOB | 113 | 113 | 52 | 41 | 20 | 0 | 0 |
+| SSB | 13 | 13 | 6 | 7 | 0 | 0 | 0 |
+
+The subsequent source-bound R2 batch rechecked affected queries after exact
+Boolean coalesce, Utf8 window keys, Date/interval admission and Int32 ranges.
+TPCDS q10 and q45 changed from counterexample to UNKNOWN at the same 10-second
+limit; q72 and q89 also now reach UNKNOWN. No counterexample was reported in
+these targeted reruns. This does not refresh the whole census above.
+Sixteen TPCDS queries now share one remaining exporter gap: a pushed
+`Coalesce(CAST(text AS Date) comparison constant, false)` predicate. TPCH q12
+and q19 require the complete Utf8-to-String SafeCast membership spelling.
+TPCDS q51 still lacks the native ordered-ROWS bridge; q84 requires checked
+Concat copies that retain their original column. JOB range failures reveal
+additional unaudited range shapes and predicates on pruned read columns.
+
+All seven shared-operator TPCDS queries prepare successfully in generic-query
+mode with spilling enabled; data mode and generic mode without spilling still
+fail. q14 and q39 produce two result roots. The next batch uses the bundle
+verifier and records the query mode explicitly rather than treating successful
+preparation as an equivalence proof. The default proof floor remains fixed to
+data mode and ignores exploratory environment overrides.
+
+The next applied changes cover the narrow pushed Date predicate, complete
+SafeCast membership and checked Concat copy lineage. Their native/fresh-query
+validation is pending. The copy-lineage changes passed all 934 Python tests in
+isolation. The localizer now reports `LOCALIZATION_INCONSISTENT` if an endpoint
+or coarse-interval failure contradicts a complete chain of adjacent bounded
+proofs; its 28 isolated tests pass. This is a reporting repair, not a newly
+confirmed optimizer defect. The 45 focused representation cases and broad
+adjacent-transformation audits remain to be completed.
+
+### Production findings
+
+Each fix has its own branch with the pinned main as its direct parent. These
+commits have not been pushed. The six metadata/template/reporting fixes pass
+their focused tests on the combined SMT branch. The new-RBO scalar-domain fix also passes its runtime and focused production
+regressions. The corrected legacy repair now also passes its runtime regression,
+and the AVG proof-speed change passes the fresh SQL proof at the original limit.
+
+| Finding | Evidence and consequence | Main-based fix branch |
+|---|---|---|
+| Outer joins retain uniqueness on NULL-extended keys | Native metadata regression plus an actual `TEliminateLeftJoinRule` transformation yields a bounded counterexample. With two table rows whose `g` is NULL, a full join of an empty input creates two NULL keys; eliminating a later null-equal left join changes four rows into two. The ordinary-equality control proves equivalent. This is a correctness defect in the new representation; an SQL/runtime producer path has not yet been demonstrated. | `fix/rbo-outer-join-unique-keys` (`8abc97cd8925`) |
+| Lookup advertises part of a composite primary key as unique | Native regression fails when only one of two key columns is projected. The fix requires the complete key. Current evidence establishes invalid metadata, not a concrete SQL wrong result. | `fix/rbo-table-lookup-complete-key` (`caa8350a7d46`) |
+| Full/exclusion joins retain one-sided shuffle metadata | Native regression confirms a distribution claim that unmatched rows need not preserve. Consumers can incorrectly omit an aggregation shuffle. A fresh SQL capture verifies with shuffle elimination disabled and produces an SMT counterexample when enabled: an empty left input and two distinct right-side keys need the omitted hash shuffle. Runtime replay confirms the wrong result: enabling shuffle elimination produced 20 separate NULL groups instead of one group with count 32. After the fix, both modes return `[[#;32u]]` and both SQL snapshot pairs verify at two rows/two tasks. | `fix/rbo-full-join-shuffle-metadata` (`779a2609e1d5`) |
+| Grouping loses uniqueness when the input key is unknown | Native regression confirms that an empty input-key set suppresses the valid grouping-key guarantee. This loses optimization opportunities. | `fix/rbo-aggregate-key-uniqueness` (`ebdef4e6fcb2`) |
+| A resultless aggregate used as a GroupingSets template is bypassed | Native before/after regression passes with the template-specific fix. Repeated empty grouping sets must retain their multiplicity. The fresh seeded SQL runtime regression passes for both empty and populated input. | `fix/rbo-grouping-sets-template` (`a2eb69efde5b`) |
+| Filter fusion mutates the plan but reports no transformation | A native invocation changes the tree but records zero transformation events. Returning a fresh Filter restores the rule framework's invalidation, restart and capture path. The pre-fix native assertion fails as expected. Post-fix native and production tests pass, including transformation capture and parent-property recomputation. No SQL wrong result is attributed to this reporting defect. | `fix/rbo-filter-fusion-reporting` (`171c826f9ca6`) |
+| Decorrelation loses the row of an empty scalar aggregate | Fresh SQL execution with new RBO enabled returns NULL for correlated `COALESCE(SUM(...), 0)` on an empty inner table, where zero is required. A fresh exact-lowered snapshot pair also yields a counterexample for an unmatched outer key. Domain-row restoration previously ran only for COUNT. The separate fix restores the row for all keyless aggregates while retaining COUNT's zero repair; After the fix, all six SUM/MIN/MAX empty/populated runtime cases pass, including all-NULL and unmatched groups. The SUM bounded proof and three focused production tests pass. COUNT and MiniQ41 proofs remain green. | `fix/rbo-empty-scalar-aggregate-domain` (`e7cffe6b9046`) |
+| Legacy SQL grouping also restores the correlated scalar domain only for COUNT | With the new-RBO fix applied, the new-mode runtime cases pass but old-mode SUM still returns NULL on empty input. The legacy `BuildGroup` has the analogous COUNT-only condition. Its separate fix extends restoration to reviewed NULL-default aggregates while retaining existing COUNT behavior and leaving arbitrary factory defaults unchanged. The first candidate still failed: it read the YqlAggFactory wrapper instead of its function-name atom. The corrected candidate decodes that exact factory and adds COUNT controls. Its fresh runtime regression now passes all ten SUM/MIN/MAX/COUNT empty/populated cases in the combined workspace; an isolated build of that fix branch has not been run. | `fix/yql-empty-scalar-aggregate-domain` (`4b301d99eb09`) |
+
+The runtime comparison uses explicit optimizer flags, disables fallback, and
+forces YqlSelect translation in both modes. Both optimizer implementations have
+an affected path; this is not a defect unique to enabling new RBO.
+
+### Verifier coverage and validation
+
+Native checks now cover logical GroupingSets independently of the expansion
+rule, fixed-width COUNT(DISTINCT), exact required-member `Just` wrappers,
+null-equal join keys, typed StablePickle keys including String/Utf8, all eight
+integer AVG source types with both nullabilities, and native ANSI Rank. The
+integer AVG count-at-most-two contract and abstract-result mismatch handling
+remain enforced. Runtime text-packer checks include NULL versus empty strings,
+embedded zero bytes, UTF-8, arbitrary String bytes and length-header boundaries.
+
+The source-bound R2 gate passes all **966 Python/style/import checks**
+(932 Python tests), **28 localizer checks** (26 tests), **eight SQL integration
+tests**, and **four production tests**. Shared-query preparation and retention
+of zero-capture SQL evidence also pass. The native run reports **77 of 79 tests
+passing**: the two failures are fixture setup errors, a missing diagnostic-prefix
+flag and a source-only stage incorrectly passed through a compute-stage helper.
+Both fixture corrections are applied for the next run. The serial build peaked
+at 15.18 GiB under the 16 GiB process-tree guard; tests peaked at 3.21 GiB.
+
+The new-RBO and corrected legacy scalar-domain fixes pass the empty/populated
+runtime cases. COUNT, MiniQ41 and SUM bounded proofs pass. Correlated AVG now
+also passes the fresh SQL proof at the original 10-second limit on CPUs 12 and
+13. Its bounded-count encoding retains the saved-pair measurement of 5.06
+seconds versus a previous UNKNOWN at 10 seconds, with the formula growing from
+59,151 to 83,471 bytes. This is a focused query result, not a corpus-wide speed
+claim. R2 artifacts, source receipts and test traces are retained locally under
+`/tmp/rbo-broad-audit-20261020/coverage-gates-r2-20261020`.
+
+The recursive gate is still incomplete: legacy `cpp_ut` fixtures have not been
+migrated to the current RBO API. Native and Python results do not replace that
+gate. The full fresh benchmark census is recorded above.
+
+### Construction performance
+
+Two additional performance candidates were measured and left unapplied. On the
+fresh TPCH q2 pair, keeping two rendered bodies under the same 128 MiB cap
+preserved all formula bytes but took 85.73 seconds versus 83.54 seconds for the
+baseline. Raising structural sharing's scope bound from 16,384 to 262,144 nodes
+reduced formula bytes by about 1.1% but took 87.65 seconds. Neither improved
+proof coverage. Repeated rendering of distinct obligations still consumes the
+solver deadline before Z3 can attempt the semantic proof.
+
+
+Retaining wide shared Boolean guards reduces repeated leaf copying. On dated,
+identical Q31 snapshots, construction plus rendering CPU time drops from
+42.95 to 35.11 seconds, formula bytes from 133,415,567 to 90,665,078, and peak
+RSS by 16.1%. Q64 construction plus rendering CPU time drops by 5.9%.
+These are construction/rendering measurements, not solver proof speedups.
+All 69 focused SMT tests, including wide-guard solver equivalence checks, pass.
+The earlier absent-row comparison change reduces the 23-slot checked-LIMIT
+construction case from 37.45 to 0.181 seconds, with a solver equivalence check.
+
+The later bag-count and equality-reuse changes retain 21 independent symbolic
+bag-equivalence checks. On a saved wide-bag case, CPU drops from 6.52 to 0.97 s
+and formula bytes from 5.92 MB to 1.21 MB. Saved TPCH q3/q6/q14 pairs verify both
+before and after; solver CPU changes from 4.534/0.517/12.550 s to
+2.460/0.324/7.064 s. These small saved-input measurements are not a fresh corpus
+performance claim. Q64 did not improve in the controlled construction comparison.
+
+Receipts and exact artifacts are retained under `/tmp/rbo-broad-audit-20261020/`.
+`post-metadata-scalar-boundaries` contains all four latest suites (2,084 files),
+source/binary hashes and the full working-tree patch. The pre-fix full-join runtime
+and earlier SQL/model failures are in `corridor-and-sql-integration`.
+`small-proof-performance` holds the saved-query measurements.
+
+Large builds now use **one CPU and one build worker**, one linker, and the opt-in
+low-memory links. Tests use two CPUs and one test worker. The guard keeps the
+hard per-process allocation cap at 8 GiB and samples a 16 GiB process-tree RSS
+cutoff; it is not a kernel cgroup limit. The latest complete build peaked at
+15.14 GiB, native tests at 0.86 GiB, SQL tests at 1.94 GiB, and production tests
+at 1.15 GiB. Two earlier overlapping-link attempts stopped at the guard; worker
+count was reduced without raising the limit. Sources remain frozen during builds.
+
 ## Rebased corpus measurement (2026-10-19)
 
 The SMT branch is based on fetched main `6ceb698dd99a525fc885121dfdbcad9deca11974`.
