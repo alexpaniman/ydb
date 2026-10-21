@@ -8018,6 +8018,7 @@ FROM (
             json["start_ns"] = static_cast<ui64>(span.start_time_unix_nano());
             json["end_ns"] = static_cast<ui64>(span.end_time_unix_nano());
             json["status"] = static_cast<int>(span.status().code());
+            json["status_message"] = span.status().message();
             json["attrs"] = AttributesToJson(span);
             for (const auto& event : span.events()) {
                 NJson::TJsonValue entry;
@@ -8025,6 +8026,13 @@ FROM (
                 entry["time_ns"] = static_cast<ui64>(event.time_unix_nano());
                 entry["attrs"] = AttributesToJson(event);
                 json["events"].AppendValue(std::move(entry));
+            }
+            for (const auto& link : span.links()) {
+                NJson::TJsonValue entry;
+                entry["trace_id"] = Hex(link.trace_id());
+                entry["span_id"] = Hex(link.span_id());
+                entry["attrs"] = AttributesToJson(link);
+                json["links"].AppendValue(std::move(entry));
             }
             {
                 TGuard guard(State->Lock);

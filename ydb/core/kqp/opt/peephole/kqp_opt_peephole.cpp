@@ -47,7 +47,7 @@ using namespace NYql::NNodes;
 
 using TStatus = IGraphTransformer::TStatus;
 
-// Peephole pipelines run synchronously. Record each invocation so repeats and
+// KQP peephole stages run synchronously. Record each invocation so repeats and
 // restarts do not leave spans open across other transformers of the pipeline.
 class TPeepholeTraceTransformer : public TSyncTransformerBase {
 public:
@@ -83,12 +83,14 @@ private:
     ui64 Iteration = 0;
 };
 
-void TracePeepholePipeline(TTransformationPipeline& pipeline, TCompileTrace* trace, const char* name) {
+void AddTracedPeepholeTransformer(TTransformationPipeline* pipeline, TAutoPtr<IGraphTransformer> transformer,
+    const TString& stageName, TCompileTrace* trace, const char* name)
+{
     if (trace && trace->IsEnabled(TCompileTraceLevels::Detail)) {
-        pipeline.SetTransformerWrapper([trace, name](const TTransformStage& stage) -> TAutoPtr<IGraphTransformer> {
-            return new TPeepholeTraceTransformer(stage, trace, name);
-        });
+        TTransformStage stage(transformer, stageName, TIssuesIds::DEFAULT_ERROR);
+        transformer = new TPeepholeTraceTransformer(stage, trace, name);
     }
+    pipeline->Add(transformer, stageName);
 }
 
 TStatus ReplaceNonDetFunctionsWithParams(TExprNode::TPtr& input, TExprContext& ctx,
@@ -243,15 +245,16 @@ struct TKqpPeepholePipelineConfigurator : IPipelineConfigurator {
         , Trace(trace)
     {}
 
-    void AfterCreate(TTransformationPipeline* pipeline) const override {
-        TracePeepholePipeline(*pipeline, Trace, "common");
+    void AfterCreate(TTransformationPipeline*) const override {
     }
 
     void AfterTypeAnnotation(TTransformationPipeline*) const override {
     }
 
     void AfterOptimize(TTransformationPipeline* pipeline) const override {
-        pipeline->Add(new TKqpPeepholeTransformer(*pipeline->GetTypeAnnotationContext(), DisabledOpts), "KqpPeephole");
+        AddTracedPeepholeTransformer(pipeline,
+            new TKqpPeepholeTransformer(*pipeline->GetTypeAnnotationContext(), DisabledOpts),
+            "KqpPeephole", Trace, "common");
     }
 
 private:
@@ -342,19 +345,24 @@ struct TKqpPeepholePipelineFinalConfigurator : IPipelineConfigurator {
         , Trace(trace)
     {}
 
-    void AfterCreate(TTransformationPipeline* pipeline) const override {
-        TracePeepholePipeline(*pipeline, Trace, "final");
+    void AfterCreate(TTransformationPipeline*) const override {
     }
 
     void AfterTypeAnnotation(TTransformationPipeline* pipeline) const override {
-        pipeline->Add(new TKqpPeepholeFinalTransformer(*pipeline->GetTypeAnnotationContext(), Config), "KqpPeepholeFinal");
+        AddTracedPeepholeTransformer(pipeline,
+            new TKqpPeepholeFinalTransformer(*pipeline->GetTypeAnnotationContext(), Config),
+            "KqpPeepholeFinal", Trace, "final");
     }
 
     void AfterOptimize(TTransformationPipeline* pipeline) const override {
         if (WithFinalStageRules) {
-            pipeline->Add(new TKqpPeepholeNewOperatorTransformer(*pipeline->GetTypeAnnotationContext(), Config), "KqpPeepholeNewOperator");
+            AddTracedPeepholeTransformer(pipeline,
+                new TKqpPeepholeNewOperatorTransformer(*pipeline->GetTypeAnnotationContext(), Config),
+                "KqpPeepholeNewOperator", Trace, "final");
         }
-        pipeline->Add(new TKqpPeepholeBlockPackUnpackTransformer(*pipeline->GetTypeAnnotationContext()), "KqpPeepholeBlockPackUnpack");
+        AddTracedPeepholeTransformer(pipeline,
+            new TKqpPeepholeBlockPackUnpackTransformer(*pipeline->GetTypeAnnotationContext()),
+            "KqpPeepholeBlockPackUnpack", Trace, "final");
     }
 
 private:

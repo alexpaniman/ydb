@@ -407,7 +407,7 @@ void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(TExprContext& ctx) {
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::RequestColumnStatistics(TExprContext& ctx) {
     if (auto* trace = GetCompileTrace()) {
-        ColumnStatisticsSpan = trace->StartSpan(TCompileTraceLevels::Phase, "Load column statistics", "NewRBO");
+        ColumnStatisticsSpan = trace->StartSpan(TCompileTraceLevels::Phase, "Load column statistics", "NewRBO", "async");
     }
     CollectTablesAndColumnsNames(ctx);
 

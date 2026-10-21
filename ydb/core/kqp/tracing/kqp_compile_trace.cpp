@@ -5,11 +5,27 @@
 #include <util/datetime/cputimer.h>
 #include <util/system/datetime.h>
 #include <util/system/guard.h>
+#include <util/system/getpid.h>
 #include <util/system/thread.h>
 
 #include <algorithm>
 
 namespace NKikimr::NKqp {
+
+namespace {
+
+void DescribeSpan(NWilson::TSpan& span, const char* component, const char* kind) {
+    if (span) {
+        if (component) {
+            span.Attribute("ydb.code.component", TString(component));
+        }
+        span.Attribute("ydb.compile.kind", TString(kind));
+        span.Attribute("process.pid", static_cast<i64>(GetPID()));
+        span.Attribute("thread.id", static_cast<i64>(TThread::CurrentThreadNumericId()));
+    }
+}
+
+} // namespace
 
 TCompileTrace::TCompileTrace(NWilson::TTraceId root, NActors::TActorSystem* actorSystem)
     : Root(std::move(root))
@@ -21,6 +37,9 @@ TCompileTrace::~TCompileTrace() {
 }
 
 NWilson::TTraceId TCompileTrace::Parent() const {
+    if (!Parents.empty()) {
+        Parents.back().Used = true;
+    }
     return NWilson::TTraceId(Parents.empty() ? Root : Parents.back().Id);
 }
 
@@ -29,17 +48,12 @@ NWilson::TTraceId TCompileTrace::GetCurrentParent() const {
     return Parent();
 }
 
-NWilson::TSpan TCompileTrace::StartSpan(ui8 verbosity, TString name, const char* component) const {
+NWilson::TSpan TCompileTrace::StartSpan(ui8 verbosity, TString name, const char* component, const char* kind) const {
     if (!IsEnabled(verbosity)) {
         return {};
     }
-    NWilson::TSpan span(verbosity, Parent(), std::move(name), NWilson::EFlags::NONE, ActorSystem);
-    if (span) {
-        if (component) {
-            span.Attribute("ydb.code.component", TString(component));
-        }
-        span.Attribute("thread.id", static_cast<i64>(TThread::CurrentThreadNumericId()));
-    }
+    NWilson::TSpan span(verbosity, GetCurrentParent(), std::move(name), NWilson::EFlags::NONE, ActorSystem);
+    DescribeSpan(span, component, kind);
     return span;
 }
 
@@ -59,26 +73,34 @@ void TCompileTrace::EndSpan(NWilson::TSpan& span, ui64 cpuStart, bool success) c
 
 void TCompileTrace::Push(const NWilson::TSpan& span) {
     if (span) {
-        TParent parent{span.GetTraceId(), TInstant::Now(), GetCycleCount()};
-        auto guard = Guard(ParentsLock);
-        Parents.push_back(std::move(parent));
+        PushId(span.GetTraceId(), TInstant::Now(), GetCycleCount());
     }
 }
 
+void TCompileTrace::PushId(NWilson::TTraceId id, TInstant start, ui64 cycles) {
+    auto guard = Guard(ParentsLock);
+    Parents.push_back({std::move(id), start, cycles});
+}
+
 void TCompileTrace::Pop(const NWilson::TSpan& span) {
-    if (!span) {
-        return;
+    if (span) {
+        PopId(span.GetTraceId());
     }
+}
+
+bool TCompileTrace::PopId(const NWilson::TTraceId& id) {
     // Asynchronous continuations may interleave sibling spans, so the span is
     // not necessarily the innermost one.
-    const auto id = span.GetTraceId();
     auto guard = Guard(ParentsLock);
     const auto it = std::find_if(Parents.rbegin(), Parents.rend(), [&](const TParent& parent) {
         return parent.Id == id;
     });
     if (it != Parents.rend()) {
+        const bool used = it->Used;
         Parents.erase(std::next(it).base());
+        return used;
     }
+    return false;
 }
 
 TInstant TCompileTrace::Now() const {
@@ -89,17 +111,11 @@ TInstant TCompileTrace::Now() const {
     return parent.Start + CyclesToDuration(GetCycleCount() - parent.StartCycles);
 }
 
-NWilson::TSpan TCompileTrace::StartFinishedSpan(ui8 verbosity, const TString& name, TInstant start, TInstant end) const {
-    if (!IsEnabled(verbosity)) {
-        return {};
+NWilson::TSpan TCompileTrace::StartContinuation() const {
+    auto span = StartSpan(TCompileTraceLevels::Step, "Compiler continuation", "KqpCompileActor", "async");
+    if (span && ExecutionSpan) {
+        span.Link(ExecutionSpan.GetTraceId(), {{"ydb.compile.relation", TString("await")}});
     }
-    const auto parent = Parent();
-    auto span = NWilson::TSpan::ConstructTerminated(parent, parent.Span(verbosity), start, end,
-        NWilson::NTraceProto::Status::STATUS_CODE_OK, name);
-    if (ActorSystem) {
-        span.Attribute("node_id", ActorSystem->NodeId);
-    }
-    span.Attribute("thread.id", static_cast<i64>(TThread::CurrentThreadNumericId()));
     return span;
 }
 
@@ -111,8 +127,18 @@ ui64 TCompileTrace::GetCpuTime() const {
     return Running ? Cpu + ThreadCPUTime() - RunningSince : Cpu;
 }
 
-void TCompileTrace::Resume() {
+void TCompileTrace::Resume(const NWilson::TTraceId& readyFrom) {
     if (Running++ == 0) {
+        if (IsEnabled(TCompileTraceLevels::Step)) {
+            // Execution is a sibling of logical phases: it must not become
+            // their parent merely because a phase starts during this turn.
+            ExecutionSpan = NWilson::TSpan(TCompileTraceLevels::Step, NWilson::TTraceId(Root),
+                "Compiler execution", NWilson::EFlags::NONE, ActorSystem);
+            DescribeSpan(ExecutionSpan, "KqpCompileActor", "execution");
+            if (readyFrom) {
+                ExecutionSpan.Link(readyFrom, {{"ydb.compile.relation", TString("resume")}});
+            }
+        }
         RunningSince = ThreadCPUTime();
         CpuCounted = true;
     }
@@ -120,7 +146,12 @@ void TCompileTrace::Resume() {
 
 void TCompileTrace::Suspend() {
     if (Running > 0 && --Running == 0) {
-        Cpu += ThreadCPUTime() - RunningSince;
+        const auto elapsed = ThreadCPUTime() - RunningSince;
+        Cpu += elapsed;
+        if (ExecutionSpan) {
+            ExecutionSpan.Attribute("ydb.cpu_us", static_cast<i64>(elapsed));
+            ExecutionSpan.EndOk();
+        }
     }
 }
 
@@ -180,12 +211,56 @@ void TCompileTrace::Finish(bool success) {
     EndRegions(Regions.size(), success);
 }
 
+TCompileTraceDeferredScope::TCompileTraceDeferredScope(TCompileTrace* trace, TString name, const char* component)
+    : Trace(trace && trace->IsEnabled(TCompileTraceLevels::Detail) ? trace : nullptr)
+    , Name(std::move(name))
+    , Component(component)
+{
+    if (Trace) {
+        Parent = Trace->GetCurrentParent();
+        Id = Parent.Span(TCompileTraceLevels::Detail);
+        Start = Trace->Now();
+        CpuStart = Trace->GetCpuTime();
+        Trace->PushId(NWilson::TTraceId(Id), Start, GetCycleCount());
+    }
+}
+
+TCompileTraceDeferredScope::~TCompileTraceDeferredScope() {
+    if (Trace) {
+        auto span = Finish(true);
+        span.EndError("Compilation failed");
+    }
+}
+
+NWilson::TSpan TCompileTraceDeferredScope::Finish(bool keep) {
+    auto* trace = std::exchange(Trace, nullptr);
+    if (!trace) {
+        return {};
+    }
+    const auto end = trace->Now();
+    CpuTime = trace->GetCpuTime() - CpuStart;
+    const bool hasChildren = trace->PopId(Id);
+    if (!keep && !hasChildren) {
+        return {};
+    }
+    auto span = NWilson::TSpan::ConstructTerminated(Parent, Id, Start, end,
+        NWilson::NTraceProto::Status::STATUS_CODE_OK, Name);
+    if (trace->ActorSystem) {
+        span.Attribute("node_id", trace->ActorSystem->NodeId);
+    }
+    DescribeSpan(span, Component, "scope");
+    if (trace->CpuCounted) {
+        span.Attribute("ydb.cpu_us", static_cast<i64>(CpuTime));
+    }
+    return span;
+}
+
 TCompileTraceScope::TCompileTraceScope(TCompileTrace* trace, ui8 verbosity, TString name, const char* component)
     : Trace(trace && trace->IsEnabled(verbosity) ? trace : nullptr)
     , UncaughtExceptions(std::uncaught_exceptions())
 {
     if (Trace) {
-        Span_ = Trace->StartSpan(verbosity, std::move(name), component);
+        Span_ = Trace->StartSpan(verbosity, std::move(name), component, "scope");
         Trace->Push(Span_);
         CpuStart = Trace->GetCpuTime();
     }
@@ -199,11 +274,11 @@ TCompileTraceScope::~TCompileTraceScope() {
     Trace->EndSpan(Span_, CpuStart, Success && std::uncaught_exceptions() == UncaughtExceptions);
 }
 
-TCompileTraceRunScope::TCompileTraceRunScope(TCompileTrace* trace)
+TCompileTraceRunScope::TCompileTraceRunScope(TCompileTrace* trace, const NWilson::TTraceId& readyFrom)
     : Trace(trace)
 {
     if (Trace) {
-        Trace->Resume();
+        Trace->Resume(readyFrom);
     }
 }
 

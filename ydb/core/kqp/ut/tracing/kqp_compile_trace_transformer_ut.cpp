@@ -68,15 +68,17 @@ Y_UNIT_TEST_SUITE(TKqpCompileTraceTransformer) {
         queryCtx->CompileTrace->Finish(false);
         runtime.SimulateSleep(TDuration::MilliSeconds(1));
         UNIT_ASSERT(queryCtx->CompileTrace->GetCurrentParent() == parent);
-        UNIT_ASSERT_VALUES_EQUAL(uploader->Spans.size(), 1);
-        const auto& span = uploader->Spans.front();
+        const auto spanCount = uploader->Spans.size();
+        const auto* failing = FindSpan(*uploader, "Failing optimizer");
+        UNIT_ASSERT(failing);
+        const auto& span = *failing;
         UNIT_ASSERT_VALUES_EQUAL(static_cast<int>(span.status().code()),
             static_cast<int>(NWilson::NTraceProto::Status::STATUS_CODE_ERROR));
         UNIT_ASSERT(FindAttribute(span, "ydb.cpu_us"));
         transformer->Rewind();
         transformer.Destroy();
         runtime.SimulateSleep(TDuration::MilliSeconds(1));
-        UNIT_ASSERT_VALUES_EQUAL(uploader->Spans.size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(uploader->Spans.size(), spanCount);
     }
 
     Y_UNIT_TEST(RewindCompletedFailedAndActiveSpans) {

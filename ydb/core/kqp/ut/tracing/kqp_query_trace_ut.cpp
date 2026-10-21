@@ -798,8 +798,8 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
             AssertStatus(snapshot, name, NTraceProto::Status::STATUS_CODE_OK);
             UNIT_ASSERT(FindAttribute(*FindSpan(snapshot, name), "ydb.cpu_us"));
         }
-        for (const TStringBuf name : {"Peephole: RepeatTypeAnnotation", "Peephole: CommonOptimization",
-                "Peephole: Constraints", "Peephole: CSEE", "Peephole: GC", "Peephole: PeepHoleFinal"}) {
+        for (const TStringBuf name : {"Peephole: KqpPeephole", "Peephole: KqpPeepholeFinal",
+                "Peephole: KqpPeepholeNewOperator", "Peephole: KqpPeepholeBlockPackUnpack"}) {
             AssertDescendant(snapshot, name, "Convert to physical plan");
             AssertStatus(snapshot, name, NTraceProto::Status::STATUS_CODE_OK);
             const auto& span = *FindSpan(snapshot, name);
@@ -809,7 +809,16 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
         }
         for (const TStringBuf name : {"Prepare CBO join tree", "CBO join search", "Rebuild CBO plan"}) {
             AssertDescendant(snapshot, name, "RBO stage: Invoke CBO");
+            AssertDescendant(snapshot, name, "Rule: Optimize CBO tree");
         }
+        AssertDescendant(snapshot, "Compiler execution", "Compile query");
+        const auto* continuation = FindSpan(snapshot, "Compiler continuation");
+        UNIT_ASSERT(continuation && continuation->links_size() == 1 && continuation->events_size() == 1);
+        UNIT_ASSERT_VALUES_EQUAL(continuation->events(0).name(), "Result ready");
+        UNIT_ASSERT(FindAttribute(continuation->events(0), "thread.id"));
+        UNIT_ASSERT(std::ranges::any_of(snapshot.Spans, [](const auto& span) {
+            return span.name() == "Compiler execution" && span.links_size() == 1;
+        }));
         const auto& search = *FindSpan(snapshot, "CBO join search");
         UNIT_ASSERT(FindAttribute(search, "ydb.cbo.optimized")->value().bool_value());
         UNIT_ASSERT_GT(FindAttribute(search, "ydb.cbo.emitted_pairs")->value().int_value(), 0);

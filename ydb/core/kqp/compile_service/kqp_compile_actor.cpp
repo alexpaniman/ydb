@@ -26,6 +26,8 @@
 
 #include <util/string/escape.h>
 #include <util/system/datetime.h>
+#include <util/system/getpid.h>
+#include <util/system/thread.h>
 
 #include <ydb/core/base/cputime.h>
 
@@ -397,16 +399,38 @@ private:
         TActorSystem* actorSystem = ctx.ActorSystem();
         TActorId selfId = ctx.SelfID;
 
-        auto callback = [actorSystem, selfId](const TFuture<bool>& future) {
-            bool finished = future.GetValue();
-            auto processEv = MakeHolder<TEvKqp::TEvContinueProcess>(0, finished);
-            actorSystem->Send(selfId, processEv.Release());
-        };
-
         // Continue runs the compilation until its next asynchronous wait.
         NCpuTime::TCpuTimer timer(CompileCpuTime);
         TCompileTraceRunScope traceRun(CompileTrace.Get());
-        AsyncCompileResult->Continue().Apply(callback);
+        auto future = AsyncCompileResult->Continue();
+        std::shared_ptr<NWilson::TSpan> continuation;
+        if (CompileTrace && CompileTrace->IsEnabled(TCompileTraceLevels::Step)) {
+            continuation = std::make_shared<NWilson::TSpan>(CompileTrace->StartContinuation());
+            continuation->Attribute("ydb.compile.waiting", !future.IsReady());
+        }
+        auto callback = [actorSystem, selfId, continuation](const TFuture<bool>& future) {
+            bool finished;
+            try {
+                finished = future.GetValue();
+            } catch (...) {
+                if (continuation) {
+                    continuation->EndError("Compiler continuation failed");
+                }
+                throw;
+            }
+            NWilson::TTraceId readyFrom;
+            if (continuation) {
+                continuation->Event("Result ready", {
+                    {"process.pid", static_cast<i64>(GetPID())},
+                    {"thread.id", static_cast<i64>(TThread::CurrentThreadNumericId())},
+                });
+                readyFrom = continuation->GetTraceId();
+                continuation->EndOk();
+            }
+            auto processEv = MakeHolder<TEvKqp::TEvContinueProcess>(0, finished);
+            actorSystem->Send(new IEventHandle(selfId, {}, processEv.Release(), 0, 0, nullptr, std::move(readyFrom)));
+        };
+        future.Apply(callback);
     }
 
     IKqpHost::TPrepareSettings PrepareCompilationSettings(const TActorContext &ctx) {
@@ -643,6 +667,10 @@ private:
 
     void HandleCompile(TEvKqp::TEvContinueProcess::TPtr &ev, const TActorContext &ctx) {
         Y_ENSURE(!ev->Get()->QueryId);
+
+        // Keep the trace alive if completion/fallback replaces CompileTrace.
+        const auto trace = CompileTrace;
+        TCompileTraceRunScope running(trace.Get(), ev->TraceId);
 
         TYqlLogScope logScope(ctx, NKikimrServices::KQP_YQL, YqlName, UserRequestContext->TraceId);
 

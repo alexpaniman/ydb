@@ -1,4 +1,5 @@
 #include <ydb/core/kqp/tracing/kqp_execution_rendering.h>
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include <ydb/core/kqp/tracing/kqp_query_rendering.h>
 #include <ydb/core/kqp/tracing/kqp_shard_rendering.h>
 #include <ydb/core/kqp/tracing/kqp_task_rendering.h>
@@ -7,9 +8,12 @@
 #include <ydb/core/protos/kqp_physical.pb.h>
 #include <ydb/core/protos/kqp_stats.pb.h>
 #include <ydb/library/actors/testlib/test_runtime.h>
+#include <ydb/library/actors/core/actor_bootstrapped.h>
 #include <ydb/library/wilson_ids/wilson.h>
 #include <ydb/library/yql/dq/actors/protos/dq_events.pb.h>
 #include <ydb/library/yql/dq/proto/dq_tasks.pb.h>
+
+#include <thread>
 
 namespace NKikimr {
 
@@ -17,6 +21,96 @@ using namespace NWilson;
 using namespace NKqp::NTest;
 
 Y_UNIT_TEST_SUITE(TKqpTrace) {
+    TFakeWilsonUploader* RegisterUploader(NActors::TTestActorRuntimeBase& runtime);
+
+    Y_UNIT_TEST(CompilerExecutionFollowsContinuationAcrossThreads) {
+        NActors::TTestActorRuntimeBase runtime;
+        runtime.Initialize();
+        auto* uploader = RegisterUploader(runtime);
+        NWilson::TSpan query(15, NWilson::TTraceId::NewTraceId(15, 4095), "Query",
+            NWilson::EFlags::NONE, runtime.GetActorSystem(0));
+        NKqp::TCompileTrace trace(query.GetTraceId(), runtime.GetActorSystem(0));
+        const auto root = trace.GetCurrentParent();
+        trace.Resume();
+        trace.Resume(); // Nested run scopes must not duplicate execution slices.
+        {
+            NKqp::TCompileTraceScope work(&trace, NKqp::TCompileTraceLevels::Detail, "First work", "Test");
+        }
+        auto continuation = trace.StartContinuation();
+        const auto continuationId = continuation.GetTraceId();
+        trace.Suspend();
+        trace.Suspend();
+        std::thread worker([&] {
+            continuation.Event("Result ready");
+            continuation.EndOk();
+            NKqp::TCompileTraceRunScope running(&trace, continuationId);
+            NKqp::TCompileTraceScope work(&trace, NKqp::TCompileTraceLevels::Detail, "Resumed work", "Test");
+        });
+        worker.join();
+        trace.Finish(true);
+        query.EndOk();
+        runtime.SimulateSleep(TDuration::MilliSeconds(1));
+
+        TVector<const TTraceSnapshot::TOtelSpan*> executions;
+        for (const auto& span : uploader->Spans) {
+            if (span.name() == "Compiler execution") {
+                executions.push_back(&span);
+                UNIT_ASSERT_VALUES_EQUAL(span.parent_span_id(), TString(static_cast<const char*>(root.GetSpanIdPtr()), root.GetSpanIdSize()));
+                UNIT_ASSERT(FindAttribute(span, "process.pid"));
+                UNIT_ASSERT(FindAttribute(span, "ydb.cpu_us"));
+            }
+        }
+        UNIT_ASSERT_VALUES_EQUAL(executions.size(), 2);
+        std::ranges::sort(executions, {}, [](const auto* s) { return s->start_time_unix_nano(); });
+        UNIT_ASSERT_UNEQUAL(FindAttribute(*executions[0], "thread.id")->value().int_value(),
+            FindAttribute(*executions[1], "thread.id")->value().int_value());
+        UNIT_ASSERT_VALUES_EQUAL(executions[1]->links_size(), 1);
+        const auto* ready = FindSpan(*uploader, "Compiler continuation");
+        UNIT_ASSERT(ready);
+        UNIT_ASSERT_VALUES_EQUAL(executions[1]->links(0).span_id(), ready->span_id());
+        UNIT_ASSERT_VALUES_EQUAL(ready->links(0).span_id(), executions[0]->span_id());
+        UNIT_ASSERT_LE(ready->end_time_unix_nano(), executions[1]->start_time_unix_nano() + 1000);
+        UNIT_ASSERT_VALUES_EQUAL(FindAttribute(*FindSpan(*uploader, "Resumed work"), "ydb.compile.kind")->value().string_value(), "scope");
+    }
+
+    Y_UNIT_TEST(DeferredRuleKeepsParentOnlyWhenNeeded) {
+        class TProducer : public NActors::TActorBootstrapped<TProducer> {
+        public:
+            void Bootstrap(const NActors::TActorContext& ctx) {
+                NWilson::TSpan root(15, NWilson::TTraceId::NewTraceId(15, 4095), "Query");
+                NKqp::TCompileTrace trace(root.GetTraceId(), ctx.ActorSystem());
+                {
+                    NKqp::TCompileTraceRunScope running(&trace);
+                    NKqp::TCompileTraceDeferredScope skipped(&trace, "Skipped rule", "Test");
+                    UNIT_ASSERT(!skipped.Finish(false));
+                    NKqp::TCompileTraceDeferredScope parent(&trace, "Rule with child", "Test");
+                    {
+                        NKqp::TCompileTraceScope child(&trace, 15, "CBO work", "Test");
+                    }
+                    auto span = parent.Finish(false);
+                    UNIT_ASSERT(span);
+                    span.End();
+                    try {
+                        NKqp::TCompileTraceDeferredScope failed(&trace, "Failed rule", "Test");
+                        ythrow yexception() << "failure";
+                    } catch (const yexception&) {
+                    }
+                }
+                root.EndOk();
+                PassAway();
+            }
+        };
+        NActors::TTestActorRuntimeBase runtime;
+        runtime.Initialize();
+        auto* uploader = RegisterUploader(runtime);
+        runtime.Register(new TProducer());
+        runtime.SimulateSleep(TDuration::MilliSeconds(1));
+        UNIT_ASSERT(!FindSpan(*uploader, "Skipped rule"));
+        AssertDescendant(*uploader, "CBO work", "Rule with child");
+        AssertStatus(*uploader, "Failed rule", NTraceProto::Status::STATUS_CODE_ERROR);
+        UNIT_ASSERT(uploader->BuildTraceTrees());
+    }
+
     TFakeWilsonUploader* RegisterUploader(NActors::TTestActorRuntimeBase& runtime) {
         auto* uploader = new TFakeWilsonUploader();
         runtime.RegisterService(MakeWilsonUploaderId(), runtime.Register(uploader));
