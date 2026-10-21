@@ -202,6 +202,7 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr in
         },
         ctx, settings);
 
+    traceScope->SetSuccess(status != TStatus::Error);
     traceScope.reset();
     if (status != TStatus::Ok) {
         return status;

@@ -321,7 +321,8 @@ TExprNode::TPtr TPhysicalQueryBuilder::BuildMaterialize(int rootIdx, TExprNode::
 
     TExprNode::TPtr afterPeephole;
     auto status =
-        ::NKikimr::NKqp::NOpt::PeepHoleOptimize(TExprBase(node), afterPeephole, ctx, RBOCtx.TypeCtx, RBOCtx.KqpCtx.Config, false, true, {});
+        ::NKikimr::NKqp::NOpt::PeepHoleOptimize(TExprBase(node), afterPeephole, ctx, RBOCtx.TypeCtx, RBOCtx.KqpCtx.Config,
+            false, true, {}, RBOCtx.GetCompileTrace());
     if (status != IGraphTransformer::TStatus::Ok) {
         ctx.AddError(TIssue(ctx.GetPosition(node->Pos()), "Peephole optimization failed for materialize in NEW RBO"));
         return nullptr;
@@ -964,6 +965,7 @@ TVector<TExprNode::TPtr> TPhysicalQueryBuilder::PeepHoleOptimizePhysicalStages(T
                 span.Attribute("ydb.expr.nodes", countNodes(newProgram));
             }
             newProgram = PeepHoleOptimize(newProgram, argsType);
+            traceScope.SetSuccess(newProgram != nullptr);
             if (span && newProgram) {
                 span.Attribute("ydb.expr.nodes_after", countNodes(newProgram));
             }
@@ -1062,7 +1064,8 @@ TExprNode::TPtr TPhysicalQueryBuilder::PeepHoleOptimize(TExprNode::TPtr input, c
 
     TExprNode::TPtr newProgram;
     auto status =
-        ::NKikimr::NKqp::NOpt::PeepHoleOptimize(program, newProgram, ctx, RBOCtx.TypeCtx, RBOCtx.KqpCtx.Config, false, withFinalStageRules, {});
+        ::NKikimr::NKqp::NOpt::PeepHoleOptimize(program, newProgram, ctx, RBOCtx.TypeCtx, RBOCtx.KqpCtx.Config,
+            false, withFinalStageRules, {}, RBOCtx.GetCompileTrace());
     if (status != IGraphTransformer::TStatus::Ok) {
         ctx.AddError(TIssue(ctx.GetPosition(program.Pos()), "Peephole optimization failed for stage in NEW RBO"));
         return nullptr;
@@ -1072,12 +1075,17 @@ TExprNode::TPtr TPhysicalQueryBuilder::PeepHoleOptimize(TExprNode::TPtr input, c
 }
 
 void TPhysicalQueryBuilder::TypeAnnotate(TExprNode::TPtr& input) {
+    TCompileTraceScope traceScope(RBOCtx.GetCompileTrace(), TCompileTraceLevels::Detail,
+        "Annotate physical stage", "NewRBO");
     RBOCtx.TypeAnnTransformer.Rewind();
     TExprNode::TPtr output;
     IGraphTransformer::TStatus status(IGraphTransformer::TStatus::Ok);
+    i64 iterations = 0;
     do {
+        ++iterations;
         status = RBOCtx.TypeAnnTransformer.Transform(input, output, RBOCtx.ExprCtx);
     } while (status == IGraphTransformer::TStatus::Repeat);
+    traceScope.Span().Attribute("ydb.compile.iterations", iterations);
 
     if (status != IGraphTransformer::TStatus::Ok) {
         RBOCtx.ExprCtx.AddError(TIssue(RBOCtx.ExprCtx.GetPosition(input->Pos()), "Type inference failed for stage in NEW RBO"));

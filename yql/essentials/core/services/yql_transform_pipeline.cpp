@@ -482,11 +482,30 @@ TTransformationPipeline& TTransformationPipeline::AddTypeAnnotationTransformer(E
     return *this;
 }
 
+void TTransformationPipeline::SetTransformerWrapper(TTransformerWrapper wrapper) {
+    TransformerWrapper_ = std::move(wrapper);
+}
+
+void TTransformationPipeline::WrapTransformers() {
+    if (!TransformerWrapper_) {
+        return;
+    }
+    TVector<TTransformStage> wrapped;
+    wrapped.reserve(Transformers_.size());
+    for (const auto& stage : Transformers_) {
+        wrapped.emplace_back(TransformerWrapper_(stage), stage.Name, stage.IssueCode, stage.IssueMessage);
+    }
+    Transformers_.swap(wrapped);
+    TransformerWrapper_ = {};
+}
+
 TAutoPtr<IGraphTransformer> TTransformationPipeline::Build(bool useIssueScopes) {
+    WrapTransformers();
     return CreateCompositeGraphTransformer(Transformers_, useIssueScopes);
 }
 
 TAutoPtr<IGraphTransformer> TTransformationPipeline::BuildWithNoArgChecks(bool useIssueScopes) {
+    WrapTransformers();
     return CreateCompositeGraphTransformerWithNoArgChecks(Transformers_, useIssueScopes);
 }
 

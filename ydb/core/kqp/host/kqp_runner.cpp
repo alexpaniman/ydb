@@ -322,7 +322,9 @@ private:
         const bool sysColumnsEnabled = TransformCtx->Config->SystemColumnsEnabled();
         auto kqlQueryBlocks = [&] {
             TCompileTraceScope traceScope(queryCtx->CompileTrace.Get(), TCompileTraceLevels::Phase, "Build KQL query", "KqpRunner");
-            return BuildKqlQuery(dataQueryBlocks, *TransformCtx->Tables, ctx, sysColumnsEnabled, OptimizeCtx, TypesCtx);
+            auto result = BuildKqlQuery(dataQueryBlocks, *TransformCtx->Tables, ctx, sysColumnsEnabled, OptimizeCtx, TypesCtx);
+            traceScope.SetSuccess(result.Defined());
+            return result;
         }();
         if (!kqlQueryBlocks) {
             return MakeKikimrResultHolder(ResultFromErrors<IKqpHost::TQueryResult>(ctx.IssueManager.GetIssues()));
@@ -353,6 +355,8 @@ private:
     void CreateGraphTransformer(const TIntrusivePtr<TTypeAnnotationContext>& typesCtx, const TIntrusivePtr<TKikimrSessionContext>& sessionCtx,
         const NMiniKQL::IFunctionRegistry& funcRegistry)
     {
+        TCompileTraceScope traceScope(sessionCtx->QueryPtr()->CompileTrace.Get(), TCompileTraceLevels::Step,
+            "Create graph transformer", "KqpRunner");
         auto preparedExplainTransformer = CreateKqpExplainPreparedTransformer(
             Gateway, Cluster, TransformCtx, &funcRegistry, *typesCtx, OptimizeCtx);
 

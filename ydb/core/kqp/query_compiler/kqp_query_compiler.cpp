@@ -566,7 +566,7 @@ std::vector<std::string> GetResultColumnNames(const NKikimr::NMiniKQL::TType* re
 template <class T>
 void FillOlapProgram(const T& node, const NKikimr::NMiniKQL::TType* miniKqlResultType,
     const TKikimrTableMetadata& tableMeta, NKqpProto::TKqpPhyOpReadOlapRanges& readProto, TExprContext &ctx,
-    TTypeAnnotationContext& typesCtx)
+    TTypeAnnotationContext& typesCtx, TCompileTrace* trace)
 {
     if (NYql::HasSetting(node.Settings().Ref(), TKqpReadTableSettings::GroupByFieldNames)) {
         auto groupByKeys = NYql::GetSetting(node.Settings().Ref(), TKqpReadTableSettings::GroupByFieldNames);
@@ -578,7 +578,7 @@ void FillOlapProgram(const T& node, const NKikimr::NMiniKQL::TType* miniKqlResul
         }
     }
     auto resultColNames = GetResultColumnNames(miniKqlResultType);
-    CompileOlapProgram(node.Process(), tableMeta, readProto, resultColNames, ctx, typesCtx);
+    CompileOlapProgram(node.Process(), tableMeta, readProto, resultColNames, ctx, typesCtx, trace);
 }
 
 THashMap<TString, TString> FindSecureParams(const TExprNode::TPtr& node, const TTypeAnnotationContext& typesCtx, TSet<TString>& secretNames) {
@@ -1070,7 +1070,7 @@ private:
                 {
                     TCompileTraceScope traceScope(GetCompileTrace(), TCompileTraceLevels::Step, "Compile OLAP program", "KqpQueryCompiler");
                     AddOlapProgramInputAttributes(traceScope.Span(), tableMeta->Name, readTableRanges.Ptr());
-                    FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx);
+                    FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx, GetCompileTrace());
                     traceScope.Span().Attribute("ydb.olap.program_bytes", static_cast<i64>(tableOp.GetReadOlapRange().GetOlapProgram().size()));
                 }
                 FillResultType(miniKqlResultType, *tableOp.MutableReadOlapRange());
@@ -1093,7 +1093,7 @@ private:
                 {
                     TCompileTraceScope traceScope(GetCompileTrace(), TCompileTraceLevels::Step, "Compile OLAP program", "KqpQueryCompiler");
                     AddOlapProgramInputAttributes(traceScope.Span(), tableMeta->Name, readTableRanges.Ptr());
-                    FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx);
+                    FillOlapProgram(readTableRanges, miniKqlResultType, *tableMeta, *tableOp.MutableReadOlapRange(), ctx, TypesCtx, GetCompileTrace());
                     traceScope.Span().Attribute("ydb.olap.program_bytes", static_cast<i64>(tableOp.GetReadOlapRange().GetOlapProgram().size()));
                 }
                 FillResultType(miniKqlResultType, *tableOp.MutableReadOlapRange());

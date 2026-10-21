@@ -150,6 +150,27 @@ public:
         return config;
     }
 
+    ~TKqpCompileActor() override {
+        // Keep Compile query open until its compiler-owned state is released.
+        // This work runs after the reply, when the executor deletes the actor.
+        FinishCompileTrace(CompileStatus);
+        TCompileTrace cleanupTrace(CompileActorSpan.GetTraceId(), CompileActorSpan.GetActorSystem());
+        {
+            TCompileTraceRunScope running(CompileActorSpan ? &cleanupTrace : nullptr);
+            TCompileTraceScope scope(&cleanupTrace, TCompileTraceLevels::Step, "Cleanup compiler", "KqpCompileActor");
+            AsyncSplitResult.Drop();
+            AsyncCompileResult.Drop();
+            KqpHost.Drop();
+            Gateway.Drop();
+            SplitExpr.Reset();
+            SplitCtx.reset();
+        }
+        if (CompileAction == ECompileActorAction::COMPILE) {
+            CompileActorSpan.Attribute("ydb.cpu_us", static_cast<i64>(CompileCpuTime.MicroSeconds() + cleanupTrace.GetCpuTime()));
+        }
+        EndQueryTraceSpan(CompileActorSpan, CompileStatus);
+    }
+
     void Bootstrap(const TActorContext& ctx) {
         switch(CompileAction) {
             case ECompileActorAction::PARSE:
@@ -243,7 +264,7 @@ private:
         Counters->ReportCompileFinish(DbCounters);
 
         FinishCompileTrace(GetYdbStatus(result));
-        EndQueryTraceSpan(CompileActorSpan, GetYdbStatus(result));
+        CompileStatus = GetYdbStatus(result);
 
         PassAway();
     }
@@ -530,10 +551,9 @@ private:
         Counters->ReportCompileFinish(DbCounters);
 
         CompileActorSpan.Attribute("ydb.actor.type", TString("TKqpCompileActor"));
-        CompileActorSpan.Attribute("ydb.cpu_us", static_cast<i64>(CompileCpuTime.MicroSeconds()));
         CompileActorSpan.Attribute("ydb.compile.new_rbo", EnableNewRBO);
         FinishCompileTrace(KqpCompileResult->Status);
-        EndQueryTraceSpan(CompileActorSpan, KqpCompileResult->Status);
+        CompileStatus = KqpCompileResult->Status;
 
         PassAway();
     }
@@ -606,7 +626,7 @@ private:
         Counters->ReportCompileFinish(DbCounters);
 
         FinishCompileTrace(Ydb::StatusIds::SUCCESS);
-        EndQueryTraceSpan(CompileActorSpan, Ydb::StatusIds::SUCCESS);
+        CompileStatus = Ydb::StatusIds::SUCCESS;
 
         PassAway();
     }
@@ -824,6 +844,7 @@ private:
 
     TIntrusivePtr<TUserRequestContext> UserRequestContext;
     NWilson::TSpan CompileActorSpan;
+    Ydb::StatusIds::StatusCode CompileStatus = Ydb::StatusIds::ABORTED;
     TCompileTrace::TPtr CompileTrace;
 
     TKqpTempTablesState::TConstPtr TempTablesState;

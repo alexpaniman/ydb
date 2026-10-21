@@ -52,15 +52,23 @@ public:
     TTransformationPipeline& Add(IGraphTransformer& transformer, const TString& stageName,
                                  EYqlIssueCode issueCode = TIssuesIds::DEFAULT_ERROR, const TString& issueMessage = {});
 
+    // Applied to every stage at Build, including stages added by the helpers above.
+    // The wrapper must retain the original stage to preserve its ownership.
+    using TTransformerWrapper = std::function<TAutoPtr<IGraphTransformer>(const TTransformStage&)>;
+    void SetTransformerWrapper(TTransformerWrapper wrapper);
+
     TAutoPtr<IGraphTransformer> Build(bool useIssueScopes = true);
     TAutoPtr<IGraphTransformer> BuildWithNoArgChecks(bool useIssueScopes = true);
 
     TIntrusivePtr<TTypeAnnotationContext> GetTypeAnnotationContext() const;
 
 private:
+    void WrapTransformers();
+
     TIntrusivePtr<TTypeAnnotationContext> TypeAnnotationContext_;
     TTypeAnnCallableFactory TypeAnnCallableFactory_;
     TVector<TTransformStage> Transformers_;
+    TTransformerWrapper TransformerWrapper_;
 };
 
 struct IPipelineConfigurator {

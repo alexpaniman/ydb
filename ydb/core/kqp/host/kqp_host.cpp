@@ -1649,8 +1649,7 @@ private:
     IAsyncQueryResultPtr PrepareDataQueryInternal(const TKqpQueryRef& query, const TPrepareSettings& settings,
         TExprContext& ctx)
     {
-        SetupYqlTransformer(EKikimrQueryType::Dml);
-        SessionCtx->Query().CompileTrace = settings.CompileTrace;
+        SetupYqlTransformer(EKikimrQueryType::Dml, settings.CompileTrace);
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();
@@ -1687,8 +1686,7 @@ private:
         TExprContext& ctx)
     {
         IKikimrQueryExecutor::TExecuteSettings execSettings;
-        SetupDataQueryAstTransformer(execSettings, EKikimrQueryType::Dml);
-        SessionCtx->Query().CompileTrace = settings.CompileTrace;
+        SetupDataQueryAstTransformer(execSettings, EKikimrQueryType::Dml, settings.CompileTrace);
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();
@@ -1735,7 +1733,6 @@ private:
             SessionCtx->Query().ConcurrentResults = *settings.ConcurrentResults;
         }
         SessionCtx->Query().IsolateEffects = settings.UsePessimisticLocks;
-        SessionCtx->Query().CompileTrace = settings.CompileTrace;
         if (settings.RuntimeParameterSizeLimitSatisfied) {
             SessionCtx->Query().RuntimeParameterSizeLimitSatisfied = settings.RuntimeParameterSizeLimitSatisfied;
         }
@@ -1755,7 +1752,7 @@ private:
     IAsyncQueryResultPtr PrepareQueryInternal(const TKqpQueryRef& query, NYql::TExprNode::TPtr expr, EKikimrQueryType queryType,
         const TPrepareSettings& settings, TExprContext& ctx)
     {
-        SetupYqlTransformer(queryType);
+        SetupYqlTransformer(queryType, settings.CompileTrace);
         auto sqlVersion = SetupQueryParameters(settings, queryType);
 
         if (!expr) {
@@ -1783,7 +1780,7 @@ private:
     }
 
     IAsyncSplitcResultPtr SplitQueryInternal(const TKqpQueryRef& query, const TPrepareSettings& settings, TExprContext& ctx) {
-        SetupYqlTransformer(EKikimrQueryType::Query);
+        SetupYqlTransformer(EKikimrQueryType::Query, settings.CompileTrace);
         auto sqlVersion = SetupQueryParameters(settings, EKikimrQueryType::Query);
 
         TKqpTranslationSettingsBuilder settingsBuilder(SessionCtx->Query().Type, Cluster, query.Text, SessionCtx->Config().GetYqlBindingsMode(), GUCSettings);
@@ -1832,8 +1829,7 @@ private:
     IAsyncQueryResultPtr PrepareScanQueryInternal(const TKqpQueryRef& query, TExprContext& ctx, const TPrepareSettings& prepareSettings,
         EKikimrStatsMode statsMode = EKikimrStatsMode::None)
     {
-        SetupYqlTransformer(EKikimrQueryType::Scan);
-        SessionCtx->Query().CompileTrace = prepareSettings.CompileTrace;
+        SetupYqlTransformer(EKikimrQueryType::Scan, prepareSettings.CompileTrace);
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().StatsMode = statsMode;
@@ -1856,8 +1852,7 @@ private:
 
     IAsyncQueryResultPtr PrepareScanQueryAstInternal(const TKqpQueryRef& queryAst, TExprContext& ctx, const TPrepareSettings& prepareSettings) {
         IKikimrQueryExecutor::TExecuteSettings settings;
-        SetupDataQueryAstTransformer(settings, EKikimrQueryType::Scan);
-        SessionCtx->Query().CompileTrace = prepareSettings.CompileTrace;
+        SetupDataQueryAstTransformer(settings, EKikimrQueryType::Scan, prepareSettings.CompileTrace);
 
         SessionCtx->Query().PrepareOnly = true;
         SessionCtx->Query().PreparingQuery = std::make_unique<NKikimrKqp::TPreparedQuery>();
@@ -2404,9 +2399,10 @@ private:
             .Build();
     }
 
-    void SetupSession(EKikimrQueryType queryType) {
+    void SetupSession(EKikimrQueryType queryType, TCompileTrace::TPtr trace = {}) {
         SessionCtx->Reset(KeepConfigChanges);
         SessionCtx->Query().Type = queryType;
+        SessionCtx->Query().CompileTrace = std::move(trace);
 
         DataProvidersFinalizer = nullptr;
 
@@ -2424,8 +2420,8 @@ private:
         std::get<2>(TypesCtx->CachedRandom).reset();
     }
 
-    void SetupYqlTransformer(EKikimrQueryType queryType) {
-        SetupSession(queryType);
+    void SetupYqlTransformer(EKikimrQueryType queryType, TCompileTrace::TPtr trace = {}) {
+        SetupSession(queryType, std::move(trace));
 
         YqlTransformer->Rewind();
         YqlTransformerNewRBO->Rewind();
@@ -2434,8 +2430,9 @@ private:
         ResultProviderConfig->CommittedResults.clear();
     }
 
-    void SetupDataQueryAstTransformer(const IKikimrQueryExecutor::TExecuteSettings& settings, EKikimrQueryType queryType) {
-        SetupSession(queryType);
+    void SetupDataQueryAstTransformer(const IKikimrQueryExecutor::TExecuteSettings& settings, EKikimrQueryType queryType,
+        TCompileTrace::TPtr trace = {}) {
+        SetupSession(queryType, std::move(trace));
 
         DataQueryAstTransformer->Rewind();
 

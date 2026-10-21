@@ -68,9 +68,23 @@ public:
 
     // Rule attempts of the running rule-based stage, reported in its compilation span.
     struct TRuleStageTraceStats {
+        struct TRuleStats {
+            TString Name;
+            ui64 QuickChecks = 0;
+            ui64 QuickRejected = 0;
+            ui64 QuickMatchCycles = 0;
+            ui64 Attempts = 0;
+            ui64 Applied = 0;
+            TDuration UnappliedTime;
+            ui64 UnappliedCpuUs = 0;
+        };
+
+        ui64 QuickChecks = 0;
+        ui64 QuickRejected = 0;
         ui64 Attempts = 0;
         ui64 Applied = 0;
         TDuration UnappliedTime;
+        TVector<TRuleStats> Rules;
     };
     TRuleStageTraceStats RuleStageTraceStats;
 

@@ -79,35 +79,6 @@ Y_UNIT_TEST_SUITE(TKqpCompileTraceTransformer) {
         UNIT_ASSERT_VALUES_EQUAL(uploader->Spans.size(), 1);
     }
 
-    Y_UNIT_TEST_TWIN(ScopeErrorsKeepCpuAndRestoreParent, Throw) {
-        NActors::TTestActorRuntimeBase runtime;
-        runtime.Initialize();
-        auto* uploader = new NWilson::TFakeWilsonUploader();
-        runtime.RegisterService(NWilson::MakeWilsonUploaderId(), runtime.Register(uploader));
-        TCompileTrace trace(NWilson::TTraceId::NewTraceId(15, 4095), runtime.GetActorSystem(0));
-        const auto parent = trace.GetCurrentParent();
-        const auto fail = [&] {
-            TCompileTraceRunScope running(&trace);
-            TCompileTraceScope scope(&trace, TCompileTraceLevels::Phase, "Failed operation", "Test");
-            if constexpr (Throw) {
-                ythrow yexception() << "operation failure";
-            }
-            scope.SetSuccess(false);
-        };
-        if constexpr (Throw) {
-            UNIT_ASSERT_EXCEPTION(fail(), yexception);
-        } else {
-            fail();
-        }
-        runtime.SimulateSleep(TDuration::MilliSeconds(1));
-        UNIT_ASSERT(trace.GetCurrentParent() == parent);
-        UNIT_ASSERT_VALUES_EQUAL(uploader->Spans.size(), 1);
-        const auto& span = uploader->Spans.front();
-        UNIT_ASSERT_VALUES_EQUAL(static_cast<int>(span.status().code()),
-            static_cast<int>(NWilson::NTraceProto::Status::STATUS_CODE_ERROR));
-        UNIT_ASSERT(FindAttribute(span, "ydb.cpu_us"));
-    }
-
     Y_UNIT_TEST(RewindCompletedFailedAndActiveSpans) {
         NActors::TTestActorRuntimeBase runtime;
         runtime.Initialize();

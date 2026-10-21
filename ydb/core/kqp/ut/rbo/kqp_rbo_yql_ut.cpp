@@ -7989,6 +7989,24 @@ FROM (
             return to_lower(HexEncode(bytes));
         }
 
+        template <class T>
+        static NJson::TJsonValue AttributesToJson(const T& source) {
+            NJson::TJsonValue attrs(NJson::JSON_MAP);
+            for (const auto& kv : source.attributes()) {
+                const auto& value = kv.value();
+                if (value.has_string_value()) {
+                    attrs[kv.key()] = value.string_value();
+                } else if (value.has_int_value()) {
+                    attrs[kv.key()] = static_cast<i64>(value.int_value());
+                } else if (value.has_bool_value()) {
+                    attrs[kv.key()] = value.bool_value();
+                } else if (value.has_double_value()) {
+                    attrs[kv.key()] = value.double_value();
+                }
+            }
+            return attrs;
+        }
+
         void Handle(NWilson::TEvWilson::TPtr& ev) {
             const auto& span = ev->Get()->Span;
             NJson::TJsonValue json;
@@ -8000,19 +8018,13 @@ FROM (
             json["start_ns"] = static_cast<ui64>(span.start_time_unix_nano());
             json["end_ns"] = static_cast<ui64>(span.end_time_unix_nano());
             json["status"] = static_cast<int>(span.status().code());
-            auto& attrs = json["attrs"];
-            attrs.SetType(NJson::JSON_MAP);
-            for (const auto& kv : span.attributes()) {
-                const auto& value = kv.value();
-                if (value.has_string_value()) {
-                    attrs[kv.key()] = value.string_value();
-                } else if (value.has_int_value()) {
-                    attrs[kv.key()] = static_cast<i64>(value.int_value());
-                } else if (value.has_bool_value()) {
-                    attrs[kv.key()] = value.bool_value();
-                } else if (value.has_double_value()) {
-                    attrs[kv.key()] = value.double_value();
-                }
+            json["attrs"] = AttributesToJson(span);
+            for (const auto& event : span.events()) {
+                NJson::TJsonValue entry;
+                entry["name"] = event.name();
+                entry["time_ns"] = static_cast<ui64>(event.time_unix_nano());
+                entry["attrs"] = AttributesToJson(event);
+                json["events"].AppendValue(std::move(entry));
             }
             {
                 TGuard guard(State->Lock);
@@ -8168,9 +8180,8 @@ FROM (
         }
     }
 
-    // Measures compilation with spans at several verbosity levels, see
-    // ydb/core/kqp/tracing/tools/compile_trace/README.md. Disabled unless
-    // COMPILE_TRACE_BENCH names the benchmarks to run.
+    // Measures compilation with spans at several verbosity levels. Disabled
+    // unless COMPILE_TRACE_BENCH names the benchmarks to run.
     Y_UNIT_TEST(CompileTraceBench) {
         const TString benches = GetTestParam("COMPILE_TRACE_BENCH");
         if (benches.empty()) {

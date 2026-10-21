@@ -150,6 +150,12 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
     const bool traceRuleSpans = traceRules && trace->IsEnabled(TCompileTraceLevels::Detail);
     auto& traceStats = ctx.RuleStageTraceStats;
     ctx.TraceRules = traceRuleSpans;
+    if (traceRuleSpans) {
+        traceStats.Rules.resize(Rules.size());
+        for (size_t i = 0; i < Rules.size(); ++i) {
+            traceStats.Rules[i].Name = Rules[i]->RuleName;
+        }
+    }
 
     while (fired && numMatches < maxNumOfMatches) {
         fired = false;
@@ -158,8 +164,21 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
             // A Replicate port's child is the producer every port shares: rules
             // must not rewrite through a port as if it were a pass-through
             // operator. Producer rewrites use the shared slot.
-            for (const auto& rule : Rules) {
-                if (!rule->QuickMatch(TIntrusivePtr<IOperator>(iter.Current), root.PlanProps)) {
+            for (size_t ruleIndex = 0; ruleIndex < Rules.size(); ++ruleIndex) {
+                const auto& rule = Rules[ruleIndex];
+                auto* ruleStats = traceRuleSpans ? &traceStats.Rules[ruleIndex] : nullptr;
+                const ui64 quickStart = ruleStats ? GetCycleCount() : 0;
+                const bool quickMatch = rule->QuickMatch(TIntrusivePtr<IOperator>(iter.Current), root.PlanProps);
+                if (ruleStats) {
+                    ruleStats->QuickMatchCycles += GetCycleCount() - quickStart;
+                    ++ruleStats->QuickChecks;
+                    ruleStats->QuickRejected += !quickMatch;
+                }
+                if (traceRules) {
+                    ++traceStats.QuickChecks;
+                    traceStats.QuickRejected += !quickMatch;
+                }
+                if (!quickMatch) {
                     continue;
                 }
 
@@ -184,6 +203,14 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
                     const ui64 ruleCpuEnd = traceRuleSpans ? trace->GetCpuTime() : 0;
                     const TInstant ruleEnd = trace->Now();
                     ++traceStats.Attempts;
+                    if (ruleStats) {
+                        ++ruleStats->Attempts;
+                        ruleStats->Applied += ruleApplied;
+                        if (!ruleApplied) {
+                            ruleStats->UnappliedTime += ruleEnd - ruleStart;
+                            ruleStats->UnappliedCpuUs += ruleCpuEnd - ruleCpuStart;
+                        }
+                    }
                     if (!ruleApplied) {
                         traceStats.UnappliedTime += ruleEnd - ruleStart;
                     } else {
@@ -272,11 +299,26 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
                 if (needToLog) {
                     YQL_CLOG(TRACE, CoreDq) << "After stage:\n" << root.PlanToString(ctx);
                 }
-                if (const auto& stats = rboCtx.RuleStageTraceStats; stats.Attempts) {
+                if (const auto& stats = rboCtx.RuleStageTraceStats; stats.QuickChecks) {
                     traceScope.Span()
+                        .Attribute("ydb.rbo.quick_checks", static_cast<i64>(stats.QuickChecks))
+                        .Attribute("ydb.rbo.quick_rejected", static_cast<i64>(stats.QuickRejected))
                         .Attribute("ydb.rbo.rule_attempts", static_cast<i64>(stats.Attempts))
                         .Attribute("ydb.rbo.rules_applied", static_cast<i64>(stats.Applied))
                         .Attribute("ydb.rbo.unapplied_rules_us", static_cast<i64>(stats.UnappliedTime.MicroSeconds()));
+                    // One summary per rule, rather than a span per rejected match.
+                    for (const auto& rule : stats.Rules) {
+                        traceScope.Span().Event("Rule attempts", {
+                            {"ydb.rbo.rule", rule.Name},
+                            {"ydb.rbo.quick_checks", static_cast<i64>(rule.QuickChecks)},
+                            {"ydb.rbo.quick_rejected", static_cast<i64>(rule.QuickRejected)},
+                            {"ydb.rbo.quick_match_us", static_cast<i64>(CyclesToDuration(rule.QuickMatchCycles).MicroSeconds())},
+                            {"ydb.rbo.rule_attempts", static_cast<i64>(rule.Attempts)},
+                            {"ydb.rbo.rules_applied", static_cast<i64>(rule.Applied)},
+                            {"ydb.rbo.unapplied_rules_us", static_cast<i64>(rule.UnappliedTime.MicroSeconds())},
+                            {"ydb.rbo.unapplied_rules_cpu_us", static_cast<i64>(rule.UnappliedCpuUs)},
+                        });
+                    }
                 }
             }
         }
