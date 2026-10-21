@@ -103,6 +103,7 @@ private:
     std::shared_ptr<TColumnStatisticsSharedState> SharedState;
     NThreading::TFuture<void> ColumnStatisticsReadiness;
     NWilson::TSpan ColumnStatisticsSpan;
+    NWilson::TTraceId ColumnStatisticsDependency;
     THashMap<TString, THashSet<TString>> CMColumnsByTableName;
     THashMap<TString, THashSet<TString>> HistColumnsByTableName;
     THashMap<TString, THashMap<TString, TVector<TString>>> EqHeightHistTuplesByTableName;

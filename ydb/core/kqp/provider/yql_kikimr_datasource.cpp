@@ -7,6 +7,7 @@
 #include <ydb/core/kqp/expr_nodes/kqp_expr_nodes.h>
 #include <ydb/core/kqp/common/simple/services.h>
 #include <ydb/core/kqp/host/kqp_translate.h>
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
 #include <ydb/core/protos/kqp_lookup_source.pb.h>
 #include <ydb/library/yql/dq/expr_nodes/dq_expr_nodes.h>
@@ -198,6 +199,9 @@ public:
         futures.reserve(tablesCount);
         std::optional<THashMap<std::pair<TString, TString>, THashMap<TString, TString>>> readAttributes;
         const bool isShowCreate = ContainsShowCreateSetting(*input);
+        auto* trace = SessionCtx->QueryPtr()->CompileTrace.Get();
+        NWilson::TSpan dependencyJoin;
+        MetadataDependency = {};
 
         for (auto& it : SessionCtx->Tables().GetTables()) {
             const TString& clusterName = it.first.first;
@@ -223,6 +227,18 @@ public:
             auto queryType = SessionCtx->Query().Type;
             auto& result = emplaceResult.first->second;
 
+            if (trace && !dependencyJoin) {
+                dependencyJoin = trace->StartSpan(NKikimr::NKqp::TCompileTraceLevels::Step,
+                    "Await table metadata", "KikimrSource", "async");
+                dependencyJoin.Attribute("ydb.compile.join", TString("all_or_error"));
+            }
+            auto dependency = dependencyJoin.CreateChild(NKikimr::NKqp::TCompileTraceLevels::Step,
+                "Resolve table metadata");
+            dependency.Attribute("ydb.compile.kind", TString("async"));
+            dependency.Attribute("ydb.table", tableName);
+            if (dependency) {
+                dependencyJoin.Link(dependency.GetTraceId(), {{"ydb.compile.relation", TString("depends_on")}});
+            }
             auto future = Gateway->LoadTableMetadata(clusterName, tableName,
                 IKikimrGateway::TLoadTableMetadataSettings()
                             .WithTableStats(table.GetNeedsStats())
@@ -235,7 +251,7 @@ public:
                             .WithTopicsIo(SessionCtx->Config().FeatureFlags.GetEnableTopicsSqlIoOperations())
             );
 
-            futures.push_back(future.Apply([result, queryType]
+            futures.push_back(NKikimr::NKqp::TraceCompileDependency(future.Apply([result, queryType]
                 (const NThreading::TFuture<IKikimrGateway::TTableMetadataResult>& future) {
                     YQL_ENSURE(!future.HasException());
                     const auto& value = future.GetValue();
@@ -255,19 +271,25 @@ public:
                         break;
                     }
                     *result = value;
-                }));
+                }), std::move(dependency)));
         }
 
         if (futures.empty()) {
             return TStatus::Ok;
         }
 
-        AsyncFuture = NThreading::WaitExceptionOrAll(futures);
+        MetadataDependency = dependencyJoin.GetTraceId();
+        dependencyJoin.Attribute("ydb.compile.dependencies", static_cast<i64>(futures.size()));
+        AsyncFuture = NKikimr::NKqp::TraceCompileDependency(
+            NThreading::WaitExceptionOrAll(futures), std::move(dependencyJoin));
         return TStatus::Async;
     }
 
     NThreading::TFuture<void> DoGetAsyncFuture(const TExprNode& input) final {
         Y_UNUSED(input);
+        if (auto* trace = SessionCtx->QueryPtr()->CompileTrace.Get()) {
+            trace->AwaitDependency(MetadataDependency);
+        }
         return AsyncFuture;
     }
 
@@ -425,6 +447,7 @@ public:
     void Rewind() final {
         LoadResults.clear();
         AsyncFuture = {};
+        MetadataDependency = {};
     }
 
 private:
@@ -436,6 +459,7 @@ private:
 
     THashMap<std::pair<TString, TString>, std::shared_ptr<IKikimrGateway::TTableMetadataResult>> LoadResults;
     NThreading::TFuture<void> AsyncFuture;
+    NWilson::TTraceId MetadataDependency;
 };
 
 class TKikimrConfigurationTransformer : public NCommon::TProviderConfigurationTransformer {

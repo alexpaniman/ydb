@@ -10,6 +10,7 @@ SRCS(
 )
 
 PEERDIR(
+    library/cpp/threading/future
     library/cpp/time_provider
     ydb/core/kqp/common/simple
     ydb/core/protos

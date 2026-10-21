@@ -2,6 +2,7 @@
 
 #include <ydb/library/actors/wilson/wilson_span.h>
 #include <ydb/library/wilson_ids/wilson.h>
+#include <library/cpp/threading/future/future.h>
 
 #include <util/generic/hash.h>
 #include <util/generic/hash_set.h>
@@ -11,6 +12,8 @@
 #include <util/system/spinlock.h>
 
 #include <utility>
+#include <memory>
+#include <type_traits>
 
 namespace NKikimr::NKqp {
 
@@ -65,7 +68,10 @@ public:
 
     // Starts the wait for a compiler continuation. Complete it on the future's
     // callback thread, then pass its ID to Resume when the actor handles it.
-    NWilson::TSpan StartContinuation() const;
+    NWilson::TSpan StartContinuation();
+    // Called on the compiler actor's thread by GetAsyncFuture, only for the
+    // futures actually returned to the pipeline. Consumed by StartContinuation.
+    void AwaitDependency(const NWilson::TTraceId& dependency);
 
     // Number of the next run of a span that the compilation may repeat, e.g.
     // after a restart of the pipeline, starting from 1.
@@ -127,7 +133,35 @@ private:
     ui32 Running = 0;
     bool CpuCounted = false;
     NWilson::TSpan ExecutionSpan;
+    TVector<NWilson::TTraceId> AwaitedDependencies;
 };
+
+// Ends a dependency on its callback thread, before releasing its consumer.
+void FinishCompileDependency(NWilson::TSpan& span, bool success);
+
+// For a value future this transfers its result to the returned future: the
+// caller must consume the returned future instead of retaining the original.
+// Captures no compiler/transformer state, which may be destroyed while waiting.
+template <class T>
+NThreading::TFuture<T> TraceCompileDependency(NThreading::TFuture<T> future, NWilson::TSpan span) {
+    if (!span) {
+        return future;
+    }
+    return future.Apply([span = std::make_shared<NWilson::TSpan>(std::move(span))]
+        (const NThreading::TFuture<T>& ready) -> T {
+        try {
+            ready.TryRethrow();
+        } catch (...) {
+            FinishCompileDependency(*span, false);
+            throw;
+        }
+        FinishCompileDependency(*span, true);
+        if constexpr (!std::is_void_v<T>) {
+            auto owned = ready;
+            return owned.ExtractValue();
+        }
+    });
+}
 
 // Reserves a parent ID without constructing an OTLP span for an unsuccessful
 // rule attempt. Finish emits applied attempts and attempts that have children.

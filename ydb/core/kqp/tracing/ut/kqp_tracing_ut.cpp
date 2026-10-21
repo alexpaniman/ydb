@@ -14,6 +14,7 @@
 #include <ydb/library/yql/dq/proto/dq_tasks.pb.h>
 
 #include <thread>
+#include <stdexcept>
 
 namespace NKikimr {
 
@@ -71,6 +72,63 @@ Y_UNIT_TEST_SUITE(TKqpTrace) {
         UNIT_ASSERT_VALUES_EQUAL(ready->links(0).span_id(), executions[0]->span_id());
         UNIT_ASSERT_LE(ready->end_time_unix_nano(), executions[1]->start_time_unix_nano() + 1000);
         UNIT_ASSERT_VALUES_EQUAL(FindAttribute(*FindSpan(*uploader, "Resumed work"), "ydb.compile.kind")->value().string_value(), "scope");
+    }
+
+    Y_UNIT_TEST(DependencyJoinPreservesReadinessAndFailure) {
+        NActors::TTestActorRuntimeBase runtime;
+        runtime.Initialize();
+        auto* uploader = RegisterUploader(runtime);
+        NWilson::TSpan query(15, NWilson::TTraceId::NewTraceId(15, 4095), "Query",
+            NWilson::EFlags::NONE, runtime.GetActorSystem(0));
+        NKqp::TCompileTrace trace(query.GetTraceId(), runtime.GetActorSystem(0));
+        auto first = NThreading::NewPromise<void>();
+        auto last = NThreading::NewPromise<void>();
+        auto join = trace.StartSpan(14, "Join", "Test", "async");
+        const auto joinId = join.GetTraceId();
+        trace.AwaitDependency(joinId);
+        trace.AwaitDependency(joinId); // Repeated GetAsyncFuture must not duplicate links.
+        auto continuation = trace.StartContinuation();
+        auto ready = NKqp::TraceCompileDependency(NThreading::WaitAll(first.GetFuture(), last.GetFuture()), std::move(join));
+        first.SetValue();
+        UNIT_ASSERT(!ready.IsReady());
+        std::thread worker([&] { last.SetValue(); });
+        worker.join();
+        ready.GetValue();
+        continuation.Event("Result ready");
+        continuation.EndOk();
+        auto unrelated = trace.StartContinuation();
+        unrelated.EndOk();
+
+        auto failure = NThreading::NewPromise<int>();
+        auto failed = NKqp::TraceCompileDependency(failure.GetFuture(), trace.StartSpan(14, "Failed dependency", "Test", "async"));
+        failure.SetException(std::make_exception_ptr(std::runtime_error("expected")));
+        UNIT_ASSERT_EXCEPTION(failed.GetValue(), std::runtime_error);
+        auto value = NKqp::TraceCompileDependency(NThreading::MakeFuture(std::make_unique<int>(42)),
+            trace.StartSpan(14, "Move-only dependency", "Test", "async"));
+        UNIT_ASSERT_VALUES_EQUAL(*value.ExtractValue(), 42);
+        query.EndOk();
+        runtime.SimulateSleep(TDuration::MilliSeconds(1));
+        const auto* joined = FindSpan(*uploader, "Join");
+        UNIT_ASSERT(joined && joined->events_size() == 1);
+        UNIT_ASSERT_VALUES_EQUAL(joined->events(0).name(), "Dependency ready");
+        UNIT_ASSERT(FindAttribute(joined->events(0), "thread.id"));
+        size_t dependent = 0, unattributed = 0;
+        for (const auto& span : uploader->Spans) {
+            if (span.name() != "Compiler continuation") {
+                continue;
+            }
+            if (span.links_size()) {
+                ++dependent;
+                UNIT_ASSERT_VALUES_EQUAL(span.links_size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(span.links(0).span_id(), joined->span_id());
+                UNIT_ASSERT_LE(joined->events(0).time_unix_nano(), span.events(0).time_unix_nano() + 1000);
+            } else {
+                ++unattributed;
+            }
+        }
+        UNIT_ASSERT_VALUES_EQUAL(dependent, 1);
+        UNIT_ASSERT_VALUES_EQUAL(unattributed, 1);
+        AssertStatus(*uploader, "Failed dependency", NTraceProto::Status::STATUS_CODE_ERROR);
     }
 
     Y_UNIT_TEST(DeferredRuleKeepsParentOnlyWhenNeeded) {

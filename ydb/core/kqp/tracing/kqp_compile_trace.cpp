@@ -111,12 +111,36 @@ TInstant TCompileTrace::Now() const {
     return parent.Start + CyclesToDuration(GetCycleCount() - parent.StartCycles);
 }
 
-NWilson::TSpan TCompileTrace::StartContinuation() const {
+void TCompileTrace::AwaitDependency(const NWilson::TTraceId& dependency) {
+    if (dependency && IsEnabled(TCompileTraceLevels::Step)
+        && std::find(AwaitedDependencies.begin(), AwaitedDependencies.end(), dependency) == AwaitedDependencies.end()) {
+        AwaitedDependencies.emplace_back(dependency);
+    }
+}
+
+NWilson::TSpan TCompileTrace::StartContinuation() {
     auto span = StartSpan(TCompileTraceLevels::Step, "Compiler continuation", "KqpCompileActor", "async");
     if (span && ExecutionSpan) {
         span.Link(ExecutionSpan.GetTraceId(), {{"ydb.compile.relation", TString("await")}});
     }
+    if (span) {
+        span.Attribute("ydb.compile.known_dependencies", static_cast<i64>(AwaitedDependencies.size()));
+        for (const auto& dependency : AwaitedDependencies) {
+            span.Link(dependency, {{"ydb.compile.relation", TString("depends_on")}});
+        }
+    }
+    AwaitedDependencies.clear();
     return span;
+}
+
+void FinishCompileDependency(NWilson::TSpan& span, bool success) {
+    span.Event("Dependency ready", {{"process.pid", static_cast<i64>(GetPID())},
+        {"thread.id", static_cast<i64>(TThread::CurrentThreadNumericId())}});
+    if (success) {
+        span.EndOk();
+    } else {
+        span.EndError("Dependency future failed");
+    }
 }
 
 ui32 TCompileTrace::NextIteration(const TString& name) {
@@ -208,6 +232,7 @@ void TCompileTrace::EndRegions(size_t count, bool success) {
 }
 
 void TCompileTrace::Finish(bool success) {
+    AwaitedDependencies.clear();
     EndRegions(Regions.size(), success);
 }
 

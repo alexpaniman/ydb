@@ -222,6 +222,9 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr in
 
 NThreading::TFuture<void> TKqpNewRBOTransformer::DoGetAsyncFuture(const TExprNode& input) {
     Y_UNUSED(input);
+    if (auto* trace = GetCompileTrace()) {
+        trace->AwaitDependency(ColumnStatisticsDependency);
+    }
     return ColumnStatisticsReadiness;
 }
 
@@ -410,21 +413,27 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::RequestColumnStatistics(TExprC
         ColumnStatisticsSpan = trace->StartSpan(TCompileTraceLevels::Phase, "Load column statistics", "NewRBO", "async");
     }
     CollectTablesAndColumnsNames(ctx);
+    auto dependencyJoin = ColumnStatisticsSpan.CreateChild(TCompileTraceLevels::Step, "Await column statistics");
+    dependencyJoin.Attribute("ydb.compile.kind", TString("async"));
+    dependencyJoin.Attribute("ydb.compile.join", TString("all"));
+    ColumnStatisticsDependency = dependencyJoin.GetTraceId();
 
     TVector<NThreading::TFuture<TColumnStatisticsResponse>> futures;
     AddStatRequest(ActorSystem, futures, Tables, Cluster, Database, TypeCtx, NStat::EStatType::COUNT_MIN_SKETCH, CMColumnsByTableName,
-                   [](const NYql::TColumnStatistics& stats) { return !!stats.CountMinSketch; });
+                   [](const NYql::TColumnStatistics& stats) { return !!stats.CountMinSketch; }, &dependencyJoin);
     AddStatRequest(ActorSystem, futures, Tables, Cluster, Database, TypeCtx, NStat::EStatType::EQ_WIDTH_HISTOGRAM, HistColumnsByTableName,
-                   [](const NYql::TColumnStatistics& stats) { return !!stats.EqWidthHistogramEstimator; });
+                   [](const NYql::TColumnStatistics& stats) { return !!stats.EqWidthHistogramEstimator; }, &dependencyJoin);
     AddStatRequest(ActorSystem, futures, Tables, Cluster, Database, TypeCtx, NStat::EStatType::EQ_HEIGHT_HISTOGRAM, EqHeightHistTuplesByTableName,
-                   [](const NYql::TMultiColumnStatistics& stats) { return !!stats.EqHeightHistogram; });
+                   [](const NYql::TMultiColumnStatistics& stats) { return !!stats.EqHeightHistogram; }, &dependencyJoin);
 
     ColumnStatisticsSpan.Attribute("ydb.statistics.requests", static_cast<i64>(futures.size()));
     if (futures.empty()) {
+        dependencyJoin.EndOk();
         ColumnStatisticsSpan.EndOk();
         return TStatus::Ok;
     }
 
+    dependencyJoin.Attribute("ydb.compile.dependencies", static_cast<i64>(futures.size()));
     auto sharedState = std::make_shared<TColumnStatisticsSharedState>();
     ColumnStatisticsReadiness = NThreading::WaitAll(futures).Apply(
         [weakSharedState = std::weak_ptr{sharedState}, futures = std::move(futures)](const NThreading::TFuture<void>&) mutable {
@@ -479,6 +488,7 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::RequestColumnStatistics(TExprC
             }
         });
 
+    ColumnStatisticsReadiness = TraceCompileDependency(ColumnStatisticsReadiness, std::move(dependencyJoin));
     SharedState = sharedState;
     return TStatus::Async;
 }
@@ -584,6 +594,7 @@ void TKqpNewRBOTransformer::AddPlans(std::optional<NJson::TJsonValue> execPlan, 
 }
 
 void TKqpNewRBOTransformer::Rewind() {
+    ColumnStatisticsDependency = {};
     if (ColumnStatisticsSpan) {
         ColumnStatisticsSpan.EndError("Transformer rewound");
     }

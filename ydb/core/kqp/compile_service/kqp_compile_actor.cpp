@@ -160,6 +160,7 @@ public:
         {
             TCompileTraceRunScope running(CompileActorSpan ? &cleanupTrace : nullptr);
             TCompileTraceScope scope(&cleanupTrace, TCompileTraceLevels::Step, "Cleanup compiler", "KqpCompileActor");
+            scope.Span().Attribute("ydb.compile.cleanup", true);
             AsyncSplitResult.Drop();
             AsyncCompileResult.Drop();
             KqpHost.Drop();
@@ -571,6 +572,9 @@ private:
         stats.DurationUs = (TInstant::Now() - StartTime).MicroSeconds();
         stats.CpuTimeUs = CompileCpuTime.MicroSeconds();
         Send(Owner, responseEv.Release());
+
+        // Enqueued for the owner, not delivered/processed by the owner yet.
+        CompileActorSpan.Event("Compilation reply sent");
 
         Counters->ReportCompileFinish(DbCounters);
 

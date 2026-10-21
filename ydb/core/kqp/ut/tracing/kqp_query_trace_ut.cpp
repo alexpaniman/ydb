@@ -813,7 +813,7 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
         }
         AssertDescendant(snapshot, "Compiler execution", "Compile query");
         const auto* continuation = FindSpan(snapshot, "Compiler continuation");
-        UNIT_ASSERT(continuation && continuation->links_size() == 1 && continuation->events_size() == 1);
+        UNIT_ASSERT(continuation && continuation->links_size() >= 1 && continuation->events_size() == 1);
         UNIT_ASSERT_VALUES_EQUAL(continuation->events(0).name(), "Result ready");
         UNIT_ASSERT(FindAttribute(continuation->events(0), "thread.id"));
         UNIT_ASSERT(std::ranges::any_of(snapshot.Spans, [](const auto& span) {
@@ -827,6 +827,20 @@ Y_UNIT_TEST_SUITE(TKqpQueryTrace) {
         const auto& cleanup = *FindSpan(snapshot, "Cleanup compiler");
         const auto* compile = FindParent(snapshot, cleanup);
         UNIT_ASSERT(compile && compile->name() == "Compile query");
+        const auto reply = std::ranges::find_if(compile->events(), [](const auto& event) {
+            return event.name() == "Compilation reply sent";
+        });
+        UNIT_ASSERT(reply != compile->events().end());
+        UNIT_ASSERT_LE(reply->time_unix_nano(), cleanup.start_time_unix_nano() + 1000);
+        UNIT_ASSERT(FindAttribute(cleanup, "ydb.compile.cleanup")->value().bool_value());
+        const auto* metadata = FindSpan(snapshot, "Await table metadata");
+        UNIT_ASSERT(metadata && metadata->links_size() > 0 && metadata->events_size() == 1);
+        UNIT_ASSERT_VALUES_EQUAL(FindAttribute(*metadata, "ydb.compile.join")->value().string_value(), "all_or_error");
+        UNIT_ASSERT(std::ranges::any_of(snapshot.Spans, [&](const auto& span) {
+            return span.name() == "Compiler continuation" && std::ranges::any_of(span.links(), [&](const auto& link) {
+                return link.span_id() == metadata->span_id();
+            });
+        }));
         // Wilson derives end times from each span's cycle clock; allow their
         // small drift relative to the wall-clock starts of later child spans.
         UNIT_ASSERT_LE(cleanup.end_time_unix_nano(), compile->end_time_unix_nano() + TDuration::MilliSeconds(1).NanoSeconds());
