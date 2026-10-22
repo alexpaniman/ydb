@@ -182,6 +182,11 @@ TVector<TExprNode::TPtr> TPhysicalQueryBuilder::LowerPhysicalStageCompatibility(
         TypeAnnotate(root);
     }
 
+    // Composite expressions outside the focused lowering's supported types
+    // still need the existing physical expression expansion to be executable.
+    if (NeedsRboCompatibilityLowering(root)) {
+        return PeepHoleOptimizePhysicalStages(std::move(physicalStages));
+    }
     EnsureRboCompatibilityLowered(root);
     TVector<TExprNode::TPtr> stagesTopSorted;
     TopologicalSort(TDqPhyStage(root), stagesTopSorted);
