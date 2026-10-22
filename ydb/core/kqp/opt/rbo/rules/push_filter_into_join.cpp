@@ -91,7 +91,12 @@ TIntrusivePtr<IOperator> TPushFilterIntoJoinRule::SimpleMatchAndApply(const TInt
         const bool containsEquiJoinCondition = AnyOf(conjuncts, [](const TExpression& conjunct) {
             return conjunct.MaybeEquiJoinCondition();
         });
-        if (!containsEquiJoinCondition) {
+        const bool containsUnresolvedSubplan = AnyOf(conjuncts, [&props](const TExpression& conjunct) {
+            return ReferencesUnresolvedSubplan(conjunct, props);
+        });
+        // Join filters cannot resolve subplan outputs. Let the normal path keep
+        // those predicates above the join until subplan inlining supplies them.
+        if (!containsEquiJoinCondition && !containsUnresolvedSubplan) {
             join->JoinFilters.insert(join->JoinFilters.end(), conjuncts.begin(), conjuncts.end());
             return join;
         }
