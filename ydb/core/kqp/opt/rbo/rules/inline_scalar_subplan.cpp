@@ -16,10 +16,17 @@ TString OnlyValueAggregation(const TTypeAnnotationNode* valueType) {
     return compare == NYql::ECompareOptions::Comparable || compare == NYql::ECompareOptions::Optional ? "min" : "some";
 }
 
-// Make sure that scalar subquery produce one row for each binding.
-std::pair<TIntrusivePtr<IOperator>, TInfoUnitId> MakeAtMostOneRowPerGroup(const TIntrusivePtr<IOperator>& input, const TOrderedIUs<>& groupKeys,
-                                                                          TInfoUnitId valueIU, const TTypeAnnotationNode* valueType,
-                                                                          TPositionHandle pos, TRBOContext& ctx, TPlanProps& props) {
+struct TScalarState {
+    TIntrusivePtr<IOperator> Input;
+    TInfoUnitId Value;
+    TInfoUnitId Count;
+};
+
+// Collect one value and its cardinality per binding. Validation belongs at
+// the scalar expression's use, inside any conditional that guards that use.
+TScalarState MakeScalarState(const TIntrusivePtr<IOperator>& input, const TOrderedIUs<>& groupKeys,
+                             TInfoUnitId valueIU, const TTypeAnnotationNode* valueType,
+                             TPositionHandle pos, TRBOContext& ctx, TPlanProps& props) {
     auto rowIU = props.InfoUnitRegistry.AddGenerated("row");
     TMapIUs rowElements;
     rowElements.Add(rowIU, MakeConstant("Uint64", "1", pos, &ctx.ExprCtx));
@@ -34,15 +41,35 @@ std::pair<TIntrusivePtr<IOperator>, TInfoUnitId> MakeAtMostOneRowPerGroup(const 
     traits.Add(valueStateIU, TOpAggregationTraits{valueIU, OnlyValueAggregation(valueType)});
     auto aggregate = MakeIntrusive<TOpAggregate>(rowMap, traits, groupKeys, EOpPhase::Undefined, /*distinctAll=*/false, pos);
 
-    auto atMostOne =
-        MakeBinaryPredicate("<=", MakeColumnAccess(countIU, pos, &ctx.ExprCtx, &props), MakeConstant("Uint64", "1", pos, &ctx.ExprCtx));
+    return {std::move(aggregate), valueStateIU, countIU};
+}
 
-    auto checkedIU = props.InfoUnitRegistry.AddGenerated("checked_scalar");
-    TMapIUs valueElements;
-    // Emit ensure.
-    valueElements.Add(checkedIU, MakeEnsure(MakeColumnAccess(valueStateIU, pos, &ctx.ExprCtx, &props), atMostOne,
-                                            "Scalar subquery returned more than one row"));
-    return std::make_pair(MakeIntrusive<TOpMap>(aggregate, pos, valueElements), checkedIU);
+void CheckScalarAtUses(IOperator& consumer, TInfoUnitId scalarIU, TInfoUnitId valueIU, TInfoUnitId countIU, TRBOContext& ctx) {
+    TNodeOnNodeOwnedMap replacements;
+    for (const auto& expression : consumer.GetExpressions()) {
+        const auto& lambda = expression.get().GetLambda();
+        const auto& row = lambda->Head().Head();
+        VisitExpr(expression.get().GetExpressionBody(), [&](const TExprNode::TPtr& node) {
+            if (!node->IsCallable("Member") || &node->Head() != &row || GetMemberId(*node) != scalarIU) {
+                return true;
+            }
+            const auto pos = node->Pos();
+            const auto member = [&](TInfoUnitId id) {
+                return ctx.ExprCtx.ChangeChild(*node, 1, ctx.ExprCtx.NewAtom(pos, ctx.ExprCtx.GetIndexAsString(id)));
+            };
+            const auto zero = ctx.ExprCtx.NewCallable(pos, "Uint64", {ctx.ExprCtx.NewAtom(pos, "0")});
+            const auto one = ctx.ExprCtx.NewCallable(pos, "Uint64", {ctx.ExprCtx.NewAtom(pos, "1")});
+            // A correlated Left join has no right row for an empty subquery.
+            const auto count = ctx.ExprCtx.NewCallable(pos, "Coalesce", {member(countIU), zero});
+            const auto atMostOne = ctx.ExprCtx.NewCallable(pos, "<=", {count, one});
+            const auto message = ctx.ExprCtx.NewCallable(pos, "String", {
+                ctx.ExprCtx.NewAtom(pos, "Scalar subquery returned more than one row")});
+            replacements.emplace(node.Get(), ctx.ExprCtx.NewCallable(pos, "Ensure", {member(valueIU), atMostOne, message}));
+            return false;
+        });
+    }
+    Y_ENSURE(!replacements.empty(), "Missing scalar subquery use");
+    consumer.ApplyReplaceMap(replacements, ctx);
 }
 
 } // anonymous namespace
@@ -91,19 +118,6 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
     auto child = unaryOp->GetInput();
 
     if (HasFreeCorrelation(subplan, subplanEntry.DependentIUs)) {
-        auto attachSubplanResult = [&](const TIntrusivePtr<IOperator>& join, TInfoUnitId joinedSubplanResIU) {
-            if (input->Kind == EOperator::Filter) {
-                auto outerFilter = CastOperator<TOpFilter>(input);
-                outerFilter->SetFilterExpression(outerFilter->GetFilterExpression().ApplyRenames({{scalarIU, joinedSubplanResIU}}));
-                outerFilter->SetInput(join);
-            } else {
-                TMapIUs renameElements;
-                renameElements.Add(scalarIU, MakeColumnAccess(joinedSubplanResIU, subplan->Pos, &ctx.ExprCtx, &props));
-                auto rename = MakeIntrusive<TOpMap>(join, subplan->Pos, renameElements);
-                unaryOp->SetInput(rename);
-            }
-        };
-
         const auto& dependencies = subplanEntry.DependentIUs;
         auto leftIUs = child->GetOutputIUs();
         for (const auto iu : dependencies) {
@@ -116,27 +130,25 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
         TJoinIUs joinKeys = domain.Keys;
         auto dependentJoin = std::move(domain).Bind(subplan, subplan->Pos);
 
-        auto [rightInput, rightResIU] = MakeAtMostOneRowPerGroup(dependentJoin, domainColumns, subplanResIU, subplanResType, subplan->Pos, ctx, props);
+        auto state = MakeScalarState(dependentJoin, domainColumns, subplanResIU, subplanResType, subplan->Pos, ctx, props);
 
         TIntrusivePtr<IOperator> joinLeftInput = child;
-        TIntrusivePtr<IOperator> joinRightInput = rightInput;
+        TIntrusivePtr<IOperator> joinRightInput = state.Input;
         joinKeys = MakeNullSafeJoinKeys(joinLeftInput, joinRightInput, joinKeys, subplan->Pos, ctx, props);
 
         auto leftJoin = MakeIntrusive<TOpJoin>(joinLeftInput, joinRightInput, subplan->Pos, "Left", joinKeys);
 
-        attachSubplanResult(leftJoin, rightResIU);
+        unaryOp->SetInput(leftJoin);
+        CheckScalarAtUses(*input, scalarIU, state.Value, state.Count, ctx);
     }
     // Otherwise we assume an uncorrelated supbplan
     else {
-        auto [checkedInput, checkedResIU] = MakeAtMostOneRowPerGroup(subplan, {}, subplanResIU, subplanResType, subplan->Pos, ctx, props);
-
-        TMapIUs renameElements;
-        renameElements.Add(scalarIU, MakeColumnAccess(checkedResIU, subplan->Pos, &ctx.ExprCtx, &props));
-        auto rename = MakeIntrusive<TOpMap>(checkedInput, subplan->Pos, renameElements);
+        auto state = MakeScalarState(subplan, {}, subplanResIU, subplanResType, subplan->Pos, ctx, props);
 
         TJoinIUs joinKeys;
-        auto cross = MakeIntrusive<TOpJoin>(child, rename, subplan->Pos, "Cross", joinKeys);
+        auto cross = MakeIntrusive<TOpJoin>(child, state.Input, subplan->Pos, "Cross", joinKeys);
         unaryOp->SetInput(cross);
+        CheckScalarAtUses(*input, scalarIU, state.Value, state.Count, ctx);
     }
 
     props.Subplans.Remove(scalarIU);
