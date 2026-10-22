@@ -131,6 +131,13 @@ bool IsDecimal(const TTypeAnnotationNode* type) {
     return type->GetKind() == ETypeAnnotationKind::Data && type->Cast<TDataExprType>()->GetName().starts_with("Decimal");
 }
 
+const TTypeAnnotationNode* IntervalType(const TTypeAnnotationNode* type) {
+    if (type->GetKind() == ETypeAnnotationKind::Optional) {
+        type = type->Cast<TOptionalExprType>()->GetItemType();
+    }
+    return type->GetKind() == ETypeAnnotationKind::Data && IsDataTypeInterval(type->Cast<TDataExprType>()->GetSlot()) ? type : nullptr;
+}
+
 std::pair<TString, TString> DecimalParams(const TTypeAnnotationNode* type) {
     if (type->IsOptionalOrNull()) {
         type = type->Cast<TOptionalExprType>()->GetItemType();
@@ -366,6 +373,10 @@ TVector<TExprNode::TPtr> TPhysicalWindowBuilder::BuildSortKeys() const {
 
 TExprNode::TPtr TPhysicalWindowBuilder::BuildAvgAccumulatorDataType(TInfoUnitId column) const {
     const auto* itemType = InputItemType(column);
+    if (IntervalType(itemType)) {
+        // Match interval AVG traits: accumulate integral microseconds exactly.
+        return ExpandType(Pos, *Ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, "35", "0"), Ctx);
+    }
     if (!IsDecimal(itemType)) {
         // clang-format off
         return Ctx.Builder(Pos)
@@ -387,6 +398,14 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildAvgAccumulatorDataType(TInfoUnitId 
             .Atom(2, scale)
         .Seal().Build();
     // clang-format on
+}
+
+TExprNode::TPtr TPhysicalWindowBuilder::BuildAvgInputCast(TInfoUnitId column, TExprNode::TPtr value) const {
+    const bool isInterval = IntervalType(InputItemType(column));
+    if (isInterval) {
+        value = Ctx.NewCallable(Pos, "StrictCast", {value, ExpandType(Pos, *Ctx.MakeType<TDataExprType>(EDataSlot::Int64), Ctx)});
+    }
+    return Ctx.NewCallable(Pos, isInterval ? "StrictCast" : "SafeCast", {value, BuildAvgAccumulatorDataType(column)});
 }
 
 TExprNode::TPtr TPhysicalWindowBuilder::BuildAvgAccumulatorType(TInfoUnitId column) const {
@@ -534,7 +553,6 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildAccumulator(const TOpWindowFunc& fu
     if (func.Function == "avg") {
         // The accumulator is optional (sum, count).
         auto accType = BuildAvgAccumulatorType(argument);
-        auto accData = BuildAvgAccumulatorDataType(argument);
 
         // clang-format off
         auto nothing = Ctx.Builder(Pos)
@@ -550,10 +568,7 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildAccumulator(const TOpWindowFunc& fu
             return Ctx.Builder(Pos)
                 .Callable("Just")
                     .List(0)
-                        .Callable(0, "SafeCast")
-                            .Add(0, present)
-                            .Add(1, accData)
-                        .Seal()
+                        .Add(0, BuildAvgInputCast(argument, present))
                         .Callable(1, "Uint64").Atom(0, "1").Seal()
                     .Seal()
                 .Seal().Build();
@@ -584,10 +599,7 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildAccumulator(const TOpWindowFunc& fu
                     .List(0)
                         .Callable(0, "AggrAdd")
                             .Callable(0, "Nth").Add(0, state).Atom(1, "0").Seal()
-                            .Callable(1, "SafeCast")
-                                .Add(0, present)
-                                .Add(1, accData)
-                            .Seal()
+                            .Add(1, BuildAvgInputCast(argument, present))
                         .Seal()
                         .Callable(1, "Inc")
                             .Callable(0, "Nth").Add(0, state).Atom(1, "1").Seal()
@@ -742,7 +754,13 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildAverage(const TOpWindowFunc& func, 
 
     TExprNode::TPtr resultType;
     TExprNode::TPtr value;
-    if (IsDecimal(itemType)) {
+    if (const auto* intervalType = IntervalType(itemType)) {
+        resultType = ExpandType(Pos, *intervalType, Ctx);
+        auto integralType = ExpandType(Pos, *Ctx.MakeType<TDataExprType>(EDataSlot::Int64), Ctx);
+        auto divided = Ctx.NewCallable(Pos, "DecimalDiv", {sum, count});
+        auto integral = Ctx.NewCallable(Pos, "StrictCast", {divided, integralType});
+        value = Ctx.NewCallable(Pos, "Unwrap", {Ctx.NewCallable(Pos, "StrictCast", {integral, resultType})});
+    } else if (IsDecimal(itemType)) {
         const auto [precision, scale] = DecimalParams(itemType);
         // clang-format off
         resultType = Ctx.Builder(Pos)

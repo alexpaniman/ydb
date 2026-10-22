@@ -69,6 +69,7 @@ private:
     TExprNode::TPtr BuildStruct(const TVector<std::pair<TString, TExprNode::TPtr>>& members) const;
     TExprNode::TPtr BuildSumCastTarget(TInfoUnitId column) const;
     TExprNode::TPtr BuildAvgAccumulatorDataType(TInfoUnitId column) const;
+    TExprNode::TPtr BuildAvgInputCast(TInfoUnitId column, TExprNode::TPtr value) const;
     TExprNode::TPtr BuildAvgAccumulatorType(TInfoUnitId column) const;
     bool IsNonOptionalAggregate(TInfoUnitId column) const;
     TExprNode::TPtr BuildResultFromAccumulator(TInfoUnitId column, TExprNode::TPtr accumulator) const;
