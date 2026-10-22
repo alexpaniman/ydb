@@ -135,9 +135,9 @@ TIntrusivePtr<IOperator> CopyForConsumer(TOpReplicate& port, TSubstitutions& out
     return copy;
 }
 
-// Here is a special case for count(*). count(*) with empty keys returns 0 on empty input, but with group by keys we can lost those values.
-// So, we make left join to restore columns and apply coalesce (column, 0).
-TIntrusivePtr<IOperator> RestoreEmptyGroupCounts(const TIntrusivePtr<TOpDependentJoin>& dependentJoin, const TIntrusivePtr<TOpAggregate>& aggregate,
+// A scalar aggregate emits a row for every domain, even on empty input.
+// Restore it before projections run; COUNT needs zero, while other results stay NULL.
+TIntrusivePtr<IOperator> RestoreEmptyScalarGroups(const TIntrusivePtr<TOpDependentJoin>& dependentJoin, const TIntrusivePtr<TOpAggregate>& aggregate,
                                                  const TUnorderedIUs& countResults, TRBOContext& ctx, TPlanProps& props) {
     const auto& dependencies = dependentJoin->Dependencies;
     const auto pos = aggregate->Pos;
@@ -540,11 +540,7 @@ TIntrusivePtr<IOperator> TPushDependentJoinThroughAggregateRule::SimpleMatchAndA
         }
     }
 
-    if (countResults.Empty()) {
-        return newAggregate;
-    }
-
-    return RestoreEmptyGroupCounts(dependentJoin, newAggregate, countResults, ctx, props);
+    return RestoreEmptyScalarGroups(dependentJoin, newAggregate, countResults, ctx, props);
 }
 
 bool TPushDependentJoinThroughUnionAllRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
