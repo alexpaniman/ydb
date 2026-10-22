@@ -88,13 +88,23 @@ TIntrusivePtr<IOperator> TPushOlapProjectionRule::SimpleMatchAndApply(const TInt
         return input;
     }
 
+    // This rewrite replaces source fields in place and supports one projection
+    // per map element. Keep conflicting projections in the compute stage.
+    if (projectionCandidates.size() != inMapIds.size()) {
+        return input;
+    }
+    for (const auto& candidate : projectionCandidates) {
+        if (std::get<0>(candidate).find(NOpt::KqpOlapProjectionNamePrefix) != TString::npos) {
+            return input;
+        }
+    }
+
     ui32 projectionIndex = 0;
     TMapIUs newMapElements;
     for (const auto output : mapElements.Keys()) {
         TMapElement mapElement = *mapElements.Find(output);
         if (projectionIndex < inMapIds.size() && inMapIds[projectionIndex] == output) {
             const auto& [colName, projection, replace, olapOperation] = projectionCandidates[projectionIndex++];
-            Y_ENSURE(colName.find(NOpt::KqpOlapProjectionNamePrefix) == TString::npos, "Multiple projections for same column is not supported");
             if (!notSuitableToPushMembers.count(colName)) {
                 olapOperationsForProjections.emplace_back(colName, olapOperation);
                 // Replace old expression with new.
