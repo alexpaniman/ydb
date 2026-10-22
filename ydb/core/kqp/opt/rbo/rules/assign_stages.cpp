@@ -15,11 +15,14 @@ using namespace NKikimr::NKqp;
 void FinalizeJoinPhysicalProps(TOpJoin& join, const TRBOContext& rboCtx) {
     auto& props = join.Props;
     const auto& config = *rboCtx.KqpCtx.Config;
+    const auto joinKind = GetValidJoinKind(join.JoinKind);
     if (!props.JoinAlgo.has_value()) {
         const auto joinMode = config.GetHashJoinMode();
         switch (joinMode) {
             case NYql::NDq::EHashJoinMode::Map: {
-                props.JoinAlgo = EJoinAlgoType::MapJoin;
+                const bool supportsMapJoin = joinKind == "Inner" || joinKind == "Left"
+                    || joinKind == "LeftSemi" || joinKind == "LeftOnly";
+                props.JoinAlgo = supportsMapJoin ? EJoinAlgoType::MapJoin : EJoinAlgoType::GraceJoin;
                 break;
             }
             default: {
@@ -29,7 +32,6 @@ void FinalizeJoinPhysicalProps(TOpJoin& join, const TRBOContext& rboCtx) {
         }
     }
 
-    const auto joinKind = GetValidJoinKind(join.JoinKind);
     if (joinKind == "Cross") {
         props.UseBlockHashJoin = config.GetUseBlockHashJoin() && config.GetUseBlockHashJoinForCross();
         if (props.UseBlockHashJoin) {
