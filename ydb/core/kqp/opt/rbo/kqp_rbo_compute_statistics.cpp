@@ -647,6 +647,13 @@ void TOpJoin::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
     }
     Props.Metadata->SourceStatsColumns.IntersectWith(outputs);
 
+    // Unmatched rows from either side have NULLs in the other side's keys.
+    // Their join partition need not equal the partition of those NULL keys,
+    // so neither one-sided key list describes Full/Exclusion output shuffling.
+    if (JoinKind == "Full" || JoinKind == "Exclusion") {
+        return;
+    }
+
     NKqp::EJoinAlgoType algo = Props.JoinAlgo.has_value() ? *Props.JoinAlgo : NKqp::EJoinAlgoType::Undefined;
     if (algo == NKqp::EJoinAlgoType::MapJoin) {
         // Build side is always right (broadcast), so left-family output keeps the left distribution.
