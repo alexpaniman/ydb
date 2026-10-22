@@ -63,17 +63,19 @@ const TTypeAnnotationNode* GetAggregationType(const TTypeAnnotationNode* inputTy
     } else if (aggFunction == "sum") {
         Y_ENSURE(GetSumResultType(pos, *inputType, resultType, ctx), "Unsupported type for sum aggregation function");
     } else if (aggFunction == "avg") {
-        // Early: (counter, sum)
+        // Intermediate AVG state: (sum, counter), absent for an all-NULL input.
+        const auto* valueType = &RemoveOptionality(*inputType);
         std::vector<const TTypeAnnotationNode*> tupleTypes;
         if (IsDecimalType(inputType)) {
-            auto decimalType = inputType->Cast<TDataExprParamsType>();
+            auto decimalType = valueType->Cast<TDataExprParamsType>();
             const auto precision = "35";
             const auto scale = TString(decimalType->GetParamTwo());
             tupleTypes = {ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, precision, scale), ctx.MakeType<TDataExprType>(EDataSlot::Uint64)};
         } else {
             tupleTypes = {ctx.MakeType<TDataExprType>(EDataSlot::Double), ctx.MakeType<TDataExprType>(EDataSlot::Uint64)};
         }
-        return ctx.MakeType<TTupleExprType>(tupleTypes);
+        resultType = ctx.MakeType<TTupleExprType>(tupleTypes);
+        return inputType->IsOptionalOrNull() ? ctx.MakeType<TOptionalExprType>(resultType) : resultType;
     } else if (aggFunction == "variance_1_1") {
         Y_ENSURE(false, "Variacnce not supported for multiple distinct.");
     }
@@ -95,8 +97,11 @@ TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>
         TExprNode::TPtr columnExpr;
         auto fieldType = inputStructType->FindItemType(originalColName);
         Y_ENSURE(fieldType, "Aggregation column not found in input type:" << output;);
+        // Branch absence adds optionality only when the partial state does not
+        // already have it (for example SUM(Interval) is optional for overflow).
+        fieldType = GetAggregationType(fieldType, aggTraits.AggFunction, ctx);
         if (const auto* partialColName = realAggTraits.Find(output)) {
-            const bool needsOptionalWrap = !fieldType->IsOptionalOrNull() || aggTraits.AggFunction == "count";
+            const bool needsOptionalWrap = !fieldType->IsOptionalOrNull();
             if (!needsOptionalWrap) {
                 mapColumns.Add(output, *partialColName);
                 continue;
@@ -112,7 +117,6 @@ TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>
             .Done().Ptr();
             // clang-format on
 
-            // Count unwraps optional.
             // clang-format off
             body = Build<TCoJust>(ctx, input->Pos)
                 .Input(body)
@@ -123,18 +127,14 @@ TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>
             columnExpr = Build<TCoLambda>(ctx, input->Pos).Args({arg}).Body(body).Done().Ptr();
             // clang-format off
         } else {
-            if (fieldType->IsOptionalOrNull()) {
-                fieldType = fieldType->Cast<TOptionalExprType>()->GetItemType();
+            if (!fieldType->IsOptionalOrNull()) {
+                fieldType = ctx.MakeType<TOptionalExprType>(fieldType);
             }
-
-            fieldType = GetAggregationType(fieldType, aggTraits.AggFunction, ctx);
             // clang-format off
             columnExpr = Build<TCoLambda>(ctx, input->Pos)
                 .Args({"arg"})
                 .Body<TCoNothing>()
-                    .OptionalType<TCoOptionalType>()
-                        .ItemType(ExpandType(input->Pos, *fieldType, ctx))
-                    .Build()
+                    .OptionalType(ExpandType(input->Pos, *fieldType, ctx))
                 .Build()
             .Done().Ptr();
             // clang-format on
@@ -151,22 +151,16 @@ TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>
     return MakeIntrusive<TOpMap>(input, input->Pos, std::move(mapElements));
 }
 
-bool NeedToUnwrapOptional(const TTypeAnnotationNode* inputType, const TString& aggField, const std::pair<TString, TString>& aggFunctions,
+bool NeedToUnwrapOptional(const TTypeAnnotationNode* resultType, const std::pair<TString, TString>& aggFunctions,
                           const TOrderedIUs<>& keys) {
-    Y_ENSURE(inputType);
-    auto structType = inputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
-    auto fieldType = structType->FindItemType(aggField);
-    Y_ENSURE(fieldType, "Aggregation field not found " << aggField);
-
+    Y_ENSURE(resultType);
     if (aggFunctions.first == "count" && aggFunctions.second == "sum") {
         return true;
     }
 
-    if (!keys.Items().empty()) {
-        return !fieldType->IsOptionalOrNull();
-    }
-
-    return false;
+    // Remove only the optionality introduced by branch padding. Some aggregates
+    // return an optional value even when their input is nonoptional.
+    return !keys.Items().empty() && !resultType->IsOptionalOrNull();
 }
 
 TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& aggregate, TPlanProps& props, TExprContext& ctx) {
@@ -248,7 +242,7 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
         const auto intermediateColName = intermediates.At(output);
         const auto finalAggTraits = TOpAggregationTraits{
             intermediateColName, aggFunctions.second, false,
-            NeedToUnwrapOptional(aggregate->GetInput()->Type, TString(ctx.GetIndexAsString(aggTraits.Input)), aggFunctions, aggregate->GetKeyColumns())};
+            NeedToUnwrapOptional(aggregate->GetIUType(output, ctx), aggFunctions, aggregate->GetKeyColumns())};
 
         finalAggTraitsList.Add(output, finalAggTraits);
         if (!isDistinct) {
