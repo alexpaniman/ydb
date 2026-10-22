@@ -612,9 +612,13 @@ void TKqpNewRBOTransformer::InitializeRBOOptimizationStages() {
     // Prune unused outputs before any rules that require type information.
     RBO.AddStage(std::make_unique<TGlobalPruningStage>("Early pruning"));
 
+    // Grouping sets must split the input before DISTINCT chooses its grouping keys.
+    TVector<std::unique_ptr<IRule>> expandGroupingSetsRules;
+    expandGroupingSetsRules.emplace_back(std::make_unique<TExpandGroupingSetsRule>());
+    RBO.AddStage(std::make_unique<TRuleBasedStage>("Expand grouping sets", std::move(expandGroupingSetsRules)));
+
     // Expand aggregation.
     TVector<std::unique_ptr<IRule>> expandAggregationRules;
-    expandAggregationRules.emplace_back(std::make_unique<TExpandGroupingSetsRule>());
     expandAggregationRules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
     expandAggregationRules.emplace_back(std::make_unique<TExpandWholePartitionWindowRule>());
     RBO.AddStage(std::make_unique<TRuleBasedStage>("Expand aggregation", std::move(expandAggregationRules)));
