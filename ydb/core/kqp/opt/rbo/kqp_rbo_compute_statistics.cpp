@@ -129,6 +129,15 @@ void IUnaryOperator::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
     }
 }
 
+void TOpWindow::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
+    IUnaryOperator::ComputeMetadata(ctx, planProps);
+    if (Props.Metadata) {
+        // Stage assignment repartitions on these keys (or gathers a keyless
+        // window). Consumers must not reuse the input's old partitioning.
+        Props.Metadata->ShuffledByColumns = GetPartitionKeys();
+    }
+}
+
 /**
  * Default statistics and cost computation for unary operators
  */
