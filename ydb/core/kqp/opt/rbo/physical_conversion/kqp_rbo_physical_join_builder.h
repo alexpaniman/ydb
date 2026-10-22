@@ -8,7 +8,8 @@ using namespace NYql::NNodes;
 using namespace NKikimr;
 using namespace NKikimr::NKqp;
 
-using TModifyKeysList = TVector<std::tuple<TCoAtom, TCoAtom, ui32, const TTypeAnnotationNode*>>;
+// Source, temporary column, key occurrence, target type, ordinary Decimal comparability.
+using TModifyKeysList = TVector<std::tuple<TCoAtom, TCoAtom, ui32, const TTypeAnnotationNode*, bool>>;
 enum EJoinSide { Right, Left, Both };
 
 class TPhysicalJoinBuilder: public TPhysicalBinaryOpBuilderWithParams {

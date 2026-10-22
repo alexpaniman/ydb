@@ -53,6 +53,14 @@ TOrderedIUs<> MissingDomainColumns(const TUnorderedIUs& dependencies, const TUno
     return result;
 }
 
+// Domain keys identify the same value across copies of an input. Unlike an
+// ordinary SQL equality, that identity includes NULL and Decimal NaN.
+bool NeedsDomainIdentityEncoding(const TIntrusivePtr<IOperator>& input, TInfoUnitId key, TExprContext& ctx) {
+    const auto* type = input->GetIUType(key, ctx);
+    return !type || type->IsOptionalOrNull()
+        || (type->GetKind() == ETypeAnnotationKind::Data && type->Cast<TDataExprType>()->GetSlot() == EDataSlot::Decimal);
+}
+
 bool NeedsNullSafeEncoding(const TIntrusivePtr<IOperator>& leftInput, TInfoUnitId leftKey,
                            const TIntrusivePtr<IOperator>& rightInput, TInfoUnitId rightKey, TExprContext& ctx) {
     // Only ok if the keys are domain keys, which always carry the same values.
@@ -60,16 +68,16 @@ bool NeedsNullSafeEncoding(const TIntrusivePtr<IOperator>& leftInput, TInfoUnitI
     const auto* rightInputType = rightInput->Type;
 
     if (leftInputType && rightInputType) {
-        return IsNullableIU(leftInput, leftKey, ctx) || IsNullableIU(rightInput, rightKey, ctx);
+        return NeedsDomainIdentityEncoding(leftInput, leftKey, ctx) || NeedsDomainIdentityEncoding(rightInput, rightKey, ctx);
     }
     if (leftInputType) {
-        return IsNullableIU(leftInput, leftKey, ctx);
+        return NeedsDomainIdentityEncoding(leftInput, leftKey, ctx);
     }
     if (rightInputType) {
-        return IsNullableIU(rightInput, rightKey, ctx);
+        return NeedsDomainIdentityEncoding(rightInput, rightKey, ctx);
     }
 
-    // If types are unknown it's safe to keep null, because for non optional column there are no nulls.
+    // With unknown types, retain identity semantics conservatively.
     return true;
 }
 
@@ -251,7 +259,7 @@ TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr
 
     auto encode = [&](TInfoUnitId iu, TMapIUs& elements) {
         auto encodedIU = props.InfoUnitRegistry.AddGenerated("null_safe_key");
-        // Emulates null == null.
+        // Encodes domain identity, including NULL and Decimal NaN.
         elements.Add(encodedIU, MakeUnaryCallable("StablePickle", MakeColumnAccess(iu, pos, &ctx.ExprCtx, &props)));
         return encodedIU;
     };
