@@ -1150,7 +1150,7 @@ TString ResolveWindowKeyColumn(TExprNode::TPtr lambdaPtr, const TString& purpose
         return NormalizeColumnName(GetColumnNameFromGroupRef(groupRef, groupByKeysExpressionsMap));
     }
 
-    if (body->IsCallable("Member") && CollectWindowCalls(body).empty()) {
+    if (body->IsCallable("Member") && TCoMember(body).Struct().Raw() == lambda.Args().Arg(0).Raw()) {
         return NormalizeColumnName(TCoMember(body).Name().StringValue());
     }
 
@@ -1252,11 +1252,12 @@ void ProcessWindowCalls(THashMap<TString, TWindowTraits>& windows, TVector<std::
 
             for (ui32 i = 4; i < call->ChildrenSize(); ++i) {
                 auto argument = call->ChildPtr(i);
-                if (argument->IsCallable("Member")) {
+                if (argument->IsCallable("Member") && TCoMember(argument).Struct().Raw() == lambda.Args().Arg(0).Raw()) {
                     // Strip a prefix.
                     func.Arguments.push_back(NormalizeColumnName(TCoMember(argument).Name().StringValue()));
                     continue;
                 }
+                // Materialize the complete expression, including nested Member receivers.
                 const auto argColName = GenerateUniqueColumnName(uniqueAggColumnId, "win_arg", "win_col");
                 // clang-format off
                 auto argLambda = Build<TCoLambda>(ctx, pos)
