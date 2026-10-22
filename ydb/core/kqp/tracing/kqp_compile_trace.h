@@ -28,6 +28,25 @@ struct TCompileTraceLevels {
     };
 };
 
+// A compiler wait may be abandoned on the actor thread while its future is
+// completing elsewhere. Both paths share this one-shot span, not actor state.
+class TCompileTraceContinuation {
+public:
+    explicit TCompileTraceContinuation(NWilson::TSpan span);
+
+    NWilson::TTraceId GetTraceId() const;
+    NWilson::TTraceId Complete(bool success = true);
+
+private:
+    friend class TCompileTrace;
+    void Cancel();
+
+    const NWilson::TTraceId Id;
+    TAdaptiveLock Lock;
+    NWilson::TSpan Span;
+    bool Ended = false;
+};
+
 // Spans of a single query compilation. Compiler turns run serially but may
 // migrate between worker threads. Logical phases may stay open across waits;
 // execution spans record individual turns, and scope spans synchronous work.
@@ -68,7 +87,7 @@ public:
 
     // Starts the wait for a compiler continuation. Complete it on the future's
     // callback thread, then pass its ID to Resume when the actor handles it.
-    NWilson::TSpan StartContinuation();
+    std::shared_ptr<TCompileTraceContinuation> StartContinuation(bool waiting = false);
     // Called on the compiler actor's thread by GetAsyncFuture, only for the
     // futures actually returned to the pipeline. Consumed by StartContinuation.
     void AwaitDependency(const NWilson::TTraceId& dependency);
@@ -92,7 +111,8 @@ public:
     // Ends the region together with the regions opened inside it.
     void EndRegion(TStringBuf name);
 
-    // Ends the regions that remain open, e.g. after a failed transformer.
+    // Ends remaining regions, abandons the outstanding wait and freezes CPU
+    // accounting. Existing run scopes may still unwind; this trace cannot resume.
     void Finish(bool success);
 
 private:
@@ -132,35 +152,47 @@ private:
     ui64 RunningSince = 0;
     ui32 Running = 0;
     bool CpuCounted = false;
+    bool Finished = false;
     NWilson::TSpan ExecutionSpan;
     TVector<NWilson::TTraceId> AwaitedDependencies;
+    std::shared_ptr<TCompileTraceContinuation> Continuation;
 };
 
 // Ends a dependency on its callback thread, before releasing its consumer.
-void FinishCompileDependency(NWilson::TSpan& span, bool success);
+// A fulfilled future may contain an error result. Keep this distinct from an
+// exception: only the latter can short-circuit WaitExceptionOrAll.
+void FinishCompileDependency(NWilson::TSpan& span, bool futureSuccess, bool operationSuccess = true);
 
 // For a value future this transfers its result to the returned future: the
 // caller must consume the returned future instead of retaining the original.
 // Captures no compiler/transformer state, which may be destroyed while waiting.
-template <class T>
-NThreading::TFuture<T> TraceCompileDependency(NThreading::TFuture<T> future, NWilson::TSpan span) {
+template <class T, class TSuccess>
+NThreading::TFuture<T> TraceCompileDependency(NThreading::TFuture<T> future, NWilson::TSpan span, TSuccess success) {
     if (!span) {
         return future;
     }
-    return future.Apply([span = std::make_shared<NWilson::TSpan>(std::move(span))]
-        (const NThreading::TFuture<T>& ready) -> T {
+    return future.Apply([span = std::make_shared<NWilson::TSpan>(std::move(span)), success = std::move(success)]
+        (const NThreading::TFuture<T>& ready) mutable -> T {
         try {
             ready.TryRethrow();
         } catch (...) {
             FinishCompileDependency(*span, false);
             throw;
         }
-        FinishCompileDependency(*span, true);
-        if constexpr (!std::is_void_v<T>) {
+        if constexpr (std::is_void_v<T>) {
+            FinishCompileDependency(*span, true, success());
+        } else {
             auto owned = ready;
-            return owned.ExtractValue();
+            auto result = owned.ExtractValue();
+            FinishCompileDependency(*span, true, success(std::as_const(result)));
+            return result;
         }
     });
+}
+
+template <class T>
+NThreading::TFuture<T> TraceCompileDependency(NThreading::TFuture<T> future, NWilson::TSpan span) {
+    return TraceCompileDependency(std::move(future), std::move(span), [](const auto&...) { return true; });
 }
 
 // Reserves a parent ID without constructing an OTLP span for an unsuccessful

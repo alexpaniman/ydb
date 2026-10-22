@@ -54,20 +54,21 @@ protected:
 private:
     NThreading::TFuture<NYql::IKikimrGateway::TTableMetadataResult> LoadTableMetadataImpl(
         const TString& cluster, const TString& table, const NYql::IKikimrGateway::TLoadTableMetadataSettings& settings,
-        const TString& database, const TIntrusiveConstPtr<NACLib::TUserToken>& userToken, const char* purpose);
+        const TString& database, const TIntrusiveConstPtr<NACLib::TUserToken>& userToken, const char* purpose,
+        const NWilson::TTraceId& traceParent);
 
     template<typename TPath>
     NThreading::TFuture<NYql::IKikimrGateway::TTableMetadataResult> LoadTableMetadataCache(
         const TString& cluster, const TPath& id, NYql::IKikimrGateway::TLoadTableMetadataSettings settings, const TString& database,
-        const TIntrusiveConstPtr<NACLib::TUserToken>& userToken, const char* purpose);
+        const TIntrusiveConstPtr<NACLib::TUserToken>& userToken, const char* purpose, const NWilson::TTraceId& traceParent);
 
     NThreading::TFuture<NYql::IKikimrGateway::TTableMetadataResult> LoadIndexMetadataByPathId(
         const TString& cluster, const NKikimr::TIndexId& indexId, const TString& tableName, const TString& database,
-        const TIntrusiveConstPtr<NACLib::TUserToken>& userToken);
+        const TIntrusiveConstPtr<NACLib::TUserToken>& userToken, const NWilson::TTraceId& traceParent);
 
     NThreading::TFuture<NYql::IKikimrGateway::TTableMetadataResult> LoadIndexMetadata(
         NYql::IKikimrGateway::TTableMetadataResult& loadTableMetadataResult, const TString& database,
-        const TIntrusiveConstPtr<NACLib::TUserToken>& userToken);
+        const TIntrusiveConstPtr<NACLib::TUserToken>& userToken, const NWilson::TTraceId& traceParent);
 
     void OnLoadedTableMetadata(NYql::IKikimrGateway::TTableMetadataResult& loadTableMetadataResult);
 
@@ -83,7 +84,8 @@ private:
     TKqpTempTablesState::TConstPtr TempTablesState;
     std::optional<TKqpFederatedQuerySetup> FederatedQuerySetup;
     NWilson::TTraceId TraceId;
-    // Parents the request spans under the compilation span running at the time of the request.
+    // Snapshot the initiating compiler context once; callbacks must not pick up
+    // unrelated phases that happen to be active when a response arrives.
     TCompileTrace::TPtr CompileTrace;
 
     NWilson::TTraceId GetTraceParent() const {

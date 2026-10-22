@@ -37,14 +37,13 @@ Y_UNIT_TEST_SUITE(TKqpTrace) {
         {
             NKqp::TCompileTraceScope work(&trace, NKqp::TCompileTraceLevels::Detail, "First work", "Test");
         }
-        auto continuation = trace.StartContinuation();
-        const auto continuationId = continuation.GetTraceId();
+        auto continuation = trace.StartContinuation(true);
+        const auto continuationId = continuation->GetTraceId();
         trace.Suspend();
         trace.Suspend();
         std::thread worker([&] {
-            continuation.Event("Result ready");
-            continuation.EndOk();
-            NKqp::TCompileTraceRunScope running(&trace, continuationId);
+            const auto readyFrom = continuation->Complete();
+            NKqp::TCompileTraceRunScope running(&trace, readyFrom);
             NKqp::TCompileTraceScope work(&trace, NKqp::TCompileTraceLevels::Detail, "Resumed work", "Test");
         });
         worker.join();
@@ -69,6 +68,8 @@ Y_UNIT_TEST_SUITE(TKqpTrace) {
         const auto* ready = FindSpan(*uploader, "Compiler continuation");
         UNIT_ASSERT(ready);
         UNIT_ASSERT_VALUES_EQUAL(executions[1]->links(0).span_id(), ready->span_id());
+        UNIT_ASSERT_VALUES_EQUAL(ready->span_id(),
+            TString(static_cast<const char*>(continuationId.GetSpanIdPtr()), continuationId.GetSpanIdSize()));
         UNIT_ASSERT_VALUES_EQUAL(ready->links(0).span_id(), executions[0]->span_id());
         UNIT_ASSERT_LE(ready->end_time_unix_nano(), executions[1]->start_time_unix_nano() + 1000);
         UNIT_ASSERT_VALUES_EQUAL(FindAttribute(*FindSpan(*uploader, "Resumed work"), "ydb.compile.kind")->value().string_value(), "scope");
@@ -94,10 +95,9 @@ Y_UNIT_TEST_SUITE(TKqpTrace) {
         std::thread worker([&] { last.SetValue(); });
         worker.join();
         ready.GetValue();
-        continuation.Event("Result ready");
-        continuation.EndOk();
+        UNIT_ASSERT(continuation->Complete());
         auto unrelated = trace.StartContinuation();
-        unrelated.EndOk();
+        UNIT_ASSERT(unrelated->Complete());
 
         auto failure = NThreading::NewPromise<int>();
         auto failed = NKqp::TraceCompileDependency(failure.GetFuture(), trace.StartSpan(14, "Failed dependency", "Test", "async"));
@@ -106,6 +106,21 @@ Y_UNIT_TEST_SUITE(TKqpTrace) {
         auto value = NKqp::TraceCompileDependency(NThreading::MakeFuture(std::make_unique<int>(42)),
             trace.StartSpan(14, "Move-only dependency", "Test", "async"));
         UNIT_ASSERT_VALUES_EQUAL(*value.ExtractValue(), 42);
+
+        // A failed operation can still return a value: it must not turn an
+        // all-or-exception join into a fail-fast join or discard the result.
+        auto operation = NKqp::TraceCompileDependency(NThreading::MakeFuture(false),
+            trace.StartSpan(14, "Operation error", "Test", "async"), [](bool success) { return success; });
+        auto pending = NThreading::NewPromise<void>();
+        auto operationJoin = NThreading::WaitExceptionOrAll(operation.Apply([](const NThreading::TFuture<bool>& ready) {
+            UNIT_ASSERT(!ready.GetValue());
+        }), pending.GetFuture());
+        UNIT_ASSERT(!operationJoin.IsReady());
+        pending.SetValue();
+        operationJoin.GetValue();
+        auto voidOperation = NKqp::TraceCompileDependency(NThreading::MakeFuture(),
+            trace.StartSpan(14, "Void operation error", "Test", "async"), [] { return false; });
+        voidOperation.GetValue();
         query.EndOk();
         runtime.SimulateSleep(TDuration::MilliSeconds(1));
         const auto* joined = FindSpan(*uploader, "Join");
@@ -129,6 +144,57 @@ Y_UNIT_TEST_SUITE(TKqpTrace) {
         UNIT_ASSERT_VALUES_EQUAL(dependent, 1);
         UNIT_ASSERT_VALUES_EQUAL(unattributed, 1);
         AssertStatus(*uploader, "Failed dependency", NTraceProto::Status::STATUS_CODE_ERROR);
+        UNIT_ASSERT_VALUES_EQUAL(FindAttribute(*FindSpan(*uploader, "Failed dependency"),
+            "ydb.compile.future_outcome")->value().string_value(), "exception");
+        for (const TStringBuf name : {"Operation error", "Void operation error"}) {
+            AssertStatus(*uploader, name, NTraceProto::Status::STATUS_CODE_ERROR);
+            UNIT_ASSERT_VALUES_EQUAL(FindAttribute(*FindSpan(*uploader, name),
+                "ydb.compile.future_outcome")->value().string_value(), "value");
+        }
+    }
+
+    Y_UNIT_TEST(FinishStopsExecutionAndAbandonsPendingContinuation) {
+        NActors::TTestActorRuntimeBase runtime;
+        runtime.Initialize();
+        auto* uploader = RegisterUploader(runtime);
+        NWilson::TSpan query(15, NWilson::TTraceId::NewTraceId(15, 4095), "Query",
+            NWilson::EFlags::NONE, runtime.GetActorSystem(0));
+        NKqp::TCompileTrace trace(query.GetTraceId(), runtime.GetActorSystem(0));
+        {
+            NKqp::TCompileTraceRunScope running(&trace);
+            auto continuation = trace.StartContinuation(true);
+            // Completion/fallback can finish an attempt before its actor
+            // handler and its run scope return.
+            trace.Finish(false);
+            const auto frozenCpu = trace.GetCpuTime();
+            runtime.SimulateSleep(TDuration::MilliSeconds(1));
+            const auto* execution = FindSpan(*uploader, "Compiler execution");
+            UNIT_ASSERT(execution);
+            UNIT_ASSERT_VALUES_EQUAL(FindAttribute(*execution, "ydb.cpu_us")->value().int_value(), frozenCpu);
+
+            NWilson::TTraceId lateResume;
+            std::thread worker([&] { lateResume = continuation->Complete(); });
+            worker.join();
+            UNIT_ASSERT(!lateResume);
+            UNIT_ASSERT(!continuation->Complete(false));
+            trace.Finish(false); // Repeated termination must not emit duplicates.
+            UNIT_ASSERT_VALUES_EQUAL(trace.GetCpuTime(), frozenCpu);
+        }
+        query.EndOk();
+        runtime.SimulateSleep(TDuration::MilliSeconds(1));
+        UNIT_ASSERT_VALUES_EQUAL(std::ranges::count_if(uploader->Spans, [](const auto& span) {
+            return span.name() == "Compiler execution";
+        }), 1);
+        UNIT_ASSERT_VALUES_EQUAL(std::ranges::count_if(uploader->Spans, [](const auto& span) {
+            return span.name() == "Compiler continuation";
+        }), 1);
+        const auto* cancelled = FindSpan(*uploader, "Compiler continuation");
+        UNIT_ASSERT(cancelled);
+        AssertStatus(*uploader, "Compiler continuation", NTraceProto::Status::STATUS_CODE_ERROR);
+        UNIT_ASSERT(FindAttribute(*cancelled, "ydb.compile.cancelled")->value().bool_value());
+        UNIT_ASSERT(!std::ranges::any_of(cancelled->events(), [](const auto& event) {
+            return event.name() == "Result ready";
+        }));
     }
 
     Y_UNIT_TEST(DeferredRuleKeepsParentOnlyWhenNeeded) {

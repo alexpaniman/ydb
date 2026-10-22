@@ -26,8 +26,6 @@
 
 #include <util/string/escape.h>
 #include <util/system/datetime.h>
-#include <util/system/getpid.h>
-#include <util/system/thread.h>
 
 #include <ydb/core/base/cputime.h>
 
@@ -169,7 +167,7 @@ public:
             SplitCtx.reset();
         }
         if (CompileAction == ECompileActorAction::COMPILE) {
-            CompileActorSpan.Attribute("ydb.cpu_us", static_cast<i64>(CompileCpuTime.MicroSeconds() + cleanupTrace.GetCpuTime()));
+            CompileActorSpan.Attribute("ydb.cpu_us", static_cast<i64>(TraceCpuTime + cleanupTrace.GetCpuTime()));
         }
         EndQueryTraceSpan(CompileActorSpan, CompileStatus);
     }
@@ -404,10 +402,9 @@ private:
         NCpuTime::TCpuTimer timer(CompileCpuTime);
         TCompileTraceRunScope traceRun(CompileTrace.Get());
         auto future = AsyncCompileResult->Continue();
-        std::shared_ptr<NWilson::TSpan> continuation;
+        std::shared_ptr<TCompileTraceContinuation> continuation;
         if (CompileTrace && CompileTrace->IsEnabled(TCompileTraceLevels::Step)) {
-            continuation = std::make_shared<NWilson::TSpan>(CompileTrace->StartContinuation());
-            continuation->Attribute("ydb.compile.waiting", !future.IsReady());
+            continuation = CompileTrace->StartContinuation(!future.IsReady());
         }
         auto callback = [actorSystem, selfId, continuation](const TFuture<bool>& future) {
             bool finished;
@@ -415,18 +412,13 @@ private:
                 finished = future.GetValue();
             } catch (...) {
                 if (continuation) {
-                    continuation->EndError("Compiler continuation failed");
+                    continuation->Complete(false);
                 }
                 throw;
             }
             NWilson::TTraceId readyFrom;
             if (continuation) {
-                continuation->Event("Result ready", {
-                    {"process.pid", static_cast<i64>(GetPID())},
-                    {"thread.id", static_cast<i64>(TThread::CurrentThreadNumericId())},
-                });
-                readyFrom = continuation->GetTraceId();
-                continuation->EndOk();
+                readyFrom = continuation->Complete();
             }
             auto processEv = MakeHolder<TEvKqp::TEvContinueProcess>(0, finished);
             actorSystem->Send(new IEventHandle(selfId, {}, processEv.Release(), 0, 0, nullptr, std::move(readyFrom)));
@@ -489,6 +481,7 @@ private:
     void FinishCompileTrace(Ydb::StatusIds::StatusCode status) {
         if (CompileTrace) {
             CompileTrace->Finish(status == Ydb::StatusIds::SUCCESS);
+            TraceCpuTime += CompileTrace->GetCpuTime();
             CompileTrace.Reset();
         }
     }
@@ -878,6 +871,7 @@ private:
     NWilson::TSpan CompileActorSpan;
     Ydb::StatusIds::StatusCode CompileStatus = Ydb::StatusIds::ABORTED;
     TCompileTrace::TPtr CompileTrace;
+    ui64 TraceCpuTime = 0;
 
     TKqpTempTablesState::TConstPtr TempTablesState;
     bool CollectFullDiagnostics;

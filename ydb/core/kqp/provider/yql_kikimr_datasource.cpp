@@ -25,6 +25,9 @@
 #include <yql/essentials/providers/common/schema/expr/yql_expr_schema.h>
 
 #include <util/generic/is_in.h>
+#include <util/generic/scope.h>
+
+#include <algorithm>
 
 namespace NYql {
 
@@ -201,6 +204,7 @@ public:
         const bool isShowCreate = ContainsShowCreateSetting(*input);
         auto* trace = SessionCtx->QueryPtr()->CompileTrace.Get();
         NWilson::TSpan dependencyJoin;
+        TVector<std::shared_ptr<IKikimrGateway::TTableMetadataResult>> dependencyResults;
         MetadataDependency = {};
 
         for (auto& it : SessionCtx->Tables().GetTables()) {
@@ -238,18 +242,29 @@ public:
             dependency.Attribute("ydb.table", tableName);
             if (dependency) {
                 dependencyJoin.Link(dependency.GetTraceId(), {{"ydb.compile.relation", TString("depends_on")}});
+                dependencyResults.push_back(result);
             }
-            auto future = Gateway->LoadTableMetadata(clusterName, tableName,
-                IKikimrGateway::TLoadTableMetadataSettings()
-                            .WithTableStats(table.GetNeedsStats())
-                            .WithPrivateTables(IsInternalCall)
-                            .WithExternalDatasources(SessionCtx->Config().FeatureFlags.GetEnableExternalDataSources())
-                            .WithAuthInfo(isShowCreate ? false : table.GetNeedAuthInfo())
-                            .WithExternalSourceFactory(ExternalSourceFactory)
-                            .WithReadAttributes(readAttrs ? std::move(*readAttrs) : THashMap<TString, TString>{})
-                            .WithSysViewRewritten(table.GetSysViewRewritten())
-                            .WithTopicsIo(SessionCtx->Config().FeatureFlags.GetEnableTopicsSqlIoOperations())
-            );
+            auto future = [&] {
+                if (trace) {
+                    trace->Push(dependency);
+                }
+                Y_DEFER {
+                    if (trace) {
+                        trace->Pop(dependency);
+                    }
+                };
+                return Gateway->LoadTableMetadata(clusterName, tableName,
+                    IKikimrGateway::TLoadTableMetadataSettings()
+                                .WithTableStats(table.GetNeedsStats())
+                                .WithPrivateTables(IsInternalCall)
+                                .WithExternalDatasources(SessionCtx->Config().FeatureFlags.GetEnableExternalDataSources())
+                                .WithAuthInfo(isShowCreate ? false : table.GetNeedAuthInfo())
+                                .WithExternalSourceFactory(ExternalSourceFactory)
+                                .WithReadAttributes(readAttrs ? std::move(*readAttrs) : THashMap<TString, TString>{})
+                                .WithSysViewRewritten(table.GetSysViewRewritten())
+                                .WithTopicsIo(SessionCtx->Config().FeatureFlags.GetEnableTopicsSqlIoOperations())
+                );
+            }();
 
             futures.push_back(NKikimr::NKqp::TraceCompileDependency(future.Apply([result, queryType]
                 (const NThreading::TFuture<IKikimrGateway::TTableMetadataResult>& future) {
@@ -271,7 +286,9 @@ public:
                         break;
                     }
                     *result = value;
-                }), std::move(dependency)));
+                }), std::move(dependency), [result] {
+                    return result->Success() && result->Metadata && result->Metadata->DoesExist;
+                }));
         }
 
         if (futures.empty()) {
@@ -281,7 +298,12 @@ public:
         MetadataDependency = dependencyJoin.GetTraceId();
         dependencyJoin.Attribute("ydb.compile.dependencies", static_cast<i64>(futures.size()));
         AsyncFuture = NKikimr::NKqp::TraceCompileDependency(
-            NThreading::WaitExceptionOrAll(futures), std::move(dependencyJoin));
+            NThreading::WaitExceptionOrAll(futures), std::move(dependencyJoin),
+            [results = std::move(dependencyResults)] {
+                return std::ranges::all_of(results, [](const auto& result) {
+                    return result->Success() && result->Metadata && result->Metadata->DoesExist;
+                });
+            });
         return TStatus::Async;
     }
 

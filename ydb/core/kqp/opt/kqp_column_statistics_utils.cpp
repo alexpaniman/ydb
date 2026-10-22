@@ -137,7 +137,8 @@ void DispatchStatRequests(TActorSystem* actorSystem, TVector<NThreading::TFuture
     IActor* requestHandler = new TActorRequestHandler<TRequest, TResponse, TColumnStatisticsResponse>(statServiceId, request.Release(), promise, callback, dependency.GetTraceId());
     actorSystem->Register(requestHandler, TMailboxType::HTSwap, actorSystem->AppData<TAppData>()->UserPoolId);
 
-    futures.push_back(TraceCompileDependency(promise.GetFuture(), std::move(dependency)));
+    futures.push_back(TraceCompileDependency(promise.GetFuture(), std::move(dependency),
+        [](const TColumnStatisticsResponse& result) { return result.Issues().Empty(); }));
 }
 
 } // anonymous namespace

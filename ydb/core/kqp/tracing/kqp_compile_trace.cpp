@@ -27,6 +27,40 @@ void DescribeSpan(NWilson::TSpan& span, const char* component, const char* kind)
 
 } // namespace
 
+TCompileTraceContinuation::TCompileTraceContinuation(NWilson::TSpan span)
+    : Id(span.GetTraceId())
+    , Span(std::move(span))
+{}
+
+NWilson::TTraceId TCompileTraceContinuation::GetTraceId() const {
+    return NWilson::TTraceId(Id);
+}
+
+NWilson::TTraceId TCompileTraceContinuation::Complete(bool success) {
+    auto guard = Guard(Lock);
+    if (std::exchange(Ended, true)) {
+        return {};
+    }
+    Span.Event("Result ready", {{"process.pid", static_cast<i64>(GetPID())},
+        {"thread.id", static_cast<i64>(TThread::CurrentThreadNumericId())}});
+    Span.Attribute("ydb.compile.future_outcome", TString(success ? "value" : "exception"));
+    if (success) {
+        Span.EndOk();
+    } else {
+        Span.EndError("Compiler continuation failed");
+    }
+    return NWilson::TTraceId(Id);
+}
+
+void TCompileTraceContinuation::Cancel() {
+    auto guard = Guard(Lock);
+    if (std::exchange(Ended, true)) {
+        return;
+    }
+    Span.Attribute("ydb.compile.cancelled", true);
+    Span.EndError("Compiler wait abandoned");
+}
+
 TCompileTrace::TCompileTrace(NWilson::TTraceId root, NActors::TActorSystem* actorSystem)
     : Root(std::move(root))
     , ActorSystem(actorSystem)
@@ -118,7 +152,10 @@ void TCompileTrace::AwaitDependency(const NWilson::TTraceId& dependency) {
     }
 }
 
-NWilson::TSpan TCompileTrace::StartContinuation() {
+std::shared_ptr<TCompileTraceContinuation> TCompileTrace::StartContinuation(bool waiting) {
+    if (Finished) {
+        return {};
+    }
     auto span = StartSpan(TCompileTraceLevels::Step, "Compiler continuation", "KqpCompileActor", "async");
     if (span && ExecutionSpan) {
         span.Link(ExecutionSpan.GetTraceId(), {{"ydb.compile.relation", TString("await")}});
@@ -130,16 +167,25 @@ NWilson::TSpan TCompileTrace::StartContinuation() {
         }
     }
     AwaitedDependencies.clear();
-    return span;
+    if (!span) {
+        return {};
+    }
+    span.Attribute("ydb.compile.waiting", waiting);
+    if (Continuation) {
+        Continuation->Cancel();
+    }
+    Continuation = std::make_shared<TCompileTraceContinuation>(std::move(span));
+    return Continuation;
 }
 
-void FinishCompileDependency(NWilson::TSpan& span, bool success) {
+void FinishCompileDependency(NWilson::TSpan& span, bool futureSuccess, bool operationSuccess) {
     span.Event("Dependency ready", {{"process.pid", static_cast<i64>(GetPID())},
         {"thread.id", static_cast<i64>(TThread::CurrentThreadNumericId())}});
-    if (success) {
+    span.Attribute("ydb.compile.future_outcome", TString(futureSuccess ? "value" : "exception"));
+    if (futureSuccess && operationSuccess) {
         span.EndOk();
     } else {
-        span.EndError("Dependency future failed");
+        span.EndError(futureSuccess ? "Dependency operation failed" : "Dependency future failed");
     }
 }
 
@@ -152,6 +198,9 @@ ui64 TCompileTrace::GetCpuTime() const {
 }
 
 void TCompileTrace::Resume(const NWilson::TTraceId& readyFrom) {
+    if (Finished) {
+        return;
+    }
     if (Running++ == 0) {
         if (IsEnabled(TCompileTraceLevels::Step)) {
             // Execution is a sibling of logical phases: it must not become
@@ -232,8 +281,21 @@ void TCompileTrace::EndRegions(size_t count, bool success) {
 }
 
 void TCompileTrace::Finish(bool success) {
+    if (std::exchange(Finished, true)) {
+        return;
+    }
     AwaitedDependencies.clear();
+    if (Continuation) {
+        Continuation->Cancel();
+        Continuation.reset();
+    }
     EndRegions(Regions.size(), success);
+    // Fallback can replace this trace inside an active run scope. Close its
+    // execution now, before the replacement trace starts counting the same work.
+    if (Running) {
+        Running = 1;
+        Suspend();
+    }
 }
 
 TCompileTraceDeferredScope::TCompileTraceDeferredScope(TCompileTrace* trace, TString name, const char* component)

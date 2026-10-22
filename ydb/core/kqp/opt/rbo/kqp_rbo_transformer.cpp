@@ -434,17 +434,27 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::RequestColumnStatistics(TExprC
     }
 
     dependencyJoin.Attribute("ydb.compile.dependencies", static_cast<i64>(futures.size()));
+    // Only tracing needs the aggregate outcome; preserve the existing result
+    // merge and the future's value/exception semantics.
+    auto dependencySucceeded = dependencyJoin ? std::make_shared<bool>(true) : nullptr;
     auto sharedState = std::make_shared<TColumnStatisticsSharedState>();
     ColumnStatisticsReadiness = NThreading::WaitAll(futures).Apply(
-        [weakSharedState = std::weak_ptr{sharedState}, futures = std::move(futures)](const NThreading::TFuture<void>&) mutable {
+        [weakSharedState = std::weak_ptr{sharedState}, futures = std::move(futures), dependencySucceeded](const NThreading::TFuture<void>&) mutable {
             for (auto& fut : futures) {
                 if (fut.HasException()) {
                     fut.TryRethrow();
                 }
 
                 auto newStats = fut.ExtractValue();
+                if (dependencySucceeded && !newStats.Issues().Empty()) {
+                    *dependencySucceeded = false;
+                }
                 auto sharedState = weakSharedState.lock();
                 if (!sharedState) {
+                    if (dependencySucceeded) {
+                        // An abandoned merge has no successful aggregate result.
+                        *dependencySucceeded = false;
+                    }
                     // parent already deleted, just return
                     return;
                 }
@@ -488,7 +498,8 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::RequestColumnStatistics(TExprC
             }
         });
 
-    ColumnStatisticsReadiness = TraceCompileDependency(ColumnStatisticsReadiness, std::move(dependencyJoin));
+    ColumnStatisticsReadiness = TraceCompileDependency(ColumnStatisticsReadiness, std::move(dependencyJoin),
+        [dependencySucceeded] { return !dependencySucceeded || *dependencySucceeded; });
     SharedState = sharedState;
     return TStatus::Async;
 }
