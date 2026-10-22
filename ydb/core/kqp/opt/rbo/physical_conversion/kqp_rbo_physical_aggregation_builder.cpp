@@ -1310,9 +1310,11 @@ TExprNode::TPtr TPhysicalAggregationBuilder::CreateNothingForEmptyInput(const TV
 
     bool processTuple = false;
     if (Aggregate.GetAggregationPhase() == EOpPhase::Final) {
-        for (const auto& item : aggStructType->GetItems()) {
-            auto itemType = item->Cast<TItemExprType>();
-            auto originalFieldType = itemType->GetItemType();
+        for (const auto& traits : phyTraitsList) {
+            if (traits.AggFunc != "avg") {
+                continue;
+            }
+            auto originalFieldType = traits.OutputItemType;
             if (auto fieldType = &RemoveOptionality(*originalFieldType); fieldType->GetKind() == ETypeAnnotationKind::Tuple) {
                 processTuple = true;
                 break;
@@ -1330,7 +1332,7 @@ TExprNode::TPtr TPhysicalAggregationBuilder::CreateNothingForEmptyInput(const TV
             const auto outputType = traits.OutputItemType;
             const auto& originalColName = traits.OriginalColName;
             const auto& resultColName = traits.ResultColName;
-            if (auto fieldType = &RemoveOptionality(*inputType); fieldType->GetKind() == ETypeAnnotationKind::Tuple) {
+            if (auto fieldType = &RemoveOptionality(*inputType); traits.AggFunc == "avg" && fieldType->GetKind() == ETypeAnnotationKind::Tuple) {
                 auto tupleType = fieldType->Cast<TTupleExprType>()->GetItems();
                 Y_ENSURE(tupleType.size() == 2);
                 auto newFieldType = tupleType.front();
