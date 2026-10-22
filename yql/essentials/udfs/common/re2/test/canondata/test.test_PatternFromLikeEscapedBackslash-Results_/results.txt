@@ -1,0 +1,45 @@
+[
+    {
+        "Write" = [
+            {
+                "Type" = [
+                    "ListType";
+                    [
+                        "StructType";
+                        [
+                            [
+                                "PercentAfterEscapedBackslash";
+                                [
+                                    "DataType";
+                                    "Bool"
+                                ]
+                            ];
+                            [
+                                "UnderscoreAfterEscapedBackslash";
+                                [
+                                    "DataType";
+                                    "Bool"
+                                ]
+                            ];
+                            [
+                                "EscapedPercentControl";
+                                [
+                                    "DataType";
+                                    "Bool"
+                                ]
+                            ]
+                        ]
+                    ]
+                ];
+                "Data" = [
+                    [
+                        %true;
+                        %true;
+                        %true
+                    ]
+                ]
+            }
+        ];
+        "Unordered" = %true
+    }
+]

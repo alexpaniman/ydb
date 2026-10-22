@@ -472,6 +472,8 @@ SIMPLE_UDF_WITH_OPTIONAL_ARGS(TPatternFromLike, char*(char*, TOptional<char*>), 
             case '\\':
                 if (slash) {
                     result << "\\\\";
+                    // A literal backslash consumes a pending SQL escape.
+                    escapeOn = false;
                 }
                 slash = !slash;
                 break;
