@@ -1763,6 +1763,9 @@ void InvalidateProperties(TOpRoot& root) {
 } // anonymous namespace
 
 void FinishLogicalRewrite(TOpRoot& root, TExprContext& ctx) {
+    // Pruning changes definitions without refreshing their cached schemas.
+    // Singleton Replicate collapse must copy the producer's surviving columns.
+    root.RecomputeOutputIUsSubtree();
     BypassEmptyOperators(root, ctx);
     InvalidateProperties(root);
 }
