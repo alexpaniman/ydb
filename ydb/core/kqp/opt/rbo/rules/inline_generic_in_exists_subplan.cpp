@@ -239,7 +239,7 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
             // This emulates a three value semantis if lookup column is null.
             if (IsNullableIU(leftInput, subplanEntry.Tuple.Items()[0], ctx.ExprCtx)) {
                 auto lookupColumn = column(subplanEntry.Tuple.Items()[0]);
-                auto lookupIsNull = MakeNegation(MakeBinaryPredicate("Coalesce", MakeBinaryPredicate("==", lookupColumn, lookupColumn), falseConst));
+                auto lookupIsNull = MakeUnaryCallable("HasNull", lookupColumn);
                 unknownTerms.push_back(MakeBinaryPredicate("And", lookupIsNull, MakeBinaryPredicate("Coalesce", column(nonEmptyIU), falseConst)));
             }
 
