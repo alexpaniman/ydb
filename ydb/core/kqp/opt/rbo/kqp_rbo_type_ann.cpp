@@ -398,7 +398,22 @@ TStatus ComputeTypes(TIntrusivePtr<TOpAggregate> aggregate, TRBOContext& ctx) {
                 Y_ENSURE(GetAvgResultType(pos, *it->second, aggFieldType, ctx.ExprCtx), "Unsupported type for avg aggregation function");
             }
         } else if (aggFunction == "variance_1_1") {
-            Y_ENSURE(GetAvgResultType(pos, *it->second, aggFieldType, ctx.ExprCtx), "Unsupported type for variance aggregation function");
+            const bool optional = aggFieldType->GetKind() == ETypeAnnotationKind::Optional;
+            const auto* doubleType = ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Double);
+            if (aggregationPhase == EOpPhase::Intermediate) {
+                aggFieldType = ctx.ExprCtx.MakeType<TTupleExprType>(
+                    TVector<const TTypeAnnotationNode*>{doubleType, doubleType, doubleType});
+                if (optional) {
+                    aggFieldType = ctx.ExprCtx.MakeType<TOptionalExprType>(aggFieldType);
+                }
+            } else if (aggregationPhase == EOpPhase::Final && RemoveOptionality(*aggFieldType).GetKind() == ETypeAnnotationKind::Tuple) {
+                aggFieldType = doubleType;
+                if (optional) {
+                    aggFieldType = ctx.ExprCtx.MakeType<TOptionalExprType>(aggFieldType);
+                }
+            } else {
+                Y_ENSURE(GetAvgResultType(pos, *it->second, aggFieldType, ctx.ExprCtx), "Unsupported type for variance aggregation function");
+            }
         }
 
         // Special case for scalar aggregation (aka aggregation with empty keys).

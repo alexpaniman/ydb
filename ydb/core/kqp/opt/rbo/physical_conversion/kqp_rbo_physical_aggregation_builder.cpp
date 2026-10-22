@@ -1310,9 +1310,11 @@ TExprNode::TPtr TPhysicalAggregationBuilder::CreateNothingForEmptyInput(const TV
 
     bool processTuple = false;
     if (Aggregate.GetAggregationPhase() == EOpPhase::Final) {
-        for (const auto& item : aggStructType->GetItems()) {
-            auto itemType = item->Cast<TItemExprType>();
-            auto originalFieldType = itemType->GetItemType();
+        for (const auto& traits : phyTraitsList) {
+            if (traits.AggFunc != "avg") {
+                continue;
+            }
+            auto originalFieldType = traits.OutputItemType;
             if (auto fieldType = &RemoveOptionality(*originalFieldType); fieldType->GetKind() == ETypeAnnotationKind::Tuple) {
                 processTuple = true;
                 break;
@@ -1330,7 +1332,7 @@ TExprNode::TPtr TPhysicalAggregationBuilder::CreateNothingForEmptyInput(const TV
             const auto outputType = traits.OutputItemType;
             const auto& originalColName = traits.OriginalColName;
             const auto& resultColName = traits.ResultColName;
-            if (auto fieldType = &RemoveOptionality(*inputType); fieldType->GetKind() == ETypeAnnotationKind::Tuple) {
+            if (auto fieldType = &RemoveOptionality(*inputType); traits.AggFunc == "avg" && fieldType->GetKind() == ETypeAnnotationKind::Tuple) {
                 auto tupleType = fieldType->Cast<TTupleExprType>()->GetItems();
                 Y_ENSURE(tupleType.size() == 2);
                 auto newFieldType = tupleType.front();
@@ -1569,6 +1571,11 @@ bool TPhysicalAggregationBuilder::IsDecimalType(const TTypeAnnotationNode* typeN
     auto type = &RemoveOptionality(*typeNode);
     if (type->GetKind() == ETypeAnnotationKind::Tuple) {
         auto items = type->Cast<TTupleExprType>()->GetItems();
+        if (items.size() == 3 && std::all_of(items.begin(), items.end(), [](const auto* item) {
+            return item->GetKind() == ETypeAnnotationKind::Data && item->template Cast<TDataExprType>()->GetSlot() == EDataSlot::Double;
+        })) {
+            return false; // Partial variance state, not a decimal AVG accumulator.
+        }
         Y_ENSURE(items.size() == 2);
         type = items.front();
     }

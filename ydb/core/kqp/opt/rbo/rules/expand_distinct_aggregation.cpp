@@ -75,7 +75,9 @@ const TTypeAnnotationNode* GetAggregationType(const TTypeAnnotationNode* inputTy
         }
         return ctx.MakeType<TTupleExprType>(tupleTypes);
     } else if (aggFunction == "variance_1_1") {
-        Y_ENSURE(false, "Variacnce not supported for multiple distinct.");
+        const auto* doubleType = ctx.MakeType<TDataExprType>(EDataSlot::Double);
+        // The partial variance state is (mean, count, squared deviations).
+        return ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{doubleType, doubleType, doubleType});
     }
 
     return resultType;
