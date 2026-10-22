@@ -615,7 +615,6 @@ void TKqpNewRBOTransformer::InitializeRBOOptimizationStages() {
     // Expand aggregation.
     TVector<std::unique_ptr<IRule>> expandAggregationRules;
     expandAggregationRules.emplace_back(std::make_unique<TExpandGroupingSetsRule>());
-    expandAggregationRules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
     expandAggregationRules.emplace_back(std::make_unique<TExpandWholePartitionWindowRule>());
     RBO.AddStage(std::make_unique<TRuleBasedStage>("Expand aggregation", std::move(expandAggregationRules)));
 
@@ -661,6 +660,11 @@ void TKqpNewRBOTransformer::InitializeRBOOptimizationStages() {
     decorrelationStageRules.emplace_back(std::make_unique<TPushDependentJoinThroughLimitRule>());
     decorrelationStageRules.emplace_back(std::make_unique<TDependentJoinNotSupportedRule>());
     RBO.AddStage(std::make_unique<TRuleBasedStage>("Decorrelation", std::move(decorrelationStageRules)));
+
+    // Decorrelation needs logical aggregates, before DISTINCT splits their phases.
+    TVector<std::unique_ptr<IRule>> expandDistinctRules;
+    expandDistinctRules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
+    RBO.AddStage(std::make_unique<TRuleBasedStage>("Expand DISTINCT aggregation", std::move(expandDistinctRules)));
 
     // Rewrites can introduce new definitions. Remove dead ones and collapse
     // copies globally.
