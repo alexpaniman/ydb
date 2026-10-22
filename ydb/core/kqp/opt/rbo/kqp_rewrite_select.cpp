@@ -1473,23 +1473,8 @@ void ProcessAggregationsInResultItems(TExprNode::TPtr result, THashSet<TString>&
                             ctx, pos);
     }
 
-    // Distinct post aggregate for group by keys.
-    if (distinctAll) {
-        // distinct f(a), b group by b => f(a) as f, b group by b -> select f, b group by f, b.
-        THashSet<TString> distinctSet;
-        for (const auto& key : distinctAggregationTraitsPostAggregate.KeyColumns) {
-            distinctSet.insert(key.GetFullName());
-        }
-
-        for (const auto& key : aggTraits.KeyColumns) {
-            const auto colName = key.GetFullName();
-            if (!distinctSet.contains(colName)) {
-                const auto distinctAggTraits = BuildAggregationTraits(colName, "distinct", colName, ctx, pos);
-                distinctAggregationTraitsPostAggregate.AggTraitsList.push_back(distinctAggTraits);
-                distinctAggregationTraitsPostAggregate.KeyColumns.push_back(colName);
-            }
-        }
-    }
+    // ProcessAggregations registers the selected DISTINCT values, including
+    // selected grouping keys. Hidden grouping keys must not distinguish rows.
 }
 
 TExprNode::TPtr ProcessCount(TExprNode::TPtr input, TExprContext& ctx, TPositionHandle pos) {
