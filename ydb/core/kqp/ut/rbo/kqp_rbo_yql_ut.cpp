@@ -955,11 +955,11 @@ FROM (
                     if (useIndex || predicate == "D IS NULL") {
                         UNIT_ASSERT_C(result.GetStats() && result.GetStats()->GetPlan(), query);
                         const TString plan = *result.GetStats()->GetPlan();
+                        const auto simplified = GetSimplifiedPlan(plan);
                         if (useIndex) {
-                            UNIT_ASSERT_C(plan.Contains("ByD/indexImplTable"), plan);
+                            UNIT_ASSERT_C(FindOperatorByStringFieldContaining(simplified, "Table", "ByD/indexImplTable"), plan);
                         }
                         if (predicate == "D IS NULL") {
-                            const auto simplified = GetSimplifiedPlan(plan);
                             const auto* range = FindOperatorByStringField(simplified, "Name", "TableRangeScan");
                             UNIT_ASSERT_C(range, plan);
                             UNIT_ASSERT_C(StringArrayFieldContains(*range, "ReadRangesKeys", "D"), plan);
