@@ -3,12 +3,124 @@
 
 #include <library/cpp/testing/unittest/registar.h>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 namespace NKikimr::NKqp {
 namespace {
 
 using namespace NYdb;
 
 Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
+    // NUL is an admitted one-byte ASCII SQL ESCAPE. Literal and parameter
+    // patterns must preserve the same complete bag, including binary subjects.
+    Y_UNIT_TEST_TWIN(LikeNulEscapeLiteralAndParameter, Lang202603) {
+        NKikimrConfig::TAppConfig config;
+        auto* service = config.MutableTableServiceConfig();
+        service->SetEnableNewRBO(true);
+        service->SetEnableFallbackToYqlOptimizer(false);
+        service->SetEnableFallbackOnDML(false);
+        service->SetEnableFallbackOnMultipleStatements(false);
+        service->SetDefaultLangVer(Lang202603 ? 202603 : 202501);
+        TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+        auto tableClient = kikimr.GetTableClient();
+        auto tableSession = tableClient.CreateSession().GetValueSync().GetSession();
+        const auto created = tableSession.ExecuteSchemeQuery(R"(
+            CREATE TABLE `/Root/LikeNulEscapeRows` (
+                Id Int32 NOT NULL, Subject String NOT NULL, PRIMARY KEY (Id)
+            );
+        )").GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+        struct TRow { i32 Id; std::string Subject; };
+        const std::vector<TRow> rows{
+            {1, "%"}, {2, "_"}, {3, "x"}, {4, ""}, {5, "%%"}, {6, "__"},
+            {7, std::string("\0%", 2)}, {8, std::string("\0_", 2)},
+            {9, std::string("\0x", 2)}, {10, std::string("\0", 1)},
+        };
+        TValueBuilder values;
+        values.BeginList();
+        for (const auto& row : rows) {
+            values.AddListItem().BeginStruct().AddMember("Id").Int32(row.Id)
+                .AddMember("Subject").String(row.Subject).EndStruct();
+        }
+        const auto seeded = tableClient.BulkUpsert(
+            "/Root/LikeNulEscapeRows", values.EndList().Build()).GetValueSync();
+        UNIT_ASSERT_C(seeded.IsSuccess(), seeded.GetIssues().ToString());
+        const TString query = R"SQL(
+PRAGMA YqlSelect='force';
+PRAGMA AnsiLike;
+DECLARE $p AS String;
+DECLARE $one AS String;
+SELECT Id, Subject,
+    Subject LIKE '\x00%'s ESCAPE '\x00's AS LiteralPercent,
+    Subject LIKE $p ESCAPE '\x00's AS ParameterPercent,
+    Subject LIKE '\x00_'s ESCAPE '\x00's AS LiteralUnderscore,
+    Subject LIKE $one ESCAPE '\x00's AS ParameterUnderscore
+FROM `/Root/LikeNulEscapeRows`;
+        )SQL";
+        auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+        const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+        const auto successes = counters->GetCounter("Compilation/NewRBO/Success");
+        const auto failures = counters->GetCounter("Compilation/NewRBO/Failed");
+        bool first = true;
+        TStringBuilder mismatches;
+        size_t mismatchedBindings = 0;
+        for (const bool escapedPatterns : {true, false}) {
+            const auto params = TParamsBuilder()
+                .AddParam("$p").String(escapedPatterns ? std::string("\0%", 2) : "x").Build()
+                .AddParam("$one").String(escapedPatterns ? std::string("\0_", 2) : "x").Build().Build();
+            const auto beforeSuccess = successes->Val(), beforeFailure = failures->Val();
+            const auto explain = session.ExecuteQuery(query, NQuery::TTxControl::NoTx(), params,
+                NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+            UNIT_ASSERT_C(explain.IsSuccess(), query << "\n" << explain.GetIssues().ToString());
+            if (first) { UNIT_ASSERT(successes->Val() > beforeSuccess); first = false; }
+            UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+            UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
+            const TString ast{*explain.GetStats()->GetAst()};
+            UNIT_ASSERT_C(ast.Contains("Re2.PatternFromLike") && ast.Contains("Parameter"), ast);
+            Cerr << "[LIKE-NUL-ESCAPE] lang=" << (Lang202603 ? 202603 : 202501)
+                 << " pattern_bytes=" << (escapedPatterns ? "00 25 / 00 5f" : "78 / 78")
+                 << "\n" << query << "\n" << ast << Endl;
+            const auto result = session.ExecuteQuery(query,
+                NQuery::TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+            UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+            const auto& rs = result.GetResultSet(0);
+            UNIT_ASSERT(!rs.Truncated());
+            const std::vector<std::string> names{
+                "Id", "Subject", "LiteralPercent", "ParameterPercent", "LiteralUnderscore", "ParameterUnderscore"};
+            UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta().size(), names.size());
+            for (size_t i = 0; i < names.size(); ++i) {
+                UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta()[i].Name, names[i]);
+                UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta()[i].Type.ToString(), i == 0 ? "Int32" : i == 1 ? "String" : "Bool");
+            }
+            std::vector<std::vector<i32>> actual, expected;
+            TResultSetParser parser(rs);
+            while (parser.TryNextRow()) {
+                const auto id = parser.ColumnParser(0).GetInt32();
+                const auto found = std::find_if(rows.begin(), rows.end(), [&](const TRow& row) { return row.Id == id; });
+                UNIT_ASSERT(found != rows.end());
+                UNIT_ASSERT_VALUES_EQUAL(parser.ColumnParser(1).GetString(), found->Subject);
+                actual.push_back({id, parser.ColumnParser(2).GetBool(), parser.ColumnParser(3).GetBool(),
+                    parser.ColumnParser(4).GetBool(), parser.ColumnParser(5).GetBool()});
+            }
+            for (const auto& row : rows) {
+                expected.push_back({row.Id, row.Subject == "%", row.Subject == (escapedPatterns ? "%" : "x"),
+                    row.Subject == "_", row.Subject == (escapedPatterns ? "_" : "x")});
+            }
+            std::sort(actual.begin(), actual.end());
+            std::sort(expected.begin(), expected.end());
+            if (actual != expected) {
+                ++mismatchedBindings;
+                mismatches << "pattern_bytes=" << (escapedPatterns ? "00 25 / 00 5f" : "78 / 78")
+                    << "\n" << query << "\n" << ast << "\n" << FormatResultSetYson(rs) << "\n";
+            }
+        }
+        UNIT_ASSERT_VALUES_EQUAL_C(mismatchedBindings, 0, mismatches);
+    }
+
     Y_UNIT_TEST_TWIN(SafeCastOptionalResults, PhysicalStagePeephole) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);

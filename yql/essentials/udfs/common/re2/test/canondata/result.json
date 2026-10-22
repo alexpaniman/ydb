@@ -69,6 +69,11 @@
             "uri": "file://test.test_PatternFromLikeEscapedBackslash-Results_/results.txt"
         }
     ],
+    "test.test[PatternFromLikeNulEscape-Results]": [
+        {
+            "uri": "file://test.test_PatternFromLikeNulEscape-Results_/results.txt"
+        }
+    ],
     "test.test[SkipGroup-Results]": [
         {
             "uri": "file://test.test_SkipGroup-Results_/results.txt"
