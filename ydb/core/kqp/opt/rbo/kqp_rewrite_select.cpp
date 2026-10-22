@@ -1014,7 +1014,11 @@ void ProcessAggregations(TExprNode::TPtr lambdaToProcess, TString&& resultColNam
             TExprNode::TPtr exprBody;
             const ui32 aggInputIndex = aggregation->ChildrenSize() == 3 ? 2 : 3;
             const bool aggHasInput = aggregation->ChildrenSize() > 2;
-            const bool isExpression = aggHasInput && IsExpression(aggregation->ChildPtr(aggInputIndex));
+            // Only a direct row member is identified by its column name. A
+            // nested member must retain its receiver as part of the expression.
+            const bool isExpression = aggHasInput &&
+                (IsExpression(aggregation->ChildPtr(aggInputIndex)) ||
+                 aggregation->Child(aggInputIndex)->HeadPtr() != lambda.Args().Arg(0).Ptr());
 
             // Aggregation with column specified.
             if (aggHasInput) {
