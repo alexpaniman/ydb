@@ -1593,6 +1593,7 @@ TExprNode::TPtr RewriteSublinks(TExprNode::TPtr& node, TExprContext& ctx, const 
                 .Subquery(newSubquery)
                 .OuterType(sublink->Child(2))
                 .InLambda(sublink->Child(3))
+                .Settings(sublink->ChildrenSize() == 6 ? sublink->ChildPtr(5) : ctx.NewList(sublink->Pos(), {}))
                 .Done().Ptr();
             // clang-format on
         } else if (sublinkType == "exists") {

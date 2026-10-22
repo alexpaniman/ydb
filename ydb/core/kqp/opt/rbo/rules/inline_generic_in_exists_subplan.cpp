@@ -110,7 +110,8 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
 
         Y_ENSURE(subplanEntry.Type == ESubplanType::EXISTS || (subplanEntry.Type == ESubplanType::IN_SUBPLAN && subplanEntry.Tuple.Items().size() == 1 && subplanEntry.ResultIU));
         // For in we have to emulate three value result (true, false, null).
-        const bool threeValued = !markMissingAsFalse && subplanEntry.Type == ESubplanType::IN_SUBPLAN && subplanEntry.Tuple.Items().size() == 1;
+        const bool legacyIn = subplanEntry.Type == ESubplanType::IN_SUBPLAN && !subplanEntry.InSettings.Ansi;
+        const bool threeValued = !legacyIn && !markMissingAsFalse && subplanEntry.Type == ESubplanType::IN_SUBPLAN && subplanEntry.Tuple.Items().size() == 1;
 
         // The mark join and the domain read leftInput through a Replicate, the domain under fresh IDs.
         auto subplanDomain = MakeSubplanDomain(leftInput, domain, filter->Pos, props);
@@ -194,7 +195,18 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
         TIntrusivePtr<IOperator> resultInput = markJoin;
         TMapIUs resultElements;
 
-        if (markMissingAsFalse) {
+        if (legacyIn) {
+            // Legacy IN ignores NULL collection items, but a NULL lookup is
+            // unknown even when the collection is empty.
+            if (IsNullableIU(leftInput, subplanEntry.Tuple.Items()[0], ctx.ExprCtx)) {
+                auto lookupIsNull = MakeUnaryCallable("HasNull", column(subplanEntry.Tuple.Items()[0]));
+                auto result = ctx.ExprCtx.NewCallable(filter->Pos, "If", {
+                    lookupIsNull.GetExpressionBody(), MakeNullBoolNode(filter->Pos, ctx.ExprCtx), matched.GetExpressionBody()});
+                resultElements.Add(subplanIU, TExpression(result, &ctx.ExprCtx, &props));
+            } else {
+                resultElements.Add(subplanIU, matched);
+            }
+        } else if (markMissingAsFalse) {
             resultElements.Add(subplanIU, matched);
         } else if (threeValued) {
             // This one is an attempt to emulate three value result. For projection column we need to know does it contain null or not for each binding. So we have a special

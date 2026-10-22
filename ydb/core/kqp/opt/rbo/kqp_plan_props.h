@@ -22,9 +22,14 @@ enum ESubplanType : ui32 { EXPR, IN_SUBPLAN, EXISTS };
 
 struct TPlanProps;
 
+struct TInSubplanSettings {
+    bool Ansi = true;
+    const TTypeAnnotationNode* ResultType = nullptr;
+};
+
 struct TSubplanEntry {
     TSubplanEntry(TIntrusivePtr<IOperator> plan, ESubplanType type, TOrderedIUs<> tuple,
-        std::optional<TInfoUnitId> resultIU);
+        std::optional<TInfoUnitId> resultIU, TInSubplanSettings inSettings);
     ~TSubplanEntry();
     TSubplanEntry(TSubplanEntry&&) noexcept;
     TSubplanEntry& operator=(TSubplanEntry&&) noexcept;
@@ -35,6 +40,7 @@ struct TSubplanEntry {
     // EXISTS needs no result. Captures and sort keys are not result columns.
     std::optional<TInfoUnitId> ResultIU;
     ESubplanType Type;
+    TInSubplanSettings InSettings;
     TUnorderedIUs DependentIUs; // Caller-scope IDs, not the subplan's local captures.
 };
 
@@ -44,7 +50,8 @@ public:
     // referenced plan preserves that identity; changing it requires rewriting
     // every expression that names it and is intentionally unsupported here.
     void Add(TInfoUnitId binding, TIntrusivePtr<IOperator> plan, ESubplanType type,
-        TOrderedIUs<> tuple = {}, std::optional<TInfoUnitId> resultIU = std::nullopt);
+        TOrderedIUs<> tuple = {}, std::optional<TInfoUnitId> resultIU = std::nullopt,
+        TInSubplanSettings inSettings = {});
 
     // Borrow the owning slot for an in-place rewrite, keeping the graph attached.
     TIntrusivePtr<IOperator>& MutablePlan(TInfoUnitId binding) Y_LIFETIME_BOUND {
