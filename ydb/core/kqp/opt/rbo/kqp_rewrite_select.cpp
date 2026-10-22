@@ -2449,37 +2449,31 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
     Y_ENSURE(setOps && setItemsResults.size());
 
     auto setOpsList = setOps->TailPtr();
-    TExprNode::TPtr opResult = setItemsResults.front();
-    for (ui32 i = 0, end = setOpsList->ChildrenSize(), setItemsIndex = 0, opsInputCount = 0; i < end; ++i) {
+    TVector<TExprNode::TPtr> operands;
+    ui32 setItemsIndex = 0;
+    for (ui32 i = 0; i < setOpsList->ChildrenSize(); ++i) {
         if (setOpsList->ChildPtr(i)->Content() == "push") {
-            ++opsInputCount;
+            Y_ENSURE(setItemsIndex < setItemsResults.size());
+            operands.push_back(setItemsResults[setItemsIndex++]);
             continue;
         }
-        Y_ENSURE(opsInputCount <= 2);
-
-        TExprNode::TPtr leftInput;
-        TExprNode::TPtr rightInput;
-        if (opsInputCount == 2) {
-            Y_ENSURE(setItemsIndex + 1 < end);
-            leftInput = setItemsResults[setItemsIndex++];
-            rightInput = setItemsResults[setItemsIndex++];
-        } else {
-            Y_ENSURE(setItemsIndex < end);
-            leftInput = opResult;
-            rightInput = setItemsResults[setItemsIndex++];
-        }
+        Y_ENSURE(operands.size() >= 2);
+        auto rightInput = std::move(operands.back());
+        operands.pop_back();
+        auto leftInput = std::move(operands.back());
+        operands.pop_back();
 
         // clang-format off
-        opResult = Build<TKqpOpSetOp>(ctx, node->Pos())
+        operands.push_back(Build<TKqpOpSetOp>(ctx, node->Pos())
             .LeftInput(leftInput)
             .RightInput(rightInput)
             .SetOp(setOpsList->ChildPtr(i))
-        .Done().Ptr();
+        .Done().Ptr());
         // clang-format on
 
-        // Count again.
-        opsInputCount = 0;
     }
+    Y_ENSURE(operands.size() == 1 && setItemsIndex == setItemsResults.size());
+    auto opResult = std::move(operands.back());
 
     auto sort = GetSetting(node->Head(), "sort");
     if (sort) {
