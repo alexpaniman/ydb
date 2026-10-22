@@ -2,6 +2,8 @@
 
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 
+#include <util/generic/hash_set.h>
+
 using namespace NYql;
 using namespace NYql::NNodes;
 using namespace NKikimr;
@@ -342,8 +344,14 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildSumCastTarget(TInfoUnitId column) c
 
 TVector<TExprNode::TPtr> TPhysicalWindowBuilder::BuildSortKeys() const {
     TVector<TExprNode::TPtr> keys;
+    THashSet<ui32> seen;
 
     auto add = [&](ui32 index, bool ascending) {
+        // Repeated keys do not affect lexicographic order. Keep the first
+        // direction, including partition keys, and preserve logical peer keys.
+        if (!seen.insert(index).second) {
+            return;
+        }
         // clang-format off
         keys.push_back(Ctx.Builder(Pos)
             .List()
