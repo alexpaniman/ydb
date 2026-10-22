@@ -2318,7 +2318,7 @@ FROM (
                         auto literal = ctx.NewCallable(f.Pos, type, {ctx.NewAtom(f.Pos, value)});
                         literal->SetTypeAnn(annotation);
                         auto lambda = ctx.NewLambda(f.Pos,
-                            ctx.NewArguments(f.Pos, {ctx.NewArgument(f.Pos, "row")}), literal);
+                            ctx.NewArguments(f.Pos, {ctx.NewArgument(f.Pos, "row")}), std::move(literal));
                         return ctx.NewCallable(f.Pos, "KqpOpMapElementLambda", {
                             empty, ctx.NewAtom(f.Pos, name), lambda,
                             ctx.NewAtom(f.Pos, optional ? "True" : "False")});
@@ -2344,7 +2344,7 @@ FROM (
                 }
                 auto nullable = leaf(true);
                 auto unionNode = requiredOnLeft ? merge(required, nullable, true) : merge(nullable, required, true);
-                const auto* originalRequiredType = required->GetTypeAnn();
+                const TTypeAnnotationNode* originalRequiredType = required->GetTypeAnn();
                 // Exercise positional renaming after the union: first SELECT column is omega.
                 auto renamed = ctx.NewCallable(f.Pos, "KqpOpReplaceColumns", {unionNode,
                     ctx.NewList(f.Pos, {ctx.NewAtom(f.Pos, "first"), ctx.NewAtom(f.Pos, "second")})});
@@ -2353,9 +2353,9 @@ FROM (
                 auto& rename = CastOperator<TOpMap>(*plan);
                 auto& outer = CastOperator<TOpUnionAll>(*rename.GetInput());
                 const auto childIndex = requiredOnLeft ? 0U : 1U;
-                UNIT_ASSERT_VALUES_EQUAL(outer.GetChild(childIndex)->Kind, EOperator::Map);
+                UNIT_ASSERT(outer.GetChild(childIndex)->Kind == EOperator::Map);
                 auto& widened = CastOperator<TOpMap>(*outer.GetChild(childIndex));
-                UNIT_ASSERT_VALUES_EQUAL(widened.GetInput()->Kind, wrapLimit ? EOperator::Limit : EOperator::UnionAll);
+                UNIT_ASSERT(widened.GetInput()->Kind == (wrapLimit ? EOperator::Limit : EOperator::UnionAll));
                 UNIT_ASSERT_VALUES_EQUAL(widened.GetMapElements().Items().size(), 1);
                 const auto& [fresh, element] = *widened.GetMapElements().Items().begin();
                 const auto& expression = element.GetExpression();
@@ -2439,8 +2439,10 @@ FROM (
             )", R"([[#];[["a"]];[["a"]];[["b"]];[["b"]];[["n"]]])"},
             {R"(
                 SELECT value AS v FROM `/Root/nullable`
-                UNION ALL (SELECT value AS v FROM `/Root/required`
-                    UNION ALL SELECT value AS v FROM `/Root/required`)
+                UNION ALL SELECT v FROM (
+                    SELECT value AS v FROM `/Root/required`
+                    UNION ALL SELECT value AS v FROM `/Root/required`
+                ) AS nested
                 ORDER BY v;
             )", R"([[#];[["a"]];[["a"]];[["b"]];[["b"]];[["n"]]])"},
             {R"(
