@@ -1109,7 +1109,7 @@ class TOpDependentJoin: public IBinaryOperator {
 public:
     void RenameUsedIUs(const TSubstitutions& substitutions) override;
     TOpDependentJoin(TIntrusivePtr<IOperator> domain, TIntrusivePtr<IOperator> input, TUnorderedIUs dependencies, TPositionHandle pos,
-        TSubstitutions domainColumns = {});
+        TSubstitutions domainColumns = {}, bool preserveDomain = false);
 
     virtual void PropagateLiveness(ILivenessContext& ctx) override;
 
@@ -1135,6 +1135,9 @@ public:
 
     TUnorderedIUs Dependencies;
     TSubstitutions DomainColumns;
+    // Scalar validation must see only correlation values requested by callers.
+    // Pushdown may rewrite this domain, but must not expand it to inner keys.
+    bool PreserveDomain;
 
 protected:
     TIntrusivePtr<IOperator> CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const override;

@@ -23,7 +23,7 @@ struct TSubplanDomain {
 
     // Capture definitions and body/result IDs stay fixed; only capture sources
     // change to the domain port. Nested scopes have globally distinct local IDs.
-    TIntrusivePtr<IOperator> Bind(TIntrusivePtr<IOperator> body, TPositionHandle pos) &&;
+    TIntrusivePtr<IOperator> Bind(TIntrusivePtr<IOperator> body, TPositionHandle pos, bool preserveDomain = false) &&;
 };
 
 TSubplanDomain MakeSubplanDomain(TIntrusivePtr<IOperator>& caller, const TUnorderedIUs& parameters,

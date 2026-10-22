@@ -850,10 +850,11 @@ NJson::TJsonValue TOpJoin::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
  */
 
 TOpDependentJoin::TOpDependentJoin(TIntrusivePtr<IOperator> domain, TIntrusivePtr<IOperator> input,
-    TUnorderedIUs dependencies, TPositionHandle pos, TSubstitutions domainColumns)
+    TUnorderedIUs dependencies, TPositionHandle pos, TSubstitutions domainColumns, bool preserveDomain)
     : IBinaryOperator(EOperator::DependentJoin, pos, std::move(domain), std::move(input))
     , Dependencies(std::move(dependencies))
     , DomainColumns(std::move(domainColumns))
+    , PreserveDomain(preserveDomain)
 {
     Y_ENSURE(!Dependencies.Empty(), "Dependent join must have correlated columns");
 }

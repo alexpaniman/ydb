@@ -287,7 +287,7 @@ TIntrusivePtr<IOperator> TOpJoin::CopyImpl(TInfoUnitRegistry&, TSubstitutions&) 
 }
 
 TIntrusivePtr<IOperator> TOpDependentJoin::CopyImpl(TInfoUnitRegistry&, TSubstitutions&) const {
-    return MakeIntrusive<TOpDependentJoin>(GetDomain(), GetInput(), Dependencies, Pos, DomainColumns);
+    return MakeIntrusive<TOpDependentJoin>(GetDomain(), GetInput(), Dependencies, Pos, DomainColumns, PreserveDomain);
 }
 
 TIntrusivePtr<IOperator> TOpAggregate::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {

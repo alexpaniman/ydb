@@ -36,7 +36,8 @@ bool HasOperatorBelow(const TIntrusivePtr<IOperator>& op, EOperator kind) {
 }
 
 TIntrusivePtr<TOpDependentJoin> PushInto(const TIntrusivePtr<TOpDependentJoin>& dependentJoin, const TIntrusivePtr<IOperator>& newInput) {
-    return MakeIntrusive<TOpDependentJoin>(dependentJoin->GetDomain(), newInput, dependentJoin->Dependencies, dependentJoin->Pos, dependentJoin->DomainColumns);
+    return MakeIntrusive<TOpDependentJoin>(dependentJoin->GetDomain(), newInput, dependentJoin->Dependencies, dependentJoin->Pos,
+                                          dependentJoin->DomainColumns, dependentJoin->PreserveDomain);
 }
 
 TIntrusivePtr<IOperator> MakeCrossJoinWithDomain(const TIntrusivePtr<TOpDependentJoin>& dependentJoin, const TIntrusivePtr<IOperator>& input) {
@@ -98,7 +99,8 @@ TIntrusivePtr<TOpDependentJoin> PushIntoCopy(const TIntrusivePtr<IOperator>& pus
     for (const auto iu : dependentJoin->Dependencies) {
         domainColumns.Add(iu, columns.At(dependentJoin->GetDomainColumn(iu)));
     }
-    return MakeIntrusive<TOpDependentJoin>(domain, newInput, dependentJoin->Dependencies, dependentJoin->Pos, std::move(domainColumns));
+    return MakeIntrusive<TOpDependentJoin>(domain, newInput, dependentJoin->Dependencies, dependentJoin->Pos,
+                                          std::move(domainColumns), dependentJoin->PreserveDomain);
 }
 
 TSortIUs SubstituteSortKeys(const TSortIUs& keys, const TSubstitutions& substitutions) {
@@ -354,6 +356,9 @@ bool TEliminateDependentJoinDomainRule::QuickMatch(const TIntrusivePtr<IOperator
 // We can eliminate dependent join by rewriting it into map -> filter.
 TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
     auto dependentJoin = CastOperator<TOpDependentJoin>(input);
+    if (dependentJoin->PreserveDomain) {
+        return input;
+    }
     auto body = dependentJoin->GetInput();
 
     // Dependent join <- Filter <- AddDep.
@@ -447,7 +452,8 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
     // Reduce domain.
     auto smallerDomain = MakeDomainProjection(CastOperator<TOpAggregate>(domain)->GetInput(), remainingDependencies.Unordered(), domain->Pos);
     RebindConsumers(*dependentJoin, boundColumns, props.Subplans);
-    return MakeIntrusive<TOpDependentJoin>(smallerDomain, newBody, remainingDependencies.Unordered(), dependentJoin->Pos);
+    return MakeIntrusive<TOpDependentJoin>(smallerDomain, newBody, remainingDependencies.Unordered(), dependentJoin->Pos,
+                                          TSubstitutions{}, dependentJoin->PreserveDomain);
 }
 
 bool TPushDependentJoinThroughFilterRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
@@ -767,14 +773,14 @@ TSubplanDomain MakeSubplanDomain(TIntrusivePtr<IOperator>& caller, const TUnorde
     return {std::move(domain), std::move(keys)};
 }
 
-TIntrusivePtr<IOperator> TSubplanDomain::Bind(TIntrusivePtr<IOperator> body, TPositionHandle pos) && {
+TIntrusivePtr<IOperator> TSubplanDomain::Bind(TIntrusivePtr<IOperator> body, TPositionHandle pos, bool preserveDomain) && {
     const TSubstitutions substitutions(Keys.Items().begin(), Keys.Items().end());
     for (const auto& item : IterateSubtree(body.get())) {
         if (item.Current->Kind == EOperator::AddDependencies) {
             CastOperator<TOpAddDependencies>(*item.Current).RebindCaptures(substitutions);
         }
     }
-    return MakeIntrusive<TOpDependentJoin>(std::move(Input), std::move(body), Keys.Right(), pos);
+    return MakeIntrusive<TOpDependentJoin>(std::move(Input), std::move(body), Keys.Right(), pos, TSubstitutions{}, preserveDomain);
 }
 
 } // namespace NKqp

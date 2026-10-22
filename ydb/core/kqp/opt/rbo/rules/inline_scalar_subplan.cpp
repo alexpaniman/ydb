@@ -114,7 +114,7 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
         auto domain = MakeSubplanDomain(child, dependencies, subplan->Pos, props);
         const TOrderedIUs<> domainColumns(domain.Keys.Right().begin(), domain.Keys.Right().end());
         TJoinIUs joinKeys = domain.Keys;
-        auto dependentJoin = std::move(domain).Bind(subplan, subplan->Pos);
+        auto dependentJoin = std::move(domain).Bind(subplan, subplan->Pos, /*preserveDomain=*/true);
 
         auto [rightInput, rightResIU] = MakeAtMostOneRowPerGroup(dependentJoin, domainColumns, subplanResIU, subplanResType, subplan->Pos, ctx, props);
 
