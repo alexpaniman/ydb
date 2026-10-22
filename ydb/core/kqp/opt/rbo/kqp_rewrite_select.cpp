@@ -1454,6 +1454,13 @@ void ProcessAggregationsInHaving(TExprNode::TPtr having, THashSet<TString>& aggr
     ProcessAggregations(yqlWhere->ChildPtr(1), std::move(resultColName), aggregationUniqueColNames, expressionsMapPreAgg, groupByKeysExpressionsMap, aggTraits,
                         distinctAggregationTraitsPostAggregate, havingFilterHolder, uniqueAggColumnId, distinctAll, ctx, pos);
 
+    if (havingFilterHolder.empty()) {
+        // An expression without an aggregate still filters the grouped rows.
+        // Resolve grouping references against the aggregation output columns.
+        auto lambda = TCoLambda(ctx.DeepCopyLambda(*yqlWhere->Child(1)));
+        havingFilterLambda = ReplaceGroupRefs(lambda, groupByKeysExpressionsMap, ctx).Ptr();
+        return;
+    }
     Y_ENSURE(havingFilterHolder.size() == 1, "Invalid number of filters for HAVING.");
     havingFilterLambda = std::get<1>(havingFilterHolder.front());
     Y_ENSURE(havingFilterLambda, "Fitler for HAVING is nullptr");
