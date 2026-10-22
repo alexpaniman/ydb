@@ -4,6 +4,9 @@
 
 namespace NKikimr::NKqp {
 
+// Checks whether evaluating an expression more than once preserves its value.
+bool IsRepeatableExpression(const TExprNode::TPtr& expression);
+
 // Checks whether this operator can be copied and evaluated separately.
 // Does not check inputs or referenced subplans.
 bool CanDuplicateOperator(const IOperator& op);

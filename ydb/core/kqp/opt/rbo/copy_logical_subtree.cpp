@@ -4,14 +4,15 @@
 #include <yql/essentials/core/yql_expr_optimize.h>
 
 namespace NKikimr::NKqp {
-namespace {
 
-bool IsRepeatable(const TExprNode::TPtr& expression) {
+bool IsRepeatableExpression(const TExprNode::TPtr& expression) {
     return !expression || !FindNode(expression, [](const TExprNode::TPtr& node) {
         return NYql::NNodes::TCoNonDeterministicBase::Match(node.Get())
             || node->IsCallable({"Udf", "ScriptUdf", "SqlCall"});
     });
 }
+
+namespace {
 
 bool CanDuplicateAggregation(const TOpAggregate& aggregate) {
     // Deliberately ignore input types and reduction-order differences.
@@ -28,7 +29,7 @@ bool CanDuplicateAggregation(const TOpAggregate& aggregate) {
 
 bool IsRepeatable(const IOperator& op) {
     for (const auto& expression : op.GetExpressions()) {
-        if (!IsRepeatable(expression.get().Node)) {
+        if (!IsRepeatableExpression(expression.get().Node)) {
             return false;
         }
     }
@@ -43,12 +44,12 @@ bool IsRepeatable(const IOperator& op) {
         case EOperator::Source: {
             const auto& read = CastOperator<TOpRead>(op);
             return !read.Limit && (!read.RangeInfo ||
-                (IsRepeatable(read.RangeInfo->ComputeNode) &&
+                (IsRepeatableExpression(read.RangeInfo->ComputeNode) &&
                  std::all_of(read.RangeInfo->PointPrefixes.begin(), read.RangeInfo->PointPrefixes.end(),
-                             [](const TOpRead::TPointPrefix& prefix) { return IsRepeatable(prefix.Points); })));
+                             [](const TOpRead::TPointPrefix& prefix) { return IsRepeatableExpression(prefix.Points); })));
         }
         case EOperator::EmptySource:
-            return IsRepeatable(CastOperator<TOpEmptySource>(op).Input);
+            return IsRepeatableExpression(CastOperator<TOpEmptySource>(op).Input);
         case EOperator::Aggregate:
             return CanDuplicateAggregation(CastOperator<TOpAggregate>(op));
         case EOperator::Sort:

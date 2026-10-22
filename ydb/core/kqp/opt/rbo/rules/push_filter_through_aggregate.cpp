@@ -1,5 +1,7 @@
 #include "kqp_rules_include.h"
 
+#include <ydb/core/kqp/opt/rbo/copy_logical_subtree.h>
+
 namespace NKikimr {
 namespace NKqp {
 
@@ -48,7 +50,9 @@ TIntrusivePtr<IOperator> TPushFilterThroughAggregateRule::SimpleMatchAndApply(co
     TVector<TExpression> remainingFilters;
 
     for (const auto& conj : conjuncts) {
-        if (!ReferencesUnresolvedSubplan(conj, props) && conj.GetInputIUs(false, true).IsSubsetOf(keys.Keys())) {
+        // Moving below aggregation changes evaluation from once per group to once per input row.
+        if (!ReferencesUnresolvedSubplan(conj, props) && IsRepeatableExpression(conj.Node)
+            && conj.GetInputIUs(false, true).IsSubsetOf(keys.Keys())) {
             pushedFilters.push_back(aggregate->IsDistinctAll() ? conj.ApplyRenames(keys) : conj);
         } else {
             remainingFilters.push_back(conj);
