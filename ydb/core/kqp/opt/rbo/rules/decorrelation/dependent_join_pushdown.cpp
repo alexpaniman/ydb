@@ -395,10 +395,11 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
             }
         }
 
-        if (binding && bindings.emplace(binding->first, binding->second).second) {
-            continue;
+        if (binding) {
+            bindings.emplace(binding->first, binding->second);
         }
-        // Keep rest.
+        // Keep the equality after binding too. A present value need not equal
+        // itself (for example NaN), so Exists cannot replace this predicate.
         restConjuncts.push_back(conj);
     }
 
@@ -419,15 +420,10 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
     for (const auto iu : captures.Keys()) {
         const auto& source = bindings.at(iu);
         bindingElements.Add(iu, MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props));
-
-        // Special case for optional column.
-        if (IsNullableIU(correlatedInput, source, ctx.ExprCtx)) {
-            restConjuncts.push_back(MakeUnaryCallable("Exists", MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props)));
-        }
     }
 
     TIntrusivePtr<IOperator> newBody = MakeIntrusive<TOpMap>(correlatedInput, filter->Pos, bindingElements);
-    // Keep rest conj in filter, if all domain columns binded into eq prdicates, we can eliminate a filter.
+    // The original predicates retain both NULL and nonreflexive-value semantics.
     if (!restConjuncts.empty()) {
         newBody = MakeIntrusive<TOpFilter>(newBody, filter->Pos, MakeConjunction(restConjuncts, props.PgSyntax));
     }
