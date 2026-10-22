@@ -118,6 +118,9 @@ public:
 private:
     friend class TCompileTraceDeferredScope;
     NWilson::TTraceId Parent() const;
+    // The innermost parent, without marking it used.
+    NWilson::TTraceId PeekParent() const;
+    void MarkUsed(const NWilson::TTraceId& id);
     void PushId(NWilson::TTraceId id, TInstant start, ui64 cycles);
     bool PopId(const NWilson::TTraceId& id);
     void EndRegions(size_t count, bool success);
@@ -158,36 +161,58 @@ private:
     std::shared_ptr<TCompileTraceContinuation> Continuation;
 };
 
-// Ends a dependency on its callback thread, before releasing its consumer.
-// A fulfilled future may contain an error result. Keep this distinct from an
-// exception: only the latter can short-circuit WaitExceptionOrAll.
+// Records on its callback thread that a dependency is ready. A fulfilled
+// future may contain an error result. Keep this distinct from an exception:
+// only the latter can short-circuit WaitExceptionOrAll.
+void MarkCompileDependencyReady(NWilson::TSpan& span, bool futureSuccess);
 void FinishCompileDependency(NWilson::TSpan& span, bool futureSuccess, bool operationSuccess = true);
 
+// Ends the dependency span on the future's callback thread, before releasing its
+// consumer. The span is marked ready first, then end(span, result) ends it, where
+// result points to the value or is null for an exception (a bool for a void future).
 // For a value future this transfers its result to the returned future: the
 // caller must consume the returned future instead of retaining the original.
 // Captures no compiler/transformer state, which may be destroyed while waiting.
-template <class T, class TSuccess>
-NThreading::TFuture<T> TraceCompileDependency(NThreading::TFuture<T> future, NWilson::TSpan span, TSuccess success) {
+template <class T, class TEnd>
+NThreading::TFuture<T> TraceCompileDependencyWith(NThreading::TFuture<T> future, NWilson::TSpan span, TEnd end) {
     if (!span) {
         return future;
     }
-    return future.Apply([span = std::make_shared<NWilson::TSpan>(std::move(span)), success = std::move(success)]
+    return future.Apply([span = std::make_shared<NWilson::TSpan>(std::move(span)), end = std::move(end)]
         (const NThreading::TFuture<T>& ready) mutable -> T {
         try {
             ready.TryRethrow();
         } catch (...) {
-            FinishCompileDependency(*span, false);
+            MarkCompileDependencyReady(*span, false);
+            if constexpr (std::is_void_v<T>) {
+                end(*span, false);
+            } else {
+                end(*span, static_cast<const T*>(nullptr));
+            }
             throw;
         }
+        MarkCompileDependencyReady(*span, true);
         if constexpr (std::is_void_v<T>) {
-            FinishCompileDependency(*span, true, success());
+            end(*span, true);
         } else {
             auto owned = ready;
             auto result = owned.ExtractValue();
-            FinishCompileDependency(*span, true, success(std::as_const(result)));
+            end(*span, &std::as_const(result));
             return result;
         }
     });
+}
+
+template <class T, class TSuccess>
+NThreading::TFuture<T> TraceCompileDependency(NThreading::TFuture<T> future, NWilson::TSpan span, TSuccess success) {
+    return TraceCompileDependencyWith(std::move(future), std::move(span),
+        [success = std::move(success)](NWilson::TSpan& span, auto result) mutable {
+            if constexpr (std::is_void_v<T>) {
+                FinishCompileDependency(span, result, result && success());
+            } else {
+                FinishCompileDependency(span, result != nullptr, result && success(*result));
+            }
+        });
 }
 
 template <class T>

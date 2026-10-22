@@ -150,28 +150,6 @@ public:
         return config;
     }
 
-    ~TKqpCompileActor() override {
-        // Keep Compile query open until its compiler-owned state is released.
-        // This work runs after the reply, when the executor deletes the actor.
-        FinishCompileTrace(CompileStatus);
-        TCompileTrace cleanupTrace(CompileActorSpan.GetTraceId(), CompileActorSpan.GetActorSystem());
-        {
-            TCompileTraceRunScope running(CompileActorSpan ? &cleanupTrace : nullptr);
-            TCompileTraceScope scope(&cleanupTrace, TCompileTraceLevels::Step, "Cleanup compiler", "KqpCompileActor");
-            scope.Span().Attribute("ydb.compile.cleanup", true);
-            AsyncSplitResult.Drop();
-            AsyncCompileResult.Drop();
-            KqpHost.Drop();
-            Gateway.Drop();
-            SplitExpr.Reset();
-            SplitCtx.reset();
-        }
-        if (CompileAction == ECompileActorAction::COMPILE) {
-            CompileActorSpan.Attribute("ydb.cpu_us", static_cast<i64>(TraceCpuTime + cleanupTrace.GetCpuTime()));
-        }
-        EndQueryTraceSpan(CompileActorSpan, CompileStatus);
-    }
-
     void Bootstrap(const TActorContext& ctx) {
         switch(CompileAction) {
             case ECompileActorAction::PARSE:
@@ -190,6 +168,27 @@ public:
         if (TimeoutTimerActorId) {
             ctx.Send(TimeoutTimerActorId, new TEvents::TEvPoisonPill());
         }
+
+        // Keep Compile query open until its compiler-owned state is released.
+        // This runs on the actor's thread right after the reply, not when the
+        // executor deletes the actor (which may happen during shutdown).
+        FinishCompileTrace(CompileStatus);
+        TCompileTrace cleanupTrace(CompileActorSpan.GetTraceId(), CompileActorSpan.GetActorSystem());
+        {
+            TCompileTraceRunScope running(CompileActorSpan ? &cleanupTrace : nullptr);
+            TCompileTraceScope scope(&cleanupTrace, TCompileTraceLevels::Step, "Cleanup compiler", "KqpCompileActor");
+            scope.Span().Attribute("ydb.compile.cleanup", true);
+            AsyncSplitResult.Drop();
+            AsyncCompileResult.Drop();
+            KqpHost.Drop();
+            Gateway.Drop();
+            SplitExpr.Reset();
+            SplitCtx.reset();
+        }
+        if (CompileAction == ECompileActorAction::COMPILE) {
+            CompileActorSpan.Attribute("ydb.cpu_us", static_cast<i64>(TraceCpuTime + cleanupTrace.GetCpuTime()));
+        }
+        EndQueryTraceSpan(CompileActorSpan, CompileStatus);
 
         TBase::Die(ctx);
     }

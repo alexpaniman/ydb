@@ -77,6 +77,21 @@ NWilson::TTraceId TCompileTrace::Parent() const {
     return NWilson::TTraceId(Parents.empty() ? Root : Parents.back().Id);
 }
 
+NWilson::TTraceId TCompileTrace::PeekParent() const {
+    auto guard = Guard(ParentsLock);
+    return NWilson::TTraceId(Parents.empty() ? Root : Parents.back().Id);
+}
+
+void TCompileTrace::MarkUsed(const NWilson::TTraceId& id) {
+    auto guard = Guard(ParentsLock);
+    const auto it = std::find_if(Parents.rbegin(), Parents.rend(), [&](const TParent& parent) {
+        return parent.Id == id;
+    });
+    if (it != Parents.rend()) {
+        it->Used = true;
+    }
+}
+
 NWilson::TTraceId TCompileTrace::GetCurrentParent() const {
     auto guard = Guard(ParentsLock);
     return Parent();
@@ -178,10 +193,13 @@ std::shared_ptr<TCompileTraceContinuation> TCompileTrace::StartContinuation(bool
     return Continuation;
 }
 
-void FinishCompileDependency(NWilson::TSpan& span, bool futureSuccess, bool operationSuccess) {
+void MarkCompileDependencyReady(NWilson::TSpan& span, bool futureSuccess) {
     span.Event("Dependency ready", {{"process.pid", static_cast<i64>(GetPID())},
         {"thread.id", static_cast<i64>(TThread::CurrentThreadNumericId())}});
     span.Attribute("ydb.compile.future_outcome", TString(futureSuccess ? "value" : "exception"));
+}
+
+void FinishCompileDependency(NWilson::TSpan& span, bool futureSuccess, bool operationSuccess) {
     if (futureSuccess && operationSuccess) {
         span.EndOk();
     } else {
@@ -242,7 +260,10 @@ NWilson::TSpan* TCompileTrace::BeginRegion(ui8 verbosity, const TString& name, c
         }
         if (restart) {
             restartedIn = Regions[i].Name;
-            Regions[i].Span.Attribute("ydb.compile.restarted", true);
+            // The restart interrupts the nested regions of other groups too.
+            for (size_t j = i; j < Regions.size(); ++j) {
+                Regions[j].Span.Attribute("ydb.compile.restarted", true);
+            }
         }
         EndRegions(Regions.size() - i, true);
         break;
@@ -304,7 +325,8 @@ TCompileTraceDeferredScope::TCompileTraceDeferredScope(TCompileTrace* trace, TSt
     , Component(component)
 {
     if (Trace) {
-        Parent = Trace->GetCurrentParent();
+        // The parent is used only if this scope is emitted, see Finish.
+        Parent = Trace->PeekParent();
         Id = Parent.Span(TCompileTraceLevels::Detail);
         Start = Trace->Now();
         CpuStart = Trace->GetCpuTime();
@@ -330,6 +352,7 @@ NWilson::TSpan TCompileTraceDeferredScope::Finish(bool keep) {
     if (!keep && !hasChildren) {
         return {};
     }
+    trace->MarkUsed(Parent);
     auto span = NWilson::TSpan::ConstructTerminated(Parent, Id, Start, end,
         NWilson::NTraceProto::Status::STATUS_CODE_OK, Name);
     if (trace->ActorSystem) {

@@ -1,6 +1,6 @@
 #include "kqp_compile_trace_transformer.h"
 
-#include <yql/essentials/core/yql_expr_optimize.h>
+#include <ydb/core/kqp/tracing/kqp_compile_trace_expr.h>
 
 namespace NKikimr::NKqp {
 
@@ -14,12 +14,7 @@ void AddExprSize(NWilson::TSpan& span, const TCompileTrace& trace, const TExprNo
     if (!span || !input || !trace.IsEnabled(TCompileTraceLevels::Step)) {
         return;
     }
-    i64 nodes = 0;
-    VisitExpr(input, [&](const TExprNode::TPtr&) {
-        ++nodes;
-        return true;
-    });
-    span.Attribute("ydb.expr.nodes", nodes);
+    span.Attribute("ydb.expr.nodes", CountExprNodes(*input));
 }
 
 class TCompileTraceTransformer : public TGraphTransformerBase {

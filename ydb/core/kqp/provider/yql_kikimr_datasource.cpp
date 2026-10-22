@@ -287,7 +287,8 @@ public:
                     }
                     *result = value;
                 }), std::move(dependency), [result] {
-                    return result->Success() && result->Metadata && result->Metadata->DoesExist;
+                    // A missing table is a valid outcome, e.g. for CREATE TABLE.
+                    return result->Success();
                 }));
         }
 
@@ -301,7 +302,7 @@ public:
             NThreading::WaitExceptionOrAll(futures), std::move(dependencyJoin),
             [results = std::move(dependencyResults)] {
                 return std::ranges::all_of(results, [](const auto& result) {
-                    return result->Success() && result->Metadata && result->Metadata->DoesExist;
+                    return result->Success();
                 });
             });
         return TStatus::Async;

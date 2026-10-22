@@ -20,7 +20,7 @@ TRBOContext::TRBOContext(NOpt::TKqpOptimizeContext& kqpCtx, NYql::TExprContext& 
 {}
 
 TCompileTrace* TRBOContext::GetCompileTrace() const {
-    return KqpCtx.QueryCtx ? KqpCtx.QueryCtx->CompileTrace.Get() : nullptr;
+    return KqpCtx.GetCompileTrace();
 }
 
 } // namespace NKikimr::NKqp

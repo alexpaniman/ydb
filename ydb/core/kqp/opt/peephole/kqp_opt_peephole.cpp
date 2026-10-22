@@ -51,17 +51,19 @@ using TStatus = IGraphTransformer::TStatus;
 // restarts do not leave spans open across other transformers of the pipeline.
 class TPeepholeTraceTransformer : public TSyncTransformerBase {
 public:
-    TPeepholeTraceTransformer(const TTransformStage& stage, TCompileTrace* trace, const char* pipeline)
-        : Stage(stage)
+    TPeepholeTraceTransformer(TAutoPtr<IGraphTransformer> transformer, const TString& stageName,
+            TCompileTrace* trace, const char* pipeline)
+        : Transformer(std::move(transformer))
+        , StageName(stageName)
         , Trace(trace)
         , Pipeline(pipeline)
     {}
 
     TStatus DoTransform(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) final {
-        TCompileTraceScope scope(Trace, TCompileTraceLevels::Detail, "Peephole: " + Stage.Name, "KqpPeephole");
+        TCompileTraceScope scope(Trace, TCompileTraceLevels::Detail, "Peephole: " + StageName, "KqpPeephole");
         scope.Span().Attribute("ydb.peephole.pipeline", TString(Pipeline));
         scope.Span().Attribute("ydb.compile.iteration", static_cast<i64>(++Iteration));
-        const auto status = Stage.GetTransformer().Transform(input, output, ctx);
+        const auto status = Transformer->Transform(input, output, ctx);
         scope.SetSuccess(status != TStatus::Error);
         scope.Span().Attribute("ydb.compile.repeat", status == TStatus::Repeat);
         scope.Span().Attribute("ydb.compile.restarted", static_cast<bool>(status.HasRestart));
@@ -69,15 +71,16 @@ public:
     }
 
     void Rewind() final {
-        Stage.GetTransformer().Rewind();
+        Transformer->Rewind();
     }
 
     TStatistics GetStatistics() const final {
-        return Stage.GetTransformer().GetStatistics();
+        return Transformer->GetStatistics();
     }
 
 private:
-    const TTransformStage Stage;
+    const TAutoPtr<IGraphTransformer> Transformer;
+    const TString StageName;
     TCompileTrace* const Trace;
     const char* const Pipeline;
     ui64 Iteration = 0;
@@ -87,8 +90,7 @@ void AddTracedPeepholeTransformer(TTransformationPipeline* pipeline, TAutoPtr<IG
     const TString& stageName, TCompileTrace* trace, const char* name)
 {
     if (trace && trace->IsEnabled(TCompileTraceLevels::Detail)) {
-        TTransformStage stage(transformer, stageName, TIssuesIds::DEFAULT_ERROR);
-        transformer = new TPeepholeTraceTransformer(stage, trace, name);
+        transformer = new TPeepholeTraceTransformer(std::move(transformer), stageName, trace, name);
     }
     pipeline->Add(transformer, stageName);
 }

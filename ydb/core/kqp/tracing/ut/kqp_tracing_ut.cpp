@@ -219,6 +219,22 @@ Y_UNIT_TEST_SUITE(TKqpTrace) {
                         ythrow yexception() << "failure";
                     } catch (const yexception&) {
                     }
+                    NKqp::TCompileTraceDeferredScope dropped(&trace, "Rule with skipped nested rule", "Test");
+                    {
+                        NKqp::TCompileTraceDeferredScope nested(&trace, "Skipped nested rule", "Test");
+                        UNIT_ASSERT(!nested.Finish(false));
+                    }
+                    UNIT_ASSERT(!dropped.Finish(false));
+                    NKqp::TCompileTraceDeferredScope kept(&trace, "Rule with applied nested rule", "Test");
+                    {
+                        NKqp::TCompileTraceDeferredScope nested(&trace, "Applied nested rule", "Test");
+                        auto nestedSpan = nested.Finish(true);
+                        UNIT_ASSERT(nestedSpan);
+                        nestedSpan.End();
+                    }
+                    auto keptSpan = kept.Finish(false);
+                    UNIT_ASSERT(keptSpan);
+                    keptSpan.End();
                 }
                 root.EndOk();
                 PassAway();
@@ -232,6 +248,43 @@ Y_UNIT_TEST_SUITE(TKqpTrace) {
         UNIT_ASSERT(!FindSpan(*uploader, "Skipped rule"));
         AssertDescendant(*uploader, "CBO work", "Rule with child");
         AssertStatus(*uploader, "Failed rule", NTraceProto::Status::STATUS_CODE_ERROR);
+        UNIT_ASSERT(!FindSpan(*uploader, "Rule with skipped nested rule"));
+        UNIT_ASSERT(!FindSpan(*uploader, "Skipped nested rule"));
+        AssertDescendant(*uploader, "Applied nested rule", "Rule with applied nested rule");
+        UNIT_ASSERT(uploader->BuildTraceTrees());
+    }
+
+    Y_UNIT_TEST(RestartMarksNestedRegions) {
+        class TProducer : public NActors::TActorBootstrapped<TProducer> {
+        public:
+            void Bootstrap(const NActors::TActorContext& ctx) {
+                NWilson::TSpan root(15, NWilson::TTraceId::NewTraceId(15, 4095), "Query");
+                NKqp::TCompileTrace trace(root.GetTraceId(), ctx.ActorSystem());
+                const int pipeline = 0;
+                const int nested = 0;
+                {
+                    NKqp::TCompileTraceRunScope running(&trace);
+                    UNIT_ASSERT(trace.BeginRegion(15, "First region", "Test", &pipeline));
+                    UNIT_ASSERT(trace.BeginRegion(15, "Host region", "Test", &pipeline));
+                    UNIT_ASSERT(trace.BeginRegion(15, "Nested region", "Test", &nested));
+                    // The pipeline restarts inside the host region.
+                    UNIT_ASSERT(trace.BeginRegion(15, "First region", "Test", &pipeline));
+                    trace.EndRegion("First region");
+                }
+                root.EndOk();
+                PassAway();
+            }
+        };
+        NActors::TTestActorRuntimeBase runtime;
+        runtime.Initialize();
+        auto* uploader = RegisterUploader(runtime);
+        runtime.Register(new TProducer());
+        runtime.SimulateSleep(TDuration::MilliSeconds(1));
+        AssertDescendant(*uploader, "Nested region", "Host region");
+        for (const TStringBuf name : {"Host region", "Nested region"}) {
+            const auto* restarted = FindAttribute(*FindSpan(*uploader, name), "ydb.compile.restarted");
+            UNIT_ASSERT_C(restarted && restarted->value().bool_value(), name);
+        }
         UNIT_ASSERT(uploader->BuildTraceTrees());
     }
 

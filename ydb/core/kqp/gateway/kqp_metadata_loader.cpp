@@ -20,9 +20,6 @@
 
 #include <ydb/library/yql/providers/common/token_accessor/client/factory.h>
 
-#include <util/system/getpid.h>
-#include <util/system/thread.h>
-
 #include <algorithm>
 #include <memory>
 #include <type_traits>
@@ -124,28 +121,12 @@ TFuture<TResult> SendActorRequest(TActorSystem* actorSystem, const TActorId& act
     if (followsFrom) {
         span.Link(followsFrom, {{"ydb.compile.relation", TString("follows_from")}});
     }
-    auto future = promise.GetFuture();
-    if (span) {
-        // Release the consumer only after recording completion, including when
-        // the request finishes before its consumer attaches a callback.
-        future = future.Apply([span = std::make_shared<NWilson::TSpan>(std::move(span)),
-                traceStatus = std::move(traceStatus)](const TFuture<TResult>& future) {
-            span->Event("Dependency ready", {{"process.pid", static_cast<i64>(GetPID())},
-                {"thread.id", static_cast<i64>(TThread::CurrentThreadNumericId())}});
-            try {
-                future.TryRethrow();
-            } catch (...) {
-                span->Attribute("ydb.compile.future_outcome", TString("exception"));
-                EndQueryTraceSpan(*span, Ydb::StatusIds::GENERIC_ERROR);
-                throw;
-            }
-            span->Attribute("ydb.compile.future_outcome", TString("value"));
-            auto owned = future;
-            auto result = owned.ExtractValue();
-            EndQueryTraceSpan(*span, traceStatus(result));
-            return result;
+    // Release the consumer only after recording completion, including when
+    // the request finishes before its consumer attaches a callback.
+    auto future = TraceCompileDependencyWith(promise.GetFuture(), std::move(span),
+        [traceStatus = std::move(traceStatus)](NWilson::TSpan& span, const TResult* result) {
+            EndQueryTraceSpan(span, result ? traceStatus(*result) : Ydb::StatusIds::GENERIC_ERROR);
         });
-    }
     IActor* requestHandler = new TActorRequestHandler<TRequest, TResponse, TResult>(
         actorId, request, promise, std::move(callback), std::move(requestTraceId));
     actorSystem->Register(requestHandler, TMailboxType::HTSwap, actorSystem->AppData<TAppData>()->UserPoolId);
