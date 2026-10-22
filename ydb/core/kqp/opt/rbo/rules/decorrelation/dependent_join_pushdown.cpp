@@ -395,10 +395,34 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
             }
         }
 
-        if (binding && bindings.emplace(binding->first, binding->second).second) {
-            continue;
+        if (binding) {
+            // A resolved PG operator keeps its original operand type OIDs.
+            // Binding a capture directly to an inner column can change its
+            // type, so leave PG equalities to the general decorrelation path.
+            if (conj.GetExpressionBody()->IsCallable("PgResolvedOp")) {
+                return input;
+            }
+            // A domain copy must retain its Decimal representation. Rebinding
+            // a capture to another precision/scale (or optionality) would make
+            // subsequent StablePickle identity keys compare different bytes.
+            const auto* captureType = captures.Find(binding->first)->Type;
+            const auto* sourceType = correlatedInput->Type ? correlatedInput->GetIUType(binding->second, ctx.ExprCtx) : nullptr;
+            const auto isDecimal = [](const TTypeAnnotationNode* type) {
+                while (type && type->GetKind() == ETypeAnnotationKind::Optional) {
+                    type = type->Cast<TOptionalExprType>()->GetItemType();
+                }
+                return type && type->GetKind() == ETypeAnnotationKind::Data
+                    && type->Cast<TDataExprType>()->GetSlot() == EDataSlot::Decimal;
+            };
+            if ((isDecimal(captureType) || isDecimal(sourceType))
+                && (!sourceType || !IsSameAnnotation(*captureType, *sourceType))) {
+                return input;
+            }
+            bindings.emplace(binding->first, binding->second);
         }
-        // Keep rest.
+        // Binding a capture to the inner value does not make equality true:
+        // NaN is not equal to itself, and NULL equality remains unknown.
+        // Evaluate the original predicate on the bound row as well.
         restConjuncts.push_back(conj);
     }
 
@@ -419,11 +443,6 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
     for (const auto iu : captures.Keys()) {
         const auto& source = bindings.at(iu);
         bindingElements.Add(iu, MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props));
-
-        // Special case for optional column.
-        if (IsNullableIU(correlatedInput, source, ctx.ExprCtx)) {
-            restConjuncts.push_back(MakeUnaryCallable("Exists", MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props)));
-        }
     }
 
     TIntrusivePtr<IOperator> newBody = MakeIntrusive<TOpMap>(correlatedInput, filter->Pos, bindingElements);
