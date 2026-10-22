@@ -8,12 +8,9 @@ bool TFuseFiltersRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
         input->GetChildren().front()->Kind == EOperator::Filter;
 }
 
-// Match two consequtive filters and fuse them into a single conjunction
+// Fuse consecutive filters while preserving their evaluation boundary.
 
 TIntrusivePtr<IOperator> TFuseFiltersRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) {
-    Y_UNUSED(ctx);
-    Y_UNUSED(props);
-
     if (input->Kind != EOperator::Filter) {
         return input;
     }
@@ -25,15 +22,26 @@ TIntrusivePtr<IOperator> TFuseFiltersRule::SimpleMatchAndApply(const TIntrusiveP
 
     auto bottomFilter = CastOperator<TOpFilter>(topFilter->GetInput());
 
-    auto conjunctions = topFilter->GetFilterExpression().SplitConjunct();
-    auto bottomConjunctions = bottomFilter->GetFilterExpression().SplitConjunct();
+    auto rejected = ctx.ExprCtx.NewCallable(input->Pos, "Bool", {ctx.ExprCtx.NewAtom(input->Pos, "false")});
+    auto filterPredicate = [&](const TExpression& expression) {
+        auto predicate = expression.GetExpressionBody();
+        const TPgExprType* pgType = nullptr;
+        if (IsPg(RemoveOptionalType(expression.Node->GetTypeAnn()), pgType)) {
+            predicate = ctx.ExprCtx.NewCallable(predicate->Pos(), "FromPg", {predicate});
+        }
+        return ctx.ExprCtx.NewCallable(predicate->Pos(), "Coalesce", {predicate, rejected});
+    };
 
-    conjunctions.insert(conjunctions.end(), bottomConjunctions.begin(), bottomConjunctions.end());
+    // A filter rejects NULL as well as false. A plain AND could still evaluate
+    // the outer predicate after NULL, even when its evaluation is not safe.
+    auto fusedPredicate = ctx.ExprCtx.NewCallable(input->Pos, "If", {
+        filterPredicate(bottomFilter->GetFilterExpression()),
+        filterPredicate(topFilter->GetFilterExpression()),
+        rejected,
+    });
 
-    topFilter->SetFilterExpression(MakeConjunction(conjunctions));
-    topFilter->ReplaceChild(bottomFilter, bottomFilter->GetInput());
-
-    return topFilter;
+    return MakeIntrusive<TOpFilter>(bottomFilter->GetInput(), topFilter->Pos, topFilter->Props,
+        TExpression(fusedPredicate, &ctx.ExprCtx, &props), topFilter->PartiallyPushedDown);
 }
 }
 }

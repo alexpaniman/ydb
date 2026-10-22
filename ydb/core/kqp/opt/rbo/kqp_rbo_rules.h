@@ -284,7 +284,7 @@ public:
  */
 class TFuseFiltersRule : public ISimplifiedRule {
   public:
-    TFuseFiltersRule() : ISimplifiedRule("Fuse filters", ERuleProperties::RequireParents) {}
+    TFuseFiltersRule() : ISimplifiedRule("Fuse filters", ERuleProperties::RequireParents | ERuleProperties::RequireTypes) {}
 
     virtual bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
     virtual TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) override;
