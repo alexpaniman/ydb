@@ -16,6 +16,7 @@ class TOpAggregate;
 class TExpression;
 
 bool ReferencesUnresolvedSubplan(const TExpression& expr, const TPlanProps& props);
+bool HaveSameIUType(const IOperator& left, TInfoUnitId leftIU, const IOperator& right, TInfoUnitId rightIU, TExprContext& ctx);
 TOrderedIUs<> GetAggregatePreservedShuffling(const TOpAggregate& aggregate, const TRBOContext& ctx);
 bool CanEliminateAggregateShuffle(const TOpAggregate& aggregate, const TRBOContext& ctx);
 

@@ -1,6 +1,8 @@
 #include "kqp_rbo_utils.h"
 #include "kqp_operator.h"
 
+#include <yql/essentials/core/yql_expr_type_annotation.h>
+
 namespace NKikimr {
 namespace NKqp {
 
@@ -8,6 +10,13 @@ using namespace NYql;
 
 bool ReferencesUnresolvedSubplan(const TExpression& expr, const TPlanProps& props) {
     return expr.GetRawInputIUs().HasAny(props.Subplans.Bindings());
+}
+
+bool HaveSameIUType(const IOperator& left, TInfoUnitId leftIU, const IOperator& right, TInfoUnitId rightIU, TExprContext& ctx) {
+    const auto* leftType = left.GetIUType(leftIU, ctx);
+    const auto* rightType = right.GetIUType(rightIU, ctx);
+    // Equal join values need not behave identically inside a typed expression.
+    return leftType && rightType && IsSameAnnotation(*leftType, *rightType);
 }
 
 bool JoinOutputsLeft(const TString& joinKind) {

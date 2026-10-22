@@ -373,7 +373,7 @@ class TPushFilterIntoJoinRule : public ISimplifiedRule {
  */
 class TPushSimpleJoinFilterRule : public IRule {
   public:
-    TPushSimpleJoinFilterRule() : IRule("Push simple join filter", ERuleProperties::RequireParents | ERuleProperties::RequireOutputIUs) {}
+    TPushSimpleJoinFilterRule() : IRule("Push simple join filter", ERuleProperties::RequireParents | ERuleProperties::RequireOutputIUs | ERuleProperties::RequireTypes) {}
 
     virtual bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
     virtual bool MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) override;

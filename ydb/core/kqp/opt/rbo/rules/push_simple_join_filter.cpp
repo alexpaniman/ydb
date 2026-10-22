@@ -71,8 +71,10 @@ bool TPushSimpleJoinFilterRule::MatchAndApply(TIntrusivePtr<IOperator>& input, T
         for (const auto& expr : pushLeft) {
             if (expr.MaybeConstantCondition()) {
                 auto iu = *expr.GetInputIUs().begin();
-                if (auto it = std::find_if(join->JoinKeys.Items().begin(), join->JoinKeys.Items().end(), [&iu](const auto& cond)
-                    {return iu == cond.first;}); it != join->JoinKeys.Items().end()) {
+                if (auto it = std::find_if(join->JoinKeys.Items().begin(), join->JoinKeys.Items().end(), [&](const auto& cond) {
+                    return iu == cond.first && HaveSameIUType(*join->GetLeftInput(), cond.first,
+                        *join->GetRightInput(), cond.second, ctx.ExprCtx);
+                }); it != join->JoinKeys.Items().end()) {
                     auto rightExpr = expr.ApplyRenames({{iu, it->second}});
                     pushConstantCondsRight.push_back(rightExpr);
                 }
@@ -82,8 +84,10 @@ bool TPushSimpleJoinFilterRule::MatchAndApply(TIntrusivePtr<IOperator>& input, T
         for (const auto& expr : pushRight) {
             if (expr.MaybeConstantCondition()) {
                 auto iu = *expr.GetInputIUs().begin();
-                if (auto it = std::find_if(join->JoinKeys.Items().begin(), join->JoinKeys.Items().end(), [&iu](const auto& cond)
-                    {return iu == cond.second;}); it != join->JoinKeys.Items().end()) {
+                if (auto it = std::find_if(join->JoinKeys.Items().begin(), join->JoinKeys.Items().end(), [&](const auto& cond) {
+                    return iu == cond.second && HaveSameIUType(*join->GetLeftInput(), cond.first,
+                        *join->GetRightInput(), cond.second, ctx.ExprCtx);
+                }); it != join->JoinKeys.Items().end()) {
                     auto leftExpr = expr.ApplyRenames({{iu, it->first}});
                     pushConstantCondsLeft.push_back(leftExpr);
                 }
