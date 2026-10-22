@@ -95,7 +95,8 @@ public:
 class TEliminateDependentJoinDomainRule: public ISimplifiedRule {
 public:
     TEliminateDependentJoinDomainRule()
-        : ISimplifiedRule("Eliminate dependent join domain", ERuleProperties::RequireParents | ERuleProperties::RequireOutputIUs) {
+        : ISimplifiedRule("Eliminate dependent join domain",
+                          ERuleProperties::RequireParents | ERuleProperties::RequireOutputIUs | ERuleProperties::RequireTypes) {
     }
 
     virtual bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;

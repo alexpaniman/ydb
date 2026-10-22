@@ -408,6 +408,12 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
         if (!bindings.contains(iu)) {
             return input;
         }
+        // Equality can compare different types, but replacing a capture must
+        // preserve its type: consumers may serialize it as a domain key.
+        const auto* sourceType = correlatedInput->GetIUType(bindings.at(iu), ctx.ExprCtx);
+        if (!capture.Type || !sourceType || !IsSameAnnotation(*capture.Type, *sourceType)) {
+            return input;
+        }
         if (innerIUs.Contains(iu) || boundColumns.Keys().Contains(dependentJoin->GetDomainColumn(capture.Outer))) {
             return input;
         }
