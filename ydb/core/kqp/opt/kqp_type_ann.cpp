@@ -10,6 +10,7 @@
 
 #include <yql/essentials/core/type_ann/type_ann_core.h>
 #include <yql/essentials/core/type_ann/type_ann_impl.h>
+#include <yql/essentials/core/type_ann/type_ann_list.h>
 #include <yql/essentials/core/yql_expr_optimize.h>
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 #include <yql/essentials/core/yql_opt_utils.h>
@@ -3086,13 +3087,12 @@ TStatus AnnotateOpReplaceAlias(const TExprNode::TPtr& input, TExprContext& ctx) 
     auto typeItems = structType->GetItems();
 
     for (const auto& item: typeItems) {
-        auto columnName = TString(item->GetName());
-        if (auto it = columnName.find("."); it != TString::npos) {
-            columnName = columnName.substr(it+1);
-        }
-
-        auto alias = TString(input->ChildPtr(TKqpOpReplaceAlias::idx_Alias)->Content());
-        columnName = alias + "." + columnName;
+        // A SELECT's output names are literal column names, including dots
+        // retained by by-name set operations. Prefix the new source alias;
+        // stripping an apparent old alias can collapse distinct columns.
+        const auto alias = input->Child(TKqpOpReplaceAlias::idx_Alias)->Content();
+        const TString columnName = alias.empty()
+            ? TString(item->GetName()) : TStringBuilder() << alias << "." << item->GetName();
         structItemTypes.push_back(ctx.MakeType<TItemExprType>(columnName, item->GetItemType()));
     }
 
@@ -3102,21 +3102,48 @@ TStatus AnnotateOpReplaceAlias(const TExprNode::TPtr& input, TExprContext& ctx) 
     return TStatus::Ok;
 }
 
-// RewriteSelect records SELECT order in the final projecting Map. Follow only
-// its output wrappers; the struct type has canonical name order instead.
-TString GetSelectColumn(const TExprNode::TPtr& input, size_t index) {
+// RewriteSelect records SELECT order in the final projecting Map. A by-name
+// set keeps that left order, then adds names first introduced on the right.
+// Memoize by node within one annotation: shared SetOp DAGs are not trees.
+const TVector<TString>& CollectSelectColumns(const TExprNode::TPtr& input,
+    THashMap<const TExprNode*, TVector<TString>>& cache)
+{
+    if (const auto it = cache.find(input.Get()); it != cache.end()) {
+        return it->second;
+    }
+    TVector<TString> names;
     if (auto map = TMaybeNode<TKqpOpMap>(input)) {
         Y_ENSURE(map.Cast().Project(), "Expected SELECT projection");
-        return map.Cast().MapElements().Item(index).Variable().StringValue();
+        for (const auto& element : map.Cast().MapElements()) {
+            names.push_back(element.Variable().StringValue());
+        }
+    } else if (auto alias = TMaybeNode<TKqpOpReplaceAlias>(input)) {
+        names = CollectSelectColumns(alias.Cast().Input().Ptr(), cache);
+        const auto prefix = alias.Cast().Alias().StringValue();
+        if (!prefix.empty()) {
+            for (auto& name : names) {
+                name = prefix + "." + name;
+            }
+        }
+    } else if (auto set = TMaybeNode<TKqpOpSetOp>(input)) {
+        names = CollectSelectColumns(set.Cast().LeftInput().Ptr(), cache);
+        THashSet<TString> seen(names.begin(), names.end());
+        for (const auto& name : CollectSelectColumns(set.Cast().RightInput().Ptr(), cache)) {
+            if (seen.insert(name).second) {
+                names.push_back(name);
+            }
+        }
+    } else {
+        Y_ENSURE(TKqpOpLimit::Match(input.Get()) || TKqpOpSort::Match(input.Get()),
+            "Expected SELECT projection, got " << input->Content());
+        names = CollectSelectColumns(input->HeadPtr(), cache);
     }
-    if (auto alias = TMaybeNode<TKqpOpReplaceAlias>(input)) {
-        const auto name = GetSelectColumn(alias.Cast().Input().Ptr(), index);
-        const auto dot = name.find('.');
-        return alias.Cast().Alias().StringValue() + "." + name.substr(dot == TString::npos ? 0 : dot + 1);
-    }
-    Y_ENSURE(TKqpOpLimit::Match(input.Get()) || TKqpOpSort::Match(input.Get()) || TKqpOpSetOp::Match(input.Get()),
-        "Expected SELECT projection, got " << input->Content());
-    return GetSelectColumn(input->HeadPtr(), index);
+    return cache.emplace(input.Get(), std::move(names)).first->second;
+}
+
+TVector<TString> GetSelectColumns(const TExprNode::TPtr& input) {
+    THashMap<const TExprNode*, TVector<TString>> cache;
+    return CollectSelectColumns(input, cache);
 }
 
 TStatus AnnotateOpReplaceColumns(const TExprNode::TPtr& input, TExprContext& ctx) {
@@ -3124,10 +3151,14 @@ TStatus AnnotateOpReplaceColumns(const TExprNode::TPtr& input, TExprContext& ctx
     TVector<const TItemExprType*> structItemTypes;
     auto typeItems = structType->GetItems();
     auto columns = input->ChildPtr(TKqpOpReplaceColumns::idx_Columns);
-    Y_ENSURE(typeItems.size() == columns->ChildrenSize());
+    Y_ENSURE(typeItems.size() == columns->ChildrenSize(), "Positional column count does not match the input schema");
+    const auto names = GetSelectColumns(input->ChildPtr(TKqpOpReplaceColumns::idx_Input));
+    Y_ENSURE(names.size() == typeItems.size(), "SELECT projection does not cover the input schema");
+    THashSet<TString> seen;
 
     for (size_t i = 0; i < typeItems.size(); i++) {
-        const auto name = GetSelectColumn(input->ChildPtr(TKqpOpReplaceColumns::idx_Input), i);
+        const auto& name = names[i];
+        Y_ENSURE(seen.insert(name).second, "Duplicate SELECT projection column " << name);
         const auto* type = structType->FindItemType(name);
         Y_ENSURE(type, "Unknown projection column " << name);
         auto newName = columns->ChildPtr(i)->Content();
@@ -3250,51 +3281,20 @@ TStatus AnnotateOpJoin(const TExprNode::TPtr& input, TExprContext& ctx) {
     return TStatus::Ok;
 }
 
-TStatus AnnotateOpSetOp(const TExprNode::TPtr& input, TExprContext& ctx) {
-    auto leftInputType = input->ChildPtr(TKqpOpSetOp::idx_LeftInput)->GetTypeAnn();
-    auto rightInputType = input->ChildPtr(TKqpOpSetOp::idx_RightInput)->GetTypeAnn();
-    auto leftStructType = leftInputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
-    auto rightStructType = rightInputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
-    auto leftItems = leftStructType->GetItems();
-    auto rightItems = rightStructType->GetItems();
-    Y_ENSURE(leftItems.size() == rightItems.size(), "Invalid number of fields for set operation.");
-
-    const TTypeAnnotationNode* resultType;
-
-    TString setOp = TString(input->ChildPtr(TKqpOpSetOp::idx_SetOp)->Content());
-
-    if (setOp == "union" || setOp == "union_all") {
-        TVector<const TItemExprType*> newItemTypes;
-        for (ui32 i = 0, e = leftItems.size(); i < e; ++i) {
-            if (leftItems[i]->GetItemType()->IsOptionalOrNull()) {
-                newItemTypes.push_back(leftItems[i]);
-            } else {
-                newItemTypes.push_back(rightItems[i]);
-            }
-        }
-        resultType = ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(newItemTypes));
+TStatus AnnotateOpSetOp(const TExprNode::TPtr& input, TExprContext& ctx, TTypeAnnotationContext& types) {
+    // Forced YqlSelect uses by-name set operations, including NULL padding and
+    // common-type conversion. Share its inference; sorted struct fields are not SQL positions.
+    NTypeAnnImpl::TExtContext ext(ctx, types);
+    const TStructExprType* rowType = nullptr;
+    bool universal = false;
+    const auto status = NTypeAnnImpl::InferUnionType(input->Pos(),
+        {input->ChildPtr(TKqpOpSetOp::idx_LeftInput), input->ChildPtr(TKqpOpSetOp::idx_RightInput)},
+        rowType, ext, input->Child(TKqpOpSetOp::idx_SetOp)->Content() != "union_all", universal);
+    if (status == TStatus::Ok) {
+        Y_ENSURE(!universal && rowType, "RBO set operations require a concrete row type");
+        input->SetTypeAnn(ctx.MakeType<TListExprType>(rowType));
     }
-    else if (setOp == "intersect" || setOp == "intersect_all") {
-        TVector<const TItemExprType*> newItemTypes;
-        for (ui32 i = 0, e = leftItems.size(); i < e; ++i) {
-            auto itemType = leftItems[i]->GetItemType();
-            if (itemType->IsOptionalOrNull() && !rightItems[i]->GetItemType()->IsOptionalOrNull()) {
-                auto nonOptType = ETypeAnnotationKind::Optional == itemType->GetKind() ? itemType->Cast<TOptionalExprType>()->GetItemType() : itemType;
-                newItemTypes.push_back(ctx.MakeType<TItemExprType>(leftItems[i]->GetName(), nonOptType));
-            } else {
-                newItemTypes.push_back(leftItems[i]);
-            }
-        }
-        resultType = ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(newItemTypes));
-    } else if (setOp == "except" || setOp == "except_all") {
-        resultType = leftInputType;
-    } else {
-        Y_ENSURE(false, TStringBuilder() << "Illegal set operator: " << setOp);
-    }
-
-    input->SetTypeAnn(resultType);
-
-    return TStatus::Ok;
+    return status;
 }
 
 TStatus AnnotateOpLimit(const TExprNode::TPtr& input, TExprContext& ctx) {
@@ -4010,7 +4010,8 @@ TStatus AnnotateKqpStreamingAggregation(const TExprNode::TPtr& input, TExprNode:
 
 class TKiTypeAnnotationTransformer final : public TVisitorTransformerBase {
 public:
-    TKiTypeAnnotationTransformer(const TString& cluster, TIntrusivePtr<TKikimrTablesData> tablesData, TKikimrConfiguration::TPtr config)
+    TKiTypeAnnotationTransformer(const TString& cluster, TIntrusivePtr<TKikimrTablesData> tablesData, TKikimrConfiguration::TPtr config,
+                                TTypeAnnotationContext& types)
         : TVisitorTransformerBase(/* failOnUnknown */ true)
         , Cluster(cluster)
         , TablesData(std::move(tablesData))
@@ -4124,7 +4125,9 @@ public:
         AddHandler({TKqpOpFilter::CallableName()}, Hndl(&AnnotateOpFilter));
         AddHandler({TKqpOpJoinFilter::CallableName()}, Hndl(&AnnotateOpJoinFilter));
         AddHandler({TKqpOpJoin::CallableName()}, Hndl(&AnnotateOpJoin));
-        AddHandler({TKqpOpSetOp::CallableName()}, Hndl(&AnnotateOpSetOp));
+        AddHandler({TKqpOpSetOp::CallableName()}, [&types](TExprNode::TPtr input, TExprNode::TPtr&, TExprContext& ctx) {
+            return AnnotateOpSetOp(input, ctx, types);
+        });
         AddHandler({TKqpOpLimit::CallableName()}, Hndl(&AnnotateOpLimit));
         AddHandler({TKqpOpSortElement::CallableName()}, Hndl(&AnnotateOpSortElement));
         AddHandler({TKqpOpSort::CallableName()}, Hndl(&AnnotateOpSort));
@@ -4167,8 +4170,9 @@ private:
 
 } // anonymous namespace
 
-THolder<TVisitorTransformerBase> CreateKqpTypeAnnotationTransformer(const TString& cluster, TIntrusivePtr<TKikimrTablesData> tablesData, TKikimrConfiguration::TPtr config) {
-    return MakeHolder<TKiTypeAnnotationTransformer>(cluster, std::move(tablesData), std::move(config));
+THolder<TVisitorTransformerBase> CreateKqpTypeAnnotationTransformer(const TString& cluster, TIntrusivePtr<TKikimrTablesData> tablesData,
+    TKikimrConfiguration::TPtr config, TTypeAnnotationContext& types) {
+    return MakeHolder<TKiTypeAnnotationTransformer>(cluster, std::move(tablesData), std::move(config), types);
 }
 
 TAutoPtr<IGraphTransformer> CreateKqpCheckQueryTransformer() {

@@ -587,38 +587,47 @@ TIntrusivePtr<IOperator> PlanConverter::ConvertTKqpOpSetOp(TExprNode::TPtr node)
     const auto leftProjection = GetProjection(leftNode);
     auto leftBindings = *originalLeftBindings;
     auto right = ExprNodeToOperator(rightNode);
-    auto rightBindings = *GetBindings(rightNode);
-    const auto fields = [](const TExprNode::TPtr& expr) {
-        return expr->GetTypeAnn()->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>()->GetItems();
+    const auto originalRightBindings = GetBindings(rightNode);
+    const auto rightProjection = GetProjection(rightNode);
+    auto rightBindings = *originalRightBindings;
+    const auto schema = [](const TExprNode::TPtr& expr) {
+        return expr->GetTypeAnn()->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
     };
-    const auto outputFields = fields(node);
-    const auto leftFields = fields(leftNode);
-    const auto rightFields = fields(rightNode);
-    Y_ENSURE(outputFields.size() == leftFields.size() && outputFields.size() == rightFields.size());
-    // Widen on this edge only; never mutate a memoized producer's source AST.
-    // Only a direct Map input is widened, as if its elements were forced
-    // optional; other producers keep their types.
-    const auto widen = [&](TIntrusivePtr<IOperator> child, const TExprNode::TPtr& sourceNode, const auto& fields,
+    const auto* leftSchema = schema(leftNode);
+    const auto* rightSchema = schema(rightNode);
+    const auto outputFields = schema(node)->GetItems();
+    // Mirror ExpandUnionAll: InferUnionType defines a by-name result schema,
+    // including typed NULL padding and implicit common-type conversions.
+    // Definitions belong to this edge; never rewrite a memoized producer.
+    const auto align = [&](TIntrusivePtr<IOperator> child, const TStructExprType* inputSchema,
                            TExpression::TBindings& bindings) -> TIntrusivePtr<IOperator> {
-        if (!TKqpOpMap::Match(sourceNode.Get())) {
-            return child;
-        }
         TMapIUs definitions;
-        for (size_t i = 0; i < fields.size(); ++i) {
-            if (outputFields[i]->GetItemType()->IsOptionalOrNull() && !fields[i]->GetItemType()->IsOptionalOrNull()) {
-                const auto inputId = ResolveBinding(bindings, fields[i]->GetName());
-                const auto id = PlanProps.InfoUnitRegistry.AddCopy(inputId);
-                definitions.Add(id, MakeUnaryCallable("Just", MakeColumnAccess(inputId, node->Pos(), &Ctx, &PlanProps)));
-                bindings.at(TString(fields[i]->GetName())) = id;
+        for (const auto* field : outputFields) {
+            const TString name(field->GetName());
+            const auto* resultType = field->GetItemType();
+            TExprNode::TPtr value;
+            if (const auto index = inputSchema->FindItem(name)) {
+                const auto* inputType = inputSchema->GetItems()[*index]->GetItemType();
+                if (IsSameAnnotation(*inputType, *resultType)) {
+                    continue;
+                }
+                value = MakeColumnAccess(ResolveBinding(bindings, name), node->Pos(), &Ctx, &PlanProps).GetExpressionBody();
+                Y_ENSURE(TrySilentConvertTo(value, *inputType, *resultType, Ctx, TypeCtx) != IGraphTransformer::TStatus::Error,
+                    "Cannot convert set field " << name << " from " << *inputType << " to " << *resultType);
+            } else {
+                value = Ctx.NewCallable(node->Pos(), "Nothing", {ExpandType(node->Pos(), *resultType, Ctx)});
             }
+            const auto id = PlanProps.InfoUnitRegistry.Add(TInfoUnit(name));
+            definitions.Add(id, TExpression(std::move(value), &Ctx, &PlanProps));
+            bindings.insert_or_assign(name, id);
         }
         if (definitions.Keys().Empty()) {
             return child;
         }
         return MakeIntrusive<TOpMap>(std::move(child), node->Pos(), std::move(definitions));
     };
-    left = widen(std::move(left), leftNode, leftFields, leftBindings);
-    right = widen(std::move(right), rightNode, rightFields, rightBindings);
+    left = align(std::move(left), leftSchema, leftBindings);
+    right = align(std::move(right), rightSchema, rightBindings);
     const auto kind = source.SetOp().StringValue();
     auto output = std::make_shared<TExpression::TBindings>();
     TIntrusivePtr<IOperator> result;
@@ -629,8 +638,7 @@ TIntrusivePtr<IOperator> PlanConverter::ConvertTKqpOpSetOp(TExprNode::TPtr node)
             const TString name(outputFields[i]->GetName());
             const auto id = PlanProps.InfoUnitRegistry.Add(TInfoUnit(name));
             TUnionInputRow row;
-            row.Inputs = {ResolveBinding(leftBindings, leftFields[i]->GetName()),
-                          ResolveBinding(rightBindings, rightFields[i]->GetName())};
+            row.Inputs = {ResolveBinding(leftBindings, name), ResolveBinding(rightBindings, name)};
             columns.Add(id, std::move(row));
             output->emplace(name, id);
         }
@@ -640,11 +648,18 @@ TIntrusivePtr<IOperator> PlanConverter::ConvertTKqpOpSetOp(TExprNode::TPtr node)
         TMapIUs rightPickles;
         TPairedIUs keys;
         for (size_t i = 0; i < outputFields.size(); ++i) {
-            auto leftId = ResolveBinding(leftBindings, leftFields[i]->GetName());
-            auto rightId = ResolveBinding(rightBindings, rightFields[i]->GetName());
-            output->emplace(TString(outputFields[i]->GetName()), leftId);
-            // Use stable pickle for nullable columns
-            if (outputFields[i]->GetItemType()->IsOptionalOrNull()) {
+            const TString name(outputFields[i]->GetName());
+            auto leftId = ResolveBinding(leftBindings, name);
+            auto rightId = ResolveBinding(rightBindings, name);
+            output->emplace(name, leftId);
+            const auto* type = outputFields[i]->GetItemType();
+            const bool requiredDecimal = type->GetKind() == ETypeAnnotationKind::Data
+                && type->Cast<TDataExprType>()->GetSlot() == NUdf::EDataSlot::Decimal;
+            // Canonical set lowering groups the common-typed UnionAll rows.
+            // Compare those aligned values, not the original left-directed
+            // join-key types. Decimal NaN, like NULL, is a set-identity peer;
+            // both pickles now have exactly the same annotated input type.
+            if (type->IsOptionalOrNull() || requiredDecimal) {
                 const auto pickle = [&](TInfoUnitId input, TMapIUs& definitions) {
                     const auto id = PlanProps.InfoUnitRegistry.AddGenerated("null_safe_key");
                     definitions.Add(id, MakeUnaryCallable("StablePickle", MakeColumnAccess(input, node->Pos(), &Ctx, &PlanProps)));
@@ -679,13 +694,41 @@ TIntrusivePtr<IOperator> PlanConverter::ConvertTKqpOpSetOp(TExprNode::TPtr node)
         result = MakeIntrusive<TOpAggregate>(std::move(result), std::move(aggregations), std::move(keys),
             EOpPhase::Undefined, true, node->Pos());
     }
-    if (leftProjection) {
-        TSubstitutions substitutions;
-        for (size_t i = 0; i < outputFields.size(); ++i) {
-            substitutions.Add(ResolveBinding(*originalLeftBindings, leftFields[i]->GetName()),
-                ResolveBinding(*output, outputFields[i]->GetName()));
-        }
-        Projections[TImportKey{node.Get(), BindingContext}] = RebindProjection(*leftProjection, substitutions);
+    if (leftProjection || rightProjection) {
+        TOrderedIUs<> projection;
+        TUnorderedIUs added;
+        const auto append = [&](TInfoUnitId id) {
+            if (!added.Contains(id)) {
+                added.Add(id);
+                projection.Append(id);
+            }
+        };
+        const auto appendInput = [&](const TStructExprType* inputSchema,
+                                     const TExpression::TBindings& bindings,
+                                     const std::optional<TOrderedIUs<>>& inputProjection) {
+            THashMap<TInfoUnitId, TVector<TInfoUnitId>> replacements;
+            for (const auto* field : inputSchema->GetItems()) {
+                replacements[ResolveBinding(bindings, field->GetName())].push_back(ResolveBinding(*output, field->GetName()));
+            }
+            if (inputProjection) {
+                for (const auto input : inputProjection->Items()) {
+                    if (const auto it = replacements.find(input); it != replacements.end()) {
+                        for (const auto id : it->second) {
+                            append(id);
+                        }
+                    }
+                }
+            }
+            for (const auto* field : inputSchema->GetItems()) {
+                append(ResolveBinding(*output, field->GetName()));
+            }
+        };
+        // Preserve the left SELECT order, then append names first introduced
+        // by the right input. Source IUs and private key IUs must not escape.
+        appendInput(leftSchema, *originalLeftBindings, leftProjection);
+        appendInput(rightSchema, *originalRightBindings, rightProjection);
+        Y_ENSURE(projection.Items().size() == outputFields.size());
+        Projections[TImportKey{node.Get(), BindingContext}] = std::move(projection);
     }
     OutputBindings[TImportKey{node.Get(), BindingContext}] = std::move(output);
     return result;
@@ -869,9 +912,10 @@ TIntrusivePtr<IOperator> PlanConverter::ConvertTKqpOpReplaceAlias(TExprNode::TPt
     TSubstitutions substitutions;
     for (const auto* field : schema->GetItems()) {
         const TString oldName(field->GetName());
-        // Match the import AST's ReplaceAlias spelling rule exactly.
-        const auto dot = oldName.find('.');
-        const auto name = source.Alias().StringValue() + "." + oldName.substr(dot == TString::npos ? 0 : dot + 1);
+        // ReplaceAlias receives public SELECT/AS_TABLE field names, which
+        // may contain literal dots. Match AnnotateOpReplaceAlias exactly.
+        const auto alias = source.Alias().StringValue();
+        const auto name = alias.empty() ? oldName : alias + "." + oldName;
         const auto id = PlanProps.InfoUnitRegistry.Add(TInfoUnit(name));
         const auto inputId = ResolveBinding(*bindings, oldName);
         elements.Add(id, MakeColumnAccess(inputId, node->Pos(), &Ctx, &PlanProps));

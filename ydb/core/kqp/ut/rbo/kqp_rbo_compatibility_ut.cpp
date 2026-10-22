@@ -3,12 +3,128 @@
 
 #include <library/cpp/testing/unittest/registar.h>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 namespace NKikimr::NKqp {
 namespace {
 
 using namespace NYdb;
 
 Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
+    Y_UNIT_TEST(RequiredDecimalSetOperationsUseValueIdentity) {
+        struct TCase {
+            ui8 LeftPrecision, LeftScale, RightPrecision, RightScale;
+            std::vector<std::string> Left, Right, Intersection, Difference;
+        };
+        // Exercise both input orientations after common-type alignment.
+        // Set identity compares those converted values, including NaN peers;
+        // the final public cast is an exact widening for these fixture values.
+        const std::vector<TCase> cases{
+            {7, 0, 7, 0,
+                {"nan", "nan", "7", "7", "8", "inf", "-inf"},
+                {"nan", "7", "inf", "-inf", "9"},
+                {"nan", "7", "inf", "-inf"}, {"8"}},
+            {7, 0, 7, 0,
+                {"nan", "nan", "7", "7", "8", "inf", "-inf"},
+                {"7", "inf", "-inf", "9"},
+                {"7", "inf", "-inf"}, {"nan", "8"}},
+            {7, 0, 10, 0,
+                {"nan", "nan", "7", "7", "8", "inf", "-inf"},
+                {"nan", "7", "-inf", "12345678"},
+                {"nan", "7", "-inf"}, {"8", "inf"}},
+            {10, 0, 7, 0,
+                {"nan", "nan", "7", "7", "12345678", "inf", "-inf"},
+                {"nan", "7", "inf", "-inf", "8"},
+                {"nan", "7", "inf", "-inf"}, {"12345678"}},
+            {7, 0, 10, 1,
+                {"nan", "nan", "7", "7", "8", "1", "10", "inf", "-inf"},
+                {"nan", "7.0", "7.5", "1.0", "10.5", "inf", "-inf", "9.0"},
+                {"nan", "7", "1", "inf", "-inf"}, {"8", "10"}},
+            {10, 1, 7, 0,
+                {"nan", "nan", "7.0", "7.0", "7.5", "1.0", "10.5", "inf", "-inf", "9.0"},
+                {"nan", "7", "8", "1", "10", "inf", "-inf"},
+                {"nan", "7.0", "1.0", "inf", "-inf"}, {"7.5", "10.5", "9.0"}},
+        };
+        for (const std::string mode : {"grace", "block", "map"}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(true);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableFallbackOnDML(false);
+            service->SetEnableFallbackOnMultipleStatements(false);
+            service->SetDefaultLangVer(202501);
+            service->SetDefaultCostBasedOptimizationLevel(0);
+            service->SetUseBlockHashJoin(mode == "block");
+            TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+            auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+            const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+            const auto successes = counters->GetCounter("Compilation/NewRBO/Success");
+            const auto failures = counters->GetCounter("Compilation/NewRBO/Failed");
+            const auto values = [](const std::vector<std::string>& input, ui8 precision, ui8 scale) {
+                TValueBuilder result;
+                result.BeginList();
+                for (const auto& value : input) {
+                    result.AddListItem().BeginStruct().AddMember("D")
+                        .Decimal(TDecimalValue(value, precision, scale)).EndStruct();
+                }
+                return result.EndList().Build();
+            };
+            bool observedNewRbo = false;
+            for (const auto& item : cases) {
+                const auto params = TParamsBuilder()
+                    .AddParam("$lhs", values(item.Left, item.LeftPrecision, item.LeftScale))
+                    .AddParam("$rhs", values(item.Right, item.RightPrecision, item.RightScale)).Build();
+                for (const bool difference : {false, true}) {
+                    const TString query = TStringBuilder()
+                        << "PRAGMA YqlSelect = 'force'; PRAGMA ydb.CostBasedOptimizationLevel = '0'; "
+                        << "PRAGMA ydb.HashJoinMode = '" << (mode == "map" ? "map" : "grace") << "'; "
+                        << "DECLARE $lhs AS List<Struct<D:Decimal(" << ui32(item.LeftPrecision) << ',' << ui32(item.LeftScale) << ")>>; "
+                        << "DECLARE $rhs AS List<Struct<D:Decimal(" << ui32(item.RightPrecision) << ',' << ui32(item.RightScale) << ")>>; "
+                        << "$set = (SELECT D FROM AS_TABLE($lhs) " << (difference ? "EXCEPT" : "INTERSECT")
+                        << " SELECT D FROM AS_TABLE($rhs)); "
+                        << "SELECT CAST(D AS Decimal(12,1)) AS D FROM $set;";
+                    const auto beforeSuccess = successes->Val();
+                    const auto beforeFailure = failures->Val();
+                    const auto explained = session.ExecuteQuery(query, NQuery::TTxControl::NoTx(), params,
+                        NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                    UNIT_ASSERT_C(explained.IsSuccess(), query << "\n" << explained.GetIssues().ToString());
+                    if (!observedNewRbo) {
+                        UNIT_ASSERT(successes->Val() > beforeSuccess);
+                        observedNewRbo = true;
+                    }
+                    UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+                    UNIT_ASSERT(explained.GetStats() && explained.GetStats()->GetAst());
+                    const TString ast{*explained.GetStats()->GetAst()};
+                    const TString core = mode == "block" ? "BlockHashJoinCore" : mode == "map" ? "MapJoinCore" : "GraceJoinCore";
+                    Cerr << "[DECIMAL-SET-IDENTITY] mode=" << mode << "\n" << query << "\n" << ast << Endl;
+                    UNIT_ASSERT_C(ast.Contains(core) && ast.Contains("StablePickle"), ast);
+                    UNIT_ASSERT_C(ast.Contains("(declare $lhs ") && ast.Contains("(declare $rhs "), ast);
+                    const auto result = session.ExecuteQuery(query,
+                        NQuery::TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                    UNIT_ASSERT_C(result.IsSuccess(), query << "\n" << result.GetIssues().ToString());
+                    UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+                    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                    const auto& rs = result.GetResultSet(0);
+                    UNIT_ASSERT(!rs.Truncated());
+                    UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta().size(), 1);
+                    UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta()[0].Name, "D");
+                    UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta()[0].Type.ToString(), "Decimal(12,1)");
+                    std::vector<std::string> actual, expected;
+                    TResultSetParser parser(rs);
+                    while (parser.TryNextRow()) { actual.push_back(parser.ColumnParser(0).GetDecimal().ToString()); }
+                    for (const auto& value : difference ? item.Difference : item.Intersection) {
+                        expected.push_back(TDecimalValue(value, 12, 1).ToString());
+                    }
+                    std::sort(actual.begin(), actual.end());
+                    std::sort(expected.begin(), expected.end());
+                    UNIT_ASSERT_VALUES_EQUAL_C(actual, expected, query << "\n" << FormatResultSetYson(rs) << "\n" << ast);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(SafeCastOptionalResults, PhysicalStagePeephole) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
