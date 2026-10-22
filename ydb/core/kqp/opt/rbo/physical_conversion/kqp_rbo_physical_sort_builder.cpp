@@ -1,4 +1,7 @@
 #include "kqp_rbo_physical_sort_builder.h"
+
+#include <util/generic/hash_set.h>
+
 using namespace NYql::NNodes;
 using namespace NKikimr;
 using namespace NKikimr::NKqp;
@@ -70,9 +73,15 @@ TVector<TExprNode::TPtr> TPhysicalSortBuilder::BuildSortKeysForWideSort(const TV
     }
 
     TVector<TExprNode::TPtr> sortKeys;
+    THashSet<ui32> seen;
     for (const auto& [id, order] : sortElements.Items()) {
         const auto* index = indices.Find(id);
         Y_ENSURE(index, "Cannot find a sort element in wide input.");
+        // A later occurrence cannot break ties on the same column, even
+        // with a different direction. WideSort requires unique positions.
+        if (!seen.insert(*index).second) {
+            continue;
+        }
         const auto wideIndex = ToString(*index);
         // clang-format off
         auto sortKey = Ctx.Builder(Pos)
