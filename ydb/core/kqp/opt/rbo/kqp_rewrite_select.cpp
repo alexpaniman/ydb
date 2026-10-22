@@ -2262,7 +2262,6 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
             resultExpr = BuildWindowOperators(resultExpr, windows, usedWindowsInOrder, expressionsMapPostWindow, ctx, node->Pos());
         }
 
-        finalColumnOrder.clear();
         TVector<TString> finalProjection;
         auto processResultColumn = [&](TExprNode::TPtr column, TExprNode::TPtr itemLambda) {
             TString columnName = TString(column->Content());
@@ -2302,7 +2301,9 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
                 resultElementCounters[columnName] = 1;
             }
 
-            finalColumnOrder.push_back(columnName);
+            if (i == 0) {
+                finalColumnOrder.push_back(columnName);
+            }
             auto variable = Build<TCoAtom>(ctx, node->Pos()).Value(columnName).Done();
 
             // clang-format off
