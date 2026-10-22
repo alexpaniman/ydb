@@ -508,7 +508,7 @@ void TOpAggregate::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
     }
     Props.Metadata->ColumnsCount = outputIUs.Size();
 
-    Props.Metadata->ShuffledByColumns = GetAggregatePreservedShuffling(*this, ctx);
+    Props.Metadata->ShuffledByColumns = GetAggregateOutputShuffling(*this, ctx);
 
     // Aggregate acts like a source for the columns it computes. Grouping keys
     // pass through under their input IDs and keep their input lineage.
@@ -520,6 +520,15 @@ void TOpAggregate::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
     }
     for (const auto id : Aggregations.Keys()) {
         planProps.ColumnLineage.Add(id, TColumnLineageEntry{.SourceAlias = alias, .ColumnName = ::ToString(id), .Relation = relation});
+    }
+}
+
+void TOpWindow::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
+    IUnaryOperator::ComputeMetadata(ctx, planProps);
+    if (Props.Metadata) {
+        // The window stage repartitions its input; an upstream aggregation's
+        // distribution cannot be reused across that exchange.
+        Props.Metadata->ShuffledByColumns = {};
     }
 }
 

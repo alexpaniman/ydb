@@ -249,7 +249,16 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
         if (CanEliminateAggregateShuffle(*aggregate, ctx)) {
             props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TMapConnection>(outputIndex));
         } else if (!aggregate->GetKeyColumns().Items().empty()) {
-            props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TShuffleConnection>(aggregate->GetKeyColumns(), outputIndex));
+            auto shuffleKeys = aggregate->GetKeyColumns();
+            if (aggregate->IsDistinctAll()) {
+                // Match the output-key order advertised by DISTINCT and used
+                // when its partial aggregation is pushed before this shuffle.
+                shuffleKeys = {};
+                for (const auto& [output, trait] : aggregate->GetAggregationTraits().Items()) {
+                    shuffleKeys.Append(trait.Input);
+                }
+            }
+            props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TShuffleConnection>(shuffleKeys, outputIndex));
         } else {
             props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TUnionAllConnection>(outputIndex));
         }

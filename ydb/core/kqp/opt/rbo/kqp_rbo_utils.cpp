@@ -30,6 +30,40 @@ TString GetValidJoinKind(const TString& joinKind) {
     return joinKind;
 }
 
+namespace {
+TOrderedIUs<> MapAggregateShuffling(const TOpAggregate& aggregate, const TOrderedIUs<>& shuffledBy) {
+    if (!aggregate.IsDistinctAll()) {
+        return shuffledBy;
+    }
+
+    // DISTINCT returns the trait results, not the grouping keys. Preserve the
+    // hash key order while translating through the intermediate/final aliases.
+    TOrderedIUs<> result;
+    for (const auto key : shuffledBy.Items()) {
+        bool found = false;
+        for (const auto& [output, trait] : aggregate.GetAggregationTraits().Items()) {
+            if (trait.Input == key && trait.AggFunction == "distinct") {
+                result.Append(output);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return {};
+        }
+    }
+    return result;
+}
+} // namespace
+
+TOrderedIUs<> GetAggregateShuffleKeys(const TOpAggregate& aggregate) {
+    if (aggregate.IsDistinctAll()) {
+        const auto& outputs = aggregate.GetAggregationTraits().Keys();
+        return TOrderedIUs<>(outputs.begin(), outputs.end());
+    }
+    return aggregate.GetKeyColumns();
+}
+
 TOrderedIUs<> GetAggregatePreservedShuffling(const TOpAggregate& aggregate, const TRBOContext& ctx) {
     if (aggregate.GetKeyColumns().Items().empty()) {
         return {};
@@ -53,27 +87,25 @@ TOrderedIUs<> GetAggregatePreservedShuffling(const TOpAggregate& aggregate, cons
         return {};
     }
 
-    if (!aggregate.IsDistinctAll()) {
+    return MapAggregateShuffling(aggregate, shuffledBy);
+}
+
+TOrderedIUs<> GetAggregateOutputShuffling(const TOpAggregate& aggregate, const TRBOContext& ctx) {
+    auto shuffledBy = GetAggregatePreservedShuffling(aggregate, ctx);
+    if (!shuffledBy.Items().empty() || aggregate.GetAggregationPhase() == EOpPhase::Intermediate
+        || aggregate.GetKeyColumns().Items().empty()) {
         return shuffledBy;
     }
 
-    // DISTINCT returns the trait results, not the grouping keys. Preserve the
-    // hash key order while translating through the intermediate/final aliases.
-    TOrderedIUs<> result;
-    for (const auto key : shuffledBy.Items()) {
-        bool found = false;
-        for (const auto& [output, trait] : aggregate.GetAggregationTraits().Items()) {
-            if (trait.Input == key && trait.AggFunction == "distinct") {
-                result.Append(output);
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            return {};
-        }
+    if (!ctx.KqpCtx.Config->OptShuffleElimination.Get().GetOrElse(ctx.KqpCtx.Config->GetDefaultEnableShuffleElimination())) {
+        return {};
     }
-    return result;
+
+    // A complete aggregation establishes partitioning by its grouping keys even
+    // when its input needs a shuffle. A local partial aggregation does not.
+    // Keep this separate from CanEliminateAggregateShuffle: the new distribution
+    // can be reused by consumers, but cannot eliminate this aggregation's shuffle.
+    return GetAggregateShuffleKeys(aggregate);
 }
 
 bool CanEliminateAggregateShuffle(const TOpAggregate& aggregate, const TRBOContext& ctx) {

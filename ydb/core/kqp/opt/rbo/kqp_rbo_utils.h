@@ -16,7 +16,9 @@ class TOpAggregate;
 class TExpression;
 
 bool ReferencesUnresolvedSubplan(const TExpression& expr, const TPlanProps& props);
+TOrderedIUs<> GetAggregateShuffleKeys(const TOpAggregate& aggregate);
 TOrderedIUs<> GetAggregatePreservedShuffling(const TOpAggregate& aggregate, const TRBOContext& ctx);
+TOrderedIUs<> GetAggregateOutputShuffling(const TOpAggregate& aggregate, const TRBOContext& ctx);
 bool CanEliminateAggregateShuffle(const TOpAggregate& aggregate, const TRBOContext& ctx);
 
 bool JoinOutputsLeft(const TString& joinKind);

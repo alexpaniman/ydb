@@ -67,7 +67,6 @@ TIntrusivePtr<TOpAggregate> EmitFinalAndIntermediateAggregates(const TIntrusiveP
 
     TAggregationIUs intermediateTraits;
     TAggregationIUs finalTraits;
-    TOrderedIUs<> distKeys;
 
     // Here we want to split aggregate to final and intermediate.
     for (const auto output : aggregationTraitsList.Keys()) {
@@ -76,14 +75,10 @@ TIntrusivePtr<TOpAggregate> EmitFinalAndIntermediateAggregates(const TIntrusiveP
         const auto [interAggFunc, finalAggFunc] = GetAggFunctions(originalTraits.AggFunction);
         intermediateTraits.Add(intermediateId, TOpAggregationTraits{originalTraits.Input, interAggFunc});
         finalTraits.Add(output, TOpAggregationTraits{intermediateId, finalAggFunc});
-
-        if (distinctAll) {
-            distKeys.Append(intermediateId);
-        }
     }
 
     const auto intermediate = MakeIntrusive<TOpAggregate>(aggregate->GetInput(), intermediateTraits, aggKeys, EOpPhase::Intermediate, distinctAll, props, pos);
-    return MakeIntrusive<TOpAggregate>(intermediate, finalTraits, distinctAll ? distKeys : aggKeys, EOpPhase::Final, distinctAll, props, pos);
+    return MakeIntrusive<TOpAggregate>(intermediate, finalTraits, GetAggregateShuffleKeys(*intermediate), EOpPhase::Final, distinctAll, props, pos);
 }
 
 } // namespace
@@ -116,15 +111,7 @@ TIntrusivePtr<IOperator> TPropagateAggregateThroughStageRule::SimpleMatchAndAppl
         if (CanEliminateAggregateShuffle(*aggregate, ctx)) {
             connection = MakeIntrusive<TMapConnection>(outputIndex);
         } else if (!aggregate->GetKeyColumns().Items().empty()) {
-            TOrderedIUs<> shuffleByKeys;
-            if (aggregate->IsDistinctAll()) {
-                for (const auto output : aggregate->GetAggregationTraits().Keys()) {
-                    shuffleByKeys.Append(output);
-                }
-            } else {
-                shuffleByKeys = aggregate->GetKeyColumns();
-            }
-            connection = MakeIntrusive<TShuffleConnection>(shuffleByKeys, outputIndex);
+            connection = MakeIntrusive<TShuffleConnection>(GetAggregateShuffleKeys(*aggregate), outputIndex);
         } else {
             connection = MakeIntrusive<TUnionAllConnection>(outputIndex);
         }
