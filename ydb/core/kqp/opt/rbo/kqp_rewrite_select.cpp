@@ -1103,6 +1103,7 @@ void ProcessAggregations(TExprNode::TPtr lambdaToProcess, TString&& resultColNam
         .Done().Ptr();
         // clang-format on
 
+        exprLambda = ReplaceGroupRefs(TCoLambda(exprLambda), groupByKeysExpressionsMap, ctx).Ptr();
         auto colName = TInfoUnit(resultColName);
         expressionsMapPostAgg.push_back({colName, exprLambda, false});
 
@@ -1116,9 +1117,15 @@ void ProcessAggregations(TExprNode::TPtr lambdaToProcess, TString&& resultColNam
         // This case covers distinct all on just columns without aggregation functions.
         auto groupRef = GetCallable(lambda.Body().Ptr(), "YqlGroupRef");
         TInfoUnit originalColName;
-        if (groupRef) {
+        if (groupRef && groupRef.Get() == lambda.Body().Raw()) {
             originalColName = TInfoUnit(GetColumnNameFromGroupRef(groupRef, groupByKeysExpressionsMap));
             resultColName = originalColName.GetFullName();
+        } else if (groupRef) {
+            // DISTINCT applies to the entire selected expression. Grouped
+            // values are available only after the grouping aggregation.
+            originalColName = TInfoUnit(resultColName);
+            lambda = ReplaceGroupRefs(lambda, groupByKeysExpressionsMap, ctx);
+            expressionsMapPostAgg.emplace_back(originalColName, lambda.Ptr(), false);
         } else {
             auto body = lambda.Body().Ptr();
             if (IsExpression(body)) {
@@ -2276,7 +2283,7 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
             // Aggregations are materialized earlier. Keep any expression around a nested group reference.
             auto aggColName = columnName;
             if (aggregation || distinctAll || hasWindowCall || isDirectGroupRef) {
-                if (groupRef) {
+                if (isDirectGroupRef) {
                     aggColName = GetColumnNameFromGroupRef(groupRef, groupByKeysExpressionsMap);
                 }
 
