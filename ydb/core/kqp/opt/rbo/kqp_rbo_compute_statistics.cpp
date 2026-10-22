@@ -222,13 +222,8 @@ void TOpTableLookup::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
         return;
     }
 
-    TOrderedIUs<> keyColumns;
-    for (const auto& key : tableData.Metadata->KeyColumnNames) {
-        if (const auto it = bindings.find(key); it != bindings.end()) {
-            keyColumns.Append(it->second);
-        }
-    }
-    Props.Metadata->KeyColumns = std::move(keyColumns);
+    // A proper subset of a composite primary key need not be unique.
+    Props.Metadata->KeyColumns = ResolveStorageColumns(tableData.Metadata->KeyColumnNames, bindings);
 }
 
 /***

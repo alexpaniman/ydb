@@ -696,7 +696,22 @@ TIntrusivePtr<IOperator> TPushRangesRule::SimpleMatchAndApply(const TIntrusivePt
             lookupKeys.Append(indexIds.at(pk), pk);
         }
 
-        auto lookup = MakeIntrusive<TOpTableLookup>(std::move(indexFilter), read->Pos, read->GetTable(), read->GetColumns(),
+        // Late residual-join reconstruction needs a complete row identity.
+        // Earlier pruning may have removed primary-key fields from the read;
+        // fetch fresh hidden bindings for them rather than claiming a partial
+        // key is unique or leaving reconstruction without a usable key.
+        auto lookupColumns = read->GetColumns();
+        THashSet<TString> fetchedColumns;
+        for (const auto id : lookupColumns) {
+            fetchedColumns.insert(props.InfoUnitRegistry.Get(id).GetColumnName());
+        }
+        for (const auto& pk : mainMeta.KeyColumnNames) {
+            if (fetchedColumns.insert(pk).second) {
+                lookupColumns.Add(props.InfoUnitRegistry.Add(TInfoUnit(read->Alias, pk)));
+            }
+        }
+
+        auto lookup = MakeIntrusive<TOpTableLookup>(std::move(indexFilter), read->Pos, read->GetTable(), std::move(lookupColumns),
                                                     std::move(lookupKeys));
         // Keep the read predicate and the point prefixes, so a lookup join can still probe the main table
         // or an index instead of this subtree.
