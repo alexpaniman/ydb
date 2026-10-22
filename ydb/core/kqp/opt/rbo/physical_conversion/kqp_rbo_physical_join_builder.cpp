@@ -554,9 +554,8 @@ TExprNode::TPtr TPhysicalJoinBuilder::BuildPhysicalJoin(TExprNode::TPtr leftInpu
     Y_ENSURE(!HasEqualNullsKey(Join.JoinKeys) || useBlockHashJoin,
              "Join keys with IS NOT DISTINCT FROM semantics require the block hash join");
 
-    if (!Join.JoinFilters.empty() && joinAlgo == NKikimr::NKqp::EJoinAlgoType::MapJoin) {
-        Y_ENSURE(useBlockHashJoin, "Join filters are supported only with BlockHashJoin.");
-    }
+    Y_ENSURE(Join.JoinFilters.empty() || useBlockHashJoin,
+             "Residual join filters require BlockHashJoin or logical filter inlining");
 
     if (joinAlgo == NKikimr::NKqp::EJoinAlgoType::MapJoin && useBlockHashJoin) {
         joinAlgo = NKikimr::NKqp::EJoinAlgoType::GraceJoin;
