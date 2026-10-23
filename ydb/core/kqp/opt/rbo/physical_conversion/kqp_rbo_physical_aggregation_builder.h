@@ -114,6 +114,7 @@ private:
                                         TVector<TPhysicalAggregationTraits>& phyAggTraitsList, THashMap<TString, TString>& projectionMap);
     bool NeedToWrapWithCoalesce(const TPhysicalAggregationTraits& traits, EOpPhase aggregationPhase) const;
     TVector<TString> GetKeyFields() const;
+    THashSet<TString> GetNullKeyFields() const;
     const TTypeAnnotationNode* GetAggregateInputType() const;
     THashMap<TString, const TTypeAnnotationNode*> GetIntermediateAggregationInputType() const;
 

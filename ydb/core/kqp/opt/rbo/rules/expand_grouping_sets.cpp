@@ -15,7 +15,15 @@ TExpression BuildNullColumn(const TTypeAnnotationNode* columnType, TPositionHand
                             TExprContext& ctx, TPlanProps& props) {
     Y_ENSURE(columnType, "No type for grouping column");
 
-    if (columnType->IsOptionalOrNull()) {
+    if (columnType->GetKind() == ETypeAnnotationKind::Null) {
+        auto nullColumn = Build<TCoLambda>(ctx, pos)
+            .Args({"null_arg"})
+            .Body<TCoNull>().Build()
+            .Done().Ptr();
+        return TExpression(nullColumn, &ctx, &props);
+    }
+
+    if (columnType->GetKind() == ETypeAnnotationKind::Optional) {
         columnType = columnType->Cast<TOptionalExprType>()->GetItemType();
     }
 
