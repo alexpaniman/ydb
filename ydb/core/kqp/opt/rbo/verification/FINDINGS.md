@@ -52,17 +52,164 @@ A separate native investigation reproduces a spurious Decimal NaN-to-NaN match
 in both forced Grace and Block LEFT JOINs. The observed row is `(40,400)` where
 ordinary Decimal equality requires `(40,NULL)`. Core-selection and no-fallback
 checks pass. This is below the normal semantic-snapshot boundary; the affected
-physical join builder is unchanged from pinned main. A focused repair and
-expanded scalar/payload regressions are pending native validation. The original
+physical join builder is unchanged from pinned main. The focused repair and
+expanded scalar/payload regressions now pass the native investigation below. The original
 two failures are preserved separately in run-005's `direct-decimal-evidence`.
 
 Full TPCH/TPCDS coverage remains open. Prelaunch review of the fresh benchmark
 runner found that capture's implicit result limit can inject `Take(1001)` before
 Initial, whereas the native benchmark harness clears that limit. The prepared
 runner remains unlaunched pending configuration alignment and new validation.
-A possible literal/parameterized LIKE escape discrepancy also remains a
-source-level finding pending native reproduction. Neither is counted as an
-additional confirmed optimizer wrong-result case.
+The later LIKE and Decimal investigations are detailed below; the complete
+corpus and checkpoint totals above predate those changes.
+
+## Decimal and LIKE runtime follow-up (2026-10-23, in progress)
+
+The shared `Re2::PatternFromLike` implementation mishandled a pending escape
+when it consumed a literal backslash. With `ESCAPE '#'`, a parameter containing
+`#\%` matched only a literal backslash-percent rather than all backslash-prefixed
+strings. The literal SQL equivalent behaved correctly. Both language-version
+regressions reproduced the wrong bag before the two-line fix; both now pass
+with `%`, `_`, changed parameter bindings and escaped-wildcard controls. This is
+a shared UDF defect exposed through the new-RBO parameter path, not evidence
+that an RBO rewrite created it. The first dedicated Re2 component run finished
+safely (8.72 GiB peak)
+with four existing controls passing, six expected skips, and two new-fixture
+failures: its direct UDF call supplied arguments as run configuration. After
+correcting invocation and canonical registration/format, the cached component
+rerun passed all six executed checks, with six expected skips and 0.54 GiB peak
+memory (`/tmp/rbo-like-component-validation-20261023/run-002`). Before/after SQL
+evidence is archived in
+`/tmp/rbo-native-investigations-20261022/run-002` and `run-004`.
+
+Ordinary Decimal join key preparation now gives each ordinary occurrence a
+private nullable key: NaN is unmatchable, while original payloads and retained
+outer rows stay intact. Direct LEFT/INNER checks reach the expected bags in
+Grace, Block and Map modes. After correcting a composite-key fixture that
+selected a storage lookup instead of the requested hash join, all eight
+`KqpRboDecimalJoin` methods now pass. The latest fresh investigation is archived at
+`/tmp/rbo-decimal-sql-investigation-20261023-005`; its overall result is **40 GOOD,
+zero FAIL**, with 15.40 GiB peak process-tree memory. Its strict receipt confirms
+the exact inventory, fresh terminal results and complete chunks. This is a focused native
+investigation, not the pending full native/Python proof gate.
+
+A second confirmed wrong result occurs inside the RBO representation:
+`TEliminateDependentJoinDomainRule` consumes a captured scalar equality and
+retains only a presence test. A present NaN then survives correlation and
+incorrectly satisfies EXISTS, while NOT EXISTS loses that row. The captured
+native plans contain `Exists(K)` followed by `StablePickle(K)` and the physical
+semi/anti join, with the scalar equality missing. This reproduces across all
+three join backends. The integrated repair retains the original equality and
+conservatively declines binding changes that would alter Decimal annotations
+or PostgreSQL resolved-operator operand types.
+
+The physical equality repair also requires generated joins to distinguish
+ordinary predicates from domain, partition, left-row and set identities.
+Required Decimal NaN must reconnect to itself for those identities. Additional
+structural and stored-value SQL regressions cover those cases, including mixed
+Decimal scales and both EXISTS directions. All 21 decorrelation methods and
+the required-Decimal set fixture (36 backend/data/operation subcases) also
+pass in that fresh run. These generated-identity controls are regression
+prevention, not additional independently confirmed historical optimizer bugs.
+Decimal StablePickle proof support is a separate next-cycle audit, and the
+verifier still rejects unreviewed encodings.
+
+The pre-existing `KqpRboSetOperations::ByNameAlignmentAndNullEqualSets`
+fixture was tracked but absent from `ut/rbo/ya.make`; it was never part of the
+historical 225-test receipt. Registering it exposed incomplete feature
+integration on this verification branch: `UNION ALL` of `SELECT v AS a` and
+`SELECT v AS b` hits the field-count assertion in `ConvertTKqpOpSetOp`.
+Commit `c7aec2b4175` added by-name/common-type annotation and the fixture,
+but retained the positional/equal-width importer and omitted registration.
+The assertion is confirmed in this workspace; no independent main binary
+has reproduced it. The original run failed on its first query; its remaining
+controls were not counted as executed then. The repair now aligns names,
+pads missing fields, converts to the common output type before set comparison,
+and preserves the complete projection. New controls cover mixed numeric
+precision, Decimal identity and all three join backends. All five registered
+set-operation methods and the required-Decimal compatibility method now pass.
+The mixed-common-type method includes 48 SQL executions and 48 Explain controls;
+the required-Decimal method covers 36 backend/data/operation subcases.
+Source review also found that alias conversion still stripped literal dots
+and added a dot for empty aliases, contrary to the annotation contract, and
+positional renaming followed only the left set input. The integrated follow-up
+preserves complete public names and collects the full left-first/right-only
+projection. Per-node memoization avoids expanding shared set DAGs repeatedly.
+These additional paths are source-audited issues with new annotation/import
+and SQL controls; they are not independently reproduced main-binary failures.
+
+The 38-method investigation at
+`/tmp/rbo-decimal-sql-investigation-20261023-003` was deliberately interrupted
+during compilation to incorporate those corrections before linking/testing.
+Its actual command exit is 130 and no tests ran. The archive rejects stale
+traces from the previous run; they do not provide new validation. Sources were
+unchanged through interruption and cleanup. Run-004 executed all 40 selected
+methods: 39 passed, and the original set fixture failed because its negative
+control expected the wrong diagnostic text. The query correctly rejected the
+missing column. After matching the actual `No such column` diagnostic, run-005
+passed all 40 methods, including both negative controls and both new structural
+methods. No production code changed between run-004 and run-005.
+
+A separate direct minirun check confirms NUL-escape divergence in the shared
+LIKE converter (`/tmp/rbo-like-nul-direct-minirun-20261023/run-001`). The SQL
+decoder produces one NUL byte; literal escaped-percent/underscore controls
+are true, while the converter rejects those same literal subjects and accepts
+NUL-prefixed subjects instead. The normal `#` escape control passes. Both
+command exits are zero, with 0.10 GiB peak memory; the typed result records
+the semantic failure. This is direct UDF evidence, not yet a stored-parameter
+new-RBO reproduction. The narrow raw-NUL parsing repair now passes all eight
+executed Re2 component checks, with eight expected skips and 0.58 GiB peak
+memory (`/tmp/rbo-like-component-validation-20261023/run-003`). Its 18 new
+Boolean controls pass in both Results and LLVM modes; ordinary escapes and
+the existing unmatched-trailing-escape behavior remain covered. Both new
+stored-parameter SQL regressions now pass in run-005, for language versions
+202501 and 202603, with complete result bags, external parameter rebinding,
+new-RBO selection and no-fallback controls. Their pre-fix evidence remains the
+direct UDF minirun; no stored-parameter pre-fix replay is claimed.
+
+The backslash fix is also extracted onto the local main-based branch
+`fix/re2-like-escaped-backslash` at `d0d92850221e3177227556548aea2e09969a2e7b`.
+The NUL fix follows it on `fix/re2-like-nul-escape` at
+`52c2c4b61ff3523a60baf360098f67ae82769b8f`.
+
+The set annotation/import integration and alias/projection repair are on
+`fix/rbo-set-by-name-common-types` at `fd99020446e592c46428f127602bc7fa5078d2a9`,
+directly based on pinned main. The two Decimal branches form an explicit chain
+from that set commit: `fix/rbo-decimal-correlation-equality` at
+`f196f7818c6bd2e94226b09ca64eff27cea1d47c`, followed by
+`fix/rbo-decimal-join-equality` at `bfa9433fe71322a0bb353c4ea483d6292ba612c0`.
+The final Decimal commit needs both predecessors so generated NaN identities
+remain valid when ordinary Decimal equality stops matching NaN. Extraction
+preserves main's existing scalar-COUNT restoration and excludes the unrelated
+general empty-scalar fix. Source/dependency reviews and exact patch checks pass.
+Evidence for these branches comes from the combined workspace; the extracted
+branches have not been built independently or pushed. Receipts are in
+`/tmp/rbo-reviewed-branch-helper-v2-20261023` and
+`/tmp/rbo-decimal-dependent-branch-helper-20261023`.
+
+The computed Decimal index-prefix complete-bag SQL control passes in the same
+40/40 run. All six focused Python admission/ground-evaluation tests also pass
+(`/tmp/rbo-decimal-index-python-focused-20261023.json`). That focused run
+executes neither an SMT solver nor the native exporter. The proof extension
+still awaits its fresh complete exporter/Python gates and targeted recapture.
+Full TPCH/TPCDS coverage remains open. No newly prepared patch or unexecuted
+fixture is included in the historical proof counts above.
+
+The first complete validation attempt is archived at
+`/tmp/rbo-next-cycle-validation-final-preparer-v2-20261023/run-001`.
+The capture/verifier build passed, but its preliminary 50-method native gate
+stopped with 47 GOOD and three FAIL; the full 268-native/1,211-Python gates did
+not run. All 40 SQL regressions and seven capture tests passed. The three new
+computed-index exporter fixtures constructed Parameter descriptors with
+`ExpandType`, which returns cached, unannotated type nodes. The existing
+parameter exporter correctly rejected them. The fixture now creates private,
+Type-annotated Decimal descriptors, including the optional negative control,
+so deliberate RangeFor descriptor corruption cannot also mutate a parameter.
+Production annotation checks and all proof/mutation assertions are unchanged.
+Validation of that fixture-only correction is pending; this is not a newly
+confirmed optimizer defect. The separate final-source LIKE bootstrap passed
+all four language-version controls, with a 15.24-GiB rebuild peak and 1.02-GiB
+test-run peak (`/tmp/rbo-final-like-bootstrap-20261023-001`).
 
 ## Native representation audit (2026-10-20, in progress)
 

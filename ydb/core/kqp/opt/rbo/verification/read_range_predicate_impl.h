@@ -24,6 +24,7 @@ public:
     NJson::TJsonValue Export() {
         if (Table.DerivedFrom && Read.StorageType == NYql::EStorageType::RowStorage) {
             try {
+                if (HasComputedDecimalIndexPrefix()) { return ExportComputedDecimalIndexPrefix(); }
                 return ExportBooleanIndexPrefix();
             } catch (const TUnsupportedSnapshot& error) {
                 // Preserve the exact original rejection prefix and exception kind.
@@ -156,6 +157,197 @@ public:
     }
 
 private:
+    bool HasComputedDecimalIndexPrefix() const {
+        if (Range.LiteralRange || !Table.PrimaryKey || Table.PrimaryKey->empty()) { return false; }
+        for (const auto& column : Table.Columns) {
+            if (column.Name == Table.PrimaryKey->front() && IsCanonicalDecimalType(column.Type)) { return true; }
+        }
+        return false;
+    }
+
+    void IndexBoundaryAnnotation(const TTypeAnnotationNode* annotation,
+        const TVector<TString>& types, bool internal, TStringBuf field)
+    {
+        if (!annotation) { return; }
+        const size_t width = internal ? 2 : 1;
+        if (annotation->GetKind() != ETypeAnnotationKind::Tuple ||
+            annotation->Cast<TTupleExprType>()->GetSize() != width * types.size() + 1)
+        { Unsupported(TStringBuilder() << "Computed Decimal index range " << field << " has an invalid boundary annotation"); }
+        const auto& items = annotation->Cast<TTupleExprType>()->GetItems();
+        const auto exact = [&](size_t index, TStringBuf expected, bool nullable) {
+            bool actualNullable = false;
+            if (TypeName(items[index], &actualNullable) != expected || actualNullable != nullable) {
+                Unsupported(TStringBuilder() << "Computed Decimal index range " << field << " has a wrong boundary component");
+            }
+        };
+        for (size_t i = 0; i < types.size(); ++i) {
+            if (internal) { exact(2 * i, "Int32", false); }
+            exact(width * i + (internal ? 1 : 0), types[i], true);
+        }
+        exact(width * types.size(), "Int32", false);
+    }
+
+    void IndexRangeAnnotation(const TExprNode& node, const TVector<TString>& types,
+        bool internal, bool list, TStringBuf field)
+    {
+        const TTypeAnnotationNode* annotation = node.GetTypeAnn();
+        if (!annotation) { return; }
+        if (list) {
+            if (annotation->GetKind() != ETypeAnnotationKind::List) {
+                Unsupported(TStringBuilder() << "Computed Decimal index range " << field << " is not List annotated");
+            }
+            annotation = annotation->Cast<TListExprType>()->GetItemType();
+        }
+        if (annotation->GetKind() != ETypeAnnotationKind::Tuple || annotation->Cast<TTupleExprType>()->GetSize() != 2) {
+            Unsupported(TStringBuilder() << "Computed Decimal index range " << field << " is not a two-boundary range");
+        }
+        for (const auto* boundary : annotation->Cast<TTupleExprType>()->GetItems()) {
+            IndexBoundaryAnnotation(boundary, types, internal, field);
+        }
+    }
+
+    void IndexDataDescriptor(const TExprNode& node, TStringBuf expected, bool optional,
+        TStringBuf field, size_t depth)
+    {
+        Node(node, depth);
+        const TExprNode* data = &node;
+        if (optional) {
+            if (!node.IsCallable("OptionalType") || node.ChildrenSize() != 1) {
+                Unsupported(TStringBuilder() << "Computed Decimal index range " << field << " needs one outer OptionalType");
+            }
+            data = &Node(node.ChildPtr(0), depth + 1);
+        }
+        const size_t arity = IsCanonicalDecimalType(expected) ? 3 : 1;
+        if (!data->IsCallable("DataType") || data->ChildrenSize() != arity) {
+            Unsupported(TStringBuilder() << "Computed Decimal index range " << field << " has an invalid DataType descriptor");
+        }
+        for (const auto& child : data->Children()) {
+            if (!Node(child, depth + 2).IsAtom()) {
+                Unsupported("Computed Decimal index range DataType contains a non-atom");
+            }
+        }
+        bool nullable = false;
+        if (DataTypeDescriptorName(node, &nullable) != expected || nullable != optional) {
+            Unsupported(TStringBuilder() << "Computed Decimal index range " << field << " descriptor differs from its physical key");
+        }
+        const auto check = [&](const TExprNode& descriptor, bool expectedOptional) {
+            if (!descriptor.GetTypeAnn()) { return; }
+            if (descriptor.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Type) {
+                Unsupported("Computed Decimal index range descriptor has a non-Type annotation");
+            }
+            const auto* described = descriptor.GetTypeAnn()->Cast<TTypeExprType>()->GetType();
+            bool describedOptional = false;
+            if (!described || TypeName(described, &describedOptional) != expected || describedOptional != expectedOptional) {
+                Unsupported("Computed Decimal index range descriptor annotation differs from its syntax");
+            }
+        };
+        check(node, optional);
+        if (optional) { check(*data, false); }
+    }
+
+    NJson::TJsonValue ExportComputedDecimalIndexPrefix() {
+        // Exact observed row-storage index shape: one Decimal equality point,
+        // followed by one fully unbounded required String/Utf8 suffix. No list
+        // overflow branch, arbitrary range algebra or original SQL predicate is
+        // substituted. A present LiteralRange remains authoritative elsewhere.
+        if (Range.LiteralRange || !Range.ComputeNode ||
+            !TKqpTable(Read.TableCallable).SysView().StringValue().empty() ||
+            !Table.PrimaryKey || Table.PrimaryKey->size() < 2 || Table.PrimaryKey->size() > 4 ||
+            Range.KeyColumns != *Table.PrimaryKey || Range.UsedPrefixLen != 1 || Range.PointPrefixLen != 1 ||
+            !Range.ExpectedMaxRanges || *Range.ExpectedMaxRanges != 1)
+        { Unsupported("Computed Decimal index range requires one complete equality prefix and exact physical metadata"); }
+
+        TVector<TString> types;
+        for (const auto& name : *Table.PrimaryKey) {
+            const TSemanticSnapshotCatalogColumnV1* key = nullptr;
+            for (const auto& column : Table.Columns) {
+                if (column.Name == name) {
+                    if (key) { Unsupported("Computed Decimal index range has duplicate catalog key columns"); }
+                    key = &column;
+                }
+            }
+            if (!key || key->Nullable || (types.empty() ? !IsCanonicalDecimalType(key->Type) :
+                    (key->Type != "String" && key->Type != "Utf8")))
+            { Unsupported("Computed Decimal index range needs a required Decimal key and required String/Utf8 suffix"); }
+            types.push_back(key->Type);
+        }
+        const auto* binding = ResolveOlapColumn(Table.PrimaryKey->front(), Columns);
+        if (binding->Type != types.front() || binding->Nullable) {
+            Unsupported("Computed Decimal index range emitted key differs from its physical metadata");
+        }
+        const TVector<TString> pointTypes{types.front()};
+        const TVector<TString> suffixTypes(types.begin() + 1, types.end());
+        const auto& finalize = Callable(Range.ComputeNode, "RangeFinalize", 1, 1, 1);
+        IndexRangeAnnotation(finalize, types, false, true, "RangeFinalize");
+        const auto& outer = Callable(finalize.ChildPtr(0), "RangeMultiply", 2, 2, 2);
+        IndexRangeAnnotation(outer, types, true, true, "outer RangeMultiply");
+        Uint64Literal(*outer.Child(0), ExtractorRangeCap, "outer Decimal index cap", 3);
+        const auto& unionNode = Callable(outer.ChildPtr(1), "RangeUnion", 1, 1, 3);
+        IndexRangeAnnotation(unionNode, types, true, true, "RangeUnion");
+        const auto& product = Callable(unionNode.ChildPtr(0), "RangeMultiply", 3, 3, 4);
+        IndexRangeAnnotation(product, types, true, true, "inner RangeMultiply");
+        Uint64Literal(*product.Child(0), ExtractorRangeCap, "inner Decimal index cap", 5);
+        const auto& point = Callable(product.ChildPtr(1), "RangeFor", 3, 3, 5);
+        IndexRangeAnnotation(point, pointTypes, true, true, "RangeFor");
+        const auto& operation = Node(point.ChildPtr(0), 6);
+        if (!operation.IsAtom("==") && !operation.IsAtom("===")) {
+            Unsupported("Computed Decimal index range only admits equality RangeFor");
+        }
+        IndexDataDescriptor(*point.Child(2), types.front(), false, "equality key", 6);
+        const auto& value = Node(point.ChildPtr(1), 6);
+        if (!value.GetTypeAnn() || !value.IsCallable({"Parameter", "Decimal"})) {
+            Unsupported("Computed Decimal index equality bound must be a typed direct parameter or Decimal literal");
+        }
+        ExactScalarType(value, types.front(), false, "Decimal index equality bound");
+        if (value.IsCallable("Decimal")) {
+            if (value.ChildrenSize() != 3) {
+                Unsupported("Computed Decimal index literal needs exactly three atoms");
+            }
+            for (const auto& child : value.Children()) {
+                if (!Node(child, 7).IsAtom()) {
+                    Unsupported("Computed Decimal index literal contains a non-atom");
+                }
+            }
+        }
+        auto bound = ExportExprNode(value, nullptr, {}, {}, SourceBudget, 1, 6, false);
+        if ((bound["kind"].GetStringSafe() != "parameter" && bound["kind"].GetStringSafe() != "literal") ||
+            bound["type"].GetStringSafe() != types.front())
+        { Unsupported("Computed Decimal index equality bound did not export exactly"); }
+
+        const auto& suffix = Callable(product.ChildPtr(2), "AsRange", 1, 1, 5);
+        IndexRangeAnnotation(suffix, suffixTypes, true, true, "suffix AsRange");
+        const auto& pair = Node(suffix.ChildPtr(0), 6);
+        if (!pair.IsList() || pair.ChildrenSize() != 2) {
+            Unsupported("Computed Decimal index suffix must contain exactly two boundaries");
+        }
+        IndexRangeAnnotation(pair, suffixTypes, false, false, "suffix pair");
+        for (const auto& side : pair.Children()) {
+            const auto& boundary = Node(side, 7);
+            if (!boundary.IsList() || boundary.ChildrenSize() != suffixTypes.size() + 1) {
+                Unsupported("Computed Decimal index suffix has a wrong boundary width");
+            }
+            IndexBoundaryAnnotation(boundary.GetTypeAnn(), suffixTypes, false, "suffix boundary");
+            for (size_t i = 0; i < suffixTypes.size(); ++i) {
+                const auto& absent = Callable(boundary.ChildPtr(i), "Nothing", 1, 1, 8);
+                ExactScalarType(absent, suffixTypes[i], true, "suffix infinity");
+                IndexDataDescriptor(*absent.Child(0), suffixTypes[i], true, "suffix infinity", 9);
+            }
+            const auto flag = Int32Literal(*boundary.Child(suffixTypes.size()), "suffix infinity inclusion", 8);
+            if (flag["value"].GetIntegerSafe() != 0) {
+                Unsupported("Computed Decimal index full suffix must use the exact zero inclusion marker");
+            }
+        }
+        // Decimal RangeFor ==/=== intersects its point with the non-NaN
+        // domain. RangeMultiply preserves the point's inclusion flags when
+        // appending infinities. Thus this exact physical range is SQL equality,
+        // including +/-Inf, and empty for a NaN bound. Raw literal ranges do
+        // not have this property and cannot enter this path.
+        auto result = BinaryExpr("eq", ColumnExpr(binding->Output), std::move(bound));
+        AuditExactScalarExpression(result);
+        return result;
+    }
+
+
     NJson::TJsonValue ExportBooleanIndexPrefix() {
         // First non-covering-index corridor: one non-NULL Bool literal prefix
         // of the complete physical index key. MakeKeyRange pads the inclusive

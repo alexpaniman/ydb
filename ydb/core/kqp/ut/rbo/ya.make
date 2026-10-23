@@ -16,6 +16,7 @@ SRCS(
     kqp_rbo_copy_ut.cpp
     kqp_rbo_decimal_ranges_ut.cpp
     kqp_rbo_decorrelation_ut.cpp
+    kqp_rbo_decimal_join_ut.cpp
     kqp_rbo_exclusive_range_ut.cpp
     kqp_rbo_global_ut.cpp
     kqp_rbo_grouped_distinct_ut.cpp
@@ -24,6 +25,7 @@ SRCS(
     kqp_rbo_lookup_join_ut.cpp
     kqp_rbo_olap_distinct_ut.cpp
     kqp_rbo_olap_ut.cpp
+    kqp_rbo_set_operations_ut.cpp
 )
 
 PEERDIR(

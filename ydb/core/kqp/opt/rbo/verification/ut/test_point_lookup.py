@@ -81,6 +81,8 @@ def ground(term, bindings):
         return not values[0]
     if term.operation == "=":
         return values[0] == values[1]
+    if term.operation == "<":
+        return values[0] < values[1]
     if term.operation == "ite":
         return values[1] if values[0] else values[2]
     raise AssertionError(f"unreviewed term in concrete lookup test: {term.operation}")
@@ -205,6 +207,105 @@ class PointLookupAdmissionTest(unittest.TestCase):
         changed["plan"]["nodes"][0]["predicate"]["null_safe"] = True
         with self.assertRaises(SnapshotError):
             parse_snapshot(changed)
+
+
+def decimal_index_document(bound=None, staged=True):
+    result = document(index=True, staged=staged)
+    base, index = result["schema"]["tables"]
+    for item in (base, index):
+        for item_column in item["columns"]:
+            if item_column["name"] == "k":
+                item_column.update(type="Utf8", nullable=False)
+            elif item_column["name"] == "flag":
+                item_column.update(type="Decimal(7,0)", nullable=False)
+        item["columns"].append(column("tail", "String"))
+    index["primary_key"] = ["flag", "tail", "k"]
+    index["unique_keys"][0]["columns"] = list(index["primary_key"])
+    # Same prefix with different tail values is legal under this original
+    # business-key UNIQUE constraint and must preserve both base rows.
+    base["unique_keys"].append({"columns": ["flag", "tail"], "nulls_distinct": True})
+    source = result["plan"]["nodes"][0]
+    source["columns"] = [{"source": "k", "output": "k"}]
+    source["predicate_columns"] = [{"source": "flag", "output": "flag"}]
+    source["predicate"]["right"] = bound or {
+        "kind": "parameter", "name": "$point", "type": "Decimal(7,0)", "nullable": False}
+    return result
+
+
+class ComputedDecimalIndexAdmissionTest(unittest.TestCase):
+    def test_required_parameter_preserves_hidden_prefix_and_stream_lookup(self):
+        for staged in (False, True):
+            parsed = parse_snapshot(decimal_index_document(staged=staged))
+            self.assertEqual(parsed.plan.nodes[0].predicate_columns[0].source, "flag")
+            self.assertEqual(parsed.plan.nodes[0].predicate.args[1].parameter, "$point")
+
+    def test_exact_decimal_literals_include_nan_and_both_infinities(self):
+        for value in ({"kind": "finite", "scaled": "-9999999"},
+                      {"kind": "finite", "scaled": "0"},
+                      {"kind": "nan"}, {"kind": "pos_inf"}, {"kind": "neg_inf"}):
+            with self.subTest(value=value):
+                parse_snapshot(decimal_index_document({"kind": "literal", "type": "Decimal(7,0)", "value": value}))
+
+    def test_rejects_nullable_mixed_and_computed_bounds(self):
+        for bound in (
+                {"kind": "null", "type": "Decimal(7,0)"},
+                {"kind": "parameter", "name": "$point", "type": "Decimal(7,0)", "nullable": True},
+                {"kind": "parameter", "name": "$point", "type": "Decimal(8,0)", "nullable": False},
+                {"kind": "column", "column": "flag"}):
+            with self.subTest(bound=bound), self.assertRaises(SnapshotError):
+                parse_snapshot(decimal_index_document(bound))
+
+    def test_rejects_wrong_equality_and_physical_suffix(self):
+        for mutation in ("gt", "null_safe", "nullable_prefix", "nullable_suffix", "integer_suffix", "wide_key"):
+            changed = decimal_index_document()
+            base, index = changed["schema"]["tables"]
+            predicate = changed["plan"]["nodes"][0]["predicate"]
+            if mutation == "gt":
+                predicate["kind"] = "gt"
+            elif mutation == "null_safe":
+                predicate["null_safe"] = True
+            else:
+                for table_value in (base, index):
+                    if mutation == "wide_key":
+                        table_value["columns"] += [column("extra1", "String"), column("extra2", "String")]
+                    else:
+                        name = "flag" if mutation == "nullable_prefix" else "tail"
+                        target = next(item for item in table_value["columns"] if item["name"] == name)
+                        target.update({"type": "Int32"} if mutation == "integer_suffix" else {"nullable": True})
+                if mutation == "wide_key":
+                    index["primary_key"] = ["flag", "tail", "extra1", "extra2", "k"]
+                    index["unique_keys"][0]["columns"] = list(index["primary_key"])
+            with self.subTest(mutation=mutation), self.assertRaises(SnapshotError):
+                parse_snapshot(changed)
+
+    def test_direct_api_cannot_bypass_required_bound_guard(self):
+        from dataclasses import replace
+        from ydb.core.kqp.opt.rbo.verification.rbo_verifier.ir import validate_snapshot
+        parsed = parse_snapshot(decimal_index_document())
+        source = parsed.plan.nodes[0]
+        predicate = replace(source.predicate, args=(
+            source.predicate.args[0], replace(source.predicate.args[1], nullable=True)))
+        changed = replace(parsed, plan=replace(
+            parsed.plan, nodes=(replace(source, predicate=predicate), *parsed.plan.nodes[1:])))
+        with self.assertRaises(SnapshotError):
+            validate_snapshot(changed)
+
+    def test_ground_decimal_prefix_keeps_every_suffix_and_excludes_nan(self):
+        from ydb.core.kqp.opt.rbo.verification.rbo_verifier import decimal
+        values = (-decimal.INF, -1, 0, 1, decimal.INF, decimal.NAN)
+        for value in values:
+            kind = ("nan" if value == decimal.NAN else "pos_inf" if value == decimal.INF
+                    else "neg_inf" if value == -decimal.INF else "finite")
+            literal = {"kind": kind, **({"scaled": str(value)} if kind == "finite" else {})}
+            snapshot = parse_snapshot(decimal_index_document(
+                {"kind": "literal", "type": "Decimal(7,0)", "value": literal}, staged=False))
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            actual = Evaluator(snapshot, database, Encoder(script)).root()
+            rows = [{"k": 0, "flag": value, "tail": 2, "value": 11},
+                    {"k": 1, "flag": value, "tail": 3, "value": 11}]
+            expected = Counter() if kind == "nan" else Counter({(11,): 2})
+            self.assertEqual(bag(actual, bind(database, {"T": rows})), expected)
 
 
 class PointLookupConcreteTest(unittest.TestCase):

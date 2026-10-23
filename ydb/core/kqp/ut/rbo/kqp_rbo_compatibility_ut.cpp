@@ -15,6 +15,236 @@ namespace {
 using namespace NYdb;
 
 Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
+    // NUL is an admitted one-byte ASCII SQL ESCAPE. Literal and parameter
+    // patterns must preserve the same complete bag, including binary subjects.
+    Y_UNIT_TEST_TWIN(LikeNulEscapeLiteralAndParameter, Lang202603) {
+        NKikimrConfig::TAppConfig config;
+        auto* service = config.MutableTableServiceConfig();
+        service->SetEnableNewRBO(true);
+        service->SetEnableFallbackToYqlOptimizer(false);
+        service->SetEnableFallbackOnDML(false);
+        service->SetEnableFallbackOnMultipleStatements(false);
+        service->SetDefaultLangVer(Lang202603 ? 202603 : 202501);
+        TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+        auto tableClient = kikimr.GetTableClient();
+        auto tableSession = tableClient.CreateSession().GetValueSync().GetSession();
+        const auto created = tableSession.ExecuteSchemeQuery(R"(
+            CREATE TABLE `/Root/LikeNulEscapeRows` (
+                Id Int32 NOT NULL, Subject String NOT NULL, PRIMARY KEY (Id)
+            );
+        )").GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+        struct TRow { i32 Id; std::string Subject; };
+        const std::vector<TRow> rows{
+            {1, "%"}, {2, "_"}, {3, "x"}, {4, ""}, {5, "%%"}, {6, "__"},
+            {7, std::string("\0%", 2)}, {8, std::string("\0_", 2)},
+            {9, std::string("\0x", 2)}, {10, std::string("\0", 1)},
+        };
+        TValueBuilder values;
+        values.BeginList();
+        for (const auto& row : rows) {
+            values.AddListItem().BeginStruct().AddMember("Id").Int32(row.Id)
+                .AddMember("Subject").String(row.Subject).EndStruct();
+        }
+        const auto seeded = tableClient.BulkUpsert(
+            "/Root/LikeNulEscapeRows", values.EndList().Build()).GetValueSync();
+        UNIT_ASSERT_C(seeded.IsSuccess(), seeded.GetIssues().ToString());
+        const TString query = R"SQL(
+PRAGMA YqlSelect='force';
+PRAGMA AnsiLike;
+DECLARE $p AS String;
+DECLARE $one AS String;
+SELECT Id, Subject,
+    Subject LIKE '\x00%'s ESCAPE '\x00's AS LiteralPercent,
+    Subject LIKE $p ESCAPE '\x00's AS ParameterPercent,
+    Subject LIKE '\x00_'s ESCAPE '\x00's AS LiteralUnderscore,
+    Subject LIKE $one ESCAPE '\x00's AS ParameterUnderscore
+FROM `/Root/LikeNulEscapeRows`;
+        )SQL";
+        auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+        const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+        const auto successes = counters->GetCounter("Compilation/NewRBO/Success");
+        const auto failures = counters->GetCounter("Compilation/NewRBO/Failed");
+        bool first = true;
+        TStringBuilder mismatches;
+        size_t mismatchedBindings = 0;
+        for (const bool escapedPatterns : {true, false}) {
+            const auto params = TParamsBuilder()
+                .AddParam("$p").String(escapedPatterns ? std::string("\0%", 2) : "x").Build()
+                .AddParam("$one").String(escapedPatterns ? std::string("\0_", 2) : "x").Build().Build();
+            const auto beforeSuccess = successes->Val(), beforeFailure = failures->Val();
+            const auto explain = session.ExecuteQuery(query, NQuery::TTxControl::NoTx(), params,
+                NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+            UNIT_ASSERT_C(explain.IsSuccess(), query << "\n" << explain.GetIssues().ToString());
+            if (first) { UNIT_ASSERT(successes->Val() > beforeSuccess); first = false; }
+            UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+            UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
+            const TString ast{*explain.GetStats()->GetAst()};
+            UNIT_ASSERT_C(ast.Contains("Re2.PatternFromLike") && ast.Contains("Parameter"), ast);
+            Cerr << "[LIKE-NUL-ESCAPE] lang=" << (Lang202603 ? 202603 : 202501)
+                 << " pattern_bytes=" << (escapedPatterns ? "00 25 / 00 5f" : "78 / 78")
+                 << "\n" << query << "\n" << ast << Endl;
+            const auto result = session.ExecuteQuery(query,
+                NQuery::TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+            UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+            const auto& rs = result.GetResultSet(0);
+            UNIT_ASSERT(!rs.Truncated());
+            const std::vector<std::string> names{
+                "Id", "Subject", "LiteralPercent", "ParameterPercent", "LiteralUnderscore", "ParameterUnderscore"};
+            UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta().size(), names.size());
+            for (size_t i = 0; i < names.size(); ++i) {
+                UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta()[i].Name, names[i]);
+                UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta()[i].Type.ToString(), i == 0 ? "Int32" : i == 1 ? "String" : "Bool");
+            }
+            std::vector<std::vector<i32>> actual, expected;
+            TResultSetParser parser(rs);
+            while (parser.TryNextRow()) {
+                const auto id = parser.ColumnParser(0).GetInt32();
+                const auto found = std::find_if(rows.begin(), rows.end(), [&](const TRow& row) { return row.Id == id; });
+                UNIT_ASSERT(found != rows.end());
+                UNIT_ASSERT_VALUES_EQUAL(parser.ColumnParser(1).GetString(), found->Subject);
+                actual.push_back({id, parser.ColumnParser(2).GetBool(), parser.ColumnParser(3).GetBool(),
+                    parser.ColumnParser(4).GetBool(), parser.ColumnParser(5).GetBool()});
+            }
+            for (const auto& row : rows) {
+                expected.push_back({row.Id, row.Subject == "%", row.Subject == (escapedPatterns ? "%" : "x"),
+                    row.Subject == "_", row.Subject == (escapedPatterns ? "_" : "x")});
+            }
+            std::sort(actual.begin(), actual.end());
+            std::sort(expected.begin(), expected.end());
+            if (actual != expected) {
+                ++mismatchedBindings;
+                mismatches << "pattern_bytes=" << (escapedPatterns ? "00 25 / 00 5f" : "78 / 78")
+                    << "\n" << query << "\n" << ast << "\n" << FormatResultSetYson(rs) << "\n";
+            }
+        }
+        UNIT_ASSERT_VALUES_EQUAL_C(mismatchedBindings, 0, mismatches);
+    }
+
+    // SQL literal and parameter paths must implement the same escape state.
+    // Stored subjects prevent folding the entire match into a literal result.
+    Y_UNIT_TEST_TWIN(LikeEscapedBackslashLiteralAndParameter, Lang202603) {
+        NKikimrConfig::TAppConfig appConfig;
+        auto* service = appConfig.MutableTableServiceConfig();
+        service->SetEnableNewRBO(true);
+        service->SetEnableFallbackToYqlOptimizer(false);
+        service->SetEnableFallbackOnDML(false);
+        service->SetEnableFallbackOnMultipleStatements(false);
+        service->SetDefaultLangVer(Lang202603 ? 202603 : 202501);
+        auto settings = TKikimrSettings(appConfig);
+        settings.SetWithSampleTables(false);
+        TKikimrRunner kikimr(settings);
+        auto tableClient = kikimr.GetTableClient();
+        auto tableSession = tableClient.CreateSession().GetValueSync().GetSession();
+        auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+        const auto created = tableSession.ExecuteSchemeQuery(R"(
+            CREATE TABLE `/Root/LikeEscapeRows` (
+                Id Int32 NOT NULL, Subject String NOT NULL, PRIMARY KEY (Id)
+            );
+        )").GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+
+        struct TRow { i32 Id; std::string Subject; bool SlashPrefix; bool HashPrefix; };
+        const std::vector<TRow> rows{
+            {1, "\\x", true, false}, {2, "\\%", true, false},
+            {3, "\\", true, false}, {4, "x", false, false},
+            {5, "\\xx", true, false}, {6, "\\_", true, false},
+            {7, "#x", false, true}, {8, "", false, false},
+        };
+        TValueBuilder values;
+        values.BeginList();
+        for (const auto& row : rows) {
+            values.AddListItem().BeginStruct()
+                .AddMember("Id").Int32(row.Id)
+                .AddMember("Subject").String(row.Subject).EndStruct();
+        }
+        const auto seeded = tableClient.BulkUpsert(
+            "/Root/LikeEscapeRows", values.EndList().Build()).GetValueSync();
+        UNIT_ASSERT_C(seeded.IsSuccess(), seeded.GetIssues().ToString());
+
+        const TString query = R"SQL(
+PRAGMA YqlSelect = 'force';
+PRAGMA AnsiLike;
+DECLARE $p AS String;
+DECLARE $control AS String;
+DECLARE $one AS String;
+SELECT Id, Subject,
+    Subject LIKE @@#\%@@ ESCAPE '#' AS LiteralMatch,
+    Subject LIKE $p ESCAPE '#' AS ParameterMatch,
+    Subject LIKE @@##%@@ ESCAPE '#' AS LiteralControl,
+    Subject LIKE $control ESCAPE '#' AS ParameterControl,
+    Subject LIKE @@#\_@@ ESCAPE '#' AS LiteralOne,
+    Subject LIKE $one ESCAPE '#' AS ParameterOne
+FROM `/Root/LikeEscapeRows`;
+        )SQL";
+        const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+        const auto successes = counters->GetCounter("Compilation/NewRBO/Success");
+        const auto failures = counters->GetCounter("Compilation/NewRBO/Failed");
+        bool first = true;
+        // A second binding also checks that the pattern remains a runtime input.
+        for (const bool slashPattern : {true, false}) {
+            const auto params = TParamsBuilder()
+                .AddParam("$p").String(slashPattern ? "#\\%" : "##%").Build()
+                .AddParam("$control").String("##%").Build()
+                .AddParam("$one").String("#\\_").Build().Build();
+            const auto beforeSuccess = successes->Val();
+            const auto beforeFailure = failures->Val();
+            const auto explained = session.ExecuteQuery(query, NQuery::TTxControl::NoTx(), params,
+                NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+            UNIT_ASSERT_C(explained.IsSuccess(), explained.GetIssues().ToString());
+            if (first) { UNIT_ASSERT(successes->Val() > beforeSuccess); }
+            UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+            first = false;
+            UNIT_ASSERT(explained.GetStats() && explained.GetStats()->GetAst());
+            const TString ast{*explained.GetStats()->GetAst()};
+            Cerr << "[LIKE-ESCAPE-AST-BEGIN] lang=" << (Lang202603 ? 202603 : 202501)
+                 << " pattern=" << (slashPattern ? "23 5c 25" : "23 23 25")
+                 << "\n" << query << "\n" << ast << "\n[LIKE-ESCAPE-AST-END]" << Endl;
+            // If either path vanishes, report a fixture coverage failure.
+            UNIT_ASSERT_C(ast.Contains("Parameter") && ast.Contains("Re2.PatternFromLike"), ast);
+
+            const auto result = session.ExecuteQuery(query,
+                NQuery::TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString() << "\n" << ast);
+            UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+            UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+            const auto& rs = result.GetResultSet(0);
+            UNIT_ASSERT(!rs.Truncated());
+            const std::vector<std::string> names{
+                "Id", "Subject", "LiteralMatch", "ParameterMatch", "LiteralControl", "ParameterControl",
+                "LiteralOne", "ParameterOne"};
+            const auto& columns = rs.GetColumnsMeta();
+            UNIT_ASSERT_VALUES_EQUAL(columns.size(), names.size());
+            for (size_t i = 0; i < names.size(); ++i) {
+                UNIT_ASSERT_VALUES_EQUAL(columns[i].Name, names[i]);
+                UNIT_ASSERT_VALUES_EQUAL(columns[i].Type.ToString(), i == 0 ? "Int32" : (i == 1 ? "String" : "Bool"));
+            }
+            std::vector<std::vector<i32>> actual, expected;
+            TResultSetParser parser(rs);
+            while (parser.TryNextRow()) {
+                const auto id = parser.ColumnParser(0).GetInt32();
+                const auto found = std::find_if(rows.begin(), rows.end(),
+                    [&](const TRow& row) { return row.Id == id; });
+                UNIT_ASSERT(found != rows.end());
+                UNIT_ASSERT_VALUES_EQUAL(parser.ColumnParser(1).GetString(), found->Subject);
+                actual.push_back({id, parser.ColumnParser(2).GetBool(), parser.ColumnParser(3).GetBool(),
+                    parser.ColumnParser(4).GetBool(), parser.ColumnParser(5).GetBool(),
+                    parser.ColumnParser(6).GetBool(), parser.ColumnParser(7).GetBool()});
+            }
+            for (const auto& row : rows) {
+                expected.push_back({row.Id, row.SlashPrefix, slashPattern ? row.SlashPrefix : row.HashPrefix,
+                    row.HashPrefix, row.HashPrefix, row.SlashPrefix && row.Subject.size() == 2,
+                    row.SlashPrefix && row.Subject.size() == 2});
+            }
+            std::sort(actual.begin(), actual.end());
+            std::sort(expected.begin(), expected.end());
+            Cerr << "[LIKE-ESCAPE-RESULT] " << FormatResultSetYson(rs) << Endl;
+            UNIT_ASSERT_VALUES_EQUAL_C(actual, expected, query << "\n" << ast << "\n" << FormatResultSetYson(rs));
+        }
+    }
+
     Y_UNIT_TEST(SelectedUniqueIndexRetainsDuplicateNullBusinessKeys) {
         NKikimrConfig::TAppConfig appConfig;
         auto* service = appConfig.MutableTableServiceConfig();
@@ -238,6 +468,322 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
         expected.push_back(anotherNull);
         checkStoredRows();
         checkReads(false);
+    }
+
+    Y_UNIT_TEST(ComputedDecimalIndexPrefixPreservesFullBags) {
+        NKikimrConfig::TAppConfig appConfig;
+        auto* service = appConfig.MutableTableServiceConfig();
+        service->SetEnableNewRBO(true);
+        service->SetEnableFallbackToYqlOptimizer(false);
+        service->SetEnableFallbackOnDML(false);
+        service->SetEnableFallbackOnMultipleStatements(false);
+        service->SetDefaultLangVer(202501);
+        service->SetDefaultCostBasedOptimizationLevel(0);
+        service->SetEnableAutoIndexSelectionForIndexLookupJoin(false);
+        service->SetEnableIndexStreamWrite(true);
+        auto settings = TKikimrSettings(appConfig);
+        settings.SetWithSampleTables(false);
+        settings.FeatureFlags.SetEnableAddUniqueIndex(true);
+        settings.FeatureFlags.SetEnableAccessToIndexImplTables(true);
+        TKikimrRunner kikimr(settings);
+        auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto querySession = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+        const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+        const auto successes = counters->GetCounter("Compilation/NewRBO/Success");
+        const auto failures = counters->GetCounter("Compilation/NewRBO/Failed");
+
+        for (const bool unique : {false, true}) {
+            const TString name = unique ? "ComputedDecimalUnique" : "ComputedDecimalOrdinary";
+            const TString table = TStringBuilder() << "/Root/" << name;
+            const TString indexPath = TStringBuilder() << table << "/by_dt/indexImplTable";
+            const TString schema = TStringBuilder()
+                << "CREATE TABLE `" << table << "` ("
+                << "Id Utf8 NOT NULL, D Decimal(7,0) NOT NULL, Tail String NOT NULL, "
+                << "Payload Int32 NOT NULL, PRIMARY KEY (Id), INDEX by_dt GLOBAL "
+                << (unique ? "UNIQUE " : "") << "SYNC ON (D, Tail));";
+            const auto created = tableSession.ExecuteSchemeQuery(schema).GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), schema << "\n" << created.GetIssues().ToString());
+
+            struct TRow { std::string Id; const char* D; std::string Tail; i32 Payload; };
+            const std::vector<TRow> rows{
+                {"mi1", "-inf", "a", -10}, {"mi2", "-inf", "b", -11},
+                {"zero", "0", "a", 0},
+                {"f1", "7", "a", 70},
+                // Ordinary business-key duplicates must survive as two identical
+                // output rows. UNIQUE permits the same D with distinct Tail.
+                {"f2", "7", unique ? "b" : "a", 70},
+                {"f3", "7", unique ? "c" : "b", 71},
+                {"pi1", "inf", "a", 100}, {"pi2", "inf", "b", 101},
+                {"nan", "nan", "a", 999},
+            };
+            TValueBuilder values;
+            values.BeginList();
+            for (const auto& row : rows) {
+                values.AddListItem().BeginStruct()
+                    .AddMember("Id").Utf8(row.Id)
+                    .AddMember("D").Decimal(TDecimalValue(row.D, 7, 0))
+                    .AddMember("Tail").String(row.Tail)
+                    .AddMember("Payload").Int32(row.Payload).EndStruct();
+            }
+            const auto insertParams = TParamsBuilder().AddParam("$rows", values.EndList().Build()).Build();
+            const TString insertSql = TStringBuilder()
+                << "PRAGMA YqlSelect = 'force'; "
+                << "DECLARE $rows AS List<Struct<Id:Utf8,D:Decimal(7,0),Tail:String,Payload:Int32>>; "
+                << "INSERT INTO `" << table << "` (Id, D, Tail, Payload) "
+                << "SELECT Id, D, Tail, Payload FROM AS_TABLE($rows);";
+            const auto inserted = querySession.ExecuteQuery(insertSql,
+                NQuery::TTxControl::BeginTx().CommitTx(), insertParams).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), insertSql << "\n" << inserted.GetIssues().ToString());
+
+            // Establish the exact stored base rows, including NaN. Otherwise an
+            // empty NaN equality result could pass after a broken fixture write.
+            const TString scanSql = TStringBuilder() << "PRAGMA YqlSelect = 'force'; "
+                << "SELECT Id, D, Tail, Payload FROM `" << table << "`;";
+            const auto stored = querySession.ExecuteQuery(scanSql,
+                NQuery::TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT_C(stored.IsSuccess(), stored.GetIssues().ToString());
+            UNIT_ASSERT_VALUES_EQUAL(stored.GetResultSets().size(), 1);
+            const auto& storedSet = stored.GetResultSet(0);
+            UNIT_ASSERT(!storedSet.Truncated());
+            const std::vector<std::string> storedNames{"Id", "D", "Tail", "Payload"};
+            const std::vector<std::string> storedTypes{"Utf8", "Decimal(7,0)", "String", "Int32"};
+            UNIT_ASSERT_VALUES_EQUAL(storedSet.GetColumnsMeta().size(), storedNames.size());
+            for (size_t i = 0; i < storedNames.size(); ++i) {
+                UNIT_ASSERT_VALUES_EQUAL(storedSet.GetColumnsMeta()[i].Name, storedNames[i]);
+                UNIT_ASSERT_VALUES_EQUAL(storedSet.GetColumnsMeta()[i].Type.ToString(), storedTypes[i]);
+            }
+            std::vector<std::string> storedIds, expectedIds;
+            TResultSetParser storedParser(storedSet);
+            while (storedParser.TryNextRow()) {
+                const auto id = storedParser.ColumnParser(0).GetUtf8();
+                const auto row = std::find_if(rows.begin(), rows.end(),
+                    [&](const TRow& value) { return value.Id == id; });
+                UNIT_ASSERT(row != rows.end());
+                const auto decimal = storedParser.ColumnParser(1).GetDecimal();
+                const TDecimalValue expectedDecimal(row->D, 7, 0);
+                UNIT_ASSERT_VALUES_EQUAL(decimal.Low_, expectedDecimal.Low_);
+                UNIT_ASSERT_VALUES_EQUAL(decimal.Hi_, expectedDecimal.Hi_);
+                UNIT_ASSERT_VALUES_EQUAL(storedParser.ColumnParser(2).GetString(), row->Tail);
+                UNIT_ASSERT_VALUES_EQUAL(storedParser.ColumnParser(3).GetInt32(), row->Payload);
+                storedIds.push_back(id);
+            }
+            for (const auto& row : rows) { expectedIds.push_back(row.Id); }
+            std::sort(storedIds.begin(), storedIds.end());
+            std::sort(expectedIds.begin(), expectedIds.end());
+            UNIT_ASSERT_VALUES_EQUAL(storedIds, expectedIds);
+
+            // The complete physical key, including the base PK, is part of the
+            // admitted range corridor. Payload must require a base-table lookup.
+            const auto described = tableSession.DescribeTable(indexPath).GetValueSync();
+            UNIT_ASSERT_C(described.IsSuccess(), described.GetIssues().ToString());
+            const auto& description = described.GetTableDescription();
+            const std::vector<std::string> physicalKey{"D", "Tail", "Id"};
+            UNIT_ASSERT_VALUES_EQUAL(description.GetPrimaryKeyColumns(), physicalKey);
+            const auto columns = description.GetTableColumns();
+            UNIT_ASSERT_VALUES_EQUAL(columns.size(), 3);
+            for (const auto& column : columns) {
+                UNIT_ASSERT_C(column.Name == "D" || column.Name == "Tail" || column.Name == "Id", column.Name);
+                UNIT_ASSERT_VALUES_EQUAL(column.Type.ToString(),
+                    column.Name == "D" ? "Decimal(7,0)" : (column.Name == "Tail" ? "String" : "Utf8"));
+            }
+
+            const TString query = TStringBuilder()
+                << "PRAGMA YqlSelect = 'force'; DECLARE $p AS Decimal(7,0); "
+                << "SELECT Tail, Payload FROM `" << table << "` WHERE D = $p;";
+            struct TCase { const char* Bound; std::vector<std::string> Ids; };
+            const std::vector<TCase> cases{
+                {"7", {"f1", "f2", "f3"}}, {"nan", {}},
+                {"-inf", {"mi1", "mi2"}}, {"inf", {"pi1", "pi2"}}, {"8", {}},
+            };
+            bool first = true;
+            for (const auto& testCase : cases) {
+                const auto params = TParamsBuilder().AddParam("$p")
+                    .Decimal(TDecimalValue(testCase.Bound, 7, 0)).Build().Build();
+                const auto beforeSuccess = successes->Val();
+                const auto beforeFailure = failures->Val();
+                const auto explained = querySession.ExecuteQuery(query, NQuery::TTxControl::NoTx(), params,
+                    NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                UNIT_ASSERT_C(explained.IsSuccess(), query << "\n" << explained.GetIssues().ToString());
+                if (first) { UNIT_ASSERT_C(successes->Val() > beforeSuccess, query); }
+                first = false;
+                UNIT_ASSERT_VALUES_EQUAL_C(failures->Val(), beforeFailure, query);
+                UNIT_ASSERT_C(explained.GetStats() && explained.GetStats()->GetPlan() && explained.GetStats()->GetAst(), query);
+                const TString plan{*explained.GetStats()->GetPlan()};
+                const TString ast{*explained.GetStats()->GetAst()};
+                Cerr << "[COMPUTED-DECIMAL-INDEX-BEGIN] unique=" << unique << " bound=" << testCase.Bound
+                     << "\n" << query << "\n" << plan << "\n" << ast << "\n[COMPUTED-DECIMAL-INDEX-END]" << Endl;
+                NJson::TJsonValue json;
+                UNIT_ASSERT_C(NJson::ReadJsonTree(plan, &json, true), plan);
+                const auto& simplified = json["SimplifiedPlan"];
+                UNIT_ASSERT_C(simplified.IsMap(), plan);
+                const auto index = FindPlanNodeByKv(simplified, "Table", name + "/by_dt/indexImplTable");
+                UNIT_ASSERT_C(index.IsDefined(), plan);
+                UNIT_ASSERT_VALUES_EQUAL_C(index["Index"].GetStringSafe(), "by_dt", plan);
+                UNIT_ASSERT_VALUES_EQUAL_C(index["Name"].GetStringSafe(), "TableRangeScan", plan);
+                const auto& rangeKeys = index["ReadRangesKeys"].GetArraySafe();
+                UNIT_ASSERT_VALUES_EQUAL_C(rangeKeys.size(), 1, plan);
+                UNIT_ASSERT_VALUES_EQUAL_C(rangeKeys[0].GetStringSafe(), "D", plan);
+                const auto lookup = FindPlanNodeByKv(simplified, "Name", "TableLookup");
+                UNIT_ASSERT_C(lookup.IsDefined(), plan);
+                UNIT_ASSERT_VALUES_EQUAL_C(lookup["Table"].GetStringSafe(), table, plan);
+
+                // Require a computed range transaction feeding the actual row
+                // source. A literal point, full scan or folded parameter is a
+                // fixture failure, even if the result happens to be correct.
+                UNIT_ASSERT_C(ast.Contains("(declare $p (DataType 'Decimal '7 '0))")
+                    && ast.Contains("(Just $p)"), ast);
+                UNIT_ASSERT_C(ast.Contains("RangeFinalize") && ast.Contains("RangeMultiply")
+                    && ast.Contains("DqCnValue") && ast.Contains("'\"compute\""), ast);
+                UNIT_ASSERT_C(!ast.Contains("KqlKeyInc") && !ast.Contains("KqlKeyExc"), ast);
+                const auto sourceBegin = ast.find("(KqpRowsSourceSettings ");
+                UNIT_ASSERT_C(sourceBegin != TString::npos, ast);
+                UNIT_ASSERT_C(ast.find("(KqpRowsSourceSettings ", sourceBegin + 1) == TString::npos, ast);
+                const TString source = ast.substr(sourceBegin, ast.find('\n', sourceBegin) - sourceBegin);
+                UNIT_ASSERT_C(source.Contains("%kqp_physical_tx_param_binding_"), ast);
+
+                const auto result = querySession.ExecuteQuery(query,
+                    NQuery::TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), query << "\n" << result.GetIssues().ToString() << "\n" << ast);
+                UNIT_ASSERT_VALUES_EQUAL_C(failures->Val(), beforeFailure, query);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                const auto& rs = result.GetResultSet(0);
+                UNIT_ASSERT(!rs.Truncated());
+                const auto& resultColumns = rs.GetColumnsMeta();
+                UNIT_ASSERT_VALUES_EQUAL(resultColumns.size(), 2);
+                UNIT_ASSERT_VALUES_EQUAL(resultColumns[0].Name, "Tail");
+                UNIT_ASSERT_VALUES_EQUAL(resultColumns[0].Type.ToString(), "String");
+                UNIT_ASSERT_VALUES_EQUAL(resultColumns[1].Name, "Payload");
+                UNIT_ASSERT_VALUES_EQUAL(resultColumns[1].Type.ToString(), "Int32");
+                std::vector<std::vector<std::string>> actual, expected;
+                TResultSetParser parser(rs);
+                while (parser.TryNextRow()) {
+                    actual.push_back({parser.ColumnParser(0).GetString(),
+                        std::to_string(parser.ColumnParser(1).GetInt32())});
+                }
+                for (const auto& id : testCase.Ids) {
+                    const auto row = std::find_if(rows.begin(), rows.end(),
+                        [&](const TRow& value) { return value.Id == id; });
+                    UNIT_ASSERT(row != rows.end());
+                    expected.push_back({row->Tail, std::to_string(row->Payload)});
+                }
+                std::sort(actual.begin(), actual.end());
+                std::sort(expected.begin(), expected.end());
+                UNIT_ASSERT_VALUES_EQUAL_C(actual, expected, "unique=" << unique << " bound=" << testCase.Bound
+                    << "\n" << query << "\n" << FormatResultSetYson(rs) << "\n" << ast);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(RequiredDecimalSetOperationsUseValueIdentity) {
+        struct TCase {
+            ui8 LeftPrecision, LeftScale, RightPrecision, RightScale;
+            std::vector<std::string> Left, Right, Intersection, Difference;
+        };
+        // Exercise both input orientations after common-type alignment.
+        // Set identity compares those converted values, including NaN peers;
+        // the final public cast is an exact widening for these fixture values.
+        const std::vector<TCase> cases{
+            {7, 0, 7, 0,
+                {"nan", "nan", "7", "7", "8", "inf", "-inf"},
+                {"nan", "7", "inf", "-inf", "9"},
+                {"nan", "7", "inf", "-inf"}, {"8"}},
+            {7, 0, 7, 0,
+                {"nan", "nan", "7", "7", "8", "inf", "-inf"},
+                {"7", "inf", "-inf", "9"},
+                {"7", "inf", "-inf"}, {"nan", "8"}},
+            {7, 0, 10, 0,
+                {"nan", "nan", "7", "7", "8", "inf", "-inf"},
+                {"nan", "7", "-inf", "12345678"},
+                {"nan", "7", "-inf"}, {"8", "inf"}},
+            {10, 0, 7, 0,
+                {"nan", "nan", "7", "7", "12345678", "inf", "-inf"},
+                {"nan", "7", "inf", "-inf", "8"},
+                {"nan", "7", "inf", "-inf"}, {"12345678"}},
+            {7, 0, 10, 1,
+                {"nan", "nan", "7", "7", "8", "1", "10", "inf", "-inf"},
+                {"nan", "7.0", "7.5", "1.0", "10.5", "inf", "-inf", "9.0"},
+                {"nan", "7", "1", "inf", "-inf"}, {"8", "10"}},
+            {10, 1, 7, 0,
+                {"nan", "nan", "7.0", "7.0", "7.5", "1.0", "10.5", "inf", "-inf", "9.0"},
+                {"nan", "7", "8", "1", "10", "inf", "-inf"},
+                {"nan", "7.0", "1.0", "inf", "-inf"}, {"7.5", "10.5", "9.0"}},
+        };
+        for (const std::string mode : {"grace", "block", "map"}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(true);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableFallbackOnDML(false);
+            service->SetEnableFallbackOnMultipleStatements(false);
+            service->SetDefaultLangVer(202501);
+            service->SetDefaultCostBasedOptimizationLevel(0);
+            service->SetUseBlockHashJoin(mode == "block");
+            TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+            auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+            const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+            const auto successes = counters->GetCounter("Compilation/NewRBO/Success");
+            const auto failures = counters->GetCounter("Compilation/NewRBO/Failed");
+            const auto values = [](const std::vector<std::string>& input, ui8 precision, ui8 scale) {
+                TValueBuilder result;
+                result.BeginList();
+                for (const auto& value : input) {
+                    result.AddListItem().BeginStruct().AddMember("D")
+                        .Decimal(TDecimalValue(value, precision, scale)).EndStruct();
+                }
+                return result.EndList().Build();
+            };
+            bool observedNewRbo = false;
+            for (const auto& item : cases) {
+                const auto params = TParamsBuilder()
+                    .AddParam("$lhs", values(item.Left, item.LeftPrecision, item.LeftScale))
+                    .AddParam("$rhs", values(item.Right, item.RightPrecision, item.RightScale)).Build();
+                for (const bool difference : {false, true}) {
+                    const TString query = TStringBuilder()
+                        << "PRAGMA YqlSelect = 'force'; PRAGMA ydb.CostBasedOptimizationLevel = '0'; "
+                        << "PRAGMA ydb.HashJoinMode = '" << (mode == "map" ? "map" : "grace") << "'; "
+                        << "DECLARE $lhs AS List<Struct<D:Decimal(" << ui32(item.LeftPrecision) << ',' << ui32(item.LeftScale) << ")>>; "
+                        << "DECLARE $rhs AS List<Struct<D:Decimal(" << ui32(item.RightPrecision) << ',' << ui32(item.RightScale) << ")>>; "
+                        << "$set = (SELECT D FROM AS_TABLE($lhs) " << (difference ? "EXCEPT" : "INTERSECT")
+                        << " SELECT D FROM AS_TABLE($rhs)); "
+                        << "SELECT CAST(D AS Decimal(12,1)) AS D FROM $set;";
+                    const auto beforeSuccess = successes->Val();
+                    const auto beforeFailure = failures->Val();
+                    const auto explained = session.ExecuteQuery(query, NQuery::TTxControl::NoTx(), params,
+                        NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                    UNIT_ASSERT_C(explained.IsSuccess(), query << "\n" << explained.GetIssues().ToString());
+                    if (!observedNewRbo) {
+                        UNIT_ASSERT(successes->Val() > beforeSuccess);
+                        observedNewRbo = true;
+                    }
+                    UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+                    UNIT_ASSERT(explained.GetStats() && explained.GetStats()->GetAst());
+                    const TString ast{*explained.GetStats()->GetAst()};
+                    const TString core = mode == "block" ? "BlockHashJoinCore" : mode == "map" ? "MapJoinCore" : "GraceJoinCore";
+                    Cerr << "[DECIMAL-SET-IDENTITY] mode=" << mode << "\n" << query << "\n" << ast << Endl;
+                    UNIT_ASSERT_C(ast.Contains(core) && ast.Contains("StablePickle"), ast);
+                    UNIT_ASSERT_C(ast.Contains("(declare $lhs ") && ast.Contains("(declare $rhs "), ast);
+                    const auto result = session.ExecuteQuery(query,
+                        NQuery::TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                    UNIT_ASSERT_C(result.IsSuccess(), query << "\n" << result.GetIssues().ToString());
+                    UNIT_ASSERT_VALUES_EQUAL(failures->Val(), beforeFailure);
+                    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                    const auto& rs = result.GetResultSet(0);
+                    UNIT_ASSERT(!rs.Truncated());
+                    UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta().size(), 1);
+                    UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta()[0].Name, "D");
+                    UNIT_ASSERT_VALUES_EQUAL(rs.GetColumnsMeta()[0].Type.ToString(), "Decimal(12,1)");
+                    std::vector<std::string> actual, expected;
+                    TResultSetParser parser(rs);
+                    while (parser.TryNextRow()) { actual.push_back(parser.ColumnParser(0).GetDecimal().ToString()); }
+                    for (const auto& value : difference ? item.Difference : item.Intersection) {
+                        expected.push_back(TDecimalValue(value, 12, 1).ToString());
+                    }
+                    std::sort(actual.begin(), actual.end());
+                    std::sort(expected.begin(), expected.end());
+                    UNIT_ASSERT_VALUES_EQUAL_C(actual, expected, query << "\n" << FormatResultSetYson(rs) << "\n" << ast);
+                }
+            }
+        }
     }
 
     Y_UNIT_TEST_TWIN(SafeCastOptionalResults, PhysicalStagePeephole) {

@@ -460,6 +460,32 @@ SIMPLE_UDF_WITH_OPTIONAL_ARGS(TPatternFromLike, char*(char*, TOptional<char*>), 
         }
         escape = escapeRef.front();
     }
+    if (hasEscape && escape == '\0') {
+        // QuoteMeta expands NUL to the four ASCII bytes "\\x00". Consume
+        // this escape from the original pattern before quoting literal bytes.
+        TStringBuilder nulResult;
+        nulResult << "(?s)";
+        bool inEscape = false;
+        for (const char c : input) {
+            if (inEscape) {
+                nulResult << RE2::QuoteMeta(StringPiece(&c, 1));
+                inEscape = false;
+            } else if (c == '\0') {
+                inEscape = true;
+            } else if (c == '%') {
+                nulResult << ".*";
+            } else if (c == '_') {
+                nulResult << '.';
+            } else {
+                nulResult << RE2::QuoteMeta(StringPiece(&c, 1));
+            }
+        }
+        if (!inEscape) {
+            return valueBuilder->NewString(nulResult);
+        }
+        // Literal SQL rejects a trailing escape. Keep the existing direct-UDF
+        // behavior for such malformed patterns; its error policy is separate.
+    }
     const TString escaped(RE2::QuoteMeta(StringPiece(input.data(), input.size())));
 
     TStringBuilder result;
@@ -472,6 +498,8 @@ SIMPLE_UDF_WITH_OPTIONAL_ARGS(TPatternFromLike, char*(char*, TOptional<char*>), 
             case '\\':
                 if (slash) {
                     result << "\\\\";
+                    // A literal backslash consumes a pending SQL escape.
+                    escapeOn = false;
                 }
                 slash = !slash;
                 break;

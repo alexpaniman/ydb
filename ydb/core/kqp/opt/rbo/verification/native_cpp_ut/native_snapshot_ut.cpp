@@ -2635,6 +2635,183 @@ std::pair<TSemanticSnapshotExportResult, TSemanticSnapshotExportResult> NativeSy
     return {std::move(before), ExportSemanticSnapshotV1(afterRoot, f.Rbo, catalog.Catalog)};
 }
 
+// Mirrors the complete observed computed-index range (not an arbitrary
+// RangeFor found inside a larger tree). The physical key is (g, x, k), while
+// the original business key is (g, x); repeated g values are legal even for
+// the UNIQUE variant. g is pruned from the emitted index row deliberately.
+std::pair<TSemanticSnapshotExportResult, TSemanticSnapshotExportResult> NativeComputedDecimalIndexPrefix(
+    bool staged, bool uniqueIndex = false, TStringBuf mutation = {}, TStringBuf literal = {})
+{
+    TFixture f("String", true, "String");
+    auto& ctx = f.Expr;
+    const auto pos = TPositionHandle();
+    auto& meta = *f.Table->Metadata;
+    meta.Columns.at("k") = TKikimrColumnMetadata("k", 1, "Utf8", true);
+    meta.Columns.at("g") = TKikimrColumnMetadata("g", 3, "Decimal", true);
+    meta.Columns.at("g").TypeInfo = NScheme::TTypeInfo(NScheme::TDecimalType(7, 0));
+    if (mutation == "four_keys") {
+        meta.Columns.emplace("h", TKikimrColumnMetadata("h", 5, "String", true));
+        meta.ColumnOrder.push_back("h");
+    }
+    auto& index = f.Tables->GetOrAddTable("ut", "/Root", "/Root/NativeSnapshot/by_decimal/indexImplTable");
+    index.Metadata = MakeIntrusive<TKikimrTableMetadata>("ut", "/Root/NativeSnapshot/by_decimal/indexImplTable");
+    auto& impl = *index.Metadata;
+    impl.DoesExist = true;
+    impl.PathId = TKikimrPathId(1, 2);
+    impl.SchemaVersion = 1;
+    impl.Kind = EKikimrTableKind::Datashard;
+    impl.KeyColumnNames = mutation == "four_keys" ? TVector<TString>{"g", "x", "h", "k"} : TVector<TString>{"g", "x", "k"};
+    impl.ColumnOrder = impl.KeyColumnNames;
+    for (const auto& name : impl.ColumnOrder) { impl.Columns.emplace(name, meta.Columns.at(name)); }
+    meta.Indexes.emplace_back("by_decimal", mutation == "four_keys" ? TVector<TString>{"g", "x", "h"} : TVector<TString>{"g", "x"}, TVector<TString>{},
+        uniqueIndex ? TIndexDescription::EType::GlobalSyncUnique : TIndexDescription::EType::GlobalSync,
+        TIndexDescription::EIndexState::Ready, 1, 2, 1, TIndexDescription::TSpecializedIndexDescription{});
+    meta.ImplTables.push_back(index.Metadata);
+
+    const auto* decimalType = ctx.MakeType<TDataExprParamsType>(NUdf::EDataSlot::Decimal, "7", "0");
+    const auto* stringType = ctx.MakeType<TDataExprType>(NUdf::EDataSlot::String);
+    const auto* utf8Type = ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Utf8);
+    const auto* int32Type = ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Int32);
+    const auto* boolType = ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Bool);
+    const auto makeParameter = [&](TStringBuf name, bool nullable = false) {
+        // ExpandType returns a cached unannotated descriptor. Keep each
+        // parameter independent of the deliberately malformed RangeFor types.
+        auto descriptor = ctx.NewCallable(pos, "DataType", {
+            ctx.NewAtom(pos, "Decimal"), ctx.NewAtom(pos, "7"), ctx.NewAtom(pos, "0")});
+        descriptor->SetTypeAnn(ctx.MakeType<TTypeExprType>(decimalType));
+        const TTypeAnnotationNode* valueType = decimalType;
+        if (nullable) {
+            valueType = ctx.MakeType<TOptionalExprType>(decimalType);
+            descriptor = ctx.NewCallable(pos, "OptionalType", {descriptor});
+            descriptor->SetTypeAnn(ctx.MakeType<TTypeExprType>(valueType));
+        }
+        auto result = ctx.NewCallable(pos, "Parameter", {ctx.NewAtom(pos, name), descriptor});
+        result->SetTypeAnn(valueType);
+        return result;
+    };
+    const auto makeBound = [&](TStringBuf name) {
+        if (literal.empty()) {
+            return makeParameter(name);
+        }
+        auto result = ctx.NewCallable(pos, "Decimal", {
+            ctx.NewAtom(pos, literal), ctx.NewAtom(pos, "7"), ctx.NewAtom(pos, "0")});
+        result->SetTypeAnn(decimalType);
+        return result;
+    };
+    auto initialBound = makeBound("$point");
+    auto base = MakeIntrusive<TOpRead>("same", TUnorderedIUs{f.Key, f.Group}, NYql::EStorageType::RowStorage,
+        NOpt::BuildTableMeta(*f.Table, pos, ctx).Ptr(), nullptr, nullptr, std::nullopt, std::nullopt,
+        ESortDir::None, TPhysicalOpProps{}, pos);
+    f.SetType(*base, {{f.Key, utf8Type}, {f.Group, decimalType}});
+    auto row = ctx.NewArgument(pos, "row");
+    row->SetTypeAnn(base->Type->Cast<TListExprType>()->GetItemType());
+    auto member = ctx.NewCallable(pos, "Member", {row, ctx.NewAtom(pos, ToString(f.Group))});
+    member->SetTypeAnn(decimalType);
+    auto predicate = ctx.NewCallable(pos, "==", {member, initialBound});
+    predicate->SetTypeAnn(boolType);
+    auto lambda = ctx.NewLambda(pos, ctx.NewArguments(pos, {row}), std::move(predicate));
+    auto filter = MakeIntrusive<TOpFilter>(base, pos, TExpression(lambda, &ctx, &f.ExpressionProps));
+    filter->Type = base->Type;
+    TOpRoot beforeRoot(filter, pos, {{f.Key, "key"}});
+    beforeRoot.PlanProps.InfoUnitRegistry = f.Registry;
+    const auto catalog = CaptureSemanticSnapshotCatalogV1(beforeRoot, f.Rbo);
+    UNIT_ASSERT_C(catalog.IsSupported(), catalog.UnsupportedReason);
+    UNIT_ASSERT_VALUES_EQUAL(catalog.Catalog.Tables.size(), 2);
+    auto before = ExportSemanticSnapshotV1(beforeRoot, f.Rbo, catalog.Catalog);
+
+    auto bound = makeBound(mutation == "changed_parameter" ? "$other" : "$point");
+    if (mutation.StartsWith("unsafe_literal_atom_")) {
+        bound = ctx.NewCallable(pos, "Decimal", {ctx.NewAtom(pos, "1"), ctx.NewAtom(pos, "7"), ctx.NewAtom(pos, "0")});
+        bound->SetTypeAnn(decimalType);
+        const size_t index = mutation.EndsWith("0") ? 0 : mutation.EndsWith("1") ? 1 : 2;
+        bound->Child(index)->SetPosAware();
+    }
+    if (mutation == "missing_bound_type") { bound->SetTypeAnn(nullptr); }
+    if (mutation == "nullable_bound") {
+        bound = makeParameter("$point", true);
+    }
+    if (mutation == "cast_bound") {
+        bound = ctx.NewCallable(pos, "StrictCast", {bound, ExpandType(pos, *decimalType, ctx)});
+        bound->SetTypeAnn(decimalType);
+    }
+    auto descriptor = ExpandType(pos, *decimalType, ctx);
+    if (mutation == "different_precision") {
+        descriptor = ExpandType(pos, *ctx.MakeType<TDataExprParamsType>(NUdf::EDataSlot::Decimal, "8", "0"), ctx);
+    }
+    if (mutation == "descriptor_annotation") { descriptor->SetTypeAnn(ctx.MakeType<TTypeExprType>(stringType)); }
+    auto point = ctx.NewCallable(pos, "RangeFor", {
+        ctx.NewAtom(pos, mutation == "inequality" ? ">" : mutation == "plain_equality" ? "==" : "==="),
+        bound, descriptor});
+    auto fullString = ctx.NewCallable(pos, "Nothing", {ExpandType(pos, *ctx.MakeType<TOptionalExprType>(stringType), ctx)});
+    auto fullUtf8 = ctx.NewCallable(pos, "Nothing", {ExpandType(pos, *ctx.MakeType<TOptionalExprType>(utf8Type), ctx)});
+    if (mutation == "suffix_type") {
+        fullString = ctx.NewCallable(pos, "Nothing", {ExpandType(pos, *ctx.MakeType<TOptionalExprType>(int32Type), ctx)});
+    }
+    if (mutation == "suffix_value") {
+        fullString = ctx.NewCallable(pos, "Just", {ctx.NewCallable(pos, "String", {ctx.NewAtom(pos, "x")})});
+    }
+    auto boundary = ctx.NewList(pos, {fullString, fullUtf8,
+        ctx.NewCallable(pos, "Int32", {ctx.NewAtom(pos, mutation == "suffix_inclusion" ? "1" : "0")})});
+    if (mutation == "four_keys") { boundary = ctx.NewList(pos, {fullString, fullString, fullUtf8, boundary->ChildPtr(2)}); }
+    if (mutation == "suffix_width") { boundary = ctx.NewList(pos, {fullUtf8, boundary->ChildPtr(2)}); }
+    auto suffix = ctx.NewCallable(pos, "AsRange", {ctx.NewList(pos, {boundary, boundary})});
+    auto cap = ctx.NewCallable(pos, "Uint64", {ctx.NewAtom(pos, mutation == "cap" ? "9999" : "10000")});
+    auto product = ctx.NewCallable(pos, "RangeMultiply", {cap, point, suffix});
+    if (mutation == "missing_suffix") { product = ctx.NewCallable(pos, "RangeMultiply", {cap, point}); }
+    if (mutation == "intersect") { product = ctx.NewCallable(pos, "RangeIntersect", {product, product}); }
+    if (mutation == "list_overflow") {
+        product = ctx.NewCallable(pos, "IfPresent", {ctx.NewCallable(pos, "Just", {product}), product, suffix});
+    }
+    auto unionNode = ctx.NewCallable(pos, "RangeUnion", {product});
+    if (mutation == "multiple_union") { unionNode = ctx.NewCallable(pos, "RangeUnion", {product, product}); }
+    auto compute = ctx.NewCallable(pos, "RangeFinalize", {ctx.NewCallable(pos, "RangeMultiply", {cap, unionNode})});
+    if (mutation == "wrong_annotation") { compute->SetTypeAnn(ctx.MakeType<TListExprType>(stringType)); }
+    if (mutation == "annotated") {
+        const auto rangeType = [&](const TVector<const TTypeAnnotationNode*>& keys, bool internal) {
+            TTypeAnnotationNode::TListType components;
+            for (const auto* type : keys) {
+                if (internal) { components.push_back(int32Type); }
+                components.push_back(ctx.MakeType<TOptionalExprType>(type));
+            }
+            components.push_back(int32Type);
+            const auto* edge = ctx.MakeType<TTupleExprType>(components);
+            return ctx.MakeType<TListExprType>(ctx.MakeType<TTupleExprType>(TTypeAnnotationNode::TListType{edge, edge}));
+        };
+        const TVector<const TTypeAnnotationNode*> keys{decimalType, stringType, utf8Type};
+        compute->SetTypeAnn(rangeType(keys, false));
+        compute->Child(0)->SetTypeAnn(rangeType(keys, true));
+        unionNode->SetTypeAnn(rangeType(keys, true));
+        product->SetTypeAnn(rangeType(keys, true));
+        point->SetTypeAnn(rangeType({decimalType}, true));
+        suffix->SetTypeAnn(rangeType({stringType, utf8Type}, true));
+    }
+    const auto probeKey = f.Registry.Add(TInfoUnit("index", "k"));
+    auto read = MakeIntrusive<TOpRead>("index", TUnorderedIUs{probeKey}, NYql::EStorageType::RowStorage,
+        NOpt::BuildTableMeta(index, pos, ctx).Ptr(), nullptr, nullptr,
+        TOpRead::TRangeInfo{.ComputeNode = compute, .KeyColumns = impl.KeyColumnNames,
+            .UsedPrefixLen = 1, .PointPrefixLen = 1, .ExpectedMaxRanges = 1},
+        std::nullopt, ESortDir::None, TPhysicalOpProps{}, pos);
+    f.SetType(*read, {{probeKey, utf8Type}});
+    if (mutation == "key_order") { read->RangeInfo->KeyColumns = {"x", "g", "k"}; }
+    if (mutation == "used_prefix") { read->RangeInfo->UsedPrefixLen = 2; }
+    if (mutation == "point_prefix") { read->RangeInfo->PointPrefixLen = 0; }
+    if (mutation == "range_count") { read->RangeInfo->ExpectedMaxRanges = 2; }
+    if (mutation == "missing_count") { read->RangeInfo->ExpectedMaxRanges.Clear(); }
+    if (mutation == "literal_precedence") {
+        // A physical literal NaN point contains NaN. A computed equality
+        // bound by NaN contains no rows. Never ignore the selected literal.
+        auto nan = ctx.NewCallable(pos, "Decimal", {ctx.NewAtom(pos, "nan"), ctx.NewAtom(pos, "7"), ctx.NewAtom(pos, "0")});
+        nan->SetTypeAnn(decimalType);
+        read->RangeInfo->LiteralRange = ctx.NewList(pos, {
+            ctx.NewCallable(pos, "KqlKeyInc", {nan}), ctx.NewCallable(pos, "KqlKeyInc", {nan})});
+    }
+    TOpRoot afterRoot(read, pos, {{probeKey, "key"}});
+    afterRoot.PlanProps.InfoUnitRegistry = f.Registry;
+    if (staged) { read->Props.StageId = afterRoot.PlanProps.StageGraph.AddSourceStage(NYql::EStorageType::RowStorage); }
+    return {std::move(before), ExportSemanticSnapshotV1(afterRoot, f.Rbo, catalog.Catalog)};
+}
+
+
 // Only k/x are projected, while hidden g/price carry an unselected UNIQUE law.
 TSemanticSnapshotCatalogCaptureResult NativeUniqueConstraintCatalog(TStringBuf mutation = {}) {
     TFixture f;
@@ -2710,6 +2887,54 @@ TSemanticSnapshotCatalogCaptureResult NativeUniqueConstraintCatalog(TStringBuf m
 } // namespace
 
 Y_UNIT_TEST_SUITE(TNativeSemanticSnapshot) {
+    Y_UNIT_TEST(NativeComputedDecimalIndexEqualityPreservesPrunedKeysAndSharedParameters) {
+        for (const bool staged : {false, true}) {
+            for (const bool unique : {false, true}) {
+                const auto [before, after] = NativeComputedDecimalIndexPrefix(staged, unique);
+                const auto initial = Parse(before);
+                const auto final = Parse(after);
+                UNIT_ASSERT(initial["schema"] == final["schema"]);
+                UNIT_ASSERT(after.Json.Contains("predicate_columns"));
+                UNIT_ASSERT(after.Json.Contains("$point"));
+                UNIT_ASSERT_VALUES_EQUAL(Verify(before.Json, after.Json, !staged), "VERIFIED_BOUNDED");
+            }
+            const auto [before, changed] = NativeComputedDecimalIndexPrefix(staged, false, "changed_parameter");
+            Parse(before); Parse(changed);
+            UNIT_ASSERT_VALUES_EQUAL(Verify(before.Json, changed.Json, !staged), "COUNTEREXAMPLE");
+        }
+    }
+
+    Y_UNIT_TEST(NativeComputedDecimalIndexEqualityHandlesNaNInfinityAndExactAnnotations) {
+        for (const TStringBuf value : {"nan", "inf", "-inf", "-1", "0", "9999999"}) {
+            const auto [before, after] = NativeComputedDecimalIndexPrefix(true, true, {}, value);
+            Parse(before); Parse(after);
+            UNIT_ASSERT_VALUES_EQUAL(Verify(before.Json, after.Json), "VERIFIED_BOUNDED");
+        }
+        for (const TStringBuf mutation : {"plain_equality", "annotated", "four_keys"}) {
+            const auto [before, after] = NativeComputedDecimalIndexPrefix(true, false, mutation);
+            Parse(before); Parse(after);
+            UNIT_ASSERT_VALUES_EQUAL(Verify(before.Json, after.Json), "VERIFIED_BOUNDED");
+        }
+    }
+
+    Y_UNIT_TEST(NativeComputedDecimalIndexEqualityRejectsNonExactPhysicalRanges) {
+        for (const TStringBuf mutation : {"missing_bound_type", "nullable_bound", "cast_bound",
+                "different_precision", "descriptor_annotation", "inequality", "suffix_type",
+                "suffix_value", "suffix_inclusion", "suffix_width", "cap", "missing_suffix",
+                "intersect", "list_overflow", "multiple_union", "wrong_annotation", "key_order",
+                "used_prefix", "point_prefix", "range_count", "missing_count", "literal_precedence",
+                "unsafe_literal_atom_0", "unsafe_literal_atom_1", "unsafe_literal_atom_2"}) {
+            const auto [before, after] = NativeComputedDecimalIndexPrefix(true, true, mutation);
+            Parse(before);
+            UNIT_ASSERT_C(!after.IsSupported(), mutation << ": " << after.Json);
+            if (mutation.StartsWith("unsafe_literal_atom_")) {
+                UNIT_ASSERT_C(after.UnsupportedReason.Contains("position-aware"), after.UnsupportedReason);
+            }
+            UNIT_ASSERT_C(after.UnsupportedReason.Contains("range") || after.UnsupportedReason.Contains("Range"),
+                mutation << ": " << after.UnsupportedReason);
+        }
+    }
+
     Y_UNIT_TEST(NativeCatalogCapturesHiddenUnselectedUniqueConstraintsAndPhysicalKey) {
         for (const TStringBuf mutation : {TStringBuf{}, TStringBuf("second_unique")}) {
             const auto captured = NativeUniqueConstraintCatalog(mutation);

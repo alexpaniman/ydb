@@ -48,15 +48,10 @@ TIntrusivePtr<IOperator> TExpandWholePartitionWindowRule::SimpleMatchAndApply(co
     const bool grouped = !window->GetPartitionKeys().Items().empty();
     TOrderedIUs<> groupKeys;
     TJoinIUs joinKeys;
-    TJoinIUs nullableJoinKeys;
     for (const auto key : window->GetPartitionKeys().Items()) {
         const auto groupKey = rebindings.At(key);
         groupKeys.Append(groupKey);
-        if (IsNullableIU(windowInput, key, ctx)) {
-            nullableJoinKeys.Add(key, groupKey);
-        } else {
-            joinKeys.Add(key, groupKey);
-        }
+        joinKeys.Add(key, groupKey);
     }
 
     TAggregationIUs aggregations;
@@ -85,12 +80,11 @@ TIntrusivePtr<IOperator> TExpandWholePartitionWindowRule::SimpleMatchAndApply(co
     TIntrusivePtr<IOperator> groups =
         MakeIntrusive<TOpAggregate>(groupsPort, std::move(aggregations), std::move(groupKeys), EOpPhase::Undefined, /*distinctAll=*/false, pos);
 
-    // A window puts NULL keys into one partition. Both join inputs are new and
-    // untyped here, so every key passed below gets the null-safe semantics.
-    if (!nullableJoinKeys.Items().empty()) {
-        for (const auto& key : MakeNullSafeJoinKeys(rows, groups, nullableJoinKeys, pos, rboCtx, props).Items()) {
-            joinKeys.Add(key);
-        }
+    // Join rows back to their partition by identity, including NULL and Decimal
+    // NaN. The primary Replicate port retains the original type, so known
+    // required reflexive keys still avoid an encoding map.
+    if (!joinKeys.Items().empty()) {
+        joinKeys = MakeNullSafeJoinKeys(rows, groups, joinKeys, pos, rboCtx, props);
     }
 
     TIntrusivePtr<IOperator> result = MakeIntrusive<TOpJoin>(rows, groups, pos, grouped ? "Inner" : "Cross", std::move(joinKeys));

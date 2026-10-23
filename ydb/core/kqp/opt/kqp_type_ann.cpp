@@ -3102,21 +3102,48 @@ TStatus AnnotateOpReplaceAlias(const TExprNode::TPtr& input, TExprContext& ctx) 
     return TStatus::Ok;
 }
 
-// RewriteSelect records SELECT order in the final projecting Map. Follow only
-// its output wrappers; the struct type has canonical name order instead.
-TString GetSelectColumn(const TExprNode::TPtr& input, size_t index) {
+// RewriteSelect records SELECT order in the final projecting Map. A by-name
+// set keeps that left order, then adds names first introduced on the right.
+// Memoize by node within one annotation: shared SetOp DAGs are not trees.
+const TVector<TString>& CollectSelectColumns(const TExprNode::TPtr& input,
+    THashMap<const TExprNode*, TVector<TString>>& cache)
+{
+    if (const auto it = cache.find(input.Get()); it != cache.end()) {
+        return it->second;
+    }
+    TVector<TString> names;
     if (auto map = TMaybeNode<TKqpOpMap>(input)) {
         Y_ENSURE(map.Cast().Project(), "Expected SELECT projection");
-        return map.Cast().MapElements().Item(index).Variable().StringValue();
+        for (const auto& element : map.Cast().MapElements()) {
+            names.push_back(element.Variable().StringValue());
+        }
+    } else if (auto alias = TMaybeNode<TKqpOpReplaceAlias>(input)) {
+        names = CollectSelectColumns(alias.Cast().Input().Ptr(), cache);
+        const auto prefix = alias.Cast().Alias().StringValue();
+        if (!prefix.empty()) {
+            for (auto& name : names) {
+                name = prefix + "." + name;
+            }
+        }
+    } else if (auto set = TMaybeNode<TKqpOpSetOp>(input)) {
+        names = CollectSelectColumns(set.Cast().LeftInput().Ptr(), cache);
+        THashSet<TString> seen(names.begin(), names.end());
+        for (const auto& name : CollectSelectColumns(set.Cast().RightInput().Ptr(), cache)) {
+            if (seen.insert(name).second) {
+                names.push_back(name);
+            }
+        }
+    } else {
+        Y_ENSURE(TKqpOpLimit::Match(input.Get()) || TKqpOpSort::Match(input.Get()),
+            "Expected SELECT projection, got " << input->Content());
+        names = CollectSelectColumns(input->HeadPtr(), cache);
     }
-    if (auto alias = TMaybeNode<TKqpOpReplaceAlias>(input)) {
-        const auto name = GetSelectColumn(alias.Cast().Input().Ptr(), index);
-        const auto dot = name.find('.');
-        return alias.Cast().Alias().StringValue() + "." + name.substr(dot == TString::npos ? 0 : dot + 1);
-    }
-    Y_ENSURE(TKqpOpLimit::Match(input.Get()) || TKqpOpSort::Match(input.Get()) || TKqpOpSetOp::Match(input.Get()),
-        "Expected SELECT projection, got " << input->Content());
-    return GetSelectColumn(input->HeadPtr(), index);
+    return cache.emplace(input.Get(), std::move(names)).first->second;
+}
+
+TVector<TString> GetSelectColumns(const TExprNode::TPtr& input) {
+    THashMap<const TExprNode*, TVector<TString>> cache;
+    return CollectSelectColumns(input, cache);
 }
 
 TStatus AnnotateOpReplaceColumns(const TExprNode::TPtr& input, TExprContext& ctx) {
@@ -3124,10 +3151,14 @@ TStatus AnnotateOpReplaceColumns(const TExprNode::TPtr& input, TExprContext& ctx
     TVector<const TItemExprType*> structItemTypes;
     auto typeItems = structType->GetItems();
     auto columns = input->ChildPtr(TKqpOpReplaceColumns::idx_Columns);
-    Y_ENSURE(typeItems.size() == columns->ChildrenSize());
+    Y_ENSURE(typeItems.size() == columns->ChildrenSize(), "Positional column count does not match the input schema");
+    const auto names = GetSelectColumns(input->ChildPtr(TKqpOpReplaceColumns::idx_Input));
+    Y_ENSURE(names.size() == typeItems.size(), "SELECT projection does not cover the input schema");
+    THashSet<TString> seen;
 
     for (size_t i = 0; i < typeItems.size(); i++) {
-        const auto name = GetSelectColumn(input->ChildPtr(TKqpOpReplaceColumns::idx_Input), i);
+        const auto& name = names[i];
+        Y_ENSURE(seen.insert(name).second, "Duplicate SELECT projection column " << name);
         const auto* type = structType->FindItemType(name);
         Y_ENSURE(type, "Unknown projection column " << name);
         auto newName = columns->ChildPtr(i)->Content();
