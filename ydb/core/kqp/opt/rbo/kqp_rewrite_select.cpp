@@ -1620,6 +1620,32 @@ TExprNode::TPtr RewriteTableEffect(const TExprNode::TPtr& node, TExprContext& ct
         Y_ENSURE(false, "Fallback due to DML fallback flag");
     }
 
+    // Table effects currently lower directly to a sink. Decline before writing
+    // when an index needs the explicit maintenance of the legacy pipeline.
+    const auto& table = kqpCtx.Tables->ExistingTable(kqpCtx.Cluster, TKqlTableEffect(node).Table().Path());
+    for (const auto& index : table.Metadata->Indexes) {
+        if (!index.ItUsedForWrite() || index.KeyColumns.empty()) {
+            continue;
+        }
+        switch (index.Type) {
+            case TIndexDescription::EType::GlobalSync:
+            case TIndexDescription::EType::GlobalSyncUnique:
+                Y_ENSURE(kqpCtx.Config->GetEnableIndexStreamWrite(),
+                    "New RBO table effects require sink index maintenance or legacy fallback");
+                break;
+            case TIndexDescription::EType::GlobalAsync:
+            case TIndexDescription::EType::GlobalFulltextCompact:
+            case TIndexDescription::EType::GlobalFulltextCompactRelevance:
+            case TIndexDescription::EType::GlobalJsonCompact:
+            case TIndexDescription::EType::LocalBloomFilter:
+            case TIndexDescription::EType::LocalBloomNgramFilter:
+            case TIndexDescription::EType::LocalMinMax:
+                break;
+            default:
+                Y_ENSURE(false, "New RBO table effects require explicit index maintenance or legacy fallback");
+        }
+    }
+
     TExprNode::TPtr tableEffectInput = node->ChildPtr(1);
     if (TKqpWriteConstraint::Match(tableEffectInput.Get())){
         tableEffectInput = tableEffectInput->ChildPtr(0);
