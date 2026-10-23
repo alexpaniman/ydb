@@ -37,6 +37,9 @@ private:
     TExprNode::TPtr BuildChainLambda(bool update) const;
     TExprNode::TPtr BuildAccumulator(const TOpWindowFunc& func, ui32 funcIndex, TExprNode::TPtr itemArg, TExprNode::TPtr previousState,
                                      TExprNode::TPtr sortKeyChanged, TVector<std::pair<TString, TExprNode::TPtr>>& stateMembers) const;
+    bool IsLegacyNullableRank(const TOpWindowFunc& func) const;
+    TExprNode::TPtr BuildLegacyRankAccumulator(const TOpWindowFunc& func, ui32 funcIndex, TExprNode::TPtr itemArg,
+                                               TExprNode::TPtr previousState) const;
     TExprNode::TPtr BuildWholePartition(TExprNode::TPtr wideFlow) const;
     TExprNode::TPtr BuildFoldLambda(bool update) const;
     TExprNode::TPtr BuildChainOutputs(TExprNode::TPtr wideFlow) const;

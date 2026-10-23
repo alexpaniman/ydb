@@ -817,6 +817,7 @@ struct TWindowFuncTraits {
     TString Kind;
     TVector<TString> Arguments;
     TString ResultColName;
+    bool AnsiRank = true;
 };
 
 struct TWindowSortKey {
@@ -1249,6 +1250,9 @@ void ProcessWindowCalls(THashMap<TString, TWindowTraits>& windows, TVector<std::
             func.Function = GetWindowFunctionName(call);
             func.Kind = call->IsCallable("YqlWin") ? "Native" : "Aggregate";
             Y_ENSURE(SupportedWindowFunctions.contains(func.Function), "Window function " << func.Function << " is not supported");
+            if (func.Kind == "Native" && (func.Function == "rank" || func.Function == "denserank")) {
+                func.AnsiRank = HasSetting(*call->Child(2), "ansi");
+            }
 
             for (ui32 i = 4; i < call->ChildrenSize(); ++i) {
                 auto argument = call->ChildPtr(i);
@@ -1366,6 +1370,7 @@ TExprNode::TPtr BuildWindowOperators(TExprNode::TPtr input, const THashMap<TStri
                 .Kind().Value(func.Kind).Build()
                 .ResultColName().Value(func.ResultColName).Build()
                 .Arguments().Add(argumentNodes).Build()
+                .AnsiRank().Value(func.AnsiRank ? "true" : "false").Build()
             .Done().Ptr());
             // clang-format on
         }

@@ -851,7 +851,8 @@ TIntrusivePtr<IOperator> PlanConverter::ConvertTKqpOpWindow(TExprNode::TPtr node
         }
         const TString name(item.ResultColName().Value());
         const auto id = PlanProps.InfoUnitRegistry.Add(TInfoUnit(name));
-        functions.Add(id, TOpWindowFunc{TString(item.Function()), WindowFuncKindFromString(TString(item.Kind())), std::move(arguments)});
+        const bool ansiRank = !item.AnsiRank() || item.AnsiRank().Cast().Value() == "true";
+        functions.Add(id, TOpWindowFunc{TString(item.Function()), WindowFuncKindFromString(TString(item.Kind())), std::move(arguments), ansiRank});
         Y_ENSURE(output->emplace(name, id).second, "Duplicate Window output " << name);
     }
     OutputBindings[TImportKey{node.Get(), BindingContext}] = std::move(output);

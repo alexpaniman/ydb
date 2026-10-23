@@ -1084,7 +1084,8 @@
                 {"Index": 0, "Name": "Function", "Type": "TCoAtom"},
                 {"Index": 1, "Name": "Kind", "Type": "TCoAtom"},
                 {"Index": 2, "Name": "ResultColName", "Type": "TCoAtom"},
-                {"Index": 3, "Name": "Arguments", "Type": "TCoAtomList"}
+                {"Index": 3, "Name": "Arguments", "Type": "TCoAtomList"},
+                {"Index": 4, "Name": "AnsiRank", "Type": "TCoAtom", "Optional": true}
             ]
         },
         {

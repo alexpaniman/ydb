@@ -910,6 +910,7 @@ struct TOpWindowFunc {
     TString Function;
     EWindowFuncKind Kind = EWindowFuncKind::Aggregate;
     TOrderedIUs<> Arguments;
+    bool AnsiRank = true;
 };
 
 struct TWindowDependencies {

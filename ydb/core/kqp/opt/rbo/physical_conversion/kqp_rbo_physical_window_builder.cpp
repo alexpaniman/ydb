@@ -445,6 +445,42 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildGroupSwitchLambda() const {
     return Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, std::move(args)), std::move(body));
 }
 
+bool TPhysicalWindowBuilder::IsLegacyNullableRank(const TOpWindowFunc& func) const {
+    const auto& sortKeys = Window.GetSortElements().Items();
+    return func.Kind == EWindowFuncKind::Native && !func.AnsiRank &&
+           (func.Function == "rank" || func.Function == "denserank") && sortKeys.size() == 1 &&
+           InputItemType(sortKeys.front().first)->GetKind() == ETypeAnnotationKind::Optional;
+}
+
+TExprNode::TPtr TPhysicalWindowBuilder::BuildLegacyRankAccumulator(const TOpWindowFunc& func, ui32 funcIndex,
+                                                                  TExprNode::TPtr itemArg, TExprNode::TPtr previousState) const {
+    const auto keyColumn = Window.GetSortElements().Items().front().first;
+    const auto* keyType = InputItemType(keyColumn)->Cast<TOptionalExprType>()->GetItemType();
+    const auto* counterType = Ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
+    const auto* stateType = Ctx.MakeType<TOptionalExprType>(
+        Ctx.MakeType<TTupleExprType>(TTypeAnnotationNode::TListType{counterType, counterType, keyType}));
+    auto previous = previousState ? Member(previousState, AccumulatorName(funcIndex))
+                                  : Ctx.NewCallable(Pos, "Nothing", {ExpandType(Pos, *stateType, Ctx)});
+    auto keyArg = Ctx.NewArgument(Pos, "legacy_rank_key");
+    auto stateArg = Ctx.NewArgument(Pos, "legacy_rank_state");
+    auto nth = [&](ui32 index) {
+        return Ctx.Builder(Pos).Callable("Nth").Add(0, stateArg).Atom(1, ToString(index)).Seal().Build();
+    };
+
+    // The optional state stores rank, non-null row position and the last
+    // non-null key. Null keys leave the entire state unchanged in legacy mode.
+    auto initial = Ctx.NewCallable(Pos, "Just", {Ctx.NewList(Pos, {BuildUint64(1), BuildUint64(1), keyArg})});
+    auto position = Ctx.NewCallable(Pos, "Inc", {nth(1)});
+    auto nextRank = func.Function == "rank" ? position : Ctx.NewCallable(Pos, "Inc", {nth(0)});
+    auto sameKey = Ctx.NewCallable(Pos, "==", {keyArg, nth(2)});
+    auto rank = Ctx.NewCallable(Pos, "If", {sameKey, nth(0), nextRank});
+    auto updated = Ctx.NewCallable(Pos, "Just", {Ctx.NewList(Pos, {rank, position, keyArg})});
+    auto updateLambda = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {stateArg}), std::move(updated));
+    auto present = Ctx.NewCallable(Pos, "IfPresent", {previous, updateLambda, initial});
+    auto keyLambda = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {keyArg}), std::move(present));
+    return Ctx.NewCallable(Pos, "IfPresent", {Member(itemArg, Names.Get(keyColumn)), keyLambda, previous});
+}
+
 // ChainMap has 2 lambdas:
 // 1) init row has an access to the first row.
 // 2) update row has an access to state and a current row.
@@ -455,6 +491,9 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildAccumulator(const TOpWindowFunc& fu
     const auto accName = AccumulatorName(funcIndex);
 
     if (func.Kind == EWindowFuncKind::Native) {
+        if (IsLegacyNullableRank(func)) {
+            return BuildLegacyRankAccumulator(func, funcIndex, itemArg, previousState);
+        }
         if (!update) {
             if (func.Function == "rank") {
                 stateMembers.emplace_back(PositionName(funcIndex), BuildUint64(1));
@@ -714,6 +753,9 @@ bool TPhysicalWindowBuilder::IsNonOptionalAggregate(TInfoUnitId column) const {
 
 TExprNode::TPtr TPhysicalWindowBuilder::BuildResultFromAccumulator(TInfoUnitId column, TExprNode::TPtr accumulator) const {
     const auto& func = *Window.GetWindowFuncs().Find(column);
+    if (IsLegacyNullableRank(func)) {
+        return Ctx.Builder(Pos).Callable("Nth").Add(0, accumulator).Atom(1, "0").Seal().Build();
+    }
     auto result = func.Kind == EWindowFuncKind::Aggregate && func.Function == "avg" ? BuildAverage(func, std::move(accumulator))
                                                                                    : std::move(accumulator);
     return IsNonOptionalAggregate(column) ? Ctx.NewCallable(Pos, "Unwrap", {std::move(result)}) : result;

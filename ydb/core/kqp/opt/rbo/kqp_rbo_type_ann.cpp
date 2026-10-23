@@ -584,6 +584,14 @@ TStatus ComputeTypes(TIntrusivePtr<TOpWindow> window, TRBOContext& ctx) {
         const TTypeAnnotationNode* resultType = nullptr;
         if (func.Kind == EWindowFuncKind::Native) {
             resultType = ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64);
+            const auto& sortKeys = window->GetSortElements().Items();
+            if (!func.AnsiRank && (func.Function == "rank" || func.Function == "denserank") && sortKeys.size() == 1) {
+                const auto* keyType = structType->FindItemType(ctx.ExprCtx.GetIndexAsString(sortKeys.front().first));
+                Y_ENSURE(keyType, "Unknown window ranking key");
+                if (keyType->GetKind() == ETypeAnnotationKind::Optional) {
+                    resultType = ctx.ExprCtx.MakeType<TOptionalExprType>(resultType);
+                }
+            }
         } else {
             Y_ENSURE(func.Arguments.Items().size() == 1, "Window aggregate " << func.Function << " expects a single argument");
             const auto* argType = structType->FindItemType(ctx.ExprCtx.GetIndexAsString(func.Arguments.Items()[0]));
