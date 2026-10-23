@@ -27,21 +27,21 @@ private:
     void Prepare(const TVector<TInfoUnitId>& inputs);
     ui32 IndexOf(TInfoUnitId column) const;
     const TTypeAnnotationNode* InputItemType(TInfoUnitId column) const;
-    TExprNode::TPtr BuildOutputRowType() const;
+    TExprNode::TPtr BuildOutputRowType(bool framePrefixSums = false) const;
 
     TVector<TExprNode::TPtr> BuildSortKeys() const;
     TExprNode::TPtr BuildKeyExtractorLambda() const;
     TExprNode::TPtr BuildGroupSwitchLambda() const;
 
     TExprNode::TPtr BuildChain(TExprNode::TPtr wideFlow) const;
-    TExprNode::TPtr BuildChainLambda(bool update) const;
+    TExprNode::TPtr BuildChainLambda(bool update, bool framePrefixSums = false) const;
     TExprNode::TPtr BuildAccumulator(const TOpWindowFunc& func, ui32 funcIndex, TExprNode::TPtr itemArg, TExprNode::TPtr previousState,
                                      TExprNode::TPtr sortKeyChanged, TVector<std::pair<TString, TExprNode::TPtr>>& stateMembers) const;
     TExprNode::TPtr BuildWholePartition(TExprNode::TPtr wideFlow) const;
-    TExprNode::TPtr BuildFoldLambda(bool update) const;
-    TExprNode::TPtr BuildChainOutputs(TExprNode::TPtr wideFlow) const;
+    TExprNode::TPtr BuildFoldLambda(bool update, bool skipPrefixAggregates = false) const;
+    TExprNode::TPtr BuildChainOutputs(TExprNode::TPtr wideFlow, bool framePrefixSums = false) const;
     TExprNode::TPtr BuildPartitionList(TExprNode::TPtr flow) const;
-    TExprNode::TPtr BuildQueue(TExprNode::TPtr wideFlow) const;
+    TExprNode::TPtr BuildQueue(TExprNode::TPtr wideFlow, bool framePrefixSums = false) const;
     TExprNode::TPtr BuildFrameBounds(TExprNode::TListType rangeIncrementals, TExprNode::TListType rowIntervals,
                                      TExprNode::TListType rowIncrementals, TExprNode::TListType rangeIntervals = {}) const;
     TExprNode::TPtr BuildCollector(TExprNode::TPtr outputs, TExprNode::TPtr queue, TExprNode::TPtr bounds, bool ascending) const;
@@ -62,6 +62,14 @@ private:
     TExprNode::TPtr BuildExpandFromChain(TExprNode::TPtr chained) const;
 
     TString AccumulatorName(ui32 funcIndex) const;
+    TString SumCountName(ui32 funcIndex) const;
+    bool CanUsePrefixSum(TInfoUnitId column) const;
+    TString FrameOrdinalName() const;
+    bool CanUseRowMinMax(TInfoUnitId column) const;
+    bool CanUseScalarMinMax(TInfoUnitId column) const;
+    bool CanUseRangeMinMax(TInfoUnitId column) const;
+    bool HasRowMinMax() const;
+    TExprNode::TPtr BuildRowMinMaxOutputs(TExprNode::TPtr collected, TExprNode::TPtr queue) const;
     TString PositionName(ui32 funcIndex) const;
     TString PeerName(ui32 sortIndex) const;
 

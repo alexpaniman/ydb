@@ -588,6 +588,21 @@ TIntrusivePtr<IMkqlCallableCompiler> CreateKqlCompiler(const TKqlCompileContext&
             return ctx.PgmBuilder().FulltextAnalyze(textArg, settingsArg, modeArg);
         });
 
+    compiler->AddCallable("KqpRangeMinMax",
+        [&ctx](const TExprNode& node, TMkqlBuildContext& buildCtx) {
+            auto input = MkqlBuildExpr(*node.Child(0), buildCtx);
+            auto params = MkqlBuildExpr(*node.Child(1), buildCtx);
+            const auto* rowType = AS_TYPE(TStructType, AS_TYPE(TStreamType, input.GetStaticType())->GetItemType());
+            TVector<TRuntimeNode> mappings;
+            for (const auto& mapping : node.Child(2)->Children()) {
+                mappings.push_back(ctx.PgmBuilder().NewTuple({
+                    ctx.PgmBuilder().NewDataLiteral<ui32>(rowType->GetMemberIndex(mapping->Child(0)->Content())),
+                    ctx.PgmBuilder().NewDataLiteral<ui32>(rowType->GetMemberIndex(mapping->Child(1)->Content())),
+                    ctx.PgmBuilder().NewDataLiteral<bool>(mapping->Child(2)->Content() == "min")}));
+            }
+            return ctx.PgmBuilder().KqpRangeMinMax(input, params, ctx.PgmBuilder().NewTuple(mappings));
+        });
+
     compiler->AddCallable("KqpStreamEnumerate",
         [&ctx](const TExprNode& node, TMkqlBuildContext& buildCtx) {
             YQL_ENSURE(node.ChildrenSize() == 1, "KqpStreamEnumerate should have 1 argument");

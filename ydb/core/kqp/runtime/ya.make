@@ -16,6 +16,7 @@ SRCS(
     kqp_sequencer_actor.cpp
     kqp_sequencer_factory.cpp
     kqp_stream_enumerate.cpp
+    kqp_range_minmax.cpp
     kqp_stream_lock_worker.cpp
     kqp_stream_lock_worker.h
     kqp_stream_lookup_actor.cpp

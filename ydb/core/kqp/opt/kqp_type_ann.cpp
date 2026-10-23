@@ -1,4 +1,5 @@
 #include "kqp_opt.h"
+#include <ydb/core/kqp/common/kqp_window_minmax.h>
 
 #include <ydb/core/base/path.h>
 #include <ydb/core/base/table_index.h>
@@ -2201,6 +2202,49 @@ TStatus AnnotateKqpLockAndCheck(
 }
 
 
+TStatus AnnotateKqpRangeMinMax(const TExprNode::TPtr& node, TExprContext& ctx) {
+    if (!EnsureArgsCount(*node, 3, ctx) || !EnsureStreamType(*node->Child(0), ctx)) {
+        return TStatus::Error;
+    }
+    auto fail = [&]() {
+        ctx.AddError(TIssue(node->Pos(ctx), "KqpRangeMinMax requires typed scalar MIN/MAX mappings and literal frame settings"));
+        return TStatus::Error;
+    };
+    const auto* row = node->Child(0)->GetTypeAnn()->Cast<TStreamExprType>()->GetItemType();
+    if (row->GetKind() != ETypeAnnotationKind::Struct || !node->Child(1)->IsCallable("AsStruct") ||
+        !node->Child(2)->IsList() || !node->Child(2)->ChildrenSize()) {
+        return fail();
+    }
+    const auto* rowType = row->Cast<TStructExprType>();
+    THashSet<TStringBuf> outputs;
+    for (const auto& mapping : node->Child(2)->Children()) {
+        if (!mapping->IsList() || mapping->ChildrenSize() != 3 ||
+            !mapping->Child(0)->IsAtom() || !mapping->Child(1)->IsAtom() || !mapping->Child(2)->IsAtom()) {
+            return fail();
+        }
+        const auto input = rowType->FindItem(mapping->Child(0)->Content());
+        const auto output = rowType->FindItem(mapping->Child(1)->Content());
+        if (!input || !output || !outputs.insert(mapping->Child(1)->Content()).second ||
+            (mapping->Child(2)->Content() != "min" && mapping->Child(2)->Content() != "max")) {
+            return fail();
+        }
+        auto* inputType = rowType->GetItems()[*input]->GetItemType();
+        auto* outputType = rowType->GetItems()[*output]->GetItemType();
+        if (inputType->GetKind() == ETypeAnnotationKind::Optional) {
+            inputType = inputType->Cast<TOptionalExprType>()->GetItemType();
+        }
+        if (outputType->GetKind() == ETypeAnnotationKind::Optional) {
+            outputType = outputType->Cast<TOptionalExprType>()->GetItemType();
+        }
+        if (inputType->GetKind() != ETypeAnnotationKind::Data || !IsSameAnnotation(*inputType, *outputType) ||
+            !IsIncrementalWindowMinMaxSlot(inputType->Cast<TDataExprType>()->GetSlot())) {
+            return fail();
+        }
+    }
+    node->SetTypeAnn(node->Child(0)->GetTypeAnn());
+    return TStatus::Ok;
+}
+
 TStatus AnnotateKqpStreamEnumerate(const TExprNode::TPtr& node, TExprContext& ctx) {
     if (!EnsureArgsCount(*node, 1, ctx)) {
         return TStatus::Error;
@@ -4091,6 +4135,7 @@ public:
         AddHandler({TKqpEnsure::CallableName()}, Hndl(&AnnotateKqpEnsure));
         AddHandler({TKqpLockAndCheck::CallableName()}, HndlInt(&AnnotateKqpLockAndCheck));
         AddHandler({TFulltextAnalyze::CallableName()}, Hndl(&AnnotateFulltextAnalyze));
+        AddHandler({"KqpRangeMinMax"}, Hndl(&AnnotateKqpRangeMinMax));
         AddHandler({TKqpStreamEnumerate::CallableName()}, Hndl(&AnnotateKqpStreamEnumerate));
         AddHandler({TKqpStreamingAggregation::CallableName()}, Hndl(&TKiTypeAnnotationTransformer::HandleStreamingAggregation));
         AddHandler({TKqpReadTableFullTextIndexSourceSettings::CallableName()}, HndlInt(&AnnotateReadTableFullTextIndexSourceSettings));

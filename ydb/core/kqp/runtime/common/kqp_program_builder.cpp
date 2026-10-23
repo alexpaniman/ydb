@@ -428,6 +428,15 @@ TRuntimeNode TKqpProgramBuilder::KqpStreamingAggregation(TRuntimeNode flow,
     return TRuntimeNode(callableBuilder.Build(), false);
 }
 
+TRuntimeNode TKqpProgramBuilder::KqpRangeMinMax(TRuntimeNode input, TRuntimeNode params, TRuntimeNode columns) {
+    MKQL_ENSURE(input.GetStaticType()->IsStream(), "KqpRangeMinMax expects a stream");
+    TCallableBuilder builder(Env, __func__, input.GetStaticType());
+    builder.Add(input);
+    builder.Add(params);
+    builder.Add(columns);
+    return TRuntimeNode(builder.Build(), false);
+}
+
 TRuntimeNode TKqpProgramBuilder::KqpStreamEnumerate(TRuntimeNode input)
 {
     const auto inputType = input.GetStaticType();

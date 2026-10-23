@@ -65,6 +65,8 @@ public:
     // input: List/Flow/Stream<T> -> same container of Tuple<Uint64, T> with a 1-based rank.
     TRuntimeNode KqpStreamEnumerate(TRuntimeNode input);
 
+    TRuntimeNode KqpRangeMinMax(TRuntimeNode input, TRuntimeNode params, TRuntimeNode columns);
+
     TRuntimeNode KqpStreamingAggregation(TRuntimeNode flow,
         const TUnaryLambda& keyExtractor, // (input_item) -> (key)
         const TUnaryLambda& init, // (input_item) -> (state)

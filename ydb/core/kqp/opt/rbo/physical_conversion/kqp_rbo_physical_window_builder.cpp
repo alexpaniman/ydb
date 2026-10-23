@@ -1,4 +1,5 @@
 #include "kqp_rbo_physical_window_builder.h"
+#include <ydb/core/kqp/common/kqp_window_minmax.h>
 
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 
@@ -262,7 +263,7 @@ const TTypeAnnotationNode* TPhysicalWindowBuilder::InputItemType(TInfoUnitId col
     return type;
 }
 
-TExprNode::TPtr TPhysicalWindowBuilder::BuildOutputRowType() const {
+TExprNode::TPtr TPhysicalWindowBuilder::BuildOutputRowType(bool framePrefixSums) const {
     TVector<const TItemExprType*> fields;
     fields.reserve(OutputLayout.size());
     for (const auto id : OutputLayout) {
@@ -270,11 +271,107 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildOutputRowType() const {
         Y_ENSURE(type, "Cannot find the window result type for " << Names.Get(id));
         fields.push_back(Ctx.MakeType<TItemExprType>(Names.Get(id), type));
     }
+    if (framePrefixSums) {
+        if (HasRowMinMax()) {
+            fields.push_back(Ctx.MakeType<TItemExprType>(FrameOrdinalName(), Ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Uint64)));
+        }
+        for (ui32 f = 0; f < Functions.size(); ++f) {
+            const auto& func = *Window.GetWindowFuncs().Find(Functions[f]);
+            if (CanUsePrefixSum(Functions[f]) && InputItemType(func.Arguments.Items().front())->IsOptionalOrNull()) {
+                fields.push_back(Ctx.MakeType<TItemExprType>(SumCountName(f), Ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Uint64)));
+            }
+        }
+    }
     return ExpandType(Pos, *Ctx.MakeType<TStructExprType>(fields), Ctx);
 }
 
 TString TPhysicalWindowBuilder::AccumulatorName(ui32 funcIndex) const {
     return Names.GetTemporaryName("__kqp_win_acc_" + ToString(funcIndex) + "_");
+}
+
+TString TPhysicalWindowBuilder::SumCountName(ui32 funcIndex) const {
+    return Names.GetTemporaryName("__kqp_win_sum_count_" + ToString(funcIndex) + "_");
+}
+
+bool TPhysicalWindowBuilder::CanUsePrefixSum(TInfoUnitId column) const {
+    const auto& func = *Window.GetWindowFuncs().Find(column);
+    if (func.Kind != EWindowFuncKind::Aggregate || func.Function != "sum" || func.Arguments.Items().size() != 1) {
+        return false;
+    }
+    const auto* type = InputItemType(func.Arguments.Items().front());
+    if (type->GetKind() == ETypeAnnotationKind::Optional) {
+        type = type->Cast<TOptionalExprType>()->GetItemType();
+    }
+    if (type->GetKind() != ETypeAnnotationKind::Data) {
+        return false;
+    }
+    // These inputs widen exactly to a modular Int64/Uint64 accumulator.
+    // Floating, Decimal and Interval sums must preserve their ordered fold.
+    switch (type->Cast<TDataExprType>()->GetSlot()) {
+        case NUdf::EDataSlot::Int8:
+        case NUdf::EDataSlot::Uint8:
+        case NUdf::EDataSlot::Int16:
+        case NUdf::EDataSlot::Uint16:
+        case NUdf::EDataSlot::Int32:
+        case NUdf::EDataSlot::Uint32:
+        case NUdf::EDataSlot::Int64:
+        case NUdf::EDataSlot::Uint64:
+            return true;
+        default:
+            return false;
+    }
+}
+
+
+TString TPhysicalWindowBuilder::FrameOrdinalName() const {
+    return Names.GetTemporaryName("__kqp_win_frame_ordinal_");
+}
+
+bool TPhysicalWindowBuilder::CanUseRowMinMax(TInfoUnitId column) const {
+    const auto& frame = Window.GetFrame();
+    auto bounded = [](EWindowFrameBound bound) {
+        return bound == EWindowFrameBound::Preceding || bound == EWindowFrameBound::CurrentRow || bound == EWindowFrameBound::Following;
+    };
+    if (frame.Type != EWindowFrameType::Rows || !bounded(frame.BeginKind) ||
+        (!bounded(frame.EndKind) && frame.EndKind != EWindowFrameBound::UnboundedFollowing)) {
+        return false;
+    }
+    return CanUseScalarMinMax(column);
+}
+
+bool TPhysicalWindowBuilder::CanUseScalarMinMax(TInfoUnitId column) const {
+    const auto& func = *Window.GetWindowFuncs().Find(column);
+    if (func.Kind != EWindowFuncKind::Aggregate ||
+        (func.Function != "min" && func.Function != "max") || func.Arguments.Items().size() != 1) {
+        return false;
+    }
+    const auto* type = InputItemType(func.Arguments.Items().front());
+    if (type->GetKind() == ETypeAnnotationKind::Optional) {
+        type = type->Cast<TOptionalExprType>()->GetItemType();
+    }
+    if (type->GetKind() != ETypeAnnotationKind::Data) {
+        return false;
+    }
+    return IsIncrementalWindowMinMaxSlot(type->Cast<TDataExprType>()->GetSlot());
+}
+
+bool TPhysicalWindowBuilder::CanUseRangeMinMax(TInfoUnitId column) const {
+    const auto& frame = Window.GetFrame();
+    auto finite = [](EWindowFrameBound bound) {
+        return bound == EWindowFrameBound::Preceding || bound == EWindowFrameBound::CurrentRow || bound == EWindowFrameBound::Following;
+    };
+    return frame.Type == EWindowFrameType::Range && finite(frame.BeginKind) &&
+        (finite(frame.EndKind) || frame.EndKind == EWindowFrameBound::UnboundedFollowing) && CanUseScalarMinMax(column);
+}
+
+
+bool TPhysicalWindowBuilder::HasRowMinMax() const {
+    for (const auto output : Functions) {
+        if (CanUseRowMinMax(output)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 TString TPhysicalWindowBuilder::PositionName(ui32 funcIndex) const {
@@ -635,7 +732,7 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildAccumulator(const TOpWindowFunc& fu
     // clang-format on
 }
 
-TExprNode::TPtr TPhysicalWindowBuilder::BuildChainLambda(bool update) const {
+TExprNode::TPtr TPhysicalWindowBuilder::BuildChainLambda(bool update, bool framePrefixSums) const {
     auto itemArg = Ctx.NewArgument(Pos, "win_item");
     TExprNode::TListType args{itemArg};
 
@@ -681,6 +778,20 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildChainLambda(bool update) const {
         auto accumulator = BuildAccumulator(func, f, itemArg, previousState, sortKeyChanged, stateMembers);
         stateMembers.emplace_back(AccumulatorName(f), accumulator);
         outputMembers.emplace_back(Names.Get(funcs[f]), BuildResultFromAccumulator(funcs[f], accumulator));
+        if (framePrefixSums && CanUsePrefixSum(funcs[f]) && InputItemType(func.Arguments.Items().front())->IsOptionalOrNull()) {
+            auto value = Member(itemArg, Names.Get(func.Arguments.Items().front()));
+            auto count = update
+                ? Ctx.NewCallable(Pos, "AggrCountUpdate", {value, Member(previousState, SumCountName(f))})
+                : Ctx.NewCallable(Pos, "AggrCountInit", {value});
+            stateMembers.emplace_back(SumCountName(f), count);
+            outputMembers.emplace_back(SumCountName(f), count);
+        }
+    }
+
+    if (framePrefixSums && HasRowMinMax()) {
+        auto ordinal = update ? Ctx.NewCallable(Pos, "Inc", {Member(previousState, FrameOrdinalName())}) : BuildUint64(1);
+        stateMembers.emplace_back(FrameOrdinalName(), ordinal);
+        outputMembers.emplace_back(FrameOrdinalName(), ordinal);
     }
 
     if (NeedsPeerKey) {
@@ -838,7 +949,7 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildChain(TExprNode::TPtr wideFlow) con
 }
 
 // Processes whole partition and accumulates it into one value.
-TExprNode::TPtr TPhysicalWindowBuilder::BuildFoldLambda(bool update) const {
+TExprNode::TPtr TPhysicalWindowBuilder::BuildFoldLambda(bool update, bool skipPrefixAggregates) const {
     auto itemArg = Ctx.NewArgument(Pos, "fold_item");
     TExprNode::TListType args{itemArg};
 
@@ -852,7 +963,7 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildFoldLambda(bool update) const {
     const auto& funcs = Functions;
     for (ui32 f = 0; f < funcs.size(); ++f) {
         const auto& func = *Window.GetWindowFuncs().Find(funcs[f]);
-        if (func.Kind == EWindowFuncKind::Native) {
+        if (func.Kind == EWindowFuncKind::Native || (skipPrefixAggregates && (func.Function == "count" || CanUsePrefixSum(funcs[f]) || CanUseRowMinMax(funcs[f]) || CanUseRangeMinMax(funcs[f])))) {
             continue;
         }
         stateMembers.emplace_back(AccumulatorName(f), BuildAccumulator(func, f, itemArg, previousState, nullptr, stateMembers));
@@ -937,15 +1048,15 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildWholePartition(TExprNode::TPtr wide
     return BuildExpandFromStructs(result);
 }
 
-TExprNode::TPtr TPhysicalWindowBuilder::BuildChainOutputs(TExprNode::TPtr wideFlow) const {
+TExprNode::TPtr TPhysicalWindowBuilder::BuildChainOutputs(TExprNode::TPtr wideFlow, bool framePrefixSums) const {
     auto narrow = NPhysicalConvertionUtils::BuildNarrowMapForWideInput(wideFlow, Inputs, Ctx, Names);
 
     // clang-format off
     auto chained = Ctx.Builder(Pos)
         .Callable("Chain1Map")
             .Add(0, narrow)
-            .Add(1, BuildChainLambda(/*update=*/false))
-            .Add(2, BuildChainLambda(/*update=*/true))
+            .Add(1, BuildChainLambda(/*update=*/false, framePrefixSums))
+            .Add(2, BuildChainLambda(/*update=*/true, framePrefixSums))
         .Seal().Build();
 
     return Ctx.Builder(Pos)
@@ -992,13 +1103,13 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildPartitionList(TExprNode::TPtr flow)
     // clang-format on
 }
 
-TExprNode::TPtr TPhysicalWindowBuilder::BuildQueue(TExprNode::TPtr wideFlow) const {
+TExprNode::TPtr TPhysicalWindowBuilder::BuildQueue(TExprNode::TPtr wideFlow, bool framePrefixSums) const {
     Y_ENSURE(Window.Type, "Window has no type annotation");
 
     // clang-format off
     return Ctx.Builder(Pos)
         .Callable("QueueCreate")
-            .Add(0, BuildOutputRowType())
+            .Add(0, BuildOutputRowType(framePrefixSums))
             .Callable(1, "Void").Seal()
             .Add(2, BuildUint64(0))
             .Callable(3, "DependsOn")
@@ -1413,34 +1524,172 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildRangeFrames(TExprNode::TPtr wideFlo
     return BuildFrameFold(wideFlow, BuildFrameBounds({}, {}, {}, {interval}), /*isRange=*/true, sortElement.second.Ascending);
 }
 
+
+TExprNode::TPtr TPhysicalWindowBuilder::BuildRowMinMaxOutputs(TExprNode::TPtr collected, TExprNode::TPtr queue) const {
+    auto nth = [&](TExprNode::TPtr tuple, ui32 index) {
+        return Ctx.NewCallable(Pos, "Nth", {tuple, Ctx.NewAtom(Pos, ToString(index))});
+    };
+    auto makeLambda = [&](bool update) {
+        auto row = Ctx.NewArgument(Pos, "minmax_row");
+        TExprNode::TListType args{row};
+        TExprNode::TPtr previous;
+        if (update) {
+            auto state = Ctx.NewArgument(Pos, "minmax_previous");
+            args.push_back(state);
+            previous = nth(state, 1);
+        }
+        auto frameRows = Ctx.NewCallable(Pos, "WinFrame", {
+            queue, BuildUint64(0),
+            Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "false")}),
+            Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "false")}),
+            Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "false")}),
+            Ctx.NewCallable(Pos, "DependsOn", {row})});
+        auto firstRow = Ctx.NewCallable(Pos, "Head", {frameRows});
+        auto lastRow = Ctx.ChangeChild(*frameRows, 4,
+            Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "true")}));
+        auto previousEnd = update ? Member(previous, FrameOrdinalName()) : BuildUint64(0);
+        auto last = Ctx.NewArgument(Pos, "minmax_last");
+        auto lastOrdinal = Ctx.NewCallable(Pos, "IfPresent", {lastRow,
+            Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {last}), Member(last, FrameOrdinalName())), previousEnd});
+
+        // A finite ROWS right bound advances by at most one row. An
+        // unbounded-following bound drains the partition before the first
+        // result and then stays at its final row. In both cases only the first
+        // nonempty frame needs an initial scan; clipped tails add no new row.
+        auto entering = frameRows;
+        if (update) {
+            auto emptyRows = Ctx.NewCallable(Pos, "List", {
+                Ctx.NewCallable(Pos, "ListType", {BuildOutputRowType(/*framePrefixSums=*/true)})});
+            auto enteringLast = Ctx.NewArgument(Pos, "minmax_entering_last");
+            auto newLast = Ctx.NewCallable(Pos, "If", {
+                Ctx.NewCallable(Pos, ">", {Member(enteringLast, FrameOrdinalName()), previousEnd}),
+                Ctx.NewCallable(Pos, "AsList", {enteringLast}), emptyRows});
+            auto singleNewRow = Ctx.NewCallable(Pos, "IfPresent", {lastRow,
+                Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {enteringLast}), newLast), emptyRows});
+            entering = Ctx.NewCallable(Pos, "If", {
+                Ctx.NewCallable(Pos, "==", {previousEnd, BuildUint64(0)}), frameRows, singleNewRow});
+        }
+
+        TVector<std::pair<TString, TExprNode::TPtr>> states{{FrameOrdinalName(), lastOrdinal}};
+        auto outputRow = row;
+        for (ui32 f = 0; f < Functions.size(); ++f) {
+            if (!CanUseRowMinMax(Functions[f])) {
+                continue;
+            }
+            const auto& func = *Window.GetWindowFuncs().Find(Functions[f]);
+            const auto argument = func.Arguments.Items().front();
+            const auto* argumentType = InputItemType(argument);
+            const bool optional = argumentType->GetKind() == ETypeAnnotationKind::Optional;
+            const TTypeAnnotationNode* valueType = optional ? argumentType : Ctx.MakeType<TOptionalExprType>(argumentType);
+            const auto* entryType = Ctx.MakeType<TTupleExprType>(TTypeAnnotationNode::TListType{
+                Ctx.MakeType<TDataExprType>(NUdf::EDataSlot::Uint64), valueType, valueType});
+            auto empty = Ctx.NewCallable(Pos, "List", {ExpandType(Pos, *Ctx.MakeType<TListExprType>(entryType), Ctx)});
+            auto absent = Ctx.NewCallable(Pos, "Nothing", {ExpandType(Pos, *valueType, Ctx)});
+            auto combine = [&](TExprNode::TPtr left, TExprNode::TPtr right) {
+                return Ctx.NewCallable(Pos, func.Function == "min" ? "AggrMin" : "AggrMax", {left, right});
+            };
+            auto summary = [&](TExprNode::TPtr stack) {
+                auto head = Ctx.NewArgument(Pos, "minmax_head");
+                return Ctx.NewCallable(Pos, "IfPresent", {Ctx.NewCallable(Pos, "Head", {stack}),
+                    Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {head}), nth(head, 2)), absent});
+            };
+            auto first = Ctx.NewArgument(Pos, "minmax_first");
+            auto trim = [&](TExprNode::TPtr front) {
+                auto entry = Ctx.NewArgument(Pos, "minmax_expired");
+                auto expired = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {entry}),
+                    Ctx.NewCallable(Pos, "<", {nth(entry, 0), Member(first, FrameOrdinalName())}));
+                // Front is a direct list built only by Prepend during transfer.
+                // Afterwards it is only skipped; this retains O(1) list slices.
+                auto count = Ctx.NewCallable(Pos, "Length", {Ctx.NewCallable(Pos, "TakeWhile", {front, expired})});
+                return Ctx.NewCallable(Pos, "Skip", {front, count});
+            };
+            auto old = update ? Member(previous, AccumulatorName(f)) : Ctx.NewList(Pos, {empty, empty});
+            auto oldRear = nth(old, 1);
+            auto trimmed = trim(nth(old, 0));
+            auto hasFront = Ctx.NewCallable(Pos, "HasItems", {trimmed});
+
+            auto entry = Ctx.NewArgument(Pos, "minmax_transfer_entry");
+            auto front = Ctx.NewArgument(Pos, "minmax_transfer_front");
+            auto transferredEntry = Ctx.NewList(Pos, {nth(entry, 0), nth(entry, 1), combine(nth(entry, 1), summary(front))});
+            auto transferLambda = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {entry, front}),
+                Ctx.NewCallable(Pos, "Prepend", {transferredEntry, front}));
+            auto transferred = Ctx.NewCallable(Pos, "Fold", {oldRear, empty, transferLambda});
+            auto nextFront = Ctx.NewCallable(Pos, "If", {hasFront, trimmed, trim(transferred)});
+            auto retainedRear = Ctx.NewCallable(Pos, "If", {hasFront, oldRear, empty});
+
+            auto addedRow = Ctx.NewArgument(Pos, "minmax_added_row");
+            auto rear = Ctx.NewArgument(Pos, "minmax_rear");
+            auto value = MakeOptional(Member(addedRow, Names.Get(argument)), optional);
+            auto addedEntry = Ctx.NewList(Pos, {Member(addedRow, FrameOrdinalName()), value, combine(summary(rear), value)});
+            // Rear is only prepended until transfer, never skipped and then
+            // prepended. HolderFactory can therefore preserve Normal capacity.
+            auto pushLambda = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {addedRow, rear}),
+                Ctx.NewCallable(Pos, "Prepend", {addedEntry, rear}));
+            auto nextRear = Ctx.NewCallable(Pos, "Fold", {entering, retainedRear, pushLambda});
+            auto pair = Ctx.NewCallable(Pos, "IfPresent", {firstRow,
+                Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {first}), Ctx.NewList(Pos, {nextFront, nextRear})),
+                Ctx.NewList(Pos, {empty, empty})});
+            states.emplace_back(AccumulatorName(f), pair);
+            auto valueForFrame = combine(summary(nth(pair, 0)), summary(nth(pair, 1)));
+            outputRow = Ctx.NewCallable(Pos, "ReplaceMember", {outputRow, Ctx.NewAtom(Pos, Names.Get(Functions[f])),
+                BuildResultFromAccumulator(Functions[f], valueForFrame)});
+        }
+        return Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, std::move(args)), Ctx.NewList(Pos, {outputRow, BuildStruct(states)}));
+    };
+    auto chained = Ctx.NewCallable(Pos, "Chain1Map", {collected, makeLambda(false), makeLambda(true)});
+    auto result = Ctx.NewArgument(Pos, "minmax_output");
+    return Ctx.NewCallable(Pos, "OrderedMap", {chained,
+        Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {result}), nth(result, 0))});
+}
+
 TExprNode::TPtr TPhysicalWindowBuilder::BuildFrameFold(TExprNode::TPtr wideFlow, TExprNode::TPtr bounds, bool isRange, bool ascending) const {
-    auto queue = BuildQueue(wideFlow);
+    auto queue = BuildQueue(wideFlow, /*framePrefixSums=*/true);
     auto zero = BuildUint64(0);
-    auto collected = BuildCollector(BuildChainOutputs(wideFlow), queue, bounds, ascending);
+    auto collected = BuildCollector(BuildChainOutputs(wideFlow, /*framePrefixSums=*/true), queue, bounds, ascending);
+    TExprNode::TListType mappings;
+    bool onlyRangeMinMax = !Functions.empty();
+    for (const auto output : Functions) {
+        if (!CanUseRangeMinMax(output)) {
+            onlyRangeMinMax = false;
+            continue;
+        }
+        const auto& func = *Window.GetWindowFuncs().Find(output);
+        mappings.push_back(Ctx.NewList(Pos, {
+            Ctx.NewAtom(Pos, Names.Get(func.Arguments.Items().front())),
+            Ctx.NewAtom(Pos, Names.Get(output)), Ctx.NewAtom(Pos, func.Function)}));
+    }
+    if (!mappings.empty()) {
+        auto minmax = Ctx.NewCallable(Pos, "KqpRangeMinMax", {
+            collected->ChildPtr(0), collected->ChildPtr(2), Ctx.NewList(Pos, std::move(mappings))});
+        // A bypass is restricted to aggregate MIN/MAX-only windows. Native
+        // functions and all other aggregates keep the existing final path.
+        if (onlyRangeMinMax) {
+            return BuildExpandFromStructs(minmax);
+        }
+        collected = Ctx.ChangeChild(*collected, 0, minmax);
+    }
+    if (HasRowMinMax()) {
+        collected = BuildRowMinMaxOutputs(collected, queue);
+    }
 
     auto rowArg = Ctx.NewArgument(Pos, "frame_row");
     // clang-format off
-    auto frameRows = Ctx.Builder(Pos)
-        .Callable("OrderedMap")
-            .Callable(0, "WinFrame")
-                .Add(0, queue)
-                .Add(1, zero)
-                .Callable(2, "Bool").Atom(0, "false").Seal()
-                .Callable(3, "Bool").Atom(0, isRange ? "true" : "false").Seal()
-                .Callable(4, "Bool").Atom(0, "false").Seal()
-                .Callable(5, "DependsOn").Add(0, rowArg).Seal()
-            .Seal()
-            .Lambda(1)
-                .Param("frame_item")
-                .Arg("frame_item")
-            .Seal()
-        .Seal().Build();
+    auto frameRows = Ctx.NewCallable(Pos, "WinFrame", {
+        queue, zero,
+        Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "false")}),
+        Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, isRange ? "true" : "false")}),
+        Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "false")}),
+        Ctx.NewCallable(Pos, "DependsOn", {rowArg})});
+    auto firstRow = Ctx.NewCallable(Pos, "Head", {frameRows});
+    // The single-element form returns the final row in constant time.
+    auto lastRow = Ctx.ChangeChild(*frameRows, 4,
+        Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "true")}));
 
     auto folded = Ctx.Builder(Pos)
         .Callable("Fold1")
             .Add(0, frameRows)
-            .Add(1, BuildFoldLambda(/*update=*/false))
-            .Add(2, BuildFoldLambda(/*update=*/true))
+            .Add(1, BuildFoldLambda(/*update=*/false, /*skipPrefixAggregates=*/true))
+            .Add(2, BuildFoldLambda(/*update=*/true, /*skipPrefixAggregates=*/true))
         .Seal().Build();
     // clang-format on
 
@@ -1457,12 +1706,71 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildFrameFold(TExprNode::TPtr wideFlow,
             continue;
         }
 
+        if (func.Function == "count") {
+            auto first = Ctx.NewArgument(Pos, "first_row");
+            auto last = Ctx.NewArgument(Pos, "last_row");
+            TVector<std::pair<TString, TExprNode::TPtr>> unusedState;
+            auto firstCount = BuildAccumulator(func, f, first, nullptr, nullptr, unusedState);
+            // Queued outputs already hold cumulative counts. Reuse those
+            // states without visiting every row of an overlapping frame.
+            auto count = Ctx.NewCallable(Pos, "+", {
+                Ctx.NewCallable(Pos, "-", {Member(last, name), Member(first, name)}), firstCount});
+            auto result = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {first, last}), std::move(count));
+            members.emplace_back(name, Ctx.NewCallable(Pos, "IfPresent", {firstRow, lastRow, result, zero}));
+            continue;
+        }
+
+        if (CanUseRowMinMax(funcs[f]) || CanUseRangeMinMax(funcs[f])) {
+            members.emplace_back(name, Member(rowArg, name));
+            continue;
+        }
+
+        if (CanUsePrefixSum(funcs[f])) {
+            auto first = Ctx.NewArgument(Pos, "first_row");
+            auto last = Ctx.NewArgument(Pos, "last_row");
+            const auto argument = func.Arguments.Items().front();
+            const bool optionalInput = InputItemType(argument)->IsOptionalOrNull();
+            const auto* resultType = Window.GetIUType(funcs[f], Ctx);
+            const auto* dataType = resultType->GetKind() == ETypeAnnotationKind::Optional
+                ? resultType->Cast<TOptionalExprType>()->GetItemType() : resultType;
+            const auto sumType = ExpandType(Pos, *dataType, Ctx);
+            const auto sumZero = Ctx.NewCallable(Pos, dataType->Cast<TDataExprType>()->GetName(), {Ctx.NewAtom(Pos, "0")});
+            const auto empty = Ctx.NewCallable(Pos, "Nothing", {
+                Ctx.NewCallable(Pos, "OptionalType", {sumType})});
+            auto firstSum = Member(first, name);
+            auto lastSum = Member(last, name);
+            if (!IsNonOptionalAggregate(funcs[f])) {
+                firstSum = Ctx.NewCallable(Pos, "Coalesce", {firstSum, sumZero});
+                lastSum = Ctx.NewCallable(Pos, "Coalesce", {lastSum, sumZero});
+            }
+            auto firstValue = Member(first, Names.Get(argument));
+            auto firstContribution = Ctx.NewCallable(Pos, "SafeCast", {firstValue, sumType});
+            if (optionalInput) {
+                firstContribution = Ctx.NewCallable(Pos, "Coalesce", {firstContribution, sumZero});
+            }
+            auto sum = Ctx.NewCallable(Pos, "+", {
+                Ctx.NewCallable(Pos, "-", {lastSum, firstSum}), firstContribution});
+            auto present = Ctx.NewCallable(Pos, "Just", {sum});
+            if (optionalInput) {
+                // The prefix sums alone cannot distinguish an all-NULL frame
+                // from a zero sum. Keep its non-NULL count in the private queue.
+                auto count = Ctx.NewCallable(Pos, "+", {
+                    Ctx.NewCallable(Pos, "-", {Member(last, SumCountName(f)), Member(first, SumCountName(f))}),
+                    Ctx.NewCallable(Pos, "AggrCountInit", {firstValue})});
+                present = Ctx.NewCallable(Pos, "If", {
+                    Ctx.NewCallable(Pos, ">", {count, zero}), present, empty});
+            }
+            auto result = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {first, last}), present);
+            auto value = Ctx.NewCallable(Pos, "IfPresent", {firstRow, lastRow, result, empty});
+            members.emplace_back(name, IsNonOptionalAggregate(funcs[f])
+                ? Ctx.NewCallable(Pos, "Unwrap", {value}) : value);
+            continue;
+        }
+
         auto stateArg = Ctx.NewArgument(Pos, "frame_state");
         auto result = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {stateArg}),
                                     BuildResultFromAccumulator(funcs[f], Member(stateArg, AccumulatorName(f))));
-        if (func.Function == "count") {
-            members.emplace_back(name, Ctx.NewCallable(Pos, "Coalesce", {Ctx.NewCallable(Pos, "Map", {folded, result}), BuildUint64(0)}));
-        } else if (IsNonOptionalAggregate(funcs[f])) {
+        if (IsNonOptionalAggregate(funcs[f])) {
             members.emplace_back(name, Ctx.NewCallable(Pos, "Unwrap", {Ctx.NewCallable(Pos, "Map", {folded, result})}));
         } else {
             members.emplace_back(name, Ctx.NewCallable(Pos, "FlatMap", {folded, result}));

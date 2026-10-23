@@ -1,4 +1,5 @@
 #include "kqp_compute.h"
+#include "kqp_range_minmax.h"
 #include "kqp_stream_lookup_join_helpers.h"
 
 #include <ydb/core/kqp/runtime/streaming/kqp_streaming_aggregation.h>
@@ -19,6 +20,9 @@ TComputationNodeFactory GetKqpBaseComputeFactory(const TKqpComputeContextBase* c
     return [baseFactory = NYql::NDq::GetDqBaseComputeFactory(computeCtx), computeCtx](TCallable& callable, const TComputationNodeFactoryContext& ctx) {
         if (callable.GetType()->GetName() == "KqpStreamingAggregation") {
             return WrapKqpStreamingAggregation(callable, ctx, *computeCtx);
+        }
+        if (callable.GetType()->GetName() == "KqpRangeMinMax") {
+            return WrapKqpRangeMinMax(callable, ctx);
         }
         return baseFactory(callable, ctx);
     };
