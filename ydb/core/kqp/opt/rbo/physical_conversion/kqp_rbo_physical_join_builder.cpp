@@ -161,44 +161,38 @@ TExprNode::TPtr TPhysicalJoinBuilder::BuildCrossJoin(TExprNode::TPtr leftInput, 
 
 TExprNode::TPtr TPhysicalJoinBuilder::PrepareJoinSide(TExprNode::TPtr input, const TVector<TInfoUnitId>& colNames, TVector<TString>& joinKeys,
                                                       const TModifyKeysList& remap, const bool filterNulls) {
-    // clang-format off
-    auto castMap = Ctx.Builder(Pos)
-        .Callable("Map")
-            .Add(0, input)
-            .Lambda(1)
-                .Param("row")
-                .Callable("AsStruct")
-                    .Do([&](TExprNodeBuilder& parent) -> TExprNodeBuilder& {
-                        ui32 i = 0U;
-                        for (const auto& colName : colNames) {
-                            const auto colNameStr = Names.Get(colName);
-                            parent.List(i++)
-                                .Atom(0, colNameStr)
-                                .Callable(1, "Member")
-                                    .Arg(0, "row")
-                                    .Atom(1, colNameStr)
-                                .Seal()
-                            .Seal();
-                        }
-                        for (const auto& key : remap) {
-                            parent.List(i++)
-                                .Add(0, std::get<1>(key).Ptr())
-                                .Callable(1, "StrictCast")
-                                    .Callable(0, "Member")
-                                        .Arg(0, "row")
-                                        .Add(1, std::get<0>(key).Ptr())
-                                    .Seal()
-                                    .Add(1, ExpandType(Pos, *std::get<const TTypeAnnotationNode*>(key), Ctx))
-                                .Seal()
-                            .Seal();
-                        }
-                        return parent;
-                    })
-                .Seal()
-            .Seal()
-        .Seal()
-    .Build();
-    // clang-format on
+    const auto row = Ctx.NewArgument(Pos, "row");
+    TExprNode::TListType members;
+    for (const auto& colName : colNames) {
+        const auto name = Ctx.NewAtom(Pos, Names.Get(colName));
+        members.push_back(Ctx.NewList(Pos, {name, Ctx.NewCallable(Pos, "Member", {row, name})}));
+    }
+    for (const auto& key : remap) {
+        const auto* targetType = std::get<const TTypeAnnotationNode*>(key);
+        auto value = Ctx.NewCallable(Pos, "StrictCast", {
+            Ctx.NewCallable(Pos, "Member", {row, std::get<0>(key).Ptr()}),
+            ExpandType(Pos, *targetType, Ctx)});
+        if (std::get<bool>(key)) {
+            // Hash/dictionary key equality is reflexive, unlike ordinary Decimal
+            // equality for NaN. Use a separate nullable key, retaining the
+            // original value and every row required by the outer join.
+            Y_ENSURE(targetType->GetKind() == ETypeAnnotationKind::Optional);
+            const auto nothing = Ctx.NewCallable(Pos, "Nothing", {ExpandType(Pos, *targetType, Ctx)});
+            const auto present = Ctx.NewArgument(Pos, "decimalJoinKey");
+            auto comparable = Ctx.NewCallable(Pos, "If", {
+                Ctx.NewCallable(Pos, "==", {present, present}),
+                Ctx.NewCallable(Pos, "Just", {present}),
+                nothing});
+            value = Ctx.NewCallable(Pos, "IfPresent", {
+                value,
+                Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {present}), std::move(comparable)),
+                nothing});
+        }
+        members.push_back(Ctx.NewList(Pos, {std::get<1>(key).Ptr(), value}));
+    }
+    auto body = Ctx.NewCallable(Pos, "AsStruct", std::move(members));
+    auto castMap = Ctx.NewCallable(Pos, "Map", {
+        input, Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {row}), std::move(body))});
 
     if (filterNulls) {
         TExprNode::TListType skipNullMembers, filterNullMembers;
@@ -276,20 +270,30 @@ void TPhysicalJoinBuilder::PrepareJoinKeys(TVector<TString>& leftJoinKeys, TVect
         }
 
         if (commonType) {
-            if (!IsSameAnnotation(*leftKeyType, *commonType) || duplicateLeftKey) {
+            const auto* itemType = commonType;
+            if (itemType->GetKind() == ETypeAnnotationKind::Optional) {
+                itemType = itemType->Cast<TOptionalExprType>()->GetItemType();
+            }
+            const bool requireComparableDecimal = !joinKeyPair.EqualNulls
+                && itemType->GetKind() == ETypeAnnotationKind::Data
+                && itemType->Cast<TDataExprType>()->GetSlot() == EDataSlot::Decimal;
+            if (requireComparableDecimal) {
+                commonType = Ctx.MakeType<TOptionalExprType>(itemType);
+            }
+            if (!IsSameAnnotation(*leftKeyType, *commonType) || duplicateLeftKey || requireComparableDecimal) {
                 const TString rename = Names.GetTemporaryName(TString("_rbo_join_key_left_") + ToString(i) + "_");
                 leftColumnRemap[leftKey] = rename;
                 const auto joinKey = Ctx.NewAtom(Pos, leftKey);
                 const auto renameKey = Ctx.NewAtom(Pos, rename);
-                remapLeft.emplace_back(joinKey, renameKey, i, commonType);
+                remapLeft.emplace_back(joinKey, renameKey, i, commonType, requireComparableDecimal);
                 leftJoinKeyRenames.emplace_back(rename);
             }
-            if (!IsSameAnnotation(*rightKeyType, *commonType) || duplicateRightKey) {
+            if (!IsSameAnnotation(*rightKeyType, *commonType) || duplicateRightKey || requireComparableDecimal) {
                 const TString rename = Names.GetTemporaryName(TString("_rbo_join_key_right_") + ToString(i) + "_");
                 rightColumnRemap[rightKey] = rename;
                 const auto joinKey = Ctx.NewAtom(Pos, rightKey);
                 const auto renameKey = Ctx.NewAtom(Pos, rename);
-                remapRight.emplace_back(joinKey, renameKey, i, commonType);
+                remapRight.emplace_back(joinKey, renameKey, i, commonType, requireComparableDecimal);
                 rightJoinKeyRenames.emplace_back(rename);
             }
         } else {

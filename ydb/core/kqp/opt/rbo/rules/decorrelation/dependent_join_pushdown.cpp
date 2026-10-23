@@ -53,6 +53,14 @@ TOrderedIUs<> MissingDomainColumns(const TUnorderedIUs& dependencies, const TUno
     return result;
 }
 
+// Domain keys identify the same value across copies of an input. Unlike an
+// ordinary SQL equality, that identity includes NULL and Decimal NaN.
+bool NeedsDomainIdentityEncoding(const TIntrusivePtr<IOperator>& input, TInfoUnitId key, TExprContext& ctx) {
+    const auto* type = input->GetIUType(key, ctx);
+    return !type || type->IsOptionalOrNull()
+        || (type->GetKind() == ETypeAnnotationKind::Data && type->Cast<TDataExprType>()->GetSlot() == EDataSlot::Decimal);
+}
+
 bool NeedsNullSafeEncoding(const TIntrusivePtr<IOperator>& leftInput, TInfoUnitId leftKey,
                            const TIntrusivePtr<IOperator>& rightInput, TInfoUnitId rightKey, TExprContext& ctx) {
     // Only ok if the keys are domain keys, which always carry the same values.
@@ -60,16 +68,16 @@ bool NeedsNullSafeEncoding(const TIntrusivePtr<IOperator>& leftInput, TInfoUnitI
     const auto* rightInputType = rightInput->Type;
 
     if (leftInputType && rightInputType) {
-        return IsNullableIU(leftInput, leftKey, ctx) || IsNullableIU(rightInput, rightKey, ctx);
+        return NeedsDomainIdentityEncoding(leftInput, leftKey, ctx) || NeedsDomainIdentityEncoding(rightInput, rightKey, ctx);
     }
     if (leftInputType) {
-        return IsNullableIU(leftInput, leftKey, ctx);
+        return NeedsDomainIdentityEncoding(leftInput, leftKey, ctx);
     }
     if (rightInputType) {
-        return IsNullableIU(rightInput, rightKey, ctx);
+        return NeedsDomainIdentityEncoding(rightInput, rightKey, ctx);
     }
 
-    // If types are unknown it's safe to keep null, because for non optional column there are no nulls.
+    // With unknown types, retain identity semantics conservatively.
     return true;
 }
 
@@ -252,7 +260,7 @@ TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr
 
     auto encode = [&](TInfoUnitId iu, TMapIUs& elements) {
         auto encodedIU = props.InfoUnitRegistry.AddGenerated("null_safe_key");
-        // Emulates null == null.
+        // Encodes domain identity, including NULL and Decimal NaN.
         elements.Add(encodedIU, MakeUnaryCallable("StablePickle", MakeColumnAccess(iu, pos, &ctx.ExprCtx, &props)));
         return encodedIU;
     };
@@ -396,10 +404,34 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
             }
         }
 
-        if (binding && bindings.emplace(binding->first, binding->second).second) {
-            continue;
+        if (binding) {
+            // A resolved PG operator keeps its original operand type OIDs.
+            // Binding a capture directly to an inner column can change its
+            // type, so leave PG equalities to the general decorrelation path.
+            if (conj.GetExpressionBody()->IsCallable("PgResolvedOp")) {
+                return input;
+            }
+            // A domain copy must retain its Decimal representation. Rebinding
+            // a capture to another precision/scale (or optionality) would make
+            // subsequent StablePickle identity keys compare different bytes.
+            const auto* captureType = captures.Find(binding->first)->Type;
+            const auto* sourceType = correlatedInput->Type ? correlatedInput->GetIUType(binding->second, ctx.ExprCtx) : nullptr;
+            const auto isDecimal = [](const TTypeAnnotationNode* type) {
+                while (type && type->GetKind() == ETypeAnnotationKind::Optional) {
+                    type = type->Cast<TOptionalExprType>()->GetItemType();
+                }
+                return type && type->GetKind() == ETypeAnnotationKind::Data
+                    && type->Cast<TDataExprType>()->GetSlot() == EDataSlot::Decimal;
+            };
+            if ((isDecimal(captureType) || isDecimal(sourceType))
+                && (!sourceType || !IsSameAnnotation(*captureType, *sourceType))) {
+                return input;
+            }
+            bindings.emplace(binding->first, binding->second);
         }
-        // Keep rest.
+        // Binding a capture to the inner value does not make equality true:
+        // NaN is not equal to itself, and NULL equality remains unknown.
+        // Evaluate the original predicate on the bound row as well.
         restConjuncts.push_back(conj);
     }
 
@@ -420,11 +452,6 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
     for (const auto iu : captures.Keys()) {
         const auto& source = bindings.at(iu);
         bindingElements.Add(iu, MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props));
-
-        // Special case for optional column.
-        if (IsNullableIU(correlatedInput, source, ctx.ExprCtx)) {
-            restConjuncts.push_back(MakeUnaryCallable("Exists", MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props)));
-        }
     }
 
     TIntrusivePtr<IOperator> newBody = MakeIntrusive<TOpMap>(correlatedInput, filter->Pos, bindingElements);

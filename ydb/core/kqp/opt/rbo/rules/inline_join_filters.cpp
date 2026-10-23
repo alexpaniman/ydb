@@ -1,4 +1,5 @@
 #include "kqp_rules_include.h"
+#include "decorrelation/dependent_join_pushdown.h"
 
 namespace {
 
@@ -90,7 +91,7 @@ TIntrusivePtr<IOperator> TInlineJoinFiltersRule::SimpleMatchAndApply(const TIntr
     // The inner join reads the left input again: a Replicate port gives it its own IDs,
     // so we can join on the same columns again without conflicts
     auto hub = TReplicate::Create(join->GetLeftInput(), join->Pos, props.InfoUnitRegistry);
-    auto outerLeftInput = hub->AddOutput();
+    TIntrusivePtr<IOperator> outerLeftInput = hub->AddOutput();
     auto innerLeftInput = hub->AddOutput();
     const auto renameMap = innerLeftInput->GetRebindings();
 
@@ -103,7 +104,7 @@ TIntrusivePtr<IOperator> TInlineJoinFiltersRule::SimpleMatchAndApply(const TIntr
     auto innerJoin = MakeIntrusive<TOpJoin>(innerLeftInput, join->GetRightInput(), join->Pos, joinKind, innerJoinKeys);
     auto filterExpr = MakeConjunction(join->JoinFilters).ApplyRenames(renameMap);
 
-    auto newFilter = MakeIntrusive<TOpFilter>(innerJoin, input->Pos, filterExpr);
+    TIntrusivePtr<IOperator> newFilter = MakeIntrusive<TOpFilter>(innerJoin, input->Pos, filterExpr);
 
     // The join will be on the keys of lhs, we just need to check that all the keys are non-null
     // We don't support nullable keys at this stage
@@ -120,6 +121,10 @@ TIntrusivePtr<IOperator> TInlineJoinFiltersRule::SimpleMatchAndApply(const TIntr
     for (const auto & column : keyColumns.Items()) {
         newJoinKeys.Add(column, renameMap.At(column));
     }
+
+    // These keys identify the same left row in two Replicate ports; ordinary
+    // predicate equality would fail for a required Decimal NaN identity.
+    newJoinKeys = MakeNullSafeJoinKeys(outerLeftInput, newFilter, newJoinKeys, join->Pos, ctx, props);
 
     // Subplans called from the join filters now read the inner left input.
     for (const auto call : join->GetSubplanIUs(props.Subplans)) {

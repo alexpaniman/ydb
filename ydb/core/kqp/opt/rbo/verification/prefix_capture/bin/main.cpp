@@ -219,7 +219,7 @@ TIntrusivePtr<IKqpGateway> MakeGateway(
         server.GetSettings().AppConfig->GetQueryServiceConfig());
 }
 
-NYql::TKikimrConfiguration::TPtr MakeConfiguration(Tests::TServer& server, TStringBuf queryMode) {
+NYql::TKikimrConfiguration::TPtr MakeConfiguration(Tests::TServer& server, TStringBuf queryMode, bool benchmarkColumnStore) {
     auto config = MakeIntrusive<NYql::TKikimrConfiguration>();
     const TString defaultsData = NResource::Find("kqp_default_settings.txt");
     TStringInput defaultsStream(defaultsData);
@@ -250,6 +250,11 @@ NYql::TKikimrConfiguration::TPtr MakeConfiguration(Tests::TServer& server, TStri
     config->OptValidateStreamingCheckpoints = false;
     if (queryMode == "generic-spilling") {
         config->_KqpEnableSpilling = true;
+    }
+    if (benchmarkColumnStore) {
+        // Match benchmark_coverage_ut: an implicit result cap would add Take
+        // before the RBO Initial boundary and change the benchmark input plan.
+        config->_ResultRowsLimit.Clear();
     }
     config->FreezeDefaults();
     return config;
@@ -352,7 +357,7 @@ void CaptureQuery(TKikimrRunner& runner, const TOptions& options, const TFsPath&
         ythrow yexception() << "cannot create the default YQL module resolver";
     }
     auto sink = std::make_shared<TRecordingSink>(options.TransformationOrdinal);
-    auto config = MakeConfiguration(runner.GetTestServer(), options.QueryMode);
+    auto config = MakeConfiguration(runner.GetTestServer(), options.QueryMode, options.BenchmarkColumnStore);
     auto host = MakeHost(
         runner.GetTestServer(),
         std::move(moduleResolver),

@@ -3301,12 +3301,32 @@ def _validate_row_read_range_predicate(snapshot: Snapshot, scan: Scan, path: str
         bindings = [mapping.output for mapping in scan.columns + scan.predicate_columns
                     if mapping.source == key_name]
         predicate = scan.predicate
-        if (key.type != BOOL or len(bindings) != 1 or predicate is None
-                or predicate.kind != "eq" or predicate.null_safe or len(predicate.args) != 2
-                or predicate.args[0].kind != "column" or predicate.args[0].column != bindings[0]
-                or predicate.args[1].kind != "literal" or predicate.args[1].result_type != BOOL
-                or type(predicate.args[1].value) is not bool):
-            _fail(path, "derived index range requires an exact non-NULL Bool literal prefix")
+        exact_equality = (
+            len(bindings) == 1 and predicate is not None
+            and predicate.kind == "eq" and not predicate.null_safe and len(predicate.args) == 2
+            and predicate.args[0].kind == "column" and predicate.args[0].column == bindings[0]
+        )
+        if key.type == BOOL:
+            if (not exact_equality or predicate.args[1].kind != "literal"
+                    or predicate.args[1].result_type != BOOL
+                    or type(predicate.args[1].value) is not bool):
+                _fail(path, "derived index range requires an exact non-NULL Bool literal prefix")
+            return
+        # Native export admits this equality only after auditing the complete
+        # RangeFor/RangeMultiply/full-suffix expression and LiteralRange
+        # precedence. This semantic IR does not claim to encode a raw storage
+        # Decimal interval: SQL equality excludes NaN, unlike storage equality.
+        keys = [table.column_map()[name] for name in table.primary_key]
+        if (not decimal.is_type(key.type) or key.nullable or len(keys) > 4
+                or any(column.nullable or column.type not in {"String", "Utf8"}
+                       for column in keys[1:]) or not exact_equality):
+            _fail(path, "derived Decimal index range needs an exact required equality prefix and String/Utf8 suffix")
+        bound = predicate.args[1]
+        if (bound.result_type != key.type
+                or (bound.kind == "literal" and not isinstance(bound.value, decimal.Literal))
+                or (bound.kind == "parameter" and bound.nullable is not False)
+                or bound.kind not in {"literal", "parameter"}):
+            _fail(path, "derived Decimal index range bound must be an exact required literal or parameter")
         return
     if not table.primary_key or len(table.primary_key) != 1:
         _fail(path, "row read range requires one exact single-column primary key")
