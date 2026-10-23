@@ -59,18 +59,16 @@ TExprNode::TPtr PushTakeIntoPlan(const TExprNode::TPtr& node, TExprContext& ctx,
 }
 
 void CollectTopLevelSelects(TExprNode::TPtr input, THashSet<TExprNode*>& topLevelSelects, THashSet<TExprNode*>& visited) {
-    if (visited.contains(input.Get())) {
+    if (!visited.insert(input.Get()).second) {
         return;
     }
 
     if (input->IsCallable("KqpOpRoot")) {
-        visited.insert(input.Get());
         return;
     }
 
     if (input->IsCallable("YqlSelect")) {
         topLevelSelects.insert(input.Get());
-        visited.insert(input.Get());
         return;
     }
     for (auto c: input->Children()) {
