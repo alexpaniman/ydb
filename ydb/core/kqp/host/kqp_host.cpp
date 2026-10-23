@@ -120,6 +120,20 @@ bool HasSamplingRead(const TExprNode::TPtr& root) {
     }) != nullptr;
 }
 
+bool HasUnsupportedUpsertOrReplace(const TExprNode::TPtr& root, bool enableIndexStreamWrite) {
+    return FindNode(root, [enableIndexStreamWrite](const TExprNode::TPtr& node) {
+        if (!TCoWrite::Match(node.Get()) || node->ChildrenSize() != 5 ||
+            !TMaybeNode<TKiDataSink>(node->ChildPtr(TCoWrite::idx_DataSink)) || !node->Child(4)->IsList())
+        {
+            return false;
+        }
+        const auto mode = GetSetting(*node->Child(4), "mode");
+        return mode && mode->ChildrenSize() == 2 &&
+            (mode->Child(1)->IsAtom("replace") ||
+             (!enableIndexStreamWrite && mode->Child(1)->IsAtom("upsert")));
+    }) != nullptr;
+}
+
 class TKqpResultWriter : public IResultWriter {
 public:
     TKqpResultWriter() {}
@@ -1535,6 +1549,16 @@ private:
 
         if (!CheckIsBatch(queryExpr, ctx)) {
             return result;
+        }
+
+        if (SessionCtx->Config().GetEnableNewRBO() &&
+            HasUnsupportedUpsertOrReplace(queryExpr, SessionCtx->Config().GetEnableIndexStreamWrite()))
+        {
+            // REPLACE needs its complete default-filling and effect lowering;
+            // UPSERT needs explicit index effects when sink maintenance is disabled.
+            // Table metadata is not loaded yet, so route these modes before optimization.
+            SessionCtx->ConfigPtr()->SetEnableNewRBO(false);
+            TypesCtx->IgnoreExpandPg = false;
         }
 
         if (HasSamplingRead(queryExpr)) {
