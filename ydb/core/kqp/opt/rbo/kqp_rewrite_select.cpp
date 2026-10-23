@@ -1588,11 +1588,15 @@ TExprNode::TPtr RewriteSublinks(TExprNode::TPtr& node, TExprContext& ctx, const 
                 .Done().Ptr();
             // clang-format on
         } else if (sublinkType == "any") {
+            Y_ENSURE(sublink->GetTypeAnn(), "IN sublink has no result type");
+            auto settings = sublink->ChildrenSize() == 6 ? sublink->ChildPtr(5) : ctx.NewList(sublink->Pos(), {});
+            settings = AddSetting(*settings, sublink->Pos(), "resultType", ExpandType(sublink->Pos(), *sublink->GetTypeAnn(), ctx), ctx);
             // clang-format off
             newNode = Build<TKqpInSublink>(ctx, node->Pos())
                 .Subquery(newSubquery)
                 .OuterType(sublink->Child(2))
                 .InLambda(sublink->Child(3))
+                .Settings(settings)
                 .Done().Ptr();
             // clang-format on
         } else if (sublinkType == "exists") {

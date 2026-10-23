@@ -2882,6 +2882,31 @@ TStatus AnnotateSublinkBase(const TExprNode::TPtr& node, TExprContext& ctx) {
         if (!lambda->GetTypeAnn()) {
             return IGraphTransformer::TStatus::Repeat;
         }
+
+        const auto settings = node->ChildrenSize() > TKqpInSublink::idx_Settings
+            ? node->ChildPtr(TKqpInSublink::idx_Settings) : ctx.NewList(node->Pos(), {});
+        if (const auto resultTypeSetting = GetSetting(*settings, "resultType")) {
+            if (!EnsureTupleSize(*resultTypeSetting, 2, ctx) || !EnsureType(resultTypeSetting->Tail(), ctx)) {
+                return TStatus::Error;
+            }
+            const auto* resultType = resultTypeSetting->Tail().GetTypeAnn()->Cast<TTypeExprType>()->GetType();
+            if (!EnsureSpecificDataType(node->Pos(), *RemoveOptionalType(resultType), EDataSlot::Bool, ctx)) {
+                return TStatus::Error;
+            }
+            node->SetTypeAnn(resultType);
+            return TStatus::Ok;
+        }
+
+        // Hand-built sublinks may not have an imported result contract.
+        const auto lookupType = lambda->Tail().Head().GetTypeAnn();
+        const bool nullable = lookupType->HasOptionalOrNull() ||
+            (HasSetting(*settings, "ansiIn") && IsSqlInCollectionItemsNullable(lookupType, valueType));
+        const TTypeAnnotationNode* resultType = ctx.MakeType<TDataExprType>(EDataSlot::Bool);
+        if (nullable) {
+            resultType = ctx.MakeType<TOptionalExprType>(resultType);
+        }
+        node->SetTypeAnn(resultType);
+        return TStatus::Ok;
     }
 
     node->SetTypeAnn(ctx.MakeType<TDataExprType>(EDataSlot::Bool));

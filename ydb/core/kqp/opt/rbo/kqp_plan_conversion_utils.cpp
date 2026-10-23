@@ -5,6 +5,7 @@
 #include <ydb/core/kqp/common/kqp_yql.h>
 
 #include <yql/essentials/core/yql_expr_optimize.h>
+#include <yql/essentials/core/yql_opt_utils.h>
 #include <yql/essentials/utils/log/log.h>
 
 #include <algorithm>
@@ -198,12 +199,17 @@ TExpression PlanConverter::ConvertExpression(TExprNode::TPtr lambda, const TExpr
         ESubplanType type;
         TOrderedIUs<> tuple;
         std::optional<TInfoUnitId> resultIU;
+        TInSubplanSettings inSettings;
         if (TKqpExprSublink::Match(node.Get())) {
             type = ESubplanType::EXPR;
         } else if (TKqpExistsSublink::Match(node.Get())) {
             type = ESubplanType::EXISTS;
         } else {
             type = ESubplanType::IN_SUBPLAN;
+            inSettings.Ansi = node->ChildrenSize() > TKqpInSublink::idx_Settings &&
+                HasSetting(*node->Child(TKqpInSublink::idx_Settings), "ansiIn");
+            inSettings.ResultType = node->GetTypeAnn();
+            Y_ENSURE(inSettings.ResultType, "IN sublink has no result type at import");
             const auto& inLambda = node->Child(TKqpInSublink::idx_InLambda);
             Y_ENSURE(inLambda->IsLambda());
             const auto& comparison = inLambda->Child(1);
@@ -229,7 +235,7 @@ TExpression PlanConverter::ConvertExpression(TExprNode::TPtr lambda, const TExpr
             resultIU = ResolveBinding(*subplanBindings, row->GetItems().front()->GetName());
         }
         const auto id = PlanProps.InfoUnitRegistry.AddGenerated("subquery");
-        PlanProps.Subplans.Add(id, std::move(subplan), type, std::move(tuple), resultIU);
+        PlanProps.Subplans.Add(id, std::move(subplan), type, std::move(tuple), resultIU, inSettings);
         // clang-format off
         auto member = Build<TCoMember>(Ctx, node->Pos())
             .Struct(lambda->Head().HeadPtr())

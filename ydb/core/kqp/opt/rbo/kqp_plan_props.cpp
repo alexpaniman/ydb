@@ -4,11 +4,12 @@ namespace NKikimr::NKqp {
 
 // Out of line so plan properties can own operators without an include cycle.
 TSubplanEntry::TSubplanEntry(TIntrusivePtr<IOperator> plan, ESubplanType type,
-    TOrderedIUs<> tuple, std::optional<TInfoUnitId> resultIU)
+    TOrderedIUs<> tuple, std::optional<TInfoUnitId> resultIU, TInSubplanSettings inSettings)
     : Plan(std::move(plan))
     , Tuple(std::move(tuple))
     , ResultIU(resultIU)
     , Type(type)
+    , InSettings(inSettings)
 {}
 
 TSubplanEntry::~TSubplanEntry() = default;
@@ -16,14 +17,14 @@ TSubplanEntry::TSubplanEntry(TSubplanEntry&&) noexcept = default;
 TSubplanEntry& TSubplanEntry::operator=(TSubplanEntry&&) noexcept = default;
 
 void TSubplans::Add(TInfoUnitId binding, TIntrusivePtr<IOperator> plan, ESubplanType type,
-    TOrderedIUs<> tuple, std::optional<TInfoUnitId> resultIU)
+    TOrderedIUs<> tuple, std::optional<TInfoUnitId> resultIU, TInSubplanSettings inSettings)
 {
     Y_ENSURE(binding != TUnorderedIUs::InvalidBit, "Invalid subplan binding ID");
     Y_ENSURE(plan, "Cannot register a null subplan for " << binding);
     Y_ENSURE((type != ESubplanType::EXISTS) == resultIU.has_value(), "Scalar/IN subplan requires a result binding");
     Y_ENSURE(!resultIU || *resultIU != TUnorderedIUs::InvalidBit, "Invalid subplan result ID");
     Y_ENSURE(!Contains(binding), "Duplicate subplan binding " << binding);
-    Entries.Add(binding, std::make_unique<TSubplanEntry>(std::move(plan), type, std::move(tuple), resultIU));
+    Entries.Add(binding, std::make_unique<TSubplanEntry>(std::move(plan), type, std::move(tuple), resultIU, inSettings));
 }
 
 void TSubplans::ReplacePlan(TInfoUnitId binding, TIntrusivePtr<IOperator> plan) {

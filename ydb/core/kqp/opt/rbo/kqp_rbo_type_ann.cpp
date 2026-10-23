@@ -185,9 +185,21 @@ const TStructExprType* AddSubplanTypes(const TStructExprType* itemType, const TU
             if (!subplanType->IsOptionalOrNull()) {
                 subplanType = ctx.ExprCtx.MakeType<TOptionalExprType>(subplanType);
             }
+        } else if (subplanEntry.Type == ESubplanType::IN_SUBPLAN && subplanEntry.InSettings.ResultType) {
+            subplanType = subplanEntry.InSettings.ResultType;
         } else {
             if (!props.PgSyntax) {
                 subplanType = ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Bool);
+                if (subplanEntry.Type == ESubplanType::IN_SUBPLAN) {
+                    Y_ENSURE(subplanEntry.Tuple.Items().size() == 1 && subplanEntry.ResultIU, "IN requires one result binding");
+                    const auto* lookupType = itemType->FindItemType(ctx.ExprCtx.GetIndexAsString(subplanEntry.Tuple.Items()[0]));
+                    const auto* valueType = subplanEntry.Plan->GetIUType(*subplanEntry.ResultIU, ctx.ExprCtx);
+                    Y_ENSURE(lookupType && valueType, "Cannot infer IN result type");
+                    if (lookupType->HasOptionalOrNull() ||
+                        (subplanEntry.InSettings.Ansi && IsSqlInCollectionItemsNullable(lookupType, valueType))) {
+                        subplanType = ctx.ExprCtx.MakeType<TOptionalExprType>(subplanType);
+                    }
+                }
             } else {
                 subplanType = ctx.ExprCtx.MakeType<TPgExprType>(NYql::NPg::LookupType("bool").TypeId);
             }

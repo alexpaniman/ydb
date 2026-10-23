@@ -161,7 +161,7 @@ public:
             const auto resultId = original.ResultIU
                 ? std::optional<TInfoUnitId>(Substitute(*original.ResultIU, Renames)) : std::nullopt;
             const auto copiedBinding = Renames.At(binding);
-            Subplans->Add(copiedBinding, Copies.at(original.Plan.Get()), original.Type, std::move(tuple), resultId);
+            Subplans->Add(copiedBinding, Copies.at(original.Plan.Get()), original.Type, std::move(tuple), resultId, original.InSettings);
             Subplans->RefreshDependencies(copiedBinding);
         }
         return result;
