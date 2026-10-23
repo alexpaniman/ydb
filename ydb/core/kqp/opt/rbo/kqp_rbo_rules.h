@@ -393,6 +393,16 @@ class TPeepholePredicate : public ISimplifiedRule {
 /**
  * Push ranges to read.
  */
+// Choose a covering row index for a bounded sort without a filter predicate.
+class TSelectIndexForTopSortRule: public ISimplifiedRule {
+public:
+    TSelectIndexForTopSortRule()
+        : ISimplifiedRule("Select index for top sort", ERuleProperties::RequireParents | ERuleProperties::RequireTypes) {}
+
+    bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
+    TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) override;
+};
+
 class TPushRangesRule: public ISimplifiedRule {
 public:
     TPushRangesRule(NYql::EStorageType applicableTableType)
