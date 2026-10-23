@@ -11,7 +11,23 @@ bool IsSuitableToDisableOlapBlocks(IOperator* input, TTypeAnnotationContext& typ
     if (columnsLimit == 0 || input->GetKind() != EOperator::Limit || typesCtx.BlockEngineMode == NYql::EBlockEngineMode::Disable) {
         return false;
     }
-    return true;
+    TVector<const IOperator*> pending{input->GetChild(0).Get()};
+    THashSet<const IOperator*> visited;
+    while (!pending.empty()) {
+        const auto* op = pending.back();
+        pending.pop_back();
+        if (!visited.insert(op).second) {
+            continue;
+        }
+        if (op->GetKind() == EOperator::Source &&
+            CastOperator<TOpRead>(*op).GetTableStorageType() == NYql::EStorageType::ColumnStorage) {
+            return true;
+        }
+        for (const auto* child : op->GetChildren()) {
+            pending.push_back(child);
+        }
+    }
+    return false;
 }
 
 } // anonymous namespace
