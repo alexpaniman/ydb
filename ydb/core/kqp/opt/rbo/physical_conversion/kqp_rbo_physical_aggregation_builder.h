@@ -122,6 +122,8 @@ private:
     TExprNode::TPtr MapCondenseOutput(TExprNode::TPtr input, const TVector<TPhysicalAggregationTraits>& phyTraitsList,
                                       const THashMap<TString, TString>& projectionMap, EOpPhase aggregationPhase);
 
+    TExprNode::TPtr GetAvgDataTypeForAccumulator(const TTypeAnnotationNode* typeNode) const;
+    TExprNode::TPtr BuildAvgInputCast(TExprNode::TPtr value, const TTypeAnnotationNode* typeNode) const;
     TExprNode::TPtr GetDataTypeForAccumulator(const TTypeAnnotationNode* typeNode, bool keepOriginalPrecision = false) const;
     bool IsDecimalType(const TTypeAnnotationNode* typeNode) const;
     TDecimalType GetDecimalType(const TTypeAnnotationNode* typeNode) const;

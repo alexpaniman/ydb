@@ -63,13 +63,16 @@ const TTypeAnnotationNode* GetAggregationType(const TTypeAnnotationNode* inputTy
     } else if (aggFunction == "sum") {
         Y_ENSURE(GetSumResultType(pos, *inputType, resultType, ctx), "Unsupported type for sum aggregation function");
     } else if (aggFunction == "avg") {
-        // Early: (counter, sum)
+        // Intermediate AVG state: (sum, counter).
         std::vector<const TTypeAnnotationNode*> tupleTypes;
         if (IsDecimalType(inputType)) {
             auto decimalType = inputType->Cast<TDataExprParamsType>();
             const auto precision = "35";
             const auto scale = TString(decimalType->GetParamTwo());
             tupleTypes = {ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, precision, scale), ctx.MakeType<TDataExprType>(EDataSlot::Uint64)};
+        } else if (const auto slot = inputType->Cast<TDataExprType>()->GetSlot();
+                   slot == EDataSlot::Interval || slot == EDataSlot::Interval64) {
+            tupleTypes = {ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, "35", "0"), ctx.MakeType<TDataExprType>(EDataSlot::Uint64)};
         } else {
             tupleTypes = {ctx.MakeType<TDataExprType>(EDataSlot::Double), ctx.MakeType<TDataExprType>(EDataSlot::Uint64)};
         }
