@@ -699,6 +699,10 @@ void TKqpNewRBOTransformer::InitializeRBOOptimizationStages() {
     // Duplicate only after logical rewrites have removed unused work, while
     // reads and joins still have a logical representation supported by Copy().
     if (!allowChannelSpilling) {
+        TVector<std::unique_ptr<IRule>> inlineJoinFiltersBeforeCopyRules;
+        inlineJoinFiltersBeforeCopyRules.emplace_back(std::make_unique<TInlineJoinFiltersRule>());
+        RBO.AddStage(std::make_unique<TRuleBasedStage>("Inline join filters before copying", std::move(inlineJoinFiltersBeforeCopyRules)));
+
         TVector<std::unique_ptr<IRule>> expandReplicateRules;
         expandReplicateRules.emplace_back(std::make_unique<TExpandReplicateRule>());
         RBO.AddStage(std::make_unique<TRuleBasedStage>("Expand shared subtrees", std::move(expandReplicateRules)));
