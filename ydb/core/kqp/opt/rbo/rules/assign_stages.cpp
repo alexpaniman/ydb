@@ -260,9 +260,16 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
         const auto inputStageId = *(window->GetInput()->Props.StageId);
         const auto outputIndex = OutputIndex(*window->GetInput(), props.StageGraph);
 
+        const auto preserved = GetWindowPreservedShuffling(*window, ctx);
+        const auto& expected = preserved.Items().empty() ? window->GetPartitionKeys() : preserved;
+        Y_ENSURE(!window->Props.Metadata || window->Props.Metadata->ShuffledByColumns.Items() == expected.Items(),
+            "Window partition proof changed after metadata computation");
+
         const auto newStageId = props.StageGraph.AddStage();
         window->Props.StageId = newStageId;
-        if (!window->GetPartitionKeys().Items().empty()) {
+        if (!preserved.Items().empty()) {
+            props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TMapConnection>(outputIndex));
+        } else if (!window->GetPartitionKeys().Items().empty()) {
             props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TShuffleConnection>(window->GetPartitionKeys(), outputIndex));
         } else {
             // Without partition by we assume the whole input is one partition, so do it in one task.

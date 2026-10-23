@@ -129,6 +129,38 @@ void IUnaryOperator::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
     }
 }
 
+void TOpWindow::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
+    IUnaryOperator::ComputeMetadata(ctx, planProps);
+    if (!Props.Metadata) {
+        return;
+    }
+
+    auto& shuffledBy = Props.Metadata->ShuffledByColumns;
+    if (!Props.StageId) {
+        auto preserved = GetWindowPreservedShuffling(*this, ctx);
+        shuffledBy = preserved.Items().empty() ? GetPartitionKeys() : std::move(preserved);
+        return;
+    }
+
+    // Physical rewrites recompute metadata after assignment. Describe the
+    // existing connection, never make a new decision from changed input facts.
+    shuffledBy.Clear();
+    if (!GetInput()->Props.StageId) {
+        return;
+    }
+    const auto& graph = planProps.StageGraph;
+    const auto edges = graph.Connections.find({*GetInput()->Props.StageId, *Props.StageId});
+    if (edges == graph.Connections.end() || edges->second.size() != 1) {
+        return;
+    }
+    const auto& connection = edges->second.front();
+    if (const auto* shuffle = dynamic_cast<const TShuffleConnection*>(connection.Get())) {
+        shuffledBy = shuffle->Keys;
+    } else if (IsConnection<TMapConnection>(connection)) {
+        shuffledBy = GetWindowPreservedShuffling(*this, ctx);
+    }
+}
+
 /**
  * Default statistics and cost computation for unary operators
  */

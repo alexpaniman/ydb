@@ -13,11 +13,14 @@ using namespace NYql;
 
 class IOperator;
 class TOpAggregate;
+class TOpWindow;
 class TExpression;
 
 bool ReferencesUnresolvedSubplan(const TExpression& expr, const TPlanProps& props);
 TOrderedIUs<> GetAggregatePreservedShuffling(const TOpAggregate& aggregate, const TRBOContext& ctx);
 bool CanEliminateAggregateShuffle(const TOpAggregate& aggregate, const TRBOContext& ctx);
+// The actual ordered hash key, translated to window partition IUs, or no proof.
+TOrderedIUs<> GetWindowPreservedShuffling(const TOpWindow& window, const TRBOContext& ctx);
 
 bool JoinOutputsLeft(const TString& joinKind);
 bool JoinOutputsRight(const TString& joinKind);
