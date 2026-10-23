@@ -129,7 +129,16 @@ TIntrusivePtr<IOperator> TOptimizeCBOTreeRule::SimpleMatchAndApply(const TIntrus
         hints,
         shuffleCtx ? shuffleCtx->FSM : nullptr);
 
-    auto providerCtx = NOpt::TRBOProviderContext(ctx.KqpCtx, optLevel, useBlockHashJoin, props.ColumnLineage);
+    TMappedIUs<const TTypeAnnotationNode*> boundaryTypes;
+    for (const auto& leaf : leaves) {
+        for (const auto id : leaf.Op->GetOutputIUs()) {
+            boundaryTypes.Add(id, leaf.Op->GetIUType(id, ctx.ExprCtx));
+        }
+    }
+    // Join reordering can add optionality, which the lookup contract strips.
+    // Computed boundary values retain their annotated type rather than source lineage.
+    auto providerCtx = NOpt::TRBOProviderContext(ctx.KqpCtx, optLevel, useBlockHashJoin,
+        props.InfoUnitRegistry, boundaryTypes, ctx.ExprCtx);
     auto opt = std::unique_ptr<IOptimizerNew>(MakeNativeOptimizerNew(
         providerCtx, settings, ctx.ExprCtx,
         enableShuffleElimination && canBuildShuffleCtx,

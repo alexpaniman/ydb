@@ -5,12 +5,94 @@
 
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 
+#include <cmath>
+#include <limits>
+
 namespace NKikimr::NKqp {
 
 namespace {
 
 using namespace NKikimr;
 using namespace NKikimr::NKqp;
+
+// A LookupJoin that remains a regular Join was not lowerable after the final
+// logical rewrites. Hints can also bypass CBO applicability, so validate here.
+bool IsUnloweredLookupJoin(const IOperator& op) {
+    return op.Kind == EOperator::Join && (op.Props.JoinAlgo == EJoinAlgoType::LookupJoin
+        || op.Props.JoinAlgo == EJoinAlgoType::LookupJoinReverse);
+}
+
+bool LookupFallbackNeedsGather(const TOpJoin& join, TExprContext& ctx) {
+    for (const auto& [left, right, equalNulls] : join.JoinKeys.Items()) {
+        const auto* leftType = join.GetLeftInput()->GetIUType(left, ctx);
+        const auto* rightType = join.GetRightInput()->GetIUType(right, ctx);
+        Y_ENSURE(leftType && rightType, "No types for lookup fallback keys");
+        if (!IsSameAnnotation(*leftType, *rightType)) {
+            // Comparison-compatible values need not have identical shuffle hashes.
+            return true;
+        }
+    }
+    return false;
+}
+
+void SelectLookupFallback(TOpJoin& join, TRBOContext& ctx, TPlanProps& planProps, bool gatherInputs) {
+    auto& props = join.Props;
+    props.JoinAlgo = EJoinAlgoType::GraceJoin;
+    props.UseBlockHashJoin.reset();
+    props.Cost.reset();
+    const auto joinKind = GetValidJoinKind(join.JoinKind);
+    if (joinKind == "Cross") {
+        props.JoinAlgo = EJoinAlgoType::MapJoin;
+        return;
+    }
+    const auto& left = join.GetLeftInput();
+    const auto& right = join.GetRightInput();
+    if (gatherInputs || !left->Props.Metadata || !right->Props.Metadata
+        || !left->Props.Statistics || !right->Props.Statistics) {
+        return;
+    }
+    const auto leftStats = BuildOptimizerStatistics(*left, planProps.ColumnLineage, true, ctx.TypeCtx);
+    const auto rightStats = BuildOptimizerStatistics(*right, planProps.ColumnLineage, true, ctx.TypeCtx);
+    auto leftNode = std::make_shared<TRelOptimizerNode>("lookup_fallback_left", leftStats);
+    auto rightNode = std::make_shared<TRelOptimizerNode>("lookup_fallback_right", rightStats);
+    TVector<TJoinColumn> leftKeys;
+    TVector<TJoinColumn> rightKeys;
+    for (const auto& [leftKey, rightKey, equalNulls] : join.JoinKeys.Items()) {
+        const auto* leftSource = planProps.ColumnLineage.Find(leftKey);
+        const auto* rightSource = planProps.ColumnLineage.Find(rightKey);
+        leftKeys.emplace_back(leftSource ? leftSource->GetRawAlias() : TString{}, ToString(leftKey));
+        rightKeys.emplace_back(rightSource ? rightSource->GetRawAlias() : TString{}, ToString(rightKey));
+        leftKeys.back().EqualNulls = rightKeys.back().EqualNulls = equalNulls;
+    }
+    const auto kind = ConvertToJoinKind(joinKind);
+    const bool supportsBlock = ctx.KqpCtx.Config->GetUseBlockHashJoin()
+        && (joinKind == "Inner" || joinKind == "Left" || joinKind == "LeftSemi" || joinKind == "LeftOnly");
+    double bestCost = std::numeric_limits<double>::infinity();
+    for (const auto algorithm : {EJoinAlgoType::GraceJoin, EJoinAlgoType::MapJoin, EJoinAlgoType::ReverseBlockJoin}) {
+        // The row Map implementation cannot preserve a right/full outer side.
+        if (algorithm == EJoinAlgoType::MapJoin
+            && ((joinKind != "Inner" && joinKind != "Left" && joinKind != "LeftSemi" && joinKind != "LeftOnly")
+                || (!join.JoinFilters.empty() && !supportsBlock))) {
+            continue;
+        }
+        if (algorithm == EJoinAlgoType::ReverseBlockJoin && !supportsBlock) {
+            continue;
+        }
+        if (!ctx.CBOCtx.IsJoinApplicable(leftNode, rightNode, leftKeys, rightKeys, algorithm, kind)) {
+            continue;
+        }
+        // A failed lookup changes distribution. Cost hash candidates with fresh
+        // shuffles; Map retains the provider's small-right-side applicability cap.
+        const bool shuffle = algorithm != EJoinAlgoType::MapJoin;
+        const auto stats = ctx.CBOCtx.ComputeJoinStatsV2(leftStats, rightStats, leftKeys, rightKeys,
+            algorithm, kind, nullptr, shuffle, shuffle, nullptr);
+        if (std::isfinite(stats.Cost) && stats.Cost < bestCost) {
+            bestCost = stats.Cost;
+            props.JoinAlgo = algorithm;
+            props.Cost = stats.Cost;
+        }
+    }
+}
 
 void FinalizeJoinPhysicalProps(TOpJoin& join, const TRBOContext& rboCtx) {
     auto& props = join.Props;
@@ -77,7 +159,7 @@ ui32 OutputIndex(const IOperator& input, TStageGraph& graph) {
     return graph.GetOutputIndex(*input.Props.StageId);
 }
 
-void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
+void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props, bool gatherLookupInputs) {
     const auto nodeName = input->ToString(ctx.ExprCtx, props.InfoUnitRegistry);
     YQL_CLOG(TRACE, CoreDq) << "Assign stages: " << nodeName;
 
@@ -135,7 +217,12 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
 
         // For cross-join or map join we build a stage with map and broadcast connections
         // FIXME: We assume that right side is small one, map join also can work with hash shuffle connections.
-        if (join->JoinKind == "Cross" || join->Props.JoinAlgo == EJoinAlgoType::MapJoin) {
+        if (gatherLookupInputs) {
+            // Casts run inside the join. Gather first when equality does not prove
+            // that the two physical key representations have the same hash.
+            props.StageGraph.Connect(leftStage, newStageId, MakeIntrusive<TUnionAllConnection>(leftOutputIndex));
+            props.StageGraph.Connect(rightStage, newStageId, MakeIntrusive<TUnionAllConnection>(rightOutputIndex));
+        } else if (join->JoinKind == "Cross" || join->Props.JoinAlgo == EJoinAlgoType::MapJoin) {
             props.StageGraph.Connect(leftStage, newStageId, MakeIntrusive<TMapConnection>(leftOutputIndex));
             props.StageGraph.Connect(rightStage, newStageId, MakeIntrusive<TBroadcastConnection>(rightOutputIndex));
         }
@@ -342,8 +429,35 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
 } // anonymous namespace
 
 void TAssignStagesStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
+    bool hasLookupFallback = false;
     for (const auto& item : root) {
-        AssignStage(item.Current, ctx, root.PlanProps);
+        hasLookupFallback |= IsUnloweredLookupJoin(*item.Current);
+    }
+    THashSet<IOperator*> gatheredLookups;
+    if (hasLookupFallback) {
+        root.ComputePlanStatistics(ctx);
+        for (const auto& item : root) {
+            if (IsUnloweredLookupJoin(*item.Current)) {
+                auto& join = CastOperator<TOpJoin>(*item.Current);
+                const bool gather = LookupFallbackNeedsGather(join, ctx.ExprCtx);
+                SelectLookupFallback(join, ctx, root.PlanProps, gather);
+                if (gather) {
+                    gatheredLookups.insert(item.Current);
+                }
+            }
+        }
+        // CBO's saved edge decisions may also describe ancestors of the changed
+        // join. Discard them for this root before any connection is constructed.
+        for (const auto& item : root) {
+            item.Current->Props.LeftShuffleBy.reset();
+            item.Current->Props.RightShuffleBy.reset();
+            if (item.Current->Props.Metadata) {
+                item.Current->Props.Metadata->ShuffledByColumns.Clear();
+            }
+        }
+    }
+    for (const auto& item : root) {
+        AssignStage(item.Current, ctx, root.PlanProps, gatheredLookups.contains(item.Current));
     }
 }
 

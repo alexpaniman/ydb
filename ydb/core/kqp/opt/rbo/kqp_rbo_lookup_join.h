@@ -26,6 +26,39 @@ struct TLookupJoinRightSide {
 // its description in SourceRead.
 std::optional<TLookupJoinRightSide> MatchLookupJoinRightSide(const TIntrusivePtr<IOperator>& input);
 
+// The left key type comes from the annotated boundary operator, never column lineage.
+struct TTypedLookupJoinKey {
+    TInfoUnitId LeftIU;
+    TInfoUnitId RightIU;
+    const NYql::TTypeAnnotationNode* LeftType;
+    bool EqualNulls = false;
+};
+
+struct TLookupJoinKey {
+    TInfoUnitId LeftIU;
+    TInfoUnitId RightIU;
+    TString Column;
+};
+
+struct TPreparedLookupJoin {
+    // Owns the read carrying any PointPrefix referenced by Target.
+    TLookupJoinRightSide RightSide;
+    TLookupJoinTarget Target;
+    std::optional<TExpression> FetchedRowFilter;
+    TVector<TLookupJoinKey> PrefixKeys;
+    TVector<TLookupJoinKey> LookupKeys;
+    TVector<TLookupJoinKey> ResidualKeys;
+};
+
+std::optional<TExpression> BuildLookupJoinFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported);
+
+// Shared, side-effect-free eligibility, target and key partitioning for costing and lowering.
+std::optional<TPreparedLookupJoin> PrepareLookupJoin(const TIntrusivePtr<IOperator>& right,
+    const TVector<TTypedLookupJoinKey>& keys, TStringBuf joinKind, bool sharedLeft, bool hasJoinFilters,
+    const NOpt::TKqpOptimizeContext& kqpCtx, const TInfoUnitRegistry& registry, NYql::TExprContext& ctx);
+std::optional<TPreparedLookupJoin> PrepareLookupJoin(const TOpJoin& join, const NOpt::TKqpOptimizeContext& kqpCtx,
+    const TInfoUnitRegistry& registry, NYql::TExprContext& ctx);
+
 // Maps the right side join keys to physical columns of the read. Read output units carry the physical
 // source column as their name, so the mapping is a registry lookup.
 std::optional<THashSet<TString>> GetLookupJoinKeyColumns(const TOpRead& read, const TUnorderedIUs& rightJoinKeys,

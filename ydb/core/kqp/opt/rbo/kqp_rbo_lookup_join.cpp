@@ -274,6 +274,129 @@ std::optional<TLookupJoinTarget> ChooseLookupJoinTarget(const TOpRead& read, con
     return best;
 }
 
+std::optional<TExpression> BuildLookupJoinFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
+    TVector<TExpression> conjuncts;
+    if (read.RangeInfo.has_value()) {
+        if (!read.OriginalPredicate.has_value()) {
+            supported = false;
+            return std::nullopt;
+        }
+        const auto original = read.OriginalPredicate->SplitConjunct();
+        conjuncts.insert(conjuncts.end(), original.begin(), original.end());
+    }
+    if (filter) {
+        const auto filters = filter->GetFilterExpression().SplitConjunct();
+        conjuncts.insert(conjuncts.end(), filters.begin(), filters.end());
+    }
+
+    if (conjuncts.empty()) {
+        return std::nullopt;
+    }
+
+    // The filter is evaluated on a fetched row, so it can only refer to the fetched columns.
+    const auto& readOutputs = read.GetColumns();
+    for (const auto& conjunct : conjuncts) {
+        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(readOutputs)) {
+            supported = false;
+            return std::nullopt;
+        }
+    }
+
+    return MakeConjunction(conjuncts);
+}
+
+std::optional<TPreparedLookupJoin> PrepareLookupJoin(const TIntrusivePtr<IOperator>& right,
+    const TVector<TTypedLookupJoinKey>& keys, TStringBuf joinKind, bool sharedLeft, bool hasJoinFilters,
+    const NOpt::TKqpOptimizeContext& kqpCtx, const TInfoUnitRegistry& registry, TExprContext& ctx) {
+    if (!kqpCtx.Config->GetEnableKqpDataQueryStreamIdxLookupJoin()
+        || (!kqpCtx.IsDataQuery() && !kqpCtx.IsGenericQuery())
+        || (joinKind != "Inner" && joinKind != "Left" && joinKind != "LeftSemi" && joinKind != "LeftOnly")
+        || sharedLeft || hasJoinFilters || keys.empty()) {
+        return std::nullopt;
+    }
+    const auto rightSide = MatchLookupJoinRightSide(right);
+    if (!rightSide || !rightSide->Read->Type || rightSide->Read->Limit
+        || rightSide->Read->GetTableStorageType() != NYql::EStorageType::RowStorage) {
+        return std::nullopt;
+    }
+    const auto& read = *rightSide->Read;
+    TPreparedLookupJoin result;
+    result.RightSide = *rightSide;
+    bool supported = true;
+    result.FetchedRowFilter = BuildLookupJoinFetchedRowFilter(read, rightSide->Filter.Get(), supported);
+    if (!supported) {
+        return std::nullopt;
+    }
+    auto stripOptional = [](const TTypeAnnotationNode* type) {
+        return type && type->GetKind() == ETypeAnnotationKind::Optional
+            ? type->Cast<TOptionalExprType>()->GetItemType() : type;
+    };
+    THashMap<TString, TLookupJoinKey> keyByColumn;
+    THashSet<TString> keyColumns;
+    for (const auto& key : keys) {
+        if (key.EqualNulls || !read.GetColumns().Contains(key.RightIU)) {
+            return std::nullopt;
+        }
+        const auto* leftType = stripOptional(key.LeftType);
+        const auto* rightType = stripOptional(read.GetIUType(key.RightIU, ctx));
+        if (!leftType || !rightType || leftType != rightType) {
+            return std::nullopt;
+        }
+        const auto column = registry.Get(key.RightIU).GetColumnName();
+        if (!keyByColumn.emplace(column, TLookupJoinKey{key.LeftIU, key.RightIU, column}).second) {
+            return std::nullopt;
+        }
+        keyColumns.insert(column);
+    }
+    TVector<TString> readColumns;
+    for (const auto id : read.GetColumns()) {
+        readColumns.push_back(registry.Get(id).GetColumnName());
+    }
+    const auto target = ChooseLookupJoinTarget(read, readColumns, keyColumns, joinKind == "Inner", kqpCtx);
+    if (!target) {
+        return std::nullopt;
+    }
+    result.Target = *target;
+    const size_t prefixSize = target->PointPrefix ? target->PointPrefix->Columns.size() : 0;
+    THashSet<TString> taken;
+    const auto& physicalKeys = target->Metadata->KeyColumnNames;
+    for (size_t i = 0; i < physicalKeys.size(); ++i) {
+        const auto it = keyByColumn.find(physicalKeys[i]);
+        if (i < prefixSize) {
+            if (it != keyByColumn.end()) {
+                result.PrefixKeys.push_back(it->second);
+                taken.insert(it->first);
+            }
+        } else {
+            if (it == keyByColumn.end()) {
+                break;
+            }
+            result.LookupKeys.push_back(it->second);
+            taken.insert(it->first);
+        }
+    }
+    if (result.LookupKeys.empty()) {
+        return std::nullopt;
+    }
+    for (const auto& key : keys) {
+        const auto& column = registry.Get(key.RightIU).GetColumnName();
+        if (!taken.contains(column)) {
+            result.ResidualKeys.push_back(keyByColumn.at(column));
+        }
+    }
+    return result;
+}
+
+std::optional<TPreparedLookupJoin> PrepareLookupJoin(const TOpJoin& join, const NOpt::TKqpOptimizeContext& kqpCtx,
+    const TInfoUnitRegistry& registry, TExprContext& ctx) {
+    TVector<TTypedLookupJoinKey> keys;
+    for (const auto& [left, right, equalNulls] : join.JoinKeys.Items()) {
+        keys.push_back({left, right, join.GetLeftInput()->GetIUType(left, ctx), equalNulls});
+    }
+    return PrepareLookupJoin(join.GetRightInput(), keys, GetValidJoinKind(join.JoinKind),
+        join.GetLeftInput()->Kind == EOperator::Replicate, !join.JoinFilters.empty(), kqpCtx, registry, ctx);
+}
+
 TExprNode::TPtr BuildTableCallable(const TKikimrTableMetadata& meta, TPositionHandle pos, TExprContext& ctx) {
     // clang-format off
     return Build<TKqpTable>(ctx, pos)

@@ -56,9 +56,13 @@ struct TRBORelOptimizerNode : public TRelOptimizerNode {
 };
 
 struct TRBOProviderContext : public TKqpProviderContext {
-    TRBOProviderContext(const TKqpOptimizeContext& kqpCtx, const int optLevel, bool useBlockHashJoin, const TColumnLineage& lineage)
+    TRBOProviderContext(const TKqpOptimizeContext& kqpCtx, const int optLevel, bool useBlockHashJoin,
+        const TInfoUnitRegistry& registry, const TMappedIUs<const NYql::TTypeAnnotationNode*>& boundaryTypes,
+        NYql::TExprContext& exprCtx)
         : TKqpProviderContext(kqpCtx, optLevel, useBlockHashJoin)
-        , Lineage(lineage)
+        , Registry(registry)
+        , BoundaryTypes(boundaryTypes)
+        , ExprCtx(exprCtx)
     {}
 
     virtual bool IsJoinApplicable(
@@ -70,6 +74,8 @@ struct TRBOProviderContext : public TKqpProviderContext {
         EJoinKind joinKind
     ) override;
 
-    const TColumnLineage& Lineage;
+    const TInfoUnitRegistry& Registry;
+    const TMappedIUs<const NYql::TTypeAnnotationNode*>& BoundaryTypes;
+    NYql::TExprContext& ExprCtx;
 };
 }
