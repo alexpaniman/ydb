@@ -241,6 +241,19 @@ class TEliminateLeftJoinRule : public ISimplifiedRule {
 };
 
 /**
+ * Normalize interval SUM to the exact Decimal accumulator used by its traits.
+ */
+class TNormalizeIntervalSumRule: public ISimplifiedRule {
+public:
+    TNormalizeIntervalSumRule()
+        : ISimplifiedRule("Normalize interval SUM", ERuleProperties::RequireTypes) {
+    }
+
+    bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
+    TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) override;
+};
+
+/**
  * Expand distinct aggregation.
  */
 class TExpandDistinctAggregationRule: public ISimplifiedRule {

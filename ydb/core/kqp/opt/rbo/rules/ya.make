@@ -14,6 +14,7 @@ JOIN_SRCS(
     expand_distinct_aggregation.cpp
     expand_grouping_sets.cpp
     expand_whole_partition_window.cpp
+    normalize_interval_sum.cpp
 )
 
 JOIN_SRCS(

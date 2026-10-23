@@ -615,6 +615,7 @@ void TKqpNewRBOTransformer::InitializeRBOOptimizationStages() {
     // Expand aggregation.
     TVector<std::unique_ptr<IRule>> expandAggregationRules;
     expandAggregationRules.emplace_back(std::make_unique<TExpandGroupingSetsRule>());
+    expandAggregationRules.emplace_back(std::make_unique<TNormalizeIntervalSumRule>());
     expandAggregationRules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
     expandAggregationRules.emplace_back(std::make_unique<TExpandWholePartitionWindowRule>());
     RBO.AddStage(std::make_unique<TRuleBasedStage>("Expand aggregation", std::move(expandAggregationRules)));
