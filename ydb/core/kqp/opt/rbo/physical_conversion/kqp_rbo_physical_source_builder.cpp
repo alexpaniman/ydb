@@ -177,7 +177,13 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
     TVector<TString> storageColumns;
     TVector<std::pair<TString, TString>> renames;
     THashMap<TString, TString> olapNames;
+    const auto& liveOut = GetLiveOut(&Read);
     for (const auto id : Read.GetColumns()) {
+        // Range provenance remains on the logical read for statistics and lookup
+        // selection, but it is not a runtime consumer of row-source columns.
+        if (Read.GetTableStorageType() == NYql::EStorageType::RowStorage && !liveOut.Contains(id)) {
+            continue;
+        }
         const auto column = Registry.Get(id).GetColumnName();
         storageColumns.push_back(column);
         renames.emplace_back(column, Names.Get(id));
