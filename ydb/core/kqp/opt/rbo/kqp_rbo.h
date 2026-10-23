@@ -39,6 +39,19 @@ class IRule {
     }
     virtual bool MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) = 0;
 
+
+    // Opt in only when matching reads this subtree and at most OutputIUs.
+    // A successful rewrite preserves the root output IDs and may mutate/create
+    // nodes only within this many child edges of the replacement root. It must
+    // not mutate other nodes, ownership outside this region, subplan bindings,
+    // the IU registry, stages or context-global state. It must preserve the set
+    // of referenced subplans and create no new sharing. Do not rewrite through
+    // a Replicate port or change a shared producer's output IDs inside the
+    // region: other consumers would need their own invalidation. Existing nodes beyond
+    // the region remain unchanged, including their output caches. A failed
+    // rewrite must have no effect. Unknown rules use the conservative loop.
+    virtual std::optional<ui32> LocalRewriteDepth() const { return std::nullopt; }
+
     virtual ~IRule() = default;
 
     TString RuleName;

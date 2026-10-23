@@ -129,6 +129,108 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
     bool needToLog = NYql::NLog::YqlLogger().NeedToLog(NYql::NLog::EComponent::CoreDq, NYql::NLog::ELevel::TRACE);
     ui32 computedProps = 0;
 
+    bool useLocalWorklist = !Rules.empty();
+    for (const auto& rule : Rules) {
+        useLocalWorklist &= rule->LocalRewriteDepth().has_value()
+            && (rule->Props & ~ui32(ERuleProperties::RequireOutputIUs)) == 0;
+    }
+    if (useLocalWorklist) {
+        struct TOwnedEntry {
+            TIntrusivePtr<IOperator> Current;
+            TIntrusivePtr<IOperator> Parent;
+            size_t ChildIndex;
+            std::optional<TInfoUnitId> SubplanIU;
+        };
+        TVector<TOwnedEntry> initial;
+        THashMap<IOperator*, const TIntrusivePtr<IOperator>*> owners;
+        const auto recordOwner = [&](TIntrusivePtr<IOperator>& slot) {
+            const auto [it, inserted] = owners.emplace(slot.Get(), &slot);
+            useLocalWorklist &= inserted || it->second == &slot;
+        };
+        recordOwner(root.MutableChild(0));
+        for (const auto& item : root) {
+            initial.push_back({TIntrusivePtr<IOperator>(item.Current),
+                TIntrusivePtr<IOperator>(item.Parent), item.ChildIndex, item.SubplanIU});
+            // Replicate ports forward one canonical producer slot. Distinct
+            // owning slots for one node need general consumer invalidation.
+            useLocalWorklist &= item.Current->Kind != EOperator::CBOTree && !item.Current->Props.StageId;
+            for (size_t child = 0; child < item.Current->GetChildCount(); ++child) {
+                recordOwner(item.Current->MutableChild(child));
+            }
+            for (const auto iu : item.Current->GetSubplanIUs(root.PlanProps.Subplans)) {
+                if (root.PlanProps.Subplans.Find(iu)) {
+                    recordOwner(root.PlanProps.Subplans.MutablePlan(iu));
+                }
+            }
+        }
+        if (useLocalWorklist) {
+            EnsureRequiredProps(root, ERuleProperties::RequireOutputIUs, computedProps, ctx, StageName);
+            TVector<TOwnedEntry> work(initial.rbegin(), initial.rend());
+            while (!work.empty()) {
+                auto entry = std::move(work.back());
+                work.pop_back();
+                auto& op = entry.Parent ? entry.Parent->MutableChild(entry.ChildIndex)
+                    : entry.SubplanIU ? root.PlanProps.Subplans.MutablePlan(*entry.SubplanIU)
+                    : root.MutableChild(0);
+                if (op.Get() != entry.Current.Get()) {
+                    // A contract not yet admitted by this scheduler changed a
+                    // queued owner. Resume from a fresh conservative traversal.
+                    break;
+                }
+                for (const auto& rule : Rules) {
+                    if (!rule->QuickMatch(op, root.PlanProps)) {
+                        continue;
+                    }
+                    const auto previousOutputs = op->GetOutputIUs();
+                    TRuleTraceAttempt traceAttempt(ctx, rule->RuleName);
+                    const bool applied = rule->MatchAndApply(op, ctx, root.PlanProps);
+                    Y_ENSURE(op, "Rule left a null plan edge");
+                    traceAttempt.CloseRule();
+                    if (!applied) {
+                        traceAttempt.SubmitIfHasInfo(root, StageName);
+                        continue;
+                    }
+
+                    TVector<TOwnedEntry> region;
+                    const auto collect = [&](const auto& self, TIntrusivePtr<IOperator> current,
+                        TIntrusivePtr<IOperator> parent, size_t childIndex,
+                        std::optional<TInfoUnitId> subplanIU, ui32 depth) -> void {
+                        if (depth) {
+                            for (size_t child = 0; child < current->GetChildCount(); ++child) {
+                                self(self, current->GetChild(child), current, child, subplanIU, depth - 1);
+                            }
+                        }
+                        region.push_back({std::move(current), std::move(parent), childIndex, subplanIU});
+                    };
+                    collect(collect, op, entry.Parent, entry.ChildIndex, entry.SubplanIU, *rule->LocalRewriteDepth());
+                    // Child caches outside the declared region are unchanged.
+                    // Refresh inside it in postorder; the equal root output
+                    // makes every ancestor's output cache remain valid.
+                    for (const auto& changed : region) {
+                        changed.Current->RecomputeLocalOutputIUs();
+                    }
+                    Y_ENSURE(op->GetOutputIUs() == previousOutputs, "Local rewrite changed its root output IUs");
+                    computedProps &= ERuleProperties::RequireOutputIUs;
+                    // New/mutated descendants may expose new candidates. Visit
+                    // them before the replacement and before queued ancestors.
+                    work.insert(work.end(), region.rbegin(), region.rend());
+
+                    YQL_CLOG(TRACE, CoreDq) << "Applied rule:" << rule->RuleName;
+                    if (needToLog && rule->LogRule) {
+                        YQL_CLOG(TRACE, CoreDq) << "Plan after applying rule:\n" << root.PlanToString(ctx.ExprCtx);
+                    }
+                    traceAttempt.SubmitApplied(root, StageName);
+                    ++numMatches;
+                    Y_ENSURE(numMatches < maxNumOfMatches);
+                    break;
+                }
+            }
+            // Keep one fresh correctness pass, including property recomputation
+            // on demand. Unknown rule effects always use that loop directly.
+            computedProps = 0;
+        }
+    }
+
     while (fired && numMatches < maxNumOfMatches) {
         fired = false;
 

@@ -209,7 +209,8 @@ class TInlineJoinFiltersRule : public ISimplifiedRule {
  */
 class TRewriteRightJoinRule : public ISimplifiedRule {
   public:
-    TRewriteRightJoinRule() : ISimplifiedRule("Rewrite right join", ERuleProperties::RequireParents ) {}
+    TRewriteRightJoinRule() : ISimplifiedRule("Rewrite right join", 0) {}
+    std::optional<ui32> LocalRewriteDepth() const override { return 0; }
 
     virtual bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
     virtual TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) override;
@@ -307,6 +308,7 @@ class TPushLimitIntoSortRule : public ISimplifiedRule {
 class TPushMapElementsIntoMapRule : public ISimplifiedRule {
   public:
     TPushMapElementsIntoMapRule() : ISimplifiedRule("Push map elements into map", ERuleProperties::RequireOutputIUs) {}
+    std::optional<ui32> LocalRewriteDepth() const override { return 1; }
 
     virtual bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
     virtual TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext &ctx, TPlanProps &props) override;
@@ -318,6 +320,7 @@ class TPushMapElementsIntoMapRule : public ISimplifiedRule {
 class TPushMapElementsThroughInputRule : public ISimplifiedRule {
   public:
     TPushMapElementsThroughInputRule() : ISimplifiedRule("Push map elements through input operator", ERuleProperties::RequireOutputIUs) {}
+    std::optional<ui32> LocalRewriteDepth() const override { return 2; }
 
     virtual bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
     virtual TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) override;

@@ -254,6 +254,12 @@ public:
      */
     virtual const TUnorderedIUs& GetOutputIUs();
 
+    // Scheduler-only local refresh: every child output must already be current.
+    void RecomputeLocalOutputIUs() {
+        Props.OutputIUs.reset();
+        ComputeOutputIUs();
+    }
+
     /**
      * Get the child-output IDs this operator reads. Subplan results are not
      * included; Aggregate omits the keys it forwards.
