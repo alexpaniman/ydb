@@ -209,6 +209,10 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
 
         TIntrusivePtr<IOperator> partialResult = port;
         if (isDistinct) {
+            const auto input = aggTraitsList.At(*outputs.begin()).Input;
+            for (const auto output : outputs) {
+                Y_ENSURE(aggTraitsList.At(output).Input == input, "Shared DISTINCT branch has different inputs");
+            }
             // Aggregation column + keys.
             TOrderedIUs<> distColumns = keyColumns;
             distColumns.AppendMissing(rebind(aggTraitsList.At(*outputs.begin()).Input));
@@ -240,6 +244,8 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
 
     TAggregationIUs finalAggTraitsList;
     TUnorderedIUs aggTraitsListNotDistinct;
+    THashMap<TInfoUnitId, size_t> distinctGroupByInput;
+    TVector<TUnorderedIUs> distinctGroups;
 
     for (const auto output : aggTraitsList.Keys()) {
         const auto& aggTraits = aggTraitsList.At(output);
@@ -255,10 +261,17 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
             // For not distinct we keep traits and will put them in one aggregation.
             aggTraitsListNotDistinct.Add(output);
         } else {
-            addPartialResult(TUnorderedIUs{output}, /*isDistinct=*/true);
+            const auto [group, inserted] = distinctGroupByInput.emplace(aggTraits.Input, distinctGroups.size());
+            if (inserted) {
+                distinctGroups.emplace_back();
+            }
+            distinctGroups[group->second].Add(output);
         }
     }
 
+    for (const auto& group : distinctGroups) {
+        addPartialResult(group, /*isDistinct=*/true);
+    }
     if (!aggTraitsListNotDistinct.Empty()) {
         addPartialResult(aggTraitsListNotDistinct, /*isDistinct=*/false);
     }
