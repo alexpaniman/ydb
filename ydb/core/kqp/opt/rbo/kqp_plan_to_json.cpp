@@ -230,6 +230,34 @@ bool IsTableReadOperator(const TString& opName) {
     return opName == "TableFullScan" || opName == "TableRangeScan";
 }
 
+void CollectStageStats(const NJson::TJsonValue& plan, THashMap<TString, NJson::TJsonValue>& stats) {
+    const auto& map = plan.GetMapSafe();
+    const auto stage = map.find("StageGuid");
+    const auto stageStats = map.find("Stats");
+    if (stage != map.end() && stageStats != map.end()) {
+        stats[stage->second.GetStringSafe()] = stageStats->second;
+    }
+    if (const auto children = map.find("Plans"); children != map.end()) {
+        for (const auto& child : children->second.GetArraySafe()) {
+            CollectStageStats(child, stats);
+        }
+    }
+}
+
+void ApplyStageStats(NJson::TJsonValue& plan, const THashMap<TString, NJson::TJsonValue>& stats) {
+    auto& map = plan.GetMapSafe();
+    if (const auto stage = map.find("StageGuid"); stage != map.end()) {
+        if (const auto entry = stats.find(stage->second.GetStringSafe()); entry != stats.end()) {
+            plan["Stats"] = entry->second;
+        }
+    }
+    if (const auto children = map.find("Plans"); children != map.end()) {
+        for (auto& child : children->second.GetArraySafe()) {
+            ApplyStageStats(child, stats);
+        }
+    }
+}
+
 TString GetLastPathComponent(const TString& path) {
     auto slash = path.rfind('/');
     return (slash == TString::npos) ? path : path.substr(slash + 1);
@@ -573,14 +601,25 @@ TString SerializeRBOAnalyzePlan(const TVector<const TString>& txPlans, const NKq
     YQL_CLOG(TRACE, CoreDq) << "Serialize analyze plan";
 
 
-    if (txPlans.empty()) {
+    NJson::TJsonValue txPlanJson;
+    THashMap<TString, NJson::TJsonValue> stageStats;
+    bool hasPlan = false;
+    for (const auto& txPlan : txPlans) {
+        // Literal materialization can complete before a plan is attached.
+        if (txPlan.empty()) {
+            continue;
+        }
+        NJson::ReadJsonTree(txPlan, &txPlanJson, true);
+        CollectStageStats(txPlanJson, stageStats);
+        hasPlan = true;
+    }
+    if (!hasPlan) {
         return "";
     }
 
-    auto txPlan = txPlans.back();
-    NJson::TJsonValue txPlanJson;
-    NJson::ReadJsonTree(txPlan, &txPlanJson, true);
-
+    // Every transaction carries the same RBO query plan, but only its own
+    // stages receive statistics. Match by GUID to retain earlier blocks too.
+    ApplyStageStats(txPlanJson, stageStats);
     AddStatsToSimplifiedPlan(txPlanJson);
     return SerializeRBOExplainPlan(txPlanJson);
 }

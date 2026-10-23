@@ -105,9 +105,6 @@ private:
     THashMap<TString, THashSet<TString>> HistColumnsByTableName;
     THashMap<TString, THashMap<TString, TVector<TString>>> EqHeightHistTuplesByTableName;
 
-    // Flag to reset the check of original type for multiple statement queries
-    bool ResetTypes = false;
-
     TVector<TIntrusivePtr<TOpRoot>> Roots;
     TRuleBasedOptimizer RBO;
 };

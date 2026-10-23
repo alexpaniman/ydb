@@ -10,6 +10,7 @@
 #include <util/generic/string.h>
 #include <util/system/env.h>
 
+#include <yql/essentials/core/services/yql_transform_pipeline.h>
 #include <yql/essentials/core/yql_expr_optimize.h>
 #include <yql/essentials/utils/log/log.h>
 
@@ -147,61 +148,31 @@ void TKqpRewriteSelectTransformer::Rewind() {
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) {
     output = input;
-    TOptimizeExprSettings settings(&TypeCtx);
-    settings.VisitTuples = true;
-
-    // At first step convert KqpOps to RBO Ops.
-    auto status = OptimizeExpr(
-        output, output,
-        [this](const TExprNode::TPtr& node, TExprContext& ctx) -> TExprNode::TPtr {
-            Y_UNUSED(ctx);
-
-            // Match whole elements that are tuples (TKqpOpRoot, columns) or (Unordered(TKqpOpRoot), columns)
-            if (node->IsList()) {
-                TVector<std::pair<TExprNode::TPtr, TExprNode::TPtr>> roots;
-                for (const auto& child : node->Children()) {
-                    if (!child->IsList() || child->ChildrenSize()==0) {
-                        continue;
-                    }
-                    TExprNode::TPtr queryColumns;
-                    if (child->ChildrenSize() >=2) {
-                        queryColumns = child->ChildPtr(1);
-                    }
-
-                    if (TCoUnordered::Match(child->ChildPtr(0).Get()) && TKqpOpRoot::Match(child->ChildPtr(0)->ChildPtr(0).Get())) {
-                        roots.push_back(std::make_pair(child->ChildPtr(0)->ChildPtr(0), queryColumns));
-                    }
-                    else if (TKqpOpRoot::Match(child->ChildPtr(0).Get())) {
-                        roots.push_back(std::make_pair(child->ChildPtr(0), queryColumns));
-                    }
-                }
-
-                if (roots.empty()) {
-                    return node;
-                }
-
-                for (const auto& root: roots) {
-                    auto opRoot = PlanConverter(TypeCtx, ctx).ConvertRoot(root.first, root.second);
-                    opRoot->ComputeParents();
-                    Roots.push_back(std::move(opRoot));
-                }
-
-                if (Roots.size() > 1) {
-                    if (KqpCtx.Config->GetEnableFallbackOnMultipleStatements()) {
-                        Y_ENSURE(false, "Fallback due to multiple statements flag");
-                    }
-                    ResetTypes = true;
-                }
-
-                return node;
-            } else {
-                return node;
+    Y_ENSURE(TKqlQueryList::Match(input.Get()), "Expected query blocks for NEW RBO");
+    Roots.clear();
+    const auto queryBlocks = TKqlQueryList(input);
+    for (ui32 blockIndex = 0; blockIndex < queryBlocks.Size(); ++blockIndex) {
+        const auto block = queryBlocks.Item(blockIndex);
+        const auto addRoot = [&](TExprNode::TPtr root, TExprNode::TPtr columns, bool hasResult) {
+            if (TCoUnordered::Match(root.Get())) {
+                root = root->ChildPtr(0);
             }
-        },
-        ctx, settings);
-
-    if (status != TStatus::Ok) {
-        return status;
+            Y_ENSURE(TKqpOpRoot::Match(root.Get()), "Expected a relational query root");
+            auto opRoot = PlanConverter(TypeCtx, ctx).ConvertRoot(root, columns);
+            opRoot->QueryBlockId = blockIndex;
+            opRoot->HasResult = hasResult;
+            opRoot->ComputeParents();
+            Roots.push_back(std::move(opRoot));
+        };
+        for (const auto result : block.Results()) {
+            addRoot(result.Value().Ptr(), result.ColumnHints().Ptr(), true);
+        }
+        for (const auto effect : block.Effects()) {
+            addRoot(effect.Ptr(), nullptr, false);
+        }
+    }
+    if (Roots.size() > 1 && KqpCtx.Config->GetEnableFallbackOnMultipleStatements()) {
+        Y_ENSURE(false, "Fallback due to multiple statements flag");
     }
 
     if (IsSuitableToRequestStatistics()) {
@@ -480,52 +451,22 @@ bool TKqpNewRBOTransformer::IsSuitableToRequestStatistics() {
 }
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::ContinueOptimizations(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) try {
-    output = input;
-    TOptimizeExprSettings settings(nullptr);
-    if (!ResetTypes) {
-        settings = TOptimizeExprSettings(&TypeCtx);
-    }
     Y_ENSURE(Roots.size(), "NEW RBO OpRoot is not initialized.");
-
-    // Match containers of (KqpOpRoot, columns) or (Unordered(KqpOpRoot), columns).
-    const auto containers = FindNodes(input, [](const TExprNode::TPtr& node) {
-        return node->IsList() && AnyOf(node->Children(), [](const auto& child) {
-            if (!child->IsList() || child->ChildrenSize() == 0) {
-                return false;
-            }
-            auto root = child->ChildPtr(0);
-            if (TCoUnordered::Match(root.Get())) {
-                root = root->ChildPtr(0);
-            }
-            return TKqpOpRoot::Match(root.Get());
-        });
-    });
-    if (containers.empty()) {
-        return TStatus::Ok;
-    }
-
-    // Optimize all roots once, then replace every result container.
     TRBOContext rboCtx(KqpCtx, ctx, TypeCtx, *RBOTypeAnnTransformer.Get(), FuncRegistry);
     TRBOTraceOutput traceOutput(rboCtx);
-    auto optimizedPlan = RBO.Optimize(Roots, rboCtx);
+    output = RBO.Optimize(Roots, rboCtx);
     traceOutput.Flush();
     AddPlans(rboCtx.ExecutionJson, rboCtx.ExplainJson);
-
-    TNodeOnNodeOwnedMap replacements;
-    for (const auto& container : containers) {
-        // An effects-only KqlQuery is (() (KqpOpRoot ...)): keep its empty Results slot.
-        auto replacement = optimizedPlan;
-        for (const auto& child : container->Children()) {
-            if (child->IsList() && child->ChildrenSize() == 0) {
-                auto children = optimizedPlan->ChildrenList();
-                children.insert(children.begin(), child);
-                replacement = ctx.NewList(container->Pos(), std::move(children));
-                break;
-            }
-        }
-        replacements.emplace(container.Get(), std::move(replacement));
-    }
-    return RemapExpr(input, output, replacements, ctx, settings);
+    // The optimizer exports the complete physical query. Replacing nested result
+    // tuples would confuse their ownership with the enclosing query's effects.
+    // Final stage rebuilding can replace lambdas while reusing their bodies.
+    // Complete constraints before restoring scopes and canonicalizing the closed query.
+    // Keep annotation restarts local: this output is no longer a query-block list.
+    auto finalTypeAnnotation = TTransformationPipeline(&TypeCtx)
+        .AddTypeAnnotationTransformer()
+        .AddPostTypeAnnotation()
+        .Build(false);
+    return InstantTransform(*finalTypeAnnotation, output, ctx);
 } catch (const std::exception& e) {
     ctx.AddError(ExceptionToIssue(e, ctx.GetPosition(input->Pos())));
     return TStatus::Error;

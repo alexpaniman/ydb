@@ -1729,6 +1729,9 @@ public:
 
     TPlanProps PlanProps;
     TExprNode::TPtr Node;
+    // Preserve the statement block and result ownership across optimization.
+    ui32 QueryBlockId = 0;
+    bool HasResult = true;
 
 private:
     // External labels, order and arity never change. Copy elimination may

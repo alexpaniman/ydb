@@ -158,19 +158,19 @@ public:
         Y_UNUSED(typeCtx);
         Y_UNUSED(optCtx);
 
-        // PlanJson is a plan for a transaction, we need to reshape it into a query plan
+        // RBO's plan contains every root. Each transaction needs a plan while its
+        // execution statistics are collected, including effects and materialization.
         if (TransformCtx->PlanJson.has_value()) {
             YQL_CLOG(TRACE, CoreDq) << "Set query plan";
 
-            //FIXME: We set the plan for the last transaction in the query
-            auto txId = query.Transactions().Size() - 1;
-
-            auto & txProto = (*queryProto.MutableTransactions())[txId];
+            Y_ENSURE(query.Transactions().Size() == queryProto.TransactionsSize());
             auto & plan = TransformCtx->PlanJson.value();
 
             NJsonWriter::TBuf txWriter;
             txWriter.WriteJsonValue(&plan, true, PREC_NDIGITS, 17);
-            txProto.SetPlan(txWriter.Str());
+            for (auto& txProto : *queryProto.MutableTransactions()) {
+                txProto.SetPlan(txWriter.Str());
+            }
 
             queryProto.SetQueryPlan(SerializeRBOExplainPlan(plan));
         }
