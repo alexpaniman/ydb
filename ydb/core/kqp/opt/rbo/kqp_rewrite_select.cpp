@@ -2213,9 +2213,12 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
         auto result = GetSetting(setItem->Tail(), "result");
         Y_ENSURE(result || values, "New RBO expects either 'values' or 'result' at a set item");
 
-        // Process all aggregations in result item.
+        // Result DISTINCT belongs after both window evaluation and the selected
+        // expressions. Preparing its inputs here would project away window keys.
+        const bool distinctAfterWindow = distinctAll && !CollectWindowCalls(result).empty();
         ProcessAggregationsInResultItems(result, aggregationUniqueColNames, expressionsMapPreAgg, groupByKeysExpressionsMap, aggregationTraits,
-                                         distinctAggregationTraitsPostAggregate, expressionsMapPostAgg, uniqueAggColumnId, distinctAll, ctx, node->Pos());
+                                         distinctAggregationTraitsPostAggregate, expressionsMapPostAgg, uniqueAggColumnId,
+                                         distinctAll && !distinctAfterWindow, ctx, node->Pos());
 
         // A windowed query without an aggregate has no projection to pass columns through, so
         // its post-aggregate map keeps the input columns instead of listing them.
@@ -2235,7 +2238,7 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
 
         TVector<TVector<TInfoUnit>> groupingSets;
         if (hasRollup) {
-            Y_ENSURE(distinctAggregationTraitsPostAggregate.AggTraitsList.empty(), "Unsupported grouping sets with distinct all.");
+            Y_ENSURE(!distinctAll, "Unsupported grouping sets with distinct all.");
             for (const auto& groupingSetIndexes : groupingSetComponents.front()) {
                 THashSet<ui32> indexes(groupingSetIndexes.begin(), groupingSetIndexes.end());
                 TVector<TInfoUnit> groupingSet;
@@ -2275,7 +2278,7 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
             const bool hasWindowCall = !CollectWindowCalls(body).empty();
             // Aggregations are materialized earlier. Keep any expression around a nested group reference.
             auto aggColName = columnName;
-            if (aggregation || distinctAll || hasWindowCall || isDirectGroupRef) {
+            if (aggregation || (distinctAll && !distinctAfterWindow) || hasWindowCall || isDirectGroupRef) {
                 if (groupRef) {
                     aggColName = GetColumnNameFromGroupRef(groupRef, groupByKeysExpressionsMap);
                 }
@@ -2410,6 +2413,20 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
             .Build()
         .Done().Ptr();
         // clang-format on
+
+        if (distinctAfterWindow) {
+            TVector<TExprNode::TPtr> distinctTraits;
+            TVector<TInfoUnit> distinctKeys;
+            for (const auto& column : finalProjection) {
+                distinctTraits.push_back(BuildAggregationTraits(column, "distinct", column, ctx, node->Pos()));
+                distinctKeys.emplace_back(column);
+            }
+            setItemPtr = BuildAggregate(setItemPtr, distinctTraits, distinctKeys, /*distinct=*/true, ctx, node->Pos());
+            // Keep the selected-result boundary after DISTINCT as on the
+            // ordinary path: its keys and result traits share column names.
+            setItemPtr = BuildAggregateExpressionMap(setItemPtr, {},
+                BuildExpressionsFromColumns(distinctKeys, ctx, node->Pos()), ctx, node->Pos());
+        }
 
         if (sort) {
             setItemPtr = BuildSort(setItemPtr, sort, groupByKeysExpressionsMap, ctx);
