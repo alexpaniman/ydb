@@ -648,7 +648,11 @@ void TOpJoin::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
     Props.Metadata->SourceStatsColumns.IntersectWith(outputs);
 
     NKqp::EJoinAlgoType algo = Props.JoinAlgo.has_value() ? *Props.JoinAlgo : NKqp::EJoinAlgoType::Undefined;
-    if (algo == NKqp::EJoinAlgoType::MapJoin) {
+    // A gathered join runs in one task, but does not preserve either input's
+    // hash distribution. Recomputed metadata must not revive a stale proof.
+    if (Props.GatherJoinInputs) {
+        Props.Metadata->ShuffledByColumns.Clear();
+    } else if (algo == NKqp::EJoinAlgoType::MapJoin) {
         // Build side is always right (broadcast), so left-family output keeps the left distribution.
         // For right-family joins be conservative: output rows are right-side rows, so left-side
         // shuffling is not a valid distribution claim for the result.

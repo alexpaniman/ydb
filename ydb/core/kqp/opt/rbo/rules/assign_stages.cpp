@@ -12,6 +12,20 @@ namespace {
 using namespace NKikimr;
 using namespace NKikimr::NKqp;
 
+bool JoinKeysRequireGather(const TOpJoin& join, TExprContext& ctx) {
+    for (const auto& [left, right, equalNulls] : join.JoinKeys.Items()) {
+        const auto* leftType = join.GetLeftInput()->GetIUType(left, ctx);
+        const auto* rightType = join.GetRightInput()->GetIUType(right, ctx);
+        Y_ENSURE(leftType && rightType, "No types for join keys");
+        // Be conservative about optional and composite representations as well:
+        // equal values are not sufficient to prove identical shuffle hashes.
+        if (!IsSameAnnotation(*leftType, *rightType)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void FinalizeJoinPhysicalProps(TOpJoin& join, const TRBOContext& rboCtx) {
     auto& props = join.Props;
     const auto& config = *rboCtx.KqpCtx.Config;
@@ -131,11 +145,21 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
         const auto newStageId = props.StageGraph.AddStage();
         join->Props.StageId = newStageId;
 
+        if (join->Props.GatherJoinInputs) {
+            // Grace supports all regular join kinds without replicating a
+            // preserved side. Keep comparison/cast semantics in its builder.
+            join->Props.JoinAlgo = EJoinAlgoType::GraceJoin;
+        }
         FinalizeJoinPhysicalProps(*join, ctx);
 
         // For cross-join or map join we build a stage with map and broadcast connections
         // FIXME: We assume that right side is small one, map join also can work with hash shuffle connections.
-        if (join->JoinKind == "Cross" || join->Props.JoinAlgo == EJoinAlgoType::MapJoin) {
+        if (join->Props.GatherJoinInputs) {
+            // Plain UnionAll inputs share one destination task. Casts inside
+            // the join now see every potentially matching row from both sides.
+            props.StageGraph.Connect(leftStage, newStageId, MakeIntrusive<TUnionAllConnection>(leftOutputIndex));
+            props.StageGraph.Connect(rightStage, newStageId, MakeIntrusive<TUnionAllConnection>(rightOutputIndex));
+        } else if (join->JoinKind == "Cross" || join->Props.JoinAlgo == EJoinAlgoType::MapJoin) {
             props.StageGraph.Connect(leftStage, newStageId, MakeIntrusive<TMapConnection>(leftOutputIndex));
             props.StageGraph.Connect(rightStage, newStageId, MakeIntrusive<TBroadcastConnection>(rightOutputIndex));
         }
@@ -342,6 +366,27 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
 } // anonymous namespace
 
 void TAssignStagesStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
+    bool hasGatheredJoin = false;
+    for (const auto& item : root) {
+        if (item.Current->Kind == EOperator::Join) {
+            auto& join = CastOperator<TOpJoin>(*item.Current);
+            join.Props.GatherJoinInputs = JoinKeysRequireGather(join, ctx.ExprCtx);
+            hasGatheredJoin |= join.Props.GatherJoinInputs;
+        }
+    }
+    if (hasGatheredJoin) {
+        // A gather changes distributions seen by ancestors too. CBO's saved
+        // edge decisions must not survive this physical fallback anywhere in
+        // the query; ordinary property invalidation does not clear them.
+        for (const auto& item : root) {
+            auto& props = item.Current->Props;
+            props.LeftShuffleBy.reset();
+            props.RightShuffleBy.reset();
+            if (props.Metadata) {
+                props.Metadata->ShuffledByColumns.Clear();
+            }
+        }
+    }
     for (const auto& item : root) {
         AssignStage(item.Current, ctx, root.PlanProps);
     }

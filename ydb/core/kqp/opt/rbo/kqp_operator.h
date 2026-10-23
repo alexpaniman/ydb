@@ -124,6 +124,9 @@ struct TPhysicalOpProps {
     // Resolved physical implementation for a join. std::nullopt means that
     // physical join selection has not run yet.
     std::optional<bool> UseBlockHashJoin;
+    // Key conversions currently run inside the join stage. Gather inputs when
+    // their original key types cannot safely share a hash partitioning.
+    bool GatherJoinInputs = false;
     std::optional<double> Cost;
 
     // CBO decision for this join's input edges.
@@ -147,6 +150,7 @@ private:
         Statistics = other.Statistics;
         JoinAlgo = other.JoinAlgo;
         UseBlockHashJoin = other.UseBlockHashJoin;
+        GatherJoinInputs = other.GatherJoinInputs;
         Cost = other.Cost;
         LeftShuffleBy = other.LeftShuffleBy;
         RightShuffleBy = other.RightShuffleBy;
