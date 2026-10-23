@@ -120,6 +120,18 @@ bool HasSamplingRead(const TExprNode::TPtr& root) {
     }) != nullptr;
 }
 
+bool HasInsertRevert(const TExprNode::TPtr& root) {
+    return FindNode(root, [](const TExprNode::TPtr& node) {
+        if (!TCoWrite::Match(node.Get()) || node->ChildrenSize() != 5 ||
+            !TMaybeNode<TKiDataSink>(node->ChildPtr(TCoWrite::idx_DataSink)) || !node->Child(4)->IsList())
+        {
+            return false;
+        }
+        const auto mode = GetSetting(*node->Child(4), "mode");
+        return mode && mode->ChildrenSize() == 2 && mode->Child(1)->IsAtom("insert_revert");
+    }) != nullptr;
+}
+
 class TKqpResultWriter : public IResultWriter {
 public:
     TKqpResultWriter() {}
@@ -1535,6 +1547,14 @@ private:
 
         if (!CheckIsBatch(queryExpr, ctx)) {
             return result;
+        }
+
+        if (SessionCtx->Config().GetEnableNewRBO() && HasInsertRevert(queryExpr)) {
+            // Revert requires the legacy write prechecks to suppress the entire
+            // input on a conflict. The RBO sink only implements abort-on-conflict.
+            // Expand the existing YqlSelect AST in place, preserving statement scope.
+            SessionCtx->ConfigPtr()->SetEnableNewRBO(false);
+            TypesCtx->IgnoreExpandPg = false;
         }
 
         if (HasSamplingRead(queryExpr)) {
