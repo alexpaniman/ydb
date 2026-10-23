@@ -118,6 +118,9 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
             TPhysicalSourceBuilder builder(opRead, ctx, opRead.Pos, names, root->PlanProps.InfoUnitRegistry,
                 graph.StageGUIDs.at(*opRead.Props.StageId), table.Metadata->Kind == NYql::EKikimrTableKind::SysView,
                 std::move(carrierColumn));
+            if (rboCtx.KqpCtx.Config->HasMaxSequentialReadsInFlight()) {
+                builder.WithSequentialReadsInFlight(*rboCtx.KqpCtx.Config->MaxSequentialReadsInFlight.Get());
+            }
             if (olapAggregate) {
                 builder.WithOlapAggregate(*olapAggregate);
             }

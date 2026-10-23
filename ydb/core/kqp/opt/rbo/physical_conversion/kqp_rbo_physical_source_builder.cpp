@@ -208,6 +208,9 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             }
 
             TKqpReadTableSettings settings;
+            if (!IsSysView && SequentialInFlight.has_value()) {
+                settings.SequentialInFlight = *SequentialInFlight;
+            }
             if (Read.SortDir != ESortDir::None) {
                 settings.SetSorting(Read.SortDir == ESortDir::Asc ? ERequestSorting::ASC : ERequestSorting::DESC);
                 if (Read.Limit) {

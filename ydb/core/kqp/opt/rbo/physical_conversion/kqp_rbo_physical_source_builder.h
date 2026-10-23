@@ -26,6 +26,11 @@ public:
         return *this;
     }
 
+    TPhysicalSourceBuilder& WithSequentialReadsInFlight(ui32 value) {
+        SequentialInFlight = value;
+        return *this;
+    }
+
     TExprNode::TPtr BuildPhysicalOp() override;
 
 private:
@@ -49,4 +54,5 @@ private:
     bool IsSysView;
     TString CarrierColumn;
     const TOlapAggregate* OlapAggregate = nullptr;
+    std::optional<ui32> SequentialInFlight;
 };
