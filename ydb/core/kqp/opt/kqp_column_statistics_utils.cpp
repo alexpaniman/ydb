@@ -7,6 +7,43 @@ namespace NKikimr::NKqp {
 using namespace NYql;
 using namespace NYql::NNodes;
 
+void MergeColumnStatistics(NYql::TOptimizerStatistics::TColumnStatMap& current,
+                           const NYql::TOptimizerStatistics::TColumnStatMap& incoming) {
+    for (const auto& [column, value] : incoming.Data) {
+        auto& stored = current.Data[column];
+        if (value.CountMinSketch) {
+            stored.CountMinSketch = value.CountMinSketch;
+        }
+        if (value.EqWidthHistogramEstimator) {
+            stored.EqWidthHistogramEstimator = value.EqWidthHistogramEstimator;
+        }
+        if (!value.Type.empty()) {
+            stored.Type = value.Type;
+        }
+        if (value.NumUniqueVals) {
+            stored.NumUniqueVals = value.NumUniqueVals;
+        }
+        if (value.HyperLogLog) {
+            stored.HyperLogLog = value.HyperLogLog;
+        }
+    }
+    for (const auto& [columns, value] : incoming.MultiData) {
+        auto& stored = current.MultiData[columns];
+        if (!value.Columns.empty()) {
+            stored.Columns = value.Columns;
+        }
+        if (!value.Types.empty()) {
+            stored.Types = value.Types;
+        }
+        if (value.EqHeightHistogram) {
+            stored.EqHeightHistogram = value.EqHeightHistogram;
+        }
+        if (value.CountMinSketch) {
+            stored.CountMinSketch = value.CountMinSketch;
+        }
+    }
+}
+
 namespace {
 
 struct TTableMeta {

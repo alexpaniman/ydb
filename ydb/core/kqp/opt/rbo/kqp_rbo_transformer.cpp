@@ -539,7 +539,12 @@ void TKqpNewRBOTransformer::ApplyColumnStatistics() {
         YQL_CLOG(TRACE, ProviderKikimr) << "Can't load columns statistics for request: " << ss.Str();
     } else {
         for (auto&& [tableName, columnStatistics] : SharedState->Response->ColumnStatisticsByTableName) {
-            TypeCtx.ColumnStatisticsByTableName.insert({std::move(tableName), new NYql::TOptimizerStatistics::TColumnStatMap(std::move(columnStatistics))});
+            auto& current = TypeCtx.ColumnStatisticsByTableName[tableName];
+            if (current) {
+                MergeColumnStatistics(*current, columnStatistics);
+            } else {
+                current = new NYql::TOptimizerStatistics::TColumnStatMap(std::move(columnStatistics));
+            }
         }
     }
 }

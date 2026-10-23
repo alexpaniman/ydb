@@ -20,6 +20,9 @@ struct TColumnStatisticsResponse: public NYql::IKikimrGateway::TGenericResult {
     THashMap<TString, NYql::TOptimizerStatistics::TColumnStatMap> ColumnStatisticsByTableName;
 };
 
+void MergeColumnStatistics(NYql::TOptimizerStatistics::TColumnStatMap& current,
+                           const NYql::TOptimizerStatistics::TColumnStatMap& incoming);
+
 struct TColumnStatisticsSharedState {
     std::optional<TColumnStatisticsResponse> Response;
 };
