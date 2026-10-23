@@ -452,7 +452,8 @@ TIntrusivePtr<IOperator> ConvertOptimizedTree(
             res->Props.JoinAlgo = join->JoinAlgo;
         }
 
-        if (join->JoinAlgo == NKikimr::NKqp::EJoinAlgoType::GraceJoin) {
+        if (join->JoinAlgo == NKikimr::NKqp::EJoinAlgoType::GraceJoin ||
+            join->JoinAlgo == NKikimr::NKqp::EJoinAlgoType::ReverseBlockJoin) {
             res->Props.LeftShuffleBy = ConvertCBOColumnsToRBO(join->ShuffleLeftSideBy);
             res->Props.RightShuffleBy = ConvertCBOColumnsToRBO(join->ShuffleRightSideBy);
         }
