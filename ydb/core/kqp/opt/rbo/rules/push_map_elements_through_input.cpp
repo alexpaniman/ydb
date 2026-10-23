@@ -28,7 +28,7 @@ bool CanPushMapThroughInput(const IOperator& op) {
         case EOperator::Join:
             return true;
         case EOperator::Map:
-            return CastOperator<TOpMap>(op).NeedToPush == false;
+            return !CastOperator<TOpMap>(op).NeedsPushdown();
         default:
             return false;
     }
@@ -100,7 +100,7 @@ TIntrusivePtr<IOperator> TPushMapElementsIntoMapRule::SimpleMatchAndApply(const 
 }
 
 bool TPushMapElementsThroughInputRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
-    return input->Kind == EOperator::Map && CastOperator<TOpMap>(input)->NeedToPush && CanPushMapThroughInput(*input->GetChild(0));
+    return input->Kind == EOperator::Map && CastOperator<TOpMap>(input)->NeedsPushdown() && CanPushMapThroughInput(*input->GetChild(0));
 }
 
 TIntrusivePtr<IOperator> TPushMapElementsThroughInputRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
@@ -111,7 +111,7 @@ TIntrusivePtr<IOperator> TPushMapElementsThroughInputRule::SimpleMatchAndApply(c
     }
 
     auto& map = CastOperator<TOpMap>(*input);
-    if (!map.NeedToPush) {
+    if (!map.NeedsPushdown()) {
         return input;
     }
 
@@ -121,6 +121,10 @@ TIntrusivePtr<IOperator> TPushMapElementsThroughInputRule::SimpleMatchAndApply(c
     bool hasPushed = false;
     for (const auto id : map.GetMapElements().Keys()) {
         const auto& element = *map.GetMapElements().Find(id);
+        if (!element.NeedsPushdown()) {
+            kept.Add(id, element);
+            continue;
+        }
         ui32 childIdx = 0;
         while (childIdx < op.GetChildCount() && !CanPushMapElementToChild(op, childIdx, element)) {
             ++childIdx;
@@ -139,7 +143,7 @@ TIntrusivePtr<IOperator> TPushMapElementsThroughInputRule::SimpleMatchAndApply(c
 
     for (ui32 childIdx = 0; childIdx < pushed.size(); ++childIdx) {
         if (!pushed[childIdx].Keys().Empty()) {
-            op.SetChild(childIdx, MakeIntrusive<TOpMap>(op.GetChild(childIdx), map.Pos, std::move(pushed[childIdx]), true));
+            op.SetChild(childIdx, MakeIntrusive<TOpMap>(op.GetChild(childIdx), map.Pos, std::move(pushed[childIdx])));
         }
     }
     op.Props.OutputIUs.reset();

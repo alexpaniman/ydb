@@ -504,7 +504,9 @@ TInfoUnitId TMapElement::GetColumnAccess() const {
 TOpMap::TOpMap(TIntrusivePtr<IOperator> input, TPositionHandle pos, TMapIUs elements, bool needToPush)
     : TOpMap(std::move(input), pos, TPhysicalOpProps{}, std::move(elements))
 {
-    NeedToPush = needToPush;
+    if (needToPush) {
+        MarkElementsForPushdown();
+    }
 }
 
 TOpMap::TOpMap(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TPhysicalOpProps& props,
@@ -512,6 +514,21 @@ TOpMap::TOpMap(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TPhysi
     : IUnaryOperator(EOperator::Map, pos, props, input)
     , MapElements(std::move(elements))
 {}
+
+bool TOpMap::NeedsPushdown() const {
+    for (const auto& [id, element] : MapElements.Items()) {
+        if (element.NeedsPushdown()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void TOpMap::MarkElementsForPushdown() {
+    for (const auto& [id, element] : MapElements.Items()) {
+        MapElements.Replace(id, element.GetExpression(), true);
+    }
+}
 
 void TOpMap::SetMapElements(TMapIUs elements) {
     MapElements = std::move(elements);
@@ -532,7 +549,7 @@ void TOpMap::SetMapElementExpression(TInfoUnitId output, TExpression expression)
     const auto* element = MapElements.Find(output);
     Y_ENSURE(element, "Unknown Map output " << output);
     // Output IDs are unchanged: a definition edit keeps the Map's output set.
-    MapElements.Replace(output, std::move(expression));
+    MapElements.Replace(output, std::move(expression), element->NeedsPushdown());
 }
 
 void TOpMap::ComputeOutputIUs() {

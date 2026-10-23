@@ -696,14 +696,16 @@ private:
 // The output ID is the TMappedIUs key, not duplicated inside the value.
 class TMapElement {
 public:
-    explicit TMapElement(TExpression expr)
+    explicit TMapElement(TExpression expr, bool needToPush = false)
         : Expr(std::move(expr))
+        , NeedToPush(needToPush)
     {}
 
     bool IsColumnAccess() const {
         return Expr.IsColumnAccess();
     }
     TInfoUnitId GetColumnAccess() const;
+    bool NeedsPushdown() const { return NeedToPush; }
     const TExpression& GetExpression() const Y_LIFETIME_BOUND { return Expr; }
     bool DependsOnlyOn(const TUnorderedIUs& available) const {
         return Expr.GetInputIUs(false, true).IsSubsetOf(available);
@@ -711,6 +713,8 @@ public:
 
 private:
     TExpression Expr;
+    // Intent belongs to this definition, including after Map fusion and copies.
+    bool NeedToPush = false;
 };
 
 struct TMapDependencies {
@@ -751,7 +755,8 @@ public:
     void SetMapElementExpression(TInfoUnitId output, TExpression expression);
     const TMapElement* FindOutputElement(TInfoUnitId output) const Y_LIFETIME_BOUND { return MapElements.Find(output); }
 
-    bool NeedToPush = false;
+    bool NeedsPushdown() const;
+    void MarkElementsForPushdown();
 
 protected:
     TIntrusivePtr<IOperator> CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const override;

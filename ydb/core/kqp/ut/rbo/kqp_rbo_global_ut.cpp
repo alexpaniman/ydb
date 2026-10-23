@@ -713,7 +713,7 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
             UNIT_ASSERT(!rule.QuickMatch(map));
             UNIT_ASSERT(rule.SimpleMatchAndApply(map, f.RboCtx, f.Props).Get() == map.Get());
 
-            map->NeedToPush = true;
+            map->MarkElementsForPushdown();
             UNIT_ASSERT(rule.QuickMatch(map));
             auto result = rule.SimpleMatchAndApply(std::move(map), f.RboCtx, f.Props);
             const bool inner = kind == "Inner";

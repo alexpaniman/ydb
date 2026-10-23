@@ -271,7 +271,7 @@ TIntrusivePtr<IOperator> TOpRead::CopyImpl(TInfoUnitRegistry& registry, TSubstit
 }
 
 TIntrusivePtr<IOperator> TOpMap::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {
-    return MakeIntrusive<TOpMap>(GetInput(), Pos, CopyDefinitions(MapElements, registry, renames), NeedToPush);
+    return MakeIntrusive<TOpMap>(GetInput(), Pos, CopyDefinitions(MapElements, registry, renames));
 }
 
 TIntrusivePtr<IOperator> TOpAddDependencies::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {

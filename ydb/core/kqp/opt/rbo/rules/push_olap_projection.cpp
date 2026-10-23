@@ -108,7 +108,7 @@ TIntrusivePtr<IOperator> TPushOlapProjectionRule::SimpleMatchAndApply(const TInt
                     .Build()
                 .Done().Ptr();
                 // clang-format on
-                mapElement = TMapElement(TExpression(newLambda, &ctx.ExprCtx, &props));
+                mapElement = TMapElement(TExpression(newLambda, &ctx.ExprCtx, &props), mapElement.NeedsPushdown());
             }
         }
         newMapElements.Add(output, std::move(mapElement));
