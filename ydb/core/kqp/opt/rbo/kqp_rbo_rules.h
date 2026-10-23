@@ -335,6 +335,18 @@ class TPushFilterUnderMapRule : public ISimplifiedRule {
 };
 
 /**
+ * Push total filters through UnionAll.
+ */
+class TPushFilterThroughUnionAllRule : public ISimplifiedRule {
+public:
+    TPushFilterThroughUnionAllRule()
+        : ISimplifiedRule("Push filter through UnionAll", ERuleProperties::RequireTypes) {}
+    bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
+    TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input,
+        TRBOContext& ctx, TPlanProps& props) override;
+};
+
+/**
  * Push filter through aggregate.
  */
 class TPushFilterThroughAggregateRule : public ISimplifiedRule {
