@@ -9,37 +9,6 @@ namespace {
 using namespace NYql;
 using namespace NYql::NNodes;
 
-std::optional<TExpression> BuildFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
-    TVector<TExpression> conjuncts;
-    if (read.RangeInfo.has_value()) {
-        if (!read.OriginalPredicate.has_value()) {
-            supported = false;
-            return std::nullopt;
-        }
-        const auto original = read.OriginalPredicate->SplitConjunct();
-        conjuncts.insert(conjuncts.end(), original.begin(), original.end());
-    }
-    if (filter) {
-        const auto filters = filter->GetFilterExpression().SplitConjunct();
-        conjuncts.insert(conjuncts.end(), filters.begin(), filters.end());
-    }
-
-    if (conjuncts.empty()) {
-        return std::nullopt;
-    }
-
-    // The filter is evaluated on a fetched row, so it can only refer to the fetched columns.
-    const auto& readOutputs = read.GetColumns();
-    for (const auto& conjunct : conjuncts) {
-        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(readOutputs)) {
-            supported = false;
-            return std::nullopt;
-        }
-    }
-
-    return MakeConjunction(conjuncts);
-}
-
 const TTypeAnnotationNode* StripOptional(const TTypeAnnotationNode* type) {
     return type && type->GetKind() == ETypeAnnotationKind::Optional ? type->Cast<TOptionalExprType>()->GetItemType() : type;
 }
@@ -182,7 +151,7 @@ TIntrusivePtr<IOperator> TRewriteJoinToIndexLookupJoinRule::SimpleMatchAndApply(
     // Built from the original read, so a predicate pushed into it is re-applied to the fetched rows
     // even when the lookup probes a different table.
     bool filterSupported = true;
-    const auto fetchedRowFilter = BuildFetchedRowFilter(*read, rightFilter, filterSupported);
+    const auto fetchedRowFilter = BuildLookupJoinFetchedRowFilter(*read, rightFilter, filterSupported);
     if (!filterSupported) {
         return input;
     }

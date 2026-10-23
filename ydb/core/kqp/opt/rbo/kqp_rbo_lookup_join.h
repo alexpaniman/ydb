@@ -26,6 +26,9 @@ struct TLookupJoinRightSide {
 // its description in SourceRead.
 std::optional<TLookupJoinRightSide> MatchLookupJoinRightSide(const TIntrusivePtr<IOperator>& input);
 
+// Reconstructs fetched-row filtering and removes only repeated total primitive comparisons.
+std::optional<TExpression> BuildLookupJoinFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported);
+
 // Maps the right side join keys to physical columns of the read. Read output units carry the physical
 // source column as their name, so the mapping is a registry lookup.
 std::optional<THashSet<TString>> GetLookupJoinKeyColumns(const TOpRead& read, const TUnorderedIUs& rightJoinKeys,

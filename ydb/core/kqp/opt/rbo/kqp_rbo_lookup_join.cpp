@@ -8,6 +8,57 @@ using namespace NYql::NNodes;
 
 namespace {
 
+bool IsSafeComparisonOperand(const TExprNode& node, const TExprNode& row, const TOpRead& read, TExprContext& ctx) {
+    if (node.IsCallable("Member") && node.ChildrenSize() == 2 && node.Child(0) == &row && node.Child(1)->IsAtom()) {
+        const auto id = GetMemberId(node);
+        if (!read.Type || !read.GetColumns().Contains(id)) {
+            return false;
+        }
+        const auto* type = read.GetIUType(id, ctx);
+        if (type && type->GetKind() == ETypeAnnotationKind::Optional) {
+            type = type->Cast<TOptionalExprType>()->GetItemType();
+        }
+        if (!type || type->GetKind() != ETypeAnnotationKind::Data) {
+            return false;
+        }
+        switch (type->Cast<TDataExprType>()->GetSlot()) {
+            case NUdf::EDataSlot::Bool:
+            case NUdf::EDataSlot::Int8:
+            case NUdf::EDataSlot::Uint8:
+            case NUdf::EDataSlot::Int16:
+            case NUdf::EDataSlot::Uint16:
+            case NUdf::EDataSlot::Int32:
+            case NUdf::EDataSlot::Uint32:
+            case NUdf::EDataSlot::Int64:
+            case NUdf::EDataSlot::Uint64:
+            case NUdf::EDataSlot::Float:
+            case NUdf::EDataSlot::Double:
+            case NUdf::EDataSlot::String:
+            case NUdf::EDataSlot::Utf8:
+                return true;
+            default:
+                return false;
+        }
+    }
+    return node.IsCallable({"Bool", "Int8", "Uint8", "Int16", "Uint16", "Int32", "Uint32",
+        "Int64", "Uint64", "Float", "Double", "String", "Utf8"})
+        && node.ChildrenSize() == 1 && node.Head().IsAtom();
+}
+
+bool IsSafeComparison(const TExpression& expression, const TOpRead& read) {
+    const auto* body = expression.GetExpressionBody().Get();
+    if (body->IsCallable("Coalesce") && body->ChildrenSize() == 2
+        && body->Tail().IsCallable("Bool") && body->Tail().ChildrenSize() == 1 && body->Tail().Head().IsAtom()) {
+        body = body->Child(0);
+    }
+    if (!body->IsCallable({"==", "!=", "<", "<=", ">", ">="}) || body->ChildrenSize() != 2) {
+        return false;
+    }
+    const auto& row = expression.GetLambda()->Head().Head();
+    return IsSafeComparisonOperand(body->Head(), row, read, *expression.Ctx)
+        && IsSafeComparisonOperand(body->Tail(), row, read, *expression.Ctx);
+}
+
 bool IsValidIndex(const TIndexDescription& index) {
     return index.Type != TIndexDescription::EType::GlobalAsync
         && index.Type != TIndexDescription::EType::GlobalJson
@@ -120,6 +171,44 @@ size_t GetLookupKeyPrefixLen(const TVector<TString>& keyColumnNames, size_t poin
 }
 
 } // anonymous namespace
+
+std::optional<TExpression> BuildLookupJoinFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
+    TVector<TExpression> conjuncts;
+    if (read.RangeInfo) {
+        if (!read.OriginalPredicate) {
+            supported = false;
+            return std::nullopt;
+        }
+        conjuncts = read.OriginalPredicate->SplitConjunct();
+    }
+    if (filter) {
+        for (const auto& conjunct : filter->GetFilterExpression().SplitConjunct()) {
+            // Only total primitive comparisons may be omitted. Unknown calls, guards and
+            // effectful expressions retain their original order and evaluation count.
+            bool duplicate = false;
+            if (IsSafeComparison(conjunct, read)) {
+                for (const auto& existing : conjuncts) {
+                    const TExprNode* left = existing.GetLambda().Get();
+                    const TExprNode* right = conjunct.GetLambda().Get();
+                    if (IsSafeComparison(existing, read) && CompareExprTrees(left, right)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+            }
+            if (!duplicate) {
+                conjuncts.push_back(conjunct);
+            }
+        }
+    }
+    for (const auto& conjunct : conjuncts) {
+        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(read.GetColumns())) {
+            supported = false;
+            return std::nullopt;
+        }
+    }
+    return conjuncts.empty() ? std::nullopt : std::optional<TExpression>(MakeConjunction(conjuncts));
+}
 
 std::optional<TLookupJoinRightSide> MatchLookupJoinRightSide(const TIntrusivePtr<IOperator>& input) {
     auto op = input;

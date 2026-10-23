@@ -8,36 +8,6 @@ using namespace NYql;
 using namespace NYql::NNodes;
 using namespace NKikimr::NKqp;
 
-std::optional<TExpression> BuildFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
-    TVector<TExpression> conjuncts;
-    if (read.RangeInfo.has_value()) {
-        if (!read.OriginalPredicate.has_value()) {
-            supported = false;
-            return std::nullopt;
-        }
-        const auto original = read.OriginalPredicate->SplitConjunct();
-        conjuncts.insert(conjuncts.end(), original.begin(), original.end());
-    }
-    if (filter) {
-        const auto filters = filter->GetFilterExpression().SplitConjunct();
-        conjuncts.insert(conjuncts.end(), filters.begin(), filters.end());
-    }
-
-    if (conjuncts.empty()) {
-        return std::nullopt;
-    }
-
-    // The filter is evaluated on a fetched row, so it can only refer to the fetched columns.
-    for (const auto& conjunct : conjuncts) {
-        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(read.GetColumns())) {
-            supported = false;
-            return std::nullopt;
-        }
-    }
-
-    return MakeConjunction(conjuncts);
-}
-
 struct TLookupKey {
     TInfoUnit LeftIU;
     TInfoUnit RightIU;
@@ -134,7 +104,7 @@ bool IsLookupJoinApplicableDetailed(const std::shared_ptr<TRelOptimizerNode>& no
     }
 
     bool filterSupported = true;
-    const auto fetchedRowFilter = BuildFetchedRowFilter(*read, rightFilter, filterSupported);
+    const auto fetchedRowFilter = BuildLookupJoinFetchedRowFilter(*read, rightFilter, filterSupported);
     if (!filterSupported) {
         return false;
     }
