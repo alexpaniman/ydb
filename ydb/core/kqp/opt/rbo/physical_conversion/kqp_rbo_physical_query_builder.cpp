@@ -153,6 +153,9 @@ TExprNode::TPtr TPhysicalQueryBuilder::BuildPhysicalQuery() {
 TVector<TExprNode::TPtr> TPhysicalQueryBuilder::LowerPhysicalStageCompatibility(TVector<TExprNode::TPtr>&& physicalStages) {
     Y_ENSURE(!physicalStages.empty());
     auto root = physicalStages.back();
+    if (NeedsRboLargeSqlInLowering(root)) {
+        return PeepHoleOptimizePhysicalStages(std::move(physicalStages));
+    }
     if (!NeedsRboCompatibilityLowering(root)) {
         return std::move(physicalStages);
     }

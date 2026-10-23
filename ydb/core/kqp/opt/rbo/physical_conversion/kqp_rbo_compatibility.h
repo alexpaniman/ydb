@@ -5,6 +5,7 @@
 namespace NKikimr::NKqp {
 
 bool NeedsRboCompatibilityLowering(const NYql::TExprNode::TPtr& root);
+bool NeedsRboLargeSqlInLowering(const NYql::TExprNode::TPtr& root);
 
 NYql::TExprNode::TPtr RewriteRboCompatibilityNode(
     const NYql::TExprNode::TPtr& node,

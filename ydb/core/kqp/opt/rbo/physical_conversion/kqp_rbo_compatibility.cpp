@@ -358,6 +358,30 @@ bool NeedsRboCompatibilityLowering(const NYql::TExprNode::TPtr& root) {
     return !!FindCompatibilityNode(root);
 }
 
+bool NeedsRboLargeSqlInLowering(const NYql::TExprNode::TPtr& root) {
+    // Reuse the established common-type and null-sensitive dictionary lowering
+    // for large explicit collections instead of emitting one comparison per item.
+    constexpr size_t MaxComparisons = 5;
+    return !!FindNode(root, [](const TExprNode::TPtr& node) {
+        if (!node->IsCallable("SqlIn") || HasSetting(*node->Child(2), "tableSource") || !IsSqlScalar(node->Child(1)->GetTypeAnn())) {
+            return false;
+        }
+        const auto& collection = node->Head();
+        const auto* type = collection.GetTypeAnn();
+        if (!type) {
+            return false;
+        }
+        if (type->GetKind() == ETypeAnnotationKind::Tuple) {
+            const auto* tuple = type->Cast<TTupleExprType>();
+            return tuple->GetSize() > MaxComparisons && AllOf(tuple->GetItems(), IsSqlScalar);
+        }
+        return type->GetKind() == ETypeAnnotationKind::List
+            && IsSqlScalar(type->Cast<TListExprType>()->GetItemType())
+            && (collection.IsList() || collection.IsCallable("AsList"))
+            && collection.ChildrenSize() > MaxComparisons;
+    });
+}
+
 NYql::TExprNode::TPtr RewriteRboCompatibilityNode(
     const NYql::TExprNode::TPtr& node,
     NYql::TExprContext& ctx,
