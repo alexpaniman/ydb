@@ -363,12 +363,18 @@ void TOpGroupingSets::PropagateLiveness(ILivenessContext& ctx) {
 }
 
 void TOpWindow::PropagateLiveness(ILivenessContext& ctx) {
-    // Window functions are never pruned, so every function keeps its inputs
-    // live in both modes.
     auto inputLive = LivePassthrough(this, 0, ctx);
-    inputLive.UnionWith(PartitionKeys.Unordered());
-    inputLive.UnionWith(SortElements.Unordered());
-    inputLive.UnionWith(WindowFuncs.MappedIUs());
+    bool needsWindow = false;
+    for (const auto& [output, function] : WindowFuncs.Items()) {
+        if (ctx.NeedsDefinition(this, output)) {
+            inputLive.UnionWith(function.Arguments.Unordered());
+            needsWindow = true;
+        }
+    }
+    if (needsWindow) {
+        inputLive.UnionWith(PartitionKeys.Unordered());
+        inputLive.UnionWith(SortElements.Unordered());
+    }
     ctx.AddLiveInput(this, 0, inputLive);
 }
 

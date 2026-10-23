@@ -37,6 +37,14 @@ bool TOpGroupingSets::PruneOutputs(const TUnorderedIUs& liveOut, TExprContext&) 
     return columnsChanged || indicatorsChanged;
 }
 
+bool TOpWindow::PruneOutputs(const TUnorderedIUs& liveOut, TExprContext&) {
+    if (!WindowFuncs.RetainKeys(liveOut)) {
+        return false;
+    }
+    Props.OutputIUs.reset();
+    return true;
+}
+
 bool TOpUnionAll::PruneOutputs(const TUnorderedIUs& liveOut, TExprContext&) {
     return Columns.RetainKeys(liveOut);
 }

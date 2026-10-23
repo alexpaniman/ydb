@@ -983,6 +983,7 @@ public:
 
     TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
     void PropagateLiveness(ILivenessContext& ctx) override;
+    bool PruneOutputs(const TUnorderedIUs& liveOut, TExprContext& ctx) override;
     void RenameUsedIUs(const TSubstitutions& substitutions) override;
     TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
     NJson::TJsonValue ToJson(ui32 explainFlags, const TInfoUnitRegistry& registry) override;
