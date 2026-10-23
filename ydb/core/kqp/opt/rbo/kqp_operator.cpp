@@ -1615,7 +1615,7 @@ TString TOpTableEffect::ToString(TExprContext& ctx, const TInfoUnitRegistry&) {
     return GetExplainName();
 }
 
-TExprNode::TPtr TOpTableEffect::BuildSettings(TExprContext& ctx) {
+TExprNode::TPtr TOpTableEffect::BuildSettings(TExprContext& ctx, bool allowInconsistentWrites, bool enableStreamWrite) {
     if (Options.ReturningColumns.has_value() && Options.ReturningColumns->size()) {
         Y_ENSURE(false, "Returning columns not supported in new optimizer");
     }
@@ -1662,10 +1662,10 @@ TExprNode::TPtr TOpTableEffect::BuildSettings(TExprContext& ctx) {
 
     return Build<TKqpTableSinkSettings>(ctx, Pos)
             .Table(Table)
-            .InconsistentWrite().Build("false")
+            .InconsistentWrite().Build(allowInconsistentWrites ? "true" : "false")
             .Mode().Build(mode)
             .Priority().Build("0")
-            .StreamWrite().Build("false")
+            .StreamWrite().Build(enableStreamWrite ? "true" : "false")
             .IsBatch().Build(isBatch)
             .IsIndexImplTable().Build("false")
             .DefaultColumns()

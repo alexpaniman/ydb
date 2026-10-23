@@ -77,6 +77,69 @@ ui32 OutputIndex(const IOperator& input, TStageGraph& graph) {
     return graph.GetOutputIndex(*input.Props.StageId);
 }
 
+struct TTableSinkWriteMode {
+    bool InconsistentWrite = false;
+    bool StreamWrite = false;
+};
+
+bool MayReadSinkTable(TOpTableEffect& effect, TPlanProps& props) {
+    const auto target = TKqpTable(effect.Table);
+    const auto matchesTarget = [&](const TExprNode::TPtr& table) {
+        return TKqpTable(table).PathId().Value() == target.PathId().Value();
+    };
+    for (const auto& item : IterateSubtreeWithSubplans(effect.GetInput().Get(), props)) {
+        const auto* op = item.Current;
+        if (op->Kind == EOperator::Source) {
+            const auto& read = CastOperator<TOpRead>(*op);
+            if (matchesTarget(read.GetTable()) ||
+                (read.RangeInfo && read.RangeInfo->MainTable == target.Path().Value())) {
+                return true;
+            }
+        } else if (op->Kind == EOperator::TableLookup) {
+            if (matchesTarget(CastOperator<TOpTableLookup>(*op).Table)) {
+                return true;
+            }
+        } else if (op->Kind == EOperator::EmptySource) {
+            // An opaque input may contain a physical dependency outside the
+            // logical read operators. Leave it on the existing sink path.
+            if (CastOperator<TOpEmptySource>(*op).Input) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+TTableSinkWriteMode GetOlapSinkWriteMode(TOpTableEffect& effect, TRBOContext& ctx, TPlanProps& props) {
+    // Other effects have different settings and write-mode contracts.
+    if (effect.EffectType != EEffectType::UpsertRows) {
+        return {};
+    }
+    const auto& kqpCtx = ctx.KqpCtx;
+    const auto target = TKqpTable(effect.Table);
+    const auto& table = kqpCtx.Tables->ExistingTable(kqpCtx.Cluster, target.Path());
+    if (table.Metadata->Kind != EKikimrTableKind::Olap || table.Metadata->IsIndexImplTable ||
+        !kqpCtx.Config->GetEnableOlapSink() ||
+        !(kqpCtx.IsGenericQuery() || (kqpCtx.IsDataQuery() && kqpCtx.Config->GetAllowOlapDataQuery()))) {
+        return {};
+    }
+
+    TKqpUpsertRowsSettings settings;
+    if (effect.Options.Settings) {
+        settings = TKqpUpsertRowsSettings::Parse(
+            TCoNameValueTupleList(ctx.ExprCtx.NewList(effect.Pos, *effect.Options.Settings)));
+    }
+    if (settings.Inplace || settings.IsUpdate || settings.IsConditionalUpdate ||
+        (!settings.Mode.empty() && settings.Mode != "upsert")) {
+        return {};
+    }
+
+    // Inconsistent writes are explicitly authorized by the parsed settings.
+    // Consistent streaming retains the legacy same-table read exclusion.
+    const bool consistentStreamWrite = CanEnableStreamWrite(table, kqpCtx) && !MayReadSinkTable(effect, props);
+    return {settings.AllowInconsistentWrites, settings.AllowInconsistentWrites || consistentStreamWrite};
+}
+
 void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
     const auto nodeName = input->ToString(ctx.ExprCtx, props.InfoUnitRegistry);
     YQL_CLOG(TRACE, CoreDq) << "Assign stages: " << nodeName;
@@ -324,13 +387,18 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
     } else if (input->Kind == EOperator::TableEffect) {
         auto tableEffect = CastOperator<TOpTableEffect>(input);
 
-        const auto newStageId = props.StageGraph.AddSinkStage(tableEffect->BuildSettings(ctx.ExprCtx));
+        const auto writeMode = GetOlapSinkWriteMode(*tableEffect, ctx, props);
+        const auto newStageId = props.StageGraph.AddSinkStage(
+            tableEffect->BuildSettings(ctx.ExprCtx, writeMode.InconsistentWrite, writeMode.StreamWrite));
         const auto inputStageId = *(tableEffect->GetInput()->Props.StageId);
         const auto outputIndex = OutputIndex(*tableEffect->GetInput(), props.StageGraph);
 
         input->Props.StageId = newStageId;
-        props.StageGraph.Connect(inputStageId, newStageId,
-                                 MakeIntrusive<TUnionAllConnection>(outputIndex));
+        if (writeMode.StreamWrite) {
+            props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TMapConnection>(outputIndex));
+        } else {
+            props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TUnionAllConnection>(outputIndex));
+        }
         YQL_CLOG(TRACE, CoreDq) << "Assign stages table effects";
     }
     else {
