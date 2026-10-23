@@ -433,6 +433,7 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::RequestColumnStatistics(TExprC
                 if (!sharedState->Response.has_value()) {
                     sharedState->Response = std::move(newStats);
                 } else {
+                    sharedState->Response->AddIssues(newStats.Issues());
                     // merge statistics
                     for (const auto& [table, column2Stat] : newStats.ColumnStatisticsByTableName) {
                         auto& oldColumn2Stat = sharedState->Response->ColumnStatisticsByTableName[table];
@@ -536,11 +537,10 @@ void TKqpNewRBOTransformer::ApplyColumnStatistics() {
     if (!SharedState->Response->Issues().Empty()) {
         TStringStream ss;
         SharedState->Response->Issues().PrintTo(ss);
-        YQL_CLOG(TRACE, ProviderKikimr) << "Can't load columns statistics for request: " << ss.Str();
-    } else {
-        for (auto&& [tableName, columnStatistics] : SharedState->Response->ColumnStatisticsByTableName) {
-            TypeCtx.ColumnStatisticsByTableName.insert({std::move(tableName), new NYql::TOptimizerStatistics::TColumnStatMap(std::move(columnStatistics))});
-        }
+        YQL_CLOG(TRACE, ProviderKikimr) << "Column statistics request issues: " << ss.Str();
+    }
+    for (auto&& [tableName, columnStatistics] : SharedState->Response->ColumnStatisticsByTableName) {
+        TypeCtx.ColumnStatisticsByTableName.insert({std::move(tableName), new NYql::TOptimizerStatistics::TColumnStatMap(std::move(columnStatistics))});
     }
 }
 
