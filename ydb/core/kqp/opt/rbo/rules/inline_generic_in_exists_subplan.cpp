@@ -71,6 +71,9 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
     const auto& subplanEntry = props.Subplans.At(subplanIU);
     TIntrusivePtr<IOperator> newFilterInput;
     auto subplan = CastOperator<IOperator>(subplanEntry.Plan);
+    if (subplanEntry.Type == ESubplanType::EXISTS) {
+        subplan = RemoveExistenceLimits(std::move(subplan));
+    }
 
     const bool useDependentJoin = HasFreeCorrelation(subplan, subplanEntry.DependentIUs);
     if (subplanEntry.Type == ESubplanType::IN_SUBPLAN || useDependentJoin) {

@@ -10,6 +10,8 @@ namespace NKqp {
 TIntrusivePtr<TOpAggregate> MakeDomainProjection(const TIntrusivePtr<IOperator>& input, const TUnorderedIUs& columns, TPositionHandle pos);
 // Checks whether we have a free variables.
 bool HasFreeCorrelation(const TIntrusivePtr<IOperator>& op, const TUnorderedIUs& correlatedColumns);
+// Positive offset-free limits do not change whether an existence input is empty.
+TIntrusivePtr<IOperator> RemoveExistenceLimits(TIntrusivePtr<IOperator> input);
 bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu, TExprContext& ctx);
 // Here we want to support semantics where null == null.
 TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr<IOperator>& rightInput,

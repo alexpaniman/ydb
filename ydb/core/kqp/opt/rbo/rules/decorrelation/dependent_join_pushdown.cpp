@@ -1,6 +1,7 @@
 #include "dependent_join_pushdown.h"
 
 #include "../kqp_rules_include.h"
+#include <util/string/cast.h>
 #include <ydb/core/kqp/opt/rbo/copy_logical_subtree.h>
 
 namespace NKikimr {
@@ -229,6 +230,20 @@ TIntrusivePtr<TOpAggregate> MakeDomainProjection(const TIntrusivePtr<IOperator>&
 
     // Grouping keys keep their IDs, unlike DISTINCT results.
     return MakeIntrusive<TOpAggregate>(input, TAggregationIUs{}, TOrderedIUs<>(columns.begin(), columns.end()), EOpPhase::Undefined, /*distinctAll=*/false, pos);
+}
+
+TIntrusivePtr<IOperator> RemoveExistenceLimits(TIntrusivePtr<IOperator> input) {
+    while (input->Kind == EOperator::Limit) {
+        const auto limit = CastOperator<TOpLimit>(input);
+        const auto count = limit->GetLimitCond().GetExpressionBody();
+        ui64 value = 0;
+        if (limit->HasOffset() || !count->IsCallable("Uint64") || count->ChildrenSize() != 1 ||
+            !count->Head().IsAtom() || !TryFromString(count->Head().Content(), value) || value == 0) {
+            break;
+        }
+        input = limit->GetInput();
+    }
+    return input;
 }
 
 bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu, TExprContext& ctx) {

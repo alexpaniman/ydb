@@ -82,6 +82,9 @@ TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(c
     TIntrusivePtr<IOperator> join;
     Y_ENSURE(subplanEntry);
     auto subplan = CastOperator<IOperator>(subplanEntry->Plan);
+    if (subplanEntry->Type == ESubplanType::EXISTS) {
+        subplan = RemoveExistenceLimits(std::move(subplan));
+    }
     const bool useDependentJoin = HasFreeCorrelation(subplan, subplanEntry->DependentIUs);
 
     // If `NOT` and optional column the result could be nothing.
