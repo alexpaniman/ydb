@@ -6,9 +6,48 @@ are different evidence. The [archived finding inventory](history/pre-audit-refac
 retains the original observations and fix commits; do not read its milestone
 statuses as fresh results.
 
-## Main rebase and compilation corpus (2026-10-22)
+## Current-main refresh (2026-10-26): validation pending
 
-The verification branch is now based on fetched main
+The verifier and all 25 dedicated fix branches now descend from fetched main
+`9999a3580af1e108acf736a8bf4406d6775e5f7f`. This is 173 commits beyond the
+October 23 base `87e6780e40c99cd14231bed5ef1593bd2b43ef3a`, including new
+scalar-inlining and aggregation changes. All 337 verifier commits and all 29
+incremental fix commits were retained, with author/message preservation checked.
+Rebase resolutions retain main's new scalar metadata requirement and scalar
+NULL regression alongside the existing tests. Nothing has been pushed.
+
+**There is no completed fresh correctness census on this base yet.** The
+October 23 build ended with `ERROR: Cancelled` after approximately its four-hour
+deadline, before the complete validation gate finished. Its recorded peak
+process-tree RSS was 2.33 GiB; the log contains no OOM report. Its cache is
+retained for the guarded restart: one build/link/test worker, eight-GiB DATA
+limit per process, sampled 16-GiB process-tree RSS cutoff and host-memory reserve.
+
+The 42 inventory rows describe historical repair groups, not 42 demonstrated
+bugs in current main. The source audit at `87e6780` classifies 17 older rows as
+12 superseded/redundant, four requiring fresh native reproduction (H6, H7, H10,
+H16), and one conservative policy difference. The preferred-alias rewrite is
+absent from main and has not been restored. The inventory records the audit
+base separately from the latest rebase base; the new scalar changes need fresh
+runtime validation. The main-plus-instrumentation baseline also needs a fresh
+build and capture-enabled/disabled controls before attributing proofs to main.
+
+Queued campaigns are seven focused compilation-corpus queries, four native
+result-limit controls, and all 22 TPCH / 99 TPCDS queries. Prepared tests and
+source reviews are not passed tests. In particular, the active legacy `cpp_ut`
+target contains 295 methods using the older API and has not been migrated or
+validated by the explicit current-native gate. The 130 current-native methods
+are not a one-for-one replacement coverage claim.
+
+New rebase receipts and logs are under
+`/var/tmp/rbo-verification-main-20261026`; the preceding audit and cancelled-build
+log are under `/var/tmp/rbo-verification-main-20261023`. Older `/tmp` campaign
+directories referenced below were no longer present during the refresh. Their
+recorded results remain historical and cannot attest the current source/binaries.
+
+## Historical main rebase and compilation corpus (2026-10-22)
+
+At that checkpoint, the verification branch was based on fetched main
 `e8700d379b3b9c4fbaf68f36424e6bcf08314fd2`. The complete compilation-corpus
 campaign processed **6,813 files / 5,733 distinct queries**. Its distinct-query
 outcomes were 1,501 VERIFIED_BOUNDED, 47 UNKNOWN, 297 PREPARATION_FAILED and
