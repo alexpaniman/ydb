@@ -9134,13 +9134,14 @@ FROM (
             R"([[0]])",
             R"([[0]])",
             R"([[0]])",
+            R"([[0]])",
             R"([])",
             R"([[2]])",
             R"([[2]])",
             R"([[0]])",
-            R"([[0]])",
         };
 
+        UNIT_ASSERT_VALUES_EQUAL(queries.size(), results.size());
         for (ui32 i = 0; i < queries.size(); ++i) {
             const auto &query = queries[i];
             auto result = session2.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync();
@@ -9162,7 +9163,7 @@ FROM (
             multirowScalar.GetIssues().ToString());
         UNIT_ASSERT_STRING_CONTAINS(
             multirowScalar.GetIssues().ToString(),
-            "More than one row returned by a subquery used as an expression");
+            "Scalar subquery returned more than one row");
 
         auto orderedMultirowScalar = session2.ExecuteDataQuery(R"(
             PRAGMA YqlSelect = 'force';
@@ -9177,7 +9178,7 @@ FROM (
             orderedMultirowScalar.GetIssues().ToString());
         UNIT_ASSERT_STRING_CONTAINS(
             orderedMultirowScalar.GetIssues().ToString(),
-            "More than one row returned by a subquery used as an expression");
+            "Scalar subquery returned more than one row");
 
         auto projectedMultirowScalar = session2.ExecuteDataQuery(R"(
             PRAGMA YqlSelect = 'force';
@@ -9193,7 +9194,7 @@ FROM (
             projectedMultirowScalar.GetIssues().ToString());
         UNIT_ASSERT_STRING_CONTAINS(
             projectedMultirowScalar.GetIssues().ToString(),
-            "More than one row returned by a subquery used as an expression");
+            "Scalar subquery returned more than one row");
 
         auto nestedMultirowScalarWithEmptyConsumer = session2.ExecuteDataQuery(R"(
             PRAGMA YqlSelect = 'force';
@@ -9216,7 +9217,7 @@ FROM (
             nestedMultirowScalarWithEmptyConsumer.GetIssues().ToString());
         UNIT_ASSERT_STRING_CONTAINS(
             nestedMultirowScalarWithEmptyConsumer.GetIssues().ToString(),
-            "More than one row returned by a subquery used as an expression");
+            "Scalar subquery returned more than one row");
     }
 
     Y_UNIT_TEST(CorrelatedSubquery) {
