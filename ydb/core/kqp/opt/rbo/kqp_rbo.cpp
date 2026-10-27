@@ -1,6 +1,7 @@
 #include "kqp_rbo.h"
 #include "traces/kqp_rbo_rule_trace.h"
 #include "kqp_plan_conversion_utils.h"
+#include "verification/semantic_snapshot.h"
 
 #include <yql/essentials/utils/log/log.h>
 
@@ -67,7 +68,9 @@ bool ISimplifiedRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext
 }
 
 TRuleBasedStage::TRuleBasedStage(TString&& stageName, TVector<std::unique_ptr<IRule>>&& rules)
-    : IRBOStage(std::move(stageName))
+    : IRBOStage(
+        std::move(stageName),
+        ERBOStageTransformationMode::RuleApplications)
     , Rules(std::move(rules)) {
     for (const auto& r : Rules) {
         Props |= r->Props;
@@ -180,6 +183,9 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
                     computedProps = 0;
 
                     ++numMatches;
+                    if (ctx.TransformationDebug.OnRuleApplication(StageName, rule->RuleName)) {
+                        return;
+                    }
                     break;
                 }
             }
@@ -193,14 +199,50 @@ void TRuleBasedStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
     Y_ENSURE(numMatches < maxNumOfMatches);
 }
 
-TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoot>>& roots, TRBOContext& rboCtx) {
+TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoot>>& roots, TRBOContext& rboCtx, IRBOSemanticSnapshotSink* semanticSnapshotSink) {
     bool needToLog = NYql::NLog::YqlLogger().NeedToLog(NYql::NLog::EComponent::CoreDq, NYql::NLog::ELevel::TRACE);
     auto& ctx = rboCtx.ExprCtx;
     int stageCounter = 0;
 
+    struct TRootSnapshotSink final : IRBOSemanticSnapshotSink {
+        IRBOSemanticSnapshotSink* Sink;
+        ui32 Ordinal;
+        ui32 Count;
+
+        TRootSnapshotSink(IRBOSemanticSnapshotSink* sink, ui32 ordinal, ui32 count)
+            : Sink(sink), Ordinal(ordinal), Count(count) {
+        }
+
+        void OnSemanticSnapshot(TRBOSemanticSnapshotBoundaryResultV1 result) override {
+            result.RootOrdinal = Ordinal;
+            result.RootCount = Count;
+            Sink->OnSemanticSnapshot(std::move(result));
+        }
+
+        std::optional<ui64> GetTransformationPrefixTarget() const override {
+            return Sink->GetTransformationPrefixTarget();
+        }
+    };
+    TVector<THolder<TRootSnapshotSink>> rootSinks;
+    TVector<THolder<TSemanticSnapshotPairCaptureV1>> rootCaptures;
+    if (semanticSnapshotSink && roots.size() <= Max<ui32>()) {
+        // Roots can share plan nodes. Capture every initial boundary before
+        // optimizing any root so an earlier optimization cannot contaminate it.
+        for (size_t index = 0; index < roots.size(); ++index) {
+            rootSinks.push_back(MakeHolder<TRootSnapshotSink>(
+                semanticSnapshotSink, static_cast<ui32>(index), static_cast<ui32>(roots.size())));
+            rootCaptures.push_back(MakeHolder<TSemanticSnapshotPairCaptureV1>(rootSinks.back().Get()));
+            rootCaptures.back()->CaptureInitial(*roots[index], rboCtx);
+        }
+    }
+    size_t rootIndex = 0;
     for (auto & rootPtr : roots) {
         auto & root = *rootPtr;
         root.PlanProps.StageGraph.StageCounter = stageCounter;
+        TSemanticSnapshotPairCaptureV1 disabledCapture(nullptr);
+        auto& semanticSnapshots = rootCaptures.empty() ? disabledCapture : *rootCaptures[rootIndex];
+        ++rootIndex;
+        rboCtx.TransformationDebug.Reset(semanticSnapshots.GetTransformationPrefixTarget());
         SubmitInitialPlanTrace(root, rboCtx);
 
         if (needToLog) {
@@ -219,6 +261,13 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
                 YQL_CLOG(TRACE, CoreDq) << "Before stage:\n" << root.PlanToString(ctx);
             }
             stage->RunStage(root, rboCtx);
+            if (stage->TransformationMode == ERBOStageTransformationMode::AtomicStageCommit) {
+                rboCtx.TransformationDebug.OnAtomicStageCommit(stage->StageName, stage->TransformationName);
+            }
+            if (rboCtx.TransformationDebug.Stopped) {
+                semanticSnapshots.CaptureTransformationPrefix(root, rboCtx, rboCtx.TransformationDebug.Events);
+                return {};
+            }
             if (needToLog) {
                 YQL_CLOG(TRACE, CoreDq) << "After stage:\n" << root.PlanToString(ctx);
             }
@@ -232,6 +281,7 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
             live.UnionWith(GetLiveOut(item.Current));
         }
         root.PlanProps.InfoUnitRegistry.FinalizeDisplayNames(live);
+        semanticSnapshots.CaptureFinal(root, rboCtx);
         if (needToLog) {
             YQL_CLOG(TRACE, CoreDq) << "Final plan before generation:\n" << root.PlanToString(ctx, EPrintPlanOptions::PrintFullMetadata | EPrintPlanOptions::PrintBasicStatistics);
         }

@@ -1,0 +1,974 @@
+import os
+import unittest
+from collections import Counter
+from copy import deepcopy
+from unittest import mock
+
+try:
+    import yatest.common as yatest_common
+except ImportError:
+    yatest_common = None
+
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import aggregate, decimal, smt
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import relation as relation_model
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.ir import (
+    SnapshotError,
+    parse_snapshot,
+)
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.relation import (
+    Database,
+    Evaluator,
+    RelationError,
+)
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.scalar import Encoder
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.scalar import Value
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.verify import (
+    build_logical_kernel_problem_for_tests,
+    build_problem,
+    solve,
+)
+
+
+SOLVER = (
+    yatest_common.binary_path("contrib/tools/z3/z3")
+    if yatest_common is not None
+    else os.environ.get("RBO_Z3")
+)
+
+
+def _column(name):
+    return {"kind": "column", "column": name}
+
+
+def _window_avg(partition_by=None):
+    return {
+        "kind": "window_avg",
+        "input": "group_total",
+        "partition_by": partition_by or ["part_i", "part_s"],
+        "type": "Decimal(35,2)",
+        "nullable": True,
+    }
+
+
+def _snapshot():
+    return {
+        "format": "ydb-rbo-semantic-snapshot",
+        "version": 1,
+        "schema": {
+            "tables": [
+                {
+                    "name": "Sales",
+                    "columns": [
+                        {"name": "part_i", "type": "Int64", "nullable": True},
+                        {"name": "part_s", "type": "String", "nullable": True},
+                        {"name": "item", "type": "Int64", "nullable": False},
+                        {"name": "amount", "type": "Decimal(15,2)", "nullable": True},
+                    ],
+                    "unique_keys": [],
+                }
+            ]
+        },
+        "plan": {
+            "nodes": [
+                {
+                    "id": "scan",
+                    "op": "scan",
+                    "table": "Sales",
+                    "columns": [
+                        {"source": name, "output": name}
+                        for name in ("part_i", "part_s", "item", "amount")
+                    ],
+                    "pushed_limit": None,
+                },
+                {
+                    "id": "aggregate",
+                    "op": "aggregate",
+                    "input": "scan",
+                    "keys": ["part_i", "part_s", "item"],
+                    "aggregates": [
+                        {
+                            "input": "amount",
+                            "function": "sum",
+                            "output": "group_total",
+                            "type": "Decimal(35,2)",
+                            "nullable": True,
+                            "distinct": False,
+                            "unwrap": False,
+                        }
+                    ],
+                    "phase": "undefined",
+                    "distinct_all": False,
+                },
+                {
+                    "id": "project",
+                    "op": "project",
+                    "input": "aggregate",
+                    "ordered": False,
+                    "columns": [
+                        {"output": name, "expression": _column(name)}
+                        for name in ("part_i", "part_s", "item", "group_total")
+                    ]
+                    + [
+                        {
+                            "output": "window_average",
+                            "expression": _window_avg(),
+                        }
+                    ],
+                },
+            ],
+            "root": "project",
+            "output": [
+                "part_i",
+                "part_s",
+                "item",
+                "group_total",
+                "window_average",
+            ],
+            "subplans": [],
+        },
+        "stage_graph": None,
+    }
+
+
+def _staged_snapshot(shuffle_keys):
+    snapshot = _snapshot()
+    snapshot["plan"]["nodes"][1:2] = [
+        {
+            "id": "intermediate",
+            "op": "aggregate",
+            "input": "scan",
+            "keys": ["part_i", "part_s", "item"],
+            "aggregates": [
+                {
+                    "input": "amount",
+                    "function": "sum",
+                    "output": "partial_total",
+                    "type": "Decimal(35,2)",
+                    "nullable": True,
+                    "distinct": False,
+                    "unwrap": False,
+                }
+            ],
+            "phase": "intermediate",
+            "distinct_all": False,
+        },
+        {
+            "id": "aggregate",
+            "op": "aggregate",
+            "input": "intermediate",
+            "keys": ["part_i", "part_s", "item"],
+            "aggregates": [
+                {
+                    "input": "partial_total",
+                    "function": "sum",
+                    "output": "group_total",
+                    "type": "Decimal(35,2)",
+                    "nullable": True,
+                    "distinct": False,
+                    "unwrap": False,
+                }
+            ],
+            "phase": "final",
+            "distinct_all": False,
+        },
+    ]
+    snapshot["stage_graph"] = {
+        "root_stage": "window",
+        "stages": [
+            {
+                "id": "source",
+                "nodes": ["scan", "intermediate"],
+                "inputs": [],
+                "outputs": [{"index": 0, "node": "intermediate"}],
+                "source_storage": "column",
+            },
+            {
+                "id": "final",
+                "nodes": ["aggregate"],
+                "inputs": ["intermediate"],
+                "outputs": [{"index": 0, "node": "aggregate"}],
+                "source_storage": None,
+            },
+            {
+                "id": "window",
+                "nodes": ["project"],
+                "inputs": ["aggregate"],
+                "outputs": [{"index": 0, "node": "project"}],
+                "source_storage": None,
+            },
+        ],
+        "edges": [
+            {
+                "id": "source-final-0",
+                "producer": "source",
+                "consumer": "final",
+                "occurrence": 0,
+                "producer_output": 0,
+                "consumer_input": 0,
+                "kind": "hash_shuffle",
+                "keys": ["part_i", "part_s", "item"],
+                "hash_function": "HashV2",
+                "use_spilling": False,
+            },
+            {
+                "id": "final-window-0",
+                "producer": "final",
+                "consumer": "window",
+                "occurrence": 0,
+                "producer_output": 0,
+                "consumer_input": 0,
+                "kind": "hash_shuffle",
+                "keys": shuffle_keys,
+                "hash_function": "HashV2",
+                "use_spilling": False,
+            }
+        ],
+        "assumptions": [],
+    }
+    return snapshot
+
+
+def _q89_shaped_snapshot():
+    snapshot = _snapshot()
+    table_columns = snapshot["schema"]["tables"][0]["columns"]
+    table_columns[0]["type"] = "String"
+    table_columns[2:2] = [
+        {"name": "part_s2", "type": "String", "nullable": True},
+        {"name": "part_s3", "type": "String", "nullable": True},
+    ]
+    scan_columns = snapshot["plan"]["nodes"][0]["columns"]
+    scan_columns[2:2] = [
+        {"source": "part_s2", "output": "part_s2"},
+        {"source": "part_s3", "output": "part_s3"},
+    ]
+    aggregate = snapshot["plan"]["nodes"][1]
+    aggregate["keys"][2:2] = ["part_s2", "part_s3"]
+    project = snapshot["plan"]["nodes"][2]
+    project["columns"][2:2] = [
+        {"output": "part_s2", "expression": _column("part_s2")},
+        {"output": "part_s3", "expression": _column("part_s3")},
+    ]
+    project["columns"][-1]["expression"]["partition_by"] = [
+        "part_i",
+        "part_s",
+        "part_s2",
+        "part_s3",
+    ]
+    snapshot["plan"]["output"][2:2] = ["part_s2", "part_s3"]
+    return snapshot
+
+
+def _deviation_snapshot():
+    snapshot = _snapshot()
+    snapshot["plan"]["nodes"][2]["columns"][-1]["expression"] = {
+        "kind": "decimal_abs",
+        "arg": {
+            "kind": "sub",
+            "left": _column("group_total"),
+            "right": _window_avg(),
+            "type": "Decimal(35,2)",
+            "nullable": True,
+        },
+        "type": "Decimal(35,2)",
+        "nullable": True,
+    }
+    return snapshot
+
+
+def _decimal_abs_snapshot():
+    snapshot = _snapshot()
+    snapshot["schema"]["tables"][0]["columns"] = [
+        {"name": "value", "type": "Decimal(35,2)", "nullable": True}
+    ]
+    snapshot["plan"] = {
+        "nodes": [
+            {
+                "id": "scan",
+                "op": "scan",
+                "table": "Sales",
+                "columns": [{"source": "value", "output": "value"}],
+                "pushed_limit": None,
+            },
+            {
+                "id": "project",
+                "op": "project",
+                "input": "scan",
+                "ordered": False,
+                "columns": [
+                    {
+                        "output": "absolute",
+                        "expression": {
+                            "kind": "decimal_abs",
+                            "arg": _column("value"),
+                            "type": "Decimal(35,2)",
+                            "nullable": True,
+                        },
+                    }
+                ],
+            },
+        ],
+        "root": "project",
+        "output": ["absolute"],
+        "subplans": [],
+    }
+    return snapshot
+
+
+def _ground(term, values):
+    cache = {}
+
+    def visit(node):
+        if id(node) not in cache:
+            cache[id(node)] = _ground_step(node, values, visit)
+        return cache[id(node)]
+
+    return visit(term)
+
+
+def _ground_step(term, values, visit):
+    if term.operation == "symbol":
+        return values[term.atom]
+    if term.operation in {"bool", "int"}:
+        return term.atom
+    arguments = tuple(visit(argument) for argument in term.arguments)
+    if term.operation == "not":
+        return not arguments[0]
+    if term.operation == "and":
+        return all(arguments)
+    if term.operation == "or":
+        return any(arguments)
+    if term.operation == "=":
+        return arguments[0] == arguments[1]
+    if term.operation == "<":
+        return arguments[0] < arguments[1]
+    if term.operation == "ite":
+        return arguments[1] if arguments[0] else arguments[2]
+    if term.operation == "+":
+        return sum(arguments)
+    if term.operation == "-":
+        return arguments[0] - arguments[1]
+    if term.operation == "*":
+        result = 1
+        for argument in arguments:
+            result *= argument
+        return result
+    if term.operation == "div":
+        return arguments[0] // arguments[1]
+    if term.operation == "mod":
+        return arguments[0] % arguments[1]
+    raise AssertionError(f"unsupported ground operation {term.operation!r}")
+
+
+def _evaluate(snapshot, slots):
+    parsed = parse_snapshot(snapshot)
+    script = smt.Script()
+    database = Database(parsed, len(slots), script)
+    family = Evaluator(parsed, database, Encoder(script)).root()
+    values = {}
+    table_columns = tuple(column.name for column in parsed.tables[0].columns)
+    for witness, slot in zip(database.witness["Sales"], slots):
+        values[witness.present.atom] = True
+        for name, concrete in zip(table_columns, slot):
+            cell = witness.cells[name]
+            if cell.is_null.operation == "symbol":
+                values[cell.is_null.atom] = concrete is None
+            values[cell.value.atom] = 0 if concrete is None else concrete
+
+    active = [outcome for outcome in family.outcomes if _ground(outcome.enabled, values)]
+    assert len(active) == 1 and not _ground(active[0].error, values)
+    relation = active[0].relation
+    bag = Counter()
+    for row in relation.rows:
+        if not _ground(row.present, values):
+            continue
+        bag[
+            tuple(
+                None
+                if _ground(row.values[column.name].is_null, values)
+                else _ground(row.values[column.name].value, values)
+                for column in relation.columns
+            )
+        ] += 1
+    return bag
+
+
+def _concrete_window_average(rows):
+    """Evaluate the relational leaf over already-grouped concrete rows."""
+
+    snapshot = parse_snapshot(_snapshot())
+    expression = snapshot.plan.nodes[2].columns[-1].expression
+    relation_rows = []
+    for part_i, part_s, group_total in rows:
+        relation_rows.append(
+            relation_model.Row(
+                smt.TRUE,
+                {
+                    "part_i": Value(
+                        "Int64",
+                        smt.bool_value(part_i is None),
+                        smt.int_value(0 if part_i is None else part_i),
+                    ),
+                    "part_s": Value(
+                        "String",
+                        smt.bool_value(part_s is None),
+                        smt.int_value(0 if part_s is None else part_s),
+                    ),
+                    "group_total": Value(
+                        "Decimal(35,2)",
+                        smt.bool_value(group_total is None),
+                        smt.int_value(0 if group_total is None else group_total),
+                        (
+                            0
+                            if group_total is None
+                            or not -decimal.INF < group_total < decimal.INF
+                            else abs(group_total)
+                        ),
+                    ),
+                },
+            )
+        )
+    source = relation_model.Relation(
+        (
+            relation_model.Column("part_i", "Int64", True),
+            relation_model.Column("part_s", "String", True),
+            relation_model.Column("group_total", "Decimal(35,2)", True),
+        ),
+        tuple(relation_rows),
+    )
+    evaluator = object.__new__(Evaluator)
+    evaluator.scalar = Encoder(smt.Script())
+    return evaluator._whole_partition_decimal_window_value(
+        expression,
+        source,
+        relation_rows[0],
+    )
+
+
+def _with_window_aliases(snapshot, count=1, rename=True):
+    snapshot = deepcopy(snapshot)
+    project = next(node for node in snapshot["plan"]["nodes"] if node["id"] == "project")
+    names = [column["output"] for column in project["columns"][:-1]]
+    mapping = {name: name for name in names}
+    aliases = []
+    previous = project["input"]
+    for index in range(count):
+        bindings = {name: f"alias{index}.{name}" if rename else name for name in mapping}
+        alias = {
+            "id": f"aliases{index}", "op": "project", "input": previous, "ordered": False,
+            "columns": [
+                {"output": bindings[name], "expression": _column(source)}
+                for name, source in mapping.items()
+            ],
+        }
+        aliases.append(alias)
+        previous = alias["id"]
+        mapping = bindings
+    offset = snapshot["plan"]["nodes"].index(project)
+    snapshot["plan"]["nodes"][offset:offset] = aliases
+    project["input"] = previous
+
+    def rewrite(expression):
+        if not isinstance(expression, dict):
+            return
+        if expression.get("kind") == "column":
+            expression["column"] = mapping[expression["column"]]
+        elif expression.get("kind") in {"window_sum", "window_avg"}:
+            expression["input"] = mapping[expression["input"]]
+            keys = expression["partition_by"]
+            expression["partition_by"] = mapping[keys] if isinstance(keys, str) else [mapping[key] for key in keys]
+        for value in expression.values():
+            if isinstance(value, dict):
+                rewrite(value)
+
+    for column in project["columns"]:
+        rewrite(column["expression"])
+    if snapshot["stage_graph"]:
+        stage = next(stage for stage in snapshot["stage_graph"]["stages"] if "project" in stage["nodes"])
+        index = stage["nodes"].index("project")
+        stage["nodes"][index:index] = [alias["id"] for alias in aliases]
+    return snapshot
+
+
+class WindowAverageTest(unittest.TestCase):
+
+    def test_utf8_partitions_preserve_routing_and_detect_split_partitions(self):
+        if SOLVER is None:
+            self.skipTest("Z3 is unavailable")
+
+        def utf8(snapshot):
+            for table in snapshot["schema"]["tables"]:
+                for column in table["columns"]:
+                    if column["type"] == "String":
+                        column["type"] = "Utf8"
+            return parse_snapshot(snapshot)
+        before = utf8(_snapshot())
+        after = utf8(_staged_snapshot(['part_i', 'part_s']))
+        mutation = utf8(_staged_snapshot(['part_i', 'part_s', 'item']))
+        self.assertEqual(solve(build_problem(before, after, 2, 2), SOLVER, 2, 30_000).status, "VERIFIED_BOUNDED")
+        self.assertEqual(solve(build_problem(before, mutation, 2, 2), SOLVER, 2, 30_000).status, "COUNTEREXAMPLE")
+
+    def test_window_column_alias_corridors_preserve_staged_results(self):
+        if SOLVER is None:
+            self.skipTest("Z3 is unavailable")
+        before = parse_snapshot(_snapshot())
+        for count in (1, 8):
+            for rename in (False, True):
+                with self.subTest(count=count, rename=rename):
+                    after = parse_snapshot(_with_window_aliases(_staged_snapshot(["part_i", "part_s"]), count, rename))
+                    problem = build_problem(before, after, 2, 2)
+                    self.assertEqual(solve(problem, SOLVER, 2, 30_000).status, "VERIFIED_BOUNDED")
+
+    def test_aliased_window_partition_mutation_has_a_counterexample(self):
+        if SOLVER is None:
+            self.skipTest("Z3 is unavailable")
+        before = _with_window_aliases(_snapshot(), 8)
+        changed = deepcopy(before)
+        expression = changed["plan"]["nodes"][-1]["columns"][-1]["expression"]
+        expression["partition_by"] = expression["partition_by"][:1]
+        problem = build_logical_kernel_problem_for_tests(parse_snapshot(before), parse_snapshot(changed), 2)
+        self.assertEqual(solve(problem, SOLVER, 2, 30_000).status, "COUNTEREXAMPLE")
+
+    def test_window_alias_corridor_bound_and_error_markers_are_rejected(self):
+        with self.assertRaisesRegex(SnapshotError, "exceeds eight"):
+            parse_snapshot(_with_window_aliases(_snapshot(), 9))
+        guarded = _with_window_aliases(_snapshot())
+        alias = next(node for node in guarded["plan"]["nodes"] if node["id"] == "aliases0")
+        alias["columns"][-1]["error_on_null"] = True
+        with self.assertRaises(SnapshotError):
+            parse_snapshot(guarded)
+
+    def test_rank_and_average_share_one_source_outcome(self):
+        raw = _snapshot()
+        raw["plan"]["nodes"][2]["columns"].append({"output": "rank", "expression": {
+            "kind": "window_rank", "window_name": "peer_rank", "execution_order": 0,
+            "partition_by": ["part_i", "part_s"],
+            "order_by": [
+                {"column": name, "ascending": True, "nulls_first": True}
+                for name in ("group_total", "item")
+            ],
+            "frame": "rows_unbounded_preceding_current_row", "type": "Uint64", "nullable": False,
+        }})
+        raw["plan"]["output"].append("rank")
+        self.assertEqual(
+            _evaluate(raw, ((None, None, 1, 100), (None, None, 2, 101))),
+            Counter({(None, None, 1, 100, 100, 1): 1, (None, None, 2, 101, 100, 2): 1}),
+        )
+        # The second order key breaks equal first-key peers, without tie choices.
+        self.assertEqual(
+            _evaluate(raw, ((None, None, 1, 100), (None, None, 2, 100))),
+            Counter({(None, None, 1, 100, 100, 1): 1, (None, None, 2, 100, 100, 2): 1}),
+        )
+
+    def test_five_keys_and_three_private_average_corridors(self):
+        raw = _snapshot()
+        for name in ("extra1", "extra2", "extra3"):
+            raw["schema"]["tables"][0]["columns"].append({"name": name, "type": "Int64", "nullable": True})
+            raw["plan"]["nodes"][0]["columns"].append({"source": name, "output": name})
+            raw["plan"]["nodes"][1]["keys"].append(name)
+            raw["plan"]["nodes"][2]["columns"][-1]["expression"]["partition_by"].append(name)
+        parse_snapshot(raw)
+        original = deepcopy(raw["plan"]["nodes"])
+        for index in (1, 2, 3):
+            branch = deepcopy(original)
+            for node in branch:
+                node["id"] += str(index)
+                if "input" in node:
+                    node["input"] += str(index)
+            previous = raw["plan"]["root"]
+            raw["plan"]["nodes"].extend(branch)
+            raw["plan"]["nodes"].append({
+                "id": f"union{index}", "op": "union_all", "ordered": False,
+                "inputs": [
+                    {"node": node, "columns": raw["plan"]["output"]}
+                    for node in (previous, "project" + str(index))
+                ],
+                "output": raw["plan"]["output"],
+            })
+            raw["plan"]["root"] = f"union{index}"
+            if index < 3:
+                self.assertEqual(sum(_evaluate(raw, ((None, None, 1, 100, None, 2, 3),)).values()), index + 1)
+            else:
+                with self.assertRaisesRegex(SnapshotError, "snapshot audit bound"):
+                    parse_snapshot(raw)
+
+    def test_multikey_null_partitions_all_null_inputs_and_even_ties(self):
+        tied = _concrete_window_average(
+            ((None, None, 100), (None, None, 101), (None, 7, 999))
+        )
+        self.assertFalse(_ground(tied.is_null, {}))
+        self.assertEqual(_ground(tied.value, {}), 100)
+
+        all_null = _concrete_window_average(((1, 10, None),))
+        self.assertTrue(_ground(all_null.is_null, {}))
+
+    def test_decimal_specials_flow_through_window_average(self):
+        cases = (
+            ((decimal.INF, 100), decimal.INF),
+            ((-decimal.INF, 100), -decimal.INF),
+            ((decimal.INF, -decimal.INF), decimal.NAN),
+            ((decimal.NAN,), decimal.NAN),
+            ((101, 102), 102),
+        )
+        for inputs, expected in cases:
+            finite_abs_bound = sum(
+                abs(value)
+                for value in inputs
+                if -decimal.INF < value < decimal.INF
+            )
+            result = aggregate.finish_decimal_average(
+                tuple((smt.TRUE, smt.int_value(value)) for value in inputs),
+                tuple(smt.ONE for _value in inputs),
+                sum_type="Decimal(35,2)",
+                count_type="Uint64",
+                output_type="Decimal(35,2)",
+                output_nullable=True,
+                finite_abs_bound=finite_abs_bound,
+                count_bound=len(inputs),
+                carry_state=False,
+                operation="test window avg",
+            )
+            with self.subTest(inputs=inputs):
+                self.assertFalse(_ground(result.is_null, {}))
+                self.assertEqual(_ground(result.value, {}), expected)
+
+    def test_decimal_abs_is_exact_for_null_finite_infinities_and_nan(self):
+        self.assertEqual(
+            _evaluate(
+                _decimal_abs_snapshot(),
+                ((-123,), (45,), (-decimal.INF,), (decimal.INF,), (decimal.NAN,), (None,)),
+            ),
+            Counter(
+                {
+                    (123,): 1,
+                    (45,): 1,
+                    (decimal.INF,): 2,
+                    (decimal.NAN,): 1,
+                    (None,): 1,
+                }
+            ),
+        )
+
+    def test_window_avg_and_decimal_abs_json_grammars_are_closed(self):
+        mixed = parse_snapshot(_snapshot())
+        self.assertEqual(
+            mixed.plan.nodes[2].columns[-1].expression.partition_by,
+            ("part_i", "part_s"),
+        )
+        q89 = parse_snapshot(_q89_shaped_snapshot())
+        self.assertEqual(
+            q89.plan.nodes[2].columns[-1].expression.partition_by,
+            ("part_i", "part_s", "part_s2", "part_s3"),
+        )
+        duplicate_sum = _snapshot()
+        duplicate_sum["plan"]["nodes"][1]["aggregates"].append(
+            {
+                "input": "amount",
+                "function": "sum",
+                "output": "sum_sales",
+                "type": "Decimal(35,2)",
+                "nullable": True,
+                "distinct": False,
+                "unwrap": False,
+            }
+        )
+        parse_snapshot(duplicate_sum)
+
+        mutations = (
+            ("partition_by", "part_i", "expected an array"),
+            ("partition_by", [], "between 1 and 5"),
+            ("partition_by", ["part_i"] * 6, "between 1 and 5"),
+            ("partition_by", ["part_i", "part_i"], "duplicate name"),
+            ("partition_by", ["missing"], "not available"),
+            ("partition_by", ["item"], "Optional<Int64>, Optional<String> or Optional<Utf8>"),
+            ("input", "missing", "window input column"),
+            ("nullable", False, "Optional<Decimal"),
+            ("type", "Decimal(34,2)", "Optional<Decimal"),
+        )
+        for field, value, message in mutations:
+            raw = _snapshot()
+            raw["plan"]["nodes"][2]["columns"][-1]["expression"][field] = value
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(
+                SnapshotError, message
+            ):
+                parse_snapshot(raw)
+
+        raw = _snapshot()
+        raw["plan"]["nodes"][2]["columns"][-1]["expression"]["order_by"] = []
+        with self.assertRaisesRegex(SnapshotError, "unknown fields"):
+            parse_snapshot(raw)
+
+        for field, value, message in (
+            ("nullable", False, "Optional<Decimal"),
+            ("type", "Decimal(34,2)", "Optional<Decimal"),
+            (
+                "arg",
+                {"kind": "null", "type": "Int64"},
+                "input must be Optional<Decimal",
+            ),
+        ):
+            raw = _decimal_abs_snapshot()
+            raw["plan"]["nodes"][1]["columns"][0]["expression"][field] = value
+            with self.subTest(abs_field=field), self.assertRaisesRegex(
+                SnapshotError, message
+            ):
+                parse_snapshot(raw)
+
+    def test_window_avg_rejects_non_sum_stale_and_final_topologies(self):
+        non_sum = _snapshot()
+        non_sum["schema"]["tables"][0]["columns"][-1]["type"] = "Decimal(35,2)"
+        non_sum["plan"]["nodes"][1]["aggregates"][0]["function"] = "max"
+        non_sum["plan"]["nodes"][1]["aggregates"].append(
+            {
+                "input": "amount",
+                "function": "sum",
+                "output": "sum_sales",
+                "type": "Decimal(35,2)",
+                "nullable": True,
+                "distinct": False,
+                "unwrap": False,
+            }
+        )
+        with self.assertRaisesRegex(SnapshotError, "direct Optional<Decimal.*SUM"):
+            parse_snapshot(non_sum)
+
+        stale = _snapshot()
+        stale["plan"]["nodes"].insert(
+            2,
+            {
+                "id": "carrier",
+                "op": "project",
+                "input": "aggregate",
+                "ordered": False,
+                "columns": [
+                    {"output": name, "expression": _column(name)}
+                    for name in ("part_i", "part_s", "item", "group_total")
+                ],
+            },
+        )
+        stale["plan"]["nodes"][3]["input"] = "carrier"
+        stale["plan"]["nodes"][2]["columns"][-1]["expression"] = {
+            "kind": "null", "type": "Decimal(35,2)",
+        }
+        with self.assertRaisesRegex(SnapshotError, "total direct column"):
+            parse_snapshot(stale)
+
+        mismatched_final = _staged_snapshot(["part_i", "part_s"])
+        mismatched_final["stage_graph"] = None
+        mismatched_final["plan"]["nodes"][1]["keys"] = [
+            "part_s",
+            "part_i",
+            "item",
+        ]
+        with self.assertRaisesRegex(SnapshotError, "matching intermediate"):
+            parse_snapshot(mismatched_final)
+
+    def test_window_avg_rejects_fanout_subplans_and_multiple_occurrences(self):
+        fanout = _snapshot()
+        fanout["plan"]["nodes"].append(
+            {
+                "id": "plain",
+                "op": "project",
+                "input": "aggregate",
+                "ordered": False,
+                "columns": [
+                    {"output": name, "expression": _column(name)}
+                    for name in ("part_i", "part_s", "item", "group_total")
+                ]
+                + [{"output": "window_average", "expression": _column("group_total")}],
+            }
+        )
+        fanout["plan"]["nodes"].append(
+            {
+                "id": "union",
+                "op": "union_all",
+                "inputs": [
+                    {
+                        "node": "project",
+                        "columns": [
+                            "part_i",
+                            "part_s",
+                            "item",
+                            "group_total",
+                            "window_average",
+                        ],
+                    },
+                    {
+                        "node": "plain",
+                        "columns": [
+                            "part_i",
+                            "part_s",
+                            "item",
+                            "group_total",
+                            "window_average",
+                        ],
+                    },
+                ],
+                "output": [
+                    "part_i",
+                    "part_s",
+                    "item",
+                    "group_total",
+                    "window_average",
+                ],
+                "ordered": False,
+            }
+        )
+        fanout["plan"]["root"] = "union"
+        with self.assertRaisesRegex(SnapshotError, "no fanout"):
+            parse_snapshot(fanout)
+
+        subplan = _snapshot()
+        subplan["plan"]["nodes"].extend(
+            [
+                {
+                    "id": "subscan",
+                    "op": "scan",
+                    "table": "Sales",
+                    "columns": [{"source": "item", "output": "sub.item"}],
+                    "pushed_limit": None,
+                },
+                {
+                    "id": "subproject",
+                    "op": "project",
+                    "input": "subscan",
+                    "ordered": False,
+                    "columns": [
+                        {
+                            "output": "scalar",
+                            "expression": {"kind": "literal", "type": "Int64", "value": 7},
+                        }
+                    ],
+                },
+            ]
+        )
+        subplan["plan"]["nodes"][2]["columns"].append(
+            {"output": "unused", "expression": _column("$scalar")}
+        )
+        subplan["plan"]["subplans"] = [
+            {
+                "binding": "$scalar",
+                "kind": "scalar",
+                "root": "subproject",
+                "type": "Int64",
+                "nullable": True,
+                "dependencies": [],
+                "consumers": ["project"],
+                "output": {"column": "scalar", "type": "Int64", "nullable": False},
+            }
+        ]
+        with self.assertRaisesRegex(SnapshotError, "separate from subplan evaluation"):
+            parse_snapshot(subplan)
+
+        # A binding below the window is already part of its source outcome.
+        below = deepcopy(subplan)
+        bound_column = below["plan"]["nodes"][2]["columns"].pop()
+        below["plan"]["nodes"].append({
+            "id": "bound", "op": "project", "input": "scan", "ordered": False,
+            "columns": [
+                {"output": name, "expression": _column(name)}
+                for name in ("part_i", "part_s", "item", "amount")
+            ] + [bound_column],
+        })
+        below["plan"]["nodes"][1]["input"] = "bound"
+        below["plan"]["subplans"][0]["consumers"] = ["bound"]
+        self.assertEqual(
+            _evaluate(below, ((None, None, 1, 101),)),
+            _evaluate(_snapshot(), ((None, None, 1, 101),)),
+        )
+
+        multiple = _snapshot()
+        multiple["plan"]["nodes"][2]["columns"].append(
+            {"output": "again", "expression": _window_avg()}
+        )
+        with self.assertRaisesRegex(SnapshotError, "exactly one window_avg"):
+            parse_snapshot(multiple)
+
+    def test_window_avg_pair_and_accumulator_caps_fail_closed(self):
+        snapshot = parse_snapshot(_snapshot())
+        script = smt.Script()
+        evaluator = Evaluator(snapshot, Database(snapshot, 2, script), Encoder(script))
+        with (
+            mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 3),
+            self.assertRaisesRegex(RelationError, "window avg requires 4"),
+        ):
+            evaluator.root()
+
+        with self.assertRaisesRegex(RelationError, "sum may overflow"):
+            aggregate.finish_decimal_average(
+                ((smt.TRUE, smt.ONE),),
+                (smt.ONE,),
+                sum_type="Decimal(35,2)",
+                count_type="Uint64",
+                output_type="Decimal(35,2)",
+                output_nullable=True,
+                finite_abs_bound=10**35,
+                count_bound=1,
+                carry_state=False,
+                operation="test avg",
+            )
+        with self.assertRaisesRegex(RelationError, "count may wrap"):
+            aggregate.finish_decimal_average(
+                ((smt.TRUE, smt.ONE),),
+                (smt.ONE,),
+                sum_type="Decimal(35,2)",
+                count_type="Uint64",
+                output_type="Decimal(35,2)",
+                output_nullable=True,
+                finite_abs_bound=1,
+                count_bound=1 << 64,
+                carry_state=False,
+                operation="test avg",
+            )
+
+    def test_window_avg_builds_and_solves_an_exact_obligation(self):
+        if SOLVER is None:
+            self.skipTest("Z3 is not available")
+        # This is the exact q53/q63/q89 scalar neighborhood:
+        # Abs(grouped SUM - whole-partition AVG(grouped SUM)).
+        snapshot = parse_snapshot(_deviation_snapshot())
+        problem = build_logical_kernel_problem_for_tests(snapshot, snapshot, 2)
+        self.assertIn("check-sat", problem.formula())
+        self.assertEqual(
+            solve(problem, SOLVER, 2, 10_000).status,
+            "VERIFIED_BOUNDED",
+        )
+
+    def test_partition_routing_proves_and_wrong_routing_has_a_counterexample(self):
+        if SOLVER is None:
+            self.skipTest("Z3 is not available")
+        logical = parse_snapshot(_snapshot())
+        colocated = parse_snapshot(_staged_snapshot(["part_i", "part_s"]))
+        split = parse_snapshot(
+            _staged_snapshot(["part_i", "part_s", "item"])
+        )
+        self.assertEqual(
+            solve(build_problem(logical, colocated, 2), SOLVER, 2, 10_000).status,
+            "VERIFIED_BOUNDED",
+        )
+        self.assertEqual(
+            solve(build_problem(logical, split, 2), SOLVER, 2, 10_000).status,
+            "COUNTEREXAMPLE",
+        )
+
+    def test_q89_shaped_four_key_partition_mutation_has_a_counterexample(self):
+        if SOLVER is None:
+            self.skipTest("Z3 is not available")
+        before = parse_snapshot(_q89_shaped_snapshot())
+        mutated = _q89_shaped_snapshot()
+        mutated["plan"]["nodes"][2]["columns"][-1]["expression"][
+            "partition_by"
+        ] = ["part_i", "part_s", "part_s2"]
+        after = parse_snapshot(mutated)
+        self.assertEqual(
+            solve(
+                build_logical_kernel_problem_for_tests(before, after, 2),
+                SOLVER,
+                2,
+                10_000,
+            ).status,
+            "COUNTEREXAMPLE",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -105,6 +105,29 @@ TInfoUnitId PortId(TOpReplicate& port, TInfoUnitId source) {
 } // anonymous namespace
 
 Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
+    Y_UNIT_TEST(ScalarAggregatesRestoreTheEmptyDomainRowBeforeProjection) {
+        for (const TString& function : {TString("count"), TString("sum"), TString("min"), TString("max")}) {
+            TPlan plan;
+            const auto parameter = plan.Id(), local = plan.Id(), value = plan.Id(), aggregateValue = plan.Id(), output = plan.Id();
+            auto aggregate = MakeIntrusive<TOpAggregate>(plan.Producer(parameter, local, value),
+                TAggregationIUs{{aggregateValue, {value, function, false, false}}},
+                TOrderedIUs<>{}, EOpPhase::Undefined, false, plan.Pos);
+            TMapIUs projection;
+            projection.Add(output, MakeBinaryPredicate("Coalesce", plan.Column(aggregateValue),
+                MakeConstant("Uint64", "0", plan.Pos, &plan.Ctx)));
+            auto projected = MakeIntrusive<TOpMap>(aggregate, plan.Pos, std::move(projection));
+            plan.Attach(projected, {parameter});
+            plan.Rewrite();
+            bool restoresDomain = false;
+            for (const auto& item : IterateSubtree(&plan.Root)) {
+                if (item.Current->Kind == EOperator::Join) {
+                    restoresDomain = restoresDomain || CastOperator<TOpJoin>(*item.Current).JoinKind == "Left";
+                }
+            }
+            UNIT_ASSERT_C(restoresDomain, function << " lost the scalar aggregate row for an empty domain group");
+        }
+    }
+
     Y_UNIT_TEST(DomainKeysPreserveKnownNullabilityBeforeRetyping) {
         for (const bool annotated : {false, true}) {
             for (const bool nullable : {false, true}) {
@@ -128,6 +151,147 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
             }
         }
     }
+
+    Y_UNIT_TEST(DomainKeysPreserveRequiredDecimalIdentity) {
+        for (const bool nativeEqualNulls : {false, true}) {
+            for (const bool decimal : {false, true}) {
+                for (const bool nullable : {false, true}) {
+                    for (ui32 knownSides = 0; knownSides < 4; ++knownSides) {
+                        NTests::TIdTestContext f;
+                        f.Config->UseBlockHashJoin = nativeEqualNulls;
+                        f.Config->EnableBlockHashJoinEqualNulls = nativeEqualNulls;
+                        const auto a = f.Id("left"), b = f.Id("right");
+                        TIntrusivePtr<IOperator> left = f.Read({a}), right = f.Read({b});
+                        const TTypeAnnotationNode* item = decimal
+                            ? static_cast<const TTypeAnnotationNode*>(f.ExprCtx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, "10", "0"))
+                            : f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Int32);
+                        if (nullable) {
+                            item = f.ExprCtx.MakeType<TOptionalExprType>(item);
+                        }
+                        const auto setType = [&](IOperator& op, TInfoUnitId id) {
+                            op.Type = f.ExprCtx.MakeType<TListExprType>(f.ExprCtx.MakeType<TStructExprType>(
+                                TVector<const TItemExprType*>{f.ExprCtx.MakeType<TItemExprType>(f.ExprCtx.GetIndexAsString(id), item)}));
+                        };
+                        if (knownSides & 1) {
+                            setType(*left, a);
+                        }
+                        if (knownSides & 2) {
+                            setType(*right, b);
+                        }
+                        const TJoinIUs keys{{a, b}};
+                        const auto result = MakeNullSafeJoinKeys(left, right, keys, f.Pos, f.RboCtx, f.Props);
+                        const bool identityEncoding = !knownSides || nullable || decimal;
+                        UNIT_ASSERT_VALUES_EQUAL(HasEqualNullsKey(result), identityEncoding && nativeEqualNulls);
+                        UNIT_ASSERT_VALUES_EQUAL(result.Left() != keys.Left(), identityEncoding && !nativeEqualNulls);
+                        UNIT_ASSERT_VALUES_EQUAL(result.Right() != keys.Right(), identityEncoding && !nativeEqualNulls);
+                        UNIT_ASSERT(left->GetOutputIUs().Contains(a));
+                        UNIT_ASSERT(right->GetOutputIUs().Contains(b));
+                        if (identityEncoding && !nativeEqualNulls) {
+                            for (const auto& side : {left, right}) {
+                                const auto& elements = CastOperator<TOpMap>(*side).GetMapElements();
+                                UNIT_ASSERT_VALUES_EQUAL(elements.Keys().Size(), 1);
+                                UNIT_ASSERT(elements.Items().begin()->second.GetExpression().GetExpressionBody()->IsCallable("StablePickle"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(WholePartitionDecimalKeysUsePartitionIdentity) {
+        for (const bool nativeEqualNulls : {false, true}) {
+            for (const bool decimal : {false, true}) {
+                for (const bool nullable : {false, true}) {
+                    NTests::TIdTestContext f;
+                    f.Config->WindowFunctionsV2 = true;
+                    f.Config->UseBlockHashJoin = nativeEqualNulls;
+                    f.Config->EnableBlockHashJoinEqualNulls = nativeEqualNulls;
+                    const auto key = f.Id("key"), count = f.Id("count");
+                    auto source = f.Read({key});
+                    const TTypeAnnotationNode* item = decimal
+                        ? static_cast<const TTypeAnnotationNode*>(f.ExprCtx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, "10", "0"))
+                        : f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Int32);
+                    if (nullable) {
+                        item = f.ExprCtx.MakeType<TOptionalExprType>(item);
+                    }
+                    source->Type = f.ExprCtx.MakeType<TListExprType>(f.ExprCtx.MakeType<TStructExprType>(
+                        TVector<const TItemExprType*>{f.ExprCtx.MakeType<TItemExprType>(f.ExprCtx.GetIndexAsString(key), item)}));
+                    TWindowIUs functions;
+                    functions.Add(count, TOpWindowFunc{"count", EWindowFuncKind::Aggregate, {key}});
+                    TOpWindowFrame frame;
+                    frame.EndKind = EWindowFrameBound::UnboundedFollowing;
+                    auto window = MakeIntrusive<TOpWindow>(source, f.Pos, functions, TOrderedIUs<>{key}, TSortIUs{}, frame);
+                    const auto result = TExpandWholePartitionWindowRule().SimpleMatchAndApply(window, f.RboCtx, f.Props);
+                    UNIT_ASSERT(result->Kind == EOperator::Map);
+                    const auto& join = CastOperator<TOpJoin>(*result->GetChild(0));
+                    UNIT_ASSERT_VALUES_EQUAL(join.JoinKind, "Inner");
+                    UNIT_ASSERT_VALUES_EQUAL(join.JoinKeys.Items().size(), 1);
+                    const bool identityEncoding = decimal || nullable;
+                    UNIT_ASSERT_VALUES_EQUAL(HasEqualNullsKey(join.JoinKeys), identityEncoding && nativeEqualNulls);
+                    UNIT_ASSERT_VALUES_EQUAL(join.JoinKeys.Left().Contains(key), !identityEncoding || nativeEqualNulls);
+                    UNIT_ASSERT(join.GetLeftInput()->GetOutputIUs().Contains(key));
+                    UNIT_ASSERT(result->GetOutputIUs().Contains(count));
+                    if (identityEncoding && !nativeEqualNulls) {
+                        for (const auto* side : join.GetChildren()) {
+                            const auto& elements = CastOperator<TOpMap>(*side).GetMapElements();
+                            UNIT_ASSERT_VALUES_EQUAL(elements.Keys().Size(), 1);
+                            UNIT_ASSERT(elements.Items().begin()->second.GetExpression().GetExpressionBody()->IsCallable("StablePickle"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(InlinedJoinFiltersUseLeftRowIdentity) {
+        for (const bool nativeEqualNulls : {false, true}) {
+            for (const bool decimal : {false, true}) {
+                for (const TString& kind : {TString("Left"), TString("LeftSemi"), TString("LeftOnly")}) {
+                    NTests::TIdTestContext f;
+                    f.Config->UseBlockHashJoin = nativeEqualNulls;
+                    f.Config->EnableBlockHashJoinEqualNulls = nativeEqualNulls;
+                    f.Config->SetEnableInlineJoinFiltersAfterCBO(true);
+                    const auto a = f.Id("identity"), payload = f.Id("payload"), b = f.Id("right");
+                    auto left = f.Read({a, payload}), right = f.Read({b});
+                    const TTypeAnnotationNode* item = decimal
+                        ? static_cast<const TTypeAnnotationNode*>(f.ExprCtx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, "10", "0"))
+                        : f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Int32);
+                    TVector<const TItemExprType*> fields;
+                    for (const auto id : left->GetOutputIUs()) {
+                        fields.push_back(f.ExprCtx.MakeType<TItemExprType>(f.ExprCtx.GetIndexAsString(id), item));
+                    }
+                    left->Type = f.ExprCtx.MakeType<TListExprType>(f.ExprCtx.MakeType<TStructExprType>(fields));
+                    left->Props.Metadata.emplace();
+                    left->Props.Metadata->KeyColumns = {a};
+                    const TJoinIUs ordinaryKeys{{payload, b}};
+                    auto original = MakeIntrusive<TOpJoin>(left, right, f.Pos, kind, ordinaryKeys,
+                        TVector<TExpression>{MakeBinaryPredicate(">", f.Column(payload), f.Column(b))});
+                    const auto result = TInlineJoinFiltersRule().SimpleMatchAndApply(original, f.RboCtx, f.Props);
+                    const auto& outer = CastOperator<TOpJoin>(*result);
+                    UNIT_ASSERT_VALUES_EQUAL(outer.JoinKind, kind);
+                    UNIT_ASSERT_VALUES_EQUAL(outer.JoinKeys.Items().size(), 1);
+                    UNIT_ASSERT_VALUES_EQUAL(HasEqualNullsKey(outer.JoinKeys), decimal && nativeEqualNulls);
+                    UNIT_ASSERT_VALUES_EQUAL(outer.JoinKeys.Left().Contains(a), !decimal || nativeEqualNulls);
+                    UNIT_ASSERT(outer.GetLeftInput()->GetOutputIUs().Contains(a));
+                    auto filtered = outer.GetRightInput();
+                    if (decimal && !nativeEqualNulls) {
+                        UNIT_ASSERT(filtered->Kind == EOperator::Map);
+                        filtered = filtered->GetChild(0);
+                    }
+                    UNIT_ASSERT(filtered->Kind == EOperator::Filter);
+                    UNIT_ASSERT(CastOperator<TOpFilter>(*filtered).GetFilterExpression().GetExpressionBody()->IsCallable(">"));
+                    const auto& inner = CastOperator<TOpJoin>(*filtered->GetChild(0));
+                    UNIT_ASSERT_VALUES_EQUAL(inner.JoinKind, "Inner");
+                    UNIT_ASSERT_VALUES_EQUAL(inner.JoinKeys.Items().size(), 1);
+                    UNIT_ASSERT(!HasEqualNullsKey(inner.JoinKeys));
+                    UNIT_ASSERT(inner.JoinKeys.Right() == ordinaryKeys.Right());
+                    UNIT_ASSERT(original->JoinKeys.Left() == ordinaryKeys.Left());
+                }
+            }
+        }
+    }
+
 
     Y_UNIT_TEST(SubplanDomainRebindsSourcesNotCaptureDefinitions) {
         TPlan plan;
@@ -285,12 +449,149 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
                 UNIT_ASSERT_VALUES_EQUAL(plan.CountKind(EOperator::Join), 0);
                 UNIT_ASSERT_VALUES_EQUAL(plan.CountKind(EOperator::Replicate), 0);
                 auto& filter = CastOperator<TOpFilter>(*plan.Root.GetInput());
-                UNIT_ASSERT(filter.GetFilterExpression().GetExpressionBody()->IsCallable("Exists"));
+                // Domain binding must retain scalar equality, rather than only
+                // testing presence: NaN equality is false even when present.
+                UNIT_ASSERT(filter.GetFilterExpression().MaybeEquiJoinCondition());
+                const TEquiJoinCondition equality(filter.GetFilterExpression());
+                UNIT_ASSERT_VALUES_EQUAL(equality.GetLeftIU(), value);
+                UNIT_ASSERT_VALUES_EQUAL(equality.GetRightIU(), local);
                 auto& bindings = CastOperator<TOpMap>(*filter.GetInput());
                 UNIT_ASSERT_VALUES_EQUAL(bindings.FindOutputElement(local)->GetColumnAccess(), value);
             }
         }
     }
+
+    Y_UNIT_TEST(EqualityBoundDomainLeavesResolvedPgEqualityUnchanged) {
+        for (const bool annotated : {false, true}) {
+            for (const bool heterogeneous : {false, true}) {
+                TPlan plan({{0, "parameter"}});
+                const auto parameter = plan.Id(), local = plan.Id(), value = plan.Id();
+                // PostgreSQL OID 15 is int4 = int8; OID 410 is int8 = int8.
+                const auto* captureType = plan.Ctx.MakeType<TPgExprType>(heterogeneous ? 23 : 20);
+                const auto* innerType = plan.Ctx.MakeType<TPgExprType>(20);
+                auto source = plan.Test.Read({value});
+                auto domain = plan.Test.Read({parameter});
+                if (annotated) {
+                    source->Type = plan.Ctx.MakeType<TListExprType>(plan.Ctx.MakeType<TStructExprType>(
+                        TVector<const TItemExprType*>{plan.Ctx.MakeType<TItemExprType>(
+                            plan.Ctx.GetIndexAsString(value), innerType)}));
+                    domain->Type = plan.Ctx.MakeType<TListExprType>(plan.Ctx.MakeType<TStructExprType>(
+                        TVector<const TItemExprType*>{plan.Ctx.MakeType<TItemExprType>(
+                            plan.Ctx.GetIndexAsString(parameter), captureType)}));
+                }
+                TDependencyIUs captures;
+                captures.Add(local, TCapturedIU{parameter, captureType});
+                auto captured = MakeIntrusive<TOpAddDependencies>(source, plan.Pos, std::move(captures));
+                auto row = plan.Ctx.NewArgument(plan.Pos, "row");
+                auto predicate = plan.Ctx.NewCallable(plan.Pos, "PgResolvedOp", {
+                    plan.Ctx.NewAtom(plan.Pos, "="),
+                    plan.Ctx.NewAtom(plan.Pos, heterogeneous ? "15" : "410"),
+                    plan.Ctx.NewCallable(plan.Pos, "Member", {row, plan.Ctx.NewAtom(plan.Pos, local)}),
+                    plan.Ctx.NewCallable(plan.Pos, "Member", {row, plan.Ctx.NewAtom(plan.Pos, value)})});
+                auto lambda = plan.Ctx.NewLambda(plan.Pos, plan.Ctx.NewArguments(plan.Pos, {row}), std::move(predicate));
+                auto filter = MakeIntrusive<TOpFilter>(captured, plan.Pos,
+                    TExpression(lambda, &plan.Ctx, &plan.Root.PlanProps));
+                auto dependent = MakeIntrusive<TOpDependentJoin>(domain, filter, TUnorderedIUs{parameter}, plan.Pos);
+                plan.Root.SetInput(dependent);
+                plan.Root.ComputeParents();
+                const auto sourceType = source->Type;
+                const auto domainType = domain->Type;
+                const auto registrySize = plan.Root.PlanProps.InfoUnitRegistry.Size();
+                UNIT_ASSERT(filter->GetFilterExpression().MaybeEquiJoinCondition());
+
+                auto result = TEliminateDependentJoinDomainRule().SimpleMatchAndApply(
+                    dependent, plan.Test.RboCtx, plan.Root.PlanProps);
+
+                UNIT_ASSERT(result == dependent);
+                UNIT_ASSERT(plan.Root.GetInput() == dependent);
+                UNIT_ASSERT(dependent->GetDomain() == domain);
+                UNIT_ASSERT(dependent->GetInput() == filter);
+                UNIT_ASSERT(filter->GetInput() == captured);
+                UNIT_ASSERT(captured->GetInput() == source);
+                UNIT_ASSERT(filter->GetFilterExpression().GetLambda() == lambda);
+                UNIT_ASSERT(captured->GetDependencies().Find(local)->Type == captureType);
+                UNIT_ASSERT_VALUES_EQUAL(captured->GetDependencies().Find(local)->Outer, parameter);
+                UNIT_ASSERT(source->Type == sourceType);
+                UNIT_ASSERT(domain->Type == domainType);
+                UNIT_ASSERT_VALUES_EQUAL(plan.Root.GetColumns().Items()[0].first, parameter);
+                UNIT_ASSERT_VALUES_EQUAL(plan.Root.PlanProps.InfoUnitRegistry.Size(), registrySize);
+                UNIT_ASSERT_VALUES_EQUAL(plan.CountKind(EOperator::Map), 0);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(EqualityBoundDomainPreservesDecimalCaptureAnnotations) {
+        for (ui32 optionalDepth = 0; optionalDepth < 3; ++optionalDepth) {
+            for (const bool reversed : {false, true}) {
+                // Same annotation remains optimizable. Other cases must leave
+                // the domain intact, including an unavailable inner annotation.
+                for (ui32 variant = 0; variant < 5; ++variant) {
+                    TPlan plan({{0, "parameter"}});
+                    const auto parameter = plan.Id(), local = plan.Id(), value = plan.Id();
+                    const TTypeAnnotationNode* captureType = plan.Ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, "10", "1");
+                    const TTypeAnnotationNode* innerType = plan.Ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal,
+                        variant == 1 ? "12" : "10", variant == 2 ? "0" : "1");
+                    for (ui32 depth = 0; depth < optionalDepth; ++depth) {
+                        captureType = plan.Ctx.MakeType<TOptionalExprType>(captureType);
+                    }
+                    const ui32 innerDepth = variant == 3 ? (optionalDepth ? optionalDepth - 1 : 1) : optionalDepth;
+                    for (ui32 depth = 0; depth < innerDepth; ++depth) {
+                        innerType = plan.Ctx.MakeType<TOptionalExprType>(innerType);
+                    }
+                    auto source = plan.Test.Read({value});
+                    auto domain = plan.Test.Read({parameter});
+                    domain->Type = plan.Ctx.MakeType<TListExprType>(plan.Ctx.MakeType<TStructExprType>(
+                        TVector<const TItemExprType*>{plan.Ctx.MakeType<TItemExprType>(plan.Ctx.GetIndexAsString(parameter), captureType)}));
+                    if (variant != 4) {
+                        source->Type = plan.Ctx.MakeType<TListExprType>(plan.Ctx.MakeType<TStructExprType>(
+                            TVector<const TItemExprType*>{plan.Ctx.MakeType<TItemExprType>(plan.Ctx.GetIndexAsString(value), innerType)}));
+                    }
+                    TDependencyIUs captures;
+                    captures.Add(local, TCapturedIU{parameter, captureType});
+                    auto captured = MakeIntrusive<TOpAddDependencies>(source, plan.Pos, std::move(captures));
+                    auto predicate = MakeBinaryPredicate("==", plan.Column(reversed ? value : local), plan.Column(reversed ? local : value));
+                    const auto lambda = predicate.GetLambda();
+                    auto filter = MakeIntrusive<TOpFilter>(captured, plan.Pos, std::move(predicate));
+                    auto dependent = MakeIntrusive<TOpDependentJoin>(domain, filter, TUnorderedIUs{parameter}, plan.Pos);
+                    plan.Root.SetInput(dependent);
+                    plan.Root.ComputeParents();
+                    const auto sourceType = source->Type, domainType = domain->Type;
+                    const auto registrySize = plan.Root.PlanProps.InfoUnitRegistry.Size();
+                    UNIT_ASSERT(filter->GetFilterExpression().MaybeEquiJoinCondition());
+
+                    const auto result = TEliminateDependentJoinDomainRule().SimpleMatchAndApply(
+                        dependent, plan.Test.RboCtx, plan.Root.PlanProps);
+
+                    if (variant == 0) {
+                        UNIT_ASSERT(result != dependent);
+                        UNIT_ASSERT(result->Kind == EOperator::Filter);
+                        UNIT_ASSERT(result->GetChild(0)->Kind == EOperator::Map);
+                        bool retainedEquality = false;
+                        for (const auto& conjunct : CastOperator<TOpFilter>(*result).GetFilterExpression().SplitConjunct()) {
+                            retainedEquality |= conjunct.GetExpressionBody()->IsCallable("==");
+                        }
+                        UNIT_ASSERT(retainedEquality);
+                        continue;
+                    }
+                    UNIT_ASSERT(result == dependent);
+                    UNIT_ASSERT(plan.Root.GetInput() == dependent);
+                    UNIT_ASSERT(dependent->GetDomain() == domain);
+                    UNIT_ASSERT(dependent->GetInput() == filter);
+                    UNIT_ASSERT(filter->GetInput() == captured);
+                    UNIT_ASSERT(captured->GetInput() == source);
+                    UNIT_ASSERT(filter->GetFilterExpression().GetLambda() == lambda);
+                    UNIT_ASSERT(captured->GetDependencies().Find(local)->Type == captureType);
+                    UNIT_ASSERT_VALUES_EQUAL(captured->GetDependencies().Find(local)->Outer, parameter);
+                    UNIT_ASSERT(source->Type == sourceType);
+                    UNIT_ASSERT(domain->Type == domainType);
+                    UNIT_ASSERT_VALUES_EQUAL(plan.Root.GetColumns().Items()[0].first, parameter);
+                    UNIT_ASSERT_VALUES_EQUAL(plan.Root.PlanProps.InfoUnitRegistry.Size(), registrySize);
+                    UNIT_ASSERT_VALUES_EQUAL(plan.CountKind(EOperator::Map), 0);
+                }
+            }
+        }
+    }
+
 
     Y_UNIT_TEST(RepeatedCapturesReadTheDomainColumn) {
         TPlan plan({{1, "one"}, {2, "two"}});

@@ -1,0 +1,1166 @@
+import unittest
+from dataclasses import dataclass, replace
+
+from ydb.core.kqp.opt.rbo.verification.inspector.plan import (
+    InspectionError,
+    render_edge,
+    render_expression,
+    render_node,
+    render_snapshot,
+    snapshot_digest,
+)
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import decimal, ir
+
+
+def _column(name="x"):
+    return ir.Expr(kind="column", column=name)
+
+
+def _literal(value=1, scalar_type="Int64"):
+    return ir.Expr(kind="literal", value=value, result_type=scalar_type, nullable=False)
+
+
+def _u64(value):
+    return _literal(value, "Uint64")
+
+
+class ExpressionRendererTest(unittest.TestCase):
+    def test_every_expression_variant_has_explicit_stable_text(self):
+        one = _literal()
+        two = _literal(2)
+        cases = (
+            (_column('a."x"'), 'column("a.\\\"x\\\"")'),
+            (ir.Expr(kind="bound", depth=2), "bound(depth=2)"),
+            (ir.Expr(kind="void", result_type="Void", nullable=False), "void()"),
+            (
+                _literal("line\n", "String"),
+                'literal(type="String", value="line\\n")',
+            ),
+            (
+                _literal(decimal.Literal(decimal.FINITE, -123), "Decimal(5,2)"),
+                'literal(type="Decimal(5,2)", '
+                'value={"kind": "finite", "scaled": "-123"})',
+            ),
+            (
+                ir.Expr(kind="null", result_type="Int64", nullable=True),
+                'null(type="Int64")',
+            ),
+            (
+                ir.Expr(
+                    kind="window_sum",
+                    window_input="group_total",
+                    partition_by=("i_class",),
+                    result_type="Decimal(35,2)",
+                    nullable=True,
+                ),
+                'window_sum(input="group_total", partition_by="i_class", '
+                'type="Decimal(35,2)", nullable=true)',
+            ),
+            (
+                ir.Expr(
+                    kind="window_avg",
+                    window_input="group_total",
+                    partition_by=("a", "b", "c", "d", "e"),
+                    result_type="Decimal(35,2)",
+                    nullable=True,
+                ),
+                'window_avg(input="group_total", '
+                'partition_by=["a", "b", "c", "d", "e"], '
+                'type="Decimal(35,2)", nullable=true)',
+            ),
+            (
+                ir.Expr(
+                    kind="window_rank",
+                    window_name="window0",
+                    execution_order=0,
+                    partition_by=("a", "b", "c", "d"),
+                    order_by=(
+                        ir.SortOrder(
+                            "currency_ratio",
+                            ascending=True,
+                            nulls_first=True,
+                        ),
+                        ir.SortOrder("tie_breaker", False, False),
+                    ),
+                    window_frame=ir.WINDOW_RANK_FRAME,
+                    result_type="Uint64",
+                    nullable=False,
+                ),
+                'window_rank(name="window0", execution_order=0, '
+                'partition_by=["a", "b", "c", "d"], '
+                'order_by=[{column="currency_ratio", direction=asc, nulls=first}, '
+                '{column="tie_breaker", direction=desc, nulls=last}], '
+                'frame="rows_unbounded_preceding_current_row", '
+                'type="Uint64", nullable=false)',
+            ),
+            (
+                ir.Expr(
+                    kind="window_rows_max",
+                    window_input="web_sales",
+                    window_name="window1",
+                    execution_order=1,
+                    partition_by=("item_sk",),
+                    order_by=(
+                        ir.SortOrder(
+                            "d_date",
+                            ascending=True,
+                            nulls_first=True,
+                        ),
+                    ),
+                    window_frame=ir.WINDOW_RANK_FRAME,
+                    result_type="Decimal(35,2)",
+                    nullable=True,
+                ),
+                'window_rows_max(input="web_sales", name="window1", '
+                'execution_order=1, partition_by=["item_sk"], '
+                'order_by=[{column="d_date", direction=asc, nulls=first}], '
+                'frame="rows_unbounded_preceding_current_row", '
+                'type="Decimal(35,2)", nullable=true)',
+            ),
+            (
+                ir.Expr(kind="and", args=(one, two)),
+                'and(args=[literal(type="Int64", value=1), '
+                'literal(type="Int64", value=2)])',
+            ),
+            (ir.Expr(kind="or", args=(one,)), 'or(args=[literal(type="Int64", value=1)])'),
+            (ir.Expr(kind="not", args=(one,)), 'not(arg=literal(type="Int64", value=1))'),
+            (ir.Expr(kind="exists", args=(_column(),)), 'exists(arg=column("x"))'),
+            (
+                ir.Expr(kind="in", args=(_column("x"), one, two)),
+                'in(lookup=column("x"), items=[literal(type="Int64", value=1), '
+                'literal(type="Int64", value=2)])',
+            ),
+            (
+                ir.Expr(kind="eq", args=(one, two), null_safe=True),
+                'eq(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2), null_safe=true)',
+            ),
+            (
+                ir.Expr(kind="lt", args=(one, two)),
+                'lt(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2))',
+            ),
+            (
+                ir.Expr(kind="lte", args=(one, two)),
+                'lte(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2))',
+            ),
+            (
+                ir.Expr(kind="gt", args=(one, two)),
+                'gt(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2))',
+            ),
+            (
+                ir.Expr(kind="gte", args=(one, two)),
+                'gte(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2))',
+            ),
+            (
+                ir.Expr(kind="add", args=(one, two), result_type="Int64", nullable=False),
+                'add(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2), type="Int64", nullable=false)',
+            ),
+            (
+                ir.Expr(kind="sub", args=(one, two), result_type="Int64", nullable=False),
+                'sub(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2), type="Int64", nullable=false)',
+            ),
+            (
+                ir.Expr(kind="mul", args=(one, two), result_type="Int64", nullable=False),
+                'mul(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2), type="Int64", nullable=false)',
+            ),
+            (
+                ir.Expr(
+                    kind="div",
+                    args=(one, two),
+                    result_type="Decimal(15,4)",
+                    nullable=False,
+                ),
+                'div(left=literal(type="Int64", value=1), '
+                'right=literal(type="Int64", value=2), '
+                'type="Decimal(15,4)", nullable=false)',
+            ),
+            (
+                ir.Expr(
+                    kind="cast_decimal",
+                    args=(_column(),),
+                    source_type="Int64",
+                    result_type="Decimal(15,4)",
+                    nullable=False,
+                ),
+                'cast_decimal(arg=column("x"), source_type="Int64", '
+                'type="Decimal(15,4)", nullable=false)',
+            ),
+            (
+                ir.Expr(
+                    kind="cast_integral",
+                    args=(_column(),),
+                    result_type="Int32",
+                    nullable=True,
+                ),
+                'cast_integral(arg=column("x"), type="Int32", nullable=true)',
+            ),
+            (
+                ir.Expr(
+                    kind="decimal_abs",
+                    args=(_column(),),
+                    result_type="Decimal(35,2)",
+                    nullable=True,
+                ),
+                'decimal_abs(arg=column("x"), '
+                'type="Decimal(35,2)", nullable=true)',
+            ),
+            (
+                ir.Expr(
+                    kind="if",
+                    args=(
+                        _column("condition"),
+                        _literal(1),
+                        _literal(0),
+                    ),
+                    result_type="Int64",
+                    nullable=True,
+                ),
+                'if(condition=column("condition"), '
+                'then=literal(type="Int64", value=1), '
+                'else=literal(type="Int64", value=0), '
+                'type="Int64", nullable=true)',
+            ),
+            (
+                ir.Expr(
+                    kind="if_present",
+                    args=(
+                        _column("optional"),
+                        ir.Expr(kind="bound", depth=0),
+                        _literal(0),
+                    ),
+                    result_type="Int64",
+                    nullable=False,
+                ),
+                'if_present(optional=column("optional"), present=bound(depth=0), '
+                'missing=literal(type="Int64", value=0), '
+                'type="Int64", nullable=false)',
+            ),
+            (
+                ir.Expr(
+                    kind="opaque",
+                    args=(_column(),),
+                    result_type="Bool",
+                    nullable=True,
+                    fingerprint="f($0)",
+                ),
+                'opaque(fingerprint="f($0)", type="Bool", nullable=true, '
+                'args=[column("x")])',
+            ),
+            (
+                ir.Expr(
+                    kind="opaque_double",
+                    args=(_column("a"), _column("b"), _column("c")),
+                    result_type="Double",
+                    nullable=True,
+                    fingerprint="format:21:yql-passive-double-v1;identity",
+                ),
+                'opaque_double(fingerprint="format:21:yql-passive-double-v1;identity", '
+                'type="Double", nullable=true, '
+                'args=[column("a"), column("b"), column("c")])',
+            ),
+        )
+        for expression, expected in cases:
+            with self.subTest(kind=expression.kind):
+                self.assertEqual(render_expression(expression), expected)
+
+    def test_binary64_and_checked_concat_fields_are_explicit(self):
+        for bits in (0, 0x8000000000000000, 0x7FF8000000000001):
+            self.assertEqual(
+                render_expression(_literal(bits, "Double")),
+                'literal(type="Double", value={"bits": "' + f'{bits:016x}' + '"})',
+            )
+        for kind, result_type in (
+            ("cast_double", "Double"),
+            ("sqrt_double", "Double"),
+            ("is_nan_double", "Bool"),
+        ):
+            expression = ir.Expr(
+                kind=kind, args=(_column(),), result_type=result_type, nullable=True,
+                source_type="Int64" if kind == "cast_double" else None,
+            )
+            source = ', source_type="Int64"' if kind == "cast_double" else ""
+            self.assertEqual(
+                render_expression(expression),
+                f'{kind}(arg=column("x"){source}, type="{result_type}", nullable=true)',
+            )
+            with self.assertRaisesRegex(InspectionError, "exactly one argument"):
+                render_expression(replace(expression, args=()))
+        fingerprint = ir.RESTRICTED_CONCAT_FINGERPRINT_PREFIX + "concat"
+        self.assertEqual(
+            render_expression(ir.Expr(
+                kind="checked_concat", fingerprint=fingerprint,
+                args=(_column(), _literal("!", "String")),
+                result_type="String", nullable=False,
+            )),
+            f'checked_concat(fingerprint="{fingerprint}", type="String", nullable=false, '
+            'args=[column("x"), literal(type="String", value="!")])',
+        )
+
+    def test_window_shape_limits_still_fail_closed(self):
+        rank = ir.Expr(
+            kind="window_rank", window_name="w", execution_order=0,
+            partition_by=(), order_by=(ir.SortOrder("x", True, True),),
+            window_frame=ir.WINDOW_RANK_FRAME, result_type="Uint64", nullable=False,
+        )
+        self.assertIn("partition_by=[]", render_expression(rank))
+        for changes in (
+            {"partition_by": ("a", "b", "c", "d", "e")},
+            {"partition_by": ("a", "a")},
+            {"order_by": rank.order_by * 3},
+            {"order_by": (ir.SortOrder("x", True, True, "future"),)},
+            {"nullable": True},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(InspectionError):
+                render_expression(replace(rank, **changes))
+        with self.assertRaisesRegex(InspectionError, "between one and five"):
+            render_expression(ir.Expr(
+                kind="window_avg", window_input="x", partition_by=tuple("abcdef"),
+                result_type="Decimal(35,2)", nullable=True,
+            ))
+
+    def test_unknown_or_malformed_expression_fails_closed(self):
+        with self.assertRaisesRegex(InspectionError, "unknown expression kind"):
+            render_expression(ir.Expr(kind="future"))
+        with self.assertRaisesRegex(InspectionError, "exactly one partition"):
+            render_expression(
+                ir.Expr(
+                    kind="window_sum",
+                    window_input="x",
+                    partition_by="x",  # type: ignore[arg-type]
+                    result_type="Decimal(35,2)",
+                    nullable=True,
+                )
+            )
+        with self.assertRaisesRegex(InspectionError, "between one and five"):
+            render_expression(
+                ir.Expr(
+                    kind="window_avg",
+                    window_input="x",
+                    partition_by=("x", "x"),
+                    result_type="Decimal(35,2)",
+                    nullable=True,
+                )
+            )
+        with self.assertRaisesRegex(InspectionError, "execution_order"):
+            render_expression(
+                ir.Expr(
+                    kind="window_rank",
+                    window_name="window0",
+                    partition_by=(),
+                    order_by=(
+                        ir.SortOrder(
+                            "currency_ratio",
+                            ascending=True,
+                            nulls_first=True,
+                        ),
+                    ),
+                    window_frame=ir.WINDOW_RANK_FRAME,
+                    result_type="Uint64",
+                    nullable=False,
+                )
+            )
+        with self.assertRaisesRegex(InspectionError, "exactly two arguments"):
+            render_expression(ir.Expr(kind="eq", args=(_literal(),)))
+        with self.assertRaisesRegex(InspectionError, "between 1 and 512 items"):
+            render_expression(ir.Expr(kind="in", args=(_column(),)))
+        with self.assertRaisesRegex(InspectionError, "exactly one argument"):
+            render_expression(ir.Expr(kind="cast_decimal", args=()))
+        with self.assertRaisesRegex(InspectionError, "source_type"):
+            render_expression(
+                ir.Expr(
+                    kind="cast_decimal",
+                    args=(_literal(),),
+                    result_type="Decimal(15,4)",
+                    nullable=False,
+                )
+            )
+        with self.assertRaisesRegex(InspectionError, "exactly one argument"):
+            render_expression(ir.Expr(kind="cast_integral", args=()))
+        with self.assertRaisesRegex(InspectionError, "exactly one argument"):
+            render_expression(ir.Expr(kind="exists", args=()))
+        with self.assertRaisesRegex(InspectionError, "non-negative integer"):
+            render_expression(ir.Expr(kind="bound", depth=-1))
+        with self.assertRaisesRegex(InspectionError, "exactly three arguments"):
+            render_expression(ir.Expr(kind="if", args=()))
+        with self.assertRaisesRegex(InspectionError, "exactly three arguments"):
+            render_expression(ir.Expr(kind="if_present", args=()))
+        with self.assertRaisesRegex(InspectionError, "not Boolean"):
+            render_expression(
+                ir.Expr(
+                    kind="if_present",
+                    args=(_column(), _literal(), _literal()),
+                    result_type="Int64",
+                    nullable=0,
+                )
+            )
+
+
+class OperatorRendererTest(unittest.TestCase):
+    def test_every_operator_variant_has_explicit_stable_text(self):
+        predicate = ir.Expr(kind="eq", args=(_column("a.k"), _literal()), null_safe=False)
+        order = (ir.SortOrder("a.k", ascending=False, nulls_first=True),)
+        nodes = (
+            (ir.EmptySource("empty"), 'node "empty" empty_source'),
+            (
+                ir.Scan(
+                    "scan",
+                    "A",
+                    (ir.ScanColumn("k", "a.k"),),
+                    predicate,
+                    _u64(3),
+                ),
+                'node "scan" scan table="A" '
+                'columns=[{source="k", output="a.k"}] '
+                'predicate=eq(left=column("a.k"), '
+                'right=literal(type="Int64", value=1), null_safe=false) '
+                'pushed_limit=literal(type="Uint64", value=3)',
+            ),
+            (
+                ir.Project(
+                    "project",
+                    "scan",
+                    (ir.Projection("out", _column("a.k")),),
+                    True,
+                ),
+                'node "project" project input="scan" '
+                'columns=[{output="out", expression=column("a.k"), '
+                'error_on_null=false, require_total=false}] ordered=true',
+            ),
+            (
+                ir.Filter("filter", "scan", predicate),
+                'node "filter" filter input="scan" '
+                'predicate=eq(left=column("a.k"), '
+                'right=literal(type="Int64", value=1), null_safe=false)',
+            ),
+            (
+                ir.OuterBind(
+                    "outer_bind",
+                    "scan",
+                    "outer.k",
+                    "Int64",
+                    True,
+                ),
+                'node "outer_bind" outer_bind input="scan" '
+                'dependency="outer.k" type="Int64" nullable=true',
+            ),
+            (
+                ir.Limit("limit", "scan", _u64(2), None, "final"),
+                'node "limit" limit input="scan" '
+                'count=literal(type="Uint64", value=2) offset=none phase=final '
+                'ensure_at_most_one=false',
+            ),
+            (
+                ir.Sort("sort", "scan", order, _u64(5), "intermediate"),
+                'node "sort" sort input="scan" '
+                'order=[{column="a.k", direction=desc, nulls=first}] '
+                'limit=literal(type="Uint64", value=5) phase=intermediate',
+            ),
+            (
+                ir.Aggregate(
+                    "aggregate",
+                    "scan",
+                    ("a.k",),
+                    (
+                        ir.AggregateTrait(
+                            "a.k", "count", "count", "Uint64", False, False, True
+                        ),
+                    ),
+                    "undefined",
+                    False,
+                ),
+                'node "aggregate" aggregate input="scan" keys=["a.k"] '
+                'aggregates=[{input="a.k", function="count", output="count", '
+                'type="Uint64", nullable=false, distinct=false, unwrap=true, '
+                'state=none}] '
+                'phase=undefined distinct_all=false',
+            ),
+            (
+                ir.Aggregate(
+                    "average",
+                    "scan",
+                    (),
+                    (
+                        ir.AggregateTrait(
+                            "a.k",
+                            "avg",
+                            "average",
+                            "Decimal(7,2)",
+                            True,
+                            False,
+                            False,
+                            ir.AverageStateType(
+                                "Decimal(35,2)",
+                                "Uint64",
+                                True,
+                            ),
+                        ),
+                    ),
+                    "intermediate",
+                    False,
+                ),
+                'node "average" aggregate input="scan" keys=[] '
+                'aggregates=[{input="a.k", function="avg", output="average", '
+                'type="Decimal(7,2)", nullable=true, distinct=false, '
+                'unwrap=false, state={sum_type="Decimal(35,2)", '
+                'count_type="Uint64", nullable=true}}] '
+                'phase=intermediate distinct_all=false',
+            ),
+            (
+                ir.Aggregate(
+                    "integral_average",
+                    "scan",
+                    (),
+                    (
+                        ir.AggregateTrait(
+                            "a.k",
+                            "avg",
+                            "average",
+                            "Double",
+                            True,
+                            False,
+                            False,
+                            ir.INTEGRAL_DOUBLE_AVERAGE_STATE,
+                        ),
+                    ),
+                    "intermediate",
+                    False,
+                ),
+                'node "integral_average" aggregate input="scan" keys=[] '
+                'aggregates=[{input="a.k", function="avg", output="average", '
+                'type="Double", nullable=true, distinct=false, unwrap=false, '
+                'state={kind="integral_double_v1", source_type="Int64", '
+                'sum_type="Double", count_type="Uint64", nullable=true, '
+                'exact_when_count_at_most=2}}] '
+                'phase=intermediate distinct_all=false',
+            ),
+            (
+                ir.Join(
+                    "join",
+                    "left",
+                    "right",
+                    "inner",
+                    (ir.JoinKey("a.k", "b.k"),),
+                    predicate,
+                ),
+                'node "join" join left="left" right="right" kind=inner '
+                'keys=[{left="a.k", right="b.k"}] '
+                'predicate=eq(left=column("a.k"), '
+                'right=literal(type="Int64", value=1), null_safe=false)',
+            ),
+            (
+                ir.UnionAll(
+                    "union",
+                    (
+                        ir.UnionInput("left", ("l.k",)),
+                        ir.UnionInput("right", ("r.k",)),
+                    ),
+                    ("k",),
+                    False,
+                ),
+                'node "union" union_all '
+                'inputs=[{node="left", columns=["l.k"]}, '
+                '{node="right", columns=["r.k"]}] output=["k"] ordered=false',
+            ),
+        )
+        for node, expected in nodes:
+            with self.subTest(node=node.id):
+                self.assertEqual(render_node(node), expected)
+
+    def test_checked_projection_flags_are_explicit_and_digest_sensitive(self):
+        node = ir.Project(
+            "checked",
+            "scan",
+            (
+                ir.Projection(
+                    "out",
+                    _column("a.s"),
+                    error_on_null=True,
+                    require_total=True,
+                ),
+            ),
+            True,
+        )
+        self.assertEqual(
+            render_node(node),
+            'node "checked" project input="scan" '
+            'columns=[{output="out", expression=column("a.s"), '
+            'error_on_null=true, require_total=true}] ordered=true',
+        )
+        scan = ir.Scan("scan", "A", (ir.ScanColumn("s", "a.s"),), None, None)
+        snapshot = ir.Snapshot(
+            (ir.Table("A", (ir.Column("s", "String", True),), ()),),
+            ir.Plan((scan, node), "checked", ("out",), ()),
+        )
+        changed = replace(node, columns=(replace(node.columns[0], require_total=False),))
+        self.assertNotEqual(
+            snapshot_digest(snapshot),
+            snapshot_digest(replace(snapshot, plan=replace(snapshot.plan, nodes=(scan, changed)))),
+        )
+
+    def test_cardinality_guard_is_rendered_and_digest_bound(self):
+        node = ir.Project("checked", "scan", (
+            ir.Projection("out", _column("a.n"), require_at_most_one="a.n"),), True)
+        self.assertIn('require_at_most_one="a.n"', render_node(node))
+        scan = ir.Scan("scan", "A", (ir.ScanColumn("n", "a.n"),), None, None)
+        snapshot = ir.Snapshot(
+            (ir.Table("A", (ir.Column("n", "Uint64", False),), ()),),
+            ir.Plan((scan, node), "checked", ("out",), ()),
+        )
+        changed = replace(node, columns=(replace(node.columns[0], require_at_most_one=None),))
+        self.assertNotEqual(
+            snapshot_digest(snapshot),
+            snapshot_digest(replace(snapshot, plan=replace(snapshot.plan, nodes=(scan, changed)))),
+        )
+
+    def test_variance_state_is_explicit_and_unknown_kind_fails_closed(self):
+        state = ir.VarianceStateType("Int64", True)
+        trait = ir.AggregateTrait("x", "stddev_samp", "s", "Double", True, False, False, state)
+        node = ir.Aggregate("variance", "scan", (), (trait,), "undefined", False)
+        self.assertIn(
+            'state={kind="binary64_variance_v1", source_type="Int64", nullable=true, '
+            'mean_type="Double", count_type="Double", m2_type="Double"}',
+            render_node(node),
+        )
+        with self.assertRaisesRegex(InspectionError, "unknown variance state kind"):
+            render_node(replace(node, aggregates=(replace(trait, state=replace(state, kind="future")),)))
+
+    def test_integral_average_rank_comparison_is_visible_only_when_present(self):
+        tagged = ir.SortOrder(
+            "average",
+            ascending=True,
+            nulls_first=False,
+            comparison=ir.INTEGRAL_AVG_RANK_COMPARISON,
+        )
+        self.assertEqual(
+            render_node(ir.Sort("sort", "average", (tagged,), None, "final")),
+            'node "sort" sort input="average" '
+            'order=[{column="average", direction=asc, nulls=last, '
+            'comparison="integral_avg_rank_v1"}] limit=none phase=final',
+        )
+
+        @dataclass(frozen=True)
+        class FutureNode:
+            id: str
+
+        with self.assertRaisesRegex(InspectionError, "unknown plan node class"):
+            render_node(FutureNode("future"))  # type: ignore[arg-type]
+
+
+class StageEdgeRendererTest(unittest.TestCase):
+    def test_every_connection_variant_has_explicit_stable_text(self):
+        common = dict(
+            id="edge",
+            producer="left",
+            consumer="root",
+            occurrence=1,
+            producer_output=2,
+            consumer_input=3,
+        )
+        prefix = (
+            'edge "edge" producer="left" producer_output=2 consumer="root" '
+            'consumer_input=3 occurrence=1 kind='
+        )
+        cases = (
+            (ir.StageEdge(**common, kind="map"), prefix + "map"),
+            (ir.StageEdge(**common, kind="broadcast"), prefix + "broadcast"),
+            (
+                ir.StageEdge(
+                    **common,
+                    kind="hash_shuffle",
+                    keys=("k", "x"),
+                    hash_function="HashV2",
+                    use_spilling=True,
+                ),
+                prefix
+                + 'hash_shuffle keys=["k", "x"] hash_function="HashV2" '
+                'use_spilling=true',
+            ),
+            (
+                ir.StageEdge(**common, kind="union_all", parallel=False),
+                prefix + "union_all parallel=false",
+            ),
+            (
+                ir.StageEdge(
+                    **common,
+                    kind="merge",
+                    order=(ir.SortOrder("k", True, False),),
+                ),
+                prefix + 'merge order=[{column="k", direction=asc, nulls=last}]',
+            ),
+        )
+        for edge, expected in cases:
+            with self.subTest(kind=edge.kind):
+                self.assertEqual(render_edge(edge), expected)
+
+        with self.assertRaisesRegex(InspectionError, "unknown StageGraph connection kind"):
+            render_edge(ir.StageEdge(**common, kind="future"))
+
+    def test_merge_renders_integral_average_rank_comparison(self):
+        edge = ir.StageEdge(
+            id="merge",
+            producer="source",
+            consumer="root",
+            occurrence=0,
+            producer_output=0,
+            consumer_input=0,
+            kind="merge",
+            order=(
+                ir.SortOrder(
+                    "average",
+                    True,
+                    True,
+                    ir.INTEGRAL_AVG_RANK_COMPARISON,
+                ),
+            ),
+        )
+        self.assertIn(
+            'comparison="integral_avg_rank_v1"',
+            render_edge(edge),
+        )
+
+
+def _stage_snapshot():
+    tables = (
+        ir.Table(
+            "A",
+            (ir.Column("k", "Int64", False),),
+            (ir.UniqueKey(("k",), False),),
+        ),
+        ir.Table("B", (ir.Column("k", "Int64", True),), ()),
+    )
+    nodes = (
+        ir.Scan("a", "A", (ir.ScanColumn("k", "a.k"),), None, None),
+        ir.Scan("b", "B", (ir.ScanColumn("k", "b.k"),), None, None),
+        ir.Join(
+            "join",
+            "a",
+            "b",
+            "inner",
+            (ir.JoinKey("a.k", "b.k"),),
+            ir.Expr(kind="eq", args=(_column("a.k"), _column("b.k")), null_safe=False),
+        ),
+    )
+    stages = (
+        ir.Stage("sa", ("a",), (), (ir.StageOutput(0, "a"),), "column"),
+        ir.Stage("sb", ("b",), (), (ir.StageOutput(0, "b"),), "row"),
+        ir.Stage(
+            "root",
+            ("join",),
+            ("a", "b"),
+            (ir.StageOutput(0, "join"),),
+            None,
+        ),
+    )
+    edges = (
+        ir.StageEdge("broadcast", "sa", "root", 0, 0, 0, "broadcast"),
+        ir.StageEdge(
+            "hash",
+            "sb",
+            "root",
+            0,
+            0,
+            1,
+            "hash_shuffle",
+            keys=("b.k",),
+            hash_function="HashV1",
+            use_spilling=False,
+        ),
+    )
+    return ir.Snapshot(
+        tables,
+        ir.Plan(nodes, "join", ("b.k", "a.k"), ()),
+        ir.StageGraph("root", stages, edges),
+    )
+
+
+class SnapshotRendererTest(unittest.TestCase):
+    def test_complete_stage_snapshot_is_deterministic_and_exact(self):
+        snapshot = _stage_snapshot()
+        expected = """semantic_snapshot format="ydb-rbo-semantic-snapshot" version=1 semantic_mode=none
+schema tables=2
+  table "A" columns=[{name="k", type="Int64", not_null}] unique_keys=[{columns=["k"], nulls_distinct=false}]
+  table "B" columns=[{name="k", type="Int64", nullable}] unique_keys=[]
+plan root="join" output=["b.k", "a.k"] subplans=0
+  output_schema=[{name="b.k", type="Int64", nullable}, {name="a.k", type="Int64", not_null}]
+  node "a" scan table="A" columns=[{source="k", output="a.k"}] predicate=none pushed_limit=none
+  node "b" scan table="B" columns=[{source="k", output="b.k"}] predicate=none pushed_limit=none
+  node "join" join left="a" right="b" kind=inner keys=[{left="a.k", right="b.k"}] predicate=eq(left=column("a.k"), right=column("b.k"), null_safe=false)
+stage_graph root_stage="root" stages=3 edges=2 assumptions=[]
+  stage "sa" tasks=2 source_storage="column" nodes=["a"] inputs=[] outputs=[{index=0, node="a"}]
+  stage "sb" tasks=2 source_storage="row" nodes=["b"] inputs=[] outputs=[{index=0, node="b"}]
+  stage "root" tasks=2 source_storage=none nodes=["join"] inputs=["a", "b"] outputs=[{index=0, node="join"}]
+  edge "broadcast" producer="sa" producer_output=0 consumer="root" consumer_input=0 occurrence=0 kind=broadcast
+  edge "hash" producer="sb" producer_output=0 consumer="root" consumer_input=1 occurrence=0 kind=hash_shuffle keys=["b.k"] hash_function="HashV1" use_spilling=false
+"""
+        self.assertEqual(render_snapshot(snapshot), expected)
+        self.assertEqual(render_snapshot(snapshot), render_snapshot(snapshot))
+
+    def test_absent_stage_graph_is_explicit(self):
+        rendered = render_snapshot(replace(_stage_snapshot(), stage_graph=None))
+        self.assertTrue(rendered.endswith("stage_graph none\n"))
+
+    def test_integral_average_rank_lineage_is_visible(self):
+        scan = ir.Scan("scan", "A", (ir.ScanColumn("x", "x"),), None, None)
+        trait = ir.AggregateTrait(
+            "x", "avg", "a", "Double", True, False, False, ir.INTEGRAL_DOUBLE_AVERAGE_STATE,
+        )
+        node = ir.Aggregate("avg", "scan", (), (trait,), "undefined", False)
+        snapshot = ir.Snapshot(
+            (ir.Table("A", (ir.Column("x", "Int64", True),), ()),),
+            ir.Plan((scan, node), "avg", ("a",), ()),
+        )
+        self.assertIn(
+            'output_schema=[{name="a", type="Double", nullable, integral_avg_rank=true}]',
+            render_snapshot(snapshot),
+        )
+
+    def test_scalar_subplan_descriptor_is_explicit_and_digest_sensitive(self):
+        nodes = (
+            ir.EmptySource("main_source"),
+            ir.Project(
+                "main_project",
+                "main_source",
+                (ir.Projection("result", _column("$scalar")),),
+                False,
+            ),
+            ir.EmptySource("sub_source"),
+            ir.Project(
+                "sub_value",
+                "sub_source",
+                (ir.Projection("sub.value", _literal(7)),),
+                False,
+            ),
+        )
+        descriptor = ir.ScalarSubplan(
+            binding="$scalar",
+            root="sub_value",
+            output=ir.SubplanOutput("sub.value", "Int64", False),
+            consumers=("main_project",),
+        )
+        snapshot = ir.Snapshot(
+            (),
+            ir.Plan(nodes, "main_project", ("result",), (descriptor,)),
+            None,
+        )
+        rendered = render_snapshot(snapshot)
+        self.assertIn(
+            'plan root="main_project" output=["result"] subplans=1',
+            rendered,
+        )
+        self.assertIn(
+            'subplan binding="$scalar" kind=scalar root="sub_value" '
+            'output={column="sub.value", type="Int64", nullable=false} '
+            'type="Int64" nullable=true dependencies=[] '
+            'consumers=["main_project"]',
+            rendered,
+        )
+        without_subplan = ir.Snapshot(
+            (),
+            ir.Plan(nodes[:2], "main_project", ("result",), ()),
+            None,
+        )
+        with self.assertRaisesRegex(ir.SnapshotError, "not available"):
+            snapshot_digest(without_subplan)
+        renamed_nodes = (
+            nodes[0],
+            replace(
+                nodes[1],
+                columns=(ir.Projection("result", _column("$renamed")),),
+            ),
+            *nodes[2:],
+        )
+        renamed = ir.Snapshot(
+            (),
+            ir.Plan(
+                renamed_nodes,
+                "main_project",
+                ("result",),
+                (replace(descriptor, binding="$renamed"),),
+            ),
+            None,
+        )
+        self.assertNotEqual(snapshot_digest(snapshot), snapshot_digest(renamed))
+
+    def test_exists_subplan_descriptor_is_explicit(self):
+        nodes = (
+            ir.EmptySource("main_source"),
+            ir.Filter("main_filter", "main_source", _column("$exists")),
+            ir.Project(
+                "main_project",
+                "main_filter",
+                (ir.Projection("result", _literal(1)),),
+                False,
+            ),
+            ir.EmptySource("sub_source"),
+        )
+        descriptor = ir.ExistsSubplan(
+            binding="$exists",
+            root="sub_source",
+            predicate=None,
+            dependencies=(),
+            consumers=("main_filter",),
+        )
+        snapshot = ir.Snapshot(
+            (),
+            ir.Plan(nodes, "main_project", ("result",), (descriptor,)),
+            None,
+        )
+
+        rendered = render_snapshot(snapshot)
+
+        self.assertIn(
+            'subplan binding="$exists" kind=exists root="sub_source" '
+            'predicate=none type="Bool" nullable=false dependencies=[] '
+            'consumers=["main_filter"]',
+            rendered,
+        )
+
+        correlated_nodes = (
+            ir.EmptySource("main_unit"),
+            ir.Project(
+                "outer",
+                "main_unit",
+                (
+                    ir.Projection("outer.x", _literal()),
+                    ir.Projection("outer.y", _literal(2)),
+                ),
+                False,
+            ),
+            ir.Filter("main_filter", "outer", _column("$exists")),
+            ir.EmptySource("sub_unit"),
+            ir.Project(
+                "inner",
+                "sub_unit",
+                (
+                    ir.Projection("inner.x", _literal()),
+                    ir.Projection("inner.y", _literal(3)),
+                ),
+                False,
+            ),
+        )
+        correlation = ir.Expr(
+            kind="eq",
+            args=(_column("outer.x"), _column("inner.x")),
+            null_safe=False,
+        )
+        correlated_descriptor = ir.ExistsSubplan(
+            binding="$exists",
+            root="inner",
+            predicate=correlation,
+            dependencies=("outer.x",),
+            consumers=("main_filter",),
+        )
+        correlated = ir.Snapshot(
+            (),
+            ir.Plan(
+                correlated_nodes,
+                "main_filter",
+                ("outer.x",),
+                (correlated_descriptor,),
+            ),
+            None,
+        )
+        correlated_rendering = render_snapshot(correlated)
+        self.assertIn(
+            'predicate=eq(left=column("outer.x"), right=column("inner.x"), '
+            'null_safe=false) type="Bool" nullable=false '
+            'dependencies=["outer.x"]',
+            correlated_rendering,
+        )
+        reversed_correlation = replace(
+            correlated_descriptor,
+            predicate=replace(
+                correlation,
+                args=tuple(reversed(correlation.args)),
+            ),
+        )
+        self.assertNotEqual(
+            snapshot_digest(correlated),
+            snapshot_digest(
+                replace(
+                    correlated,
+                    plan=replace(
+                        correlated.plan,
+                        subplans=(reversed_correlation,),
+                    ),
+                )
+            ),
+        )
+
+        inequality = ir.Expr(
+            kind="not",
+            args=(
+                ir.Expr(
+                    kind="eq",
+                    args=(_column("outer.y"), _column("inner.y")),
+                    null_safe=False,
+                ),
+            ),
+        )
+        two_dependency_descriptor = replace(
+            correlated_descriptor,
+            predicate=ir.Expr(
+                kind="and",
+                args=(correlation, inequality),
+            ),
+            dependencies=("outer.x", "outer.y"),
+        )
+        two_dependency = replace(
+            correlated,
+            plan=replace(
+                correlated.plan,
+                subplans=(two_dependency_descriptor,),
+            ),
+        )
+        self.assertIn(
+            'dependencies=["outer.x", "outer.y"]',
+            render_snapshot(two_dependency),
+        )
+        reordered = replace(
+            two_dependency_descriptor,
+            dependencies=("outer.y", "outer.x"),
+        )
+        self.assertNotEqual(
+            snapshot_digest(two_dependency),
+            snapshot_digest(
+                replace(
+                    two_dependency,
+                    plan=replace(
+                        two_dependency.plan,
+                        subplans=(reordered,),
+                    ),
+                )
+            ),
+        )
+
+    def test_in_subplan_descriptor_is_explicit_and_digest_sensitive(self):
+        nodes = (
+            ir.EmptySource("main_unit"),
+            ir.Project(
+                "outer",
+                "main_unit",
+                (
+                    ir.Projection("outer.lookup", _literal(1)),
+                    ir.Projection("outer.other", _literal(2)),
+                ),
+                False,
+            ),
+            ir.Filter("main_filter", "outer", _column("$in")),
+            ir.Project(
+                "main_project",
+                "main_filter",
+                (ir.Projection("result", _column("outer.lookup")),),
+                False,
+            ),
+            ir.EmptySource("sub_unit"),
+            ir.Project(
+                "sub_value",
+                "sub_unit",
+                (
+                    ir.Projection("inner.value", _literal(3)),
+                    ir.Projection("inner.other", _literal(4)),
+                ),
+                False,
+            ),
+        )
+        descriptor = ir.InSubplan(
+            binding="$in",
+            root="sub_value",
+            lookup=ir.SubplanOutput("outer.lookup", "Int64", False),
+            output=ir.SubplanOutput("inner.value", "Int64", False),
+            consumers=("main_filter",),
+        )
+        snapshot = ir.Snapshot(
+            (),
+            ir.Plan(nodes, "main_project", ("result",), (descriptor,)),
+            None,
+        )
+
+        rendered = render_snapshot(snapshot)
+
+        self.assertIn(
+            'subplan binding="$in" kind=in root="sub_value" '
+            'lookup={column="outer.lookup", type="Int64", nullable=false} '
+            'output={column="inner.value", type="Int64", nullable=false} '
+            'type="Bool" nullable=false dependencies=[] '
+            'consumers=["main_filter"]',
+            rendered,
+        )
+        self.assertNotEqual(
+            snapshot_digest(snapshot),
+            snapshot_digest(
+                replace(
+                    snapshot,
+                    plan=replace(
+                        snapshot.plan,
+                        subplans=(
+                            replace(
+                                descriptor,
+                                lookup=ir.SubplanOutput(
+                                    "outer.other",
+                                    "Int64",
+                                    False,
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            ),
+        )
+        self.assertNotEqual(
+            snapshot_digest(snapshot),
+            snapshot_digest(
+                replace(
+                    snapshot,
+                    plan=replace(
+                        snapshot.plan,
+                        subplans=(
+                            replace(
+                                descriptor,
+                                output=ir.SubplanOutput(
+                                    "inner.other",
+                                    "Int64",
+                                    False,
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            ),
+        )
+
+    def test_semantic_digest_is_stable_and_field_sensitive(self):
+        snapshot = _stage_snapshot()
+        digest = snapshot_digest(snapshot)
+        self.assertEqual(len(digest), 64)
+        self.assertEqual(digest, snapshot_digest(snapshot))
+        self.assertNotEqual(digest, snapshot_digest(replace(snapshot, stage_graph=None)))
+        binary64 = replace(snapshot, semantic_mode=ir.BINARY64_SEMANTIC_MODE)
+        self.assertIn('semantic_mode="binary64_uf_universal_v1"', render_snapshot(binary64))
+        self.assertNotEqual(digest, snapshot_digest(binary64))
+
+        join = snapshot.plan.nodes[-1]
+        self.assertIsInstance(join, ir.Join)
+        changed_join = replace(
+            join,
+            keys=(),
+        )
+        changed_plan = replace(
+            snapshot.plan,
+            nodes=(*snapshot.plan.nodes[:-1], changed_join),
+        )
+        self.assertNotEqual(
+            digest,
+            snapshot_digest(replace(snapshot, plan=changed_plan)),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

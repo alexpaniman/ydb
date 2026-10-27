@@ -1,0 +1,10587 @@
+import copy
+import hashlib
+import io
+import json
+import os
+import subprocess
+import tempfile
+import unittest
+from collections import Counter
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
+from itertools import product
+from pathlib import Path
+from unittest import mock
+
+try:
+    import yatest.common as yatest_common
+except ImportError:
+    yatest_common = None
+
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.ir import (
+    Column,
+    Expr,
+    Filter,
+    Join,
+    JoinKey,
+    OPAQUE_DOUBLE_FINGERPRINT_PREFIX,
+    Scan,
+    ScanColumn,
+    ScalarSubplan,
+    SnapshotError,
+    Sort,
+    SortOrder,
+    SubplanOutput,
+    UnionAll,
+    UnionInput,
+    UniqueKey,
+    parse_snapshot,
+    stage_task_counts,
+)
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import aggregate, bundle, cli, decimal, floating, ir
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import analysis as plan_analysis
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import relation as relation_model
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import smt
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import stages as stage_model
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier import verify as verifier
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.relation import (
+    Database,
+    Evaluator as RelationEvaluator,
+    RelationError,
+)
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.scalar import (
+    DecimalSumState,
+    Encoder as ScalarEncoder,
+    IntegralAverageCertificate,
+    IntegralAverageState,
+    Value,
+)
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.stages import (
+    Evaluator as StageEvaluator,
+    Router,
+)
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.types import (
+    INTEGER_TYPES,
+    integer_bounds,
+)
+from ydb.core.kqp.opt.rbo.verification.rbo_verifier.verify import (
+    Problem,
+    SchemaMismatch,
+    SolverError,
+    VerificationError,
+    build_logical_kernel_problem_for_tests,
+    build_problem,
+    build_transformation_pair_problem,
+    build_transformation_prefix_problem,
+    solve,
+)
+
+
+SOLVER = (
+    yatest_common.binary_path("contrib/tools/z3/z3")
+    if yatest_common is not None
+    else os.environ.get("RBO_Z3")
+)
+REFERENCE_DECIMAL_INF = 10**35
+REFERENCE_DECIMAL_NAN = REFERENCE_DECIMAL_INF + 1
+
+
+def schema():
+    return {
+        "tables": [
+            {
+                "name": "A",
+                "columns": [
+                    {"name": "k", "type": "Int64", "nullable": False},
+                    {"name": "x", "type": "Int64", "nullable": False},
+                ],
+                "unique_keys": [],
+            },
+            {
+                "name": "B",
+                "columns": [
+                    {"name": "k", "type": "Int64", "nullable": False},
+                    {"name": "x", "type": "Int64", "nullable": False},
+                ],
+                "unique_keys": [],
+            },
+        ]
+    }
+
+
+SCAN_A = {
+    "id": "a",
+    "op": "scan",
+    "table": "A",
+    "columns": [
+        {"source": "k", "output": "a.k"},
+        {"source": "x", "output": "a.x"},
+    ],
+    "pushed_limit": None,
+}
+SCAN_B = {
+    "id": "b",
+    "op": "scan",
+    "table": "B",
+    "columns": [
+        {"source": "k", "output": "b.k"},
+        {"source": "x", "output": "b.x"},
+    ],
+    "pushed_limit": None,
+}
+KEY_EQUALITY = {
+    "kind": "eq",
+    "left": {"kind": "column", "column": "a.k"},
+    "right": {"kind": "column", "column": "b.k"},
+}
+RESIDUAL = {
+    "kind": "opaque",
+    "fingerprint": "greater_than($0,$1)",
+    "type": "Bool",
+    "nullable": False,
+    "args": [
+        {"kind": "column", "column": "a.x"},
+        {"kind": "column", "column": "b.x"},
+    ],
+}
+
+
+def _stage_schema(*names):
+    available = {table["name"]: table for table in schema()["tables"]}
+    return {"tables": [copy.deepcopy(available[name]) for name in names]}
+
+
+def _stage(
+    stage_id,
+    nodes,
+    inputs,
+    outputs,
+    source_storage=None,
+):
+    return {
+        "id": stage_id,
+        "nodes": nodes,
+        "inputs": inputs,
+        "outputs": [
+            {"index": index, "node": node}
+            for index, node in enumerate(outputs)
+        ],
+        "source_storage": source_storage,
+    }
+
+
+def _edge(
+    edge_id,
+    producer,
+    consumer,
+    producer_output,
+    consumer_input,
+    kind,
+    occurrence=0,
+    **settings,
+):
+    return {
+        "id": edge_id,
+        "producer": producer,
+        "consumer": consumer,
+        "occurrence": occurrence,
+        "producer_output": producer_output,
+        "consumer_input": consumer_input,
+        "kind": kind,
+        **settings,
+    }
+
+
+def _snapshot_with_stage_graph(schema_value, nodes, root, output, stages=None, edges=None):
+    return {
+        "format": "ydb-rbo-semantic-snapshot",
+        "version": 1,
+        "schema": schema_value,
+        "plan": {
+            "nodes": nodes,
+            "root": root,
+            "output": output,
+            "subplans": [],
+        },
+        "stage_graph": None if stages is None else {
+            "root_stage": stages[-1]["id"],
+            "stages": stages,
+            "edges": edges,
+            "assumptions": [],
+        },
+    }
+
+
+def _set_connection(edge, connection):
+    common = {
+        name: edge[name]
+        for name in (
+            "id",
+            "producer",
+            "consumer",
+            "occurrence",
+            "producer_output",
+            "consumer_input",
+        )
+    }
+    edge.clear()
+    edge.update(common, **connection)
+
+
+def row_source_result_snapshot(*, staged, second="a.k"):
+    projection = {
+        "id": "result", "op": "project", "input": "a", "ordered": True,
+        "columns": [
+            {"output": "first", "expression": {"kind": "column", "column": "a.k"}},
+            {"output": "second", "expression": {"kind": "column", "column": second}},
+        ],
+    }
+    stages = [_stage("source", ["a", "result"], [], ["result"], "row")] if staged else None
+    return parse_snapshot(_snapshot_with_stage_graph(
+        _stage_schema("A"), [copy.deepcopy(SCAN_A), projection], "result", ["first", "second"],
+        stages, [] if staged else None,
+    ))
+
+
+def passthrough_stage_snapshot(connection=None):
+    project = {
+        "id": "project",
+        "op": "project",
+        "input": "a",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "result",
+                "expression": {"kind": "column", "column": "a.k"},
+            }
+        ],
+    }
+    nodes = [copy.deepcopy(SCAN_A), project]
+    if connection is None:
+        return parse_snapshot(
+            _snapshot_with_stage_graph(_stage_schema("A"), nodes, "project", ["result"])
+        )
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            _stage_schema("A"),
+            nodes,
+            "project",
+            ["result"],
+            [
+                _stage("source", ["a"], [], ["a"], "row"),
+                _stage("consumer", ["project"], ["a"], ["project"]),
+            ],
+            [_edge("edge", "source", "consumer", 0, 0, **connection)],
+        )
+    )
+
+
+def local_join_stage_snapshot(left_connection=None, right_connection=None):
+    join = {
+        "id": "join",
+        "op": "join",
+        "left": "a",
+        "right": "b",
+        "kind": "inner",
+        "predicate": copy.deepcopy(KEY_EQUALITY),
+    }
+    nodes = [copy.deepcopy(SCAN_A), copy.deepcopy(SCAN_B), join]
+    if left_connection is None:
+        return parse_snapshot(
+            _snapshot_with_stage_graph(
+                _stage_schema("A", "B"),
+                nodes,
+                "join",
+                ["a.k", "b.k"],
+            )
+        )
+    assert right_connection is not None
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            _stage_schema("A", "B"),
+            nodes,
+            "join",
+            ["a.k", "b.k"],
+            [
+                _stage("left", ["a"], [], ["a"], "row"),
+                _stage("right", ["b"], [], ["b"], "row"),
+                _stage("join_stage", ["join"], ["a", "b"], ["join"]),
+            ],
+            [
+                _edge("left_edge", "left", "join_stage", 0, 0, **left_connection),
+                _edge("right_edge", "right", "join_stage", 0, 1, **right_connection),
+            ],
+        )
+    )
+
+
+def shared_name_semi_join_stage_snapshot(kind):
+    schema_value = {
+        "tables": [
+            {
+                "name": table,
+                "columns": [
+                    {"name": "k", "type": "Int64", "nullable": True},
+                ],
+                "unique_keys": [],
+            }
+            for table in ("A", "B")
+        ]
+    }
+    left = {
+        "id": "left",
+        "op": "scan",
+        "table": "A",
+        "columns": [{"source": "k", "output": "shared.k"}],
+        "pushed_limit": None,
+    }
+    right = {
+        "id": "right",
+        "op": "scan",
+        "table": "B",
+        "columns": [{"source": "k", "output": "shared.k"}],
+        "pushed_limit": None,
+    }
+    join = {
+        "id": "join",
+        "op": "join",
+        "left": "left",
+        "right": "right",
+        "kind": kind,
+        "keys": [{"left": "shared.k", "right": "shared.k"}],
+        "predicate": {
+            "kind": "literal",
+            "type": "Bool",
+            "value": True,
+        },
+    }
+    shuffle = {
+        "kind": "hash_shuffle",
+        "keys": ["shared.k"],
+        "hash_function": "HashV1",
+        "use_spilling": False,
+    }
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            [left, right, join],
+            "join",
+            ["shared.k"],
+            [
+                _stage("left_source", ["left"], [], ["left"], "row"),
+                _stage("right_source", ["right"], [], ["right"], "row"),
+                _stage("join_stage", ["join"], ["left", "right"], ["join"]),
+            ],
+            [
+                _edge(
+                    "left_edge",
+                    "left_source",
+                    "join_stage",
+                    0,
+                    0,
+                    **shuffle,
+                ),
+                _edge(
+                    "right_edge",
+                    "right_source",
+                    "join_stage",
+                    0,
+                    1,
+                    **shuffle,
+                ),
+            ],
+        )
+    )
+
+
+def duplicate_edge_stage_value():
+    union = {
+        "id": "union",
+        "op": "union_all",
+        "inputs": [
+            {"node": "a", "columns": ["a.k"]},
+            {"node": "a", "columns": ["a.k"]},
+        ],
+        "output": ["result"],
+        "ordered": False,
+    }
+    return _snapshot_with_stage_graph(
+        _stage_schema("A"),
+        [copy.deepcopy(SCAN_A), union],
+        "union",
+        ["result"],
+        [
+            _stage("source", ["a"], [], ["a", "a"], "row"),
+            _stage("consumer", ["union"], ["a", "a"], ["union"]),
+        ],
+        [
+            _edge("first", "source", "consumer", 0, 0, "map", occurrence=0),
+            _edge(
+                "second",
+                "source",
+                "consumer",
+                1,
+                1,
+                "union_all",
+                occurrence=1,
+                parallel=True,
+            ),
+        ],
+    )
+
+
+def serial_then_parallel_stage_snapshot(staged):
+    gather = {
+        "id": "gather",
+        "op": "project",
+        "input": "a",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "middle",
+                "expression": {"kind": "column", "column": "a.k"},
+            }
+        ],
+    }
+    project = {
+        "id": "project",
+        "op": "project",
+        "input": "gather",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "result",
+                "expression": {"kind": "column", "column": "middle"},
+            }
+        ],
+    }
+    stages = None
+    edges = None
+    if staged:
+        stages = [
+            _stage("source", ["a"], [], ["a"], "row"),
+            _stage("gather_stage", ["gather"], ["a"], ["gather"]),
+            _stage("root", ["project"], ["gather"], ["project"]),
+        ]
+        edges = [
+            _edge(
+                "gather_edge",
+                "source",
+                "gather_stage",
+                0,
+                0,
+                "union_all",
+                parallel=False,
+            ),
+            _edge(
+                "parallel_edge",
+                "gather_stage",
+                "root",
+                0,
+                0,
+                "union_all",
+                parallel=True,
+            ),
+        ]
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            _stage_schema("A"),
+            [copy.deepcopy(SCAN_A), gather, project],
+            "project",
+            ["result"],
+            stages,
+            edges,
+        )
+    )
+
+
+def aggregate_stage_snapshot(
+    function,
+    grouped,
+    staged,
+    final_function=None,
+    final_phase="final",
+    nullable_input=False,
+    nullable_key=False,
+    shuffle_key="a.k",
+    input_type="Int64",
+    aggregate_input="a.x",
+    project_average_away=False,
+    duplicate_input=False,
+):
+    if duplicate_input and (not staged or grouped):
+        raise ValueError(
+            "duplicate aggregate input is supported only by the staged "
+            "keyless fixture"
+        )
+    decimal_sum_type = decimal.sum_type(input_type)
+    integral_average = (
+        function == "avg"
+        and input_type == "Int64"
+        and nullable_input
+    )
+    if function == "count":
+        output_type = "Uint64"
+    elif function in {"avg", "max", "min", "stddev_samp"}:
+        if function == "avg" and decimal_sum_type is None and not integral_average:
+            raise ValueError("the aggregate test fixture only models Decimal avg")
+        output_type = "Double" if integral_average or function == "stddev_samp" else input_type
+    elif input_type.startswith("Uint"):
+        output_type = "Uint64"
+    else:
+        output_type = decimal_sum_type or "Int64"
+    final_function = final_function or (
+        "sum" if staged and function == "count" else function
+    )
+    keys = ["a.k"] if grouped else []
+    nullable_aggregate = function in {"avg", "max", "min", "sum", "stddev_samp"}
+    logical_nullable = nullable_aggregate and (nullable_input or not grouped)
+    trait = {
+        "input": aggregate_input,
+        "function": function,
+        "output": "result",
+        "type": output_type,
+        "nullable": logical_nullable,
+        "distinct": False,
+        "unwrap": False,
+    }
+    if function == "avg":
+        trait["state"] = (
+            {
+                "kind": "integral_double_v1",
+                "source_type": "Int64",
+                "sum_type": "Double",
+                "count_type": "Uint64",
+                "nullable": True,
+                "exact_when_count_at_most": 2,
+            }
+            if integral_average
+            else {
+                "sum_type": decimal_sum_type,
+                "count_type": "Uint64",
+                "nullable": nullable_input,
+            }
+        )
+    if function == "stddev_samp":
+        trait["state"] = {
+            "kind": "binary64_variance_v1", "source_type": input_type, "nullable": nullable_input,
+            "mean_type": "Double", "count_type": "Double", "m2_type": "Double",
+        }
+    aggregate = {
+        "id": "aggregate",
+        "op": "aggregate",
+        "input": "a",
+        "keys": keys,
+        "aggregates": [trait],
+        "phase": "undefined",
+        "distinct_all": False,
+    }
+    nodes = [copy.deepcopy(SCAN_A), aggregate]
+    stages = None
+    edges = None
+    root = "aggregate"
+    if staged:
+        partial = copy.deepcopy(aggregate)
+        partial.update(id="partial", phase="intermediate")
+        partial["aggregates"][0].update(
+            output="_state",
+            nullable=(nullable_aggregate and nullable_input),
+        )
+        final = copy.deepcopy(aggregate)
+        final.update(id="final", input="partial", phase=final_phase)
+        final["aggregates"][0].update(
+            input="_state",
+            function=final_function,
+            nullable=(nullable_aggregate and (nullable_input or not grouped)),
+        )
+        if duplicate_input:
+            copied_scan = copy.deepcopy(SCAN_A)
+            copied_scan.update(id="a_copy")
+            copied_scan["columns"] = [
+                {"source": "k", "output": "copy.k"},
+                {"source": "x", "output": "copy.x"},
+            ]
+            duplicate = {
+                "id": "duplicate",
+                "op": "union_all",
+                "inputs": [
+                    {"node": "a", "columns": ["a.k", "a.x"]},
+                    {
+                        "node": "a_copy",
+                        "columns": ["copy.k", "copy.x"],
+                    },
+                ],
+                "output": ["duplicate.k", "duplicate.x"],
+                "ordered": False,
+            }
+            partial["input"] = "duplicate"
+            partial["aggregates"][0]["input"] = "duplicate.x"
+            nodes = [
+                copy.deepcopy(SCAN_A),
+                copied_scan,
+                duplicate,
+                partial,
+                final,
+            ]
+            stages = [
+                _stage("source", ["a"], [], ["a"], "column"),
+                _stage(
+                    "copy_source",
+                    ["a_copy"],
+                    [],
+                    ["a_copy"],
+                    "column",
+                ),
+                _stage(
+                    "partial_stage",
+                    ["duplicate", "partial"],
+                    ["a", "a_copy"],
+                    ["partial"],
+                ),
+                _stage("root", ["final"], ["partial"], ["final"]),
+            ]
+            edges = [
+                _edge(
+                    "original_input",
+                    "source",
+                    "partial_stage",
+                    0,
+                    0,
+                    "map",
+                ),
+                _edge(
+                    "copied_input",
+                    "copy_source",
+                    "partial_stage",
+                    0,
+                    1,
+                    "union_all",
+                    parallel=True,
+                ),
+                _edge(
+                    "aggregate_edge",
+                    "partial_stage",
+                    "root",
+                    0,
+                    0,
+                    "union_all",
+                    parallel=False,
+                ),
+            ]
+        else:
+            nodes = [copy.deepcopy(SCAN_A), partial, final]
+            stages = [
+                _stage(
+                    "source",
+                    ["a", "partial"],
+                    [],
+                    ["partial"],
+                    "column",
+                ),
+                _stage("root", ["final"], ["partial"], ["final"]),
+            ]
+        connection = (
+            {
+                "kind": "hash_shuffle",
+                "keys": [shuffle_key],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            }
+            if grouped
+            else {"kind": "union_all", "parallel": False}
+        )
+        if edges is None:
+            edges = [
+                _edge(
+                    "aggregate_edge",
+                    "source",
+                    "root",
+                    0,
+                    0,
+                    **connection,
+                )
+            ]
+        root = "final"
+    output = (["a.k"] if grouped else []) + ["result"]
+    if project_average_away:
+        if not grouped:
+            raise ValueError("projecting AVG away requires a grouped fixture")
+        project = {
+            "id": "project",
+            "op": "project",
+            "input": root,
+            "ordered": False,
+            "columns": [
+                {
+                    "output": "only_key",
+                    "expression": {"kind": "column", "column": "a.k"},
+                }
+            ],
+        }
+        nodes.append(project)
+        root = "project"
+        output = ["only_key"]
+        if stages is not None:
+            stages[-1]["nodes"].append("project")
+            stages[-1]["outputs"] = [{"index": 0, "node": "project"}]
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][1]["type"] = input_type
+    if nullable_key:
+        schema_value["tables"][0]["columns"][0]["nullable"] = True
+    if nullable_input:
+        schema_value["tables"][0]["columns"][1]["nullable"] = True
+    raw = _snapshot_with_stage_graph(schema_value, nodes, root, output, stages, edges)
+    if function == "stddev_samp":
+        raw["semantic_mode"] = floating.SEMANTIC_MODE
+    return parse_snapshot(raw)
+
+
+def q28_decimal_avg_carrier_stage_graph():
+    stages = [
+        _stage("source", ["a"], [], ["a", "a", "a"], "column"),
+        _stage(
+            "average_branch",
+            ["average_partial", "average_project"],
+            ["a"],
+            ["average_project"],
+        ),
+        _stage(
+            "count_branch",
+            ["count_partial", "count_project"],
+            ["a"],
+            ["count_project"],
+        ),
+        _stage(
+            "distinct_branch",
+            [
+                "distinct_values",
+                "distinct_partial",
+                "distinct_project",
+            ],
+            ["a"],
+            ["distinct_project"],
+        ),
+        _stage(
+            "first_union_stage",
+            ["first_union"],
+            ["average_project", "count_project"],
+            ["first_union"],
+        ),
+        _stage(
+            "second_union_stage",
+            ["second_union"],
+            ["first_union", "distinct_project"],
+            ["second_union"],
+        ),
+        _stage("root", ["final"], ["second_union"], ["final"]),
+    ]
+    edges = [
+        _edge(
+            "average_input",
+            "source",
+            "average_branch",
+            0,
+            0,
+            "union_all",
+            parallel=False,
+        ),
+        _edge(
+            "count_input",
+            "source",
+            "count_branch",
+            1,
+            0,
+            "union_all",
+            parallel=False,
+        ),
+        _edge(
+            "distinct_input",
+            "source",
+            "distinct_branch",
+            2,
+            0,
+            "union_all",
+            parallel=False,
+        ),
+        _edge(
+            "average_lane",
+            "average_branch",
+            "first_union_stage",
+            0,
+            0,
+            "union_all",
+            parallel=False,
+        ),
+        _edge(
+            "count_lane",
+            "count_branch",
+            "first_union_stage",
+            0,
+            1,
+            "union_all",
+            parallel=False,
+        ),
+        _edge(
+            "first_union_lane",
+            "first_union_stage",
+            "second_union_stage",
+            0,
+            0,
+            "union_all",
+            parallel=False,
+        ),
+        _edge(
+            "distinct_lane",
+            "distinct_branch",
+            "second_union_stage",
+            0,
+            1,
+            "union_all",
+            parallel=False,
+        ),
+        _edge(
+            "final_lane",
+            "second_union_stage",
+            "root",
+            0,
+            0,
+            "union_all",
+            parallel=False,
+        ),
+    ]
+    return stages, edges
+
+
+def q28_decimal_avg_union_carrier_snapshot(*, count_from_distinct=False, native_layout=False, staged=True):
+    decimal_type = "Decimal(7,2)"
+    lanes = ("_avg_state", "_count_state", "_distinct_state")
+    average_state = {
+        "sum_type": "Decimal(35,2)",
+        "count_type": "Uint64",
+        "nullable": True,
+    }
+
+    def average_trait(input_name, output_name):
+        return {
+            "input": input_name,
+            "function": "avg",
+            "output": output_name,
+            "type": decimal_type,
+            "nullable": True,
+            "distinct": False,
+            "unwrap": False,
+            "state": copy.deepcopy(average_state),
+        }
+
+    def count_trait(input_name, output_name):
+        return {
+            "input": input_name,
+            "function": "count",
+            "output": output_name,
+            "type": "Uint64",
+            "nullable": False,
+            "distinct": False,
+            "unwrap": False,
+        }
+
+    def column(output):
+        return {
+            "output": output,
+            "expression": {"kind": "column", "column": output},
+        }
+
+    def null(output, scalar_type):
+        return {
+            "output": output,
+            "expression": {"kind": "null", "type": scalar_type},
+        }
+
+    scan = copy.deepcopy(SCAN_A)
+    average_partial = {
+        "id": "average_partial",
+        "op": "aggregate",
+        "input": "a",
+        "keys": [],
+        "aggregates": [average_trait("a.x", "_avg_state")],
+        "phase": "intermediate",
+        "distinct_all": False,
+    }
+    average_project = {
+        "id": "average_project",
+        "op": "project",
+        "input": "average_partial",
+        "ordered": False,
+        "columns": [
+            column("_avg_state"),
+            null("_count_state", "Uint64"),
+            null("_distinct_state", "Uint64"),
+        ],
+    }
+    count_partial = {
+        "id": "count_partial",
+        "op": "aggregate",
+        "input": "a",
+        "keys": [],
+        "aggregates": [count_trait("a.x", "_count_state")],
+        "phase": "intermediate",
+        "distinct_all": False,
+    }
+    count_project = {
+        "id": "count_project",
+        "op": "project",
+        "input": "count_partial",
+        "ordered": False,
+        "columns": [
+            null("_avg_state", decimal_type),
+            column("_count_state"),
+            null("_distinct_state", "Uint64"),
+        ],
+    }
+    distinct_values = {
+        "id": "distinct_values",
+        "op": "aggregate",
+        "input": "a",
+        "keys": ["a.x"],
+        "aggregates": [
+            {
+                "input": "a.x",
+                "function": "distinct",
+                "output": "a.x",
+                "type": decimal_type,
+                "nullable": True,
+                "distinct": False,
+                "unwrap": False,
+            }
+        ],
+        "phase": "undefined",
+        "distinct_all": True,
+    }
+    distinct_partial = {
+        "id": "distinct_partial",
+        "op": "aggregate",
+        "input": "distinct_values",
+        "keys": [],
+        "aggregates": [count_trait("a.x", "_distinct_state")],
+        "phase": "intermediate",
+        "distinct_all": False,
+    }
+    distinct_project = {
+        "id": "distinct_project",
+        "op": "project",
+        "input": "distinct_partial",
+        "ordered": False,
+        "columns": [
+            null("_avg_state", decimal_type),
+            null("_count_state", "Uint64"),
+            column("_distinct_state"),
+        ],
+    }
+    first_union = {
+        "id": "first_union",
+        "op": "union_all",
+        "inputs": [
+            {"node": "average_project", "columns": list(lanes)},
+            {"node": "count_project", "columns": list(lanes)},
+        ],
+        "output": list(lanes),
+        "ordered": False,
+    }
+    second_union = {
+        "id": "second_union",
+        "op": "union_all",
+        "inputs": [
+            {"node": "first_union", "columns": list(lanes)},
+            {"node": "distinct_project", "columns": list(lanes)},
+        ],
+        "output": list(lanes),
+        "ordered": False,
+    }
+    final = {
+        "id": "final",
+        "op": "aggregate",
+        "input": "second_union",
+        "keys": [],
+        "aggregates": [
+            average_trait("_avg_state", "average"),
+            {
+                "input": (
+                    "_distinct_state"
+                    if count_from_distinct
+                    else "_count_state"
+                ),
+                "function": "sum",
+                "output": "count",
+                "type": "Uint64",
+                "nullable": True,
+                "distinct": False,
+                "unwrap": True,
+            },
+            {
+                "input": "_distinct_state",
+                "function": "sum",
+                "output": "distinct_count",
+                "type": "Uint64",
+                "nullable": True,
+                "distinct": False,
+                "unwrap": True,
+            },
+        ],
+        "phase": "final",
+        "distinct_all": False,
+    }
+
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][1].update(
+        type=decimal_type,
+        nullable=True,
+    )
+    stages, edges = q28_decimal_avg_carrier_stage_graph()
+    nodes = [scan, average_partial, average_project, count_partial, count_project,
+             distinct_values, distinct_partial, distinct_project, first_union, second_union, final]
+    if native_layout:
+        # Native Maps preserve order; union bindings differ from every input.
+        average_partial["aggregates"].append(count_trait("a.x", "_unused_count"))
+        branches = ((average_partial, average_project), (count_partial, count_project),
+                    (distinct_partial, distinct_project))
+        inputs = []
+        for partial, project in branches:
+            names = {lane: project["id"] + lane for lane in lanes}
+            for trait in partial["aggregates"]:
+                trait["output"] = names.get(trait["output"], trait["output"])
+            for item in project["columns"]:
+                item["output"] = names[item["output"]]
+                if item["expression"]["kind"] == "column":
+                    item["expression"]["column"] = names[item["expression"]["column"]]
+            project["ordered"] = True
+            inputs.append({"node": project["id"], "columns": list(names.values())})
+        second_union["inputs"] = inputs
+        second_union["output"] = ["union" + lane for lane in lanes]
+        for trait in final["aggregates"]:
+            trait["input"] = "union" + trait["input"]
+        nodes.remove(first_union)
+        stages = [stage for stage in stages if stage["id"] != "first_union_stage"]
+        next(stage for stage in stages if stage["id"] == "second_union_stage")["inputs"] = [
+            project["id"] for _, project in branches
+        ]
+        edges = [edge for edge in edges if edge["id"] != "first_union_lane"]
+        for edge in edges:
+            if edge["id"] in {"average_lane", "count_lane"}:
+                edge["consumer"] = "second_union_stage"
+            elif edge["id"] == "distinct_lane":
+                edge["consumer_input"] = 2
+    value = _snapshot_with_stage_graph(
+        schema_value, nodes, "final", ["average", "count", "distinct_count"], stages, edges,
+    )
+    if not staged:
+        value["stage_graph"] = None
+    return parse_snapshot(value)
+
+
+def q28_decimal_logical_snapshot():
+    decimal_type = "Decimal(7,2)"
+    average_state = {
+        "sum_type": "Decimal(35,2)",
+        "count_type": "Uint64",
+        "nullable": True,
+    }
+    aggregate = {
+        "id": "logical",
+        "op": "aggregate",
+        "input": "a",
+        "keys": [],
+        "aggregates": [
+            {
+                "input": "a.x",
+                "function": "avg",
+                "output": "average",
+                "type": decimal_type,
+                "nullable": True,
+                "distinct": False,
+                "unwrap": False,
+                "state": average_state,
+            },
+            {
+                "input": "a.x",
+                "function": "count",
+                "output": "count",
+                "type": "Uint64",
+                "nullable": False,
+                "distinct": False,
+                "unwrap": False,
+            },
+            {
+                "input": "a.x",
+                "function": "count",
+                "output": "distinct_count",
+                "type": "Uint64",
+                "nullable": False,
+                "distinct": True,
+                "unwrap": False,
+            },
+        ],
+        "phase": "undefined",
+        "distinct_all": False,
+    }
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][1].update(
+        type=decimal_type,
+        nullable=True,
+    )
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            [copy.deepcopy(SCAN_A), aggregate],
+            "logical",
+            ["average", "count", "distinct_count"],
+        )
+    )
+
+
+def unwrapped_uint64_sum_snapshot():
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][1].update(
+        type="Uint64",
+        nullable=True,
+    )
+    aggregate = {
+        "id": "aggregate",
+        "op": "aggregate",
+        "input": "a",
+        "keys": [],
+        "aggregates": [
+            {
+                "input": "a.x",
+                "function": "sum",
+                "output": "result",
+                "type": "Uint64",
+                # This is the raw prephysical type. Scalar Unwrap is lowered
+                # to Coalesce(..., Uint64(0)), so the inferred node schema is
+                # non-nullable.
+                "nullable": True,
+                "distinct": False,
+                "unwrap": True,
+            }
+        ],
+        "phase": "final",
+        "distinct_all": False,
+    }
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            [copy.deepcopy(SCAN_A), aggregate],
+            "aggregate",
+            ["result"],
+        )
+    )
+
+
+def distinct_all_stage_snapshot(staged, connection_kind="hash_shuffle"):
+    trait = {
+        "input": "a.k",
+        "function": "distinct",
+        "output": "result",
+        "type": "Int64",
+        "nullable": True,
+        "distinct": False,
+        "unwrap": False,
+    }
+    aggregate = {
+        "id": "aggregate",
+        "op": "aggregate",
+        "input": "a",
+        "keys": ["a.k"],
+        "aggregates": [trait],
+        "phase": "undefined",
+        "distinct_all": True,
+    }
+    nodes = [copy.deepcopy(SCAN_A), aggregate]
+    root = "aggregate"
+    stages = None
+    edges = None
+    if staged:
+        partial = copy.deepcopy(aggregate)
+        partial.update(id="partial", phase="intermediate")
+        partial["aggregates"][0]["output"] = "_distinct"
+        final = copy.deepcopy(aggregate)
+        final.update(
+            id="final",
+            input="partial",
+            keys=["_distinct"],
+            phase="final",
+        )
+        final["aggregates"][0].update(
+            input="_distinct",
+            output="result",
+        )
+        nodes = [copy.deepcopy(SCAN_A), partial, final]
+        root = "final"
+        stages = [
+            _stage("source", ["a", "partial"], [], ["partial"], "column"),
+            _stage("root", ["final"], ["partial"], ["final"]),
+        ]
+        connection = (
+            {
+                "kind": "hash_shuffle",
+                "keys": ["_distinct"],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            }
+            if connection_kind == "hash_shuffle"
+            else {"kind": connection_kind}
+        )
+        edges = [
+            _edge(
+                "distinct_edge",
+                "source",
+                "root",
+                0,
+                0,
+                **connection,
+            )
+        ]
+
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][0]["nullable"] = True
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            nodes,
+            root,
+            ["result"],
+            stages,
+            edges,
+        )
+    )
+
+
+def composite_distinct_all_snapshot():
+    columns = (("a.k", "first"), ("a.x", "second"))
+    aggregate = {
+        "id": "aggregate",
+        "op": "aggregate",
+        "input": "a",
+        "keys": [source for source, _ in columns],
+        "aggregates": [
+            {
+                "input": source,
+                "function": "distinct",
+                "output": output,
+                "type": "Int64",
+                "nullable": True,
+                "distinct": False,
+                "unwrap": False,
+            }
+            for source, output in columns
+        ],
+        "phase": "undefined",
+        "distinct_all": True,
+    }
+    schema_value = _stage_schema("A")
+    for column in schema_value["tables"][0]["columns"]:
+        column["nullable"] = True
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            [copy.deepcopy(SCAN_A), aggregate],
+            "aggregate",
+            [output for _, output in columns],
+        )
+    )
+
+
+def duplicated_grouped_aggregate_snapshot(
+    function,
+    nullable_key=False,
+    distinct=False,
+):
+    def project(node_id, prefix):
+        return {
+            "id": node_id,
+            "op": "project",
+            "input": "a",
+            "ordered": False,
+            "columns": [
+                {
+                    "output": f"{prefix}.k",
+                    "expression": {
+                        "kind": "add",
+                        "left": {"kind": "column", "column": "a.k"},
+                        "right": {
+                            "kind": "literal",
+                            "type": "Int64",
+                            "value": 0,
+                        },
+                        "type": "Int64",
+                        "nullable": nullable_key,
+                    },
+                },
+                {
+                    "output": f"{prefix}.x",
+                    "expression": {"kind": "column", "column": "a.x"},
+                },
+            ],
+        }
+
+    union = {
+        "id": "union",
+        "op": "union_all",
+        "inputs": [
+            {"node": "left", "columns": ["left.k", "left.x"]},
+            {"node": "right", "columns": ["right.k", "right.x"]},
+        ],
+        "output": ["u.k", "u.x"],
+        "ordered": False,
+    }
+    aggregate = {
+        "id": "aggregate",
+        "op": "aggregate",
+        "input": "union",
+        "keys": ["u.k"],
+        "aggregates": [
+            {
+                "input": "u.x",
+                "function": function,
+                "output": "result",
+                "type": "Uint64" if function == "count" else "Int64",
+                "nullable": False,
+                "distinct": distinct,
+                "unwrap": False,
+            }
+        ],
+        "phase": "undefined",
+        "distinct_all": False,
+    }
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][0]["nullable"] = nullable_key
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            [
+                copy.deepcopy(SCAN_A),
+                project("left", "left"),
+                project("right", "right"),
+                union,
+                aggregate,
+            ],
+            "aggregate",
+            ["u.k", "result"],
+        )
+    )
+
+
+def constant_grouped_stage_snapshot(connection_kind):
+    project = {
+        "id": "project",
+        "op": "project",
+        "input": "a",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "g",
+                "expression": {
+                    "kind": "literal",
+                    "type": "Int64",
+                    "value": 0,
+                },
+            },
+            {
+                "output": "x",
+                "expression": {"kind": "column", "column": "a.x"},
+            },
+        ],
+    }
+    partial = {
+        "id": "partial",
+        "op": "aggregate",
+        "input": "project",
+        "keys": ["g"],
+        "aggregates": [
+            {
+                "input": "x",
+                "function": "count",
+                "output": "_state",
+                "type": "Uint64",
+                "nullable": False,
+                "distinct": False,
+                "unwrap": False,
+            }
+        ],
+        "phase": "intermediate",
+        "distinct_all": False,
+    }
+    final = {
+        "id": "final",
+        "op": "aggregate",
+        "input": "partial",
+        "keys": ["g"],
+        "aggregates": [
+            {
+                "input": "_state",
+                "function": "sum",
+                "output": "result",
+                "type": "Uint64",
+                "nullable": False,
+                "distinct": False,
+                "unwrap": False,
+            }
+        ],
+        "phase": "final",
+        "distinct_all": False,
+    }
+    connection = (
+        {
+            "kind": "hash_shuffle",
+            "keys": ["g"],
+            "hash_function": "HashV1",
+            "use_spilling": False,
+        }
+        if connection_kind == "hash_shuffle"
+        else {"kind": "broadcast"}
+    )
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            _stage_schema("A"),
+            [copy.deepcopy(SCAN_A), project, partial, final],
+            "final",
+            ["g", "result"],
+            [
+                _stage(
+                    "source",
+                    ["a", "project", "partial"],
+                    [],
+                    ["partial"],
+                    "column",
+                ),
+                _stage("root", ["final"], ["partial"], ["final"]),
+            ],
+            [
+                _edge(
+                    "aggregate_edge",
+                    "source",
+                    "root",
+                    0,
+                    0,
+                    **connection,
+                )
+            ],
+        )
+    )
+
+
+def projected_decimal_sum_snapshot(expression, input_type="Int64"):
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][1]["type"] = input_type
+    project = {
+        "id": "project",
+        "op": "project",
+        "input": "a",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "value",
+                "expression": copy.deepcopy(expression),
+            }
+        ],
+    }
+    result_type = decimal.sum_type(expression["type"])
+    assert result_type is not None
+    aggregate = {
+        "id": "aggregate",
+        "op": "aggregate",
+        "input": "project",
+        "keys": [],
+        "aggregates": [
+            {
+                "input": "value",
+                "function": "sum",
+                "output": "result",
+                "type": result_type,
+                "nullable": True,
+                "distinct": False,
+                "unwrap": False,
+            }
+        ],
+        "phase": "undefined",
+        "distinct_all": False,
+    }
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            [copy.deepcopy(SCAN_A), project, aggregate],
+            "aggregate",
+            ["result"],
+        )
+    )
+
+
+def count_star_snapshot():
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][1]["nullable"] = True
+    project = {
+        "id": "count_input",
+        "op": "project",
+        "input": "a",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "_count_input",
+                "expression": {"kind": "void"},
+            }
+        ],
+    }
+    aggregate = {
+        "id": "aggregate",
+        "op": "aggregate",
+        "input": "count_input",
+        "keys": [],
+        "aggregates": [
+            {
+                "input": "_count_input",
+                "function": "count",
+                "output": "result",
+                "type": "Uint64",
+                "nullable": False,
+                "distinct": False,
+                "unwrap": False,
+            }
+        ],
+        "phase": "undefined",
+        "distinct_all": False,
+    }
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            [copy.deepcopy(SCAN_A), project, aggregate],
+            "aggregate",
+            ["result"],
+        )
+    )
+
+
+def count_distinct_snapshot(
+    input_type="Int64",
+    nullable_input=False,
+):
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][1].update(
+        type=input_type,
+        nullable=nullable_input,
+    )
+    aggregate = {
+        "id": "aggregate",
+        "op": "aggregate",
+        "input": "a",
+        "keys": [],
+        "aggregates": [
+            {
+                "input": "a.x",
+                "function": "count",
+                "output": "result",
+                "type": "Uint64",
+                "nullable": False,
+                "distinct": True,
+                "unwrap": False,
+            }
+        ],
+        "phase": "undefined",
+        "distinct_all": False,
+    }
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            [copy.deepcopy(SCAN_A), aggregate],
+            "aggregate",
+            ["result"],
+        )
+    )
+
+
+def grouped_count_distinct_snapshot(
+    via_distinct_all=False,
+    input_type="Int32",
+    nullable_input=False,
+):
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"][0]["nullable"] = True
+    schema_value["tables"][0]["columns"][1].update(type=input_type, nullable=nullable_input)
+
+    if not via_distinct_all:
+        aggregate = {
+            "id": "aggregate",
+            "op": "aggregate",
+            "input": "a",
+            "keys": ["a.k"],
+            "aggregates": [
+                {
+                    "input": "a.x",
+                    "function": "count",
+                    "output": "result",
+                    "type": "Uint64",
+                    "nullable": False,
+                    "distinct": True,
+                    "unwrap": False,
+                }
+            ],
+            "phase": "undefined",
+            "distinct_all": False,
+        }
+        nodes = [copy.deepcopy(SCAN_A), aggregate]
+        root = "aggregate"
+        output = ["a.k", "result"]
+    else:
+        distinct = {
+            "id": "distinct",
+            "op": "aggregate",
+            "input": "a",
+            "keys": ["a.k", "a.x"],
+            "aggregates": [
+                {
+                    "input": "a.k",
+                    "function": "distinct",
+                    "output": "d.k",
+                    "type": "Int64",
+                    "nullable": True,
+                    "distinct": False,
+                    "unwrap": False,
+                },
+                {
+                    "input": "a.x",
+                    "function": "distinct",
+                    "output": "d.x",
+                    "type": input_type,
+                    "nullable": nullable_input,
+                    "distinct": False,
+                    "unwrap": False,
+                },
+            ],
+            "phase": "undefined",
+            "distinct_all": True,
+        }
+        aggregate = {
+            "id": "aggregate",
+            "op": "aggregate",
+            "input": "distinct",
+            "keys": ["d.k"],
+            "aggregates": [
+                {
+                    "input": "d.x",
+                    "function": "count",
+                    "output": "result",
+                    "type": "Uint64",
+                    "nullable": False,
+                    "distinct": False,
+                    "unwrap": False,
+                }
+            ],
+            "phase": "undefined",
+            "distinct_all": False,
+        }
+        nodes = [copy.deepcopy(SCAN_A), distinct, aggregate]
+        root = "aggregate"
+        output = ["d.k", "result"]
+
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            nodes,
+            root,
+            output,
+        )
+    )
+
+
+def partial_only_count_snapshot():
+    aggregate = {
+        "id": "partial",
+        "op": "aggregate",
+        "input": "a",
+        "keys": [],
+        "aggregates": [
+            {
+                "input": "a.x",
+                "function": "count",
+                "output": "result",
+                "type": "Uint64",
+                "nullable": False,
+                "distinct": False,
+                "unwrap": False,
+            }
+        ],
+        "phase": "intermediate",
+        "distinct_all": False,
+    }
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            _stage_schema("A"),
+            [copy.deepcopy(SCAN_A), aggregate],
+            "partial",
+            ["result"],
+            [_stage("source", ["a", "partial"], [], ["partial"], "column")],
+            [],
+        )
+    )
+
+
+def quantified_opaque_snapshot(result_type):
+    nodes = [
+        copy.deepcopy(SCAN_A),
+        {
+            "id": "sort",
+            "op": "sort",
+            "input": "a",
+            "order": [
+                {"column": "a.x", "ascending": True, "nulls_first": False}
+            ],
+            "limit": None,
+            "phase": "undefined",
+        },
+        {
+            "id": "limit",
+            "op": "limit",
+            "input": "sort",
+            "count": {"kind": "literal", "type": "Uint64", "value": 1},
+            "offset": None,
+            "phase": "undefined",
+        },
+        {
+            "id": "aggregate",
+            "op": "aggregate",
+            "input": "limit",
+            "keys": [],
+            "aggregates": [
+                {
+                    "input": "a.x",
+                    "function": "count",
+                    "output": "n",
+                    "type": "Uint64",
+                    "nullable": False,
+                    "distinct": False,
+                    "unwrap": False,
+                }
+            ],
+            "phase": "undefined",
+            "distinct_all": False,
+        },
+        {
+            "id": "render",
+            "op": "project",
+            "input": "aggregate",
+            "ordered": False,
+            "columns": [
+                {
+                    "output": "result",
+                    "expression": {
+                        "kind": "opaque",
+                        "fingerprint": "render($0)",
+                        "type": result_type,
+                        "nullable": False,
+                        "args": [{"kind": "column", "column": "n"}],
+                    },
+                }
+            ],
+        },
+    ]
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            _stage_schema("A"),
+            nodes,
+            "render",
+            ["result"],
+        )
+    )
+
+
+def unordered_take_opaque_snapshot(result_type):
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            _stage_schema("A"),
+            [
+                copy.deepcopy(SCAN_A),
+                {
+                    "id": "limit",
+                    "op": "limit",
+                    "input": "a",
+                    "count": {
+                        "kind": "literal",
+                        "type": "Uint64",
+                        "value": 1,
+                    },
+                    "offset": None,
+                    "phase": "undefined",
+                },
+                {
+                    "id": "render",
+                    "op": "project",
+                    "input": "limit",
+                    "ordered": False,
+                    "columns": [
+                        {
+                            "output": "result",
+                            "expression": {
+                                "kind": "opaque",
+                                "fingerprint": "render($0)",
+                                "type": result_type,
+                                "nullable": False,
+                                "args": [
+                                    {
+                                        "kind": "column",
+                                        "column": "a.x",
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                },
+            ],
+            "render",
+            ["result"],
+        )
+    )
+
+
+def right_join(predicate):
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": schema(),
+            "plan": {
+                "nodes": [
+                    SCAN_A,
+                    SCAN_B,
+                    {
+                        "id": "join",
+                        "op": "join",
+                        "left": "a",
+                        "right": "b",
+                        "kind": "right",
+                        "predicate": predicate,
+                    },
+                ],
+                "root": "join",
+                "output": ["a.x", "b.x"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def direct_unique_rhs_join_snapshot(
+    kind,
+    *,
+    unique_key=("k",),
+    left_key_type="Int64",
+    right_key_type="Int64",
+    right_key_nullable=False,
+    right_value_nullable=True,
+    extra_equality=False,
+    right_project=False,
+    residual=None,
+    scan_predicate=False,
+    pushed_limit=False,
+    staged=False,
+):
+    right_scan_id = "b_scan" if right_project else "b"
+    right_scan = {
+        "id": right_scan_id,
+        "op": "scan",
+        "table": "B",
+        "columns": [
+            {"source": "k", "output": f"{right_scan_id}.k"},
+            {"source": "x", "output": f"{right_scan_id}.x"},
+        ],
+        "predicate": (
+            {"kind": "literal", "type": "Bool", "value": True}
+            if scan_predicate
+            else None
+        ),
+        "pushed_limit": (
+            {"kind": "literal", "type": "Uint64", "value": 1}
+            if pushed_limit
+            else None
+        ),
+    }
+    nodes = [
+        {
+            "id": "a",
+            "op": "scan",
+            "table": "A",
+            "columns": [
+                {"source": "k", "output": "a.k"},
+                {"source": "x", "output": "a.x"},
+            ],
+            "pushed_limit": None,
+        },
+        right_scan,
+    ]
+    if right_project:
+        nodes.append(
+            {
+                "id": "b",
+                "op": "project",
+                "input": "b_scan",
+                "ordered": False,
+                "columns": [
+                    {
+                        "output": "b.k",
+                        "expression": {
+                            "kind": "column",
+                            "column": "b_scan.k",
+                        },
+                    },
+                    {
+                        "output": "b.x",
+                        "expression": {
+                            "kind": "column",
+                            "column": "b_scan.x",
+                        },
+                    },
+                ],
+            }
+        )
+    keys = [{"left": "a.k", "right": "b.k"}]
+    if extra_equality:
+        keys.append({"left": "a.x", "right": "b.x"})
+    nodes.append(
+        {
+            "id": "join",
+            "op": "join",
+            "left": "a",
+            "right": "b",
+            "kind": kind,
+            "keys": keys,
+            "predicate": (
+                {"kind": "literal", "type": "Bool", "value": True}
+                if residual is None
+                else residual
+            ),
+        }
+    )
+    schema_value = {
+        "tables": [
+            {
+                "name": "A",
+                "columns": [
+                    {"name": "k", "type": left_key_type, "nullable": True},
+                    {"name": "x", "type": "Int64", "nullable": False},
+                ],
+                "unique_keys": [],
+            },
+            {
+                "name": "B",
+                "columns": [
+                    {
+                        "name": "k",
+                        "type": right_key_type,
+                        "nullable": right_key_nullable,
+                    },
+                    {
+                        "name": "x",
+                        "type": "Int64",
+                        "nullable": right_value_nullable,
+                    },
+                ],
+                "unique_keys": (
+                    [
+                        {
+                            "columns": list(unique_key),
+                            "nulls_distinct": False,
+                        }
+                    ]
+                    if unique_key
+                    else []
+                ),
+            },
+        ]
+    }
+    stages = None
+    edges = None
+    if staged or scan_predicate or pushed_limit:
+        stages = [
+            _stage("left", ["a"], [], ["a"], "column"),
+            _stage("right", [right_scan_id], [], [right_scan_id], "column"),
+            _stage("join_stage", ["join"], ["a", "b"], ["join"]),
+        ]
+        edges = [
+            _edge("left_edge", "left", "join_stage", 0, 0, "map"),
+            _edge("right_edge", "right", "join_stage", 0, 1, "broadcast"),
+        ]
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            nodes,
+            "join",
+            ["a.k", "a.x", "b.k", "b.x"],
+            stages,
+            edges,
+        )
+    )
+
+
+def delayed_unique_rhs_filter_snapshot(
+    *,
+    unique_key=("k",),
+    left_key_type="Int64",
+    right_key_type="Int64",
+    right_key_nullable=False,
+    right_value_nullable=True,
+    extra_equality=False,
+    right_project=False,
+    scan_predicate=False,
+    pushed_limit=False,
+    staged=False,
+    reverse_equality=False,
+    null_safe=False,
+    predicate_shape="and",
+    residual=None,
+):
+    snapshot = direct_unique_rhs_join_snapshot(
+        "inner",
+        unique_key=unique_key,
+        left_key_type=left_key_type,
+        right_key_type=right_key_type,
+        right_key_nullable=right_key_nullable,
+        right_value_nullable=right_value_nullable,
+        extra_equality=extra_equality,
+        right_project=right_project,
+        scan_predicate=scan_predicate,
+        pushed_limit=pushed_limit,
+        staged=staged,
+    )
+    join = snapshot.plan.node_map()["join"]
+    equalities = []
+    for index, key in enumerate(join.keys):
+        left = Expr(kind="column", column=key.left)
+        right = Expr(kind="column", column=key.right)
+        equalities.append(
+            Expr(
+                kind="eq",
+                args=(
+                    (right, left)
+                    if reverse_equality
+                    else (left, right)
+                ),
+                null_safe=null_safe and index == 0,
+            )
+        )
+    true = Expr(
+        kind="literal",
+        value=True,
+        result_type="Bool",
+        nullable=False,
+    )
+    if predicate_shape == "and":
+        predicate = Expr(
+            kind="and",
+            args=tuple(equalities) + (() if residual is None else (residual,)),
+        )
+    elif predicate_shape == "or":
+        predicate = Expr(kind="or", args=tuple(equalities) + (true,))
+    elif predicate_shape == "nested_and":
+        predicate = Expr(
+            kind="and",
+            args=(Expr(kind="and", args=(equalities[0], true)),),
+        )
+    elif predicate_shape == "single":
+        if len(equalities) != 1 or residual is not None:
+            raise ValueError("single predicate shape requires one equality")
+        predicate = equalities[0]
+    else:
+        raise ValueError(f"unknown predicate shape {predicate_shape!r}")
+
+    nodes = tuple(
+        replace(item, kind="cross", keys=(), predicate=true)
+        if item.id == "join"
+        else item
+        for item in snapshot.plan.nodes
+    ) + (Filter("filter", "join", predicate),)
+    plan = replace(snapshot.plan, nodes=nodes, root="filter")
+    stage_graph = snapshot.stage_graph
+    if stage_graph is not None:
+        stages = tuple(
+            replace(
+                stage,
+                nodes=stage.nodes + ("filter",),
+                outputs=tuple(
+                    replace(output, node="filter")
+                    for output in stage.outputs
+                ),
+            )
+            if stage.id == stage_graph.root_stage
+            else stage
+            for stage in stage_graph.stages
+        )
+        stage_graph = replace(stage_graph, stages=stages)
+    return replace(snapshot, plan=plan, stage_graph=stage_graph)
+
+
+def delayed_unique_rhs_filter_chain_snapshot(*, deferred=False):
+    snapshot = delayed_unique_rhs_filter_snapshot()
+    nodes = snapshot.plan.node_map()
+    true = nodes["join"].predicate
+    assert isinstance(nodes["filter"], Filter)
+    c_scan = Scan(
+        "c",
+        "C",
+        (
+            ScanColumn("k", "c.k"),
+            ScanColumn("x", "c.x"),
+        ),
+        None,
+        None,
+    )
+    join = Join("join2", "join", "c", "cross", (), true)
+    second_equality = Expr(
+        kind="eq",
+        args=(
+            Expr(kind="column", column="b.x"),
+            Expr(kind="column", column="c.k"),
+        ),
+    )
+    predicate = (
+        Expr(
+            kind="and",
+            args=(
+                Expr(
+                    kind="eq",
+                    args=(
+                        Expr(kind="column", column="c.x"),
+                        Expr(kind="column", column="b.k"),
+                    ),
+                ),
+                Expr(
+                    kind="eq",
+                    args=(
+                        Expr(kind="column", column="a.k"),
+                        Expr(kind="column", column="c.k"),
+                    ),
+                ),
+            ),
+        )
+        if deferred
+        else replace(
+            nodes["filter"].predicate,
+            args=nodes["filter"].predicate.args + (second_equality,),
+        )
+    )
+    filtered = Filter("filter", "join2", predicate)
+    plan = replace(
+        snapshot.plan,
+        nodes=tuple(
+            node
+            for node in snapshot.plan.nodes
+            if node.id != "filter"
+        )
+        + (c_scan, join, filtered),
+        output=("a.k", "a.x", "b.k", "b.x", "c.k", "c.x"),
+    )
+    table_b = snapshot.table_map()["B"]
+    return replace(
+        snapshot,
+        tables=snapshot.tables + (replace(table_b, name="C"),),
+        plan=plan,
+    )
+
+
+def explicit_deferred_unique_rhs_chain_snapshot(*, mutate=False):
+    snapshot = delayed_unique_rhs_filter_chain_snapshot(deferred=True)
+    nodes = snapshot.plan.node_map()
+    first = Join(
+        "join",
+        "a",
+        "c",
+        "inner",
+        (JoinKey("a.k", "c.k"),),
+        nodes["join"].predicate,
+    )
+    second = Join(
+        "join2",
+        "join",
+        "b",
+        "inner",
+        (
+            JoinKey(
+                "a.x" if mutate else "c.x",
+                "b.k",
+            ),
+        ),
+        nodes["join2"].predicate,
+    )
+    plan = replace(
+        snapshot.plan,
+        nodes=tuple(
+            first
+            if node.id == "join"
+            else second
+            if node.id == "join2"
+            else node
+            for node in snapshot.plan.nodes
+        ),
+    )
+    return replace(snapshot, plan=plan)
+
+
+def delayed_unique_rhs_filter_subplan_snapshot():
+    snapshot = delayed_unique_rhs_filter_snapshot()
+    nodes = snapshot.plan.node_map()
+    assert isinstance(nodes["filter"], Filter)
+    c_scan = Scan(
+        "c",
+        "C",
+        (
+            ScanColumn("k", "c.k"),
+            ScanColumn("x", "c.x"),
+        ),
+        None,
+        None,
+    )
+    binding = Expr(kind="column", column="$scalar")
+    predicate = replace(
+        nodes["filter"].predicate,
+        args=nodes["filter"].predicate.args
+        + (Expr(kind="eq", args=(binding, binding)),),
+    )
+    filtered = replace(nodes["filter"], predicate=predicate)
+    plan = replace(
+        snapshot.plan,
+        nodes=tuple(
+            filtered if node.id == "filter" else node
+            for node in snapshot.plan.nodes
+        )
+        + (c_scan,),
+        subplans=(
+            ScalarSubplan(
+                "$scalar",
+                "c",
+                SubplanOutput("c.x", "Int64", True),
+                ("filter",),
+            ),
+        ),
+    )
+    table_b = snapshot.table_map()["B"]
+    return replace(
+        snapshot,
+        tables=snapshot.tables + (replace(table_b, name="C"),),
+        plan=plan,
+    )
+
+
+def delayed_unique_rhs_filter_sorted_seed_snapshot(*, unique_key=("k",)):
+    snapshot = delayed_unique_rhs_filter_snapshot(unique_key=unique_key)
+    sort = Sort(
+        "a_sort",
+        "a",
+        (SortOrder("a.k", True, False),),
+        None,
+        "undefined",
+    )
+    plan = replace(
+        snapshot.plan,
+        nodes=tuple(
+            replace(node, left="a_sort")
+            if node.id == "join"
+            else node
+            for node in snapshot.plan.nodes
+        )
+        + (sort,),
+    )
+    return replace(snapshot, plan=plan)
+
+
+def rebased_unique_seed_filter_snapshot(
+    *,
+    unique_key=("k",),
+    seed_key_nullable=False,
+    fact_key_type="Int64",
+    null_safe=False,
+    staged=False,
+):
+    snapshot = delayed_unique_rhs_filter_snapshot(
+        unique_key=(),
+        right_key_type=fact_key_type,
+        right_key_nullable=True,
+        null_safe=null_safe,
+        staged=staged,
+    )
+    tables = tuple(
+        replace(
+            table,
+            columns=tuple(
+                replace(column, nullable=seed_key_nullable)
+                if table.name == "A" and column.name == "k"
+                else column
+                for column in table.columns
+            ),
+            unique_keys=(
+                (UniqueKey(tuple(unique_key), False),)
+                if table.name == "A" and unique_key
+                else ()
+            ),
+        )
+        for table in snapshot.tables
+    )
+    return replace(snapshot, tables=tables)
+
+
+def rebased_unique_seed_filter_chain_snapshot():
+    snapshot = delayed_unique_rhs_filter_chain_snapshot()
+    tables = tuple(
+        replace(
+            table,
+            columns=tuple(
+                replace(column, nullable=False)
+                if table.name == "A" and column.name == "k"
+                else column
+                for column in table.columns
+            ),
+            unique_keys=(
+                (UniqueKey(("k",), False),)
+                if table.name == "A"
+                else ()
+                if table.name == "B"
+                else table.unique_keys
+            ),
+        )
+        for table in snapshot.tables
+    )
+    return replace(snapshot, tables=tables)
+
+
+def explicit_rebased_unique_seed_snapshot(*, mutate=False):
+    snapshot = rebased_unique_seed_filter_snapshot()
+    nodes = snapshot.plan.node_map()
+    assert isinstance(nodes["join"], Join)
+    rebased = replace(
+        nodes["join"],
+        left="b",
+        right="a",
+        kind="inner",
+        keys=(
+            JoinKey(
+                "b.x" if mutate else "b.k",
+                "a.k",
+            ),
+        ),
+    )
+    return replace(
+        snapshot,
+        plan=replace(
+            snapshot.plan,
+            nodes=tuple(
+                rebased if node.id == "join" else node
+                for node in snapshot.plan.nodes
+            ),
+        ),
+    )
+
+
+def delayed_literal_factor_filter_snapshot(*, explicit_right=None):
+    schema_value = {
+        "tables": [
+            {
+                "name": "A",
+                "columns": [
+                    {"name": "k", "type": "Int64", "nullable": False},
+                ],
+                "unique_keys": [],
+            },
+        ],
+    }
+    scan = {
+        "id": "a",
+        "op": "scan",
+        "table": "A",
+        "columns": [{"source": "k", "output": "source.k"}],
+        "pushed_limit": None,
+    }
+
+    def tagged(tag):
+        return {
+            "id": tag,
+            "op": "project",
+            "input": "a",
+            "ordered": False,
+            "columns": [
+                {
+                    "output": "key",
+                    "expression": {
+                        "kind": "column",
+                        "column": "source.k",
+                    },
+                },
+                {
+                    "output": "tag",
+                    "expression": {
+                        "kind": "literal",
+                        "type": "String",
+                        "value": tag,
+                    },
+                },
+            ],
+        }
+
+    branches = [tagged(tag) for tag in ("s", "c", "w")]
+    first_union = {
+        "id": "union_sc",
+        "op": "union_all",
+        "ordered": False,
+        "inputs": [
+            {"node": tag, "columns": ["key", "tag"]}
+            for tag in ("s", "c")
+        ],
+        "output": ["key", "tag"],
+    }
+    union = {
+        "id": "union",
+        "op": "union_all",
+        "ordered": False,
+        "inputs": [
+            {"node": "union_sc", "columns": ["key", "tag"]},
+            {"node": "w", "columns": ["key", "tag"]},
+        ],
+        "output": ["key", "tag"],
+    }
+
+    def alias(name, source):
+        return {
+            "id": name,
+            "op": "project",
+            "input": source,
+            "ordered": True,
+            "columns": [
+                {
+                    "output": f"{name}.key",
+                    "expression": {"kind": "column", "column": "key"},
+                },
+                {
+                    "output": f"{name}.tag",
+                    "expression": {"kind": "column", "column": "tag"},
+                },
+            ],
+        }
+
+    left = alias("left", "union" if explicit_right is None else "s")
+    right = alias(
+        "right",
+        "union" if explicit_right is None else explicit_right,
+    )
+    true = {
+        "kind": "literal",
+        "type": "Bool",
+        "value": True,
+    }
+    join = {
+        "id": "join",
+        "op": "join",
+        "left": "left",
+        "right": "right",
+        "kind": "cross",
+        "keys": [],
+        "predicate": true,
+    }
+    predicate = {
+        "kind": "and",
+        "args": [
+            {
+                "kind": "eq",
+                "left": {"kind": "column", "column": "left.tag"},
+                "right": {
+                    "kind": "literal",
+                    "type": "String",
+                    "value": "s",
+                },
+            },
+            {
+                "kind": "eq",
+                "left": {"kind": "column", "column": "right.tag"},
+                "right": {
+                    "kind": "literal",
+                    "type": "String",
+                    "value": "w",
+                },
+            },
+            {
+                "kind": "eq",
+                "left": {"kind": "column", "column": "left.key"},
+                "right": {"kind": "column", "column": "right.key"},
+            },
+        ],
+    }
+    filtered = {
+        "id": "filter",
+        "op": "filter",
+        "input": "join",
+        "predicate": predicate,
+    }
+    nodes = [scan]
+    if explicit_right is None:
+        nodes.extend(branches)
+        nodes.extend((first_union, union))
+    else:
+        nodes.extend(
+            branch
+            for branch in branches
+            if branch["id"] in {"s", explicit_right}
+        )
+    nodes.extend((left, right, join, filtered))
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            nodes,
+            "filter",
+            ["left.key", "left.tag", "right.key", "right.tag"],
+        )
+    )
+
+
+def union_snapshot(duplicate):
+    if duplicate:
+        nodes = [
+            SCAN_A,
+            {
+                "id": "union",
+                "op": "union_all",
+                "inputs": [
+                    {"node": "a", "columns": ["a.k"]},
+                    {"node": "a", "columns": ["a.k"]},
+                ],
+                "output": ["u.k"],
+                "ordered": False,
+            },
+        ]
+    else:
+        nodes = [
+            {
+                "id": "a",
+                "op": "scan",
+                "table": "A",
+                "columns": [{"source": "k", "output": "u.k"}],
+                "pushed_limit": None,
+            }
+        ]
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": schema(),
+            "plan": {
+                "nodes": nodes,
+                "root": "union" if duplicate else "a",
+                "output": ["u.k"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def filtered_snapshot(predicate):
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {
+                "tables": [
+                    {
+                        "name": "T",
+                        "columns": [{"name": "flag", "type": "Bool", "nullable": True}],
+                        "unique_keys": [],
+                    }
+                ]
+            },
+            "plan": {
+                "nodes": [
+                    {
+                        "id": "scan",
+                        "op": "scan",
+                        "table": "T",
+                        "columns": [{"source": "flag", "output": "t.flag"}],
+                        "pushed_limit": None,
+                    },
+                    {
+                        "id": "filter",
+                        "op": "filter",
+                        "input": "scan",
+                        "predicate": predicate,
+                    },
+                ],
+                "root": "filter",
+                "output": ["t.flag"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def integral_division_snapshot(reverse_operands=False):
+    left = {"kind": "column", "column": "a.x"}
+    right = {"kind": "column", "column": "a.k"}
+    if reverse_operands:
+        left, right = right, left
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {
+                "tables": [copy.deepcopy(schema()["tables"][0])]
+            },
+            "plan": {
+                "nodes": [
+                    copy.deepcopy(SCAN_A),
+                    {
+                        "id": "project",
+                        "op": "project",
+                        "input": "a",
+                        "ordered": False,
+                        "columns": [
+                            {
+                                "output": "quotient",
+                                "expression": {
+                                    "kind": "div",
+                                    "left": left,
+                                    "right": right,
+                                    "type": "Int64",
+                                    "nullable": True,
+                                },
+                            }
+                        ],
+                    },
+                ],
+                "root": "project",
+                "output": ["quotient"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def string_predicate_snapshot(fingerprint, reverse_arguments=False):
+    arguments = [
+        {"kind": "column", "column": "t.s"},
+        {"kind": "literal", "type": "String", "value": "tail"},
+    ]
+    if reverse_arguments:
+        arguments.reverse()
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {
+                "tables": [
+                    {
+                        "name": "T",
+                        "columns": [
+                            {"name": "s", "type": "String", "nullable": True}
+                        ],
+                        "unique_keys": [],
+                    }
+                ]
+            },
+            "plan": {
+                "nodes": [
+                    {
+                        "id": "scan",
+                        "op": "scan",
+                        "table": "T",
+                        "columns": [{"source": "s", "output": "t.s"}],
+                        "pushed_limit": None,
+                    },
+                    {
+                        "id": "filter",
+                        "op": "filter",
+                        "input": "scan",
+                        "predicate": {
+                            "kind": "opaque",
+                            "fingerprint": fingerprint,
+                            "type": "Bool",
+                            "nullable": True,
+                            "args": arguments,
+                        },
+                    },
+                ],
+                "root": "filter",
+                "output": ["t.s"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+DATE_YEAR_FINGERPRINT = "yql-datetime-year-v1"
+
+
+def date_year_snapshot(
+    fingerprint=DATE_YEAR_FINGERPRINT,
+    *,
+    opaque_argument=None,
+):
+    if opaque_argument is None:
+        opaque_argument = {"kind": "bound", "depth": 0}
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {
+                "tables": [
+                    {
+                        "name": "T",
+                        "columns": [
+                            {
+                                "name": "shipdate",
+                                "type": "Date",
+                                "nullable": True,
+                            }
+                        ],
+                        "unique_keys": [],
+                    }
+                ]
+            },
+            "plan": {
+                "nodes": [
+                    {
+                        "id": "scan",
+                        "op": "scan",
+                        "table": "T",
+                        "columns": [
+                            {
+                                "source": "shipdate",
+                                "output": "t.shipdate",
+                            }
+                        ],
+                        "pushed_limit": None,
+                    },
+                    {
+                        "id": "project",
+                        "op": "project",
+                        "input": "scan",
+                        "ordered": False,
+                        "columns": [
+                            {
+                                "output": "t.year",
+                                "expression": {
+                                    "kind": "if_present",
+                                    "optional": {
+                                        "kind": "column",
+                                        "column": "t.shipdate",
+                                    },
+                                    "present": {
+                                        "kind": "if",
+                                        "condition": {
+                                            "kind": "literal",
+                                            "type": "Bool",
+                                            "value": True,
+                                        },
+                                        "then": {
+                                            "kind": "opaque",
+                                            "fingerprint": fingerprint,
+                                            "type": "Uint16",
+                                            "nullable": False,
+                                            "args": [opaque_argument],
+                                        },
+                                        "else": {
+                                            "kind": "null",
+                                            "type": "Uint16",
+                                        },
+                                        "type": "Uint16",
+                                        "nullable": True,
+                                    },
+                                    "missing": {
+                                        "kind": "null",
+                                        "type": "Uint16",
+                                    },
+                                    "type": "Uint16",
+                                    "nullable": True,
+                                },
+                            }
+                        ],
+                    },
+                ],
+                "root": "project",
+                "output": ["t.year"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def _identity_field(name, value):
+    return f"{name}:{len(value.encode('utf-8'))}:{value};"
+
+
+def compiled_like_fingerprint(pattern):
+    return "".join(
+        (
+            _identity_field("format", "yql-re2-pattern-from-like-match-v1"),
+            _identity_field("pattern", pattern),
+            _identity_field("escape", "none"),
+            _identity_field("case_sensitive", "true"),
+        )
+    )
+
+
+def compiled_like_snapshot(
+    fingerprint=None,
+    *,
+    missing=False,
+    staged=False,
+):
+    if fingerprint is None:
+        fingerprint = compiled_like_fingerprint("%x%")
+    predicate = {
+        "kind": "if_present",
+        "optional": {"kind": "column", "column": "t.s"},
+        "present": {
+            "kind": "opaque",
+            "fingerprint": fingerprint,
+            "type": "Bool",
+            "nullable": False,
+            "args": [{"kind": "bound", "depth": 0}],
+        },
+        "missing": {"kind": "literal", "type": "Bool", "value": missing},
+        "type": "Bool",
+        "nullable": False,
+    }
+    scan = {
+        "id": "scan",
+        "op": "scan",
+        "table": "T",
+        "columns": [{"source": "s", "output": "t.s"}],
+        "predicate": predicate if staged else None,
+        "pushed_limit": None,
+    }
+    nodes = [scan]
+    root = "scan"
+    if not staged:
+        nodes.append(
+            {
+                "id": "filter",
+                "op": "filter",
+                "input": "scan",
+                "predicate": predicate,
+            }
+        )
+        root = "filter"
+    stage_graph = (
+        {
+            "root_stage": "source",
+            "stages": [
+                {
+                    "id": "source",
+                    "nodes": ["scan"],
+                    "inputs": [],
+                    "outputs": [{"index": 0, "node": "scan"}],
+                    "source_storage": "column",
+                }
+            ],
+            "edges": [],
+            "assumptions": [],
+        }
+        if staged
+        else None
+    )
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {
+                "tables": [
+                    {
+                        "name": "T",
+                        "columns": [
+                            {"name": "s", "type": "String", "nullable": True}
+                        ],
+                        "unique_keys": [],
+                    }
+                ]
+            },
+            "plan": {
+                "nodes": nodes,
+                "root": root,
+                "output": ["t.s"],
+                "subplans": [],
+            },
+            "stage_graph": stage_graph,
+        }
+    )
+
+
+def passive_double_snapshot(
+    fingerprint=OPAQUE_DOUBLE_FINGERPRINT_PREFIX + "identity",
+    argument_columns=("a.k", "a.x", "a.y"),
+    *,
+    staged=False,
+    sort_merge=False,
+):
+    schema_value = _stage_schema("A")
+    schema_value["tables"][0]["columns"].append(
+        {"name": "y", "type": "Int64", "nullable": True}
+    )
+    for column in schema_value["tables"][0]["columns"]:
+        column["nullable"] = True
+    scan = copy.deepcopy(SCAN_A)
+    scan["columns"].append({"source": "y", "output": "a.y"})
+    compute = {
+        "id": "compute_double",
+        "op": "project",
+        "input": "a",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "double_value",
+                "expression": {
+                    "kind": "opaque_double",
+                    "fingerprint": fingerprint,
+                    "type": "Double",
+                    "nullable": True,
+                    "args": [
+                        {"kind": "column", "column": column}
+                        for column in argument_columns
+                    ],
+                },
+            },
+            {
+                "output": "key",
+                "expression": {"kind": "column", "column": "a.k"},
+            },
+        ],
+    }
+    passthrough = {
+        "id": "pass_double",
+        "op": "project",
+        "input": "sort_double" if sort_merge else "compute_double",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "result",
+                "expression": {
+                    "kind": "column",
+                    "column": "double_value",
+                },
+            }
+        ],
+    }
+    nodes = [scan, compute]
+    if sort_merge:
+        nodes.append(
+            {
+                "id": "sort_double",
+                "op": "sort",
+                "input": "compute_double",
+                "order": [
+                    {
+                        "column": "key",
+                        "ascending": True,
+                        "nulls_first": True,
+                    }
+                ],
+                "limit": None,
+                "phase": "undefined",
+            }
+        )
+    nodes.append(passthrough)
+    stages = None
+    edges = None
+    if staged:
+        source_nodes = ["a", "compute_double"]
+        source_output = "compute_double"
+        connection = {
+            "kind": "hash_shuffle",
+            "keys": ["key"],
+            "hash_function": "HashV1",
+            "use_spilling": False,
+        }
+        if sort_merge:
+            source_nodes.append("sort_double")
+            source_output = "sort_double"
+            connection = {
+                "kind": "merge",
+                "order": [
+                    {
+                        "column": "key",
+                        "ascending": True,
+                        "nulls_first": True,
+                    }
+                ],
+            }
+        stages = [
+            _stage(
+                "source",
+                source_nodes,
+                [],
+                [source_output],
+                "column",
+            ),
+            _stage(
+                "root",
+                ["pass_double"],
+                [source_output],
+                ["pass_double"],
+            ),
+        ]
+        edges = [
+            _edge(
+                "merge" if sort_merge else "shuffle",
+                "source",
+                "root",
+                0,
+                0,
+                **connection,
+            )
+        ]
+    return parse_snapshot(
+        _snapshot_with_stage_graph(
+            schema_value,
+            nodes,
+            "pass_double",
+            ["result"],
+            stages,
+            edges,
+        )
+    )
+
+
+def mixed_width_membership_snapshot(lowered):
+    lookup = {"kind": "column", "column": "t.year"}
+    items = [
+        {"kind": "literal", "type": "Int32", "value": value}
+        for value in (0, 1, 1998)
+    ]
+    direct = {"kind": "in", "lookup": lookup, "items": items}
+    predicate = direct
+    if lowered:
+        predicate = {
+            "kind": "if",
+            "condition": {"kind": "exists", "arg": lookup},
+            "then": {
+                "kind": "if_present",
+                "optional": {
+                    "kind": "cast_integral",
+                    "arg": lookup,
+                    "type": "Int32",
+                    "nullable": True,
+                },
+                "present": {
+                    "kind": "in",
+                    "lookup": {"kind": "bound", "depth": 0},
+                    "items": items,
+                },
+                "missing": {"kind": "literal", "type": "Bool", "value": False},
+                "type": "Bool",
+                "nullable": False,
+            },
+            "else": {"kind": "literal", "type": "Bool", "value": False},
+            "type": "Bool",
+            "nullable": False,
+        }
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {
+                "tables": [
+                    {
+                        "name": "T",
+                        "columns": [
+                            {"name": "year", "type": "Int64", "nullable": True}
+                        ],
+                        "unique_keys": [],
+                    }
+                ]
+            },
+            "plan": {
+                "nodes": [
+                    {
+                        "id": "scan",
+                        "op": "scan",
+                        "table": "T",
+                        "columns": [{"source": "year", "output": "t.year"}],
+                        "pushed_limit": None,
+                    },
+                    {
+                        "id": "filter",
+                        "op": "filter",
+                        "input": "scan",
+                        "predicate": predicate,
+                    },
+                ],
+                "root": "filter",
+                "output": ["t.year"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def date_filtered_snapshot(kind, day):
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {
+                "tables": [
+                    {
+                        "name": "D",
+                        "columns": [
+                            {"name": "day", "type": "Date", "nullable": True}
+                        ],
+                        "unique_keys": [],
+                    }
+                ]
+            },
+            "plan": {
+                "nodes": [
+                    {
+                        "id": "scan",
+                        "op": "scan",
+                        "table": "D",
+                        "columns": [{"source": "day", "output": "d.day"}],
+                        "pushed_limit": None,
+                    },
+                    {
+                        "id": "filter",
+                        "op": "filter",
+                        "input": "scan",
+                        "predicate": {
+                            "kind": kind,
+                            "left": {"kind": "column", "column": "d.day"},
+                            "right": {"kind": "literal", "type": "Date", "value": day},
+                        },
+                    },
+                ],
+                "root": "filter",
+                "output": ["d.day"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def date_if_present_snapshot(
+    *,
+    source="d.day",
+    present=None,
+    missing=0,
+):
+    if present is None:
+        present = {"kind": "bound", "depth": 0}
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {
+                "tables": [
+                    {
+                        "name": "D",
+                        "columns": [
+                            {"name": "day", "type": "Date", "nullable": True},
+                            {
+                                "name": "other_day",
+                                "type": "Date",
+                                "nullable": True,
+                            },
+                        ],
+                        "unique_keys": [],
+                    }
+                ]
+            },
+            "plan": {
+                "nodes": [
+                    {
+                        "id": "scan",
+                        "op": "scan",
+                        "table": "D",
+                        "columns": [
+                            {"source": "day", "output": "d.day"},
+                            {"source": "other_day", "output": "d.other_day"},
+                        ],
+                        "pushed_limit": None,
+                    },
+                    {
+                        "id": "project",
+                        "op": "project",
+                        "input": "scan",
+                        "ordered": False,
+                        "columns": [
+                            {
+                                "output": "d.result",
+                                "expression": {
+                                    "kind": "if_present",
+                                    "optional": {
+                                        "kind": "column",
+                                        "column": source,
+                                    },
+                                    "present": present,
+                                    "missing": {
+                                        "kind": "literal",
+                                        "type": "Date",
+                                        "value": missing,
+                                    },
+                                    "type": "Date",
+                                    "nullable": False,
+                                },
+                            }
+                        ],
+                    },
+                ],
+                "root": "project",
+                "output": ["d.result"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def left_join_elimination_snapshot(with_join, right_key_is_unique):
+    value = schema()
+    value["tables"][1]["unique_keys"] = (
+        [{"columns": ["k"], "nulls_distinct": False}] if right_key_is_unique else []
+    )
+    nodes = [SCAN_A]
+    if with_join:
+        nodes.extend(
+            [
+                SCAN_B,
+                {
+                    "id": "join",
+                    "op": "join",
+                    "left": "a",
+                    "right": "b",
+                    "kind": "left",
+                    "predicate": KEY_EQUALITY,
+                },
+            ]
+        )
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": value,
+            "plan": {
+                "nodes": nodes,
+                "root": "join" if with_join else "a",
+                "output": ["a.x"],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def constant_snapshot(value, output="result", scalar_type=None):
+    scalar_type = scalar_type or ("String" if isinstance(value, str) else "Int64")
+    return parse_snapshot(
+        {
+            "format": "ydb-rbo-semantic-snapshot",
+            "version": 1,
+            "schema": {"tables": []},
+            "plan": {
+                "nodes": [
+                    {"id": "source", "op": "empty_source"},
+                    {
+                        "id": "project",
+                        "op": "project",
+                        "input": "source",
+                        "ordered": False,
+                        "columns": [
+                            {
+                                "output": output,
+                                "expression": {"kind": "literal", "type": scalar_type, "value": value},
+                            }
+                        ],
+                    },
+                ],
+                "root": "project",
+                "output": [output],
+                "subplans": [],
+            },
+            "stage_graph": None,
+        }
+    )
+
+
+def scalar_subplan_inline_snapshot(staged, aggregate_input="a.x"):
+    aggregate = {
+        "id": "scalar_aggregate",
+        "op": "aggregate",
+        "input": "a",
+        "keys": [],
+        "aggregates": [
+            {
+                "input": aggregate_input,
+                "function": "sum",
+                "output": "sub.value",
+                "type": "Int64",
+                "nullable": True,
+                "distinct": False,
+                "unwrap": False,
+            }
+        ],
+        "phase": "undefined",
+        "distinct_all": False,
+    }
+    result_project = {
+        "id": "result_project",
+        "op": "project",
+        "input": "cross" if staged else "b",
+        "ordered": False,
+        "columns": [
+            {
+                "output": "key",
+                "expression": {"kind": "column", "column": "b.k"},
+            },
+            {
+                "output": "result",
+                "expression": {
+                    "kind": "column",
+                    "column": "sub.value" if staged else "$scalar",
+                },
+            },
+        ],
+    }
+    nodes = [
+        copy.deepcopy(SCAN_A),
+        copy.deepcopy(SCAN_B),
+        aggregate,
+    ]
+    stages = None
+    edges = None
+    if staged:
+        nodes.extend(
+            [
+                {
+                    "id": "cross",
+                    "op": "join",
+                    "left": "b",
+                    "right": "scalar_aggregate",
+                    "kind": "cross",
+                    "predicate": {
+                        "kind": "literal",
+                        "type": "Bool",
+                        "value": True,
+                    },
+                },
+                result_project,
+            ]
+        )
+        stages = [
+            _stage("a_source", ["a"], [], ["a"], "column"),
+            _stage(
+                "scalar",
+                ["scalar_aggregate"],
+                ["a"],
+                ["scalar_aggregate"],
+            ),
+            _stage("b_source", ["b"], [], ["b"], "row"),
+            _stage(
+                "root",
+                ["cross", "result_project"],
+                ["b", "scalar_aggregate"],
+                ["result_project"],
+            ),
+        ]
+        edges = [
+            _edge(
+                "gather_scalar_input",
+                "a_source",
+                "scalar",
+                0,
+                0,
+                "union_all",
+                parallel=False,
+            ),
+            _edge("map_main_input", "b_source", "root", 0, 0, "map"),
+            _edge(
+                "broadcast_scalar",
+                "scalar",
+                "root",
+                0,
+                1,
+                "broadcast",
+            ),
+        ]
+    else:
+        nodes.append(result_project)
+
+    raw = _snapshot_with_stage_graph(
+        _stage_schema("A", "B"),
+        nodes,
+        "result_project",
+        ["key", "result"],
+        stages,
+        edges,
+    )
+    if not staged:
+        raw["plan"]["subplans"] = [
+            {
+                "binding": "$scalar",
+                "kind": "scalar",
+                "root": "scalar_aggregate",
+                "output": {
+                    "column": "sub.value",
+                    "type": "Int64",
+                    "nullable": True,
+                },
+                "type": "Int64",
+                "nullable": True,
+                "dependencies": [],
+                "consumers": ["result_project"],
+            }
+        ]
+    return parse_snapshot(raw)
+
+
+class SolverProtocolTest(unittest.TestCase):
+    def test_binary64_requires_all_pairs_not_equal_enlarged_languages(self):
+        columns = (Column("x", "Int64", False),)
+        family = relation_model.RelationFamily(tuple(relation_model.Outcome(
+            smt.TRUE,
+            relation_model.Relation(columns, (relation_model.Row(
+                smt.TRUE, {"x": Value("Int64", smt.FALSE, smt.int_value(value))},
+            ),)),
+            smt.FALSE,
+        ) for value in (0, 1)))
+        exact = relation_model.family_mismatch(family, family, ScalarEncoder(smt.Script()))
+        sufficient = relation_model.family_mismatch(
+            family, family, ScalarEncoder(smt.Script(), semantic_mode=floating.SEMANTIC_MODE),
+        )
+        self.assertEqual(exact.counterexample, smt.FALSE)
+        self.assertEqual(sufficient.counterexample, smt.TRUE)
+
+    def test_binary64_candidate_is_unknown_without_requesting_a_model(self):
+        script = smt.Script()
+        script.assert_obligation(smt.TRUE)
+        problem = Problem(script, {}, semantic_mode=floating.SEMANTIC_MODE)
+        for status, expected in (("sat", "UNKNOWN"), ("unsat", "VERIFIED_BOUNDED")):
+            with mock.patch.object(verifier, "_run_solver", return_value=subprocess.CompletedProcess(
+                ["solver"], 0, status + "\n", "",
+            )) as run:
+                result = solve(problem, "solver", 2)
+            self.assertEqual(result.status, expected)
+            self.assertEqual(result.to_json()["semantic_mode"], floating.SEMANTIC_MODE)
+            self.assertEqual(run.call_count, 1)
+            self.assertNotIn("get-value", run.call_args.args[1])
+
+    @staticmethod
+    def _branch_problem(count=2):
+        script = smt.Script()
+        requested = script.fresh_constant("requested", smt.BOOL)
+        obligation = script.fresh_constant("whole_mismatch", smt.BOOL)
+        predicates = tuple(
+            script.fresh_constant(f"branch_{index}", smt.BOOL)
+            for index in range(count)
+        )
+        script.assert_obligation(obligation)
+        branches = tuple(
+            relation_model.MismatchBranch(f"branch_{index}", predicate)
+            for index, predicate in enumerate(predicates)
+        )
+        return Problem(script, {}, branches), requested, predicates
+
+    @staticmethod
+    def _preferred_branch_problem(count=2):
+        problem, requested, predicates = SolverProtocolTest._branch_problem(count)
+        ordered_predicates = tuple(reversed(predicates))
+        preferred = tuple(
+            relation_model.MismatchBranch(f"preferred_{index}", predicate)
+            for index, predicate in enumerate(ordered_predicates)
+        )
+        return (
+            replace(problem, preferred_branches=preferred),
+            requested,
+            ordered_predicates,
+        )
+
+    @staticmethod
+    def _integral_average_problem():
+        script = smt.Script()
+        exact = script.fresh_constant("semantic_mismatch", smt.BOOL)
+        inexact = script.fresh_constant("integral_average_count_gt_2", smt.BOOL)
+        script.assert_obligation(smt.or_(exact, inexact))
+        exact_branch = relation_model.MismatchBranch(
+            "semantic_mismatch",
+            exact,
+        )
+        inexact_branch = relation_model.MismatchBranch(
+            "integral_avg_count_gt_2",
+            inexact,
+        )
+        problem = Problem(
+            script=script,
+            witness={},
+            mismatch_branches=(
+                relation_model.MismatchBranch("exact_component", exact),
+            ),
+            semantic_mismatch=exact_branch,
+            soundness_exclusion=relation_model.MismatchBranch(
+                "integral_avg_model_domain",
+                inexact,
+            ),
+            soundness_exclusions=(inexact_branch,),
+            abstract_integral_average=True,
+        )
+        return problem, exact, inexact
+
+    def test_reachable_integral_average_inexact_region_is_inconclusive(self):
+        problem, _, _ = self._integral_average_problem()
+        sat = subprocess.CompletedProcess(["z3"], 0, "sat\n", "")
+
+        with mock.patch.object(verifier, "_run_solver", return_value=sat) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unknown")
+        self.assertEqual(query.phase, "soundness")
+        self.assertIn("model-domain exclusion is reachable", query.reason)
+        run.assert_called_once()
+
+    def test_unresolved_integral_average_inexact_region_is_inconclusive(self):
+        problem, _, _ = self._integral_average_problem()
+        unknown = subprocess.CompletedProcess(["z3"], 0, "unknown\n", "")
+
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            return_value=unknown,
+        ) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unknown")
+        self.assertEqual(query.phase, "soundness")
+        self.assertIn("could not rule out", query.reason)
+        run.assert_called_once()
+
+    def test_semantic_mismatch_is_solved_only_after_inexact_region_is_unsat(self):
+        problem, exact, inexact = self._integral_average_problem()
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            side_effect=(unsat, unsat),
+        ) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unsat")
+        self.assertEqual(run.call_count, 2)
+        safety_formula, exact_formula = (
+            call.args[1] for call in run.call_args_list
+        )
+        self.assertIn(f"(assert {inexact.render()})", safety_formula)
+        self.assertNotIn(f"(assert {exact.render()})", safety_formula)
+        self.assertIn(f"(assert {exact.render()})", exact_formula)
+        self.assertNotIn(f"(assert {inexact.render()})", exact_formula)
+
+    def test_abstract_integral_average_mismatch_requires_binary64_replay(self):
+        problem, exact, _ = self._integral_average_problem()
+        responses = (
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "sat\n", ""),
+        )
+
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            side_effect=responses,
+        ) as run:
+            query = verifier.query_solver(problem, "z3", (exact,))
+
+        self.assertEqual(query.status, "unknown")
+        self.assertEqual(query.phase, "abstract")
+        self.assertIn("exact binary64 replay is required", query.reason)
+        self.assertEqual(run.call_count, 2)
+        self.assertTrue(
+            all("(get-value" not in call.args[1] for call in run.call_args_list)
+        )
+
+    def test_abstract_integral_average_branch_candidate_requires_replay(self):
+        problem, _, _ = self._integral_average_problem()
+        responses = (
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "sat\n", ""),
+        )
+
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            side_effect=responses,
+        ) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unknown")
+        self.assertEqual(query.phase, "abstract")
+        self.assertIn("exact binary64 replay is required", query.reason)
+        self.assertEqual(run.call_count, 3)
+
+    def test_preferred_portfolio_keeps_integral_average_soundness_first(self):
+        problem, exact, inexact = self._integral_average_problem()
+        problem = replace(
+            problem,
+            preferred_branches=problem.mismatch_branches,
+        )
+        responses = (
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "sat\n", ""),
+        )
+
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            side_effect=responses,
+        ) as run:
+            query = verifier.query_solver(problem, "z3", (exact,))
+
+        self.assertEqual(query.status, "unknown")
+        self.assertEqual(query.phase, "abstract")
+        formulas = [call.args[1] for call in run.call_args_list]
+        self.assertIn(f"(assert {inexact.render()})", formulas[0])
+        self.assertIn(f"(assert {exact.render()})", formulas[1])
+        self.assertTrue(all("(get-value" not in formula for formula in formulas))
+
+    def test_string_rank_decoder_is_exact_and_rejects_out_of_universe_values(self):
+        representatives = {0: "", 1: "a", 2: "é"}
+        self.assertEqual(verifier.decode_string_atom(2, representatives), "é")
+        for value in (-1, 3, True, "1"):
+            with self.subTest(value=value):
+                with self.assertRaises(SolverError):
+                    verifier.decode_string_atom(value, representatives)
+
+    def test_emitted_complete_obligation_is_reused_by_canonical_probe(self):
+        script = smt.Script()
+        left = script.fresh_constant("left_mismatch", smt.BOOL)
+        right = script.fresh_constant("right_mismatch", smt.BOOL)
+        predicate = smt.or_(left, right)
+        mismatch = relation_model.FamilyMismatch(predicate, (
+            relation_model.MismatchBranch("left", left),
+            relation_model.MismatchBranch("right", right),
+        ))
+        problem = verifier._finish_problem(script, mock.Mock(witness={}), mismatch, [])
+        emitted = problem.formula()
+        # A syntactically redundant OR must not lose the canonical identity.
+        self.assertIs(script.assertions[-1], predicate)
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+        with (
+            mock.patch.object(smt, "_render_scope", side_effect=AssertionError("canonical body rebuilt")),
+            mock.patch.object(verifier, "_run_solver", return_value=unsat) as run,
+        ):
+            query = verifier.query_solver(problem, "z3")
+        self.assertEqual(query.status, "unsat")
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[1], emitted)
+
+    def test_finished_obligation_preserves_legacy_formula_bytes(self):
+        for shape in ("false", "true", "symbol", "or", "wide_or", "and", "quantified"):
+            for excluded in (False, True):
+                with self.subTest(shape=shape, excluded=excluded):
+                    def render(legacy):
+                        script = smt.Script(timeout_ms=100)
+                        values = tuple(script.fresh_constant(f"value_{i}", smt.BOOL) for i in range(40))
+                        bound = smt.symbol("bound", smt.INT)
+                        predicates = {
+                            "false": smt.FALSE,
+                            "true": smt.TRUE,
+                            "symbol": values[0],
+                            "or": smt.or_(values[0], values[1]),
+                            "wide_or": smt.or_(*values),
+                            "and": smt.and_(values[0], values[1]),
+                            "quantified": smt.or_(values[0], smt.exists((bound,), smt.lt(bound, smt.ZERO))),
+                        }
+                        predicate = predicates[shape]
+                        script.assert_global(values[2])
+                        script.assert_term(smt.not_(values[3]))
+                        exclusions = [relation_model.MismatchBranch("excluded", values[4])] if excluded else []
+                        if legacy:
+                            script.assert_obligation(smt.or_(
+                                predicate,
+                                smt.or_(*(branch.predicate for branch in exclusions)) if exclusions else smt.FALSE,
+                            ))
+                        else:
+                            verifier._finish_problem(
+                                script, mock.Mock(witness={}),
+                                relation_model.FamilyMismatch(predicate, ()), exclusions,
+                            )
+                        return (script.render(), script.render_branch(predicate, values[:2], timeout_ms=7))
+                    self.assertEqual(render(False), render(True))
+
+    def test_finished_obligation_keeps_exclusions_and_semantics_separate(self):
+        script = smt.Script()
+        left = script.fresh_constant("left_mismatch", smt.BOOL)
+        right = script.fresh_constant("right_mismatch", smt.BOOL)
+        excluded = script.fresh_constant("excluded", smt.BOOL)
+        predicate = smt.or_(left, right)
+        mismatch = relation_model.FamilyMismatch(predicate, (
+            relation_model.MismatchBranch("left", left),
+            relation_model.MismatchBranch("right", right),
+        ))
+        exclusion = relation_model.MismatchBranch("excluded", excluded)
+        problem = verifier._finish_problem(script, mock.Mock(witness={}), mismatch, [exclusion])
+        emitted = problem.formula()
+        self.assertIn("(assert (or v_0 v_1 v_2))", emitted)
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+        with mock.patch.object(verifier, "_run_solver", return_value=unsat) as run:
+            query = verifier.query_solver(problem, "z3")
+        self.assertEqual(query.status, "unsat")
+        self.assertEqual(run.call_count, 2)
+        safety_formula, semantic_formula = (call.args[1] for call in run.call_args_list)
+        self.assertIn("(assert v_2)", safety_formula)
+        self.assertIn("(assert (or v_0 v_1))", semantic_formula)
+        self.assertNotIn("(assert (or v_0 v_1 v_2))", semantic_formula)
+        self.assertEqual(problem.formula(), emitted)
+
+    def test_canonical_unsat_can_verify_without_branch_checks(self):
+        problem, _, _ = self._branch_problem(3)
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+
+        with mock.patch.object(verifier, "_run_solver", return_value=unsat) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unsat")
+        run.assert_called_once()
+
+    def test_preferred_portfolio_skips_canonical_probe(self):
+        problem, _, predicates = self._preferred_branch_problem()
+        problem = replace(problem, mismatch_branches=None)
+        sat = subprocess.CompletedProcess(["z3"], 0, "sat\n", "")
+
+        with mock.patch.object(verifier, "_run_solver", return_value=sat) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "sat")
+        run.assert_called_once()
+        formula = run.call_args.args[1]
+        self.assertIn(f"(assert {predicates[0].render()})", formula)
+        self.assertNotIn(f"(assert {predicates[1].render()})", formula)
+
+    def test_preferred_metadata_does_not_change_canonical_formula(self):
+        problem, _, _ = self._preferred_branch_problem()
+        without_preferred = replace(problem, preferred_branches=None)
+
+        self.assertEqual(problem.formula(), without_preferred.formula())
+
+    def test_all_preferred_branches_must_be_unsat_to_verify(self):
+        problem, _, predicates = self._preferred_branch_problem(3)
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+
+        with mock.patch.object(verifier, "_run_solver", return_value=unsat) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unsat")
+        self.assertEqual(run.call_count, 3)
+        for formula, predicate in zip(
+            (call.args[1] for call in run.call_args_list),
+            predicates,
+        ):
+            self.assertIn(f"(assert {predicate.render()})", formula)
+
+    def test_preferred_sat_reuses_the_winning_branch_for_its_model(self):
+        problem, requested, predicates = self._preferred_branch_problem()
+        responses = (
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "sat\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "sat\n((v_0 true))\n", ""),
+        )
+
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            side_effect=responses,
+        ) as run:
+            query = verifier.query_solver(problem, "z3", (requested,))
+
+        self.assertEqual(query.status, "sat")
+        self.assertEqual(query.values, {"v_0": True})
+        formulas = [call.args[1] for call in run.call_args_list]
+        self.assertIn(f"(assert {predicates[0].render()})", formulas[0])
+        self.assertIn(f"(assert {predicates[1].render()})", formulas[1])
+        self.assertIn(f"(assert {predicates[1].render()})", formulas[2])
+        self.assertNotIn("(get-value", formulas[1])
+        self.assertIn("(get-value (v_0))", formulas[2])
+
+    @staticmethod
+    def _singleton_problem(*, changed=False, enabled=smt.TRUE):
+        script = smt.Script()
+        value = script.fresh_constant("singleton_value", smt.INT)
+        columns = (Column("x", "Int64", False),)
+
+        def family(payload):
+            return relation_model.RelationFamily((relation_model.Outcome(
+                enabled,
+                relation_model.Relation(columns, (relation_model.Row(
+                    smt.TRUE, {"x": Value("Int64", smt.FALSE, payload)},
+                ),)),
+                smt.FALSE,
+            ),))
+
+        mismatch = relation_model.family_mismatch(
+            family(value), family(smt.add(value, smt.ONE) if changed else value),
+            ScalarEncoder(script),
+        )
+        script.assert_obligation(mismatch.counterexample)
+        return Problem(
+            script, {}, mismatch_branches=mismatch.branches,
+            semantic_mismatch=relation_model.MismatchBranch("semantic_mismatch", mismatch.counterexample),
+            preferred_branches=mismatch.preferred_branches,
+        ), value
+
+    def test_singleton_duplicate_comparison_keeps_complete_predicates(self):
+        a, b = smt.symbol("selector_a", smt.BOOL), smt.symbol("selector_b", smt.BOOL)
+        x, y = smt.symbol("choice_x", smt.INT), smt.symbol("choice_y", smt.INT)
+
+        def mismatch(left, right, empty=smt.FALSE):
+            predicates = (empty, smt.FALSE, left, right)
+            branches = tuple(relation_model.MismatchBranch(str(i), p) for i, p in enumerate(predicates))
+            return relation_model.FamilyMismatch(smt.or_(*predicates), branches)
+
+        # Exact structural equality accepts separate nodes, not just identity.
+        original = smt.not_(a)
+        duplicate = smt.not_(smt.symbol("selector_a", smt.BOOL))
+        self.assertIsNot(original, duplicate)
+        exact = mismatch(original, duplicate)
+        self.assertEqual(relation_model._preferred_singleton_mismatch_branches(exact), (exact.branches[2],))
+        for left, right, empty in (
+            (a, b, smt.FALSE),
+            (a, a, b),
+            (a, a, smt.TRUE),
+            (smt.exists((x,), smt.eq(x, y)), smt.exists((y,), smt.eq(x, y)), smt.FALSE),
+            (smt.exists((x,), smt.eq(x, y)), smt.forall((x,), smt.eq(x, y)), smt.FALSE),
+        ):
+            with self.subTest(left=left, right=right, empty=empty):
+                self.assertIsNone(relation_model._preferred_singleton_mismatch_branches(mismatch(left, right, empty)))
+        exact = mismatch(a, a)
+        self.assertIsNone(relation_model._preferred_singleton_mismatch_branches(
+            replace(exact, branches=exact.branches + (relation_model.MismatchBranch("extra", b),)),
+        ))
+
+    def test_singleton_portfolio_uses_whole_budget_without_canonical_restart(self):
+        problem, _ = self._singleton_problem(changed=True)
+        self.assertEqual(len(problem.preferred_branches), 1)
+        self.assertEqual(problem.mismatch_branches[2].predicate, problem.mismatch_branches[3].predicate)
+        self.assertEqual(problem.formula(), replace(problem, preferred_branches=None).formula())
+        with (mock.patch.object(verifier.time, "monotonic", return_value=100.0),
+              mock.patch.object(verifier, "_run_solver", return_value=subprocess.CompletedProcess(
+                  ["solver"], 0, "unsat\n", "",
+              )) as run):
+            result = verifier.query_solver(problem, "solver", timeout_ms=10_000)
+        self.assertEqual(result.status, "unsat")
+        run.assert_called_once()
+        self.assertIn("(set-option :timeout 10000)", run.call_args.args[1])
+        self.assertEqual(run.call_args.args[2], 10.0)
+
+    def test_singleton_portfolio_preserves_model_domain_and_unknown(self):
+        problem, _ = self._singleton_problem(changed=True)
+        exclusion = relation_model.MismatchBranch("model_domain", smt.TRUE)
+        guarded = replace(problem, soundness_exclusion=exclusion, soundness_exclusions=(exclusion,))
+        for status in ("sat", "unknown"):
+            with self.subTest(status=status):
+                with mock.patch.object(verifier, "_run_solver", return_value=subprocess.CompletedProcess(
+                    ["solver"], 0, status + "\n", "",
+                )) as run:
+                    result = verifier.query_solver(guarded, "solver")
+                self.assertEqual(result.status, "unknown")
+                self.assertEqual(result.phase, "soundness")
+                run.assert_called_once()
+                self.assertIn("(assert true)", run.call_args.args[1])
+        with mock.patch.object(verifier, "_run_solver", return_value=subprocess.CompletedProcess(
+            ["solver"], 0, "unknown\n", "",
+        )) as run:
+            result = verifier.query_solver(problem, "solver")
+        self.assertEqual(result.status, "unknown")
+        run.assert_called_once()
+
+    def test_singleton_portfolio_reuses_branch_for_counterexample_model(self):
+        problem, value = self._singleton_problem(changed=True)
+        responses = (
+            subprocess.CompletedProcess(["solver"], 0, "sat\n", ""),
+            subprocess.CompletedProcess(["solver"], 0, f"sat\n(({value.atom} 7))\n", ""),
+        )
+        with mock.patch.object(verifier, "_run_solver", side_effect=responses) as run:
+            result = verifier.query_solver(problem, "solver", (value,))
+        self.assertEqual(result.status, "sat")
+        self.assertEqual(result.values, {value.atom: 7})
+        self.assertEqual(run.call_count, 2)
+        formulas = [call.args[1] for call in run.call_args_list]
+        self.assertNotIn("(get-value", formulas[0])
+        self.assertIn(f"(get-value ({value.atom}))", formulas[1])
+        self.assertEqual(formulas[0].split("(check-sat)")[0], formulas[1].split("(check-sat)")[0])
+
+    @unittest.skipUnless(SOLVER, "requires the pinned solver")
+    def test_singleton_portfolio_equivalence_mutation_and_language_totality(self):
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                problem, value = self._singleton_problem(changed=changed)
+                result = verifier.query_solver(problem, SOLVER, (value,), timeout_ms=10_000)
+                self.assertEqual(result.status, "sat" if changed else "unsat")
+                if changed:
+                    self.assertIn(value.atom, result.values)
+        empty, _ = self._singleton_problem(enabled=smt.FALSE)
+        self.assertIsNone(empty.preferred_branches)
+        self.assertEqual(verifier.query_solver(empty, SOLVER, timeout_ms=10_000).status, "sat")
+
+    @staticmethod
+    def _many_outcome_problem(count=17, *, left_count=1, changed_last=False,
+                              last_enabled=True, left_enabled=True):
+        script = smt.Script()
+        requested = script.fresh_constant('requested', smt.BOOL)
+        script.assert_term(requested)
+        columns = (Column('x', 'Int64', False),)
+
+        def outcome(value, enabled):
+            return relation_model.Outcome(
+                smt.TRUE if enabled else smt.FALSE,
+                relation_model.Relation(columns, (relation_model.Row(
+                    smt.TRUE, {'x': Value('Int64', smt.FALSE, smt.int_value(value))},
+                ),)),
+                smt.FALSE,
+            )
+
+        left = relation_model.RelationFamily(tuple(outcome(0, left_enabled) for _ in range(left_count)))
+        right = relation_model.RelationFamily(tuple(
+            outcome(int(changed_last and index == count - 1), last_enabled if index == count - 1 else True)
+            for index in range(count)
+        ))
+        mismatch = relation_model.family_mismatch(left, right, ScalarEncoder(script))
+        script.assert_obligation(mismatch.counterexample)
+        return Problem(script, {}, mismatch_branches=mismatch.branches,
+                       semantic_mismatch=relation_model.MismatchBranch('semantic_mismatch', mismatch.counterexample),
+                       preferred_branches=mismatch.preferred_branches), requested
+
+    @unittest.skipUnless(SOLVER, 'requires the pinned solver')
+    def test_grouped_outcomes_preserve_equivalence_and_the_last_counterexample(self):
+        for count in (16, 17, 24):
+            for changed in (False, True):
+                problem, requested = self._many_outcome_problem(count, changed_last=changed)
+                with self.subTest(count=count, changed=changed):
+                    self.assertIsNotNone(problem.preferred_branches)
+                    result = verifier.query_solver(problem, SOLVER, (requested,), timeout_ms=10_000)
+                    self.assertEqual(result.status, 'sat' if changed else 'unsat')
+                    if changed:
+                        self.assertEqual(result.values, {requested.atom: True})
+
+    @unittest.skipUnless(SOLVER, 'requires the pinned solver')
+    def test_grouped_outcomes_ignore_only_disabled_alternatives(self):
+        problem, _ = self._many_outcome_problem(changed_last=True, last_enabled=False)
+        self.assertEqual(verifier.query_solver(problem, SOLVER, timeout_ms=10_000).status, 'unsat')
+        problem, _ = self._many_outcome_problem(left_enabled=False)
+        self.assertEqual(verifier.query_solver(problem, SOLVER, timeout_ms=10_000).status, 'sat')
+
+    def test_multiple_logical_outcomes_keep_the_canonical_probe(self):
+        problem, _ = self._many_outcome_problem(left_count=2)
+        self.assertIsNone(problem.preferred_branches)
+        with mock.patch.object(verifier, '_run_solver', return_value=subprocess.CompletedProcess(
+            ['solver'], 0, 'unsat\n', '',
+        )) as run:
+            self.assertEqual(verifier.query_solver(problem, 'solver').status, 'unsat')
+        run.assert_called_once()
+
+    def test_grouped_outcomes_cannot_skip_the_model_domain(self):
+        problem, _ = self._many_outcome_problem()
+        exclusion = relation_model.MismatchBranch('out_of_model', smt.TRUE)
+        problem = replace(problem, soundness_exclusion=exclusion, soundness_exclusions=(exclusion,))
+        with mock.patch.object(verifier, '_run_solver', return_value=subprocess.CompletedProcess(
+            ['solver'], 0, 'sat\n', '',
+        )) as run:
+            result = verifier.query_solver(problem, 'solver')
+        self.assertEqual(result.status, 'unknown')
+        self.assertEqual(result.phase, 'soundness')
+        run.assert_called_once()
+
+    def test_render_time_reduces_the_solver_process_deadline(self):
+        now = [100.0]
+        problem = mock.Mock()
+
+        def render(**kwargs):
+            now[0] = 100.75
+            return '(check-sat)'
+
+        def run(solver, formula, timeout):
+            self.assertGreater(timeout, 0)
+            self.assertLessEqual(timeout, 0.25)
+            return subprocess.CompletedProcess([solver], 0, 'unsat\n', '')
+
+        problem.formula.side_effect = render
+        with (mock.patch.object(verifier.time, 'monotonic', side_effect=lambda: now[0]),
+              mock.patch.object(verifier, '_run_solver', side_effect=run)):
+            budget = verifier._SolverBudget.start(1000)
+            result = verifier._query_obligation(problem, 'z3', (), budget, None)
+        self.assertEqual(result.status, 'unsat')
+
+    def test_model_render_time_reduces_the_solver_process_deadline(self):
+        now = [100.0]
+        problem = mock.Mock()
+        requested = (smt.symbol('v_0', smt.BOOL),)
+
+        def render(*args, **kwargs):
+            now[0] = 100.8 if args else 100.1
+            return '(check-sat)'
+
+        calls = []
+
+        def run(solver, formula, timeout):
+            calls.append(timeout)
+            if len(calls) == 1:
+                now[0] = 100.2
+                return subprocess.CompletedProcess([solver], 0, 'sat\n', '')
+            self.assertGreater(timeout, 0)
+            self.assertLessEqual(timeout, 0.200001)
+            return subprocess.CompletedProcess([solver], 0, 'sat\n((v_0 true))\n', '')
+
+        problem.formula.side_effect = render
+        with (mock.patch.object(verifier.time, 'monotonic', side_effect=lambda: now[0]),
+              mock.patch.object(verifier, '_run_solver', side_effect=run)):
+            budget = verifier._SolverBudget.start(1000)
+            result = verifier._query_obligation(problem, 'z3', requested, budget, None)
+        self.assertEqual(result.status, 'sat')
+        self.assertEqual(result.values, {'v_0': True})
+        self.assertEqual(len(calls), 2)
+
+    def test_late_unsat_cannot_escape_the_solver_deadline(self):
+        now = [100.0]
+        problem = mock.Mock()
+        problem.formula.return_value = '(check-sat)'
+
+        def run(solver, formula, timeout):
+            now[0] = 101.01
+            return subprocess.CompletedProcess([solver], 0, 'unsat\n', '')
+
+        with (mock.patch.object(verifier.time, 'monotonic', side_effect=lambda: now[0]),
+              mock.patch.object(verifier, '_run_solver', side_effect=run)):
+            budget = verifier._SolverBudget.start(1000)
+            result = verifier._query_obligation(problem, 'z3', (), budget, None)
+        self.assertEqual(result.status, 'unknown')
+        self.assertIn('after the global solver deadline', result.reason)
+
+    def test_preferred_portfolio_shares_one_decreasing_solver_deadline(self):
+        problem, _, _ = self._preferred_branch_problem()
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+        tick = iter(index / 40 for index in range(40))
+
+        with (
+            mock.patch.object(verifier.time, "monotonic", side_effect=tick),
+            mock.patch.object(verifier, "_run_solver", return_value=unsat) as run,
+        ):
+            query = verifier.query_solver(problem, "z3", timeout_ms=1000)
+
+        self.assertEqual(query.status, "unsat")
+        formulas = [call.args[1] for call in run.call_args_list]
+        solver_timeouts = [
+            int(
+                next(
+                    line
+                    for line in formula.splitlines()
+                    if line.startswith("(set-option :timeout ")
+                ).removeprefix("(set-option :timeout ").removesuffix(")")
+            )
+            for formula in formulas
+        ]
+        process_timeouts = [call.args[2] for call in run.call_args_list]
+        self.assertGreater(solver_timeouts[0], 750)
+        self.assertGreater(solver_timeouts[0], solver_timeouts[1])
+        self.assertGreater(process_timeouts[0], process_timeouts[1])
+
+    def test_preferred_deadline_cannot_prove_with_an_untried_branch(self):
+        problem, _, _ = self._preferred_branch_problem()
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+        budget = mock.Mock()
+        budget.remaining_ms.side_effect = (1000, 1000, 1000, 1000, 0)
+        budget.process_timeout_seconds.return_value = 6.0
+
+        with (
+            mock.patch.object(verifier._SolverBudget, "start", return_value=budget),
+            mock.patch.object(verifier, "_run_solver", return_value=unsat) as run,
+        ):
+            query = verifier.query_solver(problem, "z3", timeout_ms=1000)
+
+        self.assertEqual(query.status, "unknown")
+        self.assertIn("deadline expired before branch 2/2", query.reason)
+        run.assert_called_once()
+
+    def test_preferred_deadline_does_not_overwrite_the_first_unknown(self):
+        problem, _, _ = self._preferred_branch_problem()
+        unknown = subprocess.CompletedProcess(["z3"], 0, "unknown\n", "")
+        budget = mock.Mock()
+        budget.remaining_ms.side_effect = (1000, 1000, 1000, 0)
+        budget.process_timeout_seconds.return_value = 6.0
+
+        with (
+            mock.patch.object(verifier._SolverBudget, "start", return_value=budget),
+            mock.patch.object(verifier, "_run_solver", return_value=unknown) as run,
+        ):
+            query = verifier.query_solver(problem, "z3", timeout_ms=1000)
+
+        self.assertEqual(query.status, "unknown")
+        self.assertIn("branch 1/2 (preferred_0): solver returned unknown", query.reason)
+        self.assertNotIn("deadline expired before branch 2/2", query.reason)
+        run.assert_called_once()
+
+    def test_ordinary_portfolio_retains_canonical_first_scheduling(self):
+        problem, _, predicates = self._branch_problem()
+        responses = (
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "sat\n", ""),
+        )
+
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            side_effect=responses,
+        ) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "sat")
+        formulas = [call.args[1] for call in run.call_args_list]
+        self.assertNotIn(f"(assert {predicates[0].render()})", formulas[0])
+        self.assertNotIn(f"(assert {predicates[1].render()})", formulas[0])
+        self.assertIn(f"(assert {predicates[0].render()})", formulas[1])
+
+    def test_all_exact_branches_must_be_unsat_after_canonical_unknown(self):
+        problem, _, _ = self._branch_problem(3)
+        responses = [
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            *(
+                subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+                for _ in range(3)
+            ),
+        ]
+
+        with mock.patch.object(verifier, "_run_solver", side_effect=responses) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unsat")
+        self.assertEqual(run.call_count, 4)
+
+    def test_later_sat_wins_after_unknown_and_reuses_its_branch_for_model(self):
+        problem, requested, predicates = self._branch_problem()
+        responses = [
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "sat\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "sat\n((v_0 true))\n", ""),
+        ]
+
+        with mock.patch.object(verifier, "_run_solver", side_effect=responses) as run:
+            query = verifier.query_solver(problem, "z3", (requested,))
+
+        self.assertEqual(query.status, "sat")
+        self.assertEqual(query.values, {"v_0": True})
+        formulas = [call.args[1] for call in run.call_args_list]
+        first_assertion = f"(assert {predicates[0].render()})"
+        winning_assertion = f"(assert {predicates[1].render()})"
+        self.assertNotIn(first_assertion, formulas[0])
+        self.assertIn(first_assertion, formulas[1])
+        self.assertNotIn(winning_assertion, formulas[1])
+        self.assertIn(winning_assertion, formulas[2])
+        self.assertIn(winning_assertion, formulas[3])
+        self.assertNotIn(first_assertion, formulas[2])
+        self.assertNotIn(first_assertion, formulas[3])
+        self.assertNotIn("(get-value", formulas[2])
+        self.assertIn("(get-value (v_0))", formulas[3])
+
+    def test_unknown_branch_is_retained_after_all_other_branches_are_unsat(self):
+        problem, _, _ = self._branch_problem(3)
+        responses = [
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+        ]
+
+        with mock.patch.object(verifier, "_run_solver", side_effect=responses) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unknown")
+        self.assertIn("branch 2/3 (branch_1)", query.reason)
+        self.assertEqual(run.call_count, 4)
+
+    def test_problem_without_exact_branches_keeps_the_legacy_single_query(self):
+        script = smt.Script()
+        obligation = script.fresh_constant("obligation", smt.BOOL)
+        script.assert_term(obligation)
+        problem = Problem(script, {})
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+
+        with mock.patch.object(verifier, "_run_solver", return_value=unsat) as run:
+            query = verifier.query_solver(problem, "z3")
+
+        self.assertEqual(query.status, "unsat")
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[1], script.render())
+
+    def test_empty_exact_branch_set_cannot_verify(self):
+        with self.assertRaisesRegex(SolverError, "has no branches"):
+            verifier.query_solver(Problem(smt.Script(), {}, ()), "z3")
+
+    def test_empty_preferred_portfolio_cannot_verify(self):
+        problem, _, _ = self._branch_problem()
+        with self.assertRaisesRegex(SolverError, "preferred.*has no branches"):
+            verifier.query_solver(
+                replace(problem, preferred_branches=()),
+                "z3",
+            )
+
+    def test_portfolio_shares_one_decreasing_solver_deadline(self):
+        problem, _, _ = self._branch_problem()
+        responses = [
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+        ]
+        tick = iter(index / 40 for index in range(40))
+
+        with (
+            mock.patch.object(verifier.time, "monotonic", side_effect=tick),
+            mock.patch.object(verifier, "_run_solver", side_effect=responses) as run,
+        ):
+            query = verifier.query_solver(problem, "z3", timeout_ms=1000)
+
+        self.assertEqual(query.status, "unsat")
+        formulas = [call.args[1] for call in run.call_args_list]
+        solver_timeouts = [
+            int(
+                next(
+                    line
+                    for line in formula.splitlines()
+                    if line.startswith("(set-option :timeout ")
+                ).removeprefix("(set-option :timeout ").removesuffix(")")
+            )
+            for formula in formulas
+        ]
+        process_timeouts = [call.args[2] for call in run.call_args_list]
+        self.assertEqual(solver_timeouts[0], 750)
+        self.assertGreater(solver_timeouts[1], solver_timeouts[2])
+        self.assertGreater(process_timeouts[1], process_timeouts[2])
+
+    def test_expired_global_deadline_stops_before_the_next_branch(self):
+        problem, _, _ = self._branch_problem()
+        responses = [
+            subprocess.CompletedProcess(["z3"], 0, "unknown\n", ""),
+            subprocess.CompletedProcess(["z3"], 0, "unsat\n", ""),
+        ]
+        clock = iter((0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.1))
+
+        with (
+            mock.patch.object(verifier.time, "monotonic", side_effect=clock),
+            mock.patch.object(verifier, "_run_solver", side_effect=responses) as run,
+        ):
+            query = verifier.query_solver(problem, "z3", timeout_ms=1000)
+
+        self.assertEqual(query.status, "unknown")
+        self.assertIn("deadline expired before branch 2/2", query.reason)
+        self.assertEqual(run.call_count, 2)
+
+    def test_unsat_arriving_during_process_grace_cannot_verify(self):
+        problem, _, _ = self._branch_problem(1)
+        unsat = subprocess.CompletedProcess(["z3"], 0, "unsat\n", "")
+        clock = iter((0.0, 0.1, 0.2, 0.3, 1.1, 1.2))
+
+        with (
+            mock.patch.object(verifier.time, "monotonic", side_effect=clock),
+            mock.patch.object(verifier, "_run_solver", return_value=unsat),
+        ):
+            query = verifier.query_solver(problem, "z3", timeout_ms=1000)
+
+        self.assertEqual(query.status, "unknown")
+        self.assertIn("deadline expired before branch 1/1", query.reason)
+
+    def test_solver_process_timeout_is_unknown(self):
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            side_effect=verifier._ProcessDeadlineExceeded,
+        ):
+            result = solve(Problem(smt.Script(), {}), "z3", 0)
+
+        self.assertEqual(result.status, "UNKNOWN")
+        self.assertIn("process exceeded", result.reason)
+
+    def test_model_process_timeout_preserves_the_confirmed_counterexample(self):
+        script = smt.Script()
+        present = script.fresh_constant("present", smt.BOOL)
+        problem = Problem(
+            script,
+            {"A": (relation_model.WitnessRow(present, {}),)},
+        )
+        sat = subprocess.CompletedProcess(["z3"], 0, "sat\n", "")
+
+        with mock.patch.object(
+            verifier,
+            "_run_solver",
+            side_effect=[sat, verifier._ProcessDeadlineExceeded],
+        ):
+            result = solve(problem, "z3", 1)
+
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+        self.assertIsNone(result.witness)
+        self.assertIn("extracting its model", result.reason)
+
+    def test_solver_error_cannot_be_reported_as_verified(self):
+        process = subprocess.CompletedProcess(
+            args=["z3"],
+            returncode=1,
+            stdout="unsat\n",
+            stderr="parser error\n",
+        )
+        with mock.patch.object(verifier, "_run_solver", return_value=process):
+            with self.assertRaisesRegex(SolverError, "parser error"):
+                solve(Problem(smt.Script(), {}), "z3", 0)
+
+    def test_extra_solver_responses_cannot_be_reported_as_verified(self):
+        for output in (
+            "unsat\nsat\n",
+            "unsat\nsuccess\n",
+            'unsat\n(error\n"late")\n',
+        ):
+            process = subprocess.CompletedProcess(
+                args=["z3"],
+                returncode=0,
+                stdout=output,
+                stderr="",
+            )
+            with self.subTest(output=output):
+                with mock.patch.object(verifier, "_run_solver", return_value=process):
+                    with self.assertRaisesRegex(SolverError, "exactly one solver status"):
+                        solve(Problem(smt.Script(), {}), "z3", 0)
+
+    def test_extra_witness_response_is_rejected(self):
+        with self.assertRaisesRegex(SolverError, "SAT and one get-value response"):
+            verifier._get_values("sat\n((v_0 true))\nsat\n")
+
+    def test_model_unknown_does_not_hide_solver_protocol_errors(self):
+        script = smt.Script()
+        requested = script.fresh_constant("requested", smt.BOOL)
+        first = subprocess.CompletedProcess(["z3"], 0, "sat\n", "")
+        malformed = (
+            subprocess.CompletedProcess(["z3"], 1, "unknown\n", "fatal\n"),
+            subprocess.CompletedProcess(["z3"], 0, "unknown\nsat\n", ""),
+        )
+        for second in malformed:
+            with self.subTest(second=second):
+                with mock.patch.object(verifier, "_run_solver", side_effect=[first, second]):
+                    with self.assertRaises(SolverError):
+                        verifier.query_solver(Problem(script, {}), "z3", (requested,))
+
+    def test_model_unknown_preserves_the_confirmed_counterexample(self):
+        script = smt.Script()
+        present = script.fresh_constant("present", smt.BOOL)
+        problem = Problem(script, {"A": (relation_model.WitnessRow(present, {}),)})
+        responses = [
+            subprocess.CompletedProcess(["z3"], 0, "sat\n", ""),
+            subprocess.CompletedProcess(
+                ["z3"],
+                1,
+                'unknown\n(error "model is not available")\n',
+                "",
+            ),
+        ]
+        with mock.patch.object(verifier, "_run_solver", side_effect=responses):
+            result = solve(problem, "z3", 1)
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+        self.assertIsNone(result.witness)
+        self.assertIn("model", result.reason)
+
+    def test_schema_mismatch_is_a_correctness_verdict(self):
+        output = io.StringIO()
+        with (
+            mock.patch.object(cli, "load_snapshot", return_value=mock.sentinel.snapshot),
+            mock.patch.object(cli, "build_problem", side_effect=SchemaMismatch("changed root")),
+            redirect_stdout(output),
+        ):
+            exit_code = cli.main(["before.json", "after.json", "--emit-smt", "formula.smt2"])
+        self.assertEqual(exit_code, 1)
+        self.assertIn('"status": "SCHEMA_MISMATCH"', output.getvalue())
+        self.assertIn('"task_bound": 2', output.getvalue())
+
+    def test_root_nullability_is_part_of_the_contract(self):
+        nullable = parse_snapshot(
+            {
+                "format": "ydb-rbo-semantic-snapshot",
+                "version": 1,
+                "schema": {"tables": []},
+                "plan": {
+                    "nodes": [
+                        {"id": "source", "op": "empty_source"},
+                        {
+                            "id": "project",
+                            "op": "project",
+                            "input": "source",
+                            "ordered": False,
+                            "columns": [
+                                {
+                                    "output": "result",
+                                    "expression": {
+                                        "kind": "opaque",
+                                        "fingerprint": "nullable_constant",
+                                        "type": "Int64",
+                                        "nullable": True,
+                                        "args": [],
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                    "root": "project",
+                    "output": ["result"],
+                    "subplans": [],
+                },
+                "stage_graph": None,
+            }
+        )
+        with self.assertRaisesRegex(SchemaMismatch, "root output nullability differs"):
+            build_logical_kernel_problem_for_tests(constant_snapshot(1), nullable, 0)
+
+    def test_root_output_name_is_part_of_the_contract(self):
+        with self.assertRaisesRegex(SchemaMismatch, "root output names or order differ"):
+            build_logical_kernel_problem_for_tests(
+                constant_snapshot(1, "before_name"),
+                constant_snapshot(1, "after_name"),
+                0,
+            )
+
+    def test_exact_integer_width_is_part_of_the_contract(self):
+        with self.assertRaisesRegex(SchemaMismatch, "root output type differs"):
+            build_logical_kernel_problem_for_tests(
+                constant_snapshot(1, scalar_type="Int32"),
+                constant_snapshot(1, scalar_type="Int64"),
+                0,
+            )
+
+
+class BundleContractTest(unittest.TestCase):
+    @staticmethod
+    def _family(values, *, ordered=False, error=False):
+        return relation_model.RelationFamily((relation_model.Outcome(
+            smt.TRUE,
+            relation_model.Relation((Column("x", "Int64", False),), tuple(
+                relation_model.Row(smt.TRUE, {"x": Value("Int64", smt.FALSE, smt.int_value(value))})
+                for value in values
+            ), sequence=ordered),
+            smt.bool_value(error),
+        ),))
+
+    def test_tuple_order_bag_multiplicity_and_whole_query_error(self):
+        def seq(values, **kw):
+            return self._family(values, ordered=True, **kw)
+
+        bag = self._family
+        before = (seq([1, 2]), bag([3, 3]))
+        sparse = seq([1, 99, 2])
+        outcome = sparse.outcomes[0]
+        sparse = relation_model.RelationFamily((replace(outcome, relation=replace(
+            outcome.relation,
+            rows=tuple(replace(row, present=smt.FALSE) if index == 1 else row
+                       for index, row in enumerate(outcome.relation.rows)),
+        )),))
+        cases = (
+            (before, (seq([1, 2]), bag([3, 3])), False),
+            (before, (sparse, bag([3, 3])), False),
+            (before, (seq([2, 1]), bag([3, 3])), True),
+            (before, (seq([1, 2]), bag([3])), True),
+            ((bag([1]), bag([2])), (bag([2]), bag([1])), True),
+            ((bag([1], error=True), bag([2])), (bag([9]), bag([], error=True)), False),
+            ((bag([1], error=True), bag([2])), (bag([1]), bag([2])), True),
+        )
+        for left, right, expected in cases:
+            with self.subTest(expected=expected, left=left, right=right):
+                scalar = ScalarEncoder(smt.Script())
+                mismatch = relation_model.bundle_mismatch(tuple(zip(left, right)), scalar)
+                self.assertEqual(_evaluate_ground_term(mismatch.counterexample, {}), expected)
+
+    def test_shared_local_choices_or_decisions_are_not_independent_roots(self):
+        scalar = ScalarEncoder(smt.Script())
+        ordinary = self._family([1])
+        choice = relation_model.BoundedChoice(scalar.script.fresh_constant("choice", smt.INT), 2)
+        for fields in ({"choices": (choice,)}, {"decisions": (("shared", 0),)}):
+            shared = relation_model.RelationFamily((replace(ordinary.outcomes[0], **fields),))
+            with self.subTest(fields=fields), self.assertRaisesRegex(RelationError, "share local choices"):
+                relation_model.bundle_mismatch(((shared, ordinary), (shared, ordinary)), scalar)
+        shared = relation_model.RelationFamily((replace(ordinary.outcomes[0], choices=(choice,)),))
+        with self.assertRaisesRegex(RelationError, "comparison sides share bounded choice"):
+            relation_model.bundle_mismatch(((shared, ordinary), (ordinary, shared)), scalar)
+        for owner_side in (0, 1):
+            scalar = ScalarEncoder(smt.Script())
+            choice = relation_model.BoundedChoice(scalar.script.fresh_constant("late", smt.INT), 2)
+            owner = replace(ordinary.outcomes[0], choices=(choice,))
+            missing = replace(ordinary.outcomes[0], relation=replace(ordinary.outcomes[0].relation, rows=(
+                relation_model.Row(smt.TRUE, {"x": Value("Int64", smt.FALSE, choice.term)}),
+            )))
+            later = [ordinary, ordinary]
+            later[owner_side] = relation_model.RelationFamily((owner,))
+            with self.subTest(owner_side=owner_side), self.assertRaisesRegex(RelationError, "without carrying"):
+                relation_model.bundle_mismatch(((relation_model.RelationFamily((missing,)), ordinary), tuple(later)), scalar)
+
+    def test_joint_prefix_sequences_do_not_build_quadratic_position_tags(self):
+        source = self._family(range(256), ordered=True)
+        outcome = source.outcomes[0]
+        prefix = relation_model.RelationFamily((replace(
+            outcome, relation=replace(outcome.relation, present_prefix=True),
+        ),))
+        scalar = ScalarEncoder(smt.Script())
+        with mock.patch.object(relation_model, "_compressed_rank", side_effect=AssertionError("already a prefix")):
+            mismatch = relation_model.bundle_mismatch(((prefix, prefix), (prefix, prefix)), scalar)
+        self.assertEqual(mismatch.counterexample, smt.FALSE)
+
+    def test_catalog_union_is_shared_and_conflicts_fail_closed(self):
+        before = passthrough_stage_snapshot()
+        after = passthrough_stage_snapshot({"kind": "map"})
+        table = before.tables[0]
+        extended = replace(table, columns=table.columns + (Column("extra", "Int64", True),))
+        pair = (replace(before, tables=(extended,)), replace(after, tables=(extended,)))
+        problem = bundle.build_bundle_problem(((before, after), pair), 2)
+        self.assertEqual(set(problem.witness), {"A"})
+        self.assertEqual(len(problem.witness["A"]), 2)
+        self.assertEqual(set(problem.witness["A"][0].cells), {"k", "x", "extra"})
+        with self.assertRaisesRegex(VerificationError, "final snapshot.*stage_graph"):
+            bundle.build_bundle_problem(((before, before),), 2)
+        conflict = replace(table, columns=(replace(table.columns[0], nullable=True), table.columns[1]))
+        with self.assertRaisesRegex(VerificationError, "conflicting metadata"):
+            bundle.build_bundle_problem(((before, after), (
+                replace(before, tables=(conflict,)), replace(after, tables=(conflict,)),
+            )), 2)
+
+    def test_versioned_manifest_and_cli_exclude_partial_or_mixed_modes(self):
+        pair = (passthrough_stage_snapshot(), passthrough_stage_snapshot({"kind": "map"}))
+        value = {"format": "ydb-rbo-result-bundle", "version": 1,
+                 "observation": "buffered_tuple_or_error", "results": [
+                     {"before": "a.initial.json", "after": "a.final.json"},
+                     {"before": "b.initial.json", "after": "b.final.json"},
+                 ]}
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "bundle.json"
+            manifest.write_text(json.dumps(value), encoding="utf-8")
+            with mock.patch.object(bundle, "load_snapshot", side_effect=pair * 2):
+                self.assertEqual(bundle.load_bundle(manifest), (pair, pair))
+            for invalid in (
+                {**value, "version": True}, {**value, "unexpected": 0}, {**value, "results": []},
+                {**value, "results": [value["results"][0], value["results"][0]]},
+            ):
+                manifest.write_text(json.dumps(invalid), encoding="utf-8")
+                with mock.patch.object(bundle, "load_snapshot", side_effect=pair * 2), self.assertRaises(VerificationError):
+                    bundle.load_bundle(manifest)
+            manifest.write_text('{"version":1,"version":1}', encoding="utf-8")
+            with self.assertRaisesRegex(VerificationError, "repeats field"):
+                bundle.load_bundle(manifest)
+            output = io.StringIO()
+            with mock.patch.object(cli, "load_bundle", return_value=(pair, pair)), redirect_stdout(output):
+                self.assertEqual(cli.main(["--bundle", str(manifest), "--emit-smt", str(Path(directory) / "proof.smt2")]), 0)
+            self.assertEqual(json.loads(output.getvalue())["comparison_scope"], "BUFFERED_RESULT_BUNDLE")
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(cli.main(["before", "after", "--bundle", str(manifest)]), 2)
+
+
+class BoundaryContractTest(unittest.TestCase):
+    def test_initial_boundary_must_be_logical(self):
+        staged = passthrough_stage_snapshot({"kind": "map"})
+        logical = passthrough_stage_snapshot()
+        with self.assertRaisesRegex(VerificationError, "initial snapshot.*stage_graph:null"):
+            build_problem(staged, logical, 1)
+
+    def test_final_boundary_must_have_a_stage_graph(self):
+        logical = passthrough_stage_snapshot()
+        with self.assertRaisesRegex(VerificationError, "final snapshot.*non-null stage_graph"):
+            build_problem(logical, logical, 1)
+
+    def test_logical_kernel_escape_hatch_rejects_staged_snapshots(self):
+        logical = passthrough_stage_snapshot()
+        staged = passthrough_stage_snapshot({"kind": "map"})
+        with self.assertRaisesRegex(VerificationError, "test comparisons require stage_graph:null"):
+            build_logical_kernel_problem_for_tests(logical, staged, 1)
+
+    def test_transformation_prefix_accepts_logical_or_complete_staged_rhs(self):
+        logical = passthrough_stage_snapshot()
+        staged = passthrough_stage_snapshot({"kind": "map"})
+        self.assertIsInstance(
+            build_transformation_prefix_problem(logical, logical, 1), Problem
+        )
+        self.assertIsInstance(
+            build_transformation_prefix_problem(logical, staged, 1), Problem
+        )
+        with self.assertRaisesRegex(
+            VerificationError,
+            "transformation-prefix comparison requires a logical initial",
+        ):
+            build_transformation_prefix_problem(staged, logical, 1)
+
+    def test_cli_enforces_boundary_roles(self):
+        logical = passthrough_stage_snapshot()
+        errors = io.StringIO()
+        with (
+            mock.patch.object(cli, "load_snapshot", side_effect=[logical, logical]),
+            redirect_stderr(errors),
+        ):
+            exit_code = cli.main(
+                ["initial.json", "final.json", "--emit-smt", "unused.smt2"]
+            )
+        self.assertEqual(exit_code, 2)
+        self.assertIn('"status": "UNSUPPORTED"', errors.getvalue())
+        self.assertIn("final snapshot", errors.getvalue())
+
+    def test_transformation_pair_accepts_staged_left_without_weakening_normal_roles(self):
+        staged = passthrough_stage_snapshot({"kind": "map"})
+        logical = passthrough_stage_snapshot()
+        for after in (logical, staged):
+            problem = build_transformation_pair_problem(staged, after, 1, observation_snapshot=logical)
+            self.assertIsInstance(problem, Problem)
+            if SOLVER:
+                self.assertEqual(solve(problem, SOLVER, 1).status, "VERIFIED_BOUNDED")
+            with self.assertRaisesRegex(VerificationError, "initial snapshot"):
+                build_problem(staged, after, 1)
+        project = logical.plan.nodes[-1]
+        changed = replace(logical, plan=replace(logical.plan, nodes=(logical.plan.nodes[0], replace(
+            project, columns=(replace(project.columns[0], expression=Expr("literal", value=0, result_type="Int64", nullable=False)),),
+        ))))
+        problem = build_transformation_pair_problem(staged, changed, 1, observation_snapshot=logical)
+        if SOLVER:
+            self.assertEqual(solve(problem, SOLVER, 1).status, "COUNTEREXAMPLE")
+
+    @staticmethod
+    def observation_boundaries():
+        table = ir.Table("A", (Column("x", "Int64", False),), ())
+        scan = Scan("scan", "A", (ScanColumn("x", "x"),), None, None)
+        initial = ir.Snapshot((table,), ir.Plan((scan,), "scan", ("x",), ()))
+        sort = Sort("out", "scan", (SortOrder("x", True, True),), None, "final")
+        graph = ir.StageGraph("root", (
+            ir.Stage("source", ("scan",), (), (ir.StageOutput(0, "scan"),), "column"),
+            ir.Stage("root", ("out",), ("scan",), (ir.StageOutput(0, "out"),), None),
+        ), (ir.StageEdge("gather", "source", "root", 0, 0, 0, "union_all", parallel=False),))
+        ordered = replace(initial, plan=ir.Plan((scan, sort), "out", ("x",), ()), stage_graph=graph)
+        project = ir.Project("out", "scan", (ir.Projection("x", Expr("column", column="x")),), False)
+        unordered = replace(ordered, plan=replace(ordered.plan, nodes=(scan, project)))
+        return initial, ordered, unordered
+
+    @unittest.skipUnless(SOLVER, "requires Z3")
+    def test_pair_uses_original_observation_and_retains_physical_selection(self):
+        initial, ordered, unordered = self.observation_boundaries()
+        ordered_initial = replace(ordered, stage_graph=None)
+        cases = (
+            (initial, ordered, unordered, "VERIFIED_BOUNDED"),
+            (initial, unordered, ordered, "VERIFIED_BOUNDED"),
+            (ordered_initial, ordered, unordered, "COUNTEREXAMPLE"),
+            (ordered_initial, unordered, ordered, "COUNTEREXAMPLE"),
+            # Neither intermediate carries order: compare both permutation languages.
+            (ordered_initial, initial, unordered, "VERIFIED_BOUNDED"),
+            # Bag observation ignores output order, never TopSort row selection.
+            (initial, replace(ordered, plan=replace(ordered.plan, nodes=(
+                ordered.plan.nodes[0], replace(ordered.plan.nodes[1], limit=Expr("literal", value=1, result_type="Uint64", nullable=False)),
+            ))), unordered, "COUNTEREXAMPLE"),
+        )
+        for anchor, before, after, expected in cases:
+            with self.subTest(anchor=anchor.plan.root, before=before.plan.root, expected=expected):
+                problem = build_transformation_pair_problem(before, after, 2, observation_snapshot=anchor)
+                self.assertEqual(problem.observation_kind, "bag" if anchor is initial else "sequence")
+                self.assertEqual(solve(problem, SOLVER, 2).status, expected)
+
+    def test_pair_observation_contract_and_common_scalar_mode(self):
+        initial, ordered, unordered = self.observation_boundaries()
+        with self.assertRaisesRegex(VerificationError, "logical initial"):
+            build_transformation_pair_problem(ordered, unordered, 2, observation_snapshot=ordered)
+        with self.assertRaisesRegex(VerificationError, "same ordered table schema"):
+            build_transformation_pair_problem(ordered, unordered, 2, observation_snapshot=replace(
+                initial, tables=(replace(initial.tables[0], unique_keys=(ir.UniqueKey(("x",), False),)),),
+            ))
+        renamed = ir.Project("renamed", "scan", (ir.Projection("y", Expr("column", column="x")),), False)
+        wrong_output = replace(initial, plan=ir.Plan((initial.plan.nodes[0], renamed), "renamed", ("y",), ()))
+        with self.assertRaisesRegex(VerificationError, "observation snapshot is incompatible") as error:
+            build_transformation_pair_problem(ordered, unordered, 2, observation_snapshot=wrong_output)
+        self.assertNotIsInstance(error.exception, SchemaMismatch)
+        with self.assertRaises(SchemaMismatch):
+            build_transformation_pair_problem(initial, wrong_output, 2, observation_snapshot=initial)
+        promoted = build_transformation_pair_problem(ordered, unordered, 1, observation_snapshot=replace(
+            initial, semantic_mode=ir.BINARY64_SEMANTIC_MODE,
+        ))
+        self.assertEqual(promoted.semantic_mode, ir.BINARY64_SEMANTIC_MODE)
+        empty_anchor = replace(initial, plan=ir.Plan((initial.plan.nodes[0], Filter(
+            "empty", "scan", Expr("literal", value=False, result_type="Bool", nullable=False),
+        )), "empty", ("x",), ()))
+        # Only the observation kind flows out of the isolated anchor evaluator.
+        self.assertEqual(
+            build_transformation_pair_problem(ordered, unordered, 2, observation_snapshot=initial).formula(),
+            build_transformation_pair_problem(ordered, unordered, 2, observation_snapshot=empty_anchor).formula(),
+        )
+
+    def test_cli_labels_the_explicit_transformation_prefix_scope(self):
+        logical = passthrough_stage_snapshot()
+        output = io.StringIO()
+        problem = Problem(smt.Script(), {})
+        with (
+            mock.patch.object(cli, "load_snapshot", side_effect=[logical, logical]),
+            mock.patch.object(
+                cli, "build_transformation_prefix_problem", return_value=problem
+            ) as builder,
+            mock.patch.object(cli.Path, "write_text"),
+            redirect_stdout(output),
+        ):
+            exit_code = cli.main([
+                "initial.json",
+                "prefix.json",
+                "--diagnostic-transformation-prefix",
+                "--emit-smt",
+                "unused.smt2",
+            ])
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            '"comparison_scope": "OPTIMIZER_TRANSFORMATION_PREFIX"',
+            output.getvalue(),
+        )
+        builder.assert_called_once_with(logical, logical, 2, 10_000)
+
+    def test_cli_labels_transformation_pair_and_excludes_bundle(self):
+        staged = passthrough_stage_snapshot({"kind": "map"})
+        logical = passthrough_stage_snapshot()
+        source = b'{"original":"bytes"}\n'
+        output = io.StringIO()
+        with (mock.patch.object(cli, "load_snapshot", return_value=staged),
+              mock.patch.object(cli.Path, "read_bytes", return_value=source),
+              mock.patch.object(cli, "parse_snapshot", return_value=logical) as parse,
+              mock.patch.object(cli, "build_transformation_pair_problem", return_value=Problem(smt.Script(), {}, observation_kind="bag")) as builder,
+              mock.patch.object(cli.Path, "write_text"), redirect_stdout(output)):
+            self.assertEqual(cli.main(["a.json", "b.json", "--diagnostic-transformation-pair", "--diagnostic-observation-snapshot", "initial.json", "--emit-smt", "unused.smt2"]), 0)
+        builder.assert_called_once_with(staged, staged, 2, 10_000, observation_snapshot=logical)
+        parse.assert_called_once_with({"original": "bytes"})
+        verdict = json.loads(output.getvalue())
+        self.assertEqual(verdict["comparison_scope"], "OPTIMIZER_TRANSFORMATION_PAIR")
+        self.assertEqual(verdict["observation_kind"], "bag")
+        self.assertEqual(verdict["observation_snapshot_sha256"], hashlib.sha256(source).hexdigest())
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.main(["--bundle", "bundle.json", "--diagnostic-transformation-pair"]), 2)
+            self.assertEqual(cli.main(["a", "b", "--diagnostic-transformation-pair", "--emit-smt", "unused"]), 2)
+            self.assertEqual(cli.main(["a", "b", "--diagnostic-observation-snapshot", "initial", "--emit-smt", "unused"]), 2)
+
+
+class _MissingFunction(Exception):
+    def __init__(self, key, sort):
+        super().__init__(key)
+        self.key = key
+        self.sort = sort
+
+
+def _restricted_domain_has_model(script):
+    """Exhaust a tiny data domain and all Boolean/UF choices.
+
+    This is deliberately test-only and independent of SMT-LIB rendering. It
+    produces valid witnesses when true. False only means that this restricted
+    domain has no witness; solver-backed tests establish actual UNSAT results.
+    """
+
+    root = smt.and_(*script.assertions)
+    symbols = {}
+    integer_literals = {0, 1}
+
+    def collect(term):
+        if term.operation == "symbol":
+            symbols[term.atom] = term.sort
+        elif term.operation == "int" and -2 <= term.atom <= 2:
+            integer_literals.add(term.atom)
+        for argument in term.arguments:
+            collect(argument)
+
+    collect(root)
+    names = tuple(sorted(symbols))
+    domains = {smt.BOOL: (False, True), smt.INT: tuple(sorted(integer_literals))}
+
+    def evaluate(term, constants, functions):
+        if term.operation == "symbol":
+            return constants[term.atom]
+        if term.operation in {"bool", "int"}:
+            return term.atom
+        if term.operation == "not":
+            return not evaluate(term.arguments[0], constants, functions)
+        if term.operation == "and":
+            return all(evaluate(argument, constants, functions) for argument in term.arguments)
+        if term.operation == "or":
+            return any(evaluate(argument, constants, functions) for argument in term.arguments)
+        if term.operation == "=":
+            return evaluate(term.arguments[0], constants, functions) == evaluate(
+                term.arguments[1], constants, functions
+            )
+        if term.operation == "<":
+            return evaluate(term.arguments[0], constants, functions) < evaluate(
+                term.arguments[1], constants, functions
+            )
+        if term.operation == "ite":
+            branch = term.arguments[1] if evaluate(term.arguments[0], constants, functions) else term.arguments[2]
+            return evaluate(branch, constants, functions)
+        if term.operation == "+":
+            return sum(evaluate(argument, constants, functions) for argument in term.arguments)
+        if term.operation == "mod":
+            return evaluate(term.arguments[0], constants, functions) % evaluate(
+                term.arguments[1], constants, functions
+            )
+        if term.operation.startswith("f_"):
+            key = (
+                term.operation,
+                tuple(evaluate(argument, constants, functions) for argument in term.arguments),
+            )
+            if key not in functions:
+                raise _MissingFunction(key, term.sort)
+            return functions[key]
+        raise AssertionError(f"unsupported test SMT operation {term.operation!r}")
+
+    def choose_functions(constants, functions):
+        try:
+            return evaluate(root, constants, functions) is True
+        except _MissingFunction as missing:
+            for value in domains[missing.sort]:
+                functions[missing.key] = value
+                if choose_functions(constants, functions):
+                    return True
+            del functions[missing.key]
+            return False
+
+    for values in product(*(domains[symbols[name]] for name in names)):
+        if choose_functions(dict(zip(names, values)), {}):
+            return True
+    return False
+
+
+def _evaluate_ground_term(term, constants, function_value=None):
+    if term.operation == "symbol":
+        return constants[term.atom]
+    if term.operation in {"bool", "int"}:
+        return term.atom
+    if term.operation == "not":
+        return not _evaluate_ground_term(term.arguments[0], constants, function_value)
+    if term.operation == "and":
+        return all(
+            _evaluate_ground_term(argument, constants, function_value)
+            for argument in term.arguments
+        )
+    if term.operation == "or":
+        return any(
+            _evaluate_ground_term(argument, constants, function_value)
+            for argument in term.arguments
+        )
+    if term.operation == "=":
+        return _evaluate_ground_term(
+            term.arguments[0], constants, function_value
+        ) == _evaluate_ground_term(
+            term.arguments[1], constants, function_value
+        )
+    if term.operation == "<":
+        return _evaluate_ground_term(
+            term.arguments[0], constants, function_value
+        ) < _evaluate_ground_term(
+            term.arguments[1], constants, function_value
+        )
+    if term.operation == "ite":
+        branch = (
+            term.arguments[1]
+            if _evaluate_ground_term(term.arguments[0], constants, function_value)
+            else term.arguments[2]
+        )
+        return _evaluate_ground_term(branch, constants, function_value)
+    if term.operation == "+":
+        return sum(
+            _evaluate_ground_term(argument, constants, function_value)
+            for argument in term.arguments
+        )
+    if term.operation == "-":
+        left, right = term.arguments
+        return _evaluate_ground_term(
+            left, constants, function_value
+        ) - _evaluate_ground_term(
+            right, constants, function_value
+        )
+    if term.operation == "*":
+        left, right = term.arguments
+        return _evaluate_ground_term(
+            left, constants, function_value
+        ) * _evaluate_ground_term(
+            right, constants, function_value
+        )
+    if term.operation == "div":
+        dividend = _evaluate_ground_term(
+            term.arguments[0], constants, function_value
+        )
+        divisor = _evaluate_ground_term(
+            term.arguments[1], constants, function_value
+        )
+        if dividend < 0 or divisor <= 0:
+            raise AssertionError(
+                "the concrete test evaluator only admits nonnegative "
+                "division by a positive integer"
+            )
+        return dividend // divisor
+    if term.operation == "mod":
+        return _evaluate_ground_term(
+            term.arguments[0], constants, function_value
+        ) % _evaluate_ground_term(
+            term.arguments[1], constants, function_value
+        )
+    if term.operation.startswith("f_") and function_value is not None:
+        return function_value(
+            term.operation,
+            tuple(
+                _evaluate_ground_term(argument, constants, function_value)
+                for argument in term.arguments
+            ),
+        )
+    raise AssertionError(f"non-ground SMT operation {term.operation!r}")
+
+
+class DirectUniqueRhsJoinTest(unittest.TestCase):
+    def test_runtime_presence_implication_language_is_explicit(self):
+        required = smt.symbol("base_present", smt.BOOL)
+        left_route = smt.symbol("left_route", smt.BOOL)
+        right_route = smt.symbol("right_route", smt.BOOL)
+        self.assertTrue(
+            relation_model._syntactically_implies(required, required)
+        )
+        self.assertTrue(
+            relation_model._syntactically_implies(
+                smt.and_(required, left_route),
+                required,
+            )
+        )
+        self.assertTrue(
+            relation_model._syntactically_implies(
+                smt.or_(
+                    smt.and_(required, left_route),
+                    smt.and_(right_route, required),
+                ),
+                required,
+            )
+        )
+        self.assertTrue(
+            relation_model._syntactically_implies(smt.FALSE, required)
+        )
+        self.assertFalse(
+            relation_model._syntactically_implies(
+                smt.or_(required, left_route),
+                required,
+            )
+        )
+
+    def test_compact_inner_and_left_match_independent_exhaustive_reference(self):
+        left_states = (
+            None,
+            (None, -1),
+            (0, -1),
+            (1, 2),
+        )
+        right_states = (
+            None,
+            (0, None),
+            (0, -1),
+            (1, 2),
+        )
+        for kind, extra_equality in product(
+            ("inner", "left"),
+            (False, True),
+        ):
+            snapshot = direct_unique_rhs_join_snapshot(
+                kind,
+                extra_equality=extra_equality,
+            )
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            relation = RelationEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+            ).root().certain()
+            self.assertEqual(len(relation.rows), 2)
+
+            for left_rows in product(left_states, repeat=2):
+                for right_rows in product(right_states, repeat=2):
+                    present_right_keys = [
+                        row[0] for row in right_rows if row is not None
+                    ]
+                    if len(present_right_keys) != len(set(present_right_keys)):
+                        continue
+                    expected = self._reference_bag(
+                        kind,
+                        left_rows,
+                        right_rows,
+                        extra_equality,
+                    )
+                    with self.subTest(
+                        kind=kind,
+                        extra_equality=extra_equality,
+                        left=left_rows,
+                        right=right_rows,
+                    ):
+                        self.assertEqual(
+                            self._symbolic_bag(
+                                relation,
+                                self._constants(
+                                    database,
+                                    left_rows,
+                                    right_rows,
+                                ),
+                            ),
+                            expected,
+                        )
+
+    def test_cross_type_coercion_can_collapse_distinct_unique_keys(self):
+        snapshot = direct_unique_rhs_join_snapshot(
+            "inner",
+            left_key_type="Decimal(35,34)",
+        )
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+        ).root().certain()
+        left_rows = ((decimal.INF, -1), None)
+        right_rows = ((10, -1), (11, -1))
+        self.assertEqual(len(relation.rows), 4)
+        self.assertEqual(
+            self._symbolic_bag(
+                relation,
+                self._constants(database, left_rows, right_rows),
+            ),
+            Counter(
+                {
+                    (decimal.INF, -1, 10, -1): 1,
+                    (decimal.INF, -1, 11, -1): 1,
+                }
+            ),
+        )
+
+    def test_gate_accepts_extra_key_and_falls_back_for_near_misses(self):
+        eligible = direct_unique_rhs_join_snapshot(
+            "inner",
+            extra_equality=True,
+        )
+        self.assertEqual(len(self._evaluate(eligible).rows), 2)
+        composite = direct_unique_rhs_join_snapshot(
+            "inner",
+            unique_key=("k", "x"),
+            right_value_nullable=False,
+            extra_equality=True,
+        )
+        self.assertEqual(len(self._evaluate(composite).rows), 2)
+
+        near_misses = {
+            "nonunique": direct_unique_rhs_join_snapshot(
+                "inner",
+                unique_key=(),
+            ),
+            "subset_key": direct_unique_rhs_join_snapshot(
+                "inner",
+                unique_key=("k", "x"),
+                right_value_nullable=False,
+            ),
+            "right_project": direct_unique_rhs_join_snapshot(
+                "inner",
+                right_project=True,
+            ),
+            "residual_predicate": direct_unique_rhs_join_snapshot(
+                "inner",
+                residual={"kind": "literal", "type": "Bool", "value": False},
+            ),
+            "scan_predicate": direct_unique_rhs_join_snapshot(
+                "inner",
+                scan_predicate=True,
+            ),
+            "scan_limit": direct_unique_rhs_join_snapshot(
+                "inner",
+                pushed_limit=True,
+            ),
+            "nullable_unique_key": direct_unique_rhs_join_snapshot(
+                "inner",
+                right_key_nullable=True,
+            ),
+            "coerced_unique_key": direct_unique_rhs_join_snapshot(
+                "inner",
+                left_key_type="Decimal(35,34)",
+            ),
+        }
+        for name, snapshot in near_misses.items():
+            with self.subTest(name=name):
+                self.assertEqual(
+                    len(
+                        self._evaluate(
+                            snapshot,
+                            defer_pushed_limits=name == "scan_limit",
+                        ).rows
+                    ),
+                    4,
+                )
+
+    def test_runtime_provenance_near_misses_fall_back(self):
+        snapshot = direct_unique_rhs_join_snapshot("inner")
+        mutations = {
+            "corrupt_occurrence": lambda rows: (
+                replace(
+                    rows[0],
+                    occurrence=relation_model.Occurrence("table", "A", 0),
+                ),
+                rows[1],
+            ),
+            "duplicate_occurrence": lambda rows: (
+                rows[0],
+                replace(rows[1], occurrence=rows[0].occurrence),
+            ),
+            "out_of_range_occurrence": lambda rows: (
+                replace(
+                    rows[0],
+                    occurrence=relation_model.Occurrence("table", "B", 2),
+                ),
+                rows[1],
+            ),
+            "corrupt_payload": lambda rows: (
+                replace(
+                    rows[0],
+                    values=dict(rows[0].values)
+                    | {
+                        "b.x": replace(
+                            rows[0].values["b.x"],
+                            value=smt.int_value(99),
+                        )
+                    },
+                ),
+                rows[1],
+            ),
+            "payload_metadata": lambda rows: (
+                replace(
+                    rows[0],
+                    values=dict(rows[0].values)
+                    | {
+                        "b.x": replace(
+                            rows[0].values["b.x"],
+                            average_metadata=IntegralAverageState(
+                                smt.ONE,
+                                smt.ZERO,
+                                smt.ZERO,
+                                1,
+                            ),
+                        )
+                    },
+                ),
+                rows[1],
+            ),
+            "unguarded_presence": lambda rows: (
+                replace(
+                    rows[0],
+                    present=smt.symbol("unrelated_presence", smt.BOOL),
+                ),
+                rows[1],
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                script = smt.Script()
+                database = Database(snapshot, 2, script)
+                scalar = ScalarEncoder(script)
+                original = RelationEvaluator(
+                    snapshot,
+                    database,
+                    scalar,
+                ).node("b").certain()
+                overridden = replace(
+                    original,
+                    rows=tuple(mutate(original.rows)),
+                )
+                relation = RelationEvaluator(
+                    snapshot,
+                    database,
+                    scalar,
+                    node_overrides={"b": relation_model.single(overridden)},
+                ).root().certain()
+                self.assertEqual(len(relation.rows), 4)
+
+    def test_syntactically_absent_rhs_row_payload_is_not_inspected(self):
+        snapshot = direct_unique_rhs_join_snapshot("inner")
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        scalar = ScalarEncoder(script)
+        original = RelationEvaluator(
+            snapshot,
+            database,
+            scalar,
+        ).node("b").certain()
+        right = replace(
+            original,
+            rows=(
+                replace(original.rows[0], present=smt.FALSE, values={}),
+                original.rows[1],
+            ),
+        )
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            scalar,
+            node_overrides={"b": relation_model.single(right)},
+        ).root().certain()
+        self.assertEqual(len(relation.rows), 2)
+
+    def test_unique_join_erases_syntactically_absent_left_slot(self):
+        snapshot = direct_unique_rhs_join_snapshot("inner")
+        script = smt.Script()
+        evaluator = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 2, script),
+            ScalarEncoder(script),
+        )
+        node = snapshot.plan.node_map()["join"]
+        assert isinstance(node, Join)
+        original = evaluator.node("a").certain()
+        right = evaluator.node("b").certain()
+        left = replace(
+            original,
+            rows=(
+                replace(original.rows[0], present=smt.FALSE, values={}),
+                original.rows[1],
+            ),
+        )
+        clean = replace(left, rows=(left.rows[1],))
+        for kind in ("inner", "left"):
+            with (
+                self.subTest(kind=kind),
+                mock.patch.object(relation_model, "MAX_RELATION_ROWS", 1),
+            ):
+                relation = evaluator._join(
+                    replace(node, kind=kind),
+                    left,
+                    right,
+                    output_columns=left.columns + right.columns,
+                )
+                self.assertEqual(len(relation.rows), 1)
+                self.assertEqual(
+                    relation,
+                    evaluator._join(
+                        replace(node, kind=kind),
+                        clean,
+                        right,
+                        output_columns=left.columns + right.columns,
+                    ),
+                )
+
+    def test_join_capacity_erases_only_syntactically_absent_inputs(self):
+        snapshot = direct_unique_rhs_join_snapshot("inner", unique_key=())
+        script = smt.Script()
+        evaluator = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 2, script),
+            ScalarEncoder(script),
+        )
+        original_left = evaluator.node("a").certain()
+        original_right = evaluator.node("b").certain()
+        left = replace(
+            original_left,
+            rows=(
+                replace(
+                    original_left.rows[0],
+                    present=smt.FALSE,
+                    values={},
+                ),
+                replace(original_left.rows[1], present=smt.TRUE),
+            ),
+            sequence=True,
+            ordinals=(smt.ZERO, smt.ONE),
+        )
+        right = replace(
+            original_right,
+            rows=(
+                replace(original_right.rows[0], present=smt.TRUE),
+                replace(
+                    original_right.rows[1],
+                    present=smt.FALSE,
+                    values={},
+                ),
+            ),
+            sequence=True,
+            present_prefix=True,
+        )
+        true = Expr(
+            kind="literal",
+            value=True,
+            result_type="Bool",
+            nullable=False,
+        )
+
+        def join(kind, left_input, right_input):
+            output_columns = (
+                left.columns
+                if kind in {"left_semi", "left_anti"}
+                else right.columns
+                if kind in {"right_semi", "right_anti"}
+                else left.columns + right.columns
+            )
+            return evaluator._join(
+                Join("join", "a", "b", kind, (), true),
+                left_input,
+                right_input,
+                output_columns=output_columns,
+            )
+
+        expected_rows = {
+            "inner": 1,
+            "cross": 1,
+            "left": 2,
+            "right": 2,
+            "full": 3,
+            "left_semi": 1,
+            "right_semi": 1,
+            "left_anti": 1,
+            "right_anti": 1,
+            "exclusion": 2,
+        }
+        for kind, count in expected_rows.items():
+            with (
+                self.subTest(kind=kind),
+                mock.patch.object(
+                    relation_model,
+                    "MAX_RELATION_ROW_PAIRS",
+                    1,
+                ),
+                mock.patch.object(relation_model, "MAX_RELATION_ROWS", 3),
+            ):
+                relation = join(kind, left, right)
+                self.assertEqual(len(relation.rows), count)
+                self.assertEqual(
+                    relation,
+                    join(
+                        kind,
+                        replace(
+                            left,
+                            rows=(left.rows[1],),
+                            ordinals=(smt.ONE,),
+                        ),
+                        replace(right, rows=(right.rows[0],)),
+                    ),
+                )
+
+        symbolic = smt.symbol("symbolic_presence", smt.BOOL)
+        symbolic_left = replace(
+            left,
+            rows=(replace(left.rows[1], present=symbolic),),
+            ordinals=(smt.ONE,),
+        )
+        relation = join(
+            "inner",
+            symbolic_left,
+            replace(right, rows=(right.rows[0],)),
+        )
+        self.assertEqual(len(relation.rows), 1)
+        self.assertEqual(relation.rows[0].present, symbolic)
+
+        dead_right = replace(
+            right,
+            rows=(
+                replace(
+                    right.rows[1],
+                    present=smt.FALSE,
+                    values={},
+                ),
+            ),
+        )
+        expected = {
+            "inner": (),
+            "cross": (),
+            "left": (smt.TRUE,),
+            "right": (),
+            "full": (smt.TRUE,),
+            "left_semi": (smt.FALSE,),
+            "right_semi": (),
+            "left_anti": (smt.TRUE,),
+            "right_anti": (),
+            "exclusion": (smt.TRUE,),
+        }
+        for kind, presences in expected.items():
+            with self.subTest(kind=kind, right="dead"):
+                relation = join(kind, left, dead_right)
+                self.assertEqual(
+                    tuple(row.present for row in relation.rows),
+                    presences,
+                )
+
+    def test_runtime_schema_near_misses_fall_back(self):
+        snapshot = direct_unique_rhs_join_snapshot("inner")
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        scalar = ScalarEncoder(script)
+        original = RelationEvaluator(
+            snapshot,
+            database,
+            scalar,
+        ).node("b").certain()
+        schemas = {
+            "reordered": tuple(reversed(original.columns)),
+            "missing": original.columns[:-1],
+            "extra": original.columns + (Column("b.extra", "Int64", False),),
+        }
+        for name, columns in schemas.items():
+            with self.subTest(name=name):
+                relation = RelationEvaluator(
+                    snapshot,
+                    database,
+                    scalar,
+                    node_overrides={
+                        "b": relation_model.single(
+                            replace(original, columns=columns)
+                        )
+                    },
+                ).root().certain()
+                self.assertEqual(len(relation.rows), 4)
+
+    def test_compact_provenance_and_partition_facts_are_left_local(self):
+        snapshot = direct_unique_rhs_join_snapshot("left")
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        scalar = ScalarEncoder(script)
+        evaluator = RelationEvaluator(snapshot, database, scalar)
+        left = evaluator.node("a").certain()
+        right = evaluator.node("b").certain()
+        left_route = script.fresh_constant("left_route", smt.BOOL)
+        right_route = script.fresh_constant("right_route", smt.BOOL)
+        left_fact = relation_model.PartitionFact(left_route, True)
+        right_fact = relation_model.PartitionFact(right_route, True)
+        left = replace(
+            left,
+            rows=tuple(
+                replace(
+                    row,
+                    present=smt.and_(row.present, left_route),
+                    partition_facts=frozenset({left_fact}),
+                )
+                for row in left.rows
+            ),
+        )
+        right = replace(
+            right,
+            rows=tuple(
+                replace(
+                    row,
+                    present=smt.and_(row.present, right_route),
+                    partition_facts=frozenset({right_fact}),
+                )
+                for row in right.rows
+            ),
+        )
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            scalar,
+            node_overrides={
+                "a": relation_model.single(left),
+                "b": relation_model.single(right),
+            },
+        ).root().certain()
+        self.assertEqual(len(relation.rows), 2)
+        for index, row in enumerate(relation.rows):
+            self.assertEqual(row.partition_facts, frozenset({left_fact}))
+            self.assertEqual(
+                row.occurrence,
+                relation_model.Occurrence(
+                    "join_left_unique_rhs",
+                    "join",
+                    inputs=(left.rows[index].occurrence,),
+                ),
+            )
+
+    def test_matching_pair_audit_remains_and_compaction_avoids_row_cap(self):
+        compact = direct_unique_rhs_join_snapshot("left")
+        generic = direct_unique_rhs_join_snapshot("left", unique_key=())
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 2):
+            self.assertEqual(len(self._evaluate(compact).rows), 2)
+            with self.assertRaisesRegex(
+                RelationError,
+                "join output requires 6 candidate rows.*2 row construction",
+            ):
+                self._evaluate(generic)
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 3):
+            with self.assertRaisesRegex(
+                RelationError,
+                "join matching requires 4 candidate-row pairs.*3 pair construction",
+            ):
+                self._evaluate(compact)
+
+    def test_stage_broadcast_preserves_compact_unique_rhs_equivalence(self):
+        logical = direct_unique_rhs_join_snapshot("left")
+        staged = direct_unique_rhs_join_snapshot("left", staged=True)
+        self.assertEqual(
+            stage_task_counts(staged),
+            {"left": 2, "right": 2, "join_stage": 2},
+        )
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 1):
+            self.assertFalse(
+                _restricted_domain_has_model(
+                    build_problem(logical, staged, 1).script
+                )
+            )
+
+    def test_delayed_filter_compaction_matches_exhaustive_reference(self):
+        left_states = (
+            None,
+            (None, -1),
+            (0, -1),
+            (1, 2),
+        )
+        right_states = (
+            None,
+            (0, None),
+            (0, -1),
+            (1, 2),
+        )
+        for extra_equality in (False, True):
+            snapshot = delayed_unique_rhs_filter_snapshot(
+                extra_equality=extra_equality,
+            )
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            relation = RelationEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+            ).root().certain()
+            self.assertEqual(len(relation.rows), 2)
+
+            for left_rows in product(left_states, repeat=2):
+                for right_rows in product(right_states, repeat=2):
+                    present_right_keys = [
+                        row[0] for row in right_rows if row is not None
+                    ]
+                    if len(present_right_keys) != len(set(present_right_keys)):
+                        continue
+                    with self.subTest(
+                        extra_equality=extra_equality,
+                        left=left_rows,
+                        right=right_rows,
+                    ):
+                        self.assertEqual(
+                            self._symbolic_bag(
+                                relation,
+                                self._constants(
+                                    database,
+                                    left_rows,
+                                    right_rows,
+                                ),
+                            ),
+                            self._reference_bag(
+                                "inner",
+                                left_rows,
+                                right_rows,
+                                extra_equality,
+                            ),
+                        )
+
+    def test_delayed_filter_gate_accepts_reversal_and_composite_key(self):
+        accepted = {
+            "ordinary": delayed_unique_rhs_filter_snapshot(),
+            "single": delayed_unique_rhs_filter_snapshot(
+                predicate_shape="single",
+            ),
+            "reversed": delayed_unique_rhs_filter_snapshot(
+                reverse_equality=True,
+            ),
+            "composite": delayed_unique_rhs_filter_snapshot(
+                unique_key=("k", "x"),
+                right_value_nullable=False,
+                extra_equality=True,
+            ),
+        }
+        for name, snapshot in accepted.items():
+            with self.subTest(name=name):
+                relation = self._evaluate(snapshot)
+                self.assertEqual(len(relation.rows), 2)
+                self.assertEqual(
+                    tuple(column.name for column in relation.columns),
+                    ("a.k", "a.x", "b.k", "b.x"),
+                )
+
+    def test_delayed_filter_compacts_each_left_deep_cross_factor(self):
+        for deferred in (False, True):
+            snapshot = delayed_unique_rhs_filter_chain_snapshot(
+                deferred=deferred,
+            )
+            with self.subTest(deferred=deferred):
+                relation = self._evaluate(snapshot)
+                self.assertEqual(len(relation.rows), 2)
+                self.assertEqual(
+                    tuple(column.name for column in relation.columns),
+                    ("a.k", "a.x", "b.k", "b.x", "c.k", "c.x"),
+                )
+                with mock.patch.object(
+                    relation_model,
+                    "MAX_RELATION_ROWS",
+                    2,
+                ):
+                    self.assertEqual(len(self._evaluate(snapshot).rows), 2)
+
+    @unittest.skipUnless(SOLVER, "run through ya or set RBO_Z3 for solver tests")
+    def test_delayed_unique_join_rewrites_match_explicit_plans(self):
+        # Use the solver for these multi-table domains; exhaustive interpretation
+        # must not rely on syntactic cancellation to make 2^24 assignments cheap.
+        for name, delayed, explicit in (
+            ("schedule", delayed_unique_rhs_filter_chain_snapshot(deferred=True),
+             explicit_deferred_unique_rhs_chain_snapshot),
+            ("rebase", rebased_unique_seed_filter_snapshot(),
+             explicit_rebased_unique_seed_snapshot),
+        ):
+            for mutate, expected in ((False, "unsat"), (True, "sat")):
+                with self.subTest(case=name, mutate=mutate):
+                    problem = build_logical_kernel_problem_for_tests(
+                        delayed, explicit(mutate=mutate), 2, 10_000,
+                    )
+                    self.assertEqual(verifier.query_solver(problem, SOLVER).status, expected)
+
+    def test_delayed_filter_rebases_a_certified_unique_seed(self):
+        snapshot = rebased_unique_seed_filter_snapshot()
+        relation = self._evaluate(snapshot)
+        self.assertEqual(len(relation.rows), 2)
+        self.assertEqual(
+            tuple(column.name for column in relation.columns),
+            ("a.k", "a.x", "b.k", "b.x"),
+        )
+        for row in relation.rows:
+            assert row.occurrence is not None
+            self.assertEqual(row.occurrence.operation, "join_inner_unique_rhs")
+            self.assertEqual(row.occurrence.node, "join")
+            self.assertEqual(len(row.occurrence.inputs), 1)
+            self.assertEqual(row.occurrence.inputs[0].node, "B")
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 2):
+            self.assertEqual(len(self._evaluate(snapshot).rows), 2)
+            with self.assertRaisesRegex(
+                RelationError,
+                "join output requires 4 candidate rows.*2 row construction",
+            ):
+                self._evaluate(
+                    rebased_unique_seed_filter_snapshot(unique_key=())
+                )
+
+    def test_delayed_unique_seed_rebase_continues_factor_schedule(self):
+        snapshot = rebased_unique_seed_filter_chain_snapshot()
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 2):
+            relation = self._evaluate(snapshot)
+        self.assertEqual(len(relation.rows), 2)
+        self.assertEqual(
+            tuple(column.name for column in relation.columns),
+            ("a.k", "a.x", "b.k", "b.x", "c.k", "c.x"),
+        )
+        for row in relation.rows:
+            assert row.occurrence is not None
+            self.assertEqual(row.occurrence.operation, "join_inner_unique_rhs")
+            self.assertEqual(row.occurrence.node, "join2")
+            self.assertEqual(len(row.occurrence.inputs), 1)
+            inner = row.occurrence.inputs[0]
+            self.assertEqual(inner.operation, "join_inner_unique_rhs")
+            self.assertEqual(inner.node, "join")
+            self.assertEqual(len(inner.inputs), 1)
+            self.assertEqual(inner.inputs[0].node, "B")
+
+    def test_delayed_unique_seed_rebase_near_misses_stay_generic(self):
+        near_misses = {
+            "nonunique": rebased_unique_seed_filter_snapshot(unique_key=()),
+            "subset_key": rebased_unique_seed_filter_snapshot(
+                unique_key=("k", "x"),
+            ),
+            "nullable_key": rebased_unique_seed_filter_snapshot(
+                seed_key_nullable=True,
+            ),
+            "coerced_key": rebased_unique_seed_filter_snapshot(
+                fact_key_type="Decimal(35,34)",
+            ),
+            "null_safe": rebased_unique_seed_filter_snapshot(null_safe=True),
+            "stage_graph": rebased_unique_seed_filter_snapshot(staged=True),
+        }
+        for name, snapshot in near_misses.items():
+            with (
+                self.subTest(name=name),
+                mock.patch.object(relation_model, "MAX_RELATION_ROWS", 2),
+                self.assertRaisesRegex(
+                    RelationError,
+                    "join output requires 4 candidate rows.*"
+                    "2 row construction",
+                ),
+            ):
+                self._evaluate(snapshot)
+
+    def test_delayed_filter_prunes_only_statically_rejected_factor_rows(self):
+        delayed = delayed_literal_factor_filter_snapshot()
+        explicit = delayed_literal_factor_filter_snapshot(explicit_right="w")
+        relation = self._evaluate(delayed)
+        self.assertEqual(len(relation.rows), 4)
+        self.assertEqual(
+            tuple(column.name for column in relation.columns),
+            ("left.key", "left.tag", "right.key", "right.tag"),
+        )
+        self.assertTrue(any(row.present != smt.TRUE for row in relation.rows))
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 12):
+            self.assertEqual(len(self._evaluate(delayed).rows), 4)
+            with (
+                mock.patch.object(
+                    RelationEvaluator,
+                    "_factor_delayed_cross_filter",
+                    return_value=None,
+                ),
+                self.assertRaisesRegex(
+                    RelationError,
+                    "join matching requires 36 candidate-row pairs.*"
+                    "12 pair construction",
+                ),
+            ):
+                self._evaluate(delayed)
+
+        self.assertFalse(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(
+                    delayed,
+                    explicit,
+                    2,
+                ).script
+            )
+        )
+        self.assertTrue(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(
+                    delayed,
+                    delayed_literal_factor_filter_snapshot(
+                        explicit_right="c",
+                    ),
+                    2,
+                ).script
+            )
+        )
+
+    def test_delayed_factor_pruning_requires_a_drop_and_respects_work_cap(self):
+        snapshot = delayed_literal_factor_filter_snapshot()
+        nodes = snapshot.plan.node_map()
+        assert isinstance(nodes["filter"], Filter)
+        symbolic_local = Expr(
+            kind="eq",
+            args=(
+                Expr(kind="column", column="left.key"),
+                Expr(
+                    kind="literal",
+                    value=0,
+                    result_type="Int64",
+                    nullable=False,
+                ),
+            ),
+        )
+        spanning = nodes["filter"].predicate.args[-1]
+        no_drop = replace(
+            snapshot,
+            plan=replace(
+                snapshot.plan,
+                nodes=tuple(
+                    replace(
+                        node,
+                        predicate=Expr(
+                            kind="and",
+                            args=(symbolic_local, spanning),
+                        ),
+                    )
+                    if node.id == "filter"
+                    else node
+                    for node in snapshot.plan.nodes
+                ),
+            ),
+        )
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 12):
+            with self.assertRaisesRegex(
+                RelationError,
+                "join matching requires 36 candidate-row pairs.*"
+                "12 pair construction",
+            ):
+                self._evaluate(no_drop)
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 5):
+            with self.assertRaisesRegex(
+                RelationError,
+                "join matching requires 36 candidate-row pairs.*"
+                "5 pair construction",
+            ):
+                self._evaluate(snapshot)
+
+    def test_delayed_factor_pruning_preserves_metadata_and_rejects_null(self):
+        snapshot = delayed_literal_factor_filter_snapshot()
+        script = smt.Script()
+        evaluator = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 2, script),
+            ScalarEncoder(script),
+        )
+        source = evaluator.node("right")
+        relation = source.certain()
+        order = (SortOrder("right.key", True, False),)
+        choice = relation_model.BoundedChoice(
+            script.fresh_constant("choice", smt.INT),
+            len(relation.rows),
+        )
+        decorated = relation_model.RelationFamily(
+            (
+                relation_model.Outcome(
+                    smt.TRUE,
+                    replace(
+                        relation,
+                        sequence=True,
+                        order=order,
+                        ordinals=tuple(
+                            smt.int_value(index)
+                            for index in range(len(relation.rows))
+                        ),
+                    ),
+                    smt.FALSE,
+                    (("decision", 1),),
+                    (choice,),
+                ),
+            )
+        )
+        filter_node = snapshot.plan.node_map()["filter"]
+        assert isinstance(filter_node, Filter)
+        pruned, changed = evaluator._prune_statically_rejected_factor_rows(
+            decorated,
+            (filter_node.predicate.args[1],),
+        )
+        self.assertTrue(changed)
+        outcome = pruned.outcomes[0]
+        self.assertEqual(outcome.enabled, smt.TRUE)
+        self.assertEqual(outcome.error, smt.FALSE)
+        self.assertEqual(outcome.decisions, (("decision", 1),))
+        self.assertEqual(outcome.choices, (choice,))
+        self.assertTrue(outcome.relation.sequence)
+        self.assertEqual(outcome.relation.order, order)
+        self.assertEqual(
+            outcome.relation.ordinals,
+            (smt.int_value(4), smt.int_value(5)),
+        )
+
+        null_relation = relation_model.Relation(
+            (Column("tag", "String", True),),
+            (
+                relation_model.Row(
+                    smt.TRUE,
+                    {"tag": evaluator.scalar.null("String")},
+                ),
+            ),
+            sequence=True,
+            present_prefix=True,
+        )
+        null_predicate = Expr(
+            kind="eq",
+            args=(
+                Expr(kind="column", column="tag"),
+                Expr(
+                    kind="literal",
+                    value="w",
+                    result_type="String",
+                    nullable=False,
+                ),
+            ),
+        )
+        null_pruned, null_changed = (
+            evaluator._prune_statically_rejected_factor_rows(
+                relation_model.single(null_relation),
+                (null_predicate,),
+            )
+        )
+        self.assertTrue(null_changed)
+        self.assertEqual(null_pruned.certain().rows, ())
+        self.assertTrue(null_pruned.certain().present_prefix)
+
+    def test_delayed_filter_near_misses_keep_the_generic_cross(self):
+        near_misses = {
+            "nonunique": delayed_unique_rhs_filter_snapshot(unique_key=()),
+            "subset_key": delayed_unique_rhs_filter_snapshot(
+                unique_key=("k", "x"),
+                right_value_nullable=False,
+            ),
+            "right_project": delayed_unique_rhs_filter_snapshot(
+                right_project=True,
+            ),
+            "scan_predicate": delayed_unique_rhs_filter_snapshot(
+                scan_predicate=True,
+            ),
+            "scan_limit": delayed_unique_rhs_filter_snapshot(
+                pushed_limit=True,
+            ),
+            "nullable_unique_key": delayed_unique_rhs_filter_snapshot(
+                right_key_nullable=True,
+            ),
+            "coerced_unique_key": delayed_unique_rhs_filter_snapshot(
+                left_key_type="Decimal(35,34)",
+            ),
+            "null_safe": delayed_unique_rhs_filter_snapshot(null_safe=True),
+            "or": delayed_unique_rhs_filter_snapshot(predicate_shape="or"),
+            "nested_and": delayed_unique_rhs_filter_snapshot(
+                predicate_shape="nested_and",
+            ),
+            "stage_graph": delayed_unique_rhs_filter_snapshot(staged=True),
+        }
+        for name, snapshot in near_misses.items():
+            with self.subTest(name=name):
+                self.assertEqual(
+                    len(
+                        self._evaluate(
+                            snapshot,
+                            defer_pushed_limits=name == "scan_limit",
+                        ).rows
+                    ),
+                    4,
+                )
+
+    def test_delayed_filter_overrides_keep_the_generic_cross(self):
+        snapshot = delayed_unique_rhs_filter_snapshot()
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        scalar = ScalarEncoder(script)
+        evaluator = RelationEvaluator(snapshot, database, scalar)
+        join = evaluator.node("join")
+        right = evaluator.node("b")
+        for name, overrides in {
+            "join": {"join": join},
+            "right": {"b": right},
+        }.items():
+            with self.subTest(name=name):
+                relation = RelationEvaluator(
+                    snapshot,
+                    database,
+                    scalar,
+                    node_overrides=overrides,
+                ).root().certain()
+                self.assertEqual(len(relation.rows), 4)
+
+        true = Expr(
+            kind="literal",
+            value=True,
+            result_type="Bool",
+            nullable=False,
+        )
+        inputs = ("a.k", "a.x", "b.k", "b.x")
+        outputs = ("u.a_k", "u.a_x", "u.b_k", "u.b_x")
+        nodes = snapshot.plan.nodes + (
+            Filter("shared_consumer", "join", true),
+            UnionAll(
+                "shared_root",
+                (
+                    UnionInput("filter", inputs),
+                    UnionInput("shared_consumer", inputs),
+                ),
+                outputs,
+                False,
+            ),
+        )
+        shared = replace(
+            snapshot,
+            plan=replace(
+                snapshot.plan,
+                nodes=nodes,
+                root="shared_root",
+                output=outputs,
+            ),
+        )
+        self.assertEqual(len(self._evaluate(shared).rows), 8)
+
+    def test_delayed_filter_rejects_consumer_subplan_and_preserves_error(self):
+        snapshot = delayed_unique_rhs_filter_subplan_snapshot()
+        script = smt.Script()
+        family = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 2, script),
+            ScalarEncoder(script),
+        ).root()
+        self.assertTrue(family.outcomes)
+        self.assertTrue(
+            any(outcome.error != smt.FALSE for outcome in family.outcomes)
+        )
+        self.assertEqual(
+            {len(outcome.relation.rows) for outcome in family.outcomes},
+            {4},
+        )
+
+    def test_delayed_filter_preserves_seed_outcome_language(self):
+        compact = delayed_unique_rhs_filter_sorted_seed_snapshot()
+        generic = delayed_unique_rhs_filter_sorted_seed_snapshot(unique_key=())
+
+        def evaluate(snapshot):
+            script = smt.Script()
+            return RelationEvaluator(
+                snapshot,
+                Database(snapshot, 2, script),
+                ScalarEncoder(script),
+            ).root()
+
+        compact_family = evaluate(compact)
+        generic_family = evaluate(generic)
+        self.assertGreater(len(compact_family.outcomes), 1)
+        self.assertEqual(
+            tuple(
+                (
+                    outcome.enabled,
+                    outcome.error,
+                    outcome.decisions,
+                    outcome.choices,
+                )
+                for outcome in compact_family.outcomes
+            ),
+            tuple(
+                (
+                    outcome.enabled,
+                    outcome.error,
+                    outcome.decisions,
+                    outcome.choices,
+                )
+                for outcome in generic_family.outcomes
+            ),
+        )
+        self.assertEqual(
+            {len(outcome.relation.rows) for outcome in compact_family.outcomes},
+            {2},
+        )
+        self.assertEqual(
+            {len(outcome.relation.rows) for outcome in generic_family.outcomes},
+            {4},
+        )
+
+    def test_delayed_filter_retains_residual_and_construction_audits(self):
+        residual = Expr(
+            kind="eq",
+            args=(
+                Expr(kind="column", column="a.x"),
+                Expr(kind="column", column="b.x"),
+            ),
+        )
+        filtered = delayed_unique_rhs_filter_snapshot(residual=residual)
+        unfiltered = delayed_unique_rhs_filter_snapshot()
+        self.assertFalse(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(
+                    filtered,
+                    filtered,
+                    1,
+                ).script
+            )
+        )
+        self.assertTrue(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(
+                    filtered,
+                    unfiltered,
+                    1,
+                ).script
+            )
+        )
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 2):
+            self.assertEqual(len(self._evaluate(filtered).rows), 2)
+            with self.assertRaisesRegex(
+                RelationError,
+                "join output requires 4 candidate rows.*2 row construction",
+            ):
+                self._evaluate(
+                    delayed_unique_rhs_filter_snapshot(unique_key=())
+                )
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 3):
+            with self.assertRaisesRegex(
+                RelationError,
+                "join matching requires 4 candidate-row pairs.*3 pair construction",
+            ):
+                self._evaluate(filtered)
+
+    @staticmethod
+    def _evaluate(snapshot, *, defer_pushed_limits=False):
+        script = smt.Script()
+        return RelationEvaluator(
+            snapshot,
+            Database(snapshot, 2, script),
+            ScalarEncoder(script),
+            defer_pushed_limits=defer_pushed_limits,
+        ).root().certain()
+
+    @staticmethod
+    def _constants(database, left_rows, right_rows):
+        result = {}
+        for table, rows in (("A", left_rows), ("B", right_rows)):
+            for witness, state in zip(database.witness[table], rows):
+                result[witness.present.atom] = state is not None
+                key, value = (0, 0) if state is None else state
+                for name, concrete in (("k", key), ("x", value)):
+                    cell = witness.cells[name]
+                    if cell.is_null.operation == "symbol":
+                        result[cell.is_null.atom] = concrete is None
+                    result[cell.value.atom] = 0 if concrete is None else concrete
+        return result
+
+    @staticmethod
+    def _symbolic_bag(relation, constants):
+        result = Counter()
+        for row in relation.rows:
+            if not _evaluate_ground_term(row.present, constants):
+                continue
+            values = []
+            for column in relation.columns:
+                value = row.values[column.name]
+                values.append(
+                    None
+                    if _evaluate_ground_term(value.is_null, constants)
+                    else _evaluate_ground_term(value.value, constants)
+                )
+            result[tuple(values)] += 1
+        return result
+
+    @staticmethod
+    def _reference_bag(kind, left_rows, right_rows, extra_equality):
+        result = Counter()
+        for left in left_rows:
+            if left is None:
+                continue
+            matches = [
+                right
+                for right in right_rows
+                if (
+                    right is not None
+                    and left[0] is not None
+                    and left[0] == right[0]
+                    and (
+                        not extra_equality
+                        or (
+                            right[1] is not None
+                            and left[1] == right[1]
+                        )
+                    )
+                )
+            ]
+            if matches:
+                right = matches[0]
+                result[(left[0], left[1], right[0], right[1])] += 1
+            elif kind == "left":
+                result[(left[0], left[1], None, None)] += 1
+        return result
+
+
+class ConstructionAuditBoundTest(unittest.TestCase):
+    def test_database_row_bound_is_reported_as_unsupported(self):
+        snapshot = right_join(KEY_EQUALITY)
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 1):
+            with self.assertRaisesRegex(
+                VerificationError,
+                "database table requires 2 candidate rows.*1 row construction",
+            ):
+                build_logical_kernel_problem_for_tests(snapshot, snapshot, 2)
+
+    def test_relation_row_invariant_is_a_fail_closed_backup(self):
+        snapshot = right_join(KEY_EQUALITY)
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        source = database.relations["A"]
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 1):
+            with self.assertRaisesRegex(
+                RelationError,
+                "relation requires 2 candidate rows.*1 row construction",
+            ):
+                relation_model.Relation(source.columns, source.rows)
+
+    def test_join_matching_and_output_are_checked_before_construction(self):
+        snapshot = right_join(KEY_EQUALITY)
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 3):
+            with self.assertRaisesRegex(
+                VerificationError,
+                "join matching requires 4 candidate-row pairs.*3 pair construction",
+            ):
+                build_logical_kernel_problem_for_tests(snapshot, snapshot, 2)
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 5):
+            with self.assertRaisesRegex(
+                VerificationError,
+                "join output requires 6 candidate rows.*5 row construction",
+            ):
+                build_logical_kernel_problem_for_tests(snapshot, snapshot, 2)
+
+    def test_union_and_grouped_aggregate_fail_before_quadratic_expansion(self):
+        union = union_snapshot(True)
+        with mock.patch.object(relation_model, "MAX_RELATION_ROWS", 3):
+            with self.assertRaisesRegex(
+                VerificationError,
+                "union-all requires 4 candidate rows.*3 row construction",
+            ):
+                build_logical_kernel_problem_for_tests(union, union, 2)
+
+        aggregate = aggregate_stage_snapshot("count", True, False)
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 2):
+            with self.assertRaisesRegex(
+                VerificationError,
+                "grouped aggregate requires 3 candidate-row pairs.*2 pair construction",
+            ):
+                build_logical_kernel_problem_for_tests(aggregate, aggregate, 2)
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 3):
+            build_logical_kernel_problem_for_tests(aggregate, aggregate, 2)
+
+        compactable = duplicated_grouped_aggregate_snapshot("count")
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 7):
+            with self.assertRaisesRegex(
+                VerificationError,
+                "grouped aggregate requires 10 candidate-row pairs.*"
+                "7 pair construction",
+            ):
+                build_logical_kernel_problem_for_tests(
+                    compactable,
+                    compactable,
+                    2,
+                )
+
+    def test_distinct_aggregate_pair_cap_precedes_construction(self):
+        snapshot = count_distinct_snapshot()
+        script = smt.Script()
+        database = Database(snapshot, 3, script)
+        evaluator = RelationEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+        )
+        with (
+            mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 2),
+            mock.patch.object(
+                evaluator.scalar,
+                "equal",
+                wraps=evaluator.scalar.equal,
+            ) as equal,
+        ):
+            with self.assertRaisesRegex(
+                RelationError,
+                "distinct aggregate requires 3 candidate-row pairs.*"
+                "2 pair construction",
+            ):
+                evaluator.root()
+            self.assertEqual(equal.call_count, 0)
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 3):
+            RelationEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+            ).root()
+
+    def test_grouped_distinct_cap_tracks_the_chosen_group_representation(self):
+        directional = grouped_count_distinct_snapshot()
+        directional_script = smt.Script()
+        directional_database = Database(
+            directional,
+            3,
+            directional_script,
+        )
+        directional_evaluator = RelationEvaluator(
+            directional,
+            directional_database,
+            ScalarEncoder(directional_script),
+        )
+        with (
+            mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 8),
+            mock.patch.object(
+                directional_evaluator.scalar,
+                "equal",
+                wraps=directional_evaluator.scalar.equal,
+            ) as equal,
+        ):
+            with self.assertRaisesRegex(
+                RelationError,
+                "grouped distinct aggregate requires 9 "
+                "distinct-equality terms.*8 pair construction",
+            ):
+                directional_evaluator.root()
+            self.assertEqual(equal.call_count, 0)
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 9):
+            RelationEvaluator(
+                directional,
+                directional_database,
+                ScalarEncoder(directional_script),
+            ).root()
+
+        directional_four = grouped_count_distinct_snapshot()
+        directional_four_script = smt.Script()
+        directional_four_database = Database(
+            directional_four,
+            4,
+            directional_four_script,
+        )
+        directional_four_evaluator = RelationEvaluator(
+            directional_four,
+            directional_four_database,
+            ScalarEncoder(directional_four_script),
+        )
+        with (
+            mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 23),
+            mock.patch.object(
+                directional_four_evaluator.scalar,
+                "equal",
+                wraps=directional_four_evaluator.scalar.equal,
+            ) as equal,
+        ):
+            with self.assertRaisesRegex(
+                RelationError,
+                "grouped distinct aggregate requires 24 "
+                "distinct-equality terms.*23 pair construction",
+            ):
+                directional_four_evaluator.root()
+            self.assertEqual(equal.call_count, 0)
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 24):
+            RelationEvaluator(
+                directional_four,
+                directional_four_database,
+                ScalarEncoder(directional_four_script),
+            ).root()
+
+        compacted = duplicated_grouped_aggregate_snapshot(
+            "count",
+            distinct=True,
+        )
+        compacted_script = smt.Script()
+        compacted_database = Database(compacted, 2, compacted_script)
+        compacted_evaluator = RelationEvaluator(
+            compacted,
+            compacted_database,
+            ScalarEncoder(compacted_script),
+        )
+        with (
+            mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 11),
+            mock.patch.object(
+                compacted_evaluator.scalar,
+                "equal",
+                wraps=compacted_evaluator.scalar.equal,
+            ) as equal,
+        ):
+            with self.assertRaisesRegex(
+                RelationError,
+                "grouped distinct aggregate requires 12 "
+                "distinct-equality terms.*11 pair construction",
+            ):
+                compacted_evaluator.root()
+            self.assertEqual(equal.call_count, 0)
+
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 12):
+            RelationEvaluator(
+                compacted,
+                compacted_database,
+                ScalarEncoder(compacted_script),
+            ).root()
+
+
+class AggregateConcreteDifferentialTest(unittest.TestCase):
+    def test_binary64_variance_builds_shared_visitation_and_flush_obligation(self):
+        for grouped, nullable in product((False, True), repeat=2):
+            before = aggregate_stage_snapshot("stddev_samp", grouped, False, nullable_input=nullable)
+            after = aggregate_stage_snapshot("stddev_samp", grouped, True, nullable_input=nullable)
+            problem = build_problem(before, after, 2)
+            formula = problem.formula()
+            self.assertEqual(problem.semantic_mode, floating.SEMANTIC_MODE)
+            self.assertIn("flush", formula)
+            self.assertTrue(any(branch.name.startswith("schedule_pair_") for branch in problem.mismatch_branches))
+            self.assertIsNone(problem.preferred_branches)
+            self.assertIsNone(problem.soundness_exclusion)
+            empty = build_problem(before, after, 0)
+            self.assertEqual(empty.semantic_mismatch.predicate, smt.FALSE)
+
+    @staticmethod
+    def _sum_state(
+        finite_total,
+        finite_abs_bound,
+        *,
+        sum_type="Decimal(35,0)",
+        any_non_null=smt.TRUE,
+        has_nan=smt.FALSE,
+        has_pos_inf=smt.FALSE,
+        has_neg_inf=smt.FALSE,
+    ):
+        return DecimalSumState(
+            sum_type=sum_type,
+            any_non_null=any_non_null,
+            has_nan=has_nan,
+            has_pos_inf=has_pos_inf,
+            has_neg_inf=has_neg_inf,
+            finite_total=finite_total,
+            finite_abs_bound=finite_abs_bound,
+        )
+
+    @staticmethod
+    def _sum_state_value(state, *, nullable=True):
+        return Value(
+            state.sum_type,
+            smt.not_(state.any_non_null) if nullable else smt.FALSE,
+            decimal.finish_sum_state(state),
+            state.finite_abs_bound,
+            decimal_sum_state=state,
+        )
+
+    def test_decimal_sum_state_matches_direct_special_null_and_group_reference(self):
+        values = (
+            None,
+            -REFERENCE_DECIMAL_INF,
+            -1,
+            0,
+            1,
+            REFERENCE_DECIMAL_INF,
+            REFERENCE_DECIMAL_NAN,
+        )
+        states = (None,) + tuple((0, value) for value in values)
+
+        for grouped in (False, True):
+            direct_snapshot = aggregate_stage_snapshot(
+                "sum",
+                grouped,
+                False,
+                nullable_input=True,
+                nullable_key=True,
+                input_type="Decimal(2,0)",
+            )
+            staged_snapshot = aggregate_stage_snapshot(
+                "sum",
+                grouped,
+                True,
+                nullable_input=True,
+                nullable_key=True,
+                input_type="Decimal(2,0)",
+            )
+            direct_script = smt.Script()
+            direct_database = Database(direct_snapshot, 2, direct_script)
+            direct = RelationEvaluator(
+                direct_snapshot,
+                direct_database,
+                ScalarEncoder(direct_script),
+            ).root().certain()
+
+            staged_script = smt.Script()
+            staged_database = Database(staged_snapshot, 2, staged_script)
+            router = Router(staged_script)
+            observed = {}
+            edge_families = []
+            with mock.patch.object(
+                decimal,
+                "combine_sum_states_with_headroom",
+                wraps=decimal.combine_sum_states_with_headroom,
+            ) as combine:
+                staged = StageEvaluator(
+                    staged_snapshot,
+                    staged_database,
+                    ScalarEncoder(staged_script),
+                    router,
+                    node_observer=(
+                        lambda _scope, node, family: observed.setdefault(
+                            node, []
+                        ).append(family)
+                    ),
+                    edge_observer=(
+                        lambda _edge, _task, family: edge_families.append(
+                            family
+                        )
+                    ),
+                ).root().certain()
+            with self.subTest(grouped=grouped, lifecycle="combine"):
+                self.assertGreater(combine.call_count, 0)
+
+            partial_values = tuple(
+                row.values["_state"]
+                for family in observed["partial"]
+                for outcome in family.outcomes
+                for row in outcome.relation.rows
+            )
+            edge_values = tuple(
+                row.values["_state"]
+                for family in edge_families
+                for outcome in family.outcomes
+                for row in outcome.relation.rows
+            )
+            final_values = tuple(
+                row.values["result"]
+                for family in observed["final"]
+                for outcome in family.outcomes
+                for row in outcome.relation.rows
+            )
+            with self.subTest(grouped=grouped, lifecycle="partial"):
+                self.assertTrue(partial_values)
+                self.assertTrue(all(
+                    isinstance(value.decimal_sum_state, DecimalSumState)
+                    for value in partial_values
+                ))
+            with self.subTest(grouped=grouped, lifecycle="edge"):
+                self.assertTrue(edge_values)
+                self.assertTrue(all(
+                    isinstance(value.decimal_sum_state, DecimalSumState)
+                    for value in edge_values
+                ))
+            with self.subTest(grouped=grouped, lifecycle="final"):
+                self.assertTrue(final_values)
+                self.assertTrue(all(
+                    value.decimal_sum_state is None
+                    for value in final_values
+                ))
+                self.assertTrue(all(
+                    row.values["result"].decimal_sum_state is None
+                    for row in staged.rows
+                ))
+
+            for rows, placements in product(
+                product(states, repeat=2),
+                product((False, True), repeat=2),
+            ):
+                expected = self._decimal_reference_bag("sum", grouped, rows)
+                direct_actual = self._symbolic_bag(
+                    direct,
+                    self._constants(direct_database, rows),
+                )
+                staged_constants = self._constants(staged_database, rows)
+                for slot, placement in enumerate(placements):
+                    staged_constants[
+                        router.source_task("A", slot).atom
+                    ] = placement
+                staged_actual = self._symbolic_bag(
+                    staged,
+                    staged_constants,
+                    self._hash_choice,
+                )
+                with self.subTest(
+                    grouped=grouped,
+                    rows=rows,
+                    placements=placements,
+                ):
+                    self.assertEqual(direct_actual, expected)
+                    self.assertEqual(staged_actual, expected)
+                    self.assertEqual(staged_actual, direct_actual)
+
+    def test_decimal_sum_state_lineage_gate_is_exact_and_private(self):
+        exact = aggregate_stage_snapshot(
+            "sum",
+            True,
+            True,
+            nullable_input=True,
+            nullable_key=True,
+            input_type="Decimal(2,0)",
+        )
+
+        def parents(snapshot):
+            result = {node.id: set() for node in snapshot.plan.nodes}
+            for parent in snapshot.plan.nodes:
+                for child in relation_model.plan_node_inputs(parent):
+                    result[child].add(parent.id)
+            return {
+                node: frozenset(consumers)
+                for node, consumers in result.items()
+            }
+
+        self.assertEqual(
+            plan_analysis._decimal_sum_state_lineages(
+                exact,
+                exact.plan.node_map(),
+                parents(exact),
+            ),
+            (
+                frozenset((('partial', '_state'),)),
+                frozenset((('final', 'result'),)),
+            ),
+        )
+
+        for description, snapshot in (
+            (
+                "undefined",
+                aggregate_stage_snapshot(
+                    "sum",
+                    True,
+                    True,
+                    final_phase="undefined",
+                    nullable_input=True,
+                    input_type="Decimal(2,0)",
+                ),
+            ),
+            (
+                "intermediate",
+                aggregate_stage_snapshot(
+                    "sum",
+                    True,
+                    True,
+                    final_phase="intermediate",
+                    nullable_input=True,
+                    input_type="Decimal(2,0)",
+                ),
+            ),
+            (
+                "wrong_function",
+                aggregate_stage_snapshot(
+                    "sum",
+                    True,
+                    True,
+                    final_function="max",
+                    nullable_input=True,
+                    input_type="Decimal(2,0)",
+                ),
+            ),
+            (
+                "direct",
+                aggregate_stage_snapshot(
+                    "sum",
+                    True,
+                    False,
+                    nullable_input=True,
+                    input_type="Decimal(2,0)",
+                ),
+            ),
+        ):
+            with self.subTest(description=description):
+                self.assertEqual(
+                    plan_analysis._decimal_sum_state_lineages(
+                        snapshot,
+                        snapshot.plan.node_map(),
+                        parents(snapshot),
+                    ),
+                    (frozenset(), frozenset()),
+                )
+
+        exact_nodes = exact.plan.node_map()
+        fanout = parents(exact) | {
+            "partial": frozenset(("final", "second_consumer")),
+        }
+        exposed = replace(
+            exact,
+            plan=replace(exact.plan, root="partial", output=("_state",)),
+            stage_graph=None,
+        )
+        mismatched_nodes = exact_nodes | {
+            "final": replace(exact_nodes["final"], keys=()),
+        }
+        final_trait = exact_nodes["final"].aggregates[0]
+        consumer_mutations = (
+            (
+                "distinct_all",
+                replace(exact_nodes["final"], distinct_all=True),
+            ),
+            (
+                "trait_distinct",
+                replace(
+                    exact_nodes["final"],
+                    aggregates=(replace(final_trait, distinct=True),),
+                ),
+            ),
+            (
+                "trait_unwrap",
+                replace(
+                    exact_nodes["final"],
+                    aggregates=(replace(final_trait, unwrap=True),),
+                ),
+            ),
+            (
+                "type_mismatch",
+                replace(
+                    exact_nodes["final"],
+                    aggregates=(
+                        replace(final_trait, output_type="Decimal(35,1)"),
+                    ),
+                ),
+            ),
+            (
+                "duplicate_use",
+                replace(
+                    exact_nodes["final"],
+                    aggregates=(
+                        final_trait,
+                        replace(final_trait, output="duplicate_result"),
+                    ),
+                ),
+            ),
+        )
+        subplan_exposed = replace(
+            exact,
+            plan=replace(
+                exact.plan,
+                subplans=(
+                    ScalarSubplan(
+                        "$sum_state",
+                        "partial",
+                        SubplanOutput(
+                            "_state",
+                            "Decimal(35,0)",
+                            True,
+                        ),
+                        ("final",),
+                    ),
+                ),
+            ),
+        )
+        for description, snapshot, nodes, parent_map in (
+            ("fanout", exact, exact_nodes, fanout),
+            ("root_exposure", exposed, exact_nodes, parents(exact)),
+            ("key_mismatch", exact, mismatched_nodes, parents(exact)),
+            (
+                "subplan_exposure",
+                subplan_exposed,
+                exact_nodes,
+                parents(exact),
+            ),
+            *(
+                (
+                    description,
+                    exact,
+                    exact_nodes | {"final": consumer},
+                    parents(exact),
+                )
+                for description, consumer in consumer_mutations
+            ),
+        ):
+            with self.subTest(description=description):
+                self.assertEqual(
+                    plan_analysis._decimal_sum_state_lineages(
+                        snapshot,
+                        nodes,
+                        parent_map,
+                    ),
+                    (frozenset(), frozenset()),
+                )
+
+    def test_decimal_sum_missing_or_malformed_state_uses_scalar_fallback(self):
+        snapshot = aggregate_stage_snapshot(
+            "sum",
+            False,
+            True,
+            nullable_input=True,
+            input_type="Decimal(35,0)",
+        )
+        script = smt.Script()
+        evaluator = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 1, script),
+            ScalarEncoder(script),
+        )
+        left_state = self._sum_state(smt.int_value(7), 7)
+        right_state = self._sum_state(smt.int_value(11), 11)
+        valid = (
+            self._sum_state_value(left_state),
+            self._sum_state_value(right_state),
+        )
+
+        wrong_type_state = self._sum_state(
+            smt.int_value(7),
+            7,
+            sum_type="Decimal(35,1)",
+        )
+        mutations = (
+            (
+                "missing",
+                replace(valid[0], decimal_sum_state=None),
+                18,
+            ),
+            (
+                "wrong_type",
+                replace(
+                    valid[0],
+                    value=decimal.finish_sum_state(wrong_type_state),
+                    decimal_sum_state=wrong_type_state,
+                ),
+                18,
+            ),
+            (
+                "inconsistent_scalar",
+                replace(valid[0], value=smt.int_value(6)),
+                17,
+            ),
+            (
+                "inconsistent_bound",
+                replace(valid[0], decimal_finite_abs_bound=8),
+                18,
+            ),
+        )
+        for description, mutated, expected in mutations:
+            source = relation_model.Relation(
+                (Column("_state", "Decimal(35,0)", True),),
+                tuple(
+                    relation_model.Row(
+                        smt.TRUE,
+                        {"_state": value},
+                    )
+                    for value in (mutated, valid[1])
+                ),
+            )
+            with (
+                self.subTest(description=description),
+                mock.patch.object(
+                    decimal,
+                    "combine_sum_states_with_headroom",
+                    wraps=decimal.combine_sum_states_with_headroom,
+                ) as combine,
+            ):
+                result = evaluator._aggregate(
+                    evaluator.nodes["final"],
+                    source,
+                )
+                self.assertEqual(combine.call_count, 0)
+                self.assertEqual(
+                    self._symbolic_bag(result, {}),
+                    Counter({(expected,): 1}),
+                )
+                self.assertIsNone(
+                    result.rows[0].values["result"].decimal_sum_state
+                )
+
+    def test_decimal_sum_state_is_a_registered_choice_dependency(self):
+        script = smt.Script()
+        choice = script.fresh_constant("decimal_sum_state_choice", smt.INT)
+        script.register_quantified_choice(choice, 2)
+        state = self._sum_state(
+            smt.ZERO,
+            0,
+            has_nan=smt.eq(choice, smt.ZERO),
+        )
+        family = relation_model.single(
+            relation_model.Relation(
+                (Column("state", "Decimal(35,0)", False),),
+                (
+                    relation_model.Row(
+                        smt.TRUE,
+                        {
+                            "state": Value(
+                                "Decimal(35,0)",
+                                smt.FALSE,
+                                smt.ZERO,
+                                0,
+                                decimal_sum_state=state,
+                            )
+                        },
+                    ),
+                ),
+            )
+        )
+
+        with self.assertRaisesRegex(RelationError, "without carrying"):
+            relation_model._bounded_choice_family(
+                family,
+                script,
+                "decimal_sum_state",
+            )
+
+        tracked = replace(
+            family,
+            outcomes=(
+                replace(
+                    family.outcomes[0],
+                    choices=(relation_model.BoundedChoice(choice, 2),),
+                ),
+            ),
+        )
+        bounded = relation_model._bounded_choice_family(
+            tracked,
+            script,
+            "decimal_sum_state",
+        )
+        enabled = bounded.outcomes[0].enabled
+        self.assertFalse(_evaluate_ground_term(enabled, {choice.atom: -1}))
+        self.assertTrue(_evaluate_ground_term(enabled, {choice.atom: 0}))
+        self.assertFalse(_evaluate_ground_term(enabled, {choice.atom: 2}))
+
+    def test_decimal_sum_state_preserves_empty_partial_nullability(self):
+        empty_state = self._sum_state(
+            smt.ZERO,
+            0,
+            any_non_null=smt.FALSE,
+        )
+        for nullable, expected in ((False, 0), (True, None)):
+            snapshot = aggregate_stage_snapshot(
+                "sum",
+                False,
+                True,
+                nullable_input=nullable,
+                input_type="Decimal(35,0)",
+            )
+            script = smt.Script()
+            evaluator = RelationEvaluator(
+                snapshot,
+                Database(snapshot, 1, script),
+                ScalarEncoder(script),
+            )
+            source = relation_model.Relation(
+                (Column("_state", "Decimal(35,0)", nullable),),
+                (
+                    relation_model.Row(
+                        smt.TRUE,
+                        {
+                            "_state": self._sum_state_value(
+                                empty_state,
+                                nullable=nullable,
+                            )
+                        },
+                    ),
+                ),
+            )
+            with (
+                self.subTest(nullable=nullable),
+                mock.patch.object(
+                    decimal,
+                    "combine_sum_states_with_headroom",
+                    wraps=decimal.combine_sum_states_with_headroom,
+                ) as combine,
+            ):
+                result = evaluator._aggregate(
+                    evaluator.nodes["final"],
+                    source,
+                )
+                self.assertEqual(combine.call_count, 1)
+                self.assertEqual(
+                    self._symbolic_bag(result, {}),
+                    Counter({(expected,): 1}),
+                )
+
+    def test_decimal_sum_state_rejects_exact_combined_headroom_limit(self):
+        snapshot = aggregate_stage_snapshot(
+            "sum",
+            False,
+            True,
+            nullable_input=True,
+            input_type="Decimal(35,0)",
+        )
+        script = smt.Script()
+        evaluator = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 1, script),
+            ScalarEncoder(script),
+        )
+        half_limit = 5 * 10**34
+
+        def source(right_bound):
+            states = (
+                self._sum_state(smt.ONE, half_limit),
+                self._sum_state(smt.ONE, right_bound),
+            )
+            return relation_model.Relation(
+                (Column("_state", "Decimal(35,0)", True),),
+                tuple(
+                    relation_model.Row(
+                        smt.TRUE,
+                        {"_state": self._sum_state_value(state)},
+                    )
+                    for state in states
+                ),
+            )
+
+        below = evaluator._aggregate(
+            evaluator.nodes["final"],
+            source(half_limit - 1),
+        )
+        self.assertEqual(
+            below.rows[0].values["result"].decimal_finite_abs_bound,
+            10**35 - 1,
+        )
+        with self.assertRaisesRegex(
+            RelationError,
+            "non-associative overflow is not modeled",
+        ):
+            evaluator._aggregate(
+                evaluator.nodes["final"],
+                source(half_limit),
+            )
+
+    def test_decimal_sum_state_avoids_redecoding_finalized_partial_scalars(self):
+        snapshot = aggregate_stage_snapshot(
+            "sum",
+            False,
+            True,
+            nullable_input=True,
+            input_type="Decimal(35,0)",
+        )
+        script = smt.Script()
+        evaluator = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 1, script),
+            ScalarEncoder(script),
+        )
+
+        def symbolic_state(prefix, bound):
+            return self._sum_state(
+                smt.symbol(f"{prefix}_poison_finite_total", smt.INT),
+                bound,
+                any_non_null=smt.symbol(f"{prefix}_any", smt.BOOL),
+                has_nan=smt.symbol(f"{prefix}_nan", smt.BOOL),
+                has_pos_inf=smt.symbol(f"{prefix}_pos_inf", smt.BOOL),
+                has_neg_inf=smt.symbol(f"{prefix}_neg_inf", smt.BOOL),
+            )
+
+        values = tuple(
+            self._sum_state_value(symbolic_state(prefix, bound))
+            for prefix, bound in (("left", 7), ("right", 11))
+        )
+        source = relation_model.Relation(
+            (Column("_state", "Decimal(35,0)", True),),
+            tuple(
+                relation_model.Row(smt.TRUE, {"_state": value})
+                for value in values
+            ),
+        )
+        optimized = evaluator._aggregate(
+            evaluator.nodes["final"],
+            source,
+        )
+        fallback_source = replace(
+            source,
+            rows=tuple(
+                replace(
+                    row,
+                    values={
+                        "_state": replace(
+                            row.values["_state"],
+                            decimal_sum_state=None,
+                        )
+                    },
+                )
+                for row in source.rows
+            ),
+        )
+        fallback = evaluator._aggregate(
+            evaluator.nodes["final"],
+            fallback_source,
+        )
+        optimized_term = optimized.rows[0].values["result"].value.render()
+        fallback_term = fallback.rows[0].values["result"].value.render()
+        partial_terms = tuple(value.value.render() for value in values)
+
+        self.assertIn("poison_finite_total", optimized_term)
+        for partial_term in partial_terms:
+            self.assertNotIn(partial_term, optimized_term)
+            self.assertIn(partial_term, fallback_term)
+        self.assertLess(len(optimized_term), len(fallback_term))
+        self.assertLess(
+            optimized_term.count("(ite "),
+            fallback_term.count("(ite "),
+        )
+        self.assertIsNone(
+            optimized.rows[0].values["result"].decimal_sum_state
+        )
+
+    def test_staged_shared_name_join_keys_remain_side_explicit(self):
+        states = (
+            (False, None),
+            (True, None),
+            (True, 0),
+            (True, 1),
+        )
+        for kind in ("left_semi", "left_anti", "right_semi", "right_anti"):
+            snapshot = shared_name_semi_join_stage_snapshot(kind)
+            script = smt.Script()
+            database = Database(snapshot, 1, script)
+            router = Router(script)
+            relation = StageEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+                router,
+            ).root().certain()
+
+            for left, right, left_task, right_task in product(
+                states,
+                states,
+                (False, True),
+                (False, True),
+            ):
+                constants = {}
+                for table, state in (("A", left), ("B", right)):
+                    witness = database.witness[table][0]
+                    present, value = state
+                    constants[witness.present.atom] = present
+                    cell = witness.cells["k"]
+                    constants[cell.is_null.atom] = value is None
+                    constants[cell.value.atom] = 0 if value is None else value
+                constants[router.source_task("A", 0).atom] = left_task
+                constants[router.source_task("B", 0).atom] = right_task
+
+                matches = (
+                    left[0]
+                    and right[0]
+                    and left[1] is not None
+                    and right[1] is not None
+                    and left[1] == right[1]
+                )
+                selected = left if kind.startswith("left_") else right
+                keep = selected[0] and (
+                    matches if kind.endswith("_semi") else not matches
+                )
+                expected = (
+                    Counter({(selected[1],): 1})
+                    if keep
+                    else Counter()
+                )
+                with self.subTest(
+                    kind=kind,
+                    left=left,
+                    right=right,
+                    left_task=left_task,
+                    right_task=right_task,
+                ):
+                    self.assertEqual(
+                        self._symbolic_bag(
+                            relation,
+                            constants,
+                            self._hash_choice,
+                        ),
+                        expected,
+                    )
+
+    def test_scalar_uint64_unwrap_coalesces_an_empty_sum_to_zero(self):
+        snapshot = unwrapped_uint64_sum_snapshot()
+        self.assertEqual(
+            [
+                (column.type, column.nullable)
+                for column in snapshot.output_schema()
+            ],
+            [("Uint64", False)],
+        )
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+        ).root().certain()
+
+        states = (None, (0, None), (0, 0), (0, 1), (0, (1 << 64) - 1))
+        for rows in product(states, repeat=2):
+            non_null = [
+                row[1]
+                for row in rows
+                if row is not None and row[1] is not None
+            ]
+            expected = Counter({(sum(non_null) % (1 << 64),): 1})
+            with self.subTest(rows=rows):
+                self.assertEqual(
+                    self._symbolic_bag(
+                        relation,
+                        self._constants(database, rows),
+                    ),
+                    expected,
+                )
+
+    def test_scalar_count_distinct_matches_a_tiny_set_reference(self):
+        snapshot = count_distinct_snapshot()
+        script = smt.Script()
+        database = Database(snapshot, 3, script)
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+        ).root().certain()
+
+        states = (None, (0, -1), (0, 0), (0, 1))
+        for rows in product(states, repeat=3):
+            expected = Counter({
+                (len({row[1] for row in rows if row is not None}),): 1,
+            })
+            with self.subTest(rows=rows):
+                self.assertEqual(
+                    self._symbolic_bag(
+                        relation,
+                        self._constants(database, rows),
+                    ),
+                    expected,
+                )
+
+    def test_nullable_integer_count_distinct_matches_tiny_set_reference(self):
+        snapshot = count_distinct_snapshot(nullable_input=True)
+        script = smt.Script()
+        database = Database(snapshot, 3, script)
+        relation = RelationEvaluator(snapshot, database, ScalarEncoder(script)).root().certain()
+        states = (None, (0, None), (0, -1), (0, 0), (0, 1))
+        for rows in product(states, repeat=3):
+            expected = Counter({(len({row[1] for row in rows
+                                     if row is not None and row[1] is not None}),):
+                                         1})
+            with self.subTest(rows=rows):
+                self.assertEqual(self._symbolic_bag(relation, self._constants(database, rows)), expected)
+
+    def test_nullable_grouped_count_distinct_matches_deduplication_and_reference(self):
+        direct = grouped_count_distinct_snapshot(nullable_input=True)
+        decomposed = grouped_count_distinct_snapshot(via_distinct_all=True, nullable_input=True)
+        script_a, script_b = smt.Script(), smt.Script()
+        db_a, db_b = Database(direct, 3, script_a), Database(decomposed, 3, script_b)
+        relation_a = RelationEvaluator(direct, db_a, ScalarEncoder(script_a)).root().certain()
+        relation_b = RelationEvaluator(decomposed, db_b, ScalarEncoder(script_b)).root().certain()
+        states = (None,) + tuple(product((None, 0), (None, 0, 1)))
+        for rows in product(states, repeat=3):
+            groups = {}
+            for row in rows:
+                if row is not None:
+                    values = groups.setdefault(row[0], set())
+                    if row[1] is not None:
+                        values.add(row[1])
+            expected = Counter((key, len(values)) for key, values in groups.items())
+            with self.subTest(rows=rows):
+                self.assertEqual(self._symbolic_bag(relation_a, self._constants(db_a, rows)), expected)
+                self.assertEqual(self._symbolic_bag(relation_b, self._constants(db_b, rows)), expected)
+
+    def test_nullable_decimal_count_distinct_uses_raw_aggregate_equality(self):
+        snapshot = count_distinct_snapshot(
+            "Decimal(7,2)",
+            nullable_input=True,
+        )
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+        ).root().certain()
+
+        values = (
+            None,
+            -decimal.INF,
+            -1,
+            0,
+            decimal.INF,
+            decimal.NAN,
+        )
+        states = (None,) + tuple((0, value) for value in values)
+        for rows in product(states, repeat=2):
+            expected = Counter({
+                (
+                    len({
+                        row[1]
+                        for row in rows
+                        if row is not None and row[1] is not None
+                    }),
+                ): 1,
+            })
+            with self.subTest(rows=rows):
+                self.assertEqual(
+                    self._symbolic_bag(
+                        relation,
+                        self._constants(database, rows),
+                    ),
+                    expected,
+                )
+
+    def test_grouped_count_distinct_matches_distinct_all_then_count(self):
+        # The reviewed q16 boundary groups on a nullable key and counts
+        # distinct values from a direct non-null Int32 column.
+        direct = grouped_count_distinct_snapshot()
+        decomposed = grouped_count_distinct_snapshot(
+            via_distinct_all=True,
+        )
+        direct_script = smt.Script()
+        decomposed_script = smt.Script()
+        direct_database = Database(direct, 3, direct_script)
+        decomposed_database = Database(
+            decomposed,
+            3,
+            decomposed_script,
+        )
+        direct_relation = RelationEvaluator(
+            direct,
+            direct_database,
+            ScalarEncoder(direct_script),
+        ).root().certain()
+        decomposed_relation = RelationEvaluator(
+            decomposed,
+            decomposed_database,
+            ScalarEncoder(decomposed_script),
+        ).root().certain()
+
+        states = (None,) + tuple(
+            product((None, 0), (0, 1))
+        )
+        for rows in product(states, repeat=3):
+            groups = {}
+            for row in rows:
+                if row is not None:
+                    groups.setdefault(row[0], set()).add(row[1])
+            expected = Counter(
+                (key, len(values))
+                for key, values in groups.items()
+            )
+            with self.subTest(rows=rows):
+                direct_bag = self._symbolic_bag(
+                    direct_relation,
+                    self._constants(direct_database, rows),
+                )
+                decomposed_bag = self._symbolic_bag(
+                    decomposed_relation,
+                    self._constants(decomposed_database, rows),
+                )
+                self.assertEqual(direct_bag, expected)
+                self.assertEqual(decomposed_bag, expected)
+                self.assertEqual(direct_bag, decomposed_bag)
+
+    def test_composite_distinct_all_matches_nullable_tuple_set_reference(self):
+        snapshot = composite_distinct_all_snapshot()
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+        ).root().certain()
+
+        states = (None,) + tuple(product((None, 0, 1), repeat=2))
+        for rows in product(states, repeat=2):
+            with self.subTest(rows=rows):
+                actual = self._symbolic_bag(
+                    relation,
+                    self._constants(database, rows),
+                )
+                expected = Counter(
+                    row for row in set(rows) if row is not None
+                )
+                self.assertEqual(actual, expected)
+
+    def test_structural_key_classes_are_exact_and_nonrecursive(self):
+        left = smt.symbol("same_key", smt.INT)
+        right = smt.symbol("same_key", smt.INT)
+        for _ in range(2000):
+            left = smt.Term(smt.INT, "deep_key", (left,))
+            right = smt.Term(smt.INT, "deep_key", (right,))
+
+        same_null_left = smt.symbol("same_null", smt.BOOL)
+        same_null_right = smt.symbol("same_null", smt.BOOL)
+        rows = (
+            relation_model.Row(
+                smt.TRUE,
+                {"k": Value("Int64", same_null_left, left)},
+            ),
+            relation_model.Row(
+                smt.TRUE,
+                {"k": Value("Int64", same_null_right, right)},
+            ),
+            relation_model.Row(
+                smt.TRUE,
+                {"k": Value("Int64", same_null_left, smt.symbol("other", smt.INT))},
+            ),
+            relation_model.Row(
+                smt.TRUE,
+                {"k": Value("Uint64", same_null_left, left)},
+            ),
+        )
+
+        self.assertEqual(
+            relation_model._aggregate_key_classes(("k",), rows),
+            ((0, 1), (2,), (3,)),
+        )
+
+    def test_structural_key_classes_preserve_multiplicity_and_dynamic_equality(self):
+        for function in ("count", "sum"):
+            for pair_bound in (8, 16):
+                with self.subTest(function=function, pair_bound=pair_bound):
+                    snapshot = duplicated_grouped_aggregate_snapshot(
+                        function,
+                        nullable_key=True,
+                    )
+                    script = smt.Script()
+                    database = Database(snapshot, 2, script)
+                    evaluator = RelationEvaluator(
+                        snapshot,
+                        database,
+                        ScalarEncoder(script),
+                    )
+                    source = evaluator.node("union").certain()
+                    self.assertIsNot(
+                        source.rows[0].values["u.k"].value,
+                        source.rows[2].values["u.k"].value,
+                    )
+                    self.assertEqual(
+                        relation_model._aggregate_key_classes(
+                            ("u.k",),
+                            source.rows,
+                        ),
+                        ((0, 2), (1, 3)),
+                    )
+                    with (
+                        mock.patch.object(
+                            relation_model,
+                            "MAX_RELATION_ROW_PAIRS",
+                            pair_bound,
+                        ),
+                        mock.patch.object(
+                            evaluator,
+                            "_same_group",
+                            wraps=evaluator._same_group,
+                        ) as same_group,
+                        mock.patch.object(
+                            relation_model,
+                            "_require_relation_row_pairs",
+                            wraps=relation_model._require_relation_row_pairs,
+                        ) as require_pairs,
+                    ):
+                        result = evaluator.root().certain()
+
+                    self.assertEqual(len(result.rows), 2)
+                    self.assertEqual(same_group.call_count, 3)
+                    self.assertIn(
+                        mock.call(8, "grouped aggregate class membership"),
+                        require_pairs.call_args_list,
+                    )
+                    self.assertIn(
+                        mock.call(3, "grouped aggregate class comparison"),
+                        require_pairs.call_args_list,
+                    )
+                    self.assertTrue(all(
+                        row.occurrence is None
+                        for row in result.rows
+                    ))
+                    states = (None,) + tuple(product((None, 0, 1), (-2, 3)))
+                    for rows in product(states, repeat=2):
+                        expanded = tuple(
+                            row
+                            for row in rows
+                            for _ in range(2)
+                        )
+                        self.assertEqual(
+                            self._symbolic_bag(
+                                result,
+                                self._constants(database, rows),
+                            ),
+                            self._reference_bag(
+                                function,
+                                True,
+                                expanded,
+                                False,
+                            ),
+                            rows,
+                        )
+
+    def test_equal_cost_classes_stay_directional_and_shared_metadata_is_conservative(self):
+        snapshot = duplicated_grouped_aggregate_snapshot("count")
+        script = smt.Script()
+        evaluator = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 1, script),
+            ScalarEncoder(script),
+        )
+        shared = relation_model.PartitionFact(
+            smt.symbol("shared_fact", smt.BOOL),
+            True,
+        )
+        left_only = relation_model.PartitionFact(
+            smt.symbol("left_fact", smt.BOOL),
+            True,
+        )
+        right_only = relation_model.PartitionFact(
+            smt.symbol("right_fact", smt.BOOL),
+            False,
+        )
+
+        def row(
+            ordinal,
+            key,
+            facts,
+        ):
+            return relation_model.Row(
+                smt.symbol(f"present_{ordinal}", smt.BOOL),
+                {
+                    "u.k": Value("Int64", smt.FALSE, key),
+                    "u.x": Value(
+                        "Int64",
+                        smt.FALSE,
+                        smt.symbol(f"value_{ordinal}", smt.INT),
+                    ),
+                },
+                relation_model.Occurrence("input", "source", ordinal),
+                frozenset(facts),
+            )
+
+        source = relation_model.Relation(
+            evaluator._columns("union"),
+            (
+                row(
+                    0,
+                    smt.symbol("same_key", smt.INT),
+                    (shared, left_only),
+                ),
+                row(
+                    1,
+                    smt.symbol("same_key", smt.INT),
+                    (shared, right_only),
+                ),
+                row(
+                    2,
+                    smt.symbol("other_key", smt.INT),
+                    (shared, left_only),
+                ),
+            ),
+        )
+        classes = relation_model._aggregate_key_classes(("u.k",), source.rows)
+        self.assertEqual(classes, ((0, 1), (2,)))
+        with mock.patch.object(
+            evaluator,
+            "_same_group",
+            wraps=evaluator._same_group,
+        ) as same_group:
+            directional = evaluator._grouped_aggregate_rows(
+                evaluator.nodes["aggregate"],
+                source,
+            )
+        self.assertEqual(len(directional), 3)
+        self.assertEqual(same_group.call_count, 9)
+
+        result = evaluator._shared_grouped_aggregate_rows(
+            evaluator.nodes["aggregate"],
+            source,
+            classes,
+        )
+
+        self.assertIsNone(result[0].occurrence)
+        self.assertEqual(result[0].partition_facts, frozenset({shared}))
+        self.assertEqual(
+            result[1].occurrence,
+            relation_model.Occurrence(
+                "aggregate",
+                "aggregate",
+                inputs=(source.rows[2].occurrence,),
+            ),
+        )
+        self.assertEqual(
+            result[1].partition_facts,
+            frozenset({shared, left_only}),
+        )
+
+    def test_compacted_partial_states_survive_hash_and_broadcast(self):
+        for connection_kind in ("hash_shuffle", "broadcast"):
+            with self.subTest(connection_kind=connection_kind):
+                snapshot = constant_grouped_stage_snapshot(connection_kind)
+                script = smt.Script()
+                database = Database(snapshot, 2, script)
+                router = Router(script)
+                edge_inputs = []
+
+                def observe(_edge, task, family):
+                    edge_inputs.append((task, family.certain()))
+
+                result = StageEvaluator(
+                    snapshot,
+                    database,
+                    ScalarEncoder(script),
+                    router,
+                    edge_observer=observe,
+                ).root().certain()
+
+                self.assertEqual(
+                    len(edge_inputs),
+                    2 if connection_kind == "hash_shuffle" else 1,
+                )
+                for _, edge_input in edge_inputs:
+                    self.assertEqual(len(edge_input.rows), 2)
+                    self.assertTrue(
+                        all(row.occurrence is None for row in edge_input.rows)
+                    )
+
+                states = (None, (0, 7))
+                for rows, placements in product(
+                    product(states, repeat=2),
+                    product((False, True), repeat=2),
+                ):
+                    constants = self._constants(database, rows)
+                    for slot, placement in enumerate(placements):
+                        constants[router.source_task("A", slot).atom] = placement
+                    present = sum(row is not None for row in rows)
+                    expected = (
+                        Counter()
+                        if present == 0
+                        else Counter({(0, present): 1})
+                    )
+                    self.assertEqual(
+                        self._symbolic_bag(
+                            result,
+                            constants,
+                            self._hash_choice,
+                        ),
+                        expected,
+                        (rows, placements),
+                    )
+
+    def test_group_comparisons_share_one_symmetric_triangle(self):
+        snapshot = aggregate_stage_snapshot("count", True, False)
+        script = smt.Script()
+        database = Database(snapshot, 3, script)
+        evaluator = RelationEvaluator(snapshot, database, ScalarEncoder(script))
+        source_rows = evaluator.node("a").certain().rows
+
+        with (
+            mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 6),
+            mock.patch.object(
+                evaluator,
+                "_same_group",
+                wraps=evaluator._same_group,
+            ) as same_group,
+        ):
+            relation = evaluator.root().certain()
+
+        self.assertEqual(len(relation.rows), 3)
+        self.assertEqual(same_group.call_count, 6)
+        expected_pairs = (
+            (source_rows[0], source_rows[0]),
+            (source_rows[0], source_rows[1]),
+            (source_rows[0], source_rows[2]),
+            (source_rows[1], source_rows[1]),
+            (source_rows[1], source_rows[2]),
+            (source_rows[2], source_rows[2]),
+        )
+        for call, expected in zip(same_group.call_args_list, expected_pairs):
+            self.assertIs(call.args[1], expected[0])
+            self.assertIs(call.args[2], expected[1])
+
+    def test_shared_group_comparisons_keep_presence_directional(self):
+        snapshot = aggregate_stage_snapshot(
+            "count",
+            True,
+            False,
+            nullable_key=True,
+        )
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        with mock.patch.object(relation_model, "MAX_RELATION_ROW_PAIRS", 3):
+            relation = RelationEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+            ).root().certain()
+
+        cases = (
+            ((None, (None, 7)), Counter({(None, 1): 1})),
+            (((None, 7), None), Counter({(None, 1): 1})),
+            (((None, 7), (None, 8)), Counter({(None, 2): 1})),
+        )
+        for rows, expected in cases:
+            with self.subTest(rows=rows):
+                self.assertEqual(
+                    self._symbolic_bag(relation, self._constants(database, rows)),
+                    expected,
+                )
+
+    def test_void_count_input_implements_count_star(self):
+        snapshot = count_star_snapshot()
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        relation = RelationEvaluator(
+            snapshot, database, ScalarEncoder(script)
+        ).root().certain()
+
+        states = (None, (0, None), (0, 7))
+        for rows in product(states, repeat=2):
+            with self.subTest(rows=rows):
+                actual = self._symbolic_bag(
+                    relation,
+                    self._constants(database, rows),
+                )
+                expected = Counter({(sum(row is not None for row in rows),): 1})
+                self.assertEqual(actual, expected)
+
+    def test_literal_case_sum_elides_only_proven_in_range_wrapping(self):
+        condition = smt.symbol("sum_case", smt.BOOL)
+        cases = (
+            ("Int64", -(1 << 63), (1 << 63) - 1, 0, True),
+            ("Uint64", 0, (1 << 64) - 1, 0, True),
+            ("Int64", 0, (1 << 63) - 1, 1, False),
+            ("Int64", -(1 << 63), 0, -1, False),
+            ("Uint64", 0, (1 << 64) - 1, 1, False),
+            ("Uint64", 0, 1, -1, False),
+        )
+        for scalar_type, low, high, offset, elided in cases:
+            with self.subTest(scalar_type=scalar_type, low=low, high=high, offset=offset):
+                raw = smt.add(
+                    smt.ite(condition, smt.int_value(low), smt.int_value(high)),
+                    smt.int_value(offset),
+                )
+                actual = aggregate.wrap_sum(raw, scalar_type)
+                self.assertEqual(actual is raw, elided)
+                with mock.patch.object(aggregate, "_literal_sum_interval", return_value=None):
+                    modular = aggregate.wrap_sum(raw, scalar_type)
+                for selected in (False, True):
+                    constants = {condition.atom: selected}
+                    self.assertEqual(
+                        _evaluate_ground_term(actual, constants),
+                        _evaluate_ground_term(modular, constants),
+                    )
+
+        unknown = smt.ite(condition, smt.symbol("unbounded_sum", smt.INT), smt.ZERO)
+        for scalar_type in ("Int64", "Uint64"):
+            self.assertIsNot(aggregate.wrap_sum(unknown, scalar_type), unknown)
+        shared = smt.ite(condition, smt.ZERO, smt.ONE)
+        deep = shared
+        for _ in range(1500):
+            deep = smt.add(deep, shared)
+        self.assertIs(aggregate.wrap_sum(deep, "Int64"), deep)
+
+    def test_partial_sum_canonicalization_preserves_64_bit_wrapping(self):
+        cases = (
+            ("Int64", ((1 << 63) - 1, 1), -(1 << 63)),
+            ("Int64", (-(1 << 63), -1), (1 << 63) - 1),
+            ("Uint64", ((1 << 64) - 1, 1), 0),
+        )
+        for scalar_type, inputs, expected in cases:
+            with self.subTest(scalar_type=scalar_type, inputs=inputs):
+                raw_terms = tuple(
+                    smt.symbol(f"partial_{scalar_type}_{index}", smt.INT)
+                    for index in range(len(inputs))
+                )
+                partials = tuple(
+                    aggregate.wrap_sum(raw, scalar_type)
+                    for raw in raw_terms
+                )
+                lifted = aggregate.wrap_sum(
+                    smt.add(
+                        *(
+                            aggregate.unwrap_sum(
+                                Value(scalar_type, smt.FALSE, partial)
+                            )
+                            for partial in partials
+                        )
+                    ),
+                    scalar_type,
+                )
+                constants = {
+                    raw.atom: concrete for raw, concrete in zip(raw_terms, inputs)
+                }
+                self.assertEqual(_evaluate_ground_term(lifted, constants), expected)
+
+    def test_symbolic_aggregate_matches_independent_tiny_reference(self):
+        cases = (
+            ("count", "Int64"),
+            ("sum", "Int8"),
+            ("sum", "Int64"),
+            ("sum", "Uint8"),
+            ("sum", "Uint64"),
+        )
+        bounds = {
+            "Int8": (-(1 << 7), (1 << 7) - 1),
+            "Int64": (-(1 << 63), (1 << 63) - 1),
+            "Uint8": (0, (1 << 8) - 1),
+            "Uint64": (0, (1 << 64) - 1),
+        }
+        for (function, input_type), grouped, nullable_input in product(
+            cases, (False, True), (False, True)
+        ):
+            nullable_keys = (False, True) if grouped else (False,)
+            for nullable_key in nullable_keys:
+                with self.subTest(
+                    function=function,
+                    input_type=input_type,
+                    grouped=grouped,
+                    nullable_input=nullable_input,
+                    nullable_key=nullable_key,
+                ):
+                    snapshot = aggregate_stage_snapshot(
+                        function,
+                        grouped,
+                        False,
+                        nullable_input=nullable_input,
+                        nullable_key=nullable_key,
+                        input_type=input_type,
+                    )
+                    script = smt.Script()
+                    database = Database(snapshot, 2, script)
+                    pair_bound = (
+                        3 if grouped else relation_model.MAX_RELATION_ROW_PAIRS
+                    )
+                    with mock.patch.object(
+                        relation_model,
+                        "MAX_RELATION_ROW_PAIRS",
+                        pair_bound,
+                    ):
+                        relation = RelationEvaluator(
+                            snapshot, database, ScalarEncoder(script)
+                        ).root().certain()
+                    key_values = (None, 0, 1) if nullable_key else (0, 1)
+                    minimum, maximum = bounds[input_type]
+                    concrete_values = tuple(dict.fromkeys((minimum, 0, 1, maximum)))
+                    input_values = (
+                        (None,) + concrete_values
+                        if nullable_input
+                        else concrete_values
+                    )
+                    states = (None,) + tuple(product(key_values, input_values))
+                    for rows in product(states, repeat=2):
+                        constants = self._constants(database, rows)
+                        actual = self._symbolic_bag(relation, constants)
+                        expected = self._reference_bag(
+                            function,
+                            grouped,
+                            rows,
+                            input_type.startswith("Uint"),
+                        )
+                        self.assertEqual(actual, expected, rows)
+
+    def test_split_stage_aggregate_matches_independent_task_reference(self):
+        states = (None,) + tuple(
+            product((None, 0, 1), (None, -1, 0, 1))
+        )
+        for function, grouped in product(("count", "sum"), (False, True)):
+            with self.subTest(function=function, grouped=grouped):
+                snapshot = aggregate_stage_snapshot(
+                    function,
+                    grouped,
+                    True,
+                    nullable_input=True,
+                    nullable_key=True,
+                )
+                script = smt.Script()
+                database = Database(snapshot, 2, script)
+                router = Router(script)
+                pair_bound = (
+                    10 if grouped else relation_model.MAX_RELATION_ROW_PAIRS
+                )
+                with mock.patch.object(
+                    relation_model,
+                    "MAX_RELATION_ROW_PAIRS",
+                    pair_bound,
+                ):
+                    relation = StageEvaluator(
+                        snapshot,
+                        database,
+                        ScalarEncoder(script),
+                        router,
+                    ).root().certain()
+                for rows, placements in product(
+                    product(states, repeat=2),
+                    product((False, True), repeat=2),
+                ):
+                    constants = self._constants(database, rows)
+                    for slot, placement in enumerate(placements):
+                        source_task = router.source_task("A", slot)
+                        constants[source_task.atom] = placement
+                    actual = self._symbolic_bag(
+                        relation,
+                        constants,
+                        self._hash_choice,
+                    )
+                    expected = self._split_reference_bag(
+                        function,
+                        grouped,
+                        rows,
+                        placements,
+                    )
+                    self.assertEqual(actual, expected, (rows, placements))
+
+    def test_split_distinct_all_matches_independent_task_reference(self):
+        snapshot = distinct_all_stage_snapshot(True)
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        router = Router(script)
+        relation = StageEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+            router,
+        ).root().certain()
+
+        states = (None,) + tuple((key, 0) for key in (None, 0, 1))
+        for rows, placements in product(
+            product(states, repeat=2),
+            product((False, True), repeat=2),
+        ):
+            constants = self._constants(database, rows)
+            for slot, placement in enumerate(placements):
+                constants[router.source_task("A", slot).atom] = placement
+            actual = self._symbolic_bag(
+                relation,
+                constants,
+                self._hash_choice,
+            )
+            expected = Counter(
+                (key,)
+                for key in {
+                    row[0]
+                    for row in rows
+                    if row is not None
+                }
+            )
+            self.assertEqual(actual, expected, (rows, placements))
+
+    def test_decimal_aggregates_match_independent_special_null_and_group_reference(self):
+        self.assertEqual(decimal.INF, REFERENCE_DECIMAL_INF)
+        self.assertEqual(decimal.NAN, REFERENCE_DECIMAL_NAN)
+        concrete_values = (
+            -REFERENCE_DECIMAL_INF,
+            -1,
+            0,
+            1,
+            REFERENCE_DECIMAL_INF,
+            REFERENCE_DECIMAL_NAN,
+        )
+        for function, grouped, nullable_input, nullable_key in product(
+            ("max", "min", "sum"),
+            (False, True),
+            (False, True),
+            (False, True),
+        ):
+            if not grouped and nullable_key:
+                continue
+            snapshot = aggregate_stage_snapshot(
+                function,
+                grouped,
+                False,
+                nullable_input=nullable_input,
+                nullable_key=nullable_key,
+                input_type="Decimal(2,0)",
+            )
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            pair_bound = 3 if grouped else relation_model.MAX_RELATION_ROW_PAIRS
+            with mock.patch.object(
+                relation_model,
+                "MAX_RELATION_ROW_PAIRS",
+                pair_bound,
+            ):
+                relation = RelationEvaluator(
+                    snapshot,
+                    database,
+                    ScalarEncoder(script),
+                ).root().certain()
+            keys = (None, 0, 1) if nullable_key else (0, 1)
+            values = (
+                (None,) + concrete_values
+                if nullable_input
+                else concrete_values
+            )
+            states = (None,) + tuple(product(keys, values))
+            for rows in product(states, repeat=2):
+                with self.subTest(
+                    function=function,
+                    grouped=grouped,
+                    nullable_input=nullable_input,
+                    nullable_key=nullable_key,
+                    rows=rows,
+                ):
+                    actual = self._symbolic_bag(
+                        relation,
+                        self._constants(database, rows),
+                    )
+                    expected = self._decimal_reference_bag(function, grouped, rows)
+                    self.assertEqual(actual, expected)
+
+    def test_decimal_avg_matches_independent_exhaustive_reference(self):
+        for values, expected in (
+            ((0, 1), 0),
+            ((1, 2), 2),
+            ((-1, 0), 0),
+            ((-2, -1), -2),
+        ):
+            with self.subTest(tie=values):
+                self.assertEqual(
+                    self._reference_decimal_average(values),
+                    expected,
+                )
+
+        concrete_values = (
+            -REFERENCE_DECIMAL_INF,
+            -2,
+            -1,
+            0,
+            1,
+            2,
+            REFERENCE_DECIMAL_INF,
+            REFERENCE_DECIMAL_NAN,
+        )
+        for grouped in (False, True):
+            snapshot = aggregate_stage_snapshot(
+                "avg",
+                grouped,
+                False,
+                nullable_input=True,
+                input_type="Decimal(2,0)",
+            )
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            pair_bound = 3 if grouped else relation_model.MAX_RELATION_ROW_PAIRS
+            with mock.patch.object(
+                relation_model,
+                "MAX_RELATION_ROW_PAIRS",
+                pair_bound,
+            ):
+                relation = RelationEvaluator(
+                    snapshot,
+                    database,
+                    ScalarEncoder(script),
+                ).root().certain()
+            states = (None,) + tuple(
+                (0, value) for value in (None,) + concrete_values
+            )
+            for rows in product(states, repeat=2):
+                with self.subTest(
+                    grouped=grouped,
+                    rows=rows,
+                ):
+                    actual = self._symbolic_bag(
+                        relation,
+                        self._constants(database, rows),
+                    )
+                    expected = self._decimal_reference_bag("avg", grouped, rows)
+                    self.assertEqual(actual, expected)
+
+    def test_split_decimal_avg_weights_unequal_partial_counts(self):
+        for grouped, nullable_input in product((False, True), repeat=2):
+            rows = (
+                ((0, None), (0, 0), (0, 0), (0, 3))
+                if nullable_input
+                else ((0, 0), (0, 0), (0, 3))
+            )
+            placements = (
+                (False, False, False, True)
+                if nullable_input
+                else (False, False, True)
+            )
+            snapshot = aggregate_stage_snapshot(
+                "avg",
+                grouped,
+                True,
+                nullable_input=nullable_input,
+                input_type="Decimal(2,0)",
+            )
+            script = smt.Script()
+            database = Database(snapshot, len(rows), script)
+            router = Router(script)
+            with mock.patch.object(
+                stage_model,
+                "MAX_EXPLICIT_TASK_COPY_ROWS",
+                0,
+            ):
+                relation = StageEvaluator(
+                    snapshot,
+                    database,
+                    ScalarEncoder(script),
+                    router,
+                ).root().certain()
+            constants = self._constants(database, rows)
+            for slot, placement in enumerate(placements):
+                constants[router.source_task("A", slot).atom] = placement
+
+            with self.subTest(
+                grouped=grouped,
+                nullable_input=nullable_input,
+            ):
+                actual = self._symbolic_bag(
+                    relation,
+                    constants,
+                    self._hash_choice,
+                )
+                expected = self._decimal_reference_bag("avg", grouped, rows)
+                self.assertEqual(actual, expected)
+                self.assertEqual(
+                    actual,
+                    Counter({(0, 1) if grouped else (1,): 1}),
+                )
+
+    def test_split_decimal_aggregates_match_across_partial_states(self):
+        values = (
+            None,
+            -REFERENCE_DECIMAL_INF,
+            -1,
+            0,
+            1,
+            REFERENCE_DECIMAL_INF,
+            REFERENCE_DECIMAL_NAN,
+        )
+        for function, grouped, nullable_input in product(
+            ("max", "min", "sum"),
+            (False, True),
+            (False, True),
+        ):
+            snapshot = aggregate_stage_snapshot(
+                function,
+                grouped,
+                True,
+                nullable_input=nullable_input,
+                nullable_key=True,
+                input_type="Decimal(2,0)",
+            )
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            router = Router(script)
+            relation = StageEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+                router,
+            ).root().certain()
+            input_values = values if nullable_input else values[1:]
+            states = (None,) + tuple(product((None, 0, 1), input_values))
+            for rows, placements in product(
+                product(states, repeat=2),
+                product((False, True), repeat=2),
+            ):
+                with self.subTest(
+                    function=function,
+                    grouped=grouped,
+                    nullable_input=nullable_input,
+                    rows=rows,
+                    placements=placements,
+                ):
+                    constants = self._constants(database, rows)
+                    for slot, placement in enumerate(placements):
+                        constants[
+                            router.source_task("A", slot).atom
+                        ] = placement
+                    actual = self._symbolic_bag(
+                        relation,
+                        constants,
+                        self._hash_choice,
+                    )
+                    expected = self._decimal_reference_bag(function, grouped, rows)
+                    self.assertEqual(actual, expected)
+
+    def test_integral_extrema_match_boundaries_before_and_after_split(self):
+        for input_type, function, grouped, nullable_input, staged in product(
+            sorted(INTEGER_TYPES),
+            ("max", "min"),
+            (False, True),
+            (False, True),
+            (False, True),
+        ):
+            bounds = integer_bounds(input_type)
+            assert bounds is not None
+            low, high = bounds[0], bounds[1] - 1
+            snapshot = aggregate_stage_snapshot(
+                function,
+                grouped,
+                staged,
+                nullable_input=nullable_input,
+                input_type=input_type,
+            )
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            router = Router(script)
+            evaluator = (
+                StageEvaluator(snapshot, database, ScalarEncoder(script), router)
+                if staged
+                else RelationEvaluator(snapshot, database, ScalarEncoder(script))
+            )
+            relation = evaluator.root().certain()
+            cases = [
+                (None, None),
+                ((0, low), None),
+                ((0, low), (0, high)),
+                ((0, high), (0, low)),
+            ]
+            if nullable_input:
+                cases.append(((0, None), (0, None)))
+
+            placements = product((False, True), repeat=2) if staged else ((False, False),)
+            for rows, placement in product(cases, placements):
+                with self.subTest(
+                    input_type=input_type,
+                    function=function,
+                    grouped=grouped,
+                    nullable_input=nullable_input,
+                    staged=staged,
+                    rows=rows,
+                    placement=placement,
+                ):
+                    constants = self._constants(database, rows)
+                    if staged:
+                        for slot, task in enumerate(placement):
+                            constants[router.source_task("A", slot).atom] = task
+                    self.assertEqual(
+                        self._symbolic_bag(
+                            relation,
+                            constants,
+                            self._hash_choice if staged else None,
+                        ),
+                        self._extrema_reference_bag(function, grouped, rows),
+                    )
+
+    def test_three_row_staged_integral_extrema_match_nullable_groups(self):
+        rows_cases = tuple(product(
+            (None, (0, None), (0, -128), (1, 127)),
+            repeat=3,
+        ))
+        placements = tuple(product((False, True), repeat=3))
+        for function in ("max", "min"):
+            snapshot = aggregate_stage_snapshot(
+                function,
+                True,
+                True,
+                nullable_input=True,
+                input_type="Int8",
+            )
+            script = smt.Script()
+            database = Database(snapshot, 3, script)
+            router = Router(script)
+            relation = StageEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+                router,
+            ).root().certain()
+            for rows, placement in product(rows_cases, placements):
+                with self.subTest(
+                    function=function,
+                    rows=rows,
+                    placement=placement,
+                ):
+                    constants = self._constants(database, rows)
+                    for slot, task in enumerate(placement):
+                        constants[router.source_task("A", slot).atom] = task
+                    self.assertEqual(
+                        self._symbolic_bag(
+                            relation,
+                            constants,
+                            self._hash_choice,
+                        ),
+                        self._extrema_reference_bag(function, True, rows),
+                    )
+
+    def test_split_decimal_avg_matches_special_state_table(self):
+        cases = (
+            ((0, REFERENCE_DECIMAL_INF), (0, -REFERENCE_DECIMAL_INF)),
+            ((0, REFERENCE_DECIMAL_NAN), (0, 1)),
+            ((0, REFERENCE_DECIMAL_INF), (0, -1)),
+            ((0, -REFERENCE_DECIMAL_INF), (0, 1)),
+            ((0, None), (0, 3)),
+            ((0, None), (0, None)),
+            (None, (0, 3)),
+        )
+        for grouped in (False, True):
+            snapshot = aggregate_stage_snapshot(
+                "avg",
+                grouped,
+                True,
+                nullable_input=True,
+                nullable_key=True,
+                input_type="Decimal(2,0)",
+            )
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            router = Router(script)
+            relation = StageEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+                router,
+            ).root().certain()
+
+            for rows in cases:
+                with self.subTest(grouped=grouped, rows=rows):
+                    constants = self._constants(database, rows)
+                    constants[router.source_task("A", 0).atom] = False
+                    constants[router.source_task("A", 1).atom] = True
+                    actual = self._symbolic_bag(
+                        relation,
+                        constants,
+                        self._hash_choice,
+                    )
+                    expected = self._decimal_reference_bag("avg", grouped, rows)
+                    self.assertEqual(actual, expected)
+
+    def test_q28_decimal_avg_union_carrier_matches_concrete_reference(self):
+        for native_layout in (False, True):
+            snapshot = q28_decimal_avg_union_carrier_snapshot(native_layout=native_layout)
+            script = smt.Script()
+            database = Database(snapshot, 3, script)
+            router = Router(script)
+            relation = StageEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+                router,
+            ).root().certain()
+
+            cases = (
+                (None, None, None),
+                ((0, None), (0, None), None),
+                ((0, 100), (0, 300), None),
+                ((0, 100), (0, 100), (0, 300)),
+                (
+                    (0, REFERENCE_DECIMAL_NAN),
+                    (0, REFERENCE_DECIMAL_NAN),
+                    None,
+                ),
+                (
+                    (0, REFERENCE_DECIMAL_INF),
+                    (0, -REFERENCE_DECIMAL_INF),
+                    None,
+                ),
+                (
+                    (0, REFERENCE_DECIMAL_INF),
+                    (0, 100),
+                    None,
+                ),
+                (
+                    (0, None),
+                    (0, REFERENCE_DECIMAL_NAN),
+                    (0, 100),
+                ),
+            )
+            for rows in cases:
+                non_null = [
+                    row[1]
+                    for row in rows
+                    if row is not None and row[1] is not None
+                ]
+                expected_average = (
+                    None
+                    if not non_null
+                    else self._reference_decimal_average(non_null)
+                )
+                expected = Counter({
+                    (
+                        expected_average,
+                        len(non_null),
+                        len(set(non_null)),
+                    ): 1,
+                })
+                with self.subTest(rows=rows, native_layout=native_layout):
+                    constants = self._constants(database, rows)
+                    for slot in range(len(rows)):
+                        constants[
+                            router.source_task("A", slot).atom
+                        ] = bool(slot % 2)
+                    self.assertEqual(
+                        self._symbolic_bag(
+                            relation,
+                            constants,
+                            self._hash_choice,
+                        ),
+                        expected,
+                    )
+
+    def test_decimal_extrema_preserve_finite_bound_through_split_state(self):
+        for function, staged in product(("max", "min"), (False, True)):
+            snapshot = aggregate_stage_snapshot(
+                function,
+                False,
+                staged,
+                nullable_input=True,
+                input_type="Decimal(3,0)",
+            )
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            scalar = ScalarEncoder(script)
+            evaluator = (
+                StageEvaluator(snapshot, database, scalar, Router(script))
+                if staged
+                else RelationEvaluator(snapshot, database, scalar)
+            )
+            relation = evaluator.root().certain()
+            self.assertEqual(len(relation.rows), 1)
+            self.assertEqual(
+                relation.rows[0].values["result"].decimal_finite_abs_bound,
+                999,
+            )
+
+    def test_decimal_sum_fails_closed_when_finite_overflow_can_depend_on_order(self):
+        snapshot = aggregate_stage_snapshot(
+            "sum",
+            False,
+            False,
+            input_type="Decimal(35,0)",
+        )
+
+        one_row_script = smt.Script()
+        one_row_database = Database(snapshot, 1, one_row_script)
+        RelationEvaluator(
+            snapshot,
+            one_row_database,
+            ScalarEncoder(one_row_script),
+        ).root()
+
+        two_row_script = smt.Script()
+        two_row_database = Database(snapshot, 2, two_row_script)
+        with self.assertRaisesRegex(
+            RelationError,
+            "non-associative overflow is not modeled",
+        ):
+            RelationEvaluator(
+                snapshot,
+                two_row_database,
+                ScalarEncoder(two_row_script),
+            ).root()
+
+    def test_decimal_avg_fails_closed_when_sum_overflow_can_depend_on_order(self):
+        snapshot = aggregate_stage_snapshot(
+            "avg",
+            False,
+            False,
+            input_type="Decimal(35,0)",
+        )
+
+        one_row_script = smt.Script()
+        RelationEvaluator(
+            snapshot,
+            Database(snapshot, 1, one_row_script),
+            ScalarEncoder(one_row_script),
+        ).root()
+
+        two_row_script = smt.Script()
+        with self.assertRaisesRegex(
+            RelationError,
+            "Decimal avg sum may overflow",
+        ):
+            RelationEvaluator(
+                snapshot,
+                Database(snapshot, 2, two_row_script),
+                ScalarEncoder(two_row_script),
+            ).root()
+
+    def test_projected_decimal_add_and_sub_supply_sum_headroom(self):
+        scalar_type = "Decimal(35,0)"
+
+        def literal(scaled):
+            return {
+                "kind": "literal",
+                "type": scalar_type,
+                "value": {"kind": "finite", "scaled": str(scaled)},
+            }
+
+        for kind, expected_value in (("add", 5), ("sub", 9)):
+            expression = {
+                "kind": kind,
+                "left": literal(7),
+                "right": literal(-2),
+                "type": scalar_type,
+                "nullable": False,
+            }
+            snapshot = projected_decimal_sum_snapshot(expression)
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            relation = RelationEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+            ).root().certain()
+
+            with self.subTest(kind=kind, property="bound"):
+                self.assertEqual(
+                    relation.rows[0].values["result"].decimal_finite_abs_bound,
+                    18,
+                )
+            for rows in product((None, (0, 0)), repeat=2):
+                present = sum(row is not None for row in rows)
+                expected = None if present == 0 else present * expected_value
+                with self.subTest(kind=kind, rows=rows):
+                    self.assertEqual(
+                        self._symbolic_bag(
+                            relation,
+                            self._constants(database, rows),
+                        ),
+                        Counter({(expected,): 1}),
+                    )
+
+    def test_projected_decimal_integral_arithmetic_supplies_sum_headroom(self):
+        scalar_type = "Decimal(35,0)"
+
+        def decimal_literal(scaled):
+            return {
+                "kind": "literal",
+                "type": scalar_type,
+                "value": {"kind": "finite", "scaled": str(scaled)},
+            }
+
+        product = {
+            "kind": "mul",
+            "left": decimal_literal(7),
+            "right": {"kind": "column", "column": "a.x"},
+            "type": scalar_type,
+            "nullable": False,
+        }
+        quotient = {
+            "kind": "div",
+            "left": product,
+            "right": {"kind": "literal", "type": "Int8", "value": 2},
+            "type": scalar_type,
+            "nullable": False,
+        }
+        snapshot = projected_decimal_sum_snapshot(quotient, "Int8")
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+        ).root().certain()
+
+        self.assertEqual(
+            relation.rows[0].values["result"].decimal_finite_abs_bound,
+            2 * 7 * 128,
+        )
+        self.assertEqual(
+            self._symbolic_bag(
+                relation,
+                self._constants(database, ((0, -128), (0, 127))),
+            ),
+            Counter({(-4,): 1}),
+        )
+
+        with self.assertRaisesRegex(
+            RelationError,
+            "non-associative overflow is not modeled",
+        ):
+            same_decimal_snapshot = projected_decimal_sum_snapshot(
+                product,
+                scalar_type,
+            )
+            same_decimal_script = smt.Script()
+            RelationEvaluator(
+                same_decimal_snapshot,
+                Database(same_decimal_snapshot, 2, same_decimal_script),
+                ScalarEncoder(same_decimal_script),
+            ).root()
+
+    def test_integral_decimal_cast_supplies_sum_headroom(self):
+        expression = {
+            "kind": "cast_decimal",
+            "arg": {"kind": "column", "column": "a.x"},
+            "source_type": "Int64",
+            "type": "Decimal(35,2)",
+            "nullable": False,
+        }
+        snapshot = projected_decimal_sum_snapshot(expression)
+        script = smt.Script()
+        database = Database(snapshot, 2, script)
+        relation = RelationEvaluator(
+            snapshot,
+            database,
+            ScalarEncoder(script),
+        ).root().certain()
+
+        self.assertEqual(
+            relation.rows[0].values["result"].decimal_finite_abs_bound,
+            2 * (1 << 63) * 100,
+        )
+        for rows in product((None, (0, -7), (0, 9)), repeat=2):
+            present = [row for row in rows if row is not None]
+            expected = (
+                sum(row[1] * 100 for row in present)
+                if present
+                else None
+            )
+            with self.subTest(rows=rows):
+                self.assertEqual(
+                    self._symbolic_bag(
+                        relation,
+                        self._constants(database, rows),
+                    ),
+                    Counter({(expected,): 1}),
+                )
+
+    def test_zero_bound_specials_and_null_preserve_sum_semantics(self):
+        scalar_type = "Decimal(35,0)"
+        cases = (
+            ({"kind": "pos_inf"}, REFERENCE_DECIMAL_INF),
+            ({"kind": "neg_inf"}, -REFERENCE_DECIMAL_INF),
+            ({"kind": "nan"}, REFERENCE_DECIMAL_NAN),
+            (None, None),
+        )
+        for literal, expected_present in cases:
+            expression = (
+                {"kind": "null", "type": scalar_type}
+                if literal is None
+                else {
+                    "kind": "literal",
+                    "type": scalar_type,
+                    "value": literal,
+                }
+            )
+            snapshot = projected_decimal_sum_snapshot(expression)
+            script = smt.Script()
+            database = Database(snapshot, 2, script)
+            relation = RelationEvaluator(
+                snapshot,
+                database,
+                ScalarEncoder(script),
+            ).root().certain()
+
+            with self.subTest(literal=literal, property="bound"):
+                self.assertEqual(
+                    relation.rows[0].values["result"].decimal_finite_abs_bound,
+                    0,
+                )
+            for rows in product((None, (0, 0)), repeat=2):
+                expected = (
+                    expected_present
+                    if expected_present is not None and any(rows)
+                    else None
+                )
+                with self.subTest(literal=literal, rows=rows):
+                    self.assertEqual(
+                        self._symbolic_bag(
+                            relation,
+                            self._constants(database, rows),
+                        ),
+                        Counter({(expected,): 1}),
+                    )
+
+    def test_full_domain_projected_decimal_bound_still_fails_closed(self):
+        scalar_type = "Decimal(35,0)"
+        expression = {
+            "kind": "add",
+            "left": {"kind": "column", "column": "a.x"},
+            "right": {
+                "kind": "literal",
+                "type": scalar_type,
+                "value": {"kind": "finite", "scaled": "0"},
+            },
+            "type": scalar_type,
+            "nullable": False,
+        }
+        snapshot = projected_decimal_sum_snapshot(expression, scalar_type)
+
+        one_row_script = smt.Script()
+        one_row = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 1, one_row_script),
+            ScalarEncoder(one_row_script),
+        ).root().certain()
+        self.assertEqual(
+            one_row.rows[0].values["result"].decimal_finite_abs_bound,
+            10**35 - 1,
+        )
+
+        two_row_script = smt.Script()
+        with self.assertRaisesRegex(
+            RelationError,
+            "non-associative overflow is not modeled",
+        ):
+            RelationEvaluator(
+                snapshot,
+                Database(snapshot, 2, two_row_script),
+                ScalarEncoder(two_row_script),
+            ).root()
+
+    def test_decimal_sum_rejects_the_exact_headroom_limit(self):
+        half_limit = 5 * 10**34
+        snapshot = projected_decimal_sum_snapshot(
+            {
+                "kind": "literal",
+                "type": "Decimal(35,0)",
+                "value": {"kind": "finite", "scaled": str(half_limit)},
+            }
+        )
+
+        one_row_script = smt.Script()
+        one_row = RelationEvaluator(
+            snapshot,
+            Database(snapshot, 1, one_row_script),
+            ScalarEncoder(one_row_script),
+        ).root().certain()
+        self.assertEqual(
+            one_row.rows[0].values["result"].decimal_finite_abs_bound,
+            half_limit,
+        )
+
+        two_row_script = smt.Script()
+        with self.assertRaisesRegex(
+            RelationError,
+            "non-associative overflow is not modeled",
+        ):
+            RelationEvaluator(
+                snapshot,
+                Database(snapshot, 2, two_row_script),
+                ScalarEncoder(two_row_script),
+            ).root()
+
+    @staticmethod
+    def _constants(database, rows):
+        result = {}
+        for witness, state in zip(database.witness["A"], rows):
+            result[witness.present.atom] = state is not None
+            key, value = (0, 0) if state is None else state
+            for name, concrete in (("k", key), ("x", value)):
+                cell = witness.cells[name]
+                if cell.is_null.operation == "symbol":
+                    result[cell.is_null.atom] = concrete is None
+                result[cell.value.atom] = 0 if concrete is None else concrete
+        return result
+
+    @staticmethod
+    def _symbolic_bag(relation, constants, function_value=None):
+        result = Counter()
+        for row in relation.rows:
+            if not _evaluate_ground_term(row.present, constants, function_value):
+                continue
+            values = []
+            for column in relation.columns:
+                value = row.values[column.name]
+                values.append(
+                    None
+                    if _evaluate_ground_term(value.is_null, constants, function_value)
+                    else _evaluate_ground_term(value.value, constants, function_value)
+                )
+            result[tuple(values)] += 1
+        return result
+
+    @staticmethod
+    def _reference_bag(function, grouped, slots, unsigned_sum):
+        rows = [row for row in slots if row is not None]
+        groups = {}
+        if grouped:
+            for key, value in rows:
+                groups.setdefault(key, []).append(value)
+        else:
+            groups[()] = [value for _, value in rows]
+
+        result = Counter()
+        for key, values in groups.items():
+            non_null = [value for value in values if value is not None]
+            if function == "count":
+                aggregate = len(non_null)
+            elif not non_null:
+                aggregate = None
+            else:
+                total = sum(non_null)
+                aggregate = (
+                    total % (1 << 64)
+                    if unsigned_sum
+                    else ((total + (1 << 63)) % (1 << 64)) - (1 << 63)
+                )
+            prefix = (key,) if grouped else ()
+            result[prefix + (aggregate,)] += 1
+        return result
+
+    @staticmethod
+    def _decimal_reference_bag(function, grouped, slots):
+        rows = [row for row in slots if row is not None]
+        groups = {}
+        if grouped:
+            for key, value in rows:
+                groups.setdefault(key, []).append(value)
+        else:
+            groups[()] = [value for _, value in rows]
+
+        result = Counter()
+        for key, values in groups.items():
+            non_null = [value for value in values if value is not None]
+            if not non_null:
+                aggregate = None
+            elif function == "max":
+                # Decimal AggrMax compares the signed in-band codes directly.
+                aggregate = max(non_null)
+            elif function == "min":
+                # Decimal AggrMin uses the same raw signed-code order.
+                aggregate = min(non_null)
+            elif function == "avg":
+                aggregate = AggregateConcreteDifferentialTest._reference_decimal_average(
+                    non_null
+                )
+            elif function != "sum":
+                raise AssertionError(f"unsupported Decimal aggregate {function!r}")
+            elif REFERENCE_DECIMAL_NAN in non_null:
+                aggregate = REFERENCE_DECIMAL_NAN
+            elif (
+                REFERENCE_DECIMAL_INF in non_null
+                and -REFERENCE_DECIMAL_INF in non_null
+            ):
+                aggregate = REFERENCE_DECIMAL_NAN
+            elif REFERENCE_DECIMAL_INF in non_null:
+                aggregate = REFERENCE_DECIMAL_INF
+            elif -REFERENCE_DECIMAL_INF in non_null:
+                aggregate = -REFERENCE_DECIMAL_INF
+            else:
+                aggregate = sum(non_null)
+            prefix = (key,) if grouped else ()
+            result[prefix + (aggregate,)] += 1
+        return result
+
+    @staticmethod
+    def _extrema_reference_bag(function, grouped, slots):
+        rows = [row for row in slots if row is not None]
+        groups = {}
+        if grouped:
+            for key, value in rows:
+                groups.setdefault(key, []).append(value)
+        else:
+            groups[()] = [value for _, value in rows]
+
+        result = Counter()
+        for key, values in groups.items():
+            non_null = [value for value in values if value is not None]
+            aggregate = (
+                None
+                if not non_null
+                else (max(non_null) if function == "max" else min(non_null))
+            )
+            prefix = (key,) if grouped else ()
+            result[prefix + (aggregate,)] += 1
+        return result
+
+    @staticmethod
+    def _reference_decimal_average(values):
+        if REFERENCE_DECIMAL_NAN in values:
+            return REFERENCE_DECIMAL_NAN
+        if (
+            REFERENCE_DECIMAL_INF in values
+            and -REFERENCE_DECIMAL_INF in values
+        ):
+            return REFERENCE_DECIMAL_NAN
+        if REFERENCE_DECIMAL_INF in values:
+            return REFERENCE_DECIMAL_INF
+        if -REFERENCE_DECIMAL_INF in values:
+            return -REFERENCE_DECIMAL_INF
+
+        numerator = sum(values)
+        denominator = len(values)
+        sign = -1 if numerator < 0 else 1
+        quotient, remainder = divmod(abs(numerator), denominator)
+        twice_remainder = 2 * remainder
+        if (
+            twice_remainder > denominator
+            or (
+                twice_remainder == denominator
+                and quotient % 2 == 1
+            )
+        ):
+            quotient += 1
+        return sign * quotient
+
+    @staticmethod
+    def _hash_choice(_function, arguments):
+        is_null, value = arguments
+        return False if is_null else bool(value % 2)
+
+    @classmethod
+    def _split_reference_bag(cls, function, grouped, slots, placements):
+        source_tasks = [[], []]
+        for row, task in zip(slots, placements):
+            if row is not None:
+                source_tasks[int(task)].append(row)
+        partials = [
+            cls._concrete_aggregate(function, grouped, rows, "intermediate")
+            for rows in source_tasks
+        ]
+
+        if grouped:
+            final_inputs = [[], []]
+            for task_rows in partials:
+                for key, value in task_rows:
+                    final_inputs[int(False if key is None else bool(key % 2))].append(
+                        (key, value)
+                    )
+        else:
+            final_inputs = [[row for task_rows in partials for row in task_rows]]
+
+        outputs = []
+        for rows in final_inputs:
+            outputs.extend(
+                cls._concrete_aggregate(
+                    "sum",
+                    grouped,
+                    rows,
+                    "final",
+                    coalesce_empty=function == "count",
+                )
+            )
+        return Counter(
+            (key, value) if grouped else (value,)
+            for key, value in outputs
+        )
+
+    @staticmethod
+    def _concrete_aggregate(
+        function,
+        grouped,
+        rows,
+        phase,
+        coalesce_empty=False,
+    ):
+        groups = {}
+        if grouped:
+            for key, value in rows:
+                groups.setdefault(key, []).append(value)
+        elif rows or phase != "intermediate":
+            groups[None] = [value for _, value in rows]
+
+        result = []
+        for key, values in groups.items():
+            non_null = [value for value in values if value is not None]
+            if function == "count":
+                aggregate = len(non_null)
+            elif not non_null:
+                aggregate = 0 if coalesce_empty else None
+            else:
+                total = sum(non_null)
+                aggregate = ((total + (1 << 63)) % (1 << 64)) - (1 << 63)
+            result.append((key, aggregate))
+        return result
+
+
+class IntegralAverageCertificateLifecycleTest(unittest.TestCase):
+    @staticmethod
+    def _metadata(family):
+        return tuple(
+            value.average_metadata
+            for outcome in family.outcomes
+            for row in outcome.relation.rows
+            for value in row.values.values()
+            if value.average_metadata is not None
+        )
+
+    def _evaluator(self, snapshot, observer=None):
+        script = smt.Script()
+        return RelationEvaluator(
+            snapshot,
+            Database(snapshot, 2, script),
+            ScalarEncoder(script),
+            node_observer=observer,
+        )
+
+    def assert_metadata(self, family, expected):
+        metadata = self._metadata(family)
+        if expected is None:
+            self.assertEqual(metadata, ())
+        else:
+            self.assertTrue(metadata)
+            self.assertTrue(all(isinstance(item, expected) for item in metadata))
+
+    def test_certificate_is_observed_once_then_stripped_with_or_without_observer(self):
+        snapshot = aggregate_stage_snapshot(
+            "avg", False, False, nullable_input=True, input_type="Int64"
+        )
+        observed = []
+        evaluator = self._evaluator(
+            snapshot,
+            lambda _scope, node, family: observed.append((node, family)),
+        )
+        aggregate = evaluator.node("aggregate")
+        evaluator.node("aggregate")
+        aggregate_events = [
+            family for node, family in observed if node == "aggregate"
+        ]
+        self.assertEqual(len(aggregate_events), 1)
+        self.assert_metadata(
+            aggregate_events[0],
+            IntegralAverageCertificate,
+        )
+        for family in (aggregate, evaluator.root()):
+            self.assert_metadata(family, None)
+        self.assert_metadata(self._evaluator(snapshot).node("aggregate"), None)
+
+        projected = aggregate_stage_snapshot(
+            "avg",
+            True,
+            False,
+            nullable_input=True,
+            input_type="Int64",
+            project_average_away=True,
+        )
+        project_events = {}
+        result = self._evaluator(
+            projected,
+            lambda _scope, node, family: project_events.setdefault(node, family),
+        ).root()
+        self.assert_metadata(
+            project_events["aggregate"],
+            IntegralAverageCertificate,
+        )
+        self.assert_metadata(project_events["project"], None)
+        self.assert_metadata(result, None)
+
+    def test_all_sort_shapes_and_ordered_limit_receive_plain_values(self):
+        snapshot = aggregate_stage_snapshot(
+            "avg", False, False, nullable_input=True, input_type="Int64"
+        )
+        source = self._evaluator(snapshot).node("aggregate")
+        key = Column("key", "Int64", False)
+
+        def candidates(count):
+            return relation_model.map_family(
+                source,
+                lambda relation: replace(
+                    relation,
+                    columns=(key,) + relation.columns,
+                    rows=tuple(
+                        replace(
+                            relation.rows[0],
+                            values={
+                                "key": Value(
+                                    "Int64", smt.FALSE, smt.int_value(index)
+                                ),
+                                **relation.rows[0].values,
+                            },
+                        )
+                        for index in range(count)
+                    ),
+                ),
+            )
+
+        script = smt.Script()
+        order = (SortOrder("key", True, False),)
+        tiny = relation_model.sort_family(candidates(2), order, script, "tiny")
+        self.assertEqual(len(tiny.outcomes), 2)
+        self.assert_metadata(tiny, None)
+        limited = relation_model.limit_family(
+            tiny,
+            Expr(
+                kind="literal",
+                value=1,
+                result_type="Uint64",
+                nullable=False,
+            ),
+            None,
+            script,
+            "limit",
+        )
+        self.assert_metadata(limited, None)
+
+        ordinal = relation_model.sort_family(
+            candidates(4), order, script, "ordinal"
+        )
+        self.assert_metadata(ordinal, None)
+        self.assertTrue(all(
+            outcome.relation.ordinals is not None
+            for outcome in ordinal.outcomes
+        ))
+        network = relation_model._sorting_network_family(
+            candidates(4), order, script, "network"
+        )
+        self.assert_metadata(network, None)
+        self.assertTrue(all(
+            outcome.relation.present_prefix
+            for outcome in network.outcomes
+        ))
+
+    def test_split_state_survives_stage_edge_and_finalization(self):
+        snapshot = aggregate_stage_snapshot(
+            "avg",
+            False,
+            True,
+            nullable_input=True,
+            input_type="Int64",
+        )
+        script = smt.Script()
+        observed = {}
+        edges = []
+        result = StageEvaluator(
+            snapshot,
+            Database(snapshot, 2, script),
+            ScalarEncoder(script),
+            Router(script),
+            node_observer=lambda _scope, node, family: observed.setdefault(
+                node, []
+            ).append(family),
+            edge_observer=lambda _edge, _task, family: edges.append(family),
+        ).root()
+
+        for family in observed["partial"]:
+            self.assert_metadata(family, IntegralAverageState)
+        for family in edges:
+            self.assert_metadata(family, IntegralAverageState)
+        self.assert_metadata(
+            observed["final"][0],
+            IntegralAverageCertificate,
+        )
+        self.assert_metadata(result, None)
+
+
+class RestrictedModelSmokeTest(unittest.TestCase):
+    def test_domain_constrained_opaque_result_after_symbolic_take_is_constructible(self):
+        for result_type in (
+            "String",
+            "Utf8",
+            "Int64",
+            "Date",
+            "Decimal(5,2)",
+        ):
+            with self.subTest(result_type=result_type):
+                snapshot = unordered_take_opaque_snapshot(result_type)
+                problem = build_logical_kernel_problem_for_tests(
+                    snapshot,
+                    snapshot,
+                    6,
+                )
+                self.assertIn("(forall ", problem.formula())
+
+    def test_date_filter_equivalence_and_boundary_mutation_use_exact_days(self):
+        before = date_filtered_snapshot("lt", 1)
+        self.assertFalse(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(before, before, 1).script
+            )
+        )
+        self.assertTrue(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(
+                    before,
+                    date_filtered_snapshot("lte", 1),
+                    1,
+                ).script
+            )
+        )
+
+    def test_date_year_normalization_propagates_null_exactly(self):
+        expression = (
+            date_year_snapshot()
+            .plan.node_map()["project"]
+            .columns[0]
+            .expression
+        )
+        for source_is_null in (False, True):
+            with self.subTest(source_is_null=source_is_null):
+                result = ScalarEncoder(smt.Script()).evaluate(
+                    expression,
+                    {
+                        "t.shipdate": Value(
+                            "Date",
+                            smt.bool_value(source_is_null),
+                            smt.int_value(123),
+                        ),
+                    },
+                )
+                self.assertEqual(result.type, "Uint16")
+                self.assertEqual(
+                    result.is_null,
+                    smt.bool_value(source_is_null),
+                )
+                if source_is_null:
+                    self.assertEqual(result.value, smt.ZERO)
+                else:
+                    self.assertEqual(result.value.operation, "f_0")
+                    self.assertEqual(
+                        result.value.arguments,
+                        (smt.FALSE, smt.int_value(123)),
+                    )
+
+    def test_mixed_width_membership_lowering_has_no_spurious_model(self):
+        problem = build_logical_kernel_problem_for_tests(
+            mixed_width_membership_snapshot(False),
+            mixed_width_membership_snapshot(True),
+            1,
+        )
+        self.assertFalse(_restricted_domain_has_model(problem.script))
+
+    def test_identical_passive_date_and_decimal_columns_have_no_model(self):
+        snapshot = parse_snapshot(_snapshot_with_stage_graph(
+            {
+                "tables": [{
+                    "name": "A",
+                    "columns": [
+                        {"name": "d", "type": "Date", "nullable": True},
+                        {"name": "n", "type": "Decimal(5,2)", "nullable": True},
+                    ],
+                    "unique_keys": [],
+                }]
+            },
+            [{
+                "id": "scan",
+                "op": "scan",
+                "table": "A",
+                "columns": [
+                    {"source": "d", "output": "d"},
+                    {"source": "n", "output": "n"},
+                ],
+                "pushed_limit": None,
+            }],
+            "scan",
+            ["d", "n"],
+        ))
+        self.assertFalse(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(snapshot, snapshot, 1).script
+            )
+        )
+
+    def test_identical_join_has_no_restricted_model(self):
+        snapshot = right_join({"kind": "and", "args": [KEY_EQUALITY, RESIDUAL]})
+        self.assertFalse(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(snapshot, snapshot, 1).script
+            )
+        )
+
+    def test_dropped_right_join_filter_has_a_restricted_model(self):
+        before = right_join({"kind": "and", "args": [KEY_EQUALITY, RESIDUAL]})
+        self.assertTrue(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(
+                    before, right_join(KEY_EQUALITY), 1
+                ).script
+            )
+        )
+
+    def test_union_multiplicity_mutation_has_a_restricted_model(self):
+        self.assertTrue(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(
+                    union_snapshot(True), union_snapshot(False), 1
+                ).script
+            )
+        )
+
+    def test_null_and_false_filters_have_no_restricted_model(self):
+        before = filtered_snapshot({"kind": "null", "type": "Bool"})
+        after = filtered_snapshot({"kind": "literal", "type": "Bool", "value": False})
+        self.assertFalse(
+            _restricted_domain_has_model(
+                build_logical_kernel_problem_for_tests(before, after, 1).script
+            )
+        )
+
+    def test_catalog_key_controls_left_join_elimination(self):
+        with_key = build_logical_kernel_problem_for_tests(
+            left_join_elimination_snapshot(True, True),
+            left_join_elimination_snapshot(False, True),
+            2,
+        )
+        without_key = build_logical_kernel_problem_for_tests(
+            left_join_elimination_snapshot(True, False),
+            left_join_elimination_snapshot(False, False),
+            2,
+        )
+        self.assertFalse(_restricted_domain_has_model(with_key.script))
+        self.assertTrue(_restricted_domain_has_model(without_key.script))
+
+
+class StageGraphRestrictedModelTest(unittest.TestCase):
+    def test_split_distinct_all_matches_logical_deduplication(self):
+        logical = distinct_all_stage_snapshot(False)
+        staged = distinct_all_stage_snapshot(True)
+        self.assertEqual(stage_task_counts(staged), {"source": 2, "root": 2})
+        self.assertFalse(
+            _restricted_domain_has_model(
+                build_problem(logical, staged, 2).script
+            )
+        )
+
+    def test_nonshuffled_partial_distinct_all_has_a_duplicate_witness(self):
+        logical = distinct_all_stage_snapshot(False)
+        corrupted = distinct_all_stage_snapshot(True, connection_kind="map")
+        self.assertTrue(
+            _restricted_domain_has_model(
+                build_problem(logical, corrupted, 2).script
+            )
+        )
+
+    def test_split_aggregates_match_logical_aggregation(self):
+        cases = (
+            ("count", "Int64"),
+            ("sum", "Int64"),
+            ("max", "Decimal(2,0)"),
+            ("min", "Decimal(2,0)"),
+        )
+        for (function, input_type), grouped, nullable_input in product(
+            cases, (False, True), (False, True)
+        ):
+            with self.subTest(
+                function=function,
+                grouped=grouped,
+                nullable_input=nullable_input,
+            ):
+                logical = aggregate_stage_snapshot(
+                    function,
+                    grouped,
+                    False,
+                    nullable_input=nullable_input,
+                    input_type=input_type,
+                )
+                staged = aggregate_stage_snapshot(
+                    function,
+                    grouped,
+                    True,
+                    nullable_input=nullable_input,
+                    input_type=input_type,
+                )
+                self.assertEqual(
+                    stage_task_counts(staged),
+                    {"source": 2, "root": 2 if grouped else 1},
+                )
+                self.assertFalse(
+                    _restricted_domain_has_model(
+                        build_problem(logical, staged, 1).script
+                    )
+                )
+
+    def test_integer_sum_uses_exact_64_bit_wrapping(self):
+        logical = aggregate_stage_snapshot("sum", False, False)
+        staged = aggregate_stage_snapshot("sum", False, True)
+        self.assertIn("(mod ", build_problem(logical, staged, 1).formula())
+
+    def test_corrupt_min_final_function_has_a_two_row_witness(self):
+        logical = aggregate_stage_snapshot(
+            "min",
+            False,
+            False,
+            input_type="Decimal(2,0)",
+        )
+        corrupted = aggregate_stage_snapshot(
+            "min",
+            False,
+            True,
+            final_function="max",
+            input_type="Decimal(2,0)",
+        )
+        self.assertTrue(
+            _restricted_domain_has_model(
+                build_problem(logical, corrupted, 2).script
+            )
+        )
+
+    def test_wrong_grouped_aggregate_shuffle_key_has_a_two_row_witness(self):
+        for function, input_type in (
+            ("count", "Int64"),
+            ("sum", "Int64"),
+            ("max", "Decimal(2,0)"),
+            ("min", "Decimal(2,0)"),
+        ):
+            with self.subTest(function=function):
+                logical = aggregate_stage_snapshot(
+                    function,
+                    True,
+                    False,
+                    nullable_input=True,
+                    nullable_key=True,
+                    input_type=input_type,
+                )
+                corrupted = aggregate_stage_snapshot(
+                    function,
+                    True,
+                    True,
+                    nullable_input=True,
+                    nullable_key=True,
+                    shuffle_key="_state",
+                    input_type=input_type,
+                )
+                self.assertTrue(
+                    _restricted_domain_has_model(
+                        build_problem(logical, corrupted, 2).script
+                    )
+                )
+
+    def test_corrupt_count_final_function_has_a_witness(self):
+        logical = aggregate_stage_snapshot("count", False, False)
+        corrupted = aggregate_stage_snapshot(
+            "count", False, True, final_function="count"
+        )
+        self.assertTrue(
+            _restricted_domain_has_model(build_problem(logical, corrupted, 2).script)
+        )
+
+    def test_corrupt_count_final_phase_has_an_empty_input_witness(self):
+        logical = aggregate_stage_snapshot("count", False, False)
+        corrupted = aggregate_stage_snapshot(
+            "count", False, True, final_phase="intermediate"
+        )
+        self.assertTrue(
+            _restricted_domain_has_model(build_problem(logical, corrupted, 0).script)
+        )
+
+    def test_dropped_final_count_has_an_empty_input_witness(self):
+        logical = aggregate_stage_snapshot("count", False, False)
+        self.assertTrue(
+            _restricted_domain_has_model(
+                build_problem(logical, partial_only_count_snapshot(), 0).script
+            )
+        )
+
+    def test_unmodeled_aggregate_function_fails_closed(self):
+        value = aggregate_stage_snapshot("count", False, False)
+        trait = value.plan.nodes[-1].aggregates[0]
+        raw = _snapshot_with_stage_graph(
+            _stage_schema("A"),
+            [
+                copy.deepcopy(SCAN_A),
+                {
+                    "id": "aggregate",
+                    "op": "aggregate",
+                    "input": "a",
+                    "keys": [],
+                    "aggregates": [
+                        {
+                            "input": trait.input,
+                            "function": "median",
+                            "output": trait.output,
+                            "type": trait.output_type,
+                            "nullable": trait.output_nullable,
+                            "distinct": trait.distinct,
+                            "unwrap": trait.unwrap,
+                        }
+                    ],
+                    "phase": "undefined",
+                    "distinct_all": False,
+                },
+            ],
+            "aggregate",
+            ["result"],
+        )
+        snapshot = parse_snapshot(raw)
+        with self.assertRaisesRegex(VerificationError, "not modeled: median"):
+            build_logical_kernel_problem_for_tests(snapshot, snapshot, 1)
+
+    def test_two_task_map_and_hash_shuffle_preserve_rows(self):
+        logical = passthrough_stage_snapshot()
+        connections = [
+            {"kind": "map"},
+            {
+                "kind": "hash_shuffle",
+                "keys": ["a.k"],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            },
+        ]
+        for connection in connections:
+            with self.subTest(kind=connection["kind"]):
+                staged = passthrough_stage_snapshot(connection)
+                self.assertFalse(
+                    _restricted_domain_has_model(build_problem(logical, staged, 2).script)
+                )
+
+    def test_serial_and_parallel_union_all_connections_preserve_rows(self):
+        logical = passthrough_stage_snapshot()
+        for parallel in (False, True):
+            with self.subTest(parallel=parallel):
+                staged = passthrough_stage_snapshot(
+                    {"kind": "union_all", "parallel": parallel}
+                )
+                self.assertFalse(
+                    _restricted_domain_has_model(build_problem(logical, staged, 2).script)
+                )
+
+    def test_merge_order_survives_parse_and_requires_an_ordered_producer(self):
+        order = [
+            {"column": "a.k", "ascending": True, "nulls_first": False},
+            {"column": "a.x", "ascending": False, "nulls_first": True},
+        ]
+        logical = passthrough_stage_snapshot()
+        staged = passthrough_stage_snapshot({"kind": "merge", "order": order})
+
+        edge = staged.stage_graph.edges[0]
+        self.assertEqual(
+            [
+                (item.column, item.ascending, item.nulls_first)
+                for item in edge.order
+            ],
+            [
+                ("a.k", True, False),
+                ("a.x", False, True),
+            ],
+        )
+        with self.assertRaisesRegex(VerificationError, "merge edge .* input is not ordered"):
+            build_problem(logical, staged, 2)
+
+    def test_serial_gather_then_parallel_union_stays_single_task(self):
+        logical = serial_then_parallel_stage_snapshot(False)
+        staged = serial_then_parallel_stage_snapshot(True)
+
+        self.assertEqual(
+            stage_task_counts(staged),
+            {"source": 2, "gather_stage": 1, "root": 1},
+        )
+        self.assertFalse(
+            _restricted_domain_has_model(build_problem(logical, staged, 2).script)
+        )
+
+    def test_matching_shuffle_key_and_hash_make_local_join_complete(self):
+        logical = local_join_stage_snapshot()
+        staged = local_join_stage_snapshot(
+            {
+                "kind": "hash_shuffle",
+                "keys": ["a.k"],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            },
+            {
+                "kind": "hash_shuffle",
+                "keys": ["b.k"],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            },
+        )
+        self.assertFalse(
+            _restricted_domain_has_model(build_problem(logical, staged, 1).script)
+        )
+
+    def test_wrong_shuffle_key_or_hash_has_a_routing_witness(self):
+        logical = local_join_stage_snapshot()
+        left = {
+            "kind": "hash_shuffle",
+            "keys": ["a.k"],
+            "hash_function": "HashV1",
+            "use_spilling": False,
+        }
+        mutations = [
+            {
+                "kind": "hash_shuffle",
+                "keys": ["b.x"],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            },
+            {
+                "kind": "hash_shuffle",
+                "keys": ["b.k"],
+                "hash_function": "HashV2",
+                "use_spilling": False,
+            },
+        ]
+        for right in mutations:
+            with self.subTest(right=right):
+                mutated = local_join_stage_snapshot(left, right)
+                self.assertTrue(
+                    _restricted_domain_has_model(build_problem(logical, mutated, 1).script)
+                )
+
+    def test_broadcast_makes_cross_task_local_join_complete(self):
+        logical = local_join_stage_snapshot()
+        staged = local_join_stage_snapshot(
+            {"kind": "map"},
+            {"kind": "broadcast"},
+        )
+        self.assertFalse(
+            _restricted_domain_has_model(build_problem(logical, staged, 2).script)
+        )
+
+    def test_replacing_broadcast_with_map_has_a_witness(self):
+        logical = local_join_stage_snapshot()
+        mutated = local_join_stage_snapshot(
+            {"kind": "map"},
+            {"kind": "union_all", "parallel": True},
+        )
+        self.assertTrue(
+            _restricted_domain_has_model(build_problem(logical, mutated, 2).script)
+        )
+
+    def test_duplicate_edges_use_distinct_occurrences_and_input_ordinals(self):
+        staged_value = duplicate_edge_stage_value()
+        staged = parse_snapshot(staged_value)
+        logical_value = copy.deepcopy(staged_value)
+        logical_value["stage_graph"] = None
+        logical = parse_snapshot(logical_value)
+        self.assertFalse(
+            _restricted_domain_has_model(build_problem(logical, staged, 1).script)
+        )
+
+        duplicate_occurrence = copy.deepcopy(staged_value)
+        duplicate_occurrence["stage_graph"]["edges"][1]["occurrence"] = 0
+        with self.assertRaises(SnapshotError):
+            parse_snapshot(duplicate_occurrence)
+
+        duplicate_input = copy.deepcopy(staged_value)
+        duplicate_input["stage_graph"]["edges"][1]["consumer_input"] = 0
+        with self.assertRaises(SnapshotError):
+            parse_snapshot(duplicate_input)
+
+        reused_output = copy.deepcopy(staged_value)
+        reused_output["stage_graph"]["edges"][1]["producer_output"] = 0
+        with self.assertRaises(SnapshotError):
+            parse_snapshot(reused_output)
+
+        unused_output = copy.deepcopy(staged_value)
+        unused_output["stage_graph"]["stages"][0]["outputs"].append(
+            {"index": 2, "node": "a"}
+        )
+        with self.assertRaises(SnapshotError):
+            parse_snapshot(unused_output)
+
+    def test_connection_variants_reject_unknown_and_missing_fields(self):
+        def value_with_variant(variant):
+            value = duplicate_edge_stage_value()
+            edges = value["stage_graph"]["edges"]
+            _set_connection(edges[0], variant)
+            if variant["kind"] in {"union_all", "merge"}:
+                _set_connection(edges[1], variant)
+            return value
+
+        valid_variants = [
+            {"kind": "map"},
+            {"kind": "broadcast"},
+            {
+                "kind": "hash_shuffle",
+                "keys": ["a.k"],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            },
+            {"kind": "union_all", "parallel": False},
+            {
+                "kind": "merge",
+                "order": [
+                    {"column": "a.k", "ascending": True, "nulls_first": True}
+                ],
+            },
+        ]
+        required_settings = {
+            "hash_shuffle": ("keys", "hash_function", "use_spilling"),
+            "union_all": ("parallel",),
+            "merge": ("order",),
+        }
+        for variant in valid_variants:
+            with self.subTest(kind=variant["kind"], case="valid"):
+                parse_snapshot(value_with_variant(variant))
+
+            with self.subTest(kind=variant["kind"], case="unknown"):
+                invalid = dict(variant, unmodelled=True)
+                with self.assertRaisesRegex(SnapshotError, "unknown fields: unmodelled"):
+                    parse_snapshot(value_with_variant(invalid))
+
+            for field in required_settings.get(variant["kind"], ()):
+                with self.subTest(kind=variant["kind"], case="missing", field=field):
+                    invalid = dict(variant)
+                    del invalid[field]
+                    with self.assertRaisesRegex(SnapshotError, f"missing fields:.*{field}"):
+                        parse_snapshot(value_with_variant(invalid))
+
+    def test_stage_output_mapping_must_match_its_node_and_edge_index(self):
+        mutations = []
+
+        non_contiguous = duplicate_edge_stage_value()
+        non_contiguous["stage_graph"]["stages"][0]["outputs"][0]["index"] = 1
+        mutations.append(non_contiguous)
+
+        foreign_node = duplicate_edge_stage_value()
+        foreign_node["stage_graph"]["stages"][0]["outputs"][0]["node"] = "union"
+        mutations.append(foreign_node)
+
+        missing_output = duplicate_edge_stage_value()
+        missing_output["stage_graph"]["edges"][0]["producer_output"] = 1
+        mutations.append(missing_output)
+
+        for value in mutations:
+            with self.subTest(value=value):
+                with self.assertRaises(SnapshotError):
+                    parse_snapshot(value)
+
+    def test_consumer_task_counts_match_executor_and_channel_constraints(self):
+        broadcast_only = duplicate_edge_stage_value()
+        for edge in broadcast_only["stage_graph"]["edges"]:
+            _set_connection(edge, {"kind": "broadcast"})
+        broadcast_snapshot = parse_snapshot(broadcast_only)
+        self.assertEqual(stage_task_counts(broadcast_snapshot)["consumer"], 1)
+
+        serial_with_map = duplicate_edge_stage_value()
+        _set_connection(
+            serial_with_map["stage_graph"]["edges"][1],
+            {"kind": "union_all", "parallel": False},
+        )
+
+        two_maps = duplicate_edge_stage_value()
+        for edge in two_maps["stage_graph"]["edges"]:
+            _set_connection(edge, {"kind": "map"})
+
+        for case, value, message in (
+            ("serial_with_map", serial_with_map, "serial UnionAll"),
+            ("two_maps", two_maps, "only one Map"),
+        ):
+            with self.subTest(case=case):
+                with self.assertRaisesRegex(SnapshotError, message):
+                    parse_snapshot(value)
+
+
+@unittest.skipUnless(SOLVER, "run through ya or set RBO_Z3 for solver tests")
+class VerificationTest(unittest.TestCase):
+    def test_pruned_scan_predicate_preserves_nulls_and_payload_free_multiplicity(self):
+        for nullable, payload, staged in product((False, True), repeat=3):
+            def snapshot(pushed, threshold=0):
+                schema_value = _stage_schema("A")
+                schema_value["tables"][0]["columns"][0]["nullable"] = nullable
+                scan = copy.deepcopy(SCAN_A)
+                predicate = {"kind": "gte", "left": {"kind": "column", "column": "a.k"},
+                             "right": {"kind": "literal", "type": "Int64", "value": threshold}}
+                if pushed:
+                    scan["columns"] = [{"source": "x", "output": "a.x"}] if payload else []
+                    scan["predicate_columns"] = [{"source": "k", "output": "private.k"}]
+                    scan["predicate"] = copy.deepcopy(predicate)
+                    scan["predicate"]["left"]["column"] = "private.k"
+                    nodes, root = [scan], "a"
+                    stages = [_stage("source", ["a"], [], ["a"], "column")] if staged else None
+                else:
+                    nodes = [scan, {"id": "filter", "op": "filter", "input": "a", "predicate": predicate}]
+                    root, stages = "filter", None
+                output, edges = ["a.x"], []
+                if not payload:
+                    nodes.append({
+                        "id": "emit", "op": "project", "input": root, "ordered": False,
+                        "columns": [{"output": "one", "expression": {
+                            "kind": "literal", "type": "Int64", "value": 1}}],
+                    })
+                    root, output = "emit", ["one"]
+                    if pushed and staged:
+                        stages.append(_stage("compute", ["emit"], ["a"], ["emit"]))
+                        edges = [_edge("gather", "source", "compute", 0, 0, "union_all", parallel=False)]
+                return parse_snapshot(_snapshot_with_stage_graph(
+                    schema_value, nodes, root, output, stages, edges))
+
+            before = snapshot(False)
+            build = build_problem if staged else build_transformation_prefix_problem
+            with self.subTest(nullable=nullable, payload=payload, staged=staged):
+                result = solve(build(before, snapshot(True), 2, 10_000), SOLVER, 2, 10_000)
+                self.assertEqual(result.status, "VERIFIED_BOUNDED")
+                changed = solve(build(before, snapshot(True, 1), 2, 10_000), SOLVER, 2, 10_000)
+                self.assertEqual(changed.status, "COUNTEREXAMPLE")
+
+    def test_row_source_result_projection_preserves_each_tuple_position(self):
+        initial = row_source_result_snapshot(staged=False)
+        final = row_source_result_snapshot(staged=True)
+        result = solve(build_problem(initial, final, 2, 10_000), SOLVER, 2, 10_000)
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+        changed = row_source_result_snapshot(staged=True, second="a.x")
+        result = solve(build_problem(initial, changed, 2, 10_000), SOLVER, 2, 10_000)
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_q28_decimal_avg_union_carrier_has_end_to_end_obligations(self):
+        logical = q28_decimal_logical_snapshot()
+        staged = q28_decimal_avg_union_carrier_snapshot()
+        equivalent = solve(
+            build_problem(logical, staged, 2, 30_000),
+            SOLVER,
+            2,
+            30_000,
+        )
+        self.assertEqual(equivalent.status, "VERIFIED_BOUNDED")
+
+        corrupted = q28_decimal_avg_union_carrier_snapshot(
+            count_from_distinct=True,
+        )
+        inequivalent = solve(
+            build_problem(logical, corrupted, 2, 30_000),
+            SOLVER,
+            2,
+            30_000,
+        )
+        self.assertEqual(inequivalent.status, "COUNTEREXAMPLE")
+
+    def test_q28_variadic_rebound_avg_carrier_matches_logical_and_detects_mutation(self):
+        logical = q28_decimal_logical_snapshot()
+        for corrupted in (False, True):
+            staged = q28_decimal_avg_union_carrier_snapshot(
+                count_from_distinct=corrupted, native_layout=True,
+            )
+            result = solve(build_problem(logical, staged, 2, 30_000), SOLVER, 2, 30_000)
+            with self.subTest(corrupted=corrupted):
+                self.assertEqual(result.status, "COUNTEREXAMPLE" if corrupted else "VERIFIED_BOUNDED")
+
+    def test_q28_avg_carrier_can_be_verified_before_stage_assignment(self):
+        logical = q28_decimal_logical_snapshot()
+        for native_layout in (False, True):
+            for corrupted in (False, True):
+                prefix = q28_decimal_avg_union_carrier_snapshot(
+                    count_from_distinct=corrupted, native_layout=native_layout, staged=False,
+                )
+                result = solve(build_transformation_prefix_problem(logical, prefix, 2, 30_000),
+                               SOLVER, 2, 30_000)
+                with self.subTest(native_layout=native_layout, corrupted=corrupted):
+                    self.assertEqual(result.status, "COUNTEREXAMPLE" if corrupted else "VERIFIED_BOUNDED")
+        prefix = q28_decimal_avg_union_carrier_snapshot(native_layout=True, staged=False)
+        physical = q28_decimal_avg_union_carrier_snapshot(native_layout=True)
+        result = solve(
+            build_transformation_pair_problem(prefix, physical, 2, 30_000, observation_snapshot=logical),
+            SOLVER, 2, 30_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_integral_division_is_an_exact_bounded_observable(self):
+        original = integral_division_snapshot()
+        equivalent = solve(
+            build_logical_kernel_problem_for_tests(
+                original,
+                integral_division_snapshot(),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(equivalent.status, "VERIFIED_BOUNDED")
+
+        reversed_operands = solve(
+            build_logical_kernel_problem_for_tests(
+                original,
+                integral_division_snapshot(reverse_operands=True),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(reversed_operands.status, "COUNTEREXAMPLE")
+
+    def test_split_distinct_all_is_bounded_equivalent(self):
+        result = solve(
+            build_problem(
+                distinct_all_stage_snapshot(False),
+                distinct_all_stage_snapshot(True),
+                2,
+                30_000,
+            ),
+            SOLVER,
+            2,
+            30_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_nonshuffled_partial_distinct_all_has_a_solver_counterexample(self):
+        result = solve(
+            build_problem(
+                distinct_all_stage_snapshot(False),
+                distinct_all_stage_snapshot(True, connection_kind="map"),
+                2,
+                10_000,
+            ),
+            SOLVER,
+            2,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_choice_dependent_opaque_domains_prove_self_equivalence(self):
+        for result_type in (
+            "String",
+            "Utf8",
+            "Int64",
+            "Date",
+            "Decimal(5,2)",
+        ):
+            with self.subTest(result_type=result_type):
+                snapshot = unordered_take_opaque_snapshot(result_type)
+                result = solve(
+                    build_logical_kernel_problem_for_tests(
+                        snapshot,
+                        snapshot,
+                        4,
+                        20_000,
+                    ),
+                    SOLVER,
+                    4,
+                    20_000,
+                )
+                self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_date_if_present_semantics_are_exact_and_mutations_are_visible(self):
+        original = date_if_present_snapshot()
+        identical = solve(
+            build_logical_kernel_problem_for_tests(
+                original,
+                date_if_present_snapshot(),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(identical.status, "VERIFIED_BOUNDED")
+
+        for mutation, changed in (
+            ("missing", date_if_present_snapshot(missing=1)),
+            ("source", date_if_present_snapshot(source="d.other_day")),
+            (
+                "present",
+                date_if_present_snapshot(
+                    present={"kind": "literal", "type": "Date", "value": 0}
+                ),
+            ),
+        ):
+            with self.subTest(mutation=mutation):
+                result = solve(
+                    build_logical_kernel_problem_for_tests(
+                        original,
+                        changed,
+                        1,
+                        10_000,
+                    ),
+                    SOLVER,
+                    1,
+                    10_000,
+                )
+                self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_scalar_subplan_and_staged_cross_join_inline_are_bounded_equivalent(self):
+        initial = scalar_subplan_inline_snapshot(False)
+        final = scalar_subplan_inline_snapshot(True)
+        result = solve(
+            build_problem(initial, final, 1, 10_000),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_mutated_inlined_scalar_input_has_a_solver_counterexample(self):
+        initial = scalar_subplan_inline_snapshot(False)
+        mutated = scalar_subplan_inline_snapshot(True, aggregate_input="a.k")
+        result = solve(
+            build_problem(initial, mutated, 1, 10_000),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+        self.assertEqual(len(result.witness["A"]), 1)
+        self.assertEqual(len(result.witness["B"]), 1)
+        self.assertNotEqual(
+            result.witness["A"][0]["k"],
+            result.witness["A"][0]["x"],
+        )
+
+    def test_split_aggregates_are_bounded_equivalent(self):
+        cases = (
+            ("count", "Int64"),
+            ("sum", "Int64"),
+            ("max", "Decimal(2,0)"),
+            ("min", "Decimal(2,0)"),
+            ("max", "Int64"),
+            ("min", "Int64"),
+        )
+        for (function, input_type), grouped, nullable_input in product(
+            cases, (False, True), (False, True)
+        ):
+            with self.subTest(
+                function=function,
+                grouped=grouped,
+                nullable_input=nullable_input,
+            ):
+                logical = aggregate_stage_snapshot(
+                    function,
+                    grouped,
+                    False,
+                    nullable_input=nullable_input,
+                    input_type=input_type,
+                )
+                staged = aggregate_stage_snapshot(
+                    function,
+                    grouped,
+                    True,
+                    nullable_input=nullable_input,
+                    input_type=input_type,
+                )
+                result = solve(
+                    build_problem(logical, staged, 1, 10_000),
+                    SOLVER,
+                    1,
+                    10_000,
+                )
+                self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_integral_average_is_exact_through_two_non_null_rows(self):
+        for grouped in (False, True):
+            with self.subTest(grouped=grouped):
+                logical = aggregate_stage_snapshot(
+                    "avg",
+                    grouped,
+                    False,
+                    nullable_input=True,
+                    input_type="Int64",
+                )
+                staged = aggregate_stage_snapshot(
+                    "avg",
+                    grouped,
+                    True,
+                    nullable_input=True,
+                    input_type="Int64",
+                )
+                problem = build_problem(logical, staged, 2, 30_000)
+                self.assertIsNotNone(problem.soundness_exclusion)
+                self.assertTrue(problem.soundness_exclusions)
+                result = solve(problem, SOLVER, 2, 30_000)
+                self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_integral_average_three_rows_is_inconclusive_not_counterexample(self):
+        logical = aggregate_stage_snapshot(
+            "avg",
+            False,
+            False,
+            nullable_input=True,
+            input_type="Int64",
+        )
+        staged = aggregate_stage_snapshot(
+            "avg",
+            False,
+            True,
+            nullable_input=True,
+            input_type="Int64",
+        )
+        result = solve(
+            build_problem(logical, staged, 3, 30_000),
+            SOLVER,
+            3,
+            30_000,
+        )
+        self.assertEqual(result.status, "UNKNOWN")
+        self.assertIn("model-domain exclusion is reachable", result.reason)
+
+    def test_projected_integral_average_still_checks_exactness_region(self):
+        logical = aggregate_stage_snapshot(
+            "avg",
+            True,
+            False,
+            nullable_input=True,
+            input_type="Int64",
+            project_average_away=True,
+        )
+        staged = aggregate_stage_snapshot(
+            "avg",
+            True,
+            True,
+            nullable_input=True,
+            input_type="Int64",
+            project_average_away=True,
+        )
+        result = solve(
+            build_problem(logical, staged, 3, 30_000),
+            SOLVER,
+            3,
+            30_000,
+        )
+        self.assertEqual(result.status, "UNKNOWN")
+        self.assertIn("model-domain exclusion is reachable", result.reason)
+
+    def test_integral_average_input_mutation_requires_exact_replay(self):
+        logical = aggregate_stage_snapshot(
+            "avg",
+            True,
+            False,
+            nullable_input=True,
+            nullable_key=True,
+            input_type="Int64",
+        )
+        corrupted = aggregate_stage_snapshot(
+            "avg",
+            True,
+            True,
+            nullable_input=True,
+            nullable_key=True,
+            input_type="Int64",
+            aggregate_input="a.k",
+        )
+        result = solve(
+            build_problem(logical, corrupted, 2, 30_000),
+            SOLVER,
+            2,
+            30_000,
+        )
+        self.assertEqual(result.status, "UNKNOWN")
+        self.assertIn("exact binary64 replay is required", result.reason)
+
+    def test_integral_average_carrier_collision_is_never_a_counterexample(self):
+        logical = aggregate_stage_snapshot(
+            "avg",
+            False,
+            False,
+            nullable_input=True,
+            input_type="Int64",
+        )
+        duplicated = aggregate_stage_snapshot(
+            "avg",
+            False,
+            True,
+            nullable_input=True,
+            input_type="Int64",
+            duplicate_input=True,
+        )
+
+        result = solve(
+            build_problem(logical, duplicated, 1, 30_000),
+            SOLVER,
+            1,
+            30_000,
+        )
+
+        self.assertEqual(result.status, "UNKNOWN")
+        self.assertIn("exact binary64 replay is required", result.reason)
+
+    def test_grouped_nullable_sum_is_verified_at_two_rows_and_tasks(self):
+        logical = aggregate_stage_snapshot(
+            "sum", True, False, nullable_input=True, nullable_key=True
+        )
+        staged = aggregate_stage_snapshot(
+            "sum", True, True, nullable_input=True, nullable_key=True
+        )
+        result = solve(
+            build_problem(logical, staged, 2, 30_000),
+            SOLVER,
+            2,
+            30_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_text_and_temporal_extrema_preserve_partition_reductions(self):
+        for input_type in ("String", "Utf8", "Date", "Datetime", "Timestamp", "Timestamp64"):
+            for function, grouped, nullable in product(("min", "max"), (False, True), (False, True)):
+                with self.subTest(type=input_type, function=function, grouped=grouped, nullable=nullable):
+                    initial = aggregate_stage_snapshot(
+                        function, grouped, False, nullable_input=nullable, input_type=input_type)
+                    final = aggregate_stage_snapshot(
+                        function, grouped, True, nullable_input=nullable, input_type=input_type)
+                    result = solve(build_problem(initial, final, 2, 10_000), SOLVER, 2, 10_000)
+                    self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_corrupt_min_final_function_has_a_solver_counterexample(self):
+        for input_type in ("Decimal(2,0)", "Int64", "String", "Utf8", "Date", "Datetime", "Timestamp", "Timestamp64"):
+            with self.subTest(input_type=input_type):
+                logical = aggregate_stage_snapshot(
+                    "min",
+                    False,
+                    False,
+                    input_type=input_type,
+                )
+                corrupted = aggregate_stage_snapshot(
+                    "min",
+                    False,
+                    True,
+                    final_function="max",
+                    input_type=input_type,
+                )
+                result = solve(
+                    build_problem(logical, corrupted, 2, 10_000),
+                    SOLVER,
+                    2,
+                    10_000,
+                )
+                self.assertEqual(result.status, "COUNTEREXAMPLE")
+                self.assertEqual(len(result.witness["A"]), 2)
+                self.assertNotEqual(
+                    result.witness["A"][0]["x"],
+                    result.witness["A"][1]["x"],
+                )
+
+    def test_wrong_grouped_aggregate_shuffle_key_has_a_solver_counterexample(self):
+        for function, input_type in (
+            ("count", "Int64"),
+            ("sum", "Int64"),
+            ("max", "Decimal(2,0)"),
+            ("min", "Decimal(2,0)"),
+        ):
+            with self.subTest(function=function):
+                logical = aggregate_stage_snapshot(
+                    function,
+                    True,
+                    False,
+                    nullable_input=True,
+                    nullable_key=True,
+                    input_type=input_type,
+                )
+                corrupted = aggregate_stage_snapshot(
+                    function,
+                    True,
+                    True,
+                    nullable_input=True,
+                    nullable_key=True,
+                    shuffle_key="_state",
+                    input_type=input_type,
+                )
+                result = solve(
+                    build_problem(logical, corrupted, 2, 10_000),
+                    SOLVER,
+                    2,
+                    10_000,
+                )
+                self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_corrupt_count_final_function_has_a_solver_counterexample(self):
+        logical = aggregate_stage_snapshot("count", False, False)
+        corrupted = aggregate_stage_snapshot(
+            "count", False, True, final_function="count"
+        )
+        result = solve(
+            build_problem(logical, corrupted, 2, 10_000),
+            SOLVER,
+            2,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_corrupt_count_final_phase_has_a_solver_counterexample(self):
+        logical = aggregate_stage_snapshot("count", False, False)
+        corrupted = aggregate_stage_snapshot(
+            "count", False, True, final_phase="intermediate"
+        )
+        result = solve(
+            build_problem(logical, corrupted, 0, 10_000),
+            SOLVER,
+            0,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_dropped_final_count_has_a_solver_counterexample(self):
+        logical = aggregate_stage_snapshot("count", False, False)
+        result = solve(
+            build_problem(logical, partial_only_count_snapshot(), 0, 10_000),
+            SOLVER,
+            0,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_matching_stage_shuffles_are_bounded_equivalent(self):
+        logical = local_join_stage_snapshot()
+        staged = local_join_stage_snapshot(
+            {
+                "kind": "hash_shuffle",
+                "keys": ["a.k"],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            },
+            {
+                "kind": "hash_shuffle",
+                "keys": ["b.k"],
+                "hash_function": "HashV1",
+                "use_spilling": False,
+            },
+        )
+        result = solve(build_problem(logical, staged, 1, 10_000), SOLVER, 1, 10_000)
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_wrong_stage_routing_has_a_solver_counterexample(self):
+        logical = local_join_stage_snapshot()
+        mutations = [
+            (
+                1,
+                local_join_stage_snapshot(
+                    {
+                        "kind": "hash_shuffle",
+                        "keys": ["a.k"],
+                        "hash_function": "HashV1",
+                        "use_spilling": False,
+                    },
+                    {
+                        "kind": "hash_shuffle",
+                        "keys": ["b.k"],
+                        "hash_function": "HashV2",
+                        "use_spilling": False,
+                    },
+                ),
+            ),
+            (
+                2,
+                local_join_stage_snapshot(
+                    {"kind": "map"},
+                    {"kind": "union_all", "parallel": True},
+                ),
+            ),
+        ]
+        for row_bound, staged in mutations:
+            with self.subTest(row_bound=row_bound, staged=staged):
+                result = solve(
+                    build_problem(logical, staged, row_bound, 10_000),
+                    SOLVER,
+                    row_bound,
+                    10_000,
+                )
+                self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_identical_plans_are_bounded_equivalent(self):
+        snapshot = right_join({"kind": "and", "args": [KEY_EQUALITY, RESIDUAL]})
+        result = solve(
+            build_logical_kernel_problem_for_tests(snapshot, snapshot, 1, 10_000),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_mixed_width_membership_lowering_is_bounded_equivalent(self):
+        result = solve(
+            build_logical_kernel_problem_for_tests(
+                mixed_width_membership_snapshot(False),
+                mixed_width_membership_snapshot(True),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_string_predicate_fingerprint_and_argument_order_are_semantic(self):
+        fingerprint = "yql-string-predicate-v1:ends_with"
+        original = string_predicate_snapshot(fingerprint)
+        identical = solve(
+            build_logical_kernel_problem_for_tests(
+                original,
+                string_predicate_snapshot(fingerprint),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(identical.status, "VERIFIED_BOUNDED")
+
+        for mutation, changed in (
+            (
+                "fingerprint",
+                string_predicate_snapshot(
+                    "yql-string-predicate-v1:string_contains"
+                ),
+            ),
+            (
+                "argument order",
+                string_predicate_snapshot(
+                    fingerprint,
+                    reverse_arguments=True,
+                ),
+            ),
+        ):
+            with self.subTest(mutation=mutation):
+                result = solve(
+                    build_logical_kernel_problem_for_tests(
+                        original,
+                        changed,
+                        1,
+                        10_000,
+                    ),
+                    SOLVER,
+                    1,
+                    10_000,
+                )
+                self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_compiled_like_bridge_preserves_null_and_function_identity(self):
+        fingerprint = compiled_like_fingerprint("%special%requests%")
+        logical = compiled_like_snapshot(fingerprint)
+
+        identical = solve(
+            build_logical_kernel_problem_for_tests(
+                logical,
+                compiled_like_snapshot(fingerprint),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(identical.status, "VERIFIED_BOUNDED")
+
+        pushed = solve(
+            build_problem(
+                logical,
+                compiled_like_snapshot(fingerprint, staged=True),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(pushed.status, "VERIFIED_BOUNDED")
+
+        mutations = {
+            "pattern identity": compiled_like_snapshot(
+                fingerprint.replace("special", "changed")
+            ),
+            "NULL fallback": compiled_like_snapshot(
+                fingerprint,
+                missing=True,
+            ),
+        }
+        for mutation, changed in mutations.items():
+            with self.subTest(mutation=mutation):
+                result = solve(
+                    build_logical_kernel_problem_for_tests(
+                        logical,
+                        changed,
+                        1,
+                        10_000,
+                    ),
+                    SOLVER,
+                    1,
+                    10_000,
+                )
+                self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_passive_double_fingerprint_and_arguments_are_semantic(self):
+        original = passive_double_snapshot()
+        identical = solve(
+            build_logical_kernel_problem_for_tests(
+                original,
+                passive_double_snapshot(),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(identical.status, "VERIFIED_BOUNDED")
+
+        staged = solve(
+            build_problem(
+                original,
+                passive_double_snapshot(staged=True),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(staged.status, "VERIFIED_BOUNDED")
+
+        for mutation, changed in (
+            (
+                "fingerprint",
+                passive_double_snapshot(
+                    OPAQUE_DOUBLE_FINGERPRINT_PREFIX + "changed"
+                ),
+            ),
+            (
+                "argument",
+                passive_double_snapshot(
+                    argument_columns=("a.x", "a.y", "a.k")
+                ),
+            ),
+        ):
+            with self.subTest(mutation=mutation):
+                result = solve(
+                    build_logical_kernel_problem_for_tests(
+                        original,
+                        changed,
+                        1,
+                        10_000,
+                    ),
+                    SOLVER,
+                    1,
+                    10_000,
+                )
+                self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_passive_double_is_a_sort_merge_passenger(self):
+        result = solve(
+            build_problem(
+                passive_double_snapshot(sort_merge=True),
+                passive_double_snapshot(staged=True, sort_merge=True),
+                2,
+                20_000,
+            ),
+            SOLVER,
+            2,
+            20_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_date_year_normalization_fingerprint_and_argument_are_semantic(self):
+        original = date_year_snapshot()
+        identical = solve(
+            build_logical_kernel_problem_for_tests(
+                original,
+                date_year_snapshot(),
+                1,
+                10_000,
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(identical.status, "VERIFIED_BOUNDED")
+
+        for mutation, changed in (
+            (
+                "fingerprint",
+                date_year_snapshot("yql-datetime-year-mutated-v1"),
+            ),
+            (
+                "argument",
+                date_year_snapshot(
+                    opaque_argument={
+                        "kind": "literal",
+                        "type": "Date",
+                        "value": 0,
+                    },
+                ),
+            ),
+        ):
+            with self.subTest(mutation=mutation):
+                result = solve(
+                    build_logical_kernel_problem_for_tests(
+                        original,
+                        changed,
+                        1,
+                        10_000,
+                    ),
+                    SOLVER,
+                    1,
+                    10_000,
+                )
+                self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_dropped_right_join_filter_has_a_witness(self):
+        before = right_join({"kind": "and", "args": [KEY_EQUALITY, RESIDUAL]})
+        after = right_join(KEY_EQUALITY)
+        result = solve(
+            build_logical_kernel_problem_for_tests(before, after, 1, 10_000),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+        self.assertEqual(len(result.witness["A"]), 1)
+        self.assertEqual(len(result.witness["B"]), 1)
+        self.assertEqual(result.witness["A"][0]["k"], result.witness["B"][0]["k"])
+
+    def test_dropping_union_all_branch_changes_multiplicity(self):
+        result = solve(
+            build_logical_kernel_problem_for_tests(
+                union_snapshot(True), union_snapshot(False), 1, 10_000
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+        self.assertEqual(len(result.witness["A"]), 1)
+
+    def test_null_and_false_filters_are_equivalent(self):
+        null_filter = filtered_snapshot({"kind": "null", "type": "Bool"})
+        false_filter = filtered_snapshot({"kind": "literal", "type": "Bool", "value": False})
+        result = solve(
+            build_logical_kernel_problem_for_tests(
+                null_filter, false_filter, 1, 10_000
+            ),
+            SOLVER,
+            1,
+            10_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_unique_key_justifies_left_join_elimination(self):
+        before = left_join_elimination_snapshot(True, True)
+        after = left_join_elimination_snapshot(False, True)
+        result = solve(
+            build_logical_kernel_problem_for_tests(before, after, 2, 10_000),
+            SOLVER,
+            2,
+            10_000,
+        )
+        self.assertEqual(result.status, "VERIFIED_BOUNDED")
+
+    def test_left_join_elimination_without_unique_key_has_a_witness(self):
+        before = left_join_elimination_snapshot(True, False)
+        after = left_join_elimination_snapshot(False, False)
+        result = solve(
+            build_logical_kernel_problem_for_tests(before, after, 2, 10_000),
+            SOLVER,
+            2,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+        self.assertEqual(len(result.witness["B"]), 2)
+
+    def test_constant_query_uses_one_empty_source_row(self):
+        result = solve(
+            build_logical_kernel_problem_for_tests(
+                constant_snapshot(1), constant_snapshot(2), 0, 10_000
+            ),
+            SOLVER,
+            0,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+        self.assertEqual(result.witness, {})
+
+    def test_zero_bound_catalog_retains_its_empty_table_witness(self):
+        problem = Problem(smt.Script(10_000), {"A": ()})
+        result = solve(problem, SOLVER, 0, 10_000)
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+        self.assertEqual(result.witness, {"A": []})
+
+    def test_string_escape_forms_remain_distinct(self):
+        result = solve(
+            build_logical_kernel_problem_for_tests(
+                constant_snapshot("\\n"), constant_snapshot("\n"), 0, 10_000
+            ),
+            SOLVER,
+            0,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+    def test_unicode_literal_round_trips_through_z3(self):
+        result = solve(
+            build_logical_kernel_problem_for_tests(
+                constant_snapshot("é"), constant_snapshot("u{e9}"), 0, 10_000
+            ),
+            SOLVER,
+            0,
+            10_000,
+        )
+        self.assertEqual(result.status, "COUNTEREXAMPLE")
+
+
+if __name__ == "__main__":
+    unittest.main()

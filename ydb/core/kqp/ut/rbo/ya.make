@@ -1,5 +1,10 @@
 UNITTEST_FOR(ydb/core/kqp)
 
+# Keep the compiled objects cached while avoiding resident debug sections at link time.
+IF (OS_LINUX AND RBO_LOW_MEMORY_LINK)
+    LDFLAGS(-Wl,--no-gdb-index -Wl,--strip-debug)
+ENDIF()
+
 FORK_SUBTESTS()
 SPLIT_FACTOR(16)
 
@@ -9,13 +14,18 @@ REQUIREMENTS(cpu:2)
 SRCS(
     kqp_rbo_compatibility_ut.cpp
     kqp_rbo_copy_ut.cpp
+    kqp_rbo_decimal_ranges_ut.cpp
     kqp_rbo_decorrelation_ut.cpp
+    kqp_rbo_decimal_join_ut.cpp
+    kqp_rbo_exclusive_range_ut.cpp
     kqp_rbo_global_ut.cpp
+    kqp_rbo_grouped_distinct_ut.cpp
     kqp_rbo_lowering_ut.cpp
     kqp_rbo_yql_ut.cpp
     kqp_rbo_lookup_join_ut.cpp
     kqp_rbo_olap_distinct_ut.cpp
     kqp_rbo_olap_ut.cpp
+    kqp_rbo_set_operations_ut.cpp
 )
 
 PEERDIR(
@@ -63,3 +73,7 @@ NO_COMPILER_WARNINGS()
 YQL_LAST_ABI_VERSION()
 
 END()
+
+RECURSE_FOR_TESTS(
+    ../../opt/rbo/verification/ut
+)

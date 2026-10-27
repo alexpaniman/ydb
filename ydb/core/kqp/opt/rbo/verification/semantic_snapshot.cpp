@@ -1,0 +1,15297 @@
+#include "semantic_snapshot.h"
+#include "read_range_diagnostics_impl.h"
+
+#include <ydb/core/kqp/expr_nodes/kqp_expr_nodes.h>
+#include <ydb/core/kqp/common/kqp_yql.h>
+#include <ydb/core/kqp/opt/rbo/kqp_operator.h>
+#include <ydb/core/kqp/opt/rbo/kqp_rbo_context.h>
+#include <ydb/core/kqp/opt/rbo/kqp_rbo_utils.h>
+#include <ydb/core/kqp/provider/yql_kikimr_provider.h>
+#include <ydb/core/scheme_types/scheme_decimal_type.h>
+
+#include <library/cpp/json/writer/json.h>
+#include <library/cpp/json/writer/json_value.h>
+
+#include <yql/essentials/ast/yql_type_string.h>
+#include <yql/essentials/core/yql_expr_optimize.h>
+#include <yql/essentials/core/yql_expr_type_annotation.h>
+#include <yql/essentials/minikql/mkql_date_scaler.h>
+#include <yql/essentials/minikql/datetime/datetime.h>
+#include <yql/essentials/minikql/mkql_type_ops.h>
+#include <yql/essentials/public/decimal/yql_decimal.h>
+#include <yql/essentials/public/udf/udf_data_type.h>
+#include <yql/essentials/utils/utf8.h>
+
+#include <util/generic/hash.h>
+#include <util/generic/hash_set.h>
+#include <util/generic/map.h>
+#include <util/generic/set.h>
+#include <util/generic/yexception.h>
+#include <util/string/builder.h>
+#include <util/string/cast.h>
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <functional>
+#include <limits>
+#include <optional>
+#include <string_view>
+#include <utility>
+#include <variant>
+
+namespace NKikimr::NKqp {
+namespace {
+
+using namespace NYql;
+using namespace NYql::NNodes;
+
+#include "snapshot_operator_views_impl.h"
+
+constexpr TStringBuf Binary64SemanticMode = "binary64_uf_universal_v1";
+constexpr TStringBuf Binary64OrderingComparison = "binary64_total_v1";
+
+class TUnsupportedSnapshot final : public yexception {
+};
+
+[[noreturn]] void Unsupported(const TString& reason) {
+    ythrow TUnsupportedSnapshot() << reason;
+}
+
+struct TDecimalParameters {
+    ui8 Precision;
+    ui8 Scale;
+};
+
+std::optional<TDecimalParameters> ParseCanonicalDecimalParameters(
+    std::string_view precisionText,
+    std::string_view scaleText)
+{
+    const auto parse = [](std::string_view digits, ui32& value) {
+        if (digits.empty() || (digits.size() > 1 && digits.front() == '0')) {
+            return false;
+        }
+        value = 0;
+        for (const char digit : digits) {
+            if (digit < '0' || digit > '9') {
+                return false;
+            }
+            value = value * 10 + static_cast<ui32>(digit - '0');
+            if (value > NYql::NDecimal::MaxPrecision) {
+                return false;
+            }
+        }
+        return true;
+    };
+    ui32 precision = 0;
+    ui32 scale = 0;
+    if (!parse(precisionText, precision) ||
+        !parse(scaleText, scale) ||
+        precision == 0 || scale > precision)
+    {
+        return std::nullopt;
+    }
+    return TDecimalParameters{
+        static_cast<ui8>(precision),
+        static_cast<ui8>(scale),
+    };
+}
+
+std::optional<TDecimalParameters> ParseCanonicalDecimalType(TStringBuf type) {
+    const std::string_view text(type.data(), type.size());
+    constexpr std::string_view Prefix = "Decimal(";
+    if (!text.starts_with(Prefix) || !text.ends_with(')')) {
+        return std::nullopt;
+    }
+    const auto body = text.substr(Prefix.size(), text.size() - Prefix.size() - 1);
+    const auto comma = body.find(',');
+    if (comma == std::string_view::npos || body.find(',', comma + 1) != std::string_view::npos) {
+        return std::nullopt;
+    }
+    return ParseCanonicalDecimalParameters(
+        body.substr(0, comma),
+        body.substr(comma + 1));
+}
+
+bool IsCanonicalDecimalType(TStringBuf type) {
+    return ParseCanonicalDecimalType(type).has_value();
+}
+
+bool IsSupportedType(TStringBuf type) {
+    static const THashSet<TString> Types = {
+        "Bool",
+        "Int8", "Int16", "Int32", "Int64",
+        "Uint8", "Uint16", "Uint32", "Uint64",
+        "String", "Utf8", "Date", "Datetime", "Timestamp", "Timestamp64",
+    };
+    if (Types.contains(type)) {
+        return true;
+    }
+    return IsCanonicalDecimalType(type);
+}
+
+bool IsSupportedLiteralType(TStringBuf type) {
+    static const THashSet<TString> Types = {
+        "Bool",
+        "Int8", "Int16", "Int32", "Int64",
+        "Uint8", "Uint16", "Uint32", "Uint64",
+        "String", "Utf8", "Date", "Datetime", "Timestamp", "Timestamp64",
+    };
+    return Types.contains(type);
+}
+
+struct TTableReference {
+    TString Identity;
+    TString Path;
+};
+
+void AppendIdentityField(TStringBuilder& out, TStringBuf name, TStringBuf value) {
+    out << name << ":" << value.size() << ":" << value << ";";
+}
+
+TTableReference TableReference(const TExprNode::TPtr& tableNode, TStringBuf cluster) {
+    if (!tableNode || !TKqpTable::Match(tableNode.Get())) {
+        Unsupported("Read has no KqpTable metadata node");
+    }
+    const auto table = TKqpTable(tableNode);
+    const TString path = table.Path().StringValue();
+    if (path.empty()) {
+        Unsupported("Read has an empty table path");
+    }
+
+    TStringBuilder identity;
+    AppendIdentityField(identity, "cluster", cluster);
+    AppendIdentityField(identity, "path", path);
+    AppendIdentityField(identity, "path_id", table.PathId().StringValue());
+    AppendIdentityField(identity, "sys_view", table.SysView().StringValue());
+    AppendIdentityField(identity, "version", table.Version().StringValue());
+    return {identity, path};
+}
+
+TTableReference TableReference(const TOpRead& read, TStringBuf cluster) {
+    return TableReference(read.TableCallable, cluster);
+}
+
+TTableReference MetadataTableReference(const TKikimrTableMetadata& table, TStringBuf cluster) {
+    TStringBuilder identity;
+    AppendIdentityField(identity, "cluster", cluster);
+    AppendIdentityField(identity, "path", table.Name);
+    AppendIdentityField(identity, "path_id", table.PathId.ToString());
+    AppendIdentityField(identity, "sys_view", table.SysView);
+    AppendIdentityField(identity, "version", ToString(table.SchemaVersion));
+    return {identity, table.Name};
+}
+
+void CheckPointLookupShape(const TOpTableLookup& lookup) {
+    if (lookup.Strategy != ELookupStrategy::LookupRows || lookup.IsJoin() || !lookup.JoinKind.empty() ||
+        lookup.Prefix || lookup.FetchedRowFilter || !lookup.ResidualJoinKeys.Items().empty() ||
+        lookup.AllowNullKeys || lookup.KeysFromInputLookup || lookup.LookupKeys.Items().empty())
+    {
+        Unsupported("TableLookup supports only plain LookupRows with a complete physical key");
+    }
+    // SourceRead is optimizer provenance: the LookupRows physical builder does
+    // not execute it. Executed predicates remain on the probe subtree.
+}
+
+void VisitOperators(
+    const TIntrusivePtr<IOperator>& op,
+    THashSet<const IOperator*>& visited,
+    const std::function<void(IOperator&)>& visitor)
+{
+    if (!op || !visited.insert(op.Get()).second) {
+        return;
+    }
+    for (const auto& child : op->GetChildren()) {
+        VisitOperators(child, visited, visitor);
+    }
+    visitor(*op);
+}
+
+void ValidateOperatorArity(IOperator& op, bool allowRoot) {
+    const size_t children = op.GetChildren().size();
+    switch (op.GetKind()) {
+        case EOperator::EmptySource:
+            if (children != 0) {
+                Unsupported("EmptySource unexpectedly has children");
+            }
+            return;
+
+        case EOperator::Source:
+            if (children != 0) {
+                Unsupported("Read unexpectedly has children");
+            }
+            return;
+
+        case EOperator::TableLookup:
+            if (children != 1) {
+                Unsupported("TableLookup must have one probe input");
+            }
+            CheckPointLookupShape(static_cast<const TOpTableLookup&>(op));
+            return;
+
+        case EOperator::Replicate:
+            if (children != 1) {
+                Unsupported("Replicate must have one shared input");
+            }
+            return;
+
+        case EOperator::Window:
+        case EOperator::Map:
+            if (children != 1) {
+                Unsupported("Map must have one input");
+            }
+            return;
+
+        case EOperator::Filter:
+            if (children != 1) {
+                Unsupported("Filter must have one input");
+            }
+            return;
+
+        case EOperator::Limit:
+            if (children != 1) {
+                Unsupported("Limit must have one input");
+            }
+            return;
+
+        case EOperator::Sort:
+            if (children != 1) {
+                Unsupported("Sort must have one input");
+            }
+            return;
+
+        case EOperator::GroupingSets:
+            if (children != 1 || op.GetChild(0)->GetKind() != EOperator::Aggregate) {
+                Unsupported("GroupingSets must have one Aggregate template input");
+            }
+            return;
+
+        case EOperator::Aggregate:
+            // Storage-side aggregation has a separate physical implementation.
+            // Reject before normalization can absorb an intermediate aggregate.
+            if (static_cast<const TOpAggregate&>(op).IsPushedToOlap()) {
+                Unsupported("Aggregate pushed to OLAP is not modeled");
+            }
+            if (children != 1) {
+                Unsupported("Aggregate must have one input");
+            }
+            return;
+
+        case EOperator::Join:
+            if (children != 2) {
+                Unsupported("Join must have two inputs");
+            }
+            return;
+
+        case EOperator::UnionAll:
+            if (children < 2) {
+                Unsupported("UnionAll must have at least two inputs");
+            }
+            return;
+
+        case EOperator::Root:
+            if (!allowRoot) {
+                Unsupported("Unsupported operator Root");
+            }
+            if (children != 1) {
+                Unsupported("Root must have one input");
+            }
+            return;
+
+        case EOperator::AddDependencies:
+            if (children != 1) {
+                Unsupported("AddDependencies must have one input");
+            }
+            return;
+
+        case EOperator::CBOTree:
+        default:
+            Unsupported(TStringBuilder()
+                << "Unsupported operator " << op.GetExplainName());
+    }
+    Unsupported("Unsupported operator kind");
+}
+
+void ValidateOperatorTopologyImpl(
+    IOperator& op,
+    THashSet<const IOperator*>& visiting,
+    THashSet<const IOperator*>& visited,
+    bool allowRoot)
+{
+    if (visited.contains(&op)) {
+        return;
+    }
+    if (!visiting.insert(&op).second) {
+        Unsupported("Plan contains an operator cycle");
+    }
+
+    ValidateOperatorArity(op, allowRoot);
+    for (const auto& child : op.GetChildren()) {
+        if (!child) {
+            Unsupported("Plan contains a null operator");
+        }
+        ValidateOperatorTopologyImpl(*child, visiting, visited, false);
+    }
+
+    visiting.erase(&op);
+    visited.insert(&op);
+}
+
+void ValidateOperatorTopology(IOperator& root, bool allowRoot = false) {
+    THashSet<const IOperator*> visiting;
+    THashSet<const IOperator*> visited;
+    ValidateOperatorTopologyImpl(root, visiting, visited, allowRoot);
+}
+
+TVector<TIntrusivePtr<IOperator>> OrderedSubplanRoots(const TSubplans& subplans) {
+    TVector<TIntrusivePtr<IOperator>> result;
+    for (const auto& [binding, entry] : subplans) {
+        if (binding == TUnorderedIUs::InvalidBit || !entry.Plan) {
+            Unsupported("Subplan registry contains an invalid binding or empty plan");
+        }
+        result.push_back(entry.Plan);
+    }
+    return result;
+}
+
+void ValidateSnapshotTopology(TOpRoot& root) {
+    ValidateOperatorTopology(root, true);
+    THashSet<const IOperator*> mainNodes;
+    VisitOperators(
+        root.GetInput(),
+        mainNodes,
+        [](IOperator& op) {
+            if (op.GetKind() == EOperator::AddDependencies) {
+                Unsupported(
+                    "AddDependencies is only admissible inside a validated "
+                    "correlated subplan");
+            }
+        });
+    for (const auto& subplanRoot :
+        OrderedSubplanRoots(root.PlanProps.Subplans))
+    {
+        ValidateOperatorTopology(*subplanRoot);
+        THashSet<const IOperator*> subplanNodes;
+        VisitOperators(
+            subplanRoot,
+            subplanNodes,
+            [](IOperator& op) {
+                if (op.GetKind() != EOperator::AddDependencies) {
+                    return;
+                }
+                const auto& addDependencies =
+                    static_cast<const TOpAddDependencies&>(op);
+                if (SnapshotDependencies(addDependencies).empty() ||
+                    SnapshotDependencies(addDependencies).size() !=
+                        SnapshotDependencyTypes(addDependencies).size())
+                {
+                    Unsupported(
+                        "AddDependencies must have equally sized nonempty "
+                        "dependency and type vectors");
+                }
+                TInfoUnitSet seen;
+                for (size_t index = 0;
+                     index < SnapshotDependencies(addDependencies).size();
+                     ++index)
+                {
+                    const auto& dependency =
+                        SnapshotDependencies(addDependencies)[index];
+                    if (dependency.GetFullName().empty() ||
+                        !seen.insert(dependency).second ||
+                        !SnapshotDependencyTypes(addDependencies)[index])
+                    {
+                        Unsupported(
+                            "AddDependencies has an empty or duplicate "
+                            "dependency or a missing type");
+                    }
+                }
+            });
+    }
+}
+
+void CheckSnapshotProperties(IOperator& op, bool stageGraphPresent) {
+    const auto& props = op.Props;
+    const bool joinPhysicalProps = props.JoinAlgo || props.UseBlockHashJoin ||
+        props.LeftShuffleBy || props.RightShuffleBy;
+    if ((!stageGraphPresent && props.StageId) || props.Algorithm || props.OrderEnforcer ||
+        (joinPhysicalProps && (!stageGraphPresent || op.GetKind() != EOperator::Join)))
+    {
+        Unsupported(TStringBuilder()
+            << op.GetExplainName()
+            << " has physical properties that logical snapshot v1 cannot represent");
+    }
+}
+
+bool HasStageGraphState(TOpRoot& root) {
+    const auto& graph = root.PlanProps.StageGraph;
+    if (!graph.StageIds.empty() || !graph.SourceStages.empty() ||
+        !graph.StageInputs.empty() || !graph.StageOutputs.empty() ||
+        !graph.Connections.empty() || !graph.StageOutputIndices.empty() ||
+        !graph.StageGUIDs.empty())
+    {
+        return true;
+    }
+
+    bool hasStageId = false;
+    THashSet<const IOperator*> visited;
+    VisitOperators(root.GetInput(), visited, [&](IOperator& op) {
+        hasStageId = hasStageId || op.Props.StageId.has_value();
+    });
+    return hasStageId;
+}
+
+bool NeedsInitialSnapshotTypeMaterialization(TOpRoot& root) {
+    // Scalar descriptors require an exact type on their selected root output,
+    // including Project/Filter/Limit wrappers that otherwise do not trigger
+    // the legacy Aggregate/Sort materialization path. A checked Map likewise
+    // needs an independently materialized output type before its exceptional
+    // projection can be admitted. Replicate ports need typed source/local
+    // correspondences before their passive projections can be audited.
+    bool result = !root.PlanProps.Subplans.Empty();
+    THashSet<const IOperator*> visited;
+    const auto inspect = [&](IOperator& op) {
+        // Native FromExpr assigns numeric column IDs by rewriting the row and
+        // clears its scalar annotations. Simple filters and computed Maps need
+        // the same production type annotation as aggregates and subplans.
+        result = result || !op.Type;
+        for (const auto expression : op.GetExpressions()) {
+            const auto& lambda = expression.get().GetLambda();
+            result = result || !lambda || !lambda->GetTypeAnn();
+        }
+        result = result || op.GetKind() == EOperator::Aggregate ||
+            op.GetKind() == EOperator::Sort || op.GetKind() == EOperator::Replicate;
+        if (op.GetKind() != EOperator::Map) {
+            return;
+        }
+        const auto& map = static_cast<const TOpMap&>(op);
+        for (const auto& element : SnapshotMapElements(map)) {
+            if (element.IsRename()) {
+                continue;
+            }
+            const auto& expression = element.GetExpression().Node;
+            if (expression &&
+                expression->IsLambda() &&
+                expression->ChildrenSize() == 2 &&
+                (expression->Child(1)->IsCallable("Unwrap") || expression->Child(1)->IsCallable("Ensure")))
+            {
+                result = true;
+                return;
+            }
+        }
+    };
+    VisitOperators(root.GetInput(), visited, inspect);
+    for (const auto& subplanRoot : OrderedSubplanRoots(root.PlanProps.Subplans)) {
+        VisitOperators(subplanRoot, visited, inspect);
+    }
+    return result;
+}
+
+NJson::TJsonValue JsonArray() {
+    return NJson::TJsonValue(NJson::JSON_ARRAY);
+}
+
+NJson::TJsonValue JsonMap() {
+    return NJson::TJsonValue(NJson::JSON_MAP);
+}
+
+NJson::TJsonValue ColumnExpr(TStringBuf name) {
+    if (name.empty()) {
+        Unsupported("Column expression has an empty IU name");
+    }
+    auto value = JsonMap();
+    value["kind"] = "column";
+    value["column"] = TString(name);
+    return value;
+}
+
+void RenameSnapshotExpressionColumns(
+    NJson::TJsonValue& expressionJson,
+    const THashMap<TString, TString>& renames)
+{
+    TVector<NJson::TJsonValue*> pending{&expressionJson};
+    while (!pending.empty()) {
+        auto* expression = pending.back();
+        pending.pop_back();
+        if (expression->IsMap()) {
+            const auto& fields = expression->GetMapSafe();
+            const auto kind = fields.find("kind");
+            if (kind != fields.end() && kind->second.IsString() &&
+                kind->second.GetStringSafe() == "column")
+            {
+                const auto* outer = renames.FindPtr((*expression)["column"].GetStringSafe());
+                if (outer) {
+                    (*expression)["column"] = *outer;
+                }
+            }
+            for (const auto& [name, value] : fields) {
+                Y_UNUSED(value);
+                pending.push_back(&(*expression)[name]);
+            }
+        } else if (expression->IsArray()) {
+            for (size_t index = 0; index < expression->GetArraySafe().size(); ++index) {
+                pending.push_back(&(*expression)[index]);
+            }
+        }
+    }
+}
+
+TStringBuf CanonicalStringPredicateFingerprint(TStringBuf callable) {
+    if (callable == "EndsWith" || callable == "ends_with") {
+        return "yql-string-predicate-v1:ends_with";
+    }
+    if (callable == "StringContains" || callable == "string_contains") {
+        return "yql-string-predicate-v1:string_contains";
+    }
+    Unsupported(TStringBuilder()
+        << "Unsupported canonical String predicate " << callable);
+}
+
+NJson::TJsonValue CanonicalStringPredicateExpr(
+    TStringBuf callable,
+    bool nullable,
+    NJson::TJsonValue left,
+    NJson::TJsonValue right)
+{
+    auto args = JsonArray();
+    args.AppendValue(std::move(left));
+    args.AppendValue(std::move(right));
+
+    auto result = JsonMap();
+    result["kind"] = "opaque";
+    result["fingerprint"] =
+        TString(CanonicalStringPredicateFingerprint(callable));
+    result["type"] = "Bool";
+    result["nullable"] = nullable;
+    result["args"] = std::move(args);
+    return result;
+}
+
+constexpr size_t MaxExactScalarNodes = 1024;
+constexpr size_t MaxExactScalarDepth = 128;
+constexpr size_t MaxIfPresentBindingDepth = 64;
+
+class TExactScalarBudget {
+public:
+    void Charge(size_t depth, size_t count = 1) {
+        if (count == 0) {
+            return;
+        }
+        if (depth > MaxExactScalarDepth) {
+            Unsupported(TStringBuilder()
+                << "Exact scalar expression exceeds the depth audit limit of "
+                << MaxExactScalarDepth);
+        }
+        if (count > MaxExactScalarNodes - Nodes) {
+            Unsupported(TStringBuilder()
+                << "Exact scalar expression exceeds the node audit limit of "
+                << MaxExactScalarNodes);
+        }
+        Nodes += count;
+    }
+
+private:
+    size_t Nodes = 0;
+};
+
+void AuditExactScalarExpression(const NJson::TJsonValue& root) {
+    struct TPending {
+        const NJson::TJsonValue* Expression;
+        size_t Depth;
+    };
+
+    // Count normalized Expr occurrences only: IR metadata is not a node, while
+    // repeated JSON children are distinct occurrences even if the source was a DAG.
+    TVector<TPending> pending{{&root, 1}};
+    size_t nodes = 0;
+    while (!pending.empty()) {
+        const auto current = pending.back();
+        pending.pop_back();
+
+        if (current.Depth > MaxExactScalarDepth) {
+            Unsupported(TStringBuilder()
+                << "Exact scalar expression exceeds the depth audit limit of "
+                << MaxExactScalarDepth);
+        }
+        if (++nodes > MaxExactScalarNodes) {
+            Unsupported(TStringBuilder()
+                << "Exact scalar expression exceeds the node audit limit of "
+                << MaxExactScalarNodes);
+        }
+
+        const auto& expression = *current.Expression;
+        if (!expression.IsMap() || !expression["kind"].IsString()) {
+            Unsupported("Exact scalar expression has malformed normalized IR");
+        }
+        const TString kind = expression["kind"].GetStringSafe();
+        const auto push = [&](const NJson::TJsonValue& child) {
+            pending.push_back({&child, current.Depth + 1});
+        };
+        const auto pushArray = [&](TStringBuf field) {
+            const auto& children = expression[field];
+            if (!children.IsArray()) {
+                Unsupported("Exact scalar expression has malformed normalized IR");
+            }
+            const size_t remaining = MaxExactScalarNodes - nodes;
+            if (pending.size() > remaining ||
+                children.GetArraySafe().size() > remaining - pending.size())
+            {
+                Unsupported(TStringBuilder()
+                    << "Exact scalar expression exceeds the node audit limit of "
+                    << MaxExactScalarNodes);
+            }
+            for (const auto& child : children.GetArraySafe()) {
+                push(child);
+            }
+        };
+
+        if (kind == "column" || kind == "bound" || kind == "void" ||
+            kind == "literal" || kind == "null" || kind == "parameter" ||
+            kind == "window_sum" || kind == "window_avg" ||
+            kind == "window_rank" || kind == "window_rows_sum" ||
+            kind == "window_rows_max")
+        {
+            continue;
+        }
+        if (kind == "and" || kind == "or") {
+            pushArray("args");
+            continue;
+        }
+        if (kind == "not" || kind == "exists" || kind == "cast_decimal" ||
+            kind == "cast_integral" || kind == "stable_pickle" || kind == "decimal_abs" ||
+            kind == "cast_double" || kind == "sqrt_double" || kind == "is_nan_double")
+        {
+            push(expression["arg"]);
+            continue;
+        }
+        if (kind == "in_parameter") {
+            push(expression["lookup"]);
+            continue;
+        }
+        if (kind == "in") {
+            push(expression["lookup"]);
+            pushArray("items");
+            continue;
+        }
+        if (kind == "eq" || kind == "lt" || kind == "lte" || kind == "gt" ||
+            kind == "gte" || kind == "add" || kind == "sub" || kind == "mul" ||
+            kind == "div")
+        {
+            push(expression["left"]);
+            push(expression["right"]);
+            continue;
+        }
+        if (kind == "if") {
+            push(expression["condition"]);
+            push(expression["then"]);
+            push(expression["else"]);
+            continue;
+        }
+        if (kind == "if_present") {
+            push(expression["optional"]);
+            push(expression["present"]);
+            push(expression["missing"]);
+            continue;
+        }
+        if (kind == "opaque" || kind == "opaque_double" ||
+            kind == "checked_concat")
+        {
+            pushArray("args");
+            continue;
+        }
+        Unsupported(TStringBuilder()
+            << "Exact scalar expression has unknown normalized kind " << kind);
+    }
+}
+
+NJson::TJsonValue BoundExpr(size_t depth) {
+    auto value = JsonMap();
+    value["kind"] = "bound";
+    value["depth"] = static_cast<ui64>(depth);
+    return value;
+}
+
+NJson::TJsonValue BinaryExpr(
+    TStringBuf kind,
+    NJson::TJsonValue left,
+    NJson::TJsonValue right)
+{
+    auto result = JsonMap();
+    result["kind"] = TString(kind);
+    result["left"] = std::move(left);
+    result["right"] = std::move(right);
+    return result;
+}
+
+NJson::TJsonValue NotExpr(NJson::TJsonValue argument) {
+    auto result = JsonMap();
+    result["kind"] = "not";
+    result["arg"] = std::move(argument);
+    return result;
+}
+
+NJson::TJsonValue ExistsExpr(NJson::TJsonValue argument) {
+    auto result = JsonMap();
+    result["kind"] = "exists";
+    result["arg"] = std::move(argument);
+    return result;
+}
+
+NJson::TJsonValue AlwaysPresentOptionalExpr(
+    NJson::TJsonValue argument,
+    const TString& type)
+{
+    auto result = JsonMap();
+    result["kind"] = "if";
+    result["condition"] = JsonMap();
+    result["condition"]["kind"] = "literal";
+    result["condition"]["type"] = "Bool";
+    result["condition"]["value"] = true;
+    result["then"] = std::move(argument);
+    result["else"] = JsonMap();
+    result["else"]["kind"] = "null";
+    result["else"]["type"] = type;
+    result["type"] = type;
+    result["nullable"] = true;
+    return result;
+}
+
+TString TypeName(const TTypeAnnotationNode* annotation, bool* nullable = nullptr, bool allowDouble = false) {
+    if (!annotation) {
+        Unsupported("Scalar expression has no type annotation");
+    }
+
+    bool optional = false;
+    const TDataExprType* data = nullptr;
+    if (!IsDataOrOptionalOfData(annotation, optional, data) || !data) {
+        Unsupported(TStringBuilder() << "Scalar expression is not Data or Optional<Data>: " << FormatType(annotation));
+    }
+    TString type(NUdf::GetDataTypeInfo(data->GetSlot()).Name);
+    if (data->GetSlot() == NUdf::EDataSlot::Decimal) {
+        const auto* decimal = dynamic_cast<const TDataExprParamsType*>(data);
+        if (!decimal) {
+            Unsupported("Decimal expression type has no precision and scale");
+        }
+        type = TStringBuilder()
+            << "Decimal(" << decimal->GetParamOne() << ","
+            << decimal->GetParamTwo() << ")";
+    } else if (dynamic_cast<const TDataExprParamsType*>(data)) {
+        Unsupported(TStringBuilder() << "Unsupported parameterized scalar type " << type);
+    }
+    if (!IsSupportedType(type) && !(allowDouble && type == "Double")) {
+        Unsupported(TStringBuilder() << "Unsupported scalar type " << type);
+    }
+    if (nullable) {
+        *nullable = optional;
+    }
+    return type;
+}
+
+template <typename T>
+T ParseInteger(TStringBuf text, TStringBuf type) {
+    T result = 0;
+    if (!TryFromString<T>(text, result)) {
+        Unsupported(TStringBuilder() << "Invalid " << type << " literal " << text);
+    }
+    return result;
+}
+
+template <typename T>
+void CheckIntegerRange(i64 value, TStringBuf type) {
+    if (value < static_cast<i64>(std::numeric_limits<T>::min()) ||
+        value > static_cast<i64>(std::numeric_limits<T>::max()))
+    {
+        Unsupported(TStringBuilder() << type << " literal is out of range: " << value);
+    }
+}
+
+template <typename T>
+void CheckUnsignedRange(ui64 value, TStringBuf type) {
+    if (value > static_cast<ui64>(std::numeric_limits<T>::max())) {
+        Unsupported(TStringBuilder() << type << " literal is out of range: " << value);
+    }
+}
+
+void CheckScalarSafetyMetadata(const TExprNode& node, bool allowUnorderedChildren);
+
+NJson::TJsonValue LiteralExpr(const TExprNode& node) {
+    const TString type(node.Content());
+    if (!IsSupportedLiteralType(type) || node.ChildrenSize() != 1 || !node.Child(0)->IsAtom()) {
+        Unsupported(TStringBuilder() << "Unsupported literal callable " << node.Content());
+    }
+    const TString value(node.Child(0)->Content());
+
+    auto result = JsonMap();
+    result["kind"] = "literal";
+    result["type"] = type;
+
+    if (type == "Bool") {
+        if (value == "true") {
+            result["value"] = true;
+        } else if (value == "false") {
+            result["value"] = false;
+        } else {
+            Unsupported(TStringBuilder() << "Invalid Bool literal " << value);
+        }
+        return result;
+    }
+
+    if (type.StartsWith("Int")) {
+        const i64 parsed = ParseInteger<i64>(value, type);
+        if (type == "Int8") {
+            CheckIntegerRange<i8>(parsed, type);
+        } else if (type == "Int16") {
+            CheckIntegerRange<i16>(parsed, type);
+        } else if (type == "Int32") {
+            CheckIntegerRange<i32>(parsed, type);
+        }
+        result["value"] = parsed;
+        return result;
+    }
+
+    if (type.StartsWith("Uint")) {
+        const ui64 parsed = ParseInteger<ui64>(value, type);
+        if (type == "Uint8") {
+            CheckUnsignedRange<ui8>(parsed, type);
+        } else if (type == "Uint16") {
+            CheckUnsignedRange<ui16>(parsed, type);
+        } else if (type == "Uint32") {
+            CheckUnsignedRange<ui32>(parsed, type);
+        }
+        result["value"] = parsed;
+        return result;
+    }
+
+    if (type == "Timestamp64") {
+        CheckScalarSafetyMetadata(node, false);
+        CheckScalarSafetyMetadata(*node.Child(0), false);
+        bool nullable = false;
+        if (TypeName(node.GetTypeAnn(), &nullable) != type || nullable) {
+            Unsupported("Timestamp64 literal type annotation does not match its callable");
+        }
+        const i64 parsed = ParseInteger<i64>(value, type);
+        if (parsed < NUdf::MIN_TIMESTAMP64 || parsed > NUdf::MAX_TIMESTAMP64) {
+            Unsupported(TStringBuilder()
+                << type << " literal is out of range ["
+                << NUdf::MIN_TIMESTAMP64 << ", " << NUdf::MAX_TIMESTAMP64
+                << "]: " << value);
+        }
+        result["value"] = parsed;
+        return result;
+    }
+
+    if (type == "Date" || type == "Datetime" || type == "Timestamp") {
+        const ui64 limit = type == "Date" ? NUdf::MAX_DATE :
+            type == "Datetime" ? NUdf::MAX_DATETIME : NUdf::MAX_TIMESTAMP;
+        const ui64 parsed = ParseInteger<ui64>(value, type);
+        if (parsed >= limit) {
+            Unsupported(TStringBuilder()
+                << type << " literal is out of range [0, "
+                << limit << "): " << value);
+        }
+        result["value"] = parsed;
+        return result;
+    }
+
+    if (!NYql::IsUtf8(std::string_view(value.data(), value.size()))) {
+        Unsupported(TStringBuilder() << type << " literal is not valid UTF-8");
+    }
+    result["value"] = value;
+    return result;
+}
+
+NJson::TJsonValue DecimalValueExpr(
+    TStringBuf type,
+    const TDecimalParameters& parameters,
+    NYql::NDecimal::TInt128 value,
+    TStringBuf text)
+{
+    auto encoded = JsonMap();
+    if (NYql::NDecimal::IsNan(value)) {
+        encoded["kind"] = "nan";
+    } else if (value == NYql::NDecimal::Inf()) {
+        encoded["kind"] = "pos_inf";
+    } else if (value == -NYql::NDecimal::Inf()) {
+        encoded["kind"] = "neg_inf";
+    } else {
+        if (!NYql::NDecimal::IsNormal(value, parameters.Precision)) {
+            Unsupported(TStringBuilder() << "Invalid " << type << " literal " << text);
+        }
+        const char* scaled = NYql::NDecimal::ToString(
+            value,
+            NYql::NDecimal::MaxPrecision,
+            0);
+        if (!scaled) {
+            Unsupported(TStringBuilder() << "Cannot canonicalize " << type << " literal " << text);
+        }
+        encoded["kind"] = "finite";
+        encoded["scaled"] = TString(scaled);
+    }
+
+    auto result = JsonMap();
+    result["kind"] = "literal";
+    result["type"] = TString(type);
+    result["value"] = std::move(encoded);
+    return result;
+}
+
+NJson::TJsonValue DecimalValueExpr(
+    TStringBuf type,
+    const TDecimalParameters& parameters,
+    TStringBuf text)
+{
+    const auto value = NYql::NDecimal::FromString(
+        text,
+        parameters.Precision,
+        parameters.Scale);
+    if (NYql::NDecimal::IsError(value)) {
+        Unsupported(TStringBuilder() << "Invalid " << type << " literal " << text);
+    }
+    return DecimalValueExpr(type, parameters, value, text);
+}
+
+NJson::TJsonValue DecimalLiteralExpr(const TExprNode& node) {
+    if (!node.IsCallable("Decimal") || node.ChildrenSize() != 3 ||
+        !node.Child(0)->IsAtom() || !node.Child(1)->IsAtom() ||
+        !node.Child(2)->IsAtom())
+    {
+        Unsupported("Unsupported Decimal literal callable");
+    }
+
+    const TStringBuf precision = node.Child(1)->Content();
+    const TStringBuf scale = node.Child(2)->Content();
+    const auto parameters = ParseCanonicalDecimalParameters(
+        std::string_view(precision.data(), precision.size()),
+        std::string_view(scale.data(), scale.size()));
+    if (!parameters) {
+        Unsupported("Decimal literal has invalid precision or scale");
+    }
+
+    const TString type = TStringBuilder()
+        << "Decimal(" << precision << "," << scale << ")";
+    bool nullable = false;
+    if (TypeName(node.GetTypeAnn(), &nullable) != type || nullable) {
+        Unsupported("Decimal literal type annotation does not match its parameters");
+    }
+    return DecimalValueExpr(type, *parameters, node.Child(0)->Content());
+}
+
+NJson::TJsonValue Uint64LiteralExpr(const TExprNode& node, TStringBuf field) {
+    if (!node.IsCallable("Uint64") || node.ChildrenSize() != 1 ||
+        !node.Child(0)->IsAtom())
+    {
+        Unsupported(TStringBuilder() << field << " must be a Uint64 literal");
+    }
+    return LiteralExpr(node);
+}
+
+NJson::TJsonValue Uint64LiteralExpr(const TExpression& expression, TStringBuf field) {
+    if (!expression.Node || !expression.Node->IsLambda() ||
+        expression.Node->ChildrenSize() != 2)
+    {
+        Unsupported(TStringBuilder() << field << " is not a one-body lambda");
+    }
+    const auto* arguments = expression.Node->Child(0);
+    if (!arguments->IsArguments() || arguments->ChildrenSize() != 1 ||
+        !arguments->Child(0)->IsArgument())
+    {
+        Unsupported(TStringBuilder() << field << " does not have exactly one row argument");
+    }
+    return Uint64LiteralExpr(*expression.GetExpressionBody(), field);
+}
+
+bool IsIntegerType(TStringBuf type) {
+    static const THashSet<TString> Types = {
+        "Int8", "Int16", "Int32", "Int64",
+        "Uint8", "Uint16", "Uint32", "Uint64",
+    };
+    return Types.contains(type);
+}
+
+bool IsStringType(TStringBuf type) {
+    return type == "String" || type == "Utf8";
+}
+
+bool IsExactDynamicInColumnType(TStringBuf type) {
+    // Dynamic IN is modeled as same-type equality over one scalar domain.
+    // Nullable columns are admitted only under the separately
+    // validated positive-Filter contract.  Keep this narrower than general
+    // comparison compatibility: String and Utf8 use exact byte equality,
+    // and coercing comparisons remain excluded.
+    return IsIntegerType(type) || type == "Date" || IsStringType(type);
+}
+
+bool StringComparisonCompatible(TStringBuf left, TStringBuf right) {
+    return IsStringType(left) && IsStringType(right);
+}
+
+TString MetadataTypeName(const TKikimrColumnMetadata& column) {
+    if (column.TypeInfo.GetTypeId() == NScheme::NTypeIds::Decimal) {
+        const auto& decimal = column.TypeInfo.GetDecimalType();
+        return TStringBuilder()
+            << "Decimal(" << decimal.GetPrecision() << "," << decimal.GetScale() << ")";
+    }
+    if (column.Type.StartsWith("Decimal")) {
+        Unsupported("Decimal metadata has no precision and scale");
+    }
+    return column.Type;
+}
+
+ui32 IntegerTypeWidth(TStringBuf type) {
+    if (type.EndsWith("64")) {
+        return 64;
+    }
+    if (type.EndsWith("32")) {
+        return 32;
+    }
+    if (type.EndsWith("16")) {
+        return 16;
+    }
+    if (type.EndsWith("8")) {
+        return 8;
+    }
+    return 0;
+}
+
+bool IntegralDataComparisonCompatible(TStringBuf left, TStringBuf right) {
+    return IsIntegerType(left) && IsIntegerType(right);
+}
+
+bool LosslessIntegerComparisonCompatible(TStringBuf left, TStringBuf right) {
+    if (!IsIntegerType(left) || !IsIntegerType(right)) {
+        return false;
+    }
+    const ui32 leftWidth = IntegerTypeWidth(left);
+    const ui32 rightWidth = IntegerTypeWidth(right);
+    if (!leftWidth || !rightWidth) {
+        return false;
+    }
+    const bool leftSigned = left.StartsWith("Int");
+    const bool rightSigned = right.StartsWith("Int");
+    if (leftSigned == rightSigned) {
+        return true;
+    }
+    const ui32 signedWidth = leftSigned ? leftWidth : rightWidth;
+    const ui32 unsignedWidth = leftSigned ? rightWidth : leftWidth;
+    return signedWidth > unsignedWidth;
+}
+
+bool StaticSqlInEqualityCompatible(TStringBuf left, TStringBuf right) {
+    // ExpandSqlIn lowers a nonempty literal tuple to ordinary equality tests.
+    // String/Utf8 equality uses the same raw bytes; integer conversions retain
+    // their lossless gate, and Decimal membership remains outside this audit.
+    return (!IsCanonicalDecimalType(left) && !IsCanonicalDecimalType(right)) &&
+        (left == right || LosslessIntegerComparisonCompatible(left, right) ||
+         StringComparisonCompatible(left, right));
+}
+
+bool DecimalScaleAlignmentSupported(
+    const TDecimalParameters& source,
+    ui8 targetPrecision,
+    ui8 targetScale)
+{
+    const ui8 sourceIntegralDigits = source.Precision - source.Scale;
+    const ui8 targetIntegralDigits = targetPrecision - targetScale;
+    return !(targetIntegralDigits < sourceIntegralDigits &&
+        targetScale != source.Scale &&
+        targetIntegralDigits + source.Scale == 0);
+}
+
+bool DecimalComparisonCompatible(TStringBuf left, TStringBuf right) {
+    const auto leftDecimal = ParseCanonicalDecimalType(left);
+    const auto rightDecimal = ParseCanonicalDecimalType(right);
+    if (leftDecimal && rightDecimal) {
+        if (leftDecimal->Scale == rightDecimal->Scale) {
+            return true;
+        }
+        const auto& source = leftDecimal->Scale < rightDecimal->Scale
+            ? *leftDecimal
+            : *rightDecimal;
+        const ui8 targetScale = std::max(leftDecimal->Scale, rightDecimal->Scale);
+        const ui8 targetPrecision = std::min<ui8>(
+            NYql::NDecimal::MaxPrecision,
+            source.Precision + targetScale - source.Scale);
+        return DecimalScaleAlignmentSupported(source, targetPrecision, targetScale);
+    }
+
+    const auto decimal = leftDecimal ? leftDecimal : rightDecimal;
+    const TStringBuf integer = leftDecimal ? right : left;
+    if (!decimal || !IsIntegerType(integer)) {
+        return false;
+    }
+    const auto slot = NUdf::FindDataSlot(integer);
+    if (!slot) {
+        return false;
+    }
+    const ui8 digits = NUdf::GetDataTypeInfo(*slot).DecimalDigits;
+    const TDecimalParameters source{digits, 0};
+    const ui8 targetPrecision = std::min<ui8>(
+        NYql::NDecimal::MaxPrecision,
+        digits + decimal->Scale);
+    return DecimalScaleAlignmentSupported(
+        source,
+        targetPrecision,
+        decimal->Scale);
+}
+
+bool ScalarEqualityComparisonCompatible(TStringBuf left, TStringBuf right) {
+    return left == right ||
+        IntegralDataComparisonCompatible(left, right) ||
+        StringComparisonCompatible(left, right) ||
+        DecimalComparisonCompatible(left, right);
+}
+
+bool ScalarOrderingComparisonCompatible(TStringBuf left, TStringBuf right) {
+    return IntegralDataComparisonCompatible(left, right) ||
+        (left == right && (left == "Date" || left == "Datetime" ||
+            left == "Timestamp" || left == "Timestamp64")) ||
+        StringComparisonCompatible(left, right) ||
+        DecimalComparisonCompatible(left, right);
+}
+
+bool IsModeledOrderingType(TStringBuf type) {
+    return IsIntegerType(type) || type == "Date" || type == "Datetime" ||
+        type == "Timestamp" || type == "Timestamp64" || IsStringType(type) ||
+        IsCanonicalDecimalType(type);
+}
+
+TString ScalarTypeName(const TExprNode& node, bool* nullable = nullptr, bool allowDouble = false) {
+    return TypeName(node.GetTypeAnn(), nullable, allowDouble);
+}
+
+void CheckScalarArity(const TExprNode& node, size_t minimum, size_t maximum) {
+    if (node.ChildrenSize() < minimum || node.ChildrenSize() > maximum) {
+        Unsupported(TStringBuilder()
+            << "Opaque scalar callable " << node.Content()
+            << " has unsupported arity " << node.ChildrenSize());
+    }
+}
+
+TString DataTypeDescriptorName(const TExprNode& node, bool* nullable = nullptr) {
+    const TExprNode* dataType = &node;
+    const bool optional = node.IsCallable("OptionalType");
+    if (optional) {
+        CheckScalarArity(node, 1, 1);
+        dataType = node.Child(0);
+    }
+    if (!dataType->IsCallable("DataType")) {
+        Unsupported("Opaque scalar has a non-data type descriptor");
+    }
+    if (dataType->ChildrenSize() == 0 || !dataType->Child(0)->IsAtom()) {
+        Unsupported("Opaque scalar has an unsupported DataType descriptor");
+    }
+
+    const TStringBuf name = dataType->Child(0)->Content();
+    TString type;
+    if (name == "Decimal") {
+        CheckScalarArity(*dataType, 3, 3);
+        if (!dataType->Child(1)->IsAtom() ||
+            !dataType->Child(2)->IsAtom())
+        {
+            Unsupported("Opaque scalar has an unsupported DataType descriptor");
+        }
+        const TStringBuf precision = dataType->Child(1)->Content();
+        const TStringBuf scale = dataType->Child(2)->Content();
+        if (!ParseCanonicalDecimalParameters(
+                std::string_view(precision.data(), precision.size()),
+                std::string_view(scale.data(), scale.size())))
+        {
+            Unsupported("Opaque scalar has an unsupported DataType descriptor");
+        }
+        type = TStringBuilder() << "Decimal(" << precision << "," << scale << ")";
+    } else {
+        CheckScalarArity(*dataType, 1, 1);
+        if (!IsSupportedType(name) || IsCanonicalDecimalType(name)) {
+            Unsupported("Opaque scalar has an unsupported DataType descriptor");
+        }
+        type = name;
+    }
+    if (nullable) {
+        *nullable = optional;
+    }
+    return type;
+}
+
+TString NothingTypeName(const TExprNode& node) {
+    bool nullable = false;
+    const TString type = ScalarTypeName(node, &nullable);
+    if (!nullable) {
+        Unsupported("Nothing expression is not optional");
+    }
+    CheckScalarArity(node, 1, 1);
+    bool descriptorNullable = false;
+    if (DataTypeDescriptorName(*node.Child(0), &descriptorNullable) != type ||
+        !descriptorNullable)
+    {
+        Unsupported("Nothing type descriptor does not match its result");
+    }
+    return type;
+}
+
+void CheckComparisonCallable(
+    const TExprNode& node,
+    bool allowMissingAnnotations = false,
+    bool allowDouble = false)
+{
+    if (node.ChildrenSize() != 2) {
+        Unsupported(TStringBuilder()
+            << node.Content() << " must have exactly two arguments");
+    }
+
+    if (!node.GetTypeAnn() || !node.Child(0)->GetTypeAnn() ||
+        !node.Child(1)->GetTypeAnn())
+    {
+        if (allowMissingAnnotations) {
+            return;
+        }
+        Unsupported(TStringBuilder()
+            << node.Content() << " comparison has no type annotation");
+    }
+
+    bool resultNullable = false;
+    if (ScalarTypeName(node, &resultNullable) != "Bool") {
+        Unsupported(TStringBuilder()
+            << node.Content() << " comparison result is not Bool");
+    }
+
+    bool leftNullable = false;
+    bool rightNullable = false;
+    const TString leftType = ScalarTypeName(*node.Child(0), &leftNullable, allowDouble);
+    const TString rightType = ScalarTypeName(*node.Child(1), &rightNullable, allowDouble);
+    const bool equality = node.IsCallable({"==", "!=", "IsNotDistinctFrom"});
+    const bool binary64 = allowDouble && leftType == "Double" && rightType == "Double";
+    if (binary64 && node.IsCallable("IsNotDistinctFrom")) {
+        Unsupported("Null-safe Double scalar comparison is not audited");
+    }
+    if (!binary64 && !(equality
+            ? ScalarEqualityComparisonCompatible(leftType, rightType)
+            : ScalarOrderingComparisonCompatible(leftType, rightType)))
+    {
+        Unsupported(TStringBuilder()
+            << node.Content() << " comparison operand types differ: "
+            << leftType << " and " << rightType);
+    }
+
+    if (node.IsCallable("IsNotDistinctFrom") &&
+        (IsCanonicalDecimalType(leftType) || IsCanonicalDecimalType(rightType)) &&
+        leftType != rightType)
+    {
+        Unsupported(
+            "IsNotDistinctFrom Decimal operands must have exactly the same type");
+    }
+
+    const bool expectedNullable = node.IsCallable("IsNotDistinctFrom")
+        ? false
+        : leftNullable || rightNullable;
+    if (resultNullable != expectedNullable) {
+        Unsupported(TStringBuilder()
+            << node.Content() << " comparison result has inconsistent nullability");
+    }
+}
+
+NJson::TJsonValue DecimalConstantCastExpr(const TExprNode& node) {
+    CheckScalarArity(node, 2, 2);
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable);
+    const auto parameters = ParseCanonicalDecimalType(resultType);
+    if (!parameters || resultNullable) {
+        Unsupported(TStringBuilder()
+            << node.Content()
+            << " constant Decimal cast must have a non-nullable Decimal result");
+    }
+
+    bool targetNullable = false;
+    const TString targetType = DataTypeDescriptorName(*node.Child(1), &targetNullable);
+    if (targetNullable || targetType != resultType) {
+        Unsupported(TStringBuilder()
+            << node.Content()
+            << " constant Decimal cast target does not match its non-nullable result");
+    }
+
+    const auto& source = *node.Child(0);
+    bool sourceNullable = false;
+    const TString sourceType = ScalarTypeName(source, &sourceNullable);
+    if (sourceNullable || !IsIntegerType(sourceType) ||
+        !source.IsCallable() || source.Content() != sourceType ||
+        source.ChildrenSize() != 1 ||
+        !source.Child(0)->IsAtom())
+    {
+        Unsupported(TStringBuilder()
+            << node.Content()
+            << " constant Decimal cast source is not a non-nullable integer literal");
+    }
+    LiteralExpr(source);
+
+    if (CastResult<false>(source.GetTypeAnn(), node.GetTypeAnn()) !=
+        NUdf::ECastOptions::Complete)
+    {
+        Unsupported(TStringBuilder()
+            << node.Content()
+            << " constant Decimal cast is not complete");
+    }
+    return DecimalValueExpr(resultType, *parameters, source.Child(0)->Content());
+}
+
+struct TCompleteIntegerLiteralConvert {
+    const TExprNode* Source = nullptr;
+    TString ResultType;
+
+    explicit operator bool() const {
+        return Source != nullptr;
+    }
+};
+
+TCompleteIntegerLiteralConvert CompleteIntegerLiteralConvert(
+    const TExprNode& node)
+{
+    if (!node.IsCallable("Convert") || node.ChildrenSize() != 2) {
+        return {};
+    }
+
+    const auto& source = *node.Child(0);
+    if (!source.IsCallable() ||
+        source.ChildrenSize() != 1 ||
+        !source.Child(0)->IsAtom())
+    {
+        return {};
+    }
+
+    bool sourceNullable = false;
+    const TString sourceType = ScalarTypeName(source, &sourceNullable);
+    if (sourceNullable ||
+        !IsIntegerType(sourceType) ||
+        source.Content() != sourceType)
+    {
+        return {};
+    }
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable);
+    if (resultNullable || !IsIntegerType(resultType)) {
+        return {};
+    }
+
+    const auto& target = *node.Child(1);
+    if (!target.IsCallable("DataType")) {
+        return {};
+    }
+    bool targetNullable = false;
+    if (DataTypeDescriptorName(target, &targetNullable) != resultType ||
+        targetNullable)
+    {
+        Unsupported(
+            "Complete integer literal Convert target does not match its result");
+    }
+
+    const auto targetAnnotation = target.GetTypeAnn();
+    bool annotationNullable = false;
+    if (!targetAnnotation ||
+        targetAnnotation->GetKind() != ETypeAnnotationKind::Type ||
+        TypeName(
+            targetAnnotation->Cast<TTypeExprType>()->GetType(),
+            &annotationNullable) != resultType ||
+        annotationNullable)
+    {
+        Unsupported(
+            "Complete integer literal Convert target annotation disagrees");
+    }
+
+    LiteralExpr(source);
+    if (CastResult<false>(source.GetTypeAnn(), node.GetTypeAnn()) !=
+        NUdf::ECastOptions::Complete)
+    {
+        return {};
+    }
+    return {
+        .Source = &source,
+        .ResultType = resultType,
+    };
+}
+
+bool IsStringDecimalSafeCastCandidate(const TExprNode& node) {
+    return node.IsCallable("SafeCast") &&
+        node.ChildrenSize() == 2 &&
+        node.Child(0)->GetTypeAnn() &&
+        IsStringType(ScalarTypeName(*node.Child(0)));
+}
+
+NJson::TJsonValue StringLiteralDecimalSafeCastExpr(const TExprNode& node) {
+    if (!node.IsCallable("SafeCast")) {
+        Unsupported("String literal Decimal cast must use SafeCast");
+    }
+    CheckScalarArity(node, 2, 2);
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable);
+    const auto parameters = ParseCanonicalDecimalType(resultType);
+    if (!parameters || !resultNullable) {
+        Unsupported(
+            "String literal Decimal SafeCast must have an optional canonical Decimal result");
+    }
+
+    const auto targetAnnotation = node.Child(1)->GetTypeAnn();
+    if (!targetAnnotation || targetAnnotation->GetKind() != ETypeAnnotationKind::Type) {
+        Unsupported("String literal Decimal SafeCast target annotation is not Type");
+    }
+
+    bool targetNullable = false;
+    const TString targetType = DataTypeDescriptorName(
+        *node.Child(1),
+        &targetNullable);
+    if (!targetNullable || targetType != resultType) {
+        Unsupported(
+            "String literal Decimal SafeCast target does not match its optional result");
+    }
+
+    const auto& itemDescriptor = *node.Child(1)->Child(0);
+    const auto itemAnnotation = itemDescriptor.GetTypeAnn();
+    bool itemAnnotationNullable = false;
+    if (!itemAnnotation ||
+        itemAnnotation->GetKind() != ETypeAnnotationKind::Type ||
+        TypeName(
+            itemAnnotation->Cast<TTypeExprType>()->GetType(),
+            &itemAnnotationNullable) != targetType ||
+        itemAnnotationNullable)
+    {
+        Unsupported(
+            "String literal Decimal SafeCast item annotation disagrees with its descriptor");
+    }
+
+    bool annotationNullable = false;
+    if (TypeName(
+            targetAnnotation->Cast<TTypeExprType>()->GetType(),
+            &annotationNullable) != targetType ||
+        annotationNullable != targetNullable)
+    {
+        Unsupported(
+            "String literal Decimal SafeCast target annotation disagrees with its descriptor");
+    }
+
+    const auto& source = *node.Child(0);
+    bool sourceNullable = false;
+    const TString sourceType = ScalarTypeName(source, &sourceNullable);
+    if (sourceNullable || !IsStringType(sourceType) ||
+        !source.IsCallable(sourceType) ||
+        source.ChildrenSize() != 1 ||
+        !source.Child(0)->IsAtom())
+    {
+        Unsupported(
+            "String literal Decimal SafeCast source must be a direct non-null String or Utf8 literal");
+    }
+    LiteralExpr(source);
+
+    const TStringBuf text = source.Child(0)->Content();
+    if (text.empty() || !std::all_of(
+            text.begin(),
+            text.end(),
+            [](char value) {
+                return static_cast<unsigned char>(value) <= 0x7f;
+            }))
+    {
+        Unsupported(
+            "String literal Decimal SafeCast source must be non-empty 7-bit ASCII");
+    }
+
+    constexpr NUdf::TCastResultOptions ExpectedCast =
+        static_cast<NUdf::TCastResultOptions>(
+            NUdf::ECastOptions::MayFail |
+            NUdf::ECastOptions::MayLoseData);
+    if (CastResult<false>(
+            source.GetTypeAnn(),
+            itemAnnotation->Cast<TTypeExprType>()->GetType()) != ExpectedCast)
+    {
+        Unsupported(
+            "String literal Decimal SafeCast is not a reviewed partial conversion");
+    }
+
+    const auto value = NYql::NDecimal::FromStringEx(
+        text,
+        parameters->Precision,
+        parameters->Scale);
+    if (NYql::NDecimal::IsError(value)) {
+        auto result = JsonMap();
+        result["kind"] = "null";
+        result["type"] = resultType;
+        return result;
+    }
+    return DecimalValueExpr(resultType, *parameters, value, text);
+}
+
+struct TExactDecimalSafeCast {
+    TString SourceType;
+    TString ResultType;
+    bool Nullable = false;
+    bool OptionalIdentity = false;
+};
+
+TExactDecimalSafeCast CheckExactDecimalSafeCastCallable(
+    const TExprNode& node)
+{
+    if (!node.IsCallable("SafeCast")) {
+        Unsupported("Exact Decimal cast must use SafeCast");
+    }
+    CheckScalarArity(node, 2, 2);
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable);
+    const auto parameters = ParseCanonicalDecimalType(resultType);
+    if (!parameters) {
+        Unsupported(
+            "Exact Decimal SafeCast must have a canonical Decimal result");
+    }
+    if (parameters->Precision == parameters->Scale) {
+        Unsupported(
+            "Exact Decimal SafeCast target must have at least one integral digit");
+    }
+
+    const auto targetAnnotation = node.Child(1)->GetTypeAnn();
+    if (!targetAnnotation) {
+        Unsupported("Exact Decimal SafeCast target is missing its Type annotation");
+    }
+    if (targetAnnotation->GetKind() != ETypeAnnotationKind::Type) {
+        Unsupported("Exact Decimal SafeCast target annotation is not Type");
+    }
+
+    bool targetNullable = false;
+    const TString targetType = DataTypeDescriptorName(*node.Child(1), &targetNullable);
+    bool annotationNullable = false;
+    if (TypeName(
+            targetAnnotation->Cast<TTypeExprType>()->GetType(),
+            &annotationNullable) != targetType ||
+        annotationNullable != targetNullable)
+    {
+        Unsupported(
+            "Exact Decimal SafeCast target annotation disagrees with its descriptor");
+    }
+    if (targetNullable != resultNullable || targetType != resultType) {
+        Unsupported(
+            "Exact Decimal SafeCast target does not match its result");
+    }
+    if (targetNullable) {
+        const auto& itemDescriptor = *node.Child(1)->Child(0);
+        const auto itemAnnotation = itemDescriptor.GetTypeAnn();
+        bool itemAnnotationNullable = false;
+        if (!itemAnnotation ||
+            itemAnnotation->GetKind() != ETypeAnnotationKind::Type ||
+            TypeName(
+                itemAnnotation->Cast<TTypeExprType>()->GetType(),
+                &itemAnnotationNullable) != targetType ||
+            itemAnnotationNullable)
+        {
+            Unsupported(
+                "Exact Decimal SafeCast item annotation disagrees with its descriptor");
+        }
+    }
+
+    const auto& source = *node.Child(0);
+    bool sourceNullable = false;
+    const TString sourceType = ScalarTypeName(source, &sourceNullable);
+    const auto sourceDecimal = ParseCanonicalDecimalType(sourceType);
+    if (!IsIntegerType(sourceType) && !sourceDecimal) {
+        Unsupported(
+            "Exact Decimal SafeCast source must be an integer or Decimal");
+    }
+    const auto options = CastResult<false>(
+        source.GetTypeAnn(),
+        node.GetTypeAnn());
+    // Set-operation alignment can add Optional without changing the Decimal
+    // payload. This is an always-present lift, not a nullable numeric cast.
+    const bool optionalIdentity = !sourceNullable && resultNullable &&
+        sourceType == resultType && options == NUdf::ECastOptions::Complete;
+    if (sourceNullable != resultNullable && !optionalIdentity) {
+        Unsupported(
+            "Exact Decimal SafeCast result nullability must match its source");
+    }
+    const bool decimalWidening = sourceDecimal &&
+        sourceDecimal->Precision - sourceDecimal->Scale <= parameters->Precision - parameters->Scale &&
+        sourceDecimal->Scale <= parameters->Scale;
+    // Weak casts retain source NULL and saturate finite overflow. In
+    // particular, Impossible is not permission to manufacture an infinity.
+    const bool reviewedCast = sourceDecimal
+        ? options == (decimalWidening
+            ? NUdf::ECastOptions::Complete
+            : NUdf::ECastOptions::MayLoseData)
+        : options == NUdf::ECastOptions::Complete ||
+            options == NUdf::ECastOptions::MayLoseData;
+    if (!reviewedCast) {
+        Unsupported(
+            "Exact Decimal SafeCast has unexpected weak-cast semantics");
+    }
+
+    return {
+        .SourceType = sourceType,
+        .ResultType = resultType,
+        .Nullable = resultNullable,
+        .OptionalIdentity = optionalIdentity,
+    };
+}
+
+bool IsPartialIntegralSafeCast(const TExprNode& node) {
+    if (!node.IsCallable("SafeCast") || node.ChildrenSize() != 2) {
+        return false;
+    }
+
+    const TString sourceType = ScalarTypeName(*node.Child(0));
+    const TString resultType = ScalarTypeName(node);
+    if (!IsIntegerType(sourceType) || !IsIntegerType(resultType)) {
+        return false;
+    }
+
+    const auto sourceSlot = NUdf::FindDataSlot(sourceType);
+    const auto resultSlot = NUdf::FindDataSlot(resultType);
+    const auto options = NUdf::GetCastResult(*sourceSlot, *resultSlot);
+    return options && *options == NUdf::ECastOptions::MayFail;
+}
+
+TString CheckPartialIntegralSafeCastCallable(const TExprNode& node) {
+    if (!node.IsCallable("SafeCast")) {
+        Unsupported("Partial integral cast must use SafeCast");
+    }
+    CheckScalarArity(node, 2, 2);
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable);
+    if (!resultNullable || !IsIntegerType(resultType)) {
+        Unsupported(
+            "Partial integral SafeCast must have an optional integer result");
+    }
+
+    const auto targetAnnotation = node.Child(1)->GetTypeAnn();
+    if (!targetAnnotation || targetAnnotation->GetKind() != ETypeAnnotationKind::Type) {
+        Unsupported("Partial integral SafeCast target annotation is not Type");
+    }
+
+    bool targetNullable = false;
+    const TString targetType = DataTypeDescriptorName(
+        *node.Child(1),
+        &targetNullable);
+    if (!targetNullable || targetType != resultType) {
+        Unsupported(
+            "Partial integral SafeCast target does not match its optional result");
+    }
+    const auto& itemDescriptor = *node.Child(1)->Child(0);
+    const auto itemAnnotation = itemDescriptor.GetTypeAnn();
+    bool itemAnnotationNullable = false;
+    if (!itemAnnotation ||
+        itemAnnotation->GetKind() != ETypeAnnotationKind::Type ||
+        TypeName(
+            itemAnnotation->Cast<TTypeExprType>()->GetType(),
+            &itemAnnotationNullable) != targetType ||
+        itemAnnotationNullable)
+    {
+        Unsupported(
+            "Partial integral SafeCast item annotation disagrees with its descriptor");
+    }
+    bool annotationNullable = false;
+    if (TypeName(
+            targetAnnotation->Cast<TTypeExprType>()->GetType(),
+            &annotationNullable) != targetType ||
+        annotationNullable != targetNullable)
+    {
+        Unsupported(
+            "Partial integral SafeCast target annotation disagrees with its descriptor");
+    }
+    const TString sourceType = ScalarTypeName(*node.Child(0));
+    if (!IsIntegerType(sourceType)) {
+        Unsupported("Partial integral SafeCast source must be an exact integer");
+    }
+    const auto sourceSlot = NUdf::FindDataSlot(sourceType);
+    const auto targetSlot = NUdf::FindDataSlot(targetType);
+    const auto options = NUdf::GetCastResult(*sourceSlot, *targetSlot);
+    if (!options || *options != NUdf::ECastOptions::MayFail) {
+        Unsupported("Integral SafeCast is not a reviewed partial conversion");
+    }
+
+    return resultType;
+}
+
+bool IsCompleteIntegerLiteralDecimalCast(const TExprNode& node) {
+    const auto& source = *node.Child(0);
+    bool sourceNullable = false;
+    const TString sourceType = ScalarTypeName(source, &sourceNullable);
+    if (sourceNullable ||
+        !IsIntegerType(sourceType) ||
+        !source.IsCallable() ||
+        source.Content() != sourceType ||
+        source.ChildrenSize() != 1 ||
+        !source.Child(0)->IsAtom())
+    {
+        return false;
+    }
+
+    LiteralExpr(source);
+    return CastResult<false>(source.GetTypeAnn(), node.GetTypeAnn()) ==
+        NUdf::ECastOptions::Complete;
+}
+
+bool IsReviewedInt32ZeroDecimalSafeCast(const TExprNode& node) {
+    if (!node.IsCallable("SafeCast") || node.ChildrenSize() != 2) {
+        return false;
+    }
+    const auto& source = *node.Child(0);
+    bool nullable = false;
+    if (!source.IsCallable("Int32") || source.ChildrenSize() != 1 ||
+        !source.Child(0)->IsAtom("0") ||
+        ScalarTypeName(source, &nullable) != "Int32" || nullable)
+    {
+        return false;
+    }
+    LiteralExpr(source);
+    const auto cast = CheckExactDecimalSafeCastCallable(node);
+    // Zero is exactly representable even when the entire Int32 domain is too
+    // wide for the Decimal target. Retain the weak-cast kernel and its strict
+    // descriptor/annotation audit; do not classify other constants as complete.
+    return !cast.Nullable && !cast.OptionalIdentity;
+}
+
+struct TDecimalArithmeticSignature {
+    TString ResultType;
+    bool ResultNullable;
+};
+
+struct TIntegralDivisionSignature {
+    TString ResultType;
+    bool ResultNullable;
+};
+
+struct TIfPresentSignature {
+    const TExprNode* Optional;
+    const TExprNode* Argument;
+    const TExprNode* Present;
+    const TExprNode* Missing;
+    TString ResultType;
+    bool ResultNullable;
+};
+
+struct TIfSignature {
+    const TExprNode* Condition;
+    const TExprNode* Then;
+    const TExprNode* Else;
+    TString ResultType;
+    bool ResultNullable;
+};
+
+const TExprNode* CheckExistsCallable(const TExprNode& node, bool allowDouble = false) {
+    if (!node.IsCallable("Exists") || node.ChildrenSize() != 1) {
+        Unsupported("Exists must have exactly one scalar argument");
+    }
+
+    bool resultNullable = false;
+    if (ScalarTypeName(node, &resultNullable) != "Bool" || resultNullable) {
+        Unsupported("Exists result must be non-null Bool");
+    }
+    ScalarTypeName(*node.Child(0), nullptr, allowDouble);
+    return node.Child(0);
+}
+
+TIfSignature CheckIfCallable(const TExprNode& node, bool allowDouble = false) {
+    if (!node.IsCallable("If") || node.ChildrenSize() != 3) {
+        Unsupported("If must have one condition and two branches");
+    }
+
+    bool conditionNullable = false;
+    if (ScalarTypeName(*node.Child(0), &conditionNullable, allowDouble) != "Bool") {
+        Unsupported("If condition must be Bool or Optional<Bool>");
+    }
+
+    bool resultNullable = false;
+    bool thenNullable = false;
+    bool elseNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable, allowDouble);
+    if (ScalarTypeName(*node.Child(1), &thenNullable, allowDouble) != resultType ||
+        ScalarTypeName(*node.Child(2), &elseNullable, allowDouble) != resultType)
+    {
+        Unsupported("If branches must have the result's scalar type");
+    }
+    if (resultNullable !=
+        (conditionNullable || thenNullable || elseNullable))
+    {
+        Unsupported("If result nullability must equal the OR of its condition and branches");
+    }
+
+    return {
+        node.Child(0),
+        node.Child(1),
+        node.Child(2),
+        resultType,
+        resultNullable,
+    };
+}
+
+bool IsExactUint32LiteralConversion(const TExprNode& node) {
+    if (!node.IsCallable("Convert") || node.ChildrenSize() != 2 ||
+        !node.Child(1)->IsCallable("DataType"))
+    {
+        return false;
+    }
+
+    bool resultNullable = false;
+    bool targetNullable = false;
+    if (ScalarTypeName(node, &resultNullable) != "Uint32" || resultNullable ||
+        DataTypeDescriptorName(*node.Child(1), &targetNullable) != "Uint32" ||
+        targetNullable)
+    {
+        return false;
+    }
+
+    const auto& source = *node.Child(0);
+    bool sourceNullable = false;
+    const TString sourceType = ScalarTypeName(source, &sourceNullable);
+    if (sourceNullable || !IsIntegerType(sourceType) ||
+        !source.IsCallable(sourceType) || source.ChildrenSize() != 1 ||
+        !source.Child(0)->IsAtom())
+    {
+        return false;
+    }
+    LiteralExpr(source);
+
+    ui64 value = 0;
+    return TryFromString<ui64>(source.Child(0)->Content(), value) &&
+        value <= std::numeric_limits<ui32>::max();
+}
+
+void CheckRestrictedSubstringBound(const TExprNode& node) {
+    bool nullable = false;
+    if (ScalarTypeName(node, &nullable) != "Uint32" || nullable) {
+        Unsupported(
+            "Restricted Substring bounds must be non-null Uint32 literals");
+    }
+
+    if (node.IsCallable("Uint32")) {
+        LiteralExpr(node);
+        return;
+    }
+
+    if (!IsExactUint32LiteralConversion(node)) {
+        Unsupported(
+            "Restricted Substring bounds must be direct Uint32 literals or "
+            "in-range integer literals converted to Uint32");
+    }
+}
+
+void CheckRestrictedSubstringCallable(const TExprNode& node) {
+    if (!node.IsCallable("Substring") || node.ChildrenSize() != 3) {
+        Unsupported(
+            "Restricted Substring must have one string and two bound arguments");
+    }
+
+    bool inputNullable = false;
+    bool resultNullable = false;
+    if (ScalarTypeName(*node.Child(0), &inputNullable) != "String" ||
+        ScalarTypeName(node, &resultNullable) != "String" ||
+        inputNullable != resultNullable)
+    {
+        Unsupported(
+            "Restricted Substring requires String input and result with matching nullability");
+    }
+
+    for (size_t index = 1; index < 3; ++index) {
+        CheckRestrictedSubstringBound(*node.Child(index));
+    }
+}
+
+TIfPresentSignature CheckIfPresentCallable(const TExprNode& node, bool allowDouble = false) {
+    if (!node.IsCallable("IfPresent") || node.ChildrenSize() != 3) {
+        Unsupported("IfPresent must have one optional, one unary handler, and one missing branch");
+    }
+
+    bool optionalNullable = false;
+    const TString optionalType = ScalarTypeName(*node.Child(0), &optionalNullable, allowDouble);
+    if (!optionalNullable) {
+        Unsupported("IfPresent input must be exactly Optional<Data>");
+    }
+
+    const auto& handler = *node.Child(1);
+    if (!handler.IsLambda() || handler.ChildrenSize() != 2) {
+        Unsupported("IfPresent handler must be a one-body lambda");
+    }
+    const auto& arguments = *handler.Child(0);
+    if (!arguments.IsArguments() || arguments.ChildrenSize() != 1 ||
+        !arguments.Child(0)->IsArgument())
+    {
+        Unsupported("IfPresent handler must have exactly one argument");
+    }
+
+    const auto& argument = *arguments.Child(0);
+    bool argumentNullable = false;
+    if (ScalarTypeName(argument, &argumentNullable, allowDouble) != optionalType ||
+        argumentNullable)
+    {
+        Unsupported("IfPresent handler argument must be the non-null input value");
+    }
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable, allowDouble);
+    bool presentNullable = false;
+    bool missingNullable = false;
+    if (ScalarTypeName(*handler.Child(1), &presentNullable, allowDouble) != resultType ||
+        ScalarTypeName(*node.Child(2), &missingNullable, allowDouble) != resultType ||
+        presentNullable != resultNullable ||
+        missingNullable != resultNullable)
+    {
+        Unsupported("IfPresent branches must exactly match its result type and nullability");
+    }
+
+    return {
+        node.Child(0),
+        &argument,
+        handler.Child(1),
+        node.Child(2),
+        resultType,
+        resultNullable,
+    };
+}
+
+TDecimalArithmeticSignature CheckDecimalArithmeticCallable(const TExprNode& node) {
+    CheckScalarArity(node, 2, 2);
+
+    const TStringBuf callable = node.Content();
+    bool resultNullable = false;
+    bool leftNullable = false;
+    bool rightNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable);
+    const TString leftType = ScalarTypeName(*node.Child(0), &leftNullable);
+    const TString rightType = ScalarTypeName(*node.Child(1), &rightNullable);
+
+    if (!ParseCanonicalDecimalType(resultType)) {
+        Unsupported(TStringBuilder() << callable << " result is not Decimal");
+    }
+    if (leftType != resultType) {
+        Unsupported(TStringBuilder()
+            << callable
+            << " left operand must exactly match its Decimal result type");
+    }
+    const bool acceptsIntegerRight =
+        callable == "DecimalMul" || callable == "DecimalDiv";
+    if (rightType != resultType &&
+        !(acceptsIntegerRight && IsIntegerType(rightType)))
+    {
+        Unsupported(TStringBuilder()
+            << callable << " right operand must be "
+            << (acceptsIntegerRight
+                ? "the same Decimal type or an integer"
+                : "the same Decimal type"));
+    }
+    if (resultNullable != (leftNullable || rightNullable)) {
+        Unsupported(TStringBuilder()
+            << callable
+            << " result nullability must equal the OR of operand nullability");
+    }
+
+    return {resultType, resultNullable};
+}
+
+void CheckExactDecimalAbsCallable(const TExprNode& node) {
+    bool resultNullable = false;
+    bool argumentNullable = false;
+    if (!node.IsCallable("Abs") || node.ChildrenSize() != 1 ||
+        ScalarTypeName(node, &resultNullable) != "Decimal(35,2)" ||
+        !resultNullable ||
+        ScalarTypeName(*node.Child(0), &argumentNullable) != "Decimal(35,2)" ||
+        !argumentNullable)
+    {
+        Unsupported(
+            "Decimal Abs requires one Optional<Decimal(35,2)> argument "
+            "and result");
+    }
+}
+
+TIntegralDivisionSignature CheckIntegralDivisionCallable(
+    const TExprNode& node)
+{
+    CheckScalarArity(node, 2, 2);
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable);
+    if (!IsIntegerType(resultType)) {
+        Unsupported(
+            "Integral division result must be a fixed-width integer");
+    }
+    for (const auto& child : node.Children()) {
+        if (ScalarTypeName(*child) != resultType) {
+            Unsupported(
+                "Integral division operands and result must have exactly "
+                "the same fixed-width integer type");
+        }
+    }
+    // MiniKQL integral Div returns NULL for a zero divisor and for the signed
+    // MIN / -1 overflow, even when both operands are non-optional.
+    if (!resultNullable) {
+        Unsupported("Integral division result must be nullable");
+    }
+
+    return {resultType, resultNullable};
+}
+
+bool CheckCanonicalStringPredicateCallable(const TExprNode& node) {
+    CheckScalarArity(node, 2, 2);
+    if (!node.Child(0)->IsCallable("Member") ||
+        !node.Child(1)->IsCallable({"String", "Utf8"}))
+    {
+        Unsupported(TStringBuilder()
+            << node.Content()
+            << " requires one direct String member and one String literal");
+    }
+
+    bool leftNullable = false;
+    bool rightNullable = false;
+    bool resultNullable = false;
+    if (!StringComparisonCompatible(
+            ScalarTypeName(*node.Child(0), &leftNullable),
+            ScalarTypeName(*node.Child(1), &rightNullable)) ||
+        rightNullable)
+    {
+        Unsupported(TStringBuilder()
+            << node.Content()
+            << " requires a String/Utf8 member and a non-null text literal");
+    }
+    if (ScalarTypeName(node, &resultNullable) != "Bool" ||
+        resultNullable != leftNullable)
+    {
+        Unsupported(TStringBuilder()
+            << node.Content()
+            << " result must preserve the text member's nullability");
+    }
+    LiteralExpr(*node.Child(1));
+    return resultNullable;
+}
+
+void CheckOpaqueCallable(
+    const TExprNode& node,
+    bool allowExactUint32LiteralConversion = false)
+{
+    const TStringBuf name = node.Content();
+
+    if (name == "Decimal") {
+        DecimalLiteralExpr(node);
+        return;
+    }
+
+    if (IsSupportedType(name)) {
+        LiteralExpr(node);
+        bool nullable = false;
+        if (ScalarTypeName(node, &nullable) != name || nullable) {
+            Unsupported("Opaque scalar literal type annotation does not match its callable");
+        }
+        return;
+    }
+
+    if (name == "Member") {
+        return;
+    }
+
+    if (name == "Nothing") {
+        NothingTypeName(node);
+        return;
+    }
+
+    if (name == "DataType") {
+        DataTypeDescriptorName(node);
+        return;
+    }
+
+    if (name == "OptionalType") {
+        DataTypeDescriptorName(node);
+        return;
+    }
+
+    if (node.IsCallable({"DecimalMul", "DecimalDiv"})) {
+        CheckDecimalArithmeticCallable(node);
+        return;
+    }
+
+    if (name == "Abs") {
+        CheckExactDecimalAbsCallable(node);
+        return;
+    }
+
+    // This is deliberately a positive list.  TExprNode exposes side-effect and
+    // CSE-safety flags, but YQL has no generic totality contract for a callable.
+    // Keep every accepted family small enough to audit and fail closed for UDFs,
+    // floating-point division, strict casts, Unwrap, and every other
+    // not-yet-reviewed form. DecimalDiv and exact same-type integral division
+    // are explicitly audited total operations.
+    if (name == "/" && IsIntegerType(ScalarTypeName(node))) {
+        CheckIntegralDivisionCallable(node);
+        return;
+    }
+
+    if (name == "+" || name == "-" || name == "*") {
+        if ((name == "+" || name == "-") &&
+            ParseCanonicalDecimalType(ScalarTypeName(node)))
+        {
+            CheckDecimalArithmeticCallable(node);
+            return;
+        }
+        CheckScalarArity(node, 2, 2);
+        if (!IsIntegerType(ScalarTypeName(node))) {
+            Unsupported(TStringBuilder() << "Opaque arithmetic result is not an integer: " << name);
+        }
+        for (const auto& child : node.Children()) {
+            if (!IsIntegerType(ScalarTypeName(*child))) {
+                Unsupported(TStringBuilder() << "Opaque arithmetic operand is not an integer: " << name);
+            }
+        }
+        return;
+    }
+
+    if (node.IsCallable({"==", "!=", "<", "<=", ">", ">=", "IsNotDistinctFrom"})) {
+        CheckComparisonCallable(
+            node,
+            node.IsCallable({"==", "IsNotDistinctFrom"}));
+        return;
+    }
+
+    if (name == "And" || name == "Or") {
+        CheckScalarArity(node, 1, std::numeric_limits<size_t>::max());
+        return;
+    }
+    if (name == "Not") {
+        CheckScalarArity(node, 1, 1);
+        return;
+    }
+    if (name == "Just") {
+        CheckScalarArity(node, 1, 1);
+        bool nullable = false;
+        const TString resultType = ScalarTypeName(node, &nullable);
+        if (!nullable || resultType != ScalarTypeName(*node.Child(0))) {
+            Unsupported("Opaque Just has inconsistent types");
+        }
+        return;
+    }
+    if (name == "Exists") {
+        CheckExistsCallable(node);
+        return;
+    }
+    if (name == "Coalesce") {
+        CheckScalarArity(node, 1, std::numeric_limits<size_t>::max());
+        bool resultNullable = false;
+        const TString resultType = ScalarTypeName(node, &resultNullable);
+        bool allNullable = true;
+        for (const auto& child : node.Children()) {
+            bool childNullable = false;
+            if (ScalarTypeName(*child, &childNullable) != resultType) {
+                Unsupported("Opaque Coalesce has inconsistent types");
+            }
+            allNullable = allNullable && childNullable;
+        }
+        if (resultNullable != allNullable) {
+            Unsupported("Opaque Coalesce has inconsistent nullability");
+        }
+        return;
+    }
+    if (name == "If") {
+        CheckIfCallable(node);
+        return;
+    }
+    if (name == "IfPresent") {
+        CheckIfPresentCallable(node);
+        return;
+    }
+    if (name == "Substring") {
+        CheckRestrictedSubstringCallable(node);
+        return;
+    }
+    if (node.IsCallable({"EndsWith", "StringContains"})) {
+        CheckCanonicalStringPredicateCallable(node);
+        return;
+    }
+
+    if (name == "SafeCast" || name == "Convert") {
+        if (ParseCanonicalDecimalType(ScalarTypeName(node))) {
+            if (IsStringDecimalSafeCastCandidate(node)) {
+                StringLiteralDecimalSafeCastExpr(node);
+                return;
+            }
+            if (name == "SafeCast") {
+                CheckExactDecimalSafeCastCallable(node);
+                return;
+            }
+            DecimalConstantCastExpr(node);
+            return;
+        }
+        CheckScalarArity(node, 2, 2);
+        const TString resultType = ScalarTypeName(node);
+        const TString sourceType = ScalarTypeName(*node.Child(0));
+        if (sourceType == "Timestamp64" || resultType == "Timestamp64") {
+            Unsupported("Timestamp64 casts require a separately reviewed conversion model");
+        }
+        if (!node.Child(1)->IsCallable("DataType") &&
+            !node.Child(1)->IsCallable("OptionalType"))
+        {
+            Unsupported(TStringBuilder() << "Opaque " << name << " has an unsupported target type");
+        }
+        if (DataTypeDescriptorName(*node.Child(1)) != resultType) {
+            Unsupported(TStringBuilder() << "Opaque " << name << " target type does not match its result");
+        }
+        if (name == "Convert") {
+            const auto options = CastResult<false>(node.Child(0)->GetTypeAnn(), node.GetTypeAnn());
+            if ((options & (NUdf::ECastOptions::MayFail | NUdf::ECastOptions::Impossible)) &&
+                !(allowExactUint32LiteralConversion &&
+                    IsExactUint32LiteralConversion(node)))
+            {
+                Unsupported("Opaque Convert may fail");
+            }
+        }
+        return;
+    }
+
+    Unsupported(TStringBuilder() << "Unsupported scalar callable " << name);
+}
+
+void CheckScalarSafetyMetadata(
+    const TExprNode& node,
+    bool allowUnorderedChildren = false)
+{
+    if (node.HasResult()) {
+        Unsupported("Scalar expression contains an executed Result node");
+    }
+    if (node.IsPosAware()) {
+        Unsupported("Scalar expression contains a position-aware node");
+    }
+    if (node.HasSideEffects() || !node.IsCseeSafe()) {
+        Unsupported("Scalar expression contains a side-effecting or CSE-unsafe node");
+    }
+    if (!allowUnorderedChildren &&
+        (node.IsCallable() || node.IsList()) &&
+        node.UnorderedChildren())
+    {
+        Unsupported("Scalar expression contains a node with unordered children");
+    }
+}
+
+enum class EExactCoalesceFalseArgument : ui8 {
+    None,
+    Comparison,
+    BinaryStringMembership,
+    CanonicalStringPredicate,
+    BooleanMember,
+};
+
+struct TExactCoalesceFalse {
+    const TExprNode* Argument = nullptr;
+    EExactCoalesceFalseArgument Kind = EExactCoalesceFalseArgument::None;
+};
+
+TExactCoalesceFalse ExactCoalesceFalseArgument(const TExprNode& node) {
+    if (!node.IsCallable("Coalesce") || node.ChildrenSize() != 2) {
+        return {};
+    }
+
+    const auto& fallback = *node.Child(1);
+    if (!fallback.IsCallable("Bool") || fallback.ChildrenSize() != 1 ||
+        !fallback.Child(0)->IsAtom("false"))
+    {
+        return {};
+    }
+
+    const auto& argument = *node.Child(0);
+    EExactCoalesceFalseArgument kind = EExactCoalesceFalseArgument::None;
+    if (argument.IsCallable("Member") && argument.ChildrenSize() == 2) {
+        kind = EExactCoalesceFalseArgument::BooleanMember;
+    } else if (argument.IsCallable({"==", "!=", "<", "<=", ">", ">="}) &&
+        argument.ChildrenSize() == 2)
+    {
+        kind = EExactCoalesceFalseArgument::Comparison;
+    } else if (argument.IsCallable({"EndsWith", "StringContains"}) &&
+        argument.ChildrenSize() == 2)
+    {
+        kind = EExactCoalesceFalseArgument::CanonicalStringPredicate;
+    } else if (argument.ChildrenSize() == 2 &&
+        ((argument.IsCallable("Or") &&
+          argument.Child(0)->IsCallable("==") &&
+          argument.Child(1)->IsCallable("==")) ||
+         (argument.IsCallable("And") &&
+          argument.Child(0)->IsCallable("!=") &&
+          argument.Child(1)->IsCallable("!="))) &&
+        argument.Child(0)->ChildrenSize() == 2 &&
+        argument.Child(1)->ChildrenSize() == 2)
+    {
+        kind = EExactCoalesceFalseArgument::BinaryStringMembership;
+    } else {
+        return {};
+    }
+
+    bool resultNullable = false;
+    bool argumentNullable = false;
+    bool fallbackNullable = false;
+    if (ScalarTypeName(node, &resultNullable) != "Bool" || resultNullable ||
+        ScalarTypeName(argument, &argumentNullable) != "Bool" ||
+        !argumentNullable ||
+        ScalarTypeName(fallback, &fallbackNullable) != "Bool" ||
+        fallbackNullable)
+    {
+        return {};
+    }
+
+    CheckScalarSafetyMetadata(node);
+    CheckScalarSafetyMetadata(fallback);
+    return {&argument, kind};
+}
+
+void ValidateExactBinaryStringMembership(
+    const TExprNode& argument,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns)
+{
+    CheckScalarSafetyMetadata(argument);
+    std::optional<TString> commonMemberName;
+    for (const auto& comparison : argument.Children()) {
+        CheckComparisonCallable(*comparison);
+        CheckScalarSafetyMetadata(*comparison, true);
+
+        const TExprNode* member = nullptr;
+        const TExprNode* literal = nullptr;
+        for (const auto& operand : comparison->Children()) {
+            if (operand->IsCallable("Member") && !member) {
+                member = operand.Get();
+            } else if (operand->IsCallable({"String", "Utf8"}) && !literal) {
+                literal = operand.Get();
+            } else {
+                Unsupported(
+                    "Exact binary String membership comparison must contain one Member and one literal");
+            }
+        }
+        if (!member || !literal || member->ChildrenSize() != 2 ||
+            member->Child(0) != rowArgument ||
+            !member->Child(1)->IsAtom() ||
+            !visibleColumns.contains(TString(member->Child(1)->Content())))
+        {
+            Unsupported(
+                "Exact binary String membership Member is malformed or not a direct input value");
+        }
+
+        CheckScalarSafetyMetadata(*member);
+        CheckScalarSafetyMetadata(*member->Child(1));
+        CheckScalarSafetyMetadata(*literal);
+        if (literal->ChildrenSize() != 1 || !literal->Child(0)->IsAtom()) {
+            Unsupported("Exact binary String membership literal is malformed");
+        }
+        CheckScalarSafetyMetadata(*literal->Child(0));
+        CheckOpaqueCallable(*literal);
+
+        bool memberNullable = false;
+        bool literalNullable = false;
+        const TString memberType = ScalarTypeName(*member, &memberNullable);
+        const TString literalType = ScalarTypeName(*literal, &literalNullable);
+        if (!memberNullable || literalNullable ||
+            !StringComparisonCompatible(memberType, literalType))
+        {
+            Unsupported(
+                "Exact binary text membership requires one optional text member and non-null text literals");
+        }
+
+        const TString memberName(member->Child(1)->Content());
+        if (!commonMemberName) {
+            commonMemberName = memberName;
+        } else if (memberName != *commonMemberName) {
+            Unsupported(
+                "Exact binary String membership comparisons must reference the same member");
+        }
+    }
+}
+
+struct TExactDecimalCoalesceZero {
+    const TExprNode* Optional = nullptr;
+    const TExprNode* Zero = nullptr;
+    TString ResultType;
+
+    explicit operator bool() const {
+        return Optional && Zero && !ResultType.empty();
+    }
+};
+
+bool IsExactDecimalZeroFallback(
+    const TExprNode& node,
+    TStringBuf expectedType)
+{
+    bool nullable = false;
+    if (ScalarTypeName(node, &nullable) != expectedType || nullable) {
+        return false;
+    }
+
+    if (node.IsCallable("Decimal")) {
+        DecimalLiteralExpr(node);
+        const auto parameters = ParseCanonicalDecimalType(expectedType);
+        if (!parameters) {
+            return false;
+        }
+        const auto value = NYql::NDecimal::FromString(
+            node.Child(0)->Content(),
+            parameters->Precision,
+            parameters->Scale);
+        return !NYql::NDecimal::IsError(value) &&
+            value == NYql::NDecimal::TInt128(0);
+    }
+
+    if (!node.IsCallable("SafeCast") || node.ChildrenSize() != 2) {
+        return false;
+    }
+    const auto& source = *node.Child(0);
+    bool sourceNullable = false;
+    if (ScalarTypeName(source, &sourceNullable) != "Int32" ||
+        sourceNullable ||
+        !source.IsCallable("Int32") ||
+        source.ChildrenSize() != 1 ||
+        !source.Child(0)->IsAtom("0"))
+    {
+        return false;
+    }
+
+    return IsReviewedInt32ZeroDecimalSafeCast(node);
+}
+
+TExactDecimalCoalesceZero ExactDecimalCoalesceZeroArgument(
+    const TExprNode& node)
+{
+    if (!node.IsCallable("Coalesce") || node.ChildrenSize() != 2) {
+        return {};
+    }
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(node, &resultNullable);
+    if (resultNullable || !ParseCanonicalDecimalType(resultType)) {
+        return {};
+    }
+
+    const auto& optional = *node.Child(0);
+    bool optionalNullable = false;
+    if (!optional.IsCallable("Member") ||
+        optional.ChildrenSize() != 2 ||
+        ScalarTypeName(optional, &optionalNullable) != resultType ||
+        !optionalNullable)
+    {
+        return {};
+    }
+
+    const auto& zero = *node.Child(1);
+    if (!IsExactDecimalZeroFallback(zero, resultType)) {
+        return {};
+    }
+    return {&optional, &zero, resultType};
+}
+
+void ValidateExactDecimalCoalesceZeroMember(
+    const TExactDecimalCoalesceZero& exact,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns)
+{
+    if (!exact) {
+        Unsupported("Exact Decimal Coalesce zero shape is missing");
+    }
+    const auto& member = *exact.Optional;
+    if (!rowArgument ||
+        member.Child(0) != rowArgument ||
+        !member.Child(1)->IsAtom() ||
+        !visibleColumns.contains(TString(member.Child(1)->Content())))
+    {
+        Unsupported(
+            "Exact Decimal Coalesce zero requires a direct visible input member");
+    }
+    CheckScalarSafetyMetadata(member);
+    CheckScalarSafetyMetadata(*member.Child(1));
+}
+
+struct TExactUint64JustCoalesceZero {
+    const TExprNode* Optional = nullptr;
+    const TExprNode* Zero = nullptr;
+
+    explicit operator bool() const {
+        return Optional && Zero;
+    }
+};
+
+TExactUint64JustCoalesceZero ExactUint64JustCoalesceZero(
+    const TExprNode& node)
+{
+    if (!node.IsCallable("Just") || node.ChildrenSize() != 1) {
+        return {};
+    }
+    bool resultNullable = false;
+    if (ScalarTypeName(node, &resultNullable) != "Uint64" ||
+        !resultNullable)
+    {
+        return {};
+    }
+
+    const auto& coalesce = *node.Child(0);
+    bool coalesceNullable = false;
+    if (!coalesce.IsCallable("Coalesce") ||
+        coalesce.ChildrenSize() != 2 ||
+        ScalarTypeName(coalesce, &coalesceNullable) != "Uint64" ||
+        coalesceNullable)
+    {
+        return {};
+    }
+
+    const auto& optional = *coalesce.Child(0);
+    bool optionalNullable = false;
+    if (!optional.IsCallable("Member") ||
+        optional.ChildrenSize() != 2 ||
+        ScalarTypeName(optional, &optionalNullable) != "Uint64" ||
+        !optionalNullable)
+    {
+        return {};
+    }
+
+    const auto& zero = *coalesce.Child(1);
+    bool zeroNullable = false;
+    if (!zero.IsCallable("Uint64") ||
+        zero.ChildrenSize() != 1 ||
+        !zero.Child(0)->IsAtom("0") ||
+        ScalarTypeName(zero, &zeroNullable) != "Uint64" ||
+        zeroNullable)
+    {
+        return {};
+    }
+    return {&optional, &zero};
+}
+
+void ValidateExactUint64JustCoalesceZeroMember(
+    const TExactUint64JustCoalesceZero& exact,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns)
+{
+    if (!exact) {
+        Unsupported("Exact Uint64 Just/Coalesce zero shape is missing");
+    }
+    const auto& member = *exact.Optional;
+    if (!rowArgument ||
+        member.Child(0) != rowArgument ||
+        !member.Child(1)->IsAtom() ||
+        !visibleColumns.contains(TString(member.Child(1)->Content())))
+    {
+        Unsupported(
+            "Exact Uint64 Just/Coalesce zero requires a direct visible input member");
+    }
+    CheckScalarSafetyMetadata(member);
+    CheckScalarSafetyMetadata(*member.Child(1));
+}
+
+const TExprNode* ExactDecimalJustArgument(const TExprNode& node) {
+    if (!node.IsCallable("Just") || node.ChildrenSize() != 1) {
+        return nullptr;
+    }
+
+    const auto& argument = *node.Child(0);
+    bool argumentNullable = false;
+    const TString argumentType = ScalarTypeName(argument, &argumentNullable);
+    if (argumentNullable || !ParseCanonicalDecimalType(argumentType)) {
+        return nullptr;
+    }
+
+    const bool directLiteral = argument.IsCallable("Decimal");
+    const bool exactLiteralCast =
+        argument.IsCallable({"SafeCast", "Convert"}) &&
+        argument.ChildrenSize() == 2 &&
+        (IsCompleteIntegerLiteralDecimalCast(argument) ||
+         IsReviewedInt32ZeroDecimalSafeCast(argument));
+    const bool directDecimalCoalesceZero =
+        static_cast<bool>(ExactDecimalCoalesceZeroArgument(argument));
+    if (!directLiteral && !exactLiteralCast && !directDecimalCoalesceZero) {
+        return nullptr;
+    }
+
+    bool resultNullable = false;
+    if (ScalarTypeName(node, &resultNullable) != argumentType ||
+        !resultNullable)
+    {
+        Unsupported(
+            "Exact Decimal Just requires a matching Optional<Decimal> result");
+    }
+
+    CheckScalarSafetyMetadata(node);
+    return &argument;
+}
+
+bool IsExactDataAnnotation(
+    const TTypeAnnotationNode* annotation,
+    NUdf::EDataSlot slot,
+    bool nullable)
+{
+    bool optional = false;
+    const TDataExprType* data = nullptr;
+    return annotation &&
+        IsDataOrOptionalOfData(annotation, optional, data) && data &&
+        optional == nullable && data->GetSlot() == slot &&
+        !dynamic_cast<const TDataExprParamsType*>(data);
+}
+
+const TExprNode* ExactAlwaysPresentLiteralJustArgument(
+    const TExprNode& node)
+{
+    if (!node.IsCallable("Just") || node.ChildrenSize() != 1) {
+        return nullptr;
+    }
+
+    const auto& argument = *node.Child(0);
+    TString argumentType;
+    if (argument.IsCallable() && IsSupportedLiteralType(argument.Content())) {
+        const auto slot = NUdf::FindDataSlot(argument.Content());
+        if (!slot || !IsExactDataAnnotation(argument.GetTypeAnn(), *slot, false)) {
+            Unsupported(
+                "Exact literal Just requires a required literal with a matching Data annotation");
+        }
+        LiteralExpr(argument);
+        argumentType = TString(argument.Content());
+    } else if (const auto convert = CompleteIntegerLiteralConvert(argument);
+        convert)
+    {
+        argumentType = convert.ResultType;
+    } else {
+        return nullptr;
+    }
+
+    bool resultNullable = false;
+    if (ScalarTypeName(node, &resultNullable) != argumentType ||
+        !resultNullable)
+    {
+        Unsupported(
+            "Exact literal Just requires a matching optional result");
+    }
+
+    CheckScalarSafetyMetadata(node);
+    return &argument;
+}
+
+const TExprNode* ExactDirectMemberJustArgument(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns)
+{
+    if (!node.IsCallable("Just") || node.ChildrenSize() != 1) {
+        return nullptr;
+    }
+
+    const auto& member = *node.Child(0);
+    if (!member.IsCallable("Member") || member.ChildrenSize() != 2)
+    {
+        return nullptr;
+    }
+    bool memberNullable = false, resultNullable = false;
+    const auto type = ScalarTypeName(member, &memberNullable);
+    if (memberNullable || ScalarTypeName(node, &resultNullable) != type || !resultNullable)
+    {
+        Unsupported(
+            "Exact member Just requires a required Data input and matching Optional<Data> result");
+    }
+    if (!rowArgument ||
+        member.Child(0) != rowArgument ||
+        !member.Child(1)->IsAtom() ||
+        !visibleColumns.contains(TString(member.Child(1)->Content())))
+    {
+        Unsupported(
+            "Exact member Just requires a direct visible input member");
+    }
+
+    CheckScalarSafetyMetadata(node);
+    CheckScalarSafetyMetadata(member);
+    CheckScalarSafetyMetadata(*rowArgument);
+    CheckScalarSafetyMetadata(*member.Child(1));
+    return &member;
+}
+
+constexpr TStringBuf DateTimeTmResource = "DateTime2.TM";
+
+struct TReviewedUdfType {
+    NUdf::EDataSlot Slot = NUdf::EDataSlot::Date;
+    bool Nullable = false;
+    bool Resource = false;
+};
+
+bool IsExactResourceAnnotation(
+    const TTypeAnnotationNode* annotation,
+    bool nullable)
+{
+    if (!annotation) {
+        return false;
+    }
+    if (nullable) {
+        if (annotation->GetKind() != ETypeAnnotationKind::Optional) {
+            return false;
+        }
+        annotation = annotation->Cast<TOptionalExprType>()->GetItemType();
+    }
+    return annotation->GetKind() == ETypeAnnotationKind::Resource &&
+        annotation->Cast<TResourceExprType>()->GetTag() == DateTimeTmResource;
+}
+
+bool IsExactReviewedUdfAnnotation(
+    const TTypeAnnotationNode* annotation,
+    TReviewedUdfType type)
+{
+    return type.Resource
+        ? IsExactResourceAnnotation(annotation, type.Nullable)
+        : IsExactDataAnnotation(annotation, type.Slot, type.Nullable);
+}
+
+const TTypeAnnotationNode& DescribedType(
+    const TExprNode& node,
+    TStringBuf label)
+{
+    const auto annotation = node.GetTypeAnn();
+    if (!annotation || annotation->GetKind() != ETypeAnnotationKind::Type ||
+        !annotation->Cast<TTypeExprType>()->GetType())
+    {
+        Unsupported(TStringBuilder() << label << " has no exact Type annotation");
+    }
+    return *annotation->Cast<TTypeExprType>()->GetType();
+}
+
+void CheckReviewedUdfTypeDescriptor(
+    const TExprNode& node,
+    TReviewedUdfType type,
+    TStringBuf label)
+{
+    CheckScalarSafetyMetadata(node);
+    if (!IsExactReviewedUdfAnnotation(&DescribedType(node, label), type)) {
+        Unsupported(TStringBuilder() << label << " annotation disagrees");
+    }
+
+    const TExprNode* leaf = &node;
+    if (type.Nullable) {
+        if (!node.IsCallable("OptionalType") || node.ChildrenSize() != 1) {
+            Unsupported(TStringBuilder() << label << " is not exact OptionalType");
+        }
+        leaf = node.Child(0);
+        type.Nullable = false;
+        CheckScalarSafetyMetadata(*leaf);
+        if (!IsExactReviewedUdfAnnotation(&DescribedType(*leaf, label), type)) {
+            Unsupported(TStringBuilder() << label << " item annotation disagrees");
+        }
+    }
+
+    const TStringBuf name = type.Resource
+        ? DateTimeTmResource
+        : NUdf::GetDataTypeInfo(type.Slot).Name;
+    const TStringBuf callable = type.Resource ? "ResourceType" : "DataType";
+    if (!leaf->IsCallable(callable) || leaf->ChildrenSize() != 1 ||
+        !leaf->Child(0)->IsAtom(name))
+    {
+        Unsupported(TStringBuilder() << label << " does not describe " << name);
+    }
+}
+
+void CheckDataDescriptor(
+    const TExprNode& node,
+    NUdf::EDataSlot slot,
+    bool nullable,
+    TStringBuf label)
+{
+    CheckReviewedUdfTypeDescriptor(node, {slot, nullable, false}, label);
+}
+
+void CheckVoidNode(const TExprNode& node, bool typeDescriptor, TStringBuf label) {
+    CheckScalarSafetyMetadata(node);
+    const bool exact = typeDescriptor
+        ? node.IsCallable("VoidType") && node.ChildrenSize() == 0 &&
+            DescribedType(node, label).GetKind() == ETypeAnnotationKind::Void
+        : node.IsCallable("Void") && node.ChildrenSize() == 0 &&
+            node.GetTypeAnn() &&
+            node.GetTypeAnn()->GetKind() == ETypeAnnotationKind::Void;
+    if (!exact) {
+        Unsupported(TStringBuilder() << label << " is not exact Void");
+    }
+}
+
+enum class EReviewedDateTimeUdf : ui8 {
+    IntervalFromDays,
+    Split,
+    SplitTimestamp,
+    ShiftYears,
+    ShiftMonths,
+    MakeDate,
+    GetYear,
+    Count,
+};
+
+struct TReviewedUdfArgument {
+    TReviewedUdfType Type;
+    ui64 Flags = 0;
+};
+
+struct TReviewedUdfSpec {
+    TStringBuf Name;
+    TReviewedUdfType Result;
+    TReviewedUdfArgument Arguments[2];
+    size_t ArgumentCount;
+    TReviewedUdfType UserArguments[2];
+    size_t UserArgumentCount;
+    bool Blocks;
+};
+
+constexpr ui64 ReviewedUdfAutoMap = NUdf::ICallablePayload::TArgumentFlags::AutoMap;
+constexpr TReviewedUdfType DateType{NUdf::EDataSlot::Date};
+constexpr TReviewedUdfType TimestampType{NUdf::EDataSlot::Timestamp};
+constexpr TReviewedUdfType OptionalTimestampType{
+    NUdf::EDataSlot::Timestamp, true};
+constexpr TReviewedUdfType Int32Type{NUdf::EDataSlot::Int32};
+constexpr TReviewedUdfType Uint16Type{NUdf::EDataSlot::Uint16};
+constexpr TReviewedUdfType Utf8Type{NUdf::EDataSlot::Utf8};
+constexpr TReviewedUdfType OptionalIntervalType{
+    NUdf::EDataSlot::Interval, true};
+constexpr TReviewedUdfType TmType{NUdf::EDataSlot::Date, false, true};
+constexpr TReviewedUdfType OptionalTmType{
+    NUdf::EDataSlot::Date, true, true};
+
+const TReviewedUdfSpec ReviewedDateTimeUdfs[] = {
+    {"DateTime2.IntervalFromDays", OptionalIntervalType,
+        {{Int32Type, ReviewedUdfAutoMap}, {}},
+        1, {}, 0, true},
+    {"DateTime2.Split", TmType, {{DateType, ReviewedUdfAutoMap}, {}},
+        1, {DateType}, 1, true},
+    {"DateTime2.Split", TmType, {{TimestampType, ReviewedUdfAutoMap}, {}},
+        1, {TimestampType}, 1, true},
+    {"DateTime2.ShiftYears", OptionalTmType,
+        {{TmType, ReviewedUdfAutoMap}, {Int32Type, 0}},
+        2, {DateType, Int32Type}, 2, false},
+    {"DateTime2.ShiftMonths", OptionalTmType,
+        {{TmType, ReviewedUdfAutoMap}, {Int32Type, 0}},
+        2, {DateType, Int32Type}, 2, false},
+    {"DateTime2.MakeDate", DateType,
+        {{TmType, ReviewedUdfAutoMap}, {}},
+        1, {}, 0, true},
+    {"DateTime2.GetYear", Uint16Type,
+        {{TmType, ReviewedUdfAutoMap}, {}},
+        1, {OptionalTimestampType}, 1, false},
+};
+
+static_assert(sizeof(ReviewedDateTimeUdfs) / sizeof(ReviewedDateTimeUdfs[0]) ==
+    static_cast<size_t>(EReviewedDateTimeUdf::Count));
+
+const TReviewedUdfSpec& ReviewedDateTimeUdf(EReviewedDateTimeUdf kind) {
+    return ReviewedDateTimeUdfs[static_cast<size_t>(kind)];
+}
+
+const TReviewedUdfSpec ReviewedUnicodeToUpperUdf = {
+    "Unicode.ToUpper",
+    Utf8Type,
+    {{Utf8Type, ReviewedUdfAutoMap}, {}},
+    1,
+    {},
+    0,
+    true,
+};
+
+void CheckTupleDescriptor(
+    const TExprNode& node,
+    size_t size,
+    TStringBuf label)
+{
+    CheckScalarSafetyMetadata(node);
+    const auto& annotation = DescribedType(node, label);
+    if (!node.IsCallable("TupleType") || node.ChildrenSize() != size ||
+        annotation.GetKind() != ETypeAnnotationKind::Tuple)
+    {
+        Unsupported(TStringBuilder() << label << " is not an exact TupleType");
+    }
+    const auto& tuple = *annotation.Cast<TTupleExprType>();
+    if (tuple.GetSize() != size) {
+        Unsupported(TStringBuilder() << label << " annotation has the wrong arity");
+    }
+    for (size_t index = 0; index < size; ++index) {
+        if (!IsSameAnnotation(
+                *tuple.GetItems()[index],
+                DescribedType(*node.Child(index), label)))
+        {
+            Unsupported(TStringBuilder() << label
+                << " child annotation disagrees at " << index);
+        }
+    }
+}
+
+void CheckEmptyStructDescriptor(const TExprNode& node, TStringBuf label) {
+    CheckScalarSafetyMetadata(node);
+    const auto& annotation = DescribedType(node, label);
+    if (!node.IsCallable("StructType") || node.ChildrenSize() != 0 ||
+        annotation.GetKind() != ETypeAnnotationKind::Struct ||
+        annotation.Cast<TStructExprType>()->GetSize() != 0)
+    {
+        Unsupported(TStringBuilder() << label << " is not an empty StructType");
+    }
+}
+
+
+const TCallableExprType& CheckReviewedUdfCallable(
+    const TTypeAnnotationNode* annotation,
+    const TReviewedUdfSpec& spec,
+    TStringBuf label)
+{
+    if (!annotation || annotation->GetKind() != ETypeAnnotationKind::Callable) {
+        Unsupported(TStringBuilder() << label << " is not Callable");
+    }
+    const auto& callable = *annotation->Cast<TCallableExprType>();
+    const auto& arguments = callable.GetArguments();
+    if (!IsExactReviewedUdfAnnotation(callable.GetReturnType(), spec.Result) ||
+        callable.GetOptionalArgumentsCount() != 0 ||
+        !callable.GetPayload().empty() ||
+        arguments.size() != spec.ArgumentCount)
+    {
+        Unsupported(TStringBuilder() << label
+            << " is not the reviewed Udf signature");
+    }
+    for (size_t index = 0; index < spec.ArgumentCount; ++index) {
+        if (!IsExactReviewedUdfAnnotation(
+                arguments[index].Type, spec.Arguments[index].Type) ||
+            !arguments[index].Name.empty() ||
+            arguments[index].Flags != spec.Arguments[index].Flags)
+        {
+            Unsupported(TStringBuilder() << label
+                << " argument " << index << " is not reviewed");
+        }
+    }
+    return callable;
+}
+
+void CheckReviewedUdfUserType(
+    const TExprNode& node,
+    const TReviewedUdfSpec& spec)
+{
+    const TString userTypeLabel =
+        TStringBuilder() << spec.Name << " Udf user type";
+    if (spec.UserArgumentCount == 0) {
+        CheckVoidNode(node, true, userTypeLabel);
+        return;
+    }
+
+    CheckTupleDescriptor(node, 3, userTypeLabel);
+    const auto& arguments = *node.Child(0);
+    const TString argumentsLabel =
+        TStringBuilder() << spec.Name << " Udf arguments";
+    CheckTupleDescriptor(
+        arguments, spec.UserArgumentCount, argumentsLabel);
+    for (size_t index = 0; index < spec.UserArgumentCount; ++index) {
+        CheckReviewedUdfTypeDescriptor(
+            *arguments.Child(index),
+            spec.UserArguments[index],
+            TStringBuilder() << spec.Name << " Udf user argument");
+    }
+    CheckEmptyStructDescriptor(
+        *node.Child(1), TStringBuilder() << spec.Name << " Udf options");
+    CheckTupleDescriptor(
+        *node.Child(2),
+        0,
+        TStringBuilder() << spec.Name << " Udf type parameters");
+}
+
+void CheckReviewedUdfCachedType(
+    const TExprNode& node,
+    const TCallableExprType& udfType,
+    const TReviewedUdfSpec& spec)
+{
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("CallableType") ||
+        node.ChildrenSize() != spec.ArgumentCount + 2)
+    {
+        Unsupported(TStringBuilder() << "Cached " << spec.Name
+            << " CallableType has the wrong shape");
+    }
+    const TString cachedTypeLabel =
+        TStringBuilder() << "cached " << spec.Name << " type";
+    const auto& cachedType = CheckReviewedUdfCallable(
+        &DescribedType(node, cachedTypeLabel),
+        spec,
+        cachedTypeLabel);
+    if (!IsSameAnnotation(cachedType, udfType)) {
+        Unsupported(TStringBuilder() << "Cached " << spec.Name
+            << " CallableType disagrees with Udf");
+    }
+
+    const auto& main = *node.Child(0);
+    const auto& result = *node.Child(1);
+    CheckScalarSafetyMetadata(main);
+    CheckScalarSafetyMetadata(result);
+    if (!main.IsList() || main.ChildrenSize() != 0 ||
+        !result.IsList() || result.ChildrenSize() != 1)
+    {
+        Unsupported(TStringBuilder() << "Cached " << spec.Name
+            << " CallableType has a noncanonical header");
+    }
+    CheckReviewedUdfTypeDescriptor(
+        *result.Child(0),
+        spec.Result,
+        TStringBuilder() << spec.Name << " Udf return type");
+
+    for (size_t index = 0; index < spec.ArgumentCount; ++index) {
+        const auto& argument = *node.Child(index + 2);
+        const auto flags = spec.Arguments[index].Flags;
+        CheckScalarSafetyMetadata(argument);
+        const bool exactFlags = flags == ReviewedUdfAutoMap
+            ? argument.IsList() && argument.ChildrenSize() == 3 &&
+                argument.Child(1)->IsAtom("") &&
+                argument.Child(2)->IsAtom("1")
+            : flags == 0 && argument.IsList() &&
+                argument.ChildrenSize() == 1;
+        if (!exactFlags) {
+            Unsupported(TStringBuilder() << "Cached " << spec.Name
+                << " argument flags are not canonical");
+        }
+        CheckReviewedUdfTypeDescriptor(
+            *argument.Child(0),
+            spec.Arguments[index].Type,
+            TStringBuilder() << spec.Name << " Udf argument type");
+    }
+}
+
+bool IsExactSetting(const TExprNode& node, TStringBuf name) {
+    CheckScalarSafetyMetadata(node);
+    return node.IsList() && node.ChildrenSize() == 1 &&
+        node.Child(0)->IsAtom(name);
+}
+
+const TCallableExprType& CheckReviewedUdf(
+    const TExprNode& node,
+    const TReviewedUdfSpec& spec)
+{
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Udf") || node.ChildrenSize() != 8 ||
+        !node.Child(0)->IsAtom(spec.Name) ||
+        !node.Child(3)->IsAtom("") || !node.Child(6)->IsAtom(""))
+    {
+        Unsupported(TStringBuilder() << spec.Name
+            << " requires its normalized eight-child Udf");
+    }
+    const auto& callable = CheckReviewedUdfCallable(
+        node.GetTypeAnn(), spec, TStringBuilder() << spec.Name << " Udf");
+    CheckVoidNode(
+        *node.Child(1),
+        false,
+        TStringBuilder() << spec.Name << " Udf run config");
+    CheckReviewedUdfUserType(*node.Child(2), spec);
+    CheckReviewedUdfCachedType(*node.Child(4), callable, spec);
+    CheckVoidNode(
+        *node.Child(5),
+        true,
+        TStringBuilder() << spec.Name << " Udf run-config type");
+
+    const auto& settings = *node.Child(7);
+    CheckScalarSafetyMetadata(settings);
+    const size_t settingCount = spec.Blocks ? 2 : 1;
+    if (!settings.IsList() || settings.ChildrenSize() != settingCount) {
+        Unsupported(TStringBuilder() << spec.Name
+            << " settings are not canonical");
+    }
+    if ((spec.Blocks && !IsExactSetting(*settings.Child(0), "blocks")) ||
+        !IsExactSetting(*settings.Child(spec.Blocks ? 1 : 0), "strict"))
+    {
+        Unsupported(TStringBuilder() << spec.Name
+            << " settings are not canonical");
+    }
+    return callable;
+}
+
+void CheckReviewedUdfApply(
+    const TExprNode& node,
+    const TReviewedUdfSpec& spec,
+    TStringBuf label)
+{
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Apply") ||
+        node.ChildrenSize() != spec.ArgumentCount + 1 ||
+        !IsExactReviewedUdfAnnotation(node.GetTypeAnn(), spec.Result))
+    {
+        Unsupported(TStringBuilder() << label << " has the wrong Apply shape");
+    }
+    const auto& callable = CheckReviewedUdf(*node.Child(0), spec);
+    if (!IsSameAnnotation(*node.GetTypeAnn(), *callable.GetReturnType())) {
+        Unsupported(TStringBuilder() << label << " result disagrees with its Udf");
+    }
+    for (size_t index = 0; index < spec.ArgumentCount; ++index) {
+        const auto annotation = node.Child(index + 1)->GetTypeAnn();
+        if (!annotation ||
+            !IsSameAnnotation(*annotation, *callable.GetArguments()[index].Type))
+        {
+            Unsupported(TStringBuilder() << label
+                << " argument " << index << " disagrees with its Udf");
+        }
+    }
+}
+
+enum class ECompiledLikeUdf : ui8 {
+    Match,
+    PatternFromLike,
+    Options,
+};
+
+enum class ECompiledLikeType : ui8 {
+    Bool,
+    String,
+    Uint64,
+    OptionalBool,
+    OptionalString,
+    OptionalUint64,
+    Options,
+    OptionalOptions,
+};
+
+struct TCompiledLikeDataField {
+    TStringBuf Name;
+    ECompiledLikeType Type;
+};
+
+constexpr std::array<TCompiledLikeDataField, 13>
+    CompiledLikeOptionsStructFields = {{
+        {"CaseSensitive", ECompiledLikeType::Bool},
+        {"DotNl", ECompiledLikeType::Bool},
+        {"Literal", ECompiledLikeType::Bool},
+        {"LogErrors", ECompiledLikeType::Bool},
+        {"LongestMatch", ECompiledLikeType::Bool},
+        {"MaxMem", ECompiledLikeType::Uint64},
+        {"NeverCapture", ECompiledLikeType::Bool},
+        {"NeverNl", ECompiledLikeType::Bool},
+        {"OneLine", ECompiledLikeType::Bool},
+        {"PerlClasses", ECompiledLikeType::Bool},
+        {"PosixSyntax", ECompiledLikeType::Bool},
+        {"Utf8", ECompiledLikeType::Bool},
+        {"WordBoundary", ECompiledLikeType::Bool},
+    }};
+
+constexpr std::array<TCompiledLikeDataField, 13>
+    CompiledLikeOptionsArguments = {{
+        {"Utf8", ECompiledLikeType::OptionalBool},
+        {"PosixSyntax", ECompiledLikeType::OptionalBool},
+        {"LongestMatch", ECompiledLikeType::OptionalBool},
+        {"LogErrors", ECompiledLikeType::OptionalBool},
+        {"MaxMem", ECompiledLikeType::OptionalUint64},
+        {"Literal", ECompiledLikeType::OptionalBool},
+        {"NeverNl", ECompiledLikeType::OptionalBool},
+        {"DotNl", ECompiledLikeType::OptionalBool},
+        {"NeverCapture", ECompiledLikeType::OptionalBool},
+        {"CaseSensitive", ECompiledLikeType::OptionalBool},
+        {"PerlClasses", ECompiledLikeType::OptionalBool},
+        {"WordBoundary", ECompiledLikeType::OptionalBool},
+        {"OneLine", ECompiledLikeType::OptionalBool},
+    }};
+
+constexpr std::array<TCompiledLikeDataField, 1>
+    CompiledLikeMatchArguments = {{
+        {"", ECompiledLikeType::OptionalString},
+    }};
+constexpr std::array<TCompiledLikeDataField, 2>
+    CompiledLikePatternArguments = {{
+        {"", ECompiledLikeType::String},
+        {"", ECompiledLikeType::OptionalString},
+    }};
+
+struct TCompiledLikeUdfSpec {
+    TStringBuf Name;
+    ECompiledLikeType Result;
+    const TCompiledLikeDataField* Arguments;
+    size_t ArgumentCount;
+    size_t OptionalArgumentCount;
+    bool Strict;
+};
+
+const TCompiledLikeUdfSpec& CompiledLikeUdfSpec(
+    ECompiledLikeUdf kind)
+{
+    static const std::array<TCompiledLikeUdfSpec, 3> Specs = {{
+        {"Re2.Match", ECompiledLikeType::Bool,
+            CompiledLikeMatchArguments.data(),
+            CompiledLikeMatchArguments.size(), 0, false},
+        {"Re2.PatternFromLike", ECompiledLikeType::String,
+            CompiledLikePatternArguments.data(),
+            CompiledLikePatternArguments.size(), 1, false},
+        {"Re2.Options", ECompiledLikeType::Options,
+            CompiledLikeOptionsArguments.data(),
+            CompiledLikeOptionsArguments.size(),
+            CompiledLikeOptionsArguments.size(), true},
+    }};
+    return Specs[static_cast<size_t>(kind)];
+}
+
+// The reviewed workload patterns are ASCII.  Keeping that gate makes
+// PatternFromLike produce a valid RE2 program under Utf8=true, while this byte
+// cap bounds both regexp compilation work and the exported identity.
+constexpr size_t MaxCompiledLikePatternBytes = 4096;
+
+void CheckCompiledLikeSafetyTree(
+    const TExprNode& root,
+    size_t sourceDepth)
+{
+    struct TPending {
+        const TExprNode* Node;
+        size_t Depth;
+    };
+
+    TVector<TPending> pending{{&root, sourceDepth}};
+    size_t nodes = 0;
+    while (!pending.empty()) {
+        const auto current = pending.back();
+        pending.pop_back();
+        if (current.Depth > MaxExactScalarDepth) {
+            Unsupported(TStringBuilder()
+                << "Compiled LIKE expression exceeds the source depth audit "
+                   "limit of "
+                << MaxExactScalarDepth);
+        }
+        if (++nodes > MaxExactScalarNodes) {
+            Unsupported(TStringBuilder()
+                << "Compiled LIKE expression exceeds the source node audit "
+                   "limit of "
+                << MaxExactScalarNodes);
+        }
+
+        CheckScalarSafetyMetadata(*current.Node);
+        for (const auto& child : current.Node->Children()) {
+            pending.push_back({child.Get(), current.Depth + 1});
+        }
+    }
+}
+
+bool IsCompiledLikeType(
+    const TTypeAnnotationNode* annotation,
+    ECompiledLikeType type);
+void CheckCompiledLikeTypeDescriptor(
+    const TExprNode& node,
+    ECompiledLikeType type,
+    TStringBuf label);
+
+bool IsCompiledLikeOptionsStruct(const TTypeAnnotationNode* annotation) {
+    if (!annotation ||
+        annotation->GetKind() != ETypeAnnotationKind::Struct)
+    {
+        return false;
+    }
+    const auto& items = annotation->Cast<TStructExprType>()->GetItems();
+    if (items.size() != CompiledLikeOptionsStructFields.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < items.size(); ++index) {
+        const auto& expected = CompiledLikeOptionsStructFields[index];
+        if (items[index]->GetName() != expected.Name ||
+            !IsCompiledLikeType(items[index]->GetItemType(), expected.Type))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool IsCompiledLikeType(
+    const TTypeAnnotationNode* annotation,
+    ECompiledLikeType type)
+{
+    switch (type) {
+        case ECompiledLikeType::Bool:
+        case ECompiledLikeType::OptionalBool:
+            return IsExactDataAnnotation(annotation, NUdf::EDataSlot::Bool,
+                type == ECompiledLikeType::OptionalBool);
+        case ECompiledLikeType::String:
+        case ECompiledLikeType::OptionalString:
+            return IsExactDataAnnotation(annotation, NUdf::EDataSlot::String,
+                type == ECompiledLikeType::OptionalString);
+        case ECompiledLikeType::Uint64:
+        case ECompiledLikeType::OptionalUint64:
+            return IsExactDataAnnotation(annotation, NUdf::EDataSlot::Uint64,
+                type == ECompiledLikeType::OptionalUint64);
+        case ECompiledLikeType::Options:
+            return IsCompiledLikeOptionsStruct(annotation);
+        case ECompiledLikeType::OptionalOptions:
+            return annotation &&
+                annotation->GetKind() == ETypeAnnotationKind::Optional &&
+                IsCompiledLikeOptionsStruct(
+                    annotation->Cast<TOptionalExprType>()->GetItemType());
+    }
+}
+
+void CheckCompiledLikeOptionsStructDescriptor(
+    const TExprNode& node,
+    TStringBuf label)
+{
+    if (!node.IsCallable("StructType") ||
+        node.ChildrenSize() != CompiledLikeOptionsStructFields.size() ||
+        !IsCompiledLikeOptionsStruct(&DescribedType(node, label)))
+    {
+        Unsupported(TStringBuilder()
+            << label << " is not the exact Re2.Options StructType");
+    }
+
+    for (size_t index = 0; index < node.ChildrenSize(); ++index) {
+        const auto& item = *node.Child(index);
+        const auto& expected = CompiledLikeOptionsStructFields[index];
+        if (!item.IsList() || item.ChildrenSize() != 2 ||
+            !item.Child(0)->IsAtom(expected.Name))
+        {
+            Unsupported(TStringBuilder()
+                << label << " field " << index << " is not canonical");
+        }
+        CheckCompiledLikeTypeDescriptor(
+            *item.Child(1), expected.Type,
+            TStringBuilder() << label << " field " << expected.Name);
+    }
+}
+
+void CheckCompiledLikeTypeDescriptor(
+    const TExprNode& node,
+    ECompiledLikeType type,
+    TStringBuf label)
+{
+    if (type == ECompiledLikeType::Options) {
+        CheckCompiledLikeOptionsStructDescriptor(node, label);
+        return;
+    }
+    if (type == ECompiledLikeType::OptionalOptions) {
+        if (!node.IsCallable("OptionalType") || node.ChildrenSize() != 1 ||
+            !IsCompiledLikeType(&DescribedType(node, label), type))
+        {
+            Unsupported(TStringBuilder()
+                << label << " is not Optional<Re2.Options>");
+        }
+        CheckCompiledLikeOptionsStructDescriptor(*node.Child(0), label);
+        return;
+    }
+
+    if (type == ECompiledLikeType::Bool ||
+        type == ECompiledLikeType::OptionalBool)
+    {
+        CheckDataDescriptor(node, NUdf::EDataSlot::Bool,
+            type == ECompiledLikeType::OptionalBool, label);
+    } else if (type == ECompiledLikeType::String ||
+        type == ECompiledLikeType::OptionalString)
+    {
+        CheckDataDescriptor(node, NUdf::EDataSlot::String,
+            type == ECompiledLikeType::OptionalString, label);
+    } else {
+        CheckDataDescriptor(node, NUdf::EDataSlot::Uint64,
+            type == ECompiledLikeType::OptionalUint64, label);
+    }
+}
+
+bool IsCompiledLikeCallable(
+    const TTypeAnnotationNode* annotation,
+    ECompiledLikeUdf kind)
+{
+    if (!annotation ||
+        annotation->GetKind() != ETypeAnnotationKind::Callable)
+    {
+        return false;
+    }
+    const auto& spec = CompiledLikeUdfSpec(kind);
+    const auto& callable = *annotation->Cast<TCallableExprType>();
+    const auto& arguments = callable.GetArguments();
+    if (!IsCompiledLikeType(callable.GetReturnType(), spec.Result) ||
+        arguments.size() != spec.ArgumentCount ||
+        callable.GetOptionalArgumentsCount() != spec.OptionalArgumentCount ||
+        !callable.GetPayload().empty())
+    {
+        return false;
+    }
+    for (size_t index = 0; index < arguments.size(); ++index) {
+        const auto& expected = spec.Arguments[index];
+        if (!IsCompiledLikeType(arguments[index].Type, expected.Type) ||
+            arguments[index].Name != expected.Name ||
+            arguments[index].Flags != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+const TCallableExprType& CheckCompiledLikeCachedCallable(
+    const TExprNode& node,
+    const TCallableExprType& udfType,
+    ECompiledLikeUdf kind)
+{
+    const auto& spec = CompiledLikeUdfSpec(kind);
+    const TStringBuf label = "compiled LIKE cached CallableType";
+    if (!node.IsCallable("CallableType") ||
+        node.ChildrenSize() != spec.ArgumentCount + 2 ||
+        !IsCompiledLikeCallable(&DescribedType(node, label), kind))
+    {
+        Unsupported(TStringBuilder() << "Malformed cached " << spec.Name);
+    }
+    const auto& cached = *DescribedType(node, label).Cast<TCallableExprType>();
+    if (!IsSameAnnotation(cached, udfType)) {
+        Unsupported(TStringBuilder() << "Cached " << spec.Name
+            << " annotation disagrees with Udf");
+    }
+
+    const auto& header = *node.Child(0);
+    const size_t headerSize = spec.OptionalArgumentCount == 0 ? 0 : 1;
+    if (!header.IsList() || header.ChildrenSize() != headerSize ||
+        (headerSize == 1 &&
+         !header.Child(0)->IsAtom(ToString(spec.OptionalArgumentCount))))
+    {
+        Unsupported(TStringBuilder() << "Malformed " << spec.Name
+            << " optional-argument header");
+    }
+    const auto& result = *node.Child(1);
+    if (!result.IsList() || result.ChildrenSize() != 1) {
+        Unsupported(TStringBuilder() << "Malformed " << spec.Name
+            << " return descriptor");
+    }
+    CheckCompiledLikeTypeDescriptor(
+        *result.Child(0), spec.Result,
+        TStringBuilder() << spec.Name << " return type");
+
+    for (size_t index = 0; index < spec.ArgumentCount; ++index) {
+        const auto& argument = *node.Child(index + 2);
+        const auto& expected = spec.Arguments[index];
+        const bool named = !expected.Name.empty();
+        if (!argument.IsList() ||
+            argument.ChildrenSize() != (named ? 2 : 1) ||
+            (named && !argument.Child(1)->IsAtom(expected.Name)))
+        {
+            Unsupported(TStringBuilder() << "Malformed cached " << spec.Name
+                << " argument " << index);
+        }
+        CheckCompiledLikeTypeDescriptor(
+            *argument.Child(0), expected.Type,
+            TStringBuilder() << spec.Name << " argument " << index);
+    }
+    return cached;
+}
+
+void CheckCompiledLikeRunConfigDescriptor(const TExprNode& node) {
+    CheckTupleDescriptor(node, 2, "Re2.Match run-config type");
+    CheckCompiledLikeTypeDescriptor(
+        *node.Child(0), ECompiledLikeType::String,
+        "Re2.Match pattern run-config type");
+    CheckCompiledLikeTypeDescriptor(
+        *node.Child(1), ECompiledLikeType::OptionalOptions,
+        "Re2.Match options run-config type");
+}
+
+const TCallableExprType& CheckCompiledLikeUdf(
+    const TExprNode& node,
+    ECompiledLikeUdf kind,
+    TString* matchPattern = nullptr);
+
+TString CheckCompiledLikePatternApply(const TExprNode& node) {
+    if (!node.IsCallable("Apply") ||
+        (node.ChildrenSize() != 2 && node.ChildrenSize() != 3) ||
+        !IsCompiledLikeType(node.GetTypeAnn(), ECompiledLikeType::String))
+    {
+        Unsupported("Malformed Re2.PatternFromLike Apply");
+    }
+    const auto& callable = CheckCompiledLikeUdf(
+        *node.Child(0), ECompiledLikeUdf::PatternFromLike);
+    const auto& literal = *node.Child(1);
+    if (node.ChildrenSize() == 3) {
+        const auto& escape = *node.Child(2);
+        if (!IsSameAnnotation(*node.GetTypeAnn(), *callable.GetReturnType()) ||
+            !IsCompiledLikeType(literal.GetTypeAnn(), ECompiledLikeType::String) ||
+            !IsSameAnnotation(*literal.GetTypeAnn(), *callable.GetArguments()[0].Type) ||
+            (!IsCompiledLikeType(escape.GetTypeAnn(), ECompiledLikeType::String) &&
+             !IsCompiledLikeType(escape.GetTypeAnn(), ECompiledLikeType::OptionalString)))
+        {
+            Unsupported("Malformed Re2.PatternFromLike ESCAPE arguments");
+        }
+        // ESCAPE is a valid optional UDF argument; its semantics are outside
+        // the admitted compiled LIKE subset even for a literal pattern.
+        Unsupported("Compiled LIKE explicit ESCAPE argument is not modeled");
+    }
+    if (!literal.IsCallable("String") &&
+        IsSameAnnotation(*node.GetTypeAnn(), *callable.GetReturnType()) &&
+        IsCompiledLikeType(literal.GetTypeAnn(), ECompiledLikeType::String) &&
+        IsSameAnnotation(*literal.GetTypeAnn(), *callable.GetArguments()[0].Type))
+    {
+        Unsupported("Compiled LIKE dynamic patterns are not modeled");
+    }
+    if (!IsSameAnnotation(*node.GetTypeAnn(), *callable.GetReturnType()) ||
+        !literal.IsCallable("String") || literal.ChildrenSize() != 1 ||
+        !literal.Child(0)->IsAtom() ||
+        !IsCompiledLikeType(
+            literal.GetTypeAnn(), ECompiledLikeType::String) ||
+        !IsSameAnnotation(
+            *literal.GetTypeAnn(), *callable.GetArguments()[0].Type))
+    {
+        Unsupported("Malformed compiled LIKE pattern literal");
+    }
+    LiteralExpr(literal);
+    const TString pattern(literal.Child(0)->Content());
+    if (pattern.size() > MaxCompiledLikePatternBytes) {
+        Unsupported(TStringBuilder()
+            << "Compiled LIKE pattern exceeds the byte audit limit of "
+            << MaxCompiledLikePatternBytes);
+    }
+    if (std::any_of(pattern.begin(), pattern.end(), [](char byte) {
+            return static_cast<unsigned char>(byte) >= 0x80;
+        }))
+    {
+        Unsupported("Compiled LIKE admits only ASCII patterns");
+    }
+    return pattern;
+}
+
+void CheckCompiledLikeNamedOptions(const TExprNode& node) {
+    if (!node.IsCallable("Just") || node.ChildrenSize() != 1 ||
+        !IsCompiledLikeType(
+            node.GetTypeAnn(), ECompiledLikeType::OptionalOptions))
+    {
+        Unsupported(
+            "Compiled LIKE requires Just of exact Re2.Options");
+    }
+
+    const auto& apply = *node.Child(0);
+    if (!apply.IsCallable("NamedApply") || apply.ChildrenSize() != 3 ||
+        !IsCompiledLikeType(
+            apply.GetTypeAnn(), ECompiledLikeType::Options))
+    {
+        Unsupported(
+            "Compiled LIKE requires exact Re2.Options NamedApply");
+    }
+    const auto& callable = CheckCompiledLikeUdf(
+        *apply.Child(0), ECompiledLikeUdf::Options);
+    const auto* justItem =
+        node.GetTypeAnn()->Cast<TOptionalExprType>()->GetItemType();
+    if (!IsSameAnnotation(
+            *apply.GetTypeAnn(), *callable.GetReturnType()) ||
+        !IsSameAnnotation(*justItem, *apply.GetTypeAnn()))
+    {
+        Unsupported("Re2.Options NamedApply disagrees with its callable");
+    }
+
+    const auto& positional = *apply.Child(1);
+    if (!positional.IsList() || positional.ChildrenSize() != 0 ||
+        !positional.GetTypeAnn() ||
+        positional.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Tuple ||
+        positional.GetTypeAnn()->Cast<TTupleExprType>()->GetSize() != 0)
+    {
+        Unsupported(
+            "Compiled LIKE Re2.Options positional arguments must be empty");
+    }
+
+    const auto& named = *apply.Child(2);
+    if (!named.IsCallable("AsStruct") || named.ChildrenSize() != 1 ||
+        !named.GetTypeAnn() ||
+        named.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Struct)
+    {
+        Unsupported(
+            "Compiled LIKE Re2.Options named arguments are not canonical");
+    }
+    const auto& namedItems =
+        named.GetTypeAnn()->Cast<TStructExprType>()->GetItems();
+    if (namedItems.size() != 1 ||
+        namedItems[0]->GetName() != "CaseSensitive" ||
+        !IsCompiledLikeType(
+            namedItems[0]->GetItemType(),
+            ECompiledLikeType::OptionalBool))
+    {
+        Unsupported(
+            "Compiled LIKE requires only Optional<Bool> CaseSensitive");
+    }
+
+    const auto& item = *named.Child(0);
+    if (!item.IsList() || item.ChildrenSize() != 2 ||
+        !item.Child(0)->IsAtom("CaseSensitive"))
+    {
+        Unsupported(
+            "Compiled LIKE CaseSensitive field is not canonical");
+    }
+    const auto& value = *item.Child(1);
+    if (!value.IsCallable("Just") || value.ChildrenSize() != 1 ||
+        !IsCompiledLikeType(
+            value.GetTypeAnn(), ECompiledLikeType::OptionalBool) ||
+        !IsSameAnnotation(
+            *value.GetTypeAnn(), *namedItems[0]->GetItemType()) ||
+        !IsSameAnnotation(
+            *value.GetTypeAnn(), *callable.GetArguments()[9].Type))
+    {
+        Unsupported(
+            "Compiled LIKE CaseSensitive must be Just(Bool)");
+    }
+    const auto& literal = *value.Child(0);
+    if (!literal.IsCallable("Bool") || literal.ChildrenSize() != 1 ||
+        !literal.Child(0)->IsAtom("true") ||
+        !IsCompiledLikeType(
+            literal.GetTypeAnn(), ECompiledLikeType::Bool))
+    {
+        Unsupported(
+            "Compiled LIKE requires CaseSensitive=true");
+    }
+    LiteralExpr(literal);
+}
+
+TString CheckCompiledLikeRunConfig(const TExprNode& node) {
+    if (!node.IsList() || node.ChildrenSize() != 2 ||
+        !node.GetTypeAnn() ||
+        node.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Tuple)
+    {
+        Unsupported(
+            "Compiled LIKE Re2.Match run config is not an exact tuple");
+    }
+    const auto& tuple = *node.GetTypeAnn()->Cast<TTupleExprType>();
+    if (tuple.GetSize() != 2 ||
+        !IsCompiledLikeType(
+            tuple.GetItems()[0], ECompiledLikeType::String) ||
+        !IsCompiledLikeType(
+            tuple.GetItems()[1], ECompiledLikeType::OptionalOptions) ||
+        !node.Child(0)->GetTypeAnn() ||
+        !node.Child(1)->GetTypeAnn() ||
+        !IsSameAnnotation(
+            *tuple.GetItems()[0], *node.Child(0)->GetTypeAnn()) ||
+        !IsSameAnnotation(
+            *tuple.GetItems()[1], *node.Child(1)->GetTypeAnn()))
+    {
+        Unsupported(
+            "Compiled LIKE Re2.Match run config annotation disagrees");
+    }
+
+    TString pattern = CheckCompiledLikePatternApply(*node.Child(0));
+    CheckCompiledLikeNamedOptions(*node.Child(1));
+    return pattern;
+}
+
+const TCallableExprType& CheckCompiledLikeUdf(
+    const TExprNode& node,
+    ECompiledLikeUdf kind,
+    TString* matchPattern)
+{
+    const auto& spec = CompiledLikeUdfSpec(kind);
+    if (!node.IsCallable("Udf") || node.ChildrenSize() != 8 ||
+        !node.Child(0)->IsAtom(spec.Name) ||
+        !node.Child(3)->IsAtom("") ||
+        !node.Child(6)->IsAtom("") ||
+        !IsCompiledLikeCallable(node.GetTypeAnn(), kind))
+    {
+        Unsupported(TStringBuilder()
+            << spec.Name << " is not the exact compiled LIKE Udf");
+    }
+    const auto& callable = *node.GetTypeAnn()->Cast<TCallableExprType>();
+    CheckVoidNode(
+        *node.Child(2), true, TStringBuilder() << spec.Name << " user type");
+    CheckCompiledLikeCachedCallable(*node.Child(4), callable, kind);
+
+    if (kind == ECompiledLikeUdf::Match) {
+        const TString pattern =
+            CheckCompiledLikeRunConfig(*node.Child(1));
+        if (matchPattern) {
+            *matchPattern = pattern;
+        }
+        CheckCompiledLikeRunConfigDescriptor(*node.Child(5));
+    } else {
+        CheckVoidNode(
+            *node.Child(1), false,
+            TStringBuilder() << spec.Name << " run config");
+        CheckVoidNode(
+            *node.Child(5),
+            true,
+            TStringBuilder() << spec.Name << " run-config type");
+    }
+
+    const auto& settings = *node.Child(7);
+    if (!settings.IsList() ||
+        settings.ChildrenSize() != (spec.Strict ? 1 : 0) ||
+        (spec.Strict &&
+         (!settings.Child(0)->IsList() ||
+          settings.Child(0)->ChildrenSize() != 1 ||
+          !settings.Child(0)->Child(0)->IsAtom("strict"))))
+    {
+        Unsupported(TStringBuilder()
+            << spec.Name << " settings are not canonical");
+    }
+    return callable;
+}
+
+struct TCompiledLikeApply {
+    const TExprNode* Input;
+    TString Pattern;
+};
+
+enum class ECompiledLikeOuterAnnotations : ui8 {
+    Required,
+    Absent,
+};
+
+bool IsCompiledLikeOuterAnnotation(
+    const TTypeAnnotationNode* annotation,
+    ECompiledLikeType type,
+    ECompiledLikeOuterAnnotations mode)
+{
+    return mode == ECompiledLikeOuterAnnotations::Absent
+        ? annotation == nullptr
+        : IsCompiledLikeType(annotation, type);
+}
+
+TCompiledLikeApply CheckCompiledLikeApply(
+    const TExprNode& node,
+    size_t sourceDepth,
+    bool auditTree = true,
+    ECompiledLikeOuterAnnotations outerAnnotations =
+        ECompiledLikeOuterAnnotations::Required)
+{
+    if (auditTree) {
+        CheckCompiledLikeSafetyTree(node, sourceDepth);
+    }
+    if (!node.IsCallable("Apply") || node.ChildrenSize() != 2 ||
+        !IsCompiledLikeOuterAnnotation(
+            node.GetTypeAnn(),
+            ECompiledLikeType::Bool,
+            outerAnnotations))
+    {
+        TStringBuilder shape;
+        size_t remaining = 80;
+        const auto describe = [&](const auto& self, const TExprNode& current, size_t depth) -> void {
+            if (remaining == 0 || depth > 8) {
+                shape << "...";
+                return;
+            }
+            --remaining;
+            shape << current.Content().SubStr(0, 120) << '[' << current.ChildrenSize() << ']';
+            if (current.GetTypeAnn()) {
+                shape << ':' << FormatType(current.GetTypeAnn());
+            }
+            if (current.ChildrenSize()) {
+                shape << '(';
+                for (const auto& child : current.Children()) {
+                    if (!remaining) { shape << "..."; break; }
+                    self(self, *child, depth + 1);
+                    shape << ';';
+                }
+                shape << ')';
+            }
+        };
+        describe(describe, node, 0);
+        Unsupported(TStringBuilder()
+            << "Compiled LIKE requires a two-child non-null Bool Apply; got " << shape);
+    }
+
+    const auto& assumeStrict = *node.Child(0);
+    if (!assumeStrict.IsCallable("AssumeStrict") ||
+        assumeStrict.ChildrenSize() != 1 ||
+        !IsCompiledLikeCallable(
+            assumeStrict.GetTypeAnn(), ECompiledLikeUdf::Match))
+    {
+        Unsupported(
+            "Compiled LIKE requires exact AssumeStrict(Re2.Match)");
+    }
+    const auto& match = *assumeStrict.Child(0);
+    TString pattern;
+    const auto& callable =
+        CheckCompiledLikeUdf(
+            match, ECompiledLikeUdf::Match, &pattern);
+    if (!IsSameAnnotation(
+            *assumeStrict.GetTypeAnn(), callable) ||
+        (node.GetTypeAnn() &&
+         !IsSameAnnotation(
+             *node.GetTypeAnn(), *callable.GetReturnType())))
+    {
+        Unsupported(
+            "Compiled LIKE Apply annotations disagree with Re2.Match");
+    }
+
+    const auto& input = *node.Child(1);
+    if (!IsCompiledLikeOuterAnnotation(
+            input.GetTypeAnn(),
+            ECompiledLikeType::OptionalString,
+            outerAnnotations) ||
+        (input.GetTypeAnn() &&
+         !IsSameAnnotation(
+             *input.GetTypeAnn(), *callable.GetArguments()[0].Type)))
+    {
+        Unsupported(
+            "Compiled LIKE requires exactly one Optional<String> input");
+    }
+    return {&input, std::move(pattern)};
+}
+
+struct TScalarCompiledLike {
+    TString Column;
+    TString Pattern;
+    TString Type;
+    bool Nullable = true;
+};
+
+const TExprNode* CompiledLikeUtf8MapInput(const TExprNode& node) {
+    if (!node.IsCallable("Map") || node.ChildrenSize() != 2) {
+        Unsupported("Compiled LIKE Utf8 conversion must be an optional Map");
+    }
+    const auto& lambda = *node.Child(1);
+    if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+        !lambda.Child(0)->IsArguments() || lambda.Child(0)->ChildrenSize() != 1 ||
+        !lambda.Child(0)->Child(0)->IsArgument())
+    {
+        Unsupported("Compiled LIKE Utf8 Map must have a unary lambda");
+    }
+    const auto* argument = lambda.Child(0)->Child(0);
+    const auto& body = *lambda.Child(1);
+    if (!body.IsCallable("ToString") || body.ChildrenSize() != 1 || body.Child(0) != argument ||
+        !IsExactDataAnnotation(argument->GetTypeAnn(), NUdf::EDataSlot::Utf8, false) ||
+        !IsExactDataAnnotation(body.GetTypeAnn(), NUdf::EDataSlot::String, false))
+    {
+        Unsupported("Compiled LIKE Utf8 Map must convert only its bound Utf8 value to String");
+    }
+    // Unlike arbitrary scalar Map, this total conversion copies UTF-8 bytes
+    // unchanged and maps NULL to NULL (TryConvertToImpl's exact lowering).
+    return node.Child(0);
+}
+
+const TExprNode* CompiledLikeUtf8IfPresentInput(const TExprNode& node) {
+    // OptimizeMap lowers the optional byte-preserving conversion to exactly
+    // IfPresent(input, x -> Just(ToString(x)), Nothing(OptionalType(String))).
+    // Pushdown rebuilds ancestors of column references without annotations.
+    if (!node.IsCallable("IfPresent") || node.ChildrenSize() != 3) {
+        Unsupported("Compiled LIKE Utf8 conversion requires a three-child IfPresent");
+    }
+    const auto& lambda = *node.Child(1);
+    if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+        !lambda.Child(0)->IsArguments() || lambda.Child(0)->ChildrenSize() != 1 ||
+        !lambda.Child(0)->Child(0)->IsArgument())
+    {
+        Unsupported("Compiled LIKE Utf8 IfPresent requires a unary lambda");
+    }
+    const auto* argument = lambda.Child(0)->Child(0);
+    const auto& present = *lambda.Child(1);
+    const auto& missing = *node.Child(2);
+    if (!present.IsCallable("Just") || present.ChildrenSize() != 1 ||
+        !missing.IsCallable("Nothing") || missing.ChildrenSize() != 1)
+    {
+        Unsupported("Compiled LIKE Utf8 IfPresent requires Just conversion and Nothing fallback");
+    }
+    const auto& conversion = *present.Child(0);
+    if (!conversion.IsCallable("ToString") || conversion.ChildrenSize() != 1 ||
+        conversion.Child(0) != argument ||
+        (argument->GetTypeAnn() && !IsExactDataAnnotation(argument->GetTypeAnn(), NUdf::EDataSlot::Utf8, false)) ||
+        (conversion.GetTypeAnn() && !IsExactDataAnnotation(conversion.GetTypeAnn(), NUdf::EDataSlot::String, false)) ||
+        (present.GetTypeAnn() && !IsCompiledLikeType(present.GetTypeAnn(), ECompiledLikeType::OptionalString)) ||
+        (missing.GetTypeAnn() && !IsCompiledLikeType(missing.GetTypeAnn(), ECompiledLikeType::OptionalString)))
+    {
+        Unsupported("Compiled LIKE Utf8 IfPresent must convert only its bound Utf8 value to String");
+    }
+    CheckCompiledLikeTypeDescriptor(*missing.Child(0), ECompiledLikeType::OptionalString,
+        "Compiled LIKE Utf8 IfPresent fallback");
+    return node.Child(0);
+}
+
+TScalarCompiledLike CheckScalarCompiledLike(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns,
+    size_t sourceDepth)
+{
+    auto like = CheckCompiledLikeApply(node, sourceDepth);
+    const TExprNode* input = like.Input;
+    bool nullable = true;
+    TString type = "String";
+    if (input->IsCallable("Just")) {
+        if (input->ChildrenSize() != 1 ||
+            !IsExactDataAnnotation(input->Child(0)->GetTypeAnn(), NUdf::EDataSlot::String, false))
+        {
+            Unsupported("Compiled LIKE Just must lift a required String value");
+        }
+        nullable = false;
+        input = input->Child(0);
+    }
+    if (nullable && input->IsCallable("Map")) {
+        input = CompiledLikeUtf8MapInput(*input);
+        type = "Utf8";
+    } else if (nullable && input->IsCallable("IfPresent")) {
+        input = CompiledLikeUtf8IfPresentInput(*input);
+        type = "Utf8";
+    } else if (input->IsCallable("ToString")) {
+        if (input->ChildrenSize() != 1 ||
+            !IsExactDataAnnotation(input->Child(0)->GetTypeAnn(), NUdf::EDataSlot::Utf8, nullable))
+        {
+            Unsupported("Compiled LIKE ToString must preserve Utf8 input nullability");
+        }
+        input = input->Child(0);
+        type = "Utf8";
+    }
+    if (!IsExactDataAnnotation(input->GetTypeAnn(),
+            type == "Utf8" ? NUdf::EDataSlot::Utf8 : NUdf::EDataSlot::String, nullable))
+    {
+        Unsupported("Compiled LIKE member type disagrees with its optional lift or Utf8 conversion");
+    }
+    const auto& member = *input;
+    if (!member.IsCallable("Member") || member.ChildrenSize() != 2 ||
+        !member.Child(1)->IsAtom() || member.Child(0) != rowArgument)
+    {
+        Unsupported(
+            TStringBuilder() << "Compiled LIKE requires a direct text member; got " << member.Content());
+    }
+    const TString column(member.Child(1)->Content());
+    if (column.empty() || !visibleColumns.contains(column)) {
+        Unsupported(TStringBuilder()
+            << "Compiled LIKE references invisible member " << column);
+    }
+
+    return {column, std::move(like.Pattern), std::move(type), nullable};
+}
+
+bool IsCompiledLikeApplyCandidate(const TExprNode& node) {
+    return node.IsCallable("Apply") && node.ChildrenSize() > 0 &&
+        node.Child(0)->IsCallable("AssumeStrict") &&
+        node.Child(0)->ChildrenSize() == 1 &&
+        node.Child(0)->Child(0)->IsCallable("Udf") &&
+        node.Child(0)->Child(0)->ChildrenSize() > 0 &&
+        node.Child(0)->Child(0)->Child(0)->IsAtom("Re2.Match");
+}
+
+NJson::TJsonValue CompiledLikeIfPresentExpr(
+    NJson::TJsonValue optional,
+    TStringBuf pattern)
+{
+    TStringBuilder fingerprint;
+    AppendIdentityField(
+        fingerprint, "format", "yql-re2-pattern-from-like-match-v1");
+    AppendIdentityField(fingerprint, "pattern", pattern);
+    AppendIdentityField(fingerprint, "escape", "none");
+    AppendIdentityField(fingerprint, "case_sensitive", "true");
+
+    auto arguments = JsonArray();
+    arguments.AppendValue(BoundExpr(0));
+    auto present = JsonMap();
+    present["kind"] = "opaque";
+    present["fingerprint"] = TString(fingerprint);
+    present["type"] = "Bool";
+    present["nullable"] = false;
+    present["args"] = std::move(arguments);
+
+    auto missing = JsonMap();
+    missing["kind"] = "literal";
+    missing["type"] = "Bool";
+    missing["value"] = false;
+
+    auto result = JsonMap();
+    result["kind"] = "if_present";
+    result["optional"] = std::move(optional);
+    result["present"] = std::move(present);
+    result["missing"] = std::move(missing);
+    result["type"] = "Bool";
+    result["nullable"] = false;
+    return result;
+}
+
+NJson::TJsonValue CompiledLikeExpr(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns,
+    const TVector<const TExprNode*>& boundArguments,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth)
+{
+    const auto like =
+        CheckScalarCompiledLike(
+            node, rowArgument, visibleColumns, sourceDepth);
+    if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+        Unsupported(
+            "Compiled LIKE binding depth exceeds the audit limit");
+    }
+
+    budget.Charge(normalizedDepth + 1, 3);
+    budget.Charge(normalizedDepth + 2);
+    auto argument = ColumnExpr(like.Column);
+    if (!like.Nullable) {
+        budget.Charge(normalizedDepth + 2, 3);
+        argument = AlwaysPresentOptionalExpr(std::move(argument), like.Type);
+    }
+    return CompiledLikeIfPresentExpr(std::move(argument), like.Pattern);
+}
+
+i32 ParseExactInt32Literal(const TExprNode& node, TStringBuf label) {
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Int32") || node.ChildrenSize() != 1 ||
+        !node.Child(0)->IsAtom() ||
+        !IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Int32, false))
+    {
+        Unsupported(TStringBuilder() << label
+            << " is not an exact Int32 literal");
+    }
+    LiteralExpr(node);
+    return ParseInteger<i32>(node.Child(0)->Content(), label);
+}
+
+bool CheckStringDateSafeCast(const TExprNode& node) {
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("SafeCast") || node.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Date, true))
+    {
+        Unsupported("Date conversion requires SafeCast with Optional<Date> result");
+    }
+    CheckDataDescriptor(
+        *node.Child(1), NUdf::EDataSlot::Date, true, "Date SafeCast target");
+
+    const auto& source = *node.Child(0);
+    CheckScalarSafetyMetadata(source);
+    bool nullable = false;
+    const TString type = ScalarTypeName(source, &nullable);
+    if (!IsStringType(type)) {
+        Unsupported("Date SafeCast source must be String or Utf8");
+    }
+    const auto& dateType = DescribedType(
+        *node.Child(1)->Child(0), "Date SafeCast item");
+    const TTypeAnnotationNode* sourceType = source.GetTypeAnn();
+    if (nullable) {
+        sourceType = sourceType->Cast<TOptionalExprType>()->GetItemType();
+    }
+    if (CastResult<false>(sourceType, &dateType) !=
+        NUdf::ECastOptions::MayFail)
+    {
+        Unsupported("Date SafeCast is not the reviewed MayFail conversion");
+    }
+    return nullable;
+}
+
+std::optional<ui16> ParseDateSafeCast(const TExprNode& node) {
+    const bool nullable = CheckStringDateSafeCast(node);
+    const auto& source = *node.Child(0);
+    if (nullable || !source.IsCallable({"String", "Utf8"}) ||
+        source.ChildrenSize() != 1 || !source.Child(0)->IsAtom())
+    {
+        Unsupported("Date SafeCast source is not a direct String or Utf8 literal");
+    }
+    LiteralExpr(source);
+
+    const TStringBuf text = source.Child(0)->Content();
+    const auto value = NKikimr::NMiniKQL::ValueFromString(
+        NUdf::EDataSlot::Date, NUdf::TStringRef(text.data(), text.size()));
+    return value.HasValue()
+        ? std::optional<ui16>(value.Get<ui16>())
+        : std::nullopt;
+}
+
+bool IsStringDateSafeCastCandidate(const TExprNode& node) {
+    if (!node.IsCallable("SafeCast") || node.ChildrenSize() != 2 ||
+        !node.GetTypeAnn() || !node.Child(0)->GetTypeAnn())
+    {
+        return false;
+    }
+
+    const TString resultType = ScalarTypeName(node);
+    const TString sourceType = ScalarTypeName(*node.Child(0));
+    return resultType == "Date" && IsStringType(sourceType);
+}
+
+bool IsProvenPresentStaticSqlInDateSafeCast(const TExprNode& node) {
+    return IsStringDateSafeCastCandidate(node) &&
+        node.Child(0)->IsCallable({"String", "Utf8"}) &&
+        ParseDateSafeCast(node).has_value();
+}
+
+i32 ParseIntervalFromDays(const TExprNode& node) {
+    CheckReviewedUdfApply(
+        node,
+        ReviewedDateTimeUdf(EReviewedDateTimeUdf::IntervalFromDays),
+        "IntervalFromDays Apply");
+    const auto& days = *node.Child(1);
+    const i32 value = ParseExactInt32Literal(days, "IntervalFromDays Int32");
+    constexpr i32 MaxDays = static_cast<i32>(NUdf::MAX_DATE - 1);
+    if (value < -MaxDays || value > MaxDays) {
+        Unsupported(TStringBuilder() << "IntervalFromDays argument is outside ["
+            << -MaxDays << ", " << MaxDays << "]");
+    }
+    return value;
+}
+
+NJson::TJsonValue ConstantDateValue(std::optional<ui16> value) {
+    auto result = JsonMap();
+    result["type"] = "Date";
+    if (value) {
+        result["kind"] = "literal";
+        result["value"] = static_cast<ui64>(*value);
+    } else {
+        result["kind"] = "null";
+    }
+    return result;
+}
+
+NJson::TJsonValue DynamicStringDateSafeCastExpr(NJson::TJsonValue source, bool nullable) {
+    // FromString<false> is total: NULL and malformed input return NULL.
+    // Keep parsing as a shared nullable UF over present bytes. This proves
+    // equivalence for every deterministic parser; a SAT model needs replay.
+    auto arguments = JsonArray();
+    arguments.AppendValue(nullable ? BoundExpr(0) : source);
+    auto present = JsonMap();
+    present["kind"] = "opaque";
+    present["fingerprint"] = "yql-string-date-safe-cast-v1";
+    present["type"] = "Date";
+    present["nullable"] = true;
+    present["args"] = std::move(arguments);
+    if (!nullable) {
+        return present;
+    }
+    auto result = JsonMap();
+    result["kind"] = "if_present";
+    result["optional"] = std::move(source);
+    result["present"] = std::move(present);
+    result["missing"] = ConstantDateValue(std::nullopt);
+    result["type"] = "Date";
+    result["nullable"] = true;
+    return result;
+}
+
+ui16 ParseDirectDateLiteral(const TExprNode& node) {
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Date") || node.ChildrenSize() != 1 ||
+        !node.Child(0)->IsAtom() ||
+        !IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Date, false))
+    {
+        Unsupported("Direct Date/Interval fold requires a non-null Date literal");
+    }
+    const auto literal = LiteralExpr(node);
+    return static_cast<ui16>(literal["value"].GetUIntegerSafe());
+}
+
+void CheckExactDateZeroFallback(const TExprNode& node) {
+    CheckScalarSafetyMetadata(node);
+    if (!IsExactDataAnnotation(
+            node.GetTypeAnn(), NUdf::EDataSlot::Date, true))
+    {
+        Unsupported(
+            "Exact Date Unwrap fallback must be Optional<Date>");
+    }
+
+    if (node.IsCallable("Just")) {
+        if (node.ChildrenSize() != 1 ||
+            ParseDirectDateLiteral(*node.Child(0)) != 0)
+        {
+            Unsupported(
+                "Exact Date Unwrap Just fallback must contain Date zero");
+        }
+        return;
+    }
+
+    if (!node.IsCallable("SafeCast") || node.ChildrenSize() != 2) {
+        Unsupported(
+            "Exact Date Unwrap fallback must be Just(Date(0)) or "
+            "SafeCast(Int32(0), Optional<Date>)");
+    }
+    CheckDataDescriptor(
+        *node.Child(1),
+        NUdf::EDataSlot::Date,
+        true,
+        "Exact Date Unwrap SafeCast target");
+    if (ParseExactInt32Literal(
+            *node.Child(0), "Exact Date Unwrap SafeCast source") != 0)
+    {
+        Unsupported(
+            "Exact Date Unwrap SafeCast source must be Int32 zero");
+    }
+
+    const auto& dateType = DescribedType(
+        *node.Child(1)->Child(0),
+        "Exact Date Unwrap SafeCast target item");
+    if (CastResult<false>(node.Child(0)->GetTypeAnn(), &dateType) !=
+        NUdf::ECastOptions::MayFail)
+    {
+        Unsupported(
+            "Exact Date Unwrap SafeCast is not the reviewed "
+            "Int32-to-Date conversion");
+    }
+}
+
+const TExprNode* CheckExactDateCoalesceZero(
+    const TExprNode& coalesce,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns)
+{
+    CheckScalarSafetyMetadata(coalesce);
+    if (!coalesce.IsCallable("Coalesce") ||
+        coalesce.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(
+            coalesce.GetTypeAnn(), NUdf::EDataSlot::Date, true))
+    {
+        Unsupported(
+            "Exact Date Unwrap requires a binary Optional<Date> Coalesce");
+    }
+
+    const auto& optional = *coalesce.Child(0);
+    CheckScalarSafetyMetadata(optional);
+    if (IsStringDateSafeCastCandidate(optional)) {
+        CheckStringDateSafeCast(optional);
+        CheckExactDateZeroFallback(*coalesce.Child(1));
+        // The caller audits and exports the whole conversion source. The
+        // present Date(0) fallback still makes Unwrap's error unreachable.
+        return &optional;
+    }
+    if (!optional.IsCallable("Member") ||
+        optional.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(
+            optional.GetTypeAnn(), NUdf::EDataSlot::Date, true) ||
+        !rowArgument ||
+        optional.Child(0) != rowArgument ||
+        !optional.Child(1)->IsAtom() ||
+        !visibleColumns.contains(TString(optional.Child(1)->Content())))
+    {
+        Unsupported(
+            "Exact Date Unwrap requires a direct visible Optional<Date> "
+            "input member");
+    }
+    CheckScalarSafetyMetadata(*rowArgument);
+    CheckScalarSafetyMetadata(*optional.Child(1));
+    CheckExactDateZeroFallback(*coalesce.Child(1));
+    return &optional;
+}
+
+const TExprNode* CheckExactDateUnwrapCoalesceZero(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns)
+{
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Unwrap") || node.ChildrenSize() != 1 ||
+        !IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Date, false))
+    {
+        Unsupported("Exact Date Unwrap requires one Optional<Date> Coalesce and a non-null Date result");
+    }
+    return CheckExactDateCoalesceZero(*node.Child(0), rowArgument, visibleColumns);
+}
+
+i64 ParseDirectIntervalLiteral(const TExprNode& node) {
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Interval") || node.ChildrenSize() != 1 ||
+        !node.Child(0)->IsAtom() ||
+        !IsExactDataAnnotation(
+            node.GetTypeAnn(), NUdf::EDataSlot::Interval, false))
+    {
+        Unsupported("Direct Date/Interval fold requires a non-null Interval literal");
+    }
+    CheckScalarSafetyMetadata(*node.Child(0));
+    const i64 value = ParseInteger<i64>(
+        node.Child(0)->Content(), "Interval");
+    if (!NUdf::IsValidLayoutValue<NUdf::TInterval>(value)) {
+        Unsupported(TStringBuilder()
+            << "Interval literal is outside ("
+            << -static_cast<i64>(NUdf::MAX_TIMESTAMP) << ", "
+            << static_cast<i64>(NUdf::MAX_TIMESTAMP) << "): " << value);
+    }
+    return value;
+}
+
+i32 ParseDynamicIntervalFromDays(const TExprNode& node) {
+    if (node.IsCallable("Apply")) {
+        return ParseIntervalFromDays(node);
+    }
+
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Just") || node.ChildrenSize() != 1 ||
+        !IsExactDataAnnotation(
+            node.GetTypeAnn(), NUdf::EDataSlot::Interval, true))
+    {
+        Unsupported(
+            "Dynamic Date/IntervalFromDays requires reviewed Apply or "
+            "Just of a folded Interval literal");
+    }
+
+    const i64 interval = ParseDirectIntervalLiteral(*node.Child(0));
+    if (interval % NMiniKQL::DateScale != 0) {
+        Unsupported(
+            "Folded IntervalFromDays literal is not an exact whole-day interval");
+    }
+    const i64 days = interval / NMiniKQL::DateScale;
+    constexpr i64 MaxDays = static_cast<i64>(NUdf::MAX_DATE - 1);
+    if (days < -MaxDays || days > MaxDays) {
+        Unsupported(TStringBuilder()
+            << "Folded IntervalFromDays argument is outside ["
+            << -MaxDays << ", " << MaxDays << "]");
+    }
+    return static_cast<i32>(days);
+}
+
+NJson::TJsonValue ConstantDirectDateIntervalExpr(const TExprNode& node) {
+    const i64 date = ParseDirectDateLiteral(*node.Child(0));
+    const i64 interval = ParseDirectIntervalLiteral(*node.Child(1));
+
+    // MiniKQL converts Date to midnight microseconds, performs the signed
+    // arithmetic, validates the scaled result, then truncates back to days in
+    // mkql_date_scaler.h and mkql_builtins_{add,sub}.cpp. Valid Date and
+    // Interval literals keep either intermediate well inside i64.
+    static_assert(2 * NUdf::MAX_TIMESTAMP < std::numeric_limits<i64>::max());
+    const i64 scaledDate = date * NMiniKQL::DateScale;
+    const i64 scaledResult = node.IsCallable("+")
+        ? scaledDate + interval
+        : scaledDate - interval;
+    if (scaledResult < 0 ||
+        scaledResult >= static_cast<i64>(NUdf::MAX_TIMESTAMP))
+    {
+        return ConstantDateValue(std::nullopt);
+    }
+    return ConstantDateValue(static_cast<ui16>(
+        scaledResult / NMiniKQL::DateScale));
+}
+
+// This is a closed normalization, not general Date/Interval support: both
+// operands must be the exact constant shapes validated above.
+NJson::TJsonValue ConstantDateIntervalExpr(const TExprNode& node) {
+    CheckScalarSafetyMetadata(node);
+    if (node.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Date, true))
+    {
+        Unsupported("Date/Interval fold requires Optional<Date> arithmetic");
+    }
+    if (node.Child(0)->IsCallable("Date") &&
+        node.Child(1)->IsCallable("Interval"))
+    {
+        return ConstantDirectDateIntervalExpr(node);
+    }
+    const auto date = ParseDateSafeCast(*node.Child(0));
+    const i32 days = ParseIntervalFromDays(*node.Child(1));
+    if (date) {
+        const i64 value = static_cast<i64>(*date) +
+            (node.IsCallable("+") ? static_cast<i64>(days) : -static_cast<i64>(days));
+        if (value >= 0 && value < static_cast<i64>(NUdf::MAX_DATE)) {
+            return ConstantDateValue(static_cast<ui16>(value));
+        }
+    }
+    return ConstantDateValue(std::nullopt);
+}
+
+NJson::TJsonValue ExportExprNode(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns,
+    const TVector<const TExprNode*>& boundArguments,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth,
+    bool binary64Mode);
+
+// Dynamic Date arithmetic remains deliberately uninterpreted.  The reviewed
+// Apply and folded Just spellings describe one deterministic, total operation,
+// so an ordinary opaque function is a sound over-approximation: it may choose
+// any in-domain Date or NULL for a given present input, but equal input Dates
+// under the same operation and day literal must choose the same result.
+NJson::TJsonValue DynamicDateIntervalFromDaysExpr(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns,
+    const TVector<const TExprNode*>& boundArguments,
+    TExactScalarBudget& budget,
+    size_t argumentDepth,
+    size_t sourceDepth)
+{
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable({"+", "-"}) || node.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(
+            node.GetTypeAnn(), NUdf::EDataSlot::Date, true))
+    {
+        Unsupported(
+            "Dynamic Date/IntervalFromDays requires binary "
+            "Optional<Date> addition or subtraction");
+    }
+
+    const auto& date = *node.Child(0);
+    CheckScalarSafetyMetadata(date);
+    const TExprNode* member = &date;
+    if (IsStringDateSafeCastCandidate(date)) {
+        CheckStringDateSafeCast(date);
+        member = date.Child(0);
+    } else if (!IsExactDataAnnotation(date.GetTypeAnn(), NUdf::EDataSlot::Date, true)) {
+        Unsupported("Dynamic Date arithmetic requires an Optional<Date> input");
+    }
+    if (!member->IsCallable("Member") || member->ChildrenSize() != 2 ||
+        !member->Child(1)->IsAtom() || !rowArgument || member->Child(0) != rowArgument)
+    {
+        Unsupported("Dynamic Date arithmetic requires a direct Date member or a reviewed String/Utf8 member cast");
+    }
+    // Export the input below through the ordinary scalar path. This checks its
+    // visibility and annotations and retains the parser's exact NULL wrapper.
+    if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+        Unsupported(
+            "Dynamic Date/IntervalFromDays binding depth exceeds the audit limit");
+    }
+
+    const i32 days = ParseDynamicIntervalFromDays(*node.Child(1));
+    TStringBuilder fingerprint;
+    AppendIdentityField(
+        fingerprint, "format", "yql-date-interval-from-days-v1");
+    AppendIdentityField(fingerprint, "operation", node.Content());
+    AppendIdentityField(fingerprint, "days", ToString(days));
+
+    // The source Optional<Date> fixes the outer NULL case exactly.  The
+    // present branch remains opaque because Date overflow can still yield
+    // NULL, but its argument is now a proven-present Date value.
+    budget.Charge(argumentDepth, 2); // Opaque result and typed NULL.
+    budget.Charge(argumentDepth + 1); // Bound Date argument to the opaque call.
+    auto opaqueArguments = JsonArray();
+    opaqueArguments.AppendValue(BoundExpr(0));
+    auto present = JsonMap();
+    present["kind"] = "opaque";
+    present["fingerprint"] = TString(fingerprint);
+    present["type"] = "Date";
+    present["nullable"] = true;
+    present["args"] = std::move(opaqueArguments);
+
+    auto result = JsonMap();
+    result["kind"] = "if_present";
+    result["optional"] = ExportExprNode(
+        date, rowArgument, visibleColumns, boundArguments, budget,
+        argumentDepth, sourceDepth + 1, false);
+    result["present"] = std::move(present);
+    result["missing"] = ConstantDateValue(std::nullopt);
+    result["type"] = "Date";
+    result["nullable"] = true;
+    return result;
+}
+
+NJson::TJsonValue DateIntervalExpr(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns,
+    const TVector<const TExprNode*>& boundArguments,
+    TExactScalarBudget& budget,
+    size_t argumentDepth,
+    size_t sourceDepth)
+{
+    if (node.ChildrenSize() == 2 &&
+        (node.Child(0)->IsCallable("Date") ||
+         (node.Child(0)->IsCallable("SafeCast") &&
+          node.Child(0)->ChildrenSize() == 2 &&
+          node.Child(0)->Child(0)->IsCallable({"String", "Utf8"}))))
+    {
+        return ConstantDateIntervalExpr(node);
+    }
+    return DynamicDateIntervalFromDaysExpr(
+        node,
+        rowArgument,
+        visibleColumns,
+        boundArguments,
+        budget,
+        argumentDepth,
+        sourceDepth);
+}
+
+bool IsDateArithmetic(const TExprNode& node) {
+    bool nullable = false;
+    const TDataExprType* data = nullptr;
+    return node.IsCallable({"+", "-"}) && node.GetTypeAnn() &&
+        IsDataOrOptionalOfData(node.GetTypeAnn(), nullable, data) && data &&
+        data->GetSlot() == NUdf::EDataSlot::Date;
+}
+
+enum class EConstantDateShift {
+    Years,
+    Months,
+};
+
+EConstantDateShift ConstantDateShiftKind(const TExprNode& udf) {
+    if (udf.ChildrenSize() > 0) {
+        if (udf.Child(0)->IsAtom(
+                ReviewedDateTimeUdf(EReviewedDateTimeUdf::ShiftYears).Name))
+        {
+            return EConstantDateShift::Years;
+        }
+        if (udf.Child(0)->IsAtom(
+                ReviewedDateTimeUdf(EReviewedDateTimeUdf::ShiftMonths).Name))
+        {
+            return EConstantDateShift::Months;
+        }
+    }
+    Unsupported("Constant DateTime2 fold requires ShiftYears or ShiftMonths");
+}
+
+const TReviewedUdfSpec& ConstantDateShiftUdf(
+    EConstantDateShift kind)
+{
+    return ReviewedDateTimeUdf(
+        kind == EConstantDateShift::Years
+            ? EReviewedDateTimeUdf::ShiftYears
+            : EReviewedDateTimeUdf::ShiftMonths);
+}
+
+ui16 ParseSplitDate(const TExprNode& node) {
+    CheckReviewedUdfApply(
+        node,
+        ReviewedDateTimeUdf(EReviewedDateTimeUdf::Split),
+        "DateTime2.Split Apply");
+    return ParseDirectDateLiteral(*node.Child(1));
+}
+
+// Keep this small calendar model separate from the normalized IR-shape gate.
+// DateTime2.TM stores Year in an unsigned 12-bit field.
+constexpr i64 MaxDateTimeTmYear = (1U << 12) - 1;
+
+std::optional<ui16> ShiftConstantDate(
+    ui16 date,
+    i32 amount,
+    EConstantDateShift kind)
+{
+    ui32 year = 0;
+    ui32 month = 0;
+    ui32 day = 0;
+    if (!NMiniKQL::SplitDate(date, year, month, day)) {
+        Unsupported("DateTime2.Split rejected a validated Date literal");
+    }
+
+    i64 shiftedYear = year;
+    if (kind == EConstantDateShift::Years) {
+        shiftedYear += static_cast<i64>(amount);
+    } else {
+        i64 shiftedMonth = static_cast<i64>(amount) + month;
+        shiftedYear += (shiftedMonth - 1) / 12;
+        if (shiftedYear < 0 || shiftedYear > MaxDateTimeTmYear) {
+            Unsupported("DateTime2.ShiftMonths would wrap the TM year field");
+        }
+        shiftedMonth = 1 + (shiftedMonth - 1) % 12;
+        if (shiftedMonth <= 0) {
+            if (shiftedYear == 0) {
+                Unsupported("DateTime2.ShiftMonths would wrap the TM year field");
+            }
+            --shiftedYear;
+            shiftedMonth += 12;
+        }
+        month = static_cast<ui32>(shiftedMonth);
+    }
+
+    // Fail closed instead of modeling modulo-4096 assignment for extreme shifts.
+    if (shiftedYear < 0 || shiftedYear > MaxDateTimeTmYear) {
+        Unsupported("DateTime2 shift would wrap the TM year field");
+    }
+    year = static_cast<ui32>(shiftedYear);
+    day = std::min(
+        day,
+        NYql::DateTime::GetMonthLength(month, NYql::DateTime::IsLeapYear(year)));
+
+    ui16 result = 0;
+    return NMiniKQL::MakeDate(year, month, day, result)
+        ? std::optional<ui16>(result)
+        : std::nullopt;
+}
+
+NJson::TJsonValue ConstantShiftedDateExpr(const TExprNode& node) {
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Map") || node.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Date, true))
+    {
+        Unsupported("Constant DateTime2 fold requires Optional<Date> Map");
+    }
+
+    const auto& shift = *node.Child(0);
+    CheckScalarSafetyMetadata(shift);
+    if (!shift.IsCallable("Apply") || shift.ChildrenSize() != 3 ||
+        !IsExactResourceAnnotation(shift.GetTypeAnn(), true))
+    {
+        Unsupported("Constant DateTime2 fold requires a two-argument shift Apply");
+    }
+    const auto& udf = *shift.Child(0);
+    const auto kind = ConstantDateShiftKind(udf);
+    CheckReviewedUdfApply(
+        shift, ConstantDateShiftUdf(kind), "DateTime2 shift Apply");
+    const ui16 date = ParseSplitDate(*shift.Child(1));
+
+    const auto& amount = *shift.Child(2);
+    const i32 value = ParseExactInt32Literal(amount, "DateTime2 shift Int32");
+
+    const auto& lambda = *node.Child(1);
+    if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+        !lambda.Child(0)->IsArguments() ||
+        lambda.Child(0)->ChildrenSize() != 1 ||
+        !lambda.Child(0)->Child(0)->IsArgument() ||
+        lambda.Child(0)->Child(0)->ChildrenSize() != 0)
+    {
+        Unsupported("Constant DateTime2 Map requires a unary lambda");
+    }
+    const auto& argument = *lambda.Child(0)->Child(0);
+    CheckScalarSafetyMetadata(lambda);
+    CheckScalarSafetyMetadata(*lambda.Child(0));
+    CheckScalarSafetyMetadata(argument);
+    if (!IsExactResourceAnnotation(argument.GetTypeAnn(), false)) {
+        Unsupported("Constant DateTime2 Map lambda argument is not TM");
+    }
+
+    const auto& body = *lambda.Child(1);
+    CheckReviewedUdfApply(
+        body,
+        ReviewedDateTimeUdf(EReviewedDateTimeUdf::MakeDate),
+        "DateTime2.MakeDate Apply");
+    if (body.Child(1) != &argument) {
+        Unsupported("Constant DateTime2 Map lambda is not MakeDate identity use");
+    }
+    return ConstantDateValue(ShiftConstantDate(date, value, kind));
+}
+
+bool IsConstantShiftedDate(const TExprNode& node) {
+    return node.IsCallable("Map") &&
+        IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Date, true);
+}
+
+bool IsNullableDateYearMap(const TExprNode& node) {
+    return node.IsCallable("Map") &&
+        IsExactDataAnnotation(
+            node.GetTypeAnn(), NUdf::EDataSlot::Uint16, true);
+}
+
+bool IsNullableUnicodeToUpperMap(const TExprNode& node) {
+    return node.IsCallable("Map") &&
+        IsExactDataAnnotation(
+            node.GetTypeAnn(), NUdf::EDataSlot::Utf8, true);
+}
+
+TString CheckNullableUnicodeToUpperMap(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns)
+{
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Map") || node.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(
+            node.GetTypeAnn(), NUdf::EDataSlot::Utf8, true))
+    {
+        Unsupported(
+            "Unicode.ToUpper bridge requires an Optional<Utf8> Map");
+    }
+
+    const auto& cast = *node.Child(0);
+    CheckScalarSafetyMetadata(cast);
+    if (!cast.IsCallable("SafeCast") || cast.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(
+            cast.GetTypeAnn(), NUdf::EDataSlot::Utf8, true))
+    {
+        Unsupported(
+            "Unicode.ToUpper bridge requires SafeCast to Optional<Utf8>");
+    }
+    CheckDataDescriptor(
+        *cast.Child(1),
+        NUdf::EDataSlot::Utf8,
+        true,
+        "Unicode.ToUpper SafeCast target");
+
+    const auto& source = *cast.Child(0);
+    CheckScalarSafetyMetadata(source);
+    if (!source.IsCallable("Member") || source.ChildrenSize() != 2 ||
+        !source.Child(1)->IsAtom() ||
+        !IsExactDataAnnotation(
+            source.GetTypeAnn(), NUdf::EDataSlot::String, true))
+    {
+        Unsupported(
+            "Unicode.ToUpper bridge requires a direct Optional<String> member");
+    }
+    CheckScalarSafetyMetadata(*source.Child(1));
+    const TString column(source.Child(1)->Content());
+    if (column.empty() || source.Child(0) != rowArgument ||
+        !visibleColumns.contains(column))
+    {
+        Unsupported(
+            "Unicode.ToUpper bridge requires a direct visible input member");
+    }
+    // Ignore the optional wrapper here: its weak classification is
+    // MayLoseData, while the reviewed String-to-Utf8 conversion itself is the
+    // MayFail operation represented by the nullable opaque result below.
+    if (CastResult<true>(source.GetTypeAnn(), cast.GetTypeAnn()) !=
+        NUdf::ECastOptions::MayFail)
+    {
+        Unsupported(
+            "Unicode.ToUpper bridge requires the reviewed "
+            "String-to-Utf8 MayFail conversion");
+    }
+
+    const auto& lambda = *node.Child(1);
+    if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+        !lambda.Child(0)->IsArguments() ||
+        lambda.Child(0)->ChildrenSize() != 1 ||
+        !lambda.Child(0)->Child(0)->IsArgument() ||
+        lambda.Child(0)->Child(0)->ChildrenSize() != 0)
+    {
+        Unsupported("Unicode.ToUpper Map requires a unary lambda");
+    }
+    CheckScalarSafetyMetadata(lambda);
+    CheckScalarSafetyMetadata(*lambda.Child(0));
+    const auto& argument = *lambda.Child(0)->Child(0);
+    CheckScalarSafetyMetadata(argument);
+    if (!IsExactDataAnnotation(
+            argument.GetTypeAnn(), NUdf::EDataSlot::Utf8, false))
+    {
+        Unsupported(
+            "Unicode.ToUpper Map lambda argument must be Utf8");
+    }
+
+    const auto& upper = *lambda.Child(1);
+    CheckReviewedUdfApply(
+        upper, ReviewedUnicodeToUpperUdf, "Unicode.ToUpper Apply");
+    if (upper.Child(1) != &argument) {
+        Unsupported(
+            "Unicode.ToUpper Map does not preserve exact lambda identity");
+    }
+    return column;
+}
+
+NJson::TJsonValue NullableUnicodeToUpperExpr(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns,
+    const TVector<const TExprNode*>& boundArguments,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth)
+{
+    const TString column =
+        CheckNullableUnicodeToUpperMap(node, rowArgument, visibleColumns);
+    if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+        Unsupported(
+            "Unicode.ToUpper bridge binding depth exceeds the audit limit");
+    }
+
+    // Source NULL is exact.  For a present String, the nullable opaque result
+    // jointly represents UTF-8 validation failure or the deterministic
+    // uppercase value without adding Unicode semantics to the string quotient.
+    budget.Charge(normalizedDepth + 1, 3);
+    budget.Charge(normalizedDepth + 2);
+
+    auto arguments = JsonArray();
+    arguments.AppendValue(BoundExpr(0));
+
+    auto present = JsonMap();
+    present["kind"] = "opaque";
+    present["fingerprint"] = "yql-string-to-utf8-unicode-upper-v1";
+    present["type"] = "Utf8";
+    present["nullable"] = true;
+    present["args"] = std::move(arguments);
+
+    auto missing = JsonMap();
+    missing["kind"] = "null";
+    missing["type"] = "Utf8";
+
+    auto result = JsonMap();
+    result["kind"] = "if_present";
+    result["optional"] = ColumnExpr(column);
+    result["present"] = std::move(present);
+    result["missing"] = std::move(missing);
+    result["type"] = "Utf8";
+    result["nullable"] = true;
+    return result;
+}
+
+TString CheckNullableDateYearMap(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns)
+{
+    CheckScalarSafetyMetadata(node);
+    if (!node.IsCallable("Map") || node.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(
+            node.GetTypeAnn(), NUdf::EDataSlot::Uint16, true))
+    {
+        Unsupported(
+            "DateTime2 year bridge requires an Optional<Uint16> Map");
+    }
+
+    const auto& cast = *node.Child(0);
+    CheckScalarSafetyMetadata(cast);
+    if (!cast.IsCallable("SafeCast") || cast.ChildrenSize() != 2 ||
+        !IsExactDataAnnotation(
+            cast.GetTypeAnn(), NUdf::EDataSlot::Timestamp, true))
+    {
+        Unsupported(
+            "DateTime2 year bridge requires SafeCast to Optional<Timestamp>");
+    }
+    CheckDataDescriptor(
+        *cast.Child(1),
+        NUdf::EDataSlot::Timestamp,
+        true,
+        "DateTime2 year SafeCast target");
+
+    const auto& source = *cast.Child(0);
+    CheckScalarSafetyMetadata(source);
+    bool sourceNullable = false;
+    if (!source.IsCallable("Member") || source.ChildrenSize() != 2 ||
+        ScalarTypeName(source, &sourceNullable) != "Date" ||
+        !sourceNullable || !source.Child(1)->IsAtom())
+    {
+        Unsupported(
+            "DateTime2 year bridge requires a direct Optional<Date> member");
+    }
+    const TString column(source.Child(1)->Content());
+    if (source.Child(0) != rowArgument || !visibleColumns.contains(column)) {
+        Unsupported(
+            "DateTime2 year bridge requires a direct visible input member");
+    }
+    CheckScalarSafetyMetadata(*source.Child(1));
+
+    if (CastResult<false>(source.GetTypeAnn(), cast.GetTypeAnn()) !=
+        NUdf::ECastOptions::Complete)
+    {
+        Unsupported(
+            "DateTime2 year bridge requires a complete Date-to-Timestamp cast");
+    }
+
+    const auto& lambda = *node.Child(1);
+    if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+        !lambda.Child(0)->IsArguments() ||
+        lambda.Child(0)->ChildrenSize() != 1 ||
+        !lambda.Child(0)->Child(0)->IsArgument() ||
+        lambda.Child(0)->Child(0)->ChildrenSize() != 0)
+    {
+        Unsupported("DateTime2 year Map requires a unary lambda");
+    }
+    const auto& argument = *lambda.Child(0)->Child(0);
+    CheckScalarSafetyMetadata(lambda);
+    CheckScalarSafetyMetadata(*lambda.Child(0));
+    CheckScalarSafetyMetadata(argument);
+    if (!IsExactDataAnnotation(
+            argument.GetTypeAnn(), NUdf::EDataSlot::Timestamp, false))
+    {
+        Unsupported(
+            "DateTime2 year Map lambda argument must be Timestamp");
+    }
+
+    const auto& getYear = *lambda.Child(1);
+    CheckReviewedUdfApply(
+        getYear,
+        ReviewedDateTimeUdf(EReviewedDateTimeUdf::GetYear),
+        "DateTime2.GetYear Apply");
+    const auto& split = *getYear.Child(1);
+    CheckReviewedUdfApply(
+        split,
+        ReviewedDateTimeUdf(EReviewedDateTimeUdf::SplitTimestamp),
+        "DateTime2.Split Timestamp Apply");
+    if (split.Child(1) != &argument) {
+        Unsupported(
+            "DateTime2 year Map does not preserve exact lambda identity");
+    }
+
+    return column;
+}
+
+NJson::TJsonValue NullableDateYearExpr(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth)
+{
+    const TString column =
+        CheckNullableDateYearMap(node, rowArgument, visibleColumns);
+
+    // The normalized binder deliberately ranges over the original Date
+    // member, not the implementation's complete Date-to-Timestamp cast.
+    // Keep the reviewed composite operation non-null and lift it to the
+    // handler's Optional<Uint16> type with an always-taken exact If.
+    budget.Charge(normalizedDepth + 1, 3);
+    budget.Charge(normalizedDepth + 2, 3);
+    budget.Charge(normalizedDepth + 3);
+
+    auto arguments = JsonArray();
+    arguments.AppendValue(BoundExpr(0));
+    auto year = JsonMap();
+    year["kind"] = "opaque";
+    year["fingerprint"] = "yql-datetime-year-v1";
+    year["type"] = "Uint16";
+    year["nullable"] = false;
+    year["args"] = std::move(arguments);
+
+    auto condition = JsonMap();
+    condition["kind"] = "literal";
+    condition["type"] = "Bool";
+    condition["value"] = true;
+
+    auto liftedMissing = JsonMap();
+    liftedMissing["kind"] = "null";
+    liftedMissing["type"] = "Uint16";
+
+    auto present = JsonMap();
+    present["kind"] = "if";
+    present["condition"] = std::move(condition);
+    present["then"] = std::move(year);
+    present["else"] = std::move(liftedMissing);
+    present["type"] = "Uint16";
+    present["nullable"] = true;
+
+    auto missing = JsonMap();
+    missing["kind"] = "null";
+    missing["type"] = "Uint16";
+
+    auto result = JsonMap();
+    result["kind"] = "if_present";
+    result["optional"] = ColumnExpr(column);
+    result["present"] = std::move(present);
+    result["missing"] = std::move(missing);
+    result["type"] = "Uint16";
+    result["nullable"] = true;
+    return result;
+}
+
+struct TScalarParameter {
+    TString Name;
+    TString Type;
+    bool Nullable;
+};
+
+TScalarParameter AuditScalarParameter(const TExprNode& node) {
+    CheckScalarSafetyMetadata(node);
+    CheckScalarArity(node, 2, 2);
+    if (!node.IsCallable("Parameter") || !node.Child(0)->IsAtom() || node.Child(0)->Content().empty()) {
+        Unsupported("Scalar Parameter requires a nonempty name atom and exact data type descriptor");
+    }
+    CheckScalarSafetyMetadata(*node.Child(0));
+    const auto name = node.Child(0)->Content();
+    // Materialized transaction results also use Parameter, but their value is
+    // tied to an earlier computation. Their reserved % names are not inputs.
+    if (name.size() < 2 || !name.StartsWith("$")) {
+        Unsupported("Only external SQL Parameter names beginning with '$' are modeled");
+    }
+    const auto& descriptor = *node.Child(1);
+    bool descriptorNullable = false;
+    const TString descriptorType = DataTypeDescriptorName(descriptor, &descriptorNullable);
+    // The descriptor has only DataType atoms and at most one OptionalType.
+    TVector<const TExprNode*> pending{&descriptor};
+    while (!pending.empty()) {
+        const auto* child = pending.back();
+        pending.pop_back();
+        CheckScalarSafetyMetadata(*child);
+        for (const auto& nested : child->Children()) {
+            pending.push_back(nested.Get());
+        }
+    }
+    bool nullable = false;
+    const TString type = ScalarTypeName(node, &nullable);
+    const auto annotation = descriptor.GetTypeAnn();
+    bool annotationNullable = false;
+    if (descriptorType != type || descriptorNullable != nullable ||
+        !annotation || annotation->GetKind() != ETypeAnnotationKind::Type ||
+        TypeName(annotation->Cast<TTypeExprType>()->GetType(), &annotationNullable) != type ||
+        annotationNullable != nullable)
+    {
+        Unsupported("Scalar Parameter descriptor and result annotations disagree");
+    }
+    if (descriptorNullable) {
+        const auto itemAnnotation = descriptor.Child(0)->GetTypeAnn();
+        bool itemNullable = false;
+        if (!itemAnnotation || itemAnnotation->GetKind() != ETypeAnnotationKind::Type ||
+            TypeName(itemAnnotation->Cast<TTypeExprType>()->GetType(), &itemNullable) != type ||
+            itemNullable)
+        {
+            Unsupported("Scalar Parameter item descriptor annotation disagrees with its declared type");
+        }
+    }
+    return {TString(node.Child(0)->Content()), type, nullable};
+}
+
+// A List input is modeled only by a direct SqlIn consumer. It must never
+// become a generic scalar/opaque parameter or a row-source carrier.
+struct TStringListParameter {
+    TString Name;
+    TString Type;
+    bool NullableItems;
+};
+
+TStringListParameter AuditStringListParameter(const TExprNode& node) {
+    CheckScalarSafetyMetadata(node);
+    CheckScalarArity(node, 2, 2);
+    if (!node.IsCallable("Parameter") || !node.Child(0)->IsAtom()) {
+        Unsupported("SqlIn List Parameter requires an external name atom");
+    }
+    CheckScalarSafetyMetadata(*node.Child(0));
+    const auto name = node.Child(0)->Content();
+    if (name.size() < 2 || !name.StartsWith("$")) {
+        Unsupported("Only external SQL Parameter names beginning with '$' are modeled");
+    }
+    const auto* annotation = node.GetTypeAnn().Get();
+    if (!annotation || annotation->GetKind() != ETypeAnnotationKind::List) {
+        Unsupported("SqlIn Parameter requires a non-optional List<String> collection");
+    }
+    const auto* itemType = annotation->Cast<TListExprType>()->GetItemType();
+    bool itemNullable = false;
+    if (TypeName(itemType, &itemNullable) != "String") {
+        Unsupported("SqlIn Parameter items must be exactly String or Optional<String>");
+    }
+    const auto& descriptor = *node.Child(1);
+    if (!descriptor.IsCallable("ListType") || descriptor.ChildrenSize() != 1) {
+        Unsupported("SqlIn Parameter requires an exact ListType descriptor");
+    }
+    bool descriptorNullable = false;
+    if (DataTypeDescriptorName(*descriptor.Child(0), &descriptorNullable) != "String" ||
+        descriptorNullable != itemNullable)
+    {
+        Unsupported("SqlIn List Parameter item descriptor disagrees with its annotation");
+    }
+    // Check each nested descriptor against its own expected type. In particular,
+    // a correct outer List annotation cannot conceal a contradictory inner Type.
+    const TExprNode* current = &descriptor;
+    const TTypeAnnotationNode* expected = annotation;
+    while (true) {
+        CheckScalarSafetyMetadata(*current);
+        const auto* type = current->GetTypeAnn().Get();
+        if (!type || type->GetKind() != ETypeAnnotationKind::Type ||
+            !IsSameAnnotation(*type->Cast<TTypeExprType>()->GetType(), *expected))
+        {
+            Unsupported("SqlIn List Parameter descriptor annotations disagree");
+        }
+        if (current->IsCallable("DataType")) {
+            for (const auto& atom : current->Children()) {
+                CheckScalarSafetyMetadata(*atom);
+            }
+            break;
+        }
+        if (expected->GetKind() == ETypeAnnotationKind::List) {
+            expected = expected->Cast<TListExprType>()->GetItemType();
+        } else if (expected->GetKind() == ETypeAnnotationKind::Optional) {
+            expected = expected->Cast<TOptionalExprType>()->GetItemType();
+        } else {
+            Unsupported("SqlIn List Parameter has an unsupported nested descriptor");
+        }
+        current = current->Child(0);
+    }
+    return {TString(name), itemNullable ? "List<Optional<String>>" : "List<String>", itemNullable};
+}
+
+void AuditListParameterLookupSafety(const TExprNode& lookup) {
+    // Some older scalar literal paths only audit the root. A new consumer must
+    // not accidentally admit unsafe payload atoms through those legacy paths.
+    TVector<std::pair<const TExprNode*, size_t>> pending{{&lookup, 1}};
+    size_t visited = 0;
+    while (!pending.empty()) {
+        const auto [node, depth] = pending.back();
+        pending.pop_back();
+        if (++visited > MaxExactScalarNodes || depth > MaxExactScalarDepth) {
+            Unsupported("SqlIn Parameter lookup exceeds its source safety audit budget");
+        }
+        CheckScalarSafetyMetadata(*node);
+        if (node->ChildrenSize() > MaxExactScalarNodes - visited ||
+            pending.size() > MaxExactScalarNodes - visited - node->ChildrenSize())
+        {
+            Unsupported("SqlIn Parameter lookup exceeds its source safety audit budget");
+        }
+        for (const auto& child : node->Children()) {
+            pending.emplace_back(child.Get(), depth + 1);
+        }
+    }
+}
+
+bool AuditListParameterSqlInOptions(const TExprNode& options) {
+    CheckScalarSafetyMetadata(options);
+    if (!options.IsList()) {
+        Unsupported("SqlIn options are not a tuple");
+    }
+    THashSet<TString> names;
+    for (const auto& option : options.Children()) {
+        CheckScalarSafetyMetadata(*option);
+        if (!option->IsList() || option->ChildrenSize() != 1 || !option->Child(0)->IsAtom()) {
+            Unsupported("SqlIn option must be a one-atom tuple");
+        }
+        CheckScalarSafetyMetadata(*option->Child(0));
+        const TString name(option->Child(0)->Content());
+        if (name != "ansi" && name != "warnNoAnsi" && name != "isCompact") {
+            Unsupported(TStringBuilder() << "Unsupported List Parameter SqlIn option " << name);
+        }
+        if (!names.insert(name).second) {
+            Unsupported(TStringBuilder() << "Duplicate SqlIn option " << name);
+        }
+    }
+    return names.contains("ansi");
+}
+
+NJson::TJsonValue ParameterExpr(const TString& name, const TString& type, bool nullable) {
+    auto result = JsonMap();
+    result["kind"] = "parameter";
+    result["name"] = name;
+    result["type"] = type;
+    result["nullable"] = nullable;
+    return result;
+}
+
+#include "opaque_expression_audit_impl.h"
+
+bool IsPassiveDoubleCarrierCandidate(const TExprNode& node) {
+    return node.IsCallable({"*", "/"}) &&
+        IsExactDataAnnotation(
+            node.GetTypeAnn(),
+            NUdf::EDataSlot::Double,
+            true);
+}
+
+class TPassiveDoubleCarrierAuditor {
+public:
+    TPassiveDoubleCarrierAuditor(
+        const TExprNode* rowArgument,
+        const THashSet<TString>& visibleColumns)
+        : RowArgument(rowArgument)
+        , VisibleColumns(visibleColumns)
+    {
+    }
+
+    NJson::TJsonValue ExportAsOpaque(
+        const TExprNode& root,
+        TExactScalarBudget& budget,
+        size_t argumentDepth)
+    {
+        const auto shape = AuditRoot(root);
+        auto result = TOpaqueSourceAuditor(
+            TPassiveDoubleCarrierAuditToken{},
+            RowArgument,
+            VisibleColumns,
+            &root,
+            shape.FloatingDivision,
+            shape.DoubleConstant).AuditOpaque(root).Export(budget, argumentDepth);
+        if (result["args"].GetArraySafe().size() != 3) {
+            Fail("expression must expose exactly three nullable Int64 inputs");
+        }
+        return result;
+    }
+
+private:
+    struct TAuditedShape {
+        const TExprNode* FloatingDivision;
+        const TExprNode* DoubleConstant;
+    };
+
+    [[noreturn]] void Fail(TStringBuf reason) const {
+        Unsupported(TStringBuilder()
+            << "Passive Double carrier: " << reason);
+    }
+
+    void CheckOptionalInt64(
+        const TExprNode& node,
+        TStringBuf label) const
+    {
+        if (!IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::Int64,
+                true))
+        {
+            Fail(TStringBuilder()
+                << label << " must have type Optional<Int64>");
+        }
+    }
+
+    TString AuditMember(
+        const TExprNode& node,
+        TStringBuf label) const
+    {
+        CheckOptionalInt64(node, label);
+        if (
+            !node.IsCallable("Member") ||
+            node.ChildrenSize() != 2 ||
+            node.Child(0) != RowArgument ||
+            !node.Child(1)->IsAtom())
+        {
+            Fail(TStringBuilder()
+                << label << " must be one direct visible member");
+        }
+        const TString column(node.Child(1)->Content());
+        if (!VisibleColumns.contains(column)) {
+            Fail(TStringBuilder()
+                << label << " references invisible member " << column);
+        }
+        CheckScalarSafetyMetadata(node);
+        CheckScalarSafetyMetadata(*node.Child(1));
+        return column;
+    }
+
+    TVector<TString> AuditTotal(
+        const TExprNode& node,
+        TStringBuf label) const
+    {
+        CheckOptionalInt64(node, label);
+        if (!node.IsCallable("+") || node.ChildrenSize() != 2) {
+            Fail(TStringBuilder()
+                << label << " must be the left-associated sum of three "
+                   "nullable Int64 members");
+        }
+        CheckScalarSafetyMetadata(node);
+
+        const auto& pair = *node.Child(0);
+        CheckOptionalInt64(pair, "total prefix");
+        if (!pair.IsCallable("+") || pair.ChildrenSize() != 2) {
+            Fail(
+                "total prefix must add the first two nullable Int64 members");
+        }
+        CheckScalarSafetyMetadata(pair);
+
+        TVector<TString> members = {
+            AuditMember(*pair.Child(0), "total member 0"),
+            AuditMember(*pair.Child(1), "total member 1"),
+            AuditMember(*node.Child(1), "total member 2"),
+        };
+        THashSet<TString> distinct(members.begin(), members.end());
+        if (distinct.size() != members.size()) {
+            Fail("total must reference three distinct nullable Int64 members");
+        }
+        return members;
+    }
+
+    void AuditDeviationRatio(const TExprNode& node) const {
+        CheckOptionalInt64(node, "deviation ratio");
+        if (!node.IsCallable("/") || node.ChildrenSize() != 2) {
+            Fail(
+                "deviation ratio must divide one nullable Int64 member by "
+                "the three-member total");
+        }
+        CheckScalarSafetyMetadata(node);
+        const TString numerator =
+            AuditMember(*node.Child(0), "deviation numerator");
+        const auto members =
+            AuditTotal(*node.Child(1), "deviation denominator");
+        if (std::find(members.begin(), members.end(), numerator) == members.end()) {
+            Fail("deviation numerator must occur in its denominator total");
+        }
+    }
+
+    void AuditDoubleThree(const TExprNode& node) const {
+        if (
+            !node.IsCallable("Double") ||
+            node.ChildrenSize() != 1 ||
+            !node.Child(0)->IsAtom("3.0") ||
+            !IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::Double,
+                false))
+        {
+            Fail(
+                "floating divisor must be the exact non-null Double(3.0) "
+                "literal");
+        }
+        constexpr ui32 CanonicalTextFlags =
+            TNodeFlags::ArbitraryContent | TNodeFlags::MultilineContent;
+        if (
+            node.Child(0)->Flags() & TNodeFlags::BinaryContent ||
+            node.Child(0)->GetFlagsToCompare() != CanonicalTextFlags)
+        {
+            Fail("Double(3.0) has noncanonical atom flags");
+        }
+        CheckScalarSafetyMetadata(node);
+        CheckScalarSafetyMetadata(*node.Child(0));
+    }
+
+    void AuditHundred(const TExprNode& node) const {
+        if (
+            !node.IsCallable("Int32") ||
+            node.ChildrenSize() != 1 ||
+            !node.Child(0)->IsAtom("100") ||
+            !IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::Int32,
+                false))
+        {
+            Fail("deviation multiplier must be exact non-null Int32(100)");
+        }
+        LiteralExpr(node);
+        CheckScalarSafetyMetadata(node);
+        CheckScalarSafetyMetadata(*node.Child(0));
+    }
+
+    void CheckFloatingDivision(const TExprNode& node) const {
+        if (
+            !node.IsCallable("/") ||
+            node.ChildrenSize() != 2 ||
+            !IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::Double,
+                true))
+        {
+            Fail(
+                "floating division must have type Optional<Double> and "
+                "arity two");
+        }
+        CheckOptionalInt64(
+            *node.Child(0),
+            "floating-division numerator");
+        AuditDoubleThree(*node.Child(1));
+        CheckScalarSafetyMetadata(node);
+    }
+
+    TAuditedShape AuditRoot(const TExprNode& root) const {
+        if (root.IsCallable("/")) {
+            CheckFloatingDivision(root);
+            AuditTotal(
+                *root.Child(0),
+                "average numerator");
+            TOpaqueSourceAuditor(
+                RowArgument,
+                VisibleColumns).RequireExactLoweringSource(*root.Child(0));
+            return {&root, root.Child(1)};
+        }
+
+        if (
+            !root.IsCallable("*") ||
+            root.ChildrenSize() != 2 ||
+            !IsExactDataAnnotation(
+                root.GetTypeAnn(),
+                NUdf::EDataSlot::Double,
+                true))
+        {
+            Fail(
+                "root must be one reviewed average division or deviation "
+                "multiplication");
+        }
+        CheckScalarSafetyMetadata(root);
+        const auto& floatingDivision = *root.Child(0);
+        CheckFloatingDivision(floatingDivision);
+        AuditDeviationRatio(*floatingDivision.Child(0));
+        AuditHundred(*root.Child(1));
+        TOpaqueSourceAuditor(
+            RowArgument,
+            VisibleColumns).RequireExactLoweringSource(*floatingDivision.Child(0));
+        return {
+            &floatingDivision,
+            floatingDivision.Child(1),
+        };
+    }
+
+private:
+    const TExprNode* RowArgument;
+    const THashSet<TString>& VisibleColumns;
+};
+
+bool IsRestrictedFloatingPredicateCandidate(const TExprNode& node) {
+    return node.IsCallable({"<", "<=", ">", ">="}) &&
+        node.ChildrenSize() == 2 &&
+        IsExactDataAnnotation(
+            node.Child(1)->GetTypeAnn(),
+            NUdf::EDataSlot::Double,
+            false);
+}
+
+class TRestrictedFloatingPredicateAuditor {
+public:
+    TRestrictedFloatingPredicateAuditor(
+        const TExprNode* rowArgument,
+        const THashSet<TString>& visibleColumns)
+        : RowArgument(rowArgument)
+        , VisibleColumns(visibleColumns)
+    {
+    }
+
+    NJson::TJsonValue ExportAsOpaque(
+        const TExprNode& root,
+        TExactScalarBudget& budget,
+        size_t argumentDepth)
+    {
+        Validate(root);
+        return TOpaqueSourceAuditor(
+            TRestrictedFloatingPredicateAuditToken{},
+            RowArgument,
+            VisibleColumns,
+            &root,
+            root.Child(1)).AuditOpaque(root).Export(budget, argumentDepth);
+    }
+
+    void Validate(const TExprNode& root) const {
+        AuditRoot(root);
+    }
+
+private:
+    [[noreturn]] void Fail(TStringBuf reason) const {
+        Unsupported(TStringBuilder()
+            << "Restricted floating predicate: " << reason);
+    }
+
+    void CheckFalseLiteral(
+        const TExprNode& node,
+        TStringBuf label) const
+    {
+        if (!node.IsCallable("Bool") ||
+            node.ChildrenSize() != 1 ||
+            !node.Child(0)->IsAtom("false") ||
+            !IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::Bool,
+                false))
+        {
+            Fail(TStringBuilder() << label << " must be Bool(false)");
+        }
+        LiteralExpr(node);
+        CheckScalarSafetyMetadata(node);
+        CheckScalarSafetyMetadata(*node.Child(0));
+    }
+
+    void AuditDoubleLiteral(
+        const TExprNode& node,
+        TStringBuf expected) const
+    {
+        if (!node.IsCallable("Double") ||
+            node.ChildrenSize() != 1 ||
+            !node.Child(0)->IsAtom(expected) ||
+            !IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::Double,
+                false))
+        {
+            Fail(TStringBuilder()
+                << "constant component must be Double(\""
+                << expected << "\")");
+        }
+        CheckDoubleAtomFlags(*node.Child(0));
+        CheckScalarSafetyMetadata(node);
+        CheckScalarSafetyMetadata(*node.Child(0));
+    }
+
+    void CheckDoubleAtomFlags(const TExprNode& atom) const {
+        if (atom.Flags() & TNodeFlags::BinaryContent) {
+            Fail("Double literal has binary-content atom flags");
+        }
+        constexpr ui32 CanonicalTextFlags =
+            TNodeFlags::ArbitraryContent | TNodeFlags::MultilineContent;
+        if (atom.GetFlagsToCompare() != CanonicalTextFlags) {
+            Fail("Double literal has noncanonical text atom flags");
+        }
+    }
+
+    ERestrictedFloatingConstant AuditFloatingConstant(
+        const TExprNode& node) const
+    {
+        if (!IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::Double,
+                false))
+        {
+            Fail("right operand must be a non-null Double constant");
+        }
+        const auto constant = RecognizeRestrictedFloatingConstant(node);
+        if (!constant) {
+            Fail(
+                "right operand is not one of the reviewed Double constants");
+        }
+        if (node.IsCallable("Double")) {
+            CheckDoubleAtomFlags(*node.Child(0));
+            CheckScalarSafetyMetadata(node);
+            CheckScalarSafetyMetadata(*node.Child(0));
+            return constant->Kind;
+        }
+        CheckScalarSafetyMetadata(node);
+        if (node.Child(0)->Child(0)->Content() == "2.0") {
+            AuditDoubleLiteral(*node.Child(0), "2.0");
+            AuditDoubleLiteral(*node.Child(1), "3.0");
+        } else {
+            AuditDoubleLiteral(*node.Child(0), "3.0");
+            AuditDoubleLiteral(*node.Child(1), "2.0");
+        }
+        return constant->Kind;
+    }
+
+    void AuditComparison(const TExprNode& node) const {
+        if (!node.IsCallable({"<", "<=", ">", ">="}) ||
+            node.ChildrenSize() != 2)
+        {
+            Fail("root comparison must be one binary ordering predicate");
+        }
+        if (!IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::Bool,
+                true))
+        {
+            Fail("root comparison result must be Optional<Bool>");
+        }
+        if (!IsExactDataAnnotation(
+                node.Child(0)->GetTypeAnn(),
+                NUdf::EDataSlot::Int64,
+                true))
+        {
+            Fail("left operand must be Optional<Int64>");
+        }
+        CheckScalarSafetyMetadata(node);
+        const auto constant = AuditFloatingConstant(*node.Child(1));
+        const bool reviewed =
+            (node.IsCallable(">=") &&
+             constant == ERestrictedFloatingConstant::TwoThirds) ||
+            (node.IsCallable("<=") &&
+             constant == ERestrictedFloatingConstant::ThreeHalves) ||
+            (node.IsCallable(">") &&
+             constant == ERestrictedFloatingConstant::OnePointTwo) ||
+            (node.IsCallable("<") &&
+             constant == ERestrictedFloatingConstant::PointNine);
+        if (!reviewed) {
+            Fail(
+                "comparison operator and Double constant do not match a "
+                "reviewed workload predicate");
+        }
+
+        // The pointer-scoped encoder traverses the entire Optional<Int64>
+        // input under the ordinary opaque grammar; only this root comparison
+        // and its exact constant bypass ordinary scalar type admission.
+    }
+
+    void AuditRoot(const TExprNode& root) const {
+        if (!root.IsCallable("Coalesce")) {
+            AuditComparison(root);
+            return;
+        }
+        if (root.ChildrenSize() != 2 ||
+            !IsExactDataAnnotation(
+                root.GetTypeAnn(),
+                NUdf::EDataSlot::Bool,
+                false))
+        {
+            Fail(
+                "root envelope must be "
+                "Coalesce(Optional<Bool>, Bool(false))");
+        }
+        CheckScalarSafetyMetadata(root);
+        AuditComparison(*root.Child(0));
+        CheckFalseLiteral(*root.Child(1), "root fallback");
+    }
+
+private:
+    const TExprNode* RowArgument;
+    const THashSet<TString>& VisibleColumns;
+};
+
+// NDataShard::NLimits::MaxWriteValueSize caps an ordinary stored value at
+// 16 MiB (ydb/core/tx/datashard/const.h), with write-path enforcement in
+// ydb/core/tx/datashard/datashard_write_operation.cpp and
+// ydb/core/tx/datashard/datashard_common_upload.cpp.
+constexpr ui64 MaxDatashardStoredStringBytes = 16ULL * 1024 * 1024;
+
+// Column-store String/Utf8 values use Arrow BinaryType/StringType
+// (ydb/core/formats/arrow/switch/switch_type.h) and reach MiniKQL through the
+// matching block traits (yql/essentials/public/udf/arrow/dispatch_traits.h).
+// Both types use signed 32-bit byte offsets
+// (contrib/libs/apache/arrow/cpp/src/arrow/type.h), and Arrow
+// validation requires nonnegative, monotonic offsets within the value buffer
+// (contrib/libs/apache/arrow/cpp/src/arrow/array/validate.cc). Thus one logical
+// value is at most INT32_MAX bytes regardless of the compressed persistence
+// path; blob-size limits are deliberately not used as a cell-size premise.
+constexpr ui64 MaxOlapStoredStringBytes =
+    static_cast<ui64>(std::numeric_limits<i32>::max());
+
+struct TStoredStringProvenance {
+    bool Nullable;
+    ui64 MaximumBytes;
+    TString Type;
+};
+
+using TStoredStringColumns = THashMap<TString, TStoredStringProvenance>;
+using TIntegralAverageOrderingColumns = THashSet<TString>;
+using TDecimalAverageCarrierTypes = THashSet<TString>;
+constexpr TStringBuf IntegralAverageOrderingComparisonV1 =
+    "integral_avg_rank_v1";
+
+// MiniKQL rejects a logical Concat result larger than ui32 and clamps its
+// spare allocation capacity without wrapping
+// (yql/essentials/minikql/mkql_string_util.cpp).
+constexpr ui64 MaxConcatResultBytes =
+    std::numeric_limits<ui32>::max();
+static_assert(MaxOlapStoredStringBytes < MaxConcatResultBytes);
+static_assert(2 * MaxOlapStoredStringBytes <= MaxConcatResultBytes);
+static_assert(2 * MaxOlapStoredStringBytes + 2 > MaxConcatResultBytes);
+static_assert(2 * MaxDatashardStoredStringBytes < MaxConcatResultBytes);
+
+class TLiteralStringConcatFolder {
+public:
+    static std::optional<NJson::TJsonValue> TryFold(const TExprNode& root) {
+        if (!IsCandidate(root)) {
+            return std::nullopt;
+        }
+
+        TLiteralStringConcatFolder folder;
+        folder.Visit(root, 0);
+
+        auto result = JsonMap();
+        result["kind"] = "literal";
+        result["type"] = "String";
+        result["value"] = std::move(folder.Value);
+        return result;
+    }
+
+private:
+    static bool IsCandidate(const TExprNode& root) {
+        if (!root.IsCallable("Concat")) {
+            return false;
+        }
+
+        TVector<const TExprNode*> pending{&root};
+        size_t nodes = 0;
+        while (!pending.empty()) {
+            const auto* node = pending.back();
+            pending.pop_back();
+            if (++nodes > MaxExactScalarNodes) {
+                Unsupported(
+                    "Literal String Concat exceeds the scalar audit limit");
+            }
+            if (node->IsCallable("Concat")) {
+                for (const auto& child : node->Children()) {
+                    pending.push_back(child.Get());
+                }
+                continue;
+            }
+            if (!node->IsCallable("String")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[noreturn]] static void Fail(TStringBuf reason) {
+        Unsupported(TStringBuilder()
+            << "Literal String Concat: " << reason);
+    }
+
+    static void CheckStringType(const TExprNode& node) {
+        if (!IsExactDataAnnotation(
+                node.GetTypeAnn(),
+                NUdf::EDataSlot::String,
+                false))
+        {
+            Fail("node is not exactly non-null String");
+        }
+    }
+
+    void AddLiteral(const TExprNode& node) {
+        CheckStringType(node);
+        if (!node.IsCallable("String") ||
+            node.ChildrenSize() != 1 ||
+            !node.Child(0)->IsAtom())
+        {
+            Fail("leaf is not canonical String data");
+        }
+        LiteralExpr(node);
+        const TStringBuf bytes = node.Child(0)->Content();
+        if (bytes.size() > MaxConcatResultBytes - Value.size()) {
+            Fail("byte length exceeds the Concat result bound");
+        }
+        Value.append(bytes.data(), bytes.size());
+    }
+
+    void Visit(const TExprNode& node, size_t depth) {
+        if (++NodeCount > MaxExactScalarNodes ||
+            depth > MaxExactScalarDepth)
+        {
+            Fail("exceeds the scalar audit limit");
+        }
+        CheckScalarSafetyMetadata(node);
+
+        if (node.IsCallable("String")) {
+            AddLiteral(node);
+            return;
+        }
+        if (!node.IsCallable("Concat")) {
+            Fail(TStringBuilder()
+                << "contains unsupported callable " << node.Content());
+        }
+        CheckStringType(node);
+        if (node.ChildrenSize() != 2) {
+            Fail("Concat is not binary");
+        }
+        Visit(*node.Child(0), depth + 1);
+        Visit(*node.Child(1), depth + 1);
+    }
+
+private:
+    size_t NodeCount = 0;
+    TString Value;
+};
+
+class TRestrictedConcatAuditor {
+public:
+    TRestrictedConcatAuditor(
+        const TExprNode* rowArgument,
+        const THashSet<TString>& visibleColumns,
+        const TStoredStringColumns& storedStringColumns)
+        : RowArgument(rowArgument)
+        , VisibleColumns(visibleColumns)
+        , StoredStringColumns(storedStringColumns)
+    {
+    }
+
+    NJson::TJsonValue Export(
+        const TExprNode& root,
+        TExactScalarBudget& budget,
+        size_t argumentDepth)
+    {
+        Audit(root);
+        auto result = TOpaqueSourceAuditor(
+            TRestrictedConcatAuditToken{},
+            RowArgument,
+            VisibleColumns).AuditOpaque(root).Export(budget, argumentDepth);
+        if (MaximumBytes > MaxConcatResultBytes) {
+            result["kind"] = "checked_concat";
+        }
+        return result;
+    }
+
+private:
+    void Audit(const TExprNode& root) {
+        if (!root.IsCallable("Concat")) {
+            Fail("root is not Concat");
+        }
+        Visit(root, 0);
+        if (StoredMemberCount == 0) {
+            Fail("contains no storage-bounded text member");
+        }
+    }
+
+    static constexpr size_t MaxNodes = 256;
+    static constexpr size_t MaxDepth = 64;
+    static constexpr size_t MaxStoredMembers = 2;
+
+    [[noreturn]] void Fail(TStringBuf reason) const {
+        Unsupported(TStringBuilder() << "Restricted Concat: " << reason);
+    }
+
+    TString CheckTextType(const TExprNode& node, bool nullable) const {
+        for (const auto slot : {NUdf::EDataSlot::String, NUdf::EDataSlot::Utf8}) {
+            if (IsExactDataAnnotation(node.GetTypeAnn(), slot, nullable)) {
+                return TString(NUdf::GetDataTypeInfo(slot).Name);
+            }
+        }
+        Fail(nullable
+            ? "node is not exactly Optional<String> or Optional<Utf8>"
+            : "node is not exactly non-null String or Utf8");
+    }
+
+    void AddMaximumBytes(ui64 bytes) {
+        if (bytes > std::numeric_limits<ui64>::max() - MaximumBytes) {
+            Fail("maximum byte length overflows the audit accumulator");
+        }
+        MaximumBytes += bytes;
+    }
+
+    void AddLiteralBytes(size_t bytes) {
+        AddMaximumBytes(bytes);
+    }
+
+    void AddStoredMember(ui64 maximumBytes) {
+        if (++StoredMemberCount > MaxStoredMembers) {
+            Fail("contains more than two stored-member occurrences");
+        }
+        AddMaximumBytes(maximumBytes);
+    }
+
+    void CheckMember(const TExprNode& node, bool nullable) {
+        const auto type = CheckTextType(node, nullable);
+        if (node.ChildrenSize() != 2 ||
+            node.Child(0) != RowArgument ||
+            !node.Child(1)->IsAtom())
+        {
+            Fail("has a malformed stored member");
+        }
+        const TString column(node.Child(1)->Content());
+        if (!VisibleColumns.contains(column)) {
+            Fail(TStringBuilder()
+                << "member " << column << " is not visible at the Map input");
+        }
+        const auto* provenance = StoredStringColumns.FindPtr(column);
+        if (!provenance) {
+            Fail(TStringBuilder()
+                << "member " << column
+                << " has no storage-bounded text provenance");
+        }
+        if (provenance->Type != type) {
+            Fail("member type disagrees with its storage provenance");
+        }
+        if (provenance->Nullable != nullable) {
+            Fail(TStringBuilder()
+                << "member " << column
+                << " storage provenance is "
+                << (provenance->Nullable ? "nullable" : "non-null")
+                << " but the expression is "
+                << (nullable ? "nullable" : "non-null"));
+        }
+        AddStoredMember(provenance->MaximumBytes);
+    }
+
+    void CheckLiteral(const TExprNode& node, bool requireEmpty = false) {
+        const auto type = CheckTextType(node, false);
+        if (!node.IsCallable(type) ||
+            node.ChildrenSize() != 1 ||
+            !node.Child(0)->IsAtom())
+        {
+            Fail("literal is not canonical text data");
+        }
+        LiteralExpr(node);
+        const size_t bytes = node.Child(0)->Content().size();
+        if (requireEmpty && bytes != 0) {
+            Fail("nullable stored member fallback is not the empty text");
+        }
+        AddLiteralBytes(bytes);
+    }
+
+    void CheckNullableStoredMember(const TExprNode& node) {
+        const auto type = CheckTextType(node, false);
+        if (!node.IsCallable("Coalesce") || node.ChildrenSize() != 2) {
+            Fail("nullable stored member is not canonical Coalesce");
+        }
+        if (CheckTextType(*node.Child(0), true) != type ||
+            CheckTextType(*node.Child(1), false) != type)
+        {
+            Fail("Coalesce text types do not match exactly");
+        }
+        CheckMember(*node.Child(0), true);
+        CheckLiteral(*node.Child(1), true);
+    }
+
+    void Visit(const TExprNode& node, size_t depth) {
+        if (++NodeCount > MaxNodes || depth > MaxDepth) {
+            Fail("exceeds the scalar audit limit");
+        }
+        CheckScalarSafetyMetadata(node);
+
+        if (node.IsCallable("Concat")) {
+            const auto type = CheckTextType(node, false);
+            if (node.ChildrenSize() != 2) {
+                Fail("is not binary");
+            }
+            const auto leftType = CheckTextType(*node.Child(0), false);
+            const auto rightType = CheckTextType(*node.Child(1), false);
+            const TString expected = leftType == "Utf8" && rightType == "Utf8" ? "Utf8" : "String";
+            if (type != expected) {
+                Fail("Concat result disagrees with its input text types");
+            }
+            Visit(*node.Child(0), depth + 1);
+            Visit(*node.Child(1), depth + 1);
+            return;
+        }
+        if (node.IsCallable({"String", "Utf8"})) {
+            CheckLiteral(node);
+            return;
+        }
+        if (node.IsCallable("Member")) {
+            CheckMember(node, false);
+            return;
+        }
+        if (node.IsCallable("Coalesce")) {
+            CheckNullableStoredMember(node);
+            return;
+        }
+        Fail(TStringBuilder()
+            << "contains unsupported callable " << node.Content());
+    }
+
+private:
+    const TExprNode* RowArgument;
+    const THashSet<TString>& VisibleColumns;
+    const TStoredStringColumns& StoredStringColumns;
+    size_t NodeCount = 0;
+    size_t StoredMemberCount = 0;
+    ui64 MaximumBytes = 0;
+};
+
+NJson::TJsonValue ExportExprNode(
+    const TExprNode& node,
+    const TExprNode* rowArgument,
+    const THashSet<TString>& visibleColumns,
+    const TVector<const TExprNode*>& boundArguments,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth,
+    bool binary64Mode)
+{
+    if (sourceDepth > MaxExactScalarDepth) {
+        Unsupported(TStringBuilder()
+            << "Exact scalar expression exceeds the depth audit limit of "
+            << MaxExactScalarDepth);
+    }
+    budget.Charge(normalizedDepth);
+
+    if (node.IsCallable("Parameter")) {
+        const auto parameter = AuditScalarParameter(node);
+        return ParameterExpr(parameter.Name, parameter.Type, parameter.Nullable);
+    }
+
+    // Active Double is a separate, explicit interpretation. Every primitive
+    // stays visible to the verifier; no aggregate or arithmetic subtree is
+    // replaced with the old passive identity carrier in this mode.
+    if (binary64Mode) {
+        CheckScalarSafetyMetadata(node, node.IsCallable({"==", "!=", "And", "Or"}));
+    }
+    if (binary64Mode && node.IsCallable("Double")) {
+        CheckScalarSafetyMetadata(node);
+        CheckScalarArity(node, 1, 1);
+        if (!node.Child(0)->IsAtom() ||
+            !IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Double, false))
+        {
+            Unsupported("Binary64 literal must have one atom and exact Double type");
+        }
+        const auto text = node.Child(0)->Content();
+        const auto parsed = NMiniKQL::ValueFromString(
+            NUdf::EDataSlot::Double, NUdf::TStringRef(text.data(), text.size()));
+        if (!parsed) {
+            Unsupported("Invalid binary64 literal");
+        }
+        const ui64 bits = std::bit_cast<ui64>(parsed.Get<double>());
+        TString encoded(16, '0');
+        constexpr char Hex[] = "0123456789abcdef";
+        for (size_t index = 0; index < 16; ++index) {
+            encoded[15 - index] = Hex[(bits >> (index * 4)) & 15];
+        }
+        auto result = JsonMap();
+        result["kind"] = "literal";
+        result["type"] = "Double";
+        result["value"] = JsonMap();
+        result["value"]["bits"] = encoded;
+        return result;
+    }
+
+    const bool binary64Result = binary64Mode && (
+        IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Double, false) ||
+        IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Double, true));
+    if (binary64Mode && node.IsCallable({"==", "!=", "<", "<=", ">", ">="}) &&
+        node.ChildrenSize() == 2)
+    {
+        bool leftNullable = false, rightNullable = false;
+        const TString leftType = ScalarTypeName(*node.Child(0), &leftNullable, true);
+        const TString rightType = ScalarTypeName(*node.Child(1), &rightNullable, true);
+        if ((leftType == "Double" && IsIntegerType(rightType)) ||
+            (rightType == "Double" && IsIntegerType(leftType)))
+        {
+            // MiniKQL's mixed numeric comparison casts the integral operand
+            // to the floating operand's type before comparing (Equals/Less).
+            // Keep that conversion visible instead of treating integers as bits.
+            bool resultNullable = false;
+            if (ScalarTypeName(node, &resultNullable) != "Bool" ||
+                resultNullable != (leftNullable || rightNullable))
+            {
+                Unsupported("Mixed binary64 comparison has inconsistent result type");
+            }
+            const bool negated = node.IsCallable("!=");
+            const size_t childDepth = normalizedDepth + (negated ? 2 : 1);
+            const auto operand = [&](size_t index, const TString& type, bool nullable) {
+                const bool convert = type != "Double";
+                auto value = ExportExprNode(*node.Child(index), rowArgument, visibleColumns,
+                    boundArguments, budget, childDepth + convert, sourceDepth + 1, true);
+                if (!convert) {
+                    return value;
+                }
+                budget.Charge(childDepth);
+                auto cast = JsonMap();
+                cast["kind"] = "cast_double";
+                cast["source_type"] = type;
+                cast["type"] = "Double";
+                cast["nullable"] = nullable;
+                cast["arg"] = std::move(value);
+                return cast;
+            };
+            const TStringBuf kind = node.IsCallable({"==", "!="}) ? "eq" :
+                node.IsCallable("<") ? "lt" : node.IsCallable("<=") ? "lte" :
+                node.IsCallable(">") ? "gt" : "gte";
+            auto result = BinaryExpr(kind, operand(0, leftType, leftNullable),
+                operand(1, rightType, rightNullable));
+            if (kind == "eq") {
+                result["null_safe"] = false;
+            }
+            if (negated) {
+                budget.Charge(normalizedDepth + 1);
+                result = NotExpr(std::move(result));
+            }
+            return result;
+        }
+    }
+    if (binary64Result && node.IsCallable({"+", "-", "*", "/"})) {
+        CheckScalarSafetyMetadata(node);
+        CheckScalarArity(node, 2, 2);
+        bool nullable = false, leftNullable = false, rightNullable = false;
+        ScalarTypeName(node, &nullable, true);
+        if (ScalarTypeName(*node.Child(0), &leftNullable, true) != "Double" ||
+            ScalarTypeName(*node.Child(1), &rightNullable, true) != "Double" ||
+            nullable != (leftNullable || rightNullable))
+        {
+            Unsupported("Binary64 arithmetic requires exact Double operands and strict nullability");
+        }
+        const TStringBuf kind = node.IsCallable("+") ? "add" :
+            node.IsCallable("-") ? "sub" : node.IsCallable("*") ? "mul" : "div";
+        auto result = BinaryExpr(kind,
+            ExportExprNode(*node.Child(0), rowArgument, visibleColumns, boundArguments,
+                budget, normalizedDepth + 1, sourceDepth + 1, true),
+            ExportExprNode(*node.Child(1), rowArgument, visibleColumns, boundArguments,
+                budget, normalizedDepth + 1, sourceDepth + 1, true));
+        result["type"] = "Double";
+        result["nullable"] = nullable;
+        return result;
+    }
+
+    if (binary64Result && node.IsCallable({"SafeCast", "Convert"})) {
+        CheckScalarSafetyMetadata(node);
+        CheckScalarArity(node, 2, 2);
+        bool nullable = false, sourceNullable = false;
+        ScalarTypeName(node, &nullable, true);
+        const TString sourceType = ScalarTypeName(*node.Child(0), &sourceNullable, true);
+        if ((!IsIntegerType(sourceType) && sourceType != "Double") || nullable != sourceNullable) {
+            Unsupported("Binary64 cast requires an integral or identical Double source with matching nullability");
+        }
+        if (!(node.IsCallable("Convert") && node.Child(1)->IsAtom("Double"))) {
+            CheckDataDescriptor(*node.Child(1), NUdf::EDataSlot::Double, nullable, "Binary64 cast target");
+        }
+        const auto options = CastResult<false>(node.Child(0)->GetTypeAnn(), node.GetTypeAnn());
+        if (options != NUdf::ECastOptions::Complete && options != NUdf::ECastOptions::MayLoseData) {
+            Unsupported("Binary64 cast may fail or has impossible semantics");
+        }
+        auto argument = ExportExprNode(*node.Child(0), rowArgument, visibleColumns,
+            boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, true);
+        if (sourceType == "Double") {
+            return argument;
+        }
+        auto result = JsonMap();
+        result["kind"] = "cast_double";
+        result["arg"] = std::move(argument);
+        result["source_type"] = sourceType;
+        result["type"] = "Double";
+        result["nullable"] = nullable;
+        return result;
+    }
+
+    if (binary64Mode && node.IsCallable("Apply") && node.ChildrenSize() == 2 &&
+        node.Child(0)->IsCallable("Udf") && node.Child(0)->ChildrenSize() > 0 &&
+        node.Child(0)->Child(0)->IsAtom() &&
+        (node.Child(0)->Child(0)->IsAtom("Math.Sqrt") || node.Child(0)->Child(0)->IsAtom("Math.IsNaN")))
+    {
+        const bool isNaN = node.Child(0)->Child(0)->IsAtom("Math.IsNaN");
+        const TReviewedUdfSpec spec{
+            isNaN ? TStringBuf("Math.IsNaN") : TStringBuf("Math.Sqrt"),
+            {isNaN ? NUdf::EDataSlot::Bool : NUdf::EDataSlot::Double},
+            {{{NUdf::EDataSlot::Double}, ReviewedUdfAutoMap}, {}},
+            1, {}, 0, false}; // Math's SIMPLE_STRICT_UDF_WITH_IR has no block implementation.
+        CheckReviewedUdfApply(node, spec, spec.Name);
+        auto result = JsonMap();
+        result["kind"] = isNaN ? "is_nan_double" : "sqrt_double";
+        result["arg"] = ExportExprNode(*node.Child(1), rowArgument, visibleColumns,
+            boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, true);
+        result["type"] = isNaN ? "Bool" : "Double";
+        result["nullable"] = false;
+        return result;
+    }
+
+    if (binary64Result && node.IsCallable("Nothing")) {
+        CheckScalarSafetyMetadata(node);
+        CheckScalarArity(node, 1, 1);
+        CheckDataDescriptor(*node.Child(0), NUdf::EDataSlot::Double, true, "Binary64 Nothing");
+        auto result = JsonMap();
+        result["kind"] = "null";
+        result["type"] = "Double";
+        return result;
+    }
+
+    if (binary64Result && node.IsCallable("Just")) {
+        CheckScalarSafetyMetadata(node);
+        CheckScalarArity(node, 1, 1);
+        if (!IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Double, true) ||
+            !IsExactDataAnnotation(node.Child(0)->GetTypeAnn(), NUdf::EDataSlot::Double, false))
+        {
+            Unsupported("Binary64 Just must wrap exactly one present Double");
+        }
+        budget.Charge(normalizedDepth + 1, 2);
+        auto result = JsonMap();
+        result["kind"] = "if";
+        result["condition"] = JsonMap();
+        result["condition"]["kind"] = "literal";
+        result["condition"]["type"] = "Bool";
+        result["condition"]["value"] = true;
+        result["then"] = ExportExprNode(*node.Child(0), rowArgument, visibleColumns,
+            boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, true);
+        result["else"] = JsonMap();
+        result["else"]["kind"] = "null";
+        result["else"]["type"] = "Double";
+        result["type"] = "Double";
+        result["nullable"] = true;
+        return result;
+    }
+
+    if (binary64Mode && node.IsCallable("Map") && node.ChildrenSize() == 2 &&
+        IsExactDataAnnotation(node.Child(0)->GetTypeAnn(), NUdf::EDataSlot::Double, true))
+    {
+        // Optional AutoMap is a NULL-preserving scalar binder, not a relation
+        // Map. In particular Math.IsNaN's AutoMap wrapper has this spelling.
+        const auto& handler = *node.Child(1);
+        if (!handler.IsLambda() || handler.ChildrenSize() != 2 ||
+            !handler.Child(0)->IsArguments() || handler.Child(0)->ChildrenSize() != 1 ||
+            !handler.Child(0)->Child(0)->IsArgument() ||
+            !IsExactDataAnnotation(handler.Child(0)->Child(0)->GetTypeAnn(), NUdf::EDataSlot::Double, false))
+        {
+            Unsupported("Binary64 optional Map requires one present Double binder");
+        }
+        bool nullable = false, presentNullable = false;
+        const TString type = ScalarTypeName(node, &nullable, true);
+        if ((type != "Bool" && type != "Double") || !nullable ||
+            ScalarTypeName(*handler.Child(1), &presentNullable, true) != type || presentNullable)
+        {
+            Unsupported("Binary64 optional Map requires one non-null Bool or Double handler");
+        }
+        CheckScalarSafetyMetadata(handler);
+        CheckScalarSafetyMetadata(*handler.Child(0));
+        CheckScalarSafetyMetadata(*handler.Child(0)->Child(0));
+        if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+            Unsupported("Binary64 optional Map binding depth exceeds the audit limit");
+        }
+        auto bindings = boundArguments;
+        bindings.insert(bindings.begin(), handler.Child(0)->Child(0));
+        auto missing = JsonMap();
+        missing["kind"] = "null";
+        missing["type"] = type;
+        auto present = JsonMap();
+        present["kind"] = "if";
+        present["condition"] = JsonMap();
+        present["condition"]["kind"] = "literal";
+        present["condition"]["type"] = "Bool";
+        present["condition"]["value"] = true;
+        present["then"] = ExportExprNode(*handler.Child(1), rowArgument, visibleColumns,
+            bindings, budget, normalizedDepth + 2, sourceDepth + 1, true);
+        present["else"] = missing;
+        present["type"] = type;
+        present["nullable"] = true;
+        budget.Charge(normalizedDepth + 1, 2); // Present If and missing NULL.
+        budget.Charge(normalizedDepth + 2, 2); // Present true and unreachable NULL.
+        auto result = JsonMap();
+        result["kind"] = "if_present";
+        result["optional"] = ExportExprNode(*node.Child(0), rowArgument, visibleColumns,
+            boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, true);
+        result["present"] = std::move(present);
+        result["missing"] = std::move(missing);
+        result["type"] = type;
+        result["nullable"] = true;
+        return result;
+    }
+
+    if (binary64Mode && node.IsCallable("Coalesce") && node.ChildrenSize() == 2) {
+        bool optionalNullable = false, fallbackNullable = false, resultNullable = false;
+        const TString type = ScalarTypeName(node, &resultNullable, true);
+        if ((type == "Bool" || type == "Double") && !resultNullable &&
+            ScalarTypeName(*node.Child(0), &optionalNullable, true) == type && optionalNullable &&
+            ScalarTypeName(*node.Child(1), &fallbackNullable, true) == type && !fallbackNullable)
+        {
+            // The present branch is the input itself; all actual scalar
+            // subtrees are recursively admitted by the explicit-mode exporter.
+            if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+                Unsupported("Binary64 Coalesce binding depth exceeds the audit limit");
+            }
+            budget.Charge(normalizedDepth + 1);
+            auto result = JsonMap();
+            result["kind"] = "if_present";
+            result["optional"] = ExportExprNode(*node.Child(0), rowArgument, visibleColumns,
+                boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, true);
+            result["present"] = BoundExpr(0);
+            result["missing"] = ExportExprNode(*node.Child(1), rowArgument, visibleColumns,
+                boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, true);
+            result["type"] = type;
+            result["nullable"] = false;
+            return result;
+        }
+    }
+
+    if (!binary64Mode && IsPassiveDoubleCarrierCandidate(node)) {
+        return TPassiveDoubleCarrierAuditor(
+            rowArgument,
+            visibleColumns).ExportAsOpaque(
+                node,
+                budget,
+                normalizedDepth + 1);
+    }
+
+    if (!binary64Mode && IsRestrictedFloatingPredicateCandidate(node)) {
+        return TRestrictedFloatingPredicateAuditor(
+            rowArgument,
+            visibleColumns).ExportAsOpaque(
+                node,
+                budget,
+                normalizedDepth + 1);
+    }
+
+    if (node.IsArgument()) {
+        const auto it = std::find(boundArguments.begin(), boundArguments.end(), &node);
+        if (it == boundArguments.end()) {
+            Unsupported("Scalar expression contains a free Argument");
+        }
+        bool nullable = false;
+        ScalarTypeName(node, &nullable, binary64Mode);
+        if (nullable) {
+            Unsupported("IfPresent bound argument must be non-nullable");
+        }
+        return BoundExpr(static_cast<size_t>(it - boundArguments.begin()));
+    }
+
+    if (node.IsCallable("Member")) {
+        if (node.ChildrenSize() != 2 || !node.Child(1)->IsAtom()) {
+            Unsupported("Malformed Member expression");
+        }
+        const TString name(node.Child(1)->Content());
+        if (node.Child(0) != rowArgument || !visibleColumns.contains(name)) {
+            Unsupported(TStringBuilder() << "Member does not reference the input row column " << name);
+        }
+        return ColumnExpr(name);
+    }
+
+    if (node.IsCallable("Void")) {
+        if (node.ChildrenSize() != 0) {
+            Unsupported("Void must have no arguments");
+        }
+        if (!node.GetTypeAnn() ||
+            node.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Void)
+        {
+            Unsupported("Void expression is not typed Void");
+        }
+        auto result = JsonMap();
+        result["kind"] = "void";
+        return result;
+    }
+
+    if (node.IsCallable("StablePickle")) {
+        CheckScalarSafetyMetadata(node);
+        CheckScalarArity(node, 1, 1);
+        if (!IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::String, false)) {
+            Unsupported("StablePickle must return non-null String");
+        }
+        CheckScalarSafetyMetadata(*node.Child(0));
+        const TString sourceType = ScalarTypeName(*node.Child(0));
+        if (!IsIntegerType(sourceType) && !IsStringType(sourceType) && sourceType != "Bool" &&
+            sourceType != "Date" && sourceType != "Datetime" && sourceType != "Timestamp")
+        {
+            Unsupported("StablePickle requires a reviewed scalar");
+        }
+        // MiniKQL's stable TValuePacker is total and injective on this audited
+        // scalar domain, including one optional layer. Keep the primitive
+        // visible so equality uses that contract rather than an opaque token.
+        // Recursion still audits source visibility, binding and totality.
+        auto result = JsonMap();
+        result["kind"] = "stable_pickle";
+        result["source_type"] = sourceType;
+        result["type"] = "String";
+        result["nullable"] = false;
+        result["arg"] = ExportExprNode(*node.Child(0), rowArgument, visibleColumns,
+            boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode);
+        return result;
+    }
+
+    if (node.IsCallable("Exists")) {
+        const auto* argument = CheckExistsCallable(node, binary64Mode);
+        CheckScalarSafetyMetadata(node);
+
+        return ExistsExpr(ExportExprNode(
+            *argument,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode));
+    }
+
+    if (node.IsCallable("If")) {
+        const auto signature = CheckIfCallable(node, binary64Mode);
+
+        // Branch terms are built eagerly by the verifier.  Recursive export
+        // keeps that equivalent to lazy YQL If by admitting only audited,
+        // deterministic, total scalar subtrees.
+        CheckScalarSafetyMetadata(node);
+
+        auto result = JsonMap();
+        result["kind"] = "if";
+        result["condition"] = ExportExprNode(
+            *signature.Condition,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["then"] = ExportExprNode(
+            *signature.Then,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["else"] = ExportExprNode(
+            *signature.Else,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["type"] = signature.ResultType;
+        result["nullable"] = signature.ResultNullable;
+        return result;
+    }
+
+    if (IsCompiledLikeApplyCandidate(node)) {
+        return CompiledLikeExpr(
+            node,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth,
+            sourceDepth);
+    }
+
+    if (IsNullableUnicodeToUpperMap(node)) {
+        return NullableUnicodeToUpperExpr(
+            node,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth);
+    }
+
+    if (IsNullableDateYearMap(node)) {
+        return NullableDateYearExpr(
+            node,
+            rowArgument,
+            visibleColumns,
+            budget,
+            normalizedDepth);
+    }
+
+    if (IsDateArithmetic(node)) {
+        return DateIntervalExpr(
+            node,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth);
+    }
+
+    if (IsConstantShiftedDate(node)) {
+        return ConstantShiftedDateExpr(node);
+    }
+
+    if (node.IsCallable("Unwrap")) {
+        const auto* optional = CheckExactDateUnwrapCoalesceZero(
+            node,
+            rowArgument,
+            visibleColumns);
+
+        // The source spells this total value as either
+        // Unwrap(Coalesce(member, SafeCast(Int32(0), Optional<Date>))) or
+        // Unwrap(Coalesce(member, Just(Date(0)))).  Int32-to-Date SafeCast
+        // accepts and preserves zero, so both fallbacks are present Date zero
+        // and the Unwrap error path is unreachable.  Validate the complete
+        // Coalesce subtree with the closed opaque audit; validating Unwrap
+        // itself would deliberately fail that audit's positive callable list.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(*node.Child(0));
+        if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+            Unsupported(
+                "Exact Date Unwrap binding depth exceeds the audit limit");
+        }
+
+        budget.Charge(normalizedDepth + 1, 2); // Bound value and Date zero.
+        auto result = JsonMap();
+        result["kind"] = "if_present";
+        result["optional"] = ExportExprNode(
+            *optional,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 2, binary64Mode);
+        result["present"] = BoundExpr(0);
+        result["missing"] = ConstantDateValue(static_cast<ui16>(0));
+        result["type"] = "Date";
+        result["nullable"] = false;
+        return result;
+    }
+
+    if (node.IsCallable("Decimal")) {
+        return DecimalLiteralExpr(node);
+    }
+
+    if (IsSupportedType(node.Content())) {
+        auto result = LiteralExpr(node);
+        if (node.IsCallable({"Date", "Datetime", "Timestamp"})) {
+            bool nullable = false;
+            if (ScalarTypeName(node, &nullable, binary64Mode) != node.Content() || nullable) {
+                Unsupported(TStringBuilder() << node.Content() << " literal type annotation does not match its callable");
+            }
+        }
+        return result;
+    }
+
+    if (const auto convert = CompleteIntegerLiteralConvert(node); convert) {
+        // A complete conversion of a direct non-null integer literal is itself
+        // a non-null constant. Keep the exact converted type and value rather
+        // than assigning this closed literal a zero-argument opaque identity.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+        auto result = LiteralExpr(*convert.Source);
+        result["type"] = convert.ResultType;
+        return result;
+    }
+
+    if (const auto* argument = ExactAlwaysPresentLiteralJustArgument(node)) {
+        // Just of a supported direct non-null scalar literal or a complete
+        // integer-literal Convert is always present. Preserve the Optional result shape with
+        // an explicit unreachable NULL branch.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+        const TString resultType = ScalarTypeName(*argument, nullptr, binary64Mode);
+
+        budget.Charge(normalizedDepth + 1, 2); // Synthetic true and typed NULL.
+        auto condition = JsonMap();
+        condition["kind"] = "literal";
+        condition["type"] = "Bool";
+        condition["value"] = true;
+        auto missing = JsonMap();
+        missing["kind"] = "null";
+        missing["type"] = resultType;
+
+        auto result = JsonMap();
+        result["kind"] = "if";
+        result["condition"] = std::move(condition);
+        result["then"] = ExportExprNode(
+            *argument,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["else"] = std::move(missing);
+        result["type"] = resultType;
+        result["nullable"] = true;
+        return result;
+    }
+
+    if (node.IsCallable("Coalesce") && node.ChildrenSize() == 2 &&
+        IsExactDataAnnotation(node.GetTypeAnn(), NUdf::EDataSlot::Date, true))
+    {
+        const auto& fallback = *node.Child(1);
+        const bool zeroCandidate = fallback.ChildrenSize() >= 1 &&
+            fallback.IsCallable({"Just", "SafeCast"}) &&
+            fallback.Child(0)->IsCallable({"Date", "Int32"}) &&
+            fallback.Child(0)->ChildrenSize() == 1 && fallback.Child(0)->Child(0)->IsAtom("0");
+        if (zeroCandidate) {
+            const auto* optional = CheckExactDateCoalesceZero(node, rowArgument, visibleColumns);
+            TOpaqueSourceAuditor(rowArgument, visibleColumns, boundArguments).RequireExactLoweringSource(node);
+            if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+                Unsupported("Date Coalesce binding depth exceeds the audit limit");
+            }
+            budget.Charge(normalizedDepth + 1, 3); // Inner branch, true and typed NULL.
+            budget.Charge(normalizedDepth + 2, 2); // Present identity and Date zero.
+            auto restored = JsonMap();
+            restored["kind"] = "if_present";
+            restored["optional"] = ExportExprNode(*optional, rowArgument, visibleColumns,
+                boundArguments, budget, normalizedDepth + 2, sourceDepth + 1, binary64Mode);
+            restored["present"] = BoundExpr(0);
+            restored["missing"] = ConstantDateValue(0);
+            restored["type"] = "Date";
+            restored["nullable"] = false;
+            // Coalesce is present for every input, but its declared type is
+            // Optional<Date>. Preserve that annotation with an unreachable NULL.
+            auto result = JsonMap();
+            result["kind"] = "if";
+            result["condition"] = JsonMap();
+            result["condition"]["kind"] = "literal";
+            result["condition"]["type"] = "Bool";
+            result["condition"]["value"] = true;
+            result["then"] = std::move(restored);
+            result["else"] = ConstantDateValue(std::nullopt);
+            result["type"] = "Date";
+            result["nullable"] = true;
+            return result;
+        }
+    }
+
+    if (node.IsCallable("Coalesce") && node.ChildrenSize() == 2 &&
+        node.Child(0)->IsCallable("Member"))
+    {
+        bool nullable = false, sourceNullable = false, fallbackNullable = false;
+        const TString type = ScalarTypeName(node, &nullable, binary64Mode);
+        if (IsIntegerType(type) && !nullable &&
+            ScalarTypeName(*node.Child(0), &sourceNullable, binary64Mode) == type && sourceNullable &&
+            ScalarTypeName(*node.Child(1), &fallbackNullable, binary64Mode) == type && !fallbackNullable)
+        {
+            // Native decorrelation now restores COUNT with a bare Coalesce;
+            // its value must not become an unconstrained opaque function.
+            // Audit both children before using the exact optional-value model.
+            TOpaqueSourceAuditor(rowArgument, visibleColumns, boundArguments).RequireExactLoweringSource(node);
+            if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+                Unsupported("Integral Coalesce binding depth exceeds the audit limit");
+            }
+            budget.Charge(normalizedDepth + 1); // Identity handler.
+            auto result = JsonMap();
+            result["kind"] = "if_present";
+            result["optional"] = ExportExprNode(*node.Child(0), rowArgument, visibleColumns,
+                boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode);
+            result["present"] = BoundExpr(0);
+            result["missing"] = ExportExprNode(*node.Child(1), rowArgument, visibleColumns,
+                boundArguments, budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode);
+            result["type"] = type;
+            result["nullable"] = false;
+            return result;
+        }
+    }
+
+    if (const auto exact = ExactUint64JustCoalesceZero(node); exact) {
+        // This is the exact optimizer repair for a missing group from an
+        // originally keyless correlated COUNT. The inner IfPresent restores
+        // COUNT's non-null zero identity; the outer always-taken If preserves
+        // the scalar binding's Optional<Uint64> type.
+        ValidateExactUint64JustCoalesceZeroMember(
+            exact,
+            rowArgument,
+            visibleColumns);
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+        if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+            Unsupported(
+                "Exact Uint64 Just/Coalesce zero binding depth exceeds the audit limit");
+        }
+
+        budget.Charge(normalizedDepth + 1, 3);
+        budget.Charge(normalizedDepth + 2);
+
+        auto repaired = JsonMap();
+        repaired["kind"] = "if_present";
+        repaired["optional"] = ExportExprNode(
+            *exact.Optional,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 2,
+            sourceDepth + 2, binary64Mode);
+        repaired["present"] = BoundExpr(0);
+        repaired["missing"] = ExportExprNode(
+            *exact.Zero,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 2,
+            sourceDepth + 2, binary64Mode);
+        repaired["type"] = "Uint64";
+        repaired["nullable"] = false;
+
+        auto condition = JsonMap();
+        condition["kind"] = "literal";
+        condition["type"] = "Bool";
+        condition["value"] = true;
+        auto unreachable = JsonMap();
+        unreachable["kind"] = "null";
+        unreachable["type"] = "Uint64";
+
+        auto result = JsonMap();
+        result["kind"] = "if";
+        result["condition"] = std::move(condition);
+        result["then"] = std::move(repaired);
+        result["else"] = std::move(unreachable);
+        result["type"] = "Uint64";
+        result["nullable"] = true;
+        return result;
+    }
+
+    if (const auto* member = ExactDirectMemberJustArgument(
+            node,
+            rowArgument,
+            visibleColumns))
+    {
+        // Just of a non-null value is always present. Keep the static
+        // Optional<Data> result in the normalized IR, but expose its exact
+        // runtime presence instead of hiding it behind an opaque fingerprint.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+        budget.Charge(normalizedDepth + 1, 2); // Synthetic true and typed NULL.
+        return AlwaysPresentOptionalExpr(
+            ExportExprNode(*member, rowArgument, visibleColumns, boundArguments,
+                budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode),
+            ScalarTypeName(*member));
+    }
+
+    if (const auto* argument = ExactDecimalJustArgument(node)) {
+        // Just never changes the value of its non-null argument.  Keep this
+        // normalization deliberately closed over reviewed non-null exact
+        // Decimal forms whose semantics are already audited below.  The
+        // unreachable NULL branch preserves the source Optional type in the
+        // normalized IR and output schema while the true condition makes
+        // runtime presence exact.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+        const TString resultType = ScalarTypeName(*argument, nullptr, binary64Mode);
+
+        budget.Charge(normalizedDepth + 1, 2); // Synthetic true and typed NULL.
+        return AlwaysPresentOptionalExpr(
+            ExportExprNode(
+                *argument,
+                rowArgument,
+                visibleColumns,
+                boundArguments,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1, binary64Mode),
+            resultType);
+    }
+
+    if (const auto exactCoalesce = ExactCoalesceFalseArgument(node);
+        exactCoalesce.Argument)
+    {
+        const auto* argument = exactCoalesce.Argument;
+        // Coalesce(p, false) is the identity handler for a present Boolean and
+        // false for NULL.  Reuse the existing exact IfPresent semantics rather
+        // than erasing the wrapper, which would be wrong in value-sensitive
+        // positions such as Not or projection. Admit direct Boolean members and
+        // the reviewed comparisons and String predicate/membership forms.
+        // Larger Boolean trees retain their shared opaque identity.
+        if (exactCoalesce.Kind == EExactCoalesceFalseArgument::Comparison) {
+            TOpaqueSourceAuditor sourceAudit(
+                rowArgument,
+                visibleColumns,
+                boundArguments);
+            if (IsRestrictedFloatingPredicateCandidate(*argument)) {
+                TRestrictedFloatingPredicateAuditor(
+                    rowArgument,
+                    visibleColumns).Validate(node);
+            } else if (argument->UnorderedChildren()) {
+                // YQL marks equality operands unordered because equality is
+                // commutative.  The explicit eq/not-eq IR has the same
+                // symmetry, so this one marker is semantic rather than an
+                // evaluation-order ambiguity. Keep every operand subtree under
+                // the ordinary closed-world audit.
+                if (!argument->IsCallable({"==", "!="})) {
+                    Unsupported(
+                        "Exact Coalesce false allows unordered children only on equality");
+                }
+                CheckScalarSafetyMetadata(*argument, true);
+                sourceAudit.RequireExactLoweringSource(*argument->Child(0));
+                sourceAudit.RequireExactLoweringSource(*argument->Child(1));
+            } else {
+                sourceAudit.RequireExactLoweringSource(node);
+            }
+        } else if (
+            exactCoalesce.Kind ==
+            EExactCoalesceFalseArgument::BinaryStringMembership)
+        {
+            // Validate the two direct leaves separately so their equality
+            // commutativity markers never relax the closed source audit.
+            ValidateExactBinaryStringMembership(
+                *argument,
+                rowArgument,
+                visibleColumns);
+        } else {
+            // Audit direct Boolean members and canonical String predicates
+            // through the same closed, deterministic and total source gate.
+            TOpaqueSourceAuditor(
+                rowArgument,
+                visibleColumns,
+                boundArguments).RequireExactLoweringSource(node);
+        }
+        if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+            Unsupported("Exact Coalesce false binding depth exceeds the audit limit");
+        }
+
+        budget.Charge(normalizedDepth + 1); // Synthetic identity handler bound value.
+        auto result = JsonMap();
+        result["kind"] = "if_present";
+        result["optional"] = ExportExprNode(
+            *argument,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["present"] = BoundExpr(0);
+        result["missing"] = ExportExprNode(
+            *node.Child(1),
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["type"] = "Bool";
+        result["nullable"] = false;
+        return result;
+    }
+
+    if (const auto exact = ExactDecimalCoalesceZeroArgument(node); exact) {
+        // This is the exact SQL value operation `optional ?? 0`, not an opaque
+        // syntax identity. Normalize only the reviewed structural shape
+        // observed in q77: one direct optional Decimal member and either a
+        // canonical Decimal zero or the complete Int32-zero SafeCast spelling
+        // that constant folding replaces it with.
+        ValidateExactDecimalCoalesceZeroMember(
+            exact,
+            rowArgument,
+            visibleColumns);
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+        if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+            Unsupported(
+                "Exact Decimal Coalesce zero binding depth exceeds the audit limit");
+        }
+
+        budget.Charge(normalizedDepth + 1); // Synthetic identity handler bound value.
+        auto result = JsonMap();
+        result["kind"] = "if_present";
+        result["optional"] = ExportExprNode(
+            *exact.Optional,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["present"] = BoundExpr(0);
+        result["missing"] = ExportExprNode(
+            *exact.Zero,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["type"] = exact.ResultType;
+        result["nullable"] = false;
+        return result;
+    }
+
+    if (node.IsCallable("IfPresent")) {
+        const auto signature = CheckIfPresentCallable(node, binary64Mode);
+
+        // The SMT encoder constructs both branch terms eagerly.  That is
+        // equivalent to YQL's lazy branch choice only after this closed-world
+        // exporter has recursively admitted only deterministic, total branch
+        // subtrees.  Audit the binder nodes themselves here; every branch node
+        // is checked by its own exact or opaque exporter below.
+        CheckScalarSafetyMetadata(node);
+        CheckScalarSafetyMetadata(*node.Child(1));
+        CheckScalarSafetyMetadata(*node.Child(1)->Child(0));
+        CheckScalarSafetyMetadata(*signature.Argument);
+
+        if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+            Unsupported("IfPresent binding depth exceeds the audit limit");
+        }
+        auto presentBindings = boundArguments;
+        presentBindings.insert(presentBindings.begin(), signature.Argument);
+
+        auto result = JsonMap();
+        result["kind"] = "if_present";
+        result["optional"] = ExportExprNode(
+            *signature.Optional,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["present"] = ExportExprNode(
+            *signature.Present,
+            rowArgument,
+            visibleColumns,
+            presentBindings,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["missing"] = ExportExprNode(
+            *signature.Missing,
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["type"] = signature.ResultType;
+        result["nullable"] = signature.ResultNullable;
+        return result;
+    }
+
+    if (node.IsCallable("Contains")) {
+        // New RBO lowers a static SQL membership test to a temporary
+        // one-value dictionary under IfPresent.  Recognize only that exact,
+        // set-like shape and normalize it back to the existing explicit IN
+        // semantics.  Generic dictionaries and Contains stay unsupported.
+        constexpr size_t MaxItems = 512;
+        if (node.ChildrenSize() != 2) {
+            Unsupported("Static-set Contains must have exactly two arguments");
+        }
+        bool resultNullable = false;
+        if (ScalarTypeName(node, &resultNullable, binary64Mode) != "Bool" || resultNullable) {
+            Unsupported("Static-set Contains result must be non-null Bool");
+        }
+
+        const auto& dict = *node.Child(0);
+        const auto& lookup = *node.Child(1);
+        if (!dict.IsCallable("ToDict") || dict.ChildrenSize() != 4) {
+            Unsupported("Static-set Contains input must be the exact ToDict shape");
+        }
+        const TExprNode* lookupValue = &lookup;
+        if (lookup.IsCallable({"ToString", "StrictCast", "SafeCast"})) {
+            const bool strict = lookup.IsCallable("StrictCast");
+            const bool typedCast = strict || lookup.IsCallable("SafeCast");
+            if (lookup.ChildrenSize() != (typedCast ? 2 : 1) ||
+                !IsExactDataAnnotation(lookup.GetTypeAnn(), NUdf::EDataSlot::String, false) ||
+                !IsExactDataAnnotation(lookup.Child(0)->GetTypeAnn(), NUdf::EDataSlot::Utf8, false))
+            {
+                Unsupported("Static-set text conversion requires non-null Utf8 to String");
+            }
+            CheckScalarSafetyMetadata(lookup);
+            if (typedCast) {
+                const auto& target = *lookup.Child(1);
+                const auto result = strict
+                    ? CastResult<true>(lookup.Child(0)->GetTypeAnn(), lookup.GetTypeAnn())
+                    : CastResult<false>(lookup.Child(0)->GetTypeAnn(), lookup.GetTypeAnn());
+                bool nullable = false;
+                if (DataTypeDescriptorName(target, &nullable) != "String" || nullable ||
+                    !target.GetTypeAnn() || target.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Type ||
+                    !IsExactDataAnnotation(target.GetTypeAnn()->Cast<TTypeExprType>()->GetType(),
+                        NUdf::EDataSlot::String, false) ||
+                    result != NUdf::ECastOptions::Complete)
+                {
+                    Unsupported("Static-set text cast requires its complete String target");
+                }
+                CheckScalarSafetyMetadata(target);
+                CheckScalarSafetyMetadata(*target.Child(0));
+            }
+            // These complete conversions copy UTF-8 bytes unchanged. IN already
+            // compares String and Utf8 by those same bytes, so retain the
+            // original typed operand instead of adding an opaque cast.
+            lookupValue = lookup.Child(0);
+        }
+        if (!lookupValue->IsArgument() && !lookupValue->IsCallable("Member")) {
+            Unsupported(TStringBuilder() << "Static-set Contains lookup must be a bound value or direct input member; got "
+                << lookup.Content() << " with " << lookup.ChildrenSize() << " arguments");
+        }
+
+        const auto& values = *dict.Child(0);
+        if (!values.IsCallable("List") ||
+            values.ChildrenSize() < 2 ||
+            values.ChildrenSize() > MaxItems + 1)
+        {
+            Unsupported("Static-set ToDict must contain between 1 and 512 values");
+        }
+        if (!values.GetTypeAnn() ||
+            values.GetTypeAnn()->GetKind() != ETypeAnnotationKind::List)
+        {
+            Unsupported("Static-set List has no exact List type annotation");
+        }
+        const auto* itemAnnotation = values.GetTypeAnn()
+            ->Cast<TListExprType>()->GetItemType();
+        bool itemNullable = false;
+        const TString itemType = TypeName(itemAnnotation, &itemNullable);
+        if (itemNullable) {
+            Unsupported("Static-set items must be non-nullable");
+        }
+        if (ParseCanonicalDecimalType(itemType)) {
+            Unsupported("Static-set Decimal membership is unsupported");
+        }
+
+        const auto& listDescriptor = *values.Child(0);
+        if (!listDescriptor.IsCallable("ListType") ||
+            listDescriptor.ChildrenSize() != 1 ||
+            !listDescriptor.GetTypeAnn() ||
+            listDescriptor.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Type)
+        {
+            Unsupported("Static-set List has an invalid ListType descriptor");
+        }
+        const auto* describedList = listDescriptor.GetTypeAnn()
+            ->Cast<TTypeExprType>()->GetType();
+        if (!describedList || describedList->GetKind() != ETypeAnnotationKind::List ||
+            !IsSameAnnotation(
+                *describedList->Cast<TListExprType>()->GetItemType(),
+                *itemAnnotation))
+        {
+            Unsupported("Static-set ListType annotation disagrees with its List");
+        }
+        bool descriptorNullable = false;
+        if (DataTypeDescriptorName(
+                *listDescriptor.Child(0),
+                &descriptorNullable) != itemType ||
+            descriptorNullable)
+        {
+            Unsupported("Static-set ListType descriptor disagrees with its item type");
+        }
+
+        bool lookupNullable = false;
+        if (ScalarTypeName(lookup, &lookupNullable, binary64Mode) != itemType || lookupNullable) {
+            Unsupported("Static-set Contains lookup must exactly match its item type");
+        }
+
+        const auto checkUnaryLambda = [&](const TExprNode& lambda, TStringBuf label) {
+            if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+                !lambda.Child(0)->IsArguments() ||
+                lambda.Child(0)->ChildrenSize() != 1 ||
+                !lambda.Child(0)->Child(0)->IsArgument())
+            {
+                Unsupported(TStringBuilder()
+                    << "Static-set ToDict " << label << " must be a unary lambda");
+            }
+            const auto& argument = *lambda.Child(0)->Child(0);
+            bool nullable = false;
+            if (ScalarTypeName(argument, &nullable, binary64Mode) != itemType || nullable) {
+                Unsupported(TStringBuilder()
+                    << "Static-set ToDict " << label << " argument has the wrong type");
+            }
+            CheckScalarSafetyMetadata(lambda);
+            CheckScalarSafetyMetadata(*lambda.Child(0));
+            CheckScalarSafetyMetadata(argument);
+            return &argument;
+        };
+
+        const auto& keyLambda = *dict.Child(1);
+        const auto* keyArgument = checkUnaryLambda(keyLambda, "key selector");
+        if (keyLambda.Child(1) != keyArgument) {
+            Unsupported("Static-set ToDict key selector must be identity");
+        }
+
+        const auto& payloadLambda = *dict.Child(2);
+        checkUnaryLambda(payloadLambda, "payload selector");
+        const auto& payload = *payloadLambda.Child(1);
+        if (!payload.IsCallable("Void") || payload.ChildrenSize() != 0 ||
+            !payload.GetTypeAnn() ||
+            payload.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Void)
+        {
+            Unsupported("Static-set ToDict payload selector must return Void");
+        }
+
+        const auto& settings = *dict.Child(3);
+        if (!settings.IsList() || settings.ChildrenSize() != 2 ||
+            !settings.Child(0)->IsAtom("One") ||
+            !settings.Child(1)->IsAtom("Auto"))
+        {
+            Unsupported("Static-set ToDict settings must be exactly (One, Auto)");
+        }
+
+        if (!dict.GetTypeAnn() ||
+            dict.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Dict)
+        {
+            Unsupported("Static-set ToDict has no exact Dict type annotation");
+        }
+        const auto* dictType = dict.GetTypeAnn()->Cast<TDictExprType>();
+        if (!IsSameAnnotation(*dictType->GetKeyType(), *itemAnnotation) ||
+            dictType->GetPayloadType()->GetKind() != ETypeAnnotationKind::Void)
+        {
+            Unsupported("Static-set ToDict annotation disagrees with its selectors");
+        }
+
+        CheckScalarSafetyMetadata(node);
+        CheckScalarSafetyMetadata(dict);
+        CheckScalarSafetyMetadata(values);
+        CheckScalarSafetyMetadata(listDescriptor);
+        CheckScalarSafetyMetadata(payload);
+        CheckScalarSafetyMetadata(settings);
+
+        auto items = JsonArray();
+        for (size_t index = 1; index < values.ChildrenSize(); ++index) {
+            const auto& item = *values.Child(index);
+            bool nullable = false;
+            if (ScalarTypeName(item, &nullable, binary64Mode) != itemType || nullable) {
+                Unsupported("Static-set List items must have one non-null type");
+            }
+            items.AppendValue(ExportExprNode(
+                item,
+                rowArgument,
+                visibleColumns,
+                boundArguments,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1, binary64Mode));
+        }
+
+        auto result = JsonMap();
+        result["kind"] = "in";
+        // A required input needs no IfPresent binder. Export through the
+        // ordinary scalar path so visibility, binding and metadata audits
+        // apply equally to a direct member and a nullable input's bound value.
+        result["lookup"] = ExportExprNode(
+            *lookupValue, rowArgument, visibleColumns, boundArguments, budget,
+            normalizedDepth + 1, sourceDepth + (lookupValue == &lookup ? 1 : 2), binary64Mode);
+        result["items"] = std::move(items);
+        return result;
+    }
+
+    if (IsStringDateSafeCastCandidate(node)) {
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+        if (node.Child(0)->IsCallable({"String", "Utf8"})) {
+            return ConstantDateValue(ParseDateSafeCast(node));
+        }
+        const bool nullable = CheckStringDateSafeCast(node);
+        if (nullable) {
+            if (boundArguments.size() >= MaxIfPresentBindingDepth) {
+                Unsupported("Date SafeCast binding depth exceeds the audit limit");
+            }
+            budget.Charge(normalizedDepth + 1, 2); // Parser and NULL fallback.
+            budget.Charge(normalizedDepth + 2); // Bound present bytes.
+        }
+        return DynamicStringDateSafeCastExpr(ExportExprNode(
+            *node.Child(0), rowArgument, visibleColumns, boundArguments,
+            budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode), nullable);
+    }
+
+    if (node.IsCallable("SafeCast") && node.ChildrenSize() == 2) {
+        bool sourceNullable = false, resultNullable = false;
+        const TString sourceType = ScalarTypeName(*node.Child(0), &sourceNullable, binary64Mode);
+        const TString resultType = ScalarTypeName(node, &resultNullable, binary64Mode);
+        if (!sourceNullable && !resultNullable && IsIntegerType(sourceType) && IsIntegerType(resultType) &&
+            node.Child(0)->IsCallable(sourceType) &&
+            CastResult<false>(node.Child(0)->GetTypeAnn(), node.GetTypeAnn()) == NUdf::ECastOptions::Complete)
+        {
+            CheckDataDescriptor(*node.Child(1), *NUdf::FindDataSlot(resultType), false,
+                "Complete integer literal SafeCast target");
+            TOpaqueSourceAuditor(rowArgument, visibleColumns, boundArguments).RequireExactLoweringSource(node);
+            auto result = LiteralExpr(*node.Child(0));
+            result["type"] = resultType;
+            return result;
+        }
+    }
+
+    if (IsPartialIntegralSafeCast(node)) {
+        const TString resultType = CheckPartialIntegralSafeCastCallable(node);
+
+        // Keep the same closed-world totality and metadata audit as opaque
+        // expressions while assigning this checked conversion an exact value.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+
+        auto result = JsonMap();
+        result["kind"] = "cast_integral";
+        result["arg"] = ExportExprNode(
+            *node.Child(0),
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["type"] = resultType;
+        result["nullable"] = true;
+        return result;
+    }
+
+    if (node.IsCallable("SafeCast") &&
+        ParseCanonicalDecimalType(ScalarTypeName(node, nullptr, binary64Mode)))
+    {
+        if (IsStringDecimalSafeCastCandidate(node)) {
+            auto result = StringLiteralDecimalSafeCastExpr(node);
+
+            // Keep the closed-world safety and metadata audit even though this
+            // fixed conversion is normalized to a literal or typed NULL.
+            TOpaqueSourceAuditor(
+                rowArgument,
+                visibleColumns,
+                boundArguments).RequireExactLoweringSource(node);
+            return result;
+        }
+
+        const auto cast = CheckExactDecimalSafeCastCallable(node);
+        if (IsCompleteIntegerLiteralDecimalCast(node)) {
+            return DecimalConstantCastExpr(node);
+        }
+
+        // Retain the closed-world node checks used by opaque expressions while
+        // assigning this reviewed cast shape an exact verifier meaning.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+
+        if (cast.OptionalIdentity) {
+            budget.Charge(normalizedDepth + 1, 2); // Synthetic true and typed NULL.
+            return AlwaysPresentOptionalExpr(
+                ExportExprNode(*node.Child(0), rowArgument, visibleColumns,
+                    boundArguments, budget, normalizedDepth + 1,
+                    sourceDepth + 1, binary64Mode),
+                cast.ResultType);
+        }
+
+        auto result = JsonMap();
+        result["kind"] = "cast_decimal";
+        result["arg"] = ExportExprNode(
+            *node.Child(0),
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["source_type"] = cast.SourceType;
+        result["type"] = cast.ResultType;
+        result["nullable"] = cast.Nullable;
+        return result;
+    }
+
+    if (node.IsCallable("Convert") &&
+        ParseCanonicalDecimalType(ScalarTypeName(node, nullptr, binary64Mode)))
+    {
+        return DecimalConstantCastExpr(node);
+    }
+
+    if (node.IsCallable("Nothing")) {
+        const TString type = NothingTypeName(node);
+        auto result = JsonMap();
+        result["kind"] = "null";
+        result["type"] = type;
+        return result;
+    }
+
+    if (node.IsCallable({"EndsWith", "StringContains"})) {
+        const bool nullable = CheckCanonicalStringPredicateCallable(node);
+
+        // Retain the closed-world node metadata audit while assigning the
+        // generic expression the same stable uninterpreted identity as the
+        // pushed OLAP spelling. The direct operand grammar keeps that bridge
+        // small and makes argument order visible in the IR.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+        return CanonicalStringPredicateExpr(
+            node.Content(),
+            nullable,
+            ExportExprNode(
+                *node.Child(0),
+                rowArgument,
+                visibleColumns,
+                boundArguments,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1, binary64Mode),
+            ExportExprNode(
+                *node.Child(1),
+                rowArgument,
+                visibleColumns,
+                boundArguments,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1, binary64Mode));
+    }
+
+    if (node.IsCallable("SqlIn")) {
+        constexpr size_t MaxItems = 512;
+        if (node.ChildrenSize() != 3) {
+            Unsupported("SqlIn must have exactly three arguments");
+        }
+
+        bool lookupNullable = false;
+        const TString lookupType = ScalarTypeName(*node.Child(1), &lookupNullable, binary64Mode);
+        bool resultNullable = false;
+        if (ScalarTypeName(node, &resultNullable, binary64Mode) != "Bool") {
+            Unsupported("SqlIn result is not Bool");
+        }
+        const auto& collection = *node.Child(0);
+        if (collection.IsCallable("Parameter")) {
+            CheckScalarSafetyMetadata(node);
+            AuditListParameterLookupSafety(*node.Child(1));
+            const auto parameter = AuditStringListParameter(collection);
+            const bool ansi = AuditListParameterSqlInOptions(*node.Child(2));
+            if (lookupType != "String" || resultNullable != (lookupNullable || (ansi && parameter.NullableItems))) {
+                Unsupported("SqlIn List Parameter lookup/result type or nullability disagrees");
+            }
+            auto result = JsonMap();
+            result["kind"] = "in_parameter";
+            result["name"] = parameter.Name;
+            result["parameter_type"] = parameter.Type;
+            result["ansi"] = ansi;
+            result["type"] = "Bool";
+            result["nullable"] = resultNullable;
+            result["lookup"] = ExportExprNode(
+                *node.Child(1), rowArgument, visibleColumns, boundArguments, budget,
+                normalizedDepth + 1, sourceDepth + 1, binary64Mode);
+            return result;
+        }
+        if (resultNullable != lookupNullable) {
+            Unsupported("SqlIn result nullability does not match its lookup");
+        }
+
+        if (!collection.IsList() && !collection.IsCallable("AsList")) {
+            Unsupported("SqlIn collection is not a direct static tuple or AsList");
+        }
+        if (collection.ChildrenSize() == 0 || collection.ChildrenSize() > MaxItems) {
+            Unsupported(TStringBuilder()
+                << "SqlIn static collection size must be in [1, " << MaxItems << "]");
+        }
+
+        if (!collection.GetTypeAnn()) {
+            Unsupported("SqlIn static collection has no type annotation");
+        }
+        TVector<TString> annotatedItemTypes;
+        annotatedItemTypes.reserve(collection.ChildrenSize());
+        TVector<bool> provenPresentItems(collection.ChildrenSize(), false);
+        if (collection.IsList()) {
+            if (collection.GetTypeAnn()->GetKind() != ETypeAnnotationKind::Tuple) {
+                Unsupported("SqlIn raw static collection is not typed as a tuple");
+            }
+            const auto* tupleType = collection.GetTypeAnn()->Cast<TTupleExprType>();
+            if (tupleType->GetSize() != collection.ChildrenSize()) {
+                Unsupported("SqlIn static tuple annotation has the wrong size");
+            }
+            for (size_t index = 0; index < tupleType->GetSize(); ++index) {
+                const auto* itemType = tupleType->GetItems()[index];
+                bool nullable = false;
+                const TString type = TypeName(itemType, &nullable);
+                if (nullable) {
+                    provenPresentItems[index] =
+                        type == "Date" &&
+                        IsProvenPresentStaticSqlInDateSafeCast(
+                            *collection.Child(index));
+                    if (!provenPresentItems[index]) {
+                        Unsupported("SqlIn static tuple item annotation is nullable");
+                    }
+                }
+                if (!StaticSqlInEqualityCompatible(lookupType, type)) {
+                    Unsupported("SqlIn static tuple item is not equality-compatible with its lookup");
+                }
+                annotatedItemTypes.push_back(type);
+            }
+            if (std::any_of(
+                annotatedItemTypes.begin(),
+                annotatedItemTypes.end(),
+                [&](const TString& type) { return type != annotatedItemTypes.front(); }))
+            {
+                Unsupported("SqlIn static tuple must have one item type");
+            }
+        } else {
+            if (collection.GetTypeAnn()->GetKind() != ETypeAnnotationKind::List) {
+                Unsupported("SqlIn AsList collection is not typed as a list");
+            }
+            bool nullable = false;
+            const auto* itemType = collection.GetTypeAnn()->Cast<TListExprType>()->GetItemType();
+            const TString type = TypeName(itemType, &nullable);
+            if (nullable) {
+                Unsupported("SqlIn AsList item annotation is nullable");
+            }
+            if (!StaticSqlInEqualityCompatible(lookupType, type)) {
+                Unsupported("SqlIn AsList item is not equality-compatible with its lookup");
+            }
+            annotatedItemTypes.assign(collection.ChildrenSize(), type);
+        }
+
+        auto items = JsonArray();
+        for (size_t index = 0; index < collection.ChildrenSize(); ++index) {
+            const auto& item = *collection.Child(index);
+            bool nullable = false;
+            const TString type = ScalarTypeName(item, &nullable, binary64Mode);
+            if (nullable && !provenPresentItems[index]) {
+                Unsupported("SqlIn item is nullable");
+            }
+            if (type != annotatedItemTypes[index]) {
+                Unsupported("SqlIn item type does not match its collection annotation");
+            }
+            items.AppendValue(ExportExprNode(
+                item,
+                rowArgument,
+                visibleColumns,
+                boundArguments,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1, binary64Mode));
+        }
+
+        const auto& options = *node.Child(2);
+        if (!options.IsList()) {
+            Unsupported("SqlIn options are not a tuple");
+        }
+        THashSet<TString> optionNames;
+        for (const auto& option : options.Children()) {
+            if (!option->IsList() || option->ChildrenSize() != 1 ||
+                !option->Child(0)->IsAtom())
+            {
+                Unsupported("SqlIn option must be a one-atom tuple");
+            }
+            const TString name(option->Child(0)->Content());
+            if (name == "tableSource") {
+                Unsupported("SqlIn tableSource collections are unsupported");
+            }
+            // For a nonempty, non-null collection with one losslessly comparable
+            // item type, ANSI and legacy IN have the same 3VL result. The other
+            // accepted flags control warnings, representation, or optimizer
+            // bookkeeping only. tableSource is rejected above because it changes
+            // how collection items are extracted.
+            if (name != "ansi" && name != "warnNoAnsi" &&
+                name != "isCompact" && name != "nullsProcessed")
+            {
+                Unsupported(TStringBuilder() << "Unsupported SqlIn option " << name);
+            }
+            if (!optionNames.insert(name).second) {
+                Unsupported(TStringBuilder() << "Duplicate SqlIn option " << name);
+            }
+        }
+
+        auto result = JsonMap();
+        result["kind"] = "in";
+        result["lookup"] = ExportExprNode(
+            *node.Child(1),
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["items"] = std::move(items);
+        return result;
+    }
+
+    if (node.IsCallable("And") || node.IsCallable("Or")) {
+        if (node.ChildrenSize() == 0) {
+            Unsupported(TStringBuilder() << node.Content() << " has no arguments");
+        }
+        auto result = JsonMap();
+        result["kind"] = node.IsCallable("And") ? "and" : "or";
+        auto args = JsonArray();
+        for (const auto& child : node.Children()) {
+            args.AppendValue(ExportExprNode(
+                *child,
+                rowArgument,
+                visibleColumns,
+                boundArguments,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1, binary64Mode));
+        }
+        result["args"] = std::move(args);
+        return result;
+    }
+
+    if (node.IsCallable("Not")) {
+        if (node.ChildrenSize() != 1) {
+            Unsupported("Not must have exactly one argument");
+        }
+        auto result = JsonMap();
+        result["kind"] = "not";
+        result["arg"] = ExportExprNode(
+            *node.Child(0),
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        return result;
+    }
+
+    if (node.IsCallable("Abs")) {
+        CheckExactDecimalAbsCallable(node);
+        CheckScalarSafetyMetadata(node);
+
+        auto result = JsonMap();
+        result["kind"] = "decimal_abs";
+        result["arg"] = ExportExprNode(
+            *node.Child(0),
+            rowArgument,
+            visibleColumns,
+            boundArguments,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1, binary64Mode);
+        result["type"] = "Decimal(35,2)";
+        result["nullable"] = true;
+        return result;
+    }
+
+    if (node.IsCallable({"==", "!=", "<", "<=", ">", ">=", "IsNotDistinctFrom"})) {
+        CheckComparisonCallable(node, !binary64Mode, binary64Mode);
+        const bool equality = node.IsCallable({"==", "!=", "IsNotDistinctFrom"});
+        const bool negated = node.IsCallable("!=");
+        if (negated) {
+            budget.Charge(normalizedDepth + 1); // Inner equality below Not.
+        }
+        const size_t childDepth = normalizedDepth + (negated ? 2 : 1);
+
+        static const THashMap<TString, TString> Kinds = {
+            {"<", "lt"},
+            {"<=", "lte"},
+            {">", "gt"},
+            {">=", "gte"},
+        };
+        auto result = BinaryExpr(
+            equality ? TStringBuf("eq") : TStringBuf(Kinds.at(TString(node.Content()))),
+            ExportExprNode(
+                *node.Child(0), rowArgument, visibleColumns, boundArguments,
+                budget, childDepth, sourceDepth + 1, binary64Mode),
+            ExportExprNode(
+                *node.Child(1), rowArgument, visibleColumns, boundArguments,
+                budget, childDepth, sourceDepth + 1, binary64Mode));
+        if (node.IsCallable("IsNotDistinctFrom")) {
+            result["null_safe"] = true;
+        }
+        return negated ? NotExpr(std::move(result)) : std::move(result);
+    }
+
+    if (node.IsCallable({"+", "-", "*"}) && node.ChildrenSize() == 2) {
+        bool resultNullable = false;
+        bool leftNullable = false;
+        bool rightNullable = false;
+        const TString resultType = ScalarTypeName(node, &resultNullable, binary64Mode);
+        const TString leftType = ScalarTypeName(*node.Child(0), &leftNullable, binary64Mode);
+        const TString rightType = ScalarTypeName(*node.Child(1), &rightNullable, binary64Mode);
+        const bool exactInteger =
+            IsIntegerType(resultType) &&
+            leftType == resultType &&
+            rightType == resultType;
+        const bool exactDecimalAddOrSub =
+            node.IsCallable({"+", "-"}) &&
+            ParseCanonicalDecimalType(resultType) &&
+            leftType == resultType &&
+            rightType == resultType;
+        if ((exactInteger || exactDecimalAddOrSub) &&
+            resultNullable == (leftNullable || rightNullable))
+        {
+            // Keep the old closed-world and safety checks even though the result
+            // now has a concrete verifier meaning instead of an opaque identity.
+            TOpaqueSourceAuditor(
+                rowArgument,
+                visibleColumns,
+                boundArguments).RequireExactLoweringSource(node);
+
+            TStringBuf kind;
+            if (node.IsCallable("+")) {
+                kind = "add";
+            } else if (node.IsCallable("-")) {
+                kind = "sub";
+            } else {
+                kind = "mul";
+            }
+            auto result = BinaryExpr(
+                kind,
+                ExportExprNode(
+                    *node.Child(0), rowArgument, visibleColumns, boundArguments,
+                    budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode),
+                ExportExprNode(
+                    *node.Child(1), rowArgument, visibleColumns, boundArguments,
+                    budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode));
+            result["type"] = resultType;
+            result["nullable"] = resultNullable;
+            return result;
+        }
+    }
+
+    if (node.IsCallable("/") &&
+        IsIntegerType(ScalarTypeName(node, nullptr, binary64Mode)))
+    {
+        const auto signature = CheckIntegralDivisionCallable(node);
+
+        // Retain the closed-world node checks used by opaque expressions.
+        // Integral division is total in MiniKQL because its invalid arithmetic
+        // cases produce Optional NULL rather than an observable failure.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+
+        auto result = BinaryExpr(
+            "div",
+            ExportExprNode(
+                *node.Child(0), rowArgument, visibleColumns, boundArguments,
+                budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode),
+            ExportExprNode(
+                *node.Child(1), rowArgument, visibleColumns, boundArguments,
+                budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode));
+        result["type"] = signature.ResultType;
+        result["nullable"] = signature.ResultNullable;
+        return result;
+    }
+
+    if (node.IsCallable({"DecimalMul", "DecimalDiv"})) {
+        const auto signature = CheckDecimalArithmeticCallable(node);
+
+        // Retain the same closed-world node checks as opaque expressions while
+        // giving the admitted Decimal arithmetic an exact verifier meaning.
+        TOpaqueSourceAuditor(
+            rowArgument,
+            visibleColumns,
+            boundArguments).RequireExactLoweringSource(node);
+
+        const TStringBuf kind = node.IsCallable("DecimalMul") ? "mul" : "div";
+        auto result = BinaryExpr(
+            kind,
+            ExportExprNode(
+                *node.Child(0), rowArgument, visibleColumns, boundArguments,
+                budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode),
+            ExportExprNode(
+                *node.Child(1), rowArgument, visibleColumns, boundArguments,
+                budget, normalizedDepth + 1, sourceDepth + 1, binary64Mode));
+        result["type"] = signature.ResultType;
+        result["nullable"] = signature.ResultNullable;
+        return result;
+    }
+
+    return TOpaqueSourceAuditor(
+        rowArgument,
+        visibleColumns,
+        boundArguments).AuditOpaque(node).Export(budget, normalizedDepth + 1);
+}
+
+NJson::TJsonValue ExportExprWithBudget(
+    const TExpression& expression,
+    const THashSet<TString>& visibleColumns,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    bool binary64Mode = false)
+{
+    if (!expression.Node || !expression.Node->IsLambda() || expression.Node->ChildrenSize() != 2) {
+        Unsupported("RBO expression is not a one-body lambda");
+    }
+    const auto* arguments = expression.Node->Child(0);
+    if (!arguments->IsArguments() || arguments->ChildrenSize() != 1 ||
+        !arguments->Child(0)->IsArgument())
+    {
+        Unsupported("RBO expression does not have exactly one row argument");
+    }
+    return ExportExprNode(
+        *expression.GetExpressionBody(),
+        arguments->Child(0),
+        visibleColumns,
+        {},
+        budget,
+        normalizedDepth,
+        1,
+        binary64Mode);
+}
+
+NJson::TJsonValue ExportExpr(
+    const TExpression& expression,
+    const THashSet<TString>& visibleColumns,
+    bool binary64Mode = false)
+{
+    TExactScalarBudget budget;
+    auto result = ExportExprWithBudget(expression, visibleColumns, budget, 1, binary64Mode);
+    AuditExactScalarExpression(result);
+    return result;
+}
+
+NJson::TJsonValue ExportExpr(
+    const TExpression& expression,
+    const THashSet<TString>& visibleColumns,
+    const TStoredStringColumns& storedStringColumns,
+    bool binary64Mode = false)
+{
+    if (!expression.Node ||
+        !expression.Node->IsLambda() ||
+        expression.Node->ChildrenSize() != 2)
+    {
+        Unsupported("RBO expression is not a one-body lambda");
+    }
+    const auto* arguments = expression.Node->Child(0);
+    if (!arguments->IsArguments() ||
+        arguments->ChildrenSize() != 1 ||
+        !arguments->Child(0)->IsArgument())
+    {
+        Unsupported("RBO expression does not have exactly one row argument");
+    }
+    const auto body = expression.GetExpressionBody();
+    if (!body->IsCallable("Concat")) {
+        return ExportExpr(expression, visibleColumns, binary64Mode);
+    }
+
+    if (auto folded = TLiteralStringConcatFolder::TryFold(*body)) {
+        AuditExactScalarExpression(*folded);
+        return std::move(*folded);
+    }
+
+    TExactScalarBudget budget;
+    budget.Charge(1);
+    auto result = TRestrictedConcatAuditor(
+        arguments->Child(0),
+        visibleColumns,
+        storedStringColumns).Export(*body, budget, 2);
+    AuditExactScalarExpression(result);
+    return result;
+}
+
+#include "window_expression_export_impl.h"
+
+std::optional<TString> TryExtractErrorOnNullStringUnwrap(
+    const TExpression& expression,
+    const THashSet<TString>& physicalInputColumns)
+{
+    if (!expression.Node ||
+        !expression.Node->IsLambda() ||
+        expression.Node->ChildrenSize() != 2)
+    {
+        return std::nullopt;
+    }
+
+    const auto* arguments = expression.Node->Child(0);
+    const auto* body = expression.Node->Child(1);
+    if (!body->IsCallable("Unwrap")) {
+        return std::nullopt;
+    }
+
+    bool resultNullable = false;
+    const TString resultType = ScalarTypeName(*body, &resultNullable);
+    if (resultType == "Date") {
+        // The separately audited, proven-total Date normalization is exported
+        // as an ordinary scalar expression below.
+        return std::nullopt;
+    }
+    if (resultType != "String" || resultNullable) {
+        Unsupported(
+            "Exact error-on-null String Unwrap requires a non-null String result");
+    }
+    if (body->ChildrenSize() != 1) {
+        Unsupported(
+            "Exact error-on-null String Unwrap requires exactly one argument");
+    }
+    if (!arguments->IsArguments() ||
+        arguments->ChildrenSize() != 1 ||
+        !arguments->Child(0)->IsArgument())
+    {
+        Unsupported(
+            "Exact error-on-null String Unwrap requires exactly one row argument");
+    }
+
+    const auto* rowArgument = arguments->Child(0);
+    const auto& member = *body->Child(0);
+    bool memberNullable = false;
+    if (!member.IsCallable("Member") ||
+        member.ChildrenSize() != 2 ||
+        !member.Child(1)->IsAtom() ||
+        ScalarTypeName(member, &memberNullable) != "String" ||
+        !memberNullable ||
+        member.Child(0) != rowArgument)
+    {
+        Unsupported(
+            "Exact error-on-null String Unwrap requires a direct "
+            "Optional<String> input member");
+    }
+
+    const TString column(member.Child(1)->Content());
+    if (!physicalInputColumns.contains(column)) {
+        Unsupported(TStringBuilder()
+            << "Exact error-on-null String Unwrap member is not a physical "
+               "Map input column: "
+            << column);
+    }
+
+    // The admitted source tree is deliberately closed. In particular,
+    // Unwrap is not added to the generic scalar allow-list: its exceptional
+    // NULL path is represented by projection metadata at this Map boundary.
+    CheckScalarSafetyMetadata(*expression.Node);
+    CheckScalarSafetyMetadata(*arguments);
+    CheckScalarSafetyMetadata(*rowArgument);
+    CheckScalarSafetyMetadata(*body);
+    CheckScalarSafetyMetadata(member);
+    CheckScalarSafetyMetadata(*member.Child(1));
+
+    return column;
+}
+
+struct TOlapColumn {
+    TString Output;
+    TString Type;
+    bool Nullable = false;
+    bool Ambiguous = false;
+};
+
+using TOlapColumnMap = THashMap<TString, TOlapColumn>;
+
+void AddOlapColumnReference(
+    TOlapColumnMap& columns,
+    TStringBuf reference,
+    const TOlapColumn& column)
+{
+    if (reference.empty()) {
+        Unsupported("OLAP read column reference is empty");
+    }
+    const auto [it, inserted] =
+        columns.emplace(TString(reference), column);
+    if (!inserted &&
+        (it->second.Output != column.Output ||
+         it->second.Type != column.Type ||
+         it->second.Nullable != column.Nullable))
+    {
+        it->second.Ambiguous = true;
+    }
+}
+
+const TOlapColumn* ResolveOlapColumn(
+    TStringBuf reference,
+    const TOlapColumnMap& columns)
+{
+    const auto* column = columns.FindPtr(TString(reference));
+    if (!column) {
+        Unsupported(TStringBuilder()
+            << "OLAP predicate references unavailable read column "
+            << reference);
+    }
+    if (column->Ambiguous) {
+        Unsupported(TStringBuilder()
+            << "Ambiguous OLAP read column reference " << reference);
+    }
+    return column;
+}
+
+NJson::TJsonValue ExportOlapScalar(
+    const TExprNode::TPtr& node,
+    const TOlapColumnMap& columns,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth);
+
+NJson::TJsonValue OlapColumnExpr(
+    TStringBuf reference,
+    const TOlapColumnMap& columns)
+{
+    const auto* column = ResolveOlapColumn(reference, columns);
+    return ColumnExpr(column->Output);
+}
+
+struct TOlapCompiledLike {
+    TString Output;
+    TString Pattern;
+    bool Negated = false;
+    TString Type;
+    bool Nullable = true;
+};
+
+TString CheckOlapDataTypeDescriptor(
+    const TExprNode& node,
+    bool* nullable)
+{
+    bool descriptorNullable = false;
+    const TString type =
+        DataTypeDescriptorName(node, &descriptorNullable);
+
+    const auto checkAnnotation = [&](
+        const TExprNode& candidate,
+        bool expectedNullable)
+    {
+        if (!candidate.GetTypeAnn()) {
+            return;
+        }
+        bool annotationNullable = false;
+        const TString annotationType = TypeName(
+            &DescribedType(
+                candidate,
+                "Compiled LIKE OLAP Apply table row field"),
+            &annotationNullable);
+        if (annotationType != type ||
+            annotationNullable != expectedNullable)
+        {
+            Unsupported(
+                "Compiled LIKE OLAP Apply table row field annotation "
+                "disagrees with its descriptor");
+        }
+    };
+
+    checkAnnotation(node, descriptorNullable);
+    const TExprNode* dataType =
+        descriptorNullable ? node.Child(0) : &node;
+    if (descriptorNullable) {
+        checkAnnotation(*dataType, false);
+    }
+    for (const auto& child : dataType->Children()) {
+        if (child->GetTypeAnn() &&
+            child->GetTypeAnn()->GetKind() != ETypeAnnotationKind::Unit)
+        {
+            Unsupported(
+                "Compiled LIKE OLAP Apply table row descriptor atom has "
+                "a non-Unit annotation");
+        }
+    }
+    if (nullable) {
+        *nullable = descriptorNullable;
+    }
+    return type;
+}
+
+struct TCheckedOlapStringApply {
+    const TOlapColumn* Column;
+    const TExprNode* Argument;
+    const TExprNode* Body;
+};
+
+TCheckedOlapStringApply CheckOlapStringApply(
+    const TKqpOlapApply& operation,
+    const TOlapColumnMap& columns,
+    size_t sourceDepth)
+{
+    const auto& node = operation.Ref();
+    CheckCompiledLikeSafetyTree(node, sourceDepth);
+    if (node.ChildrenSize() != 3 ||
+        node.GetTypeAnn())
+    {
+        Unsupported(
+            "Compiled LIKE OLAP Apply requires exactly three children "
+            "and no post-pushdown annotation");
+    }
+
+    const auto& lambda = *node.Child(0);
+    if (!lambda.IsLambda() || lambda.ChildrenSize() != 2 ||
+        lambda.GetTypeAnn())
+    {
+        Unsupported(
+            "Compiled LIKE OLAP Apply requires one unannotated lambda");
+    }
+    const auto& lambdaArguments = *lambda.Child(0);
+    if (!lambdaArguments.IsArguments() ||
+        lambdaArguments.ChildrenSize() != 1 ||
+        !lambdaArguments.Child(0)->IsArgument() ||
+        lambdaArguments.GetTypeAnn() ||
+        lambdaArguments.Child(0)->GetTypeAnn())
+    {
+        Unsupported(
+            "Compiled LIKE OLAP Apply lambda requires exactly one "
+            "unannotated argument");
+    }
+    const auto* lambdaArgument = lambdaArguments.Child(0);
+
+    const auto& args = *node.Child(1);
+    if (!args.IsList() || args.ChildrenSize() != 1 ||
+        args.GetTypeAnn())
+    {
+        Unsupported(
+            "Compiled LIKE OLAP Apply requires exactly one argument");
+    }
+    const auto& columnArg = *args.Child(0);
+    if (!columnArg.IsCallable("KqpOlapApplyColumnArg") ||
+        columnArg.ChildrenSize() != 2 ||
+        columnArg.GetTypeAnn())
+    {
+        Unsupported(
+            "Compiled LIKE OLAP Apply requires one Optional<String> "
+            "column argument");
+    }
+    const auto& columnNameNode = *columnArg.Child(1);
+    if (!columnNameNode.IsAtom() || columnNameNode.Content().empty() ||
+        columnNameNode.GetTypeAnn())
+    {
+        Unsupported(
+            "Compiled LIKE OLAP Apply column name must be a nonempty Atom");
+    }
+    const TString columnName(columnNameNode.Content());
+
+    const auto& rowTypeNode = *columnArg.Child(0);
+    if (!rowTypeNode.IsCallable("StructType") || rowTypeNode.ChildrenSize() == 0)
+    {
+        Unsupported(
+            "Compiled LIKE OLAP Apply table row type is not StructType");
+    }
+    // ExpandType now preserves the Type<Struct<...>> annotation. Check every
+    // descriptor field against it, rather than accepting a contradictory type
+    // or requiring the obsolete, entirely unannotated representation.
+    const TStructExprType* annotatedRow = nullptr;
+    if (rowTypeNode.GetTypeAnn()) {
+        const auto& described = DescribedType(rowTypeNode, "Compiled LIKE OLAP row");
+        if (described.GetKind() != ETypeAnnotationKind::Struct) {
+            Unsupported("Compiled LIKE OLAP row annotation is not a Struct type");
+        }
+        annotatedRow = described.Cast<TStructExprType>();
+        if (annotatedRow->GetSize() != rowTypeNode.ChildrenSize()) {
+            Unsupported("Compiled LIKE OLAP row annotation has different fields");
+        }
+    }
+    const TExprNode* selectedDescriptor = nullptr;
+    TString previousName;
+    for (size_t index = 0; index < rowTypeNode.ChildrenSize(); ++index) {
+        const auto& field = *rowTypeNode.Child(index);
+        if (!field.IsList() || field.ChildrenSize() != 2 ||
+            !field.Child(0)->IsAtom() ||
+            (field.Child(0)->GetTypeAnn() &&
+             field.Child(0)->GetTypeAnn()->GetKind() != ETypeAnnotationKind::Unit) ||
+            field.Child(0)->Content().empty())
+        {
+            Unsupported(
+                "Compiled LIKE OLAP Apply table row field is not "
+                "canonical");
+        }
+        const TString fieldName(field.Child(0)->Content());
+        if (index > 0 && fieldName <= previousName) {
+            Unsupported(
+                "Compiled LIKE OLAP Apply table row fields are not "
+                "strictly ordered");
+        }
+        previousName = fieldName;
+
+        bool nullable = false;
+        const TString type =
+            CheckOlapDataTypeDescriptor(*field.Child(1), &nullable);
+        if (const auto annotation = field.GetTypeAnn()) {
+            // The type annotator assigns Unit to a list containing a Unit
+            // atom (type_ann_expr.cpp), including StructType field pairs.
+            if (annotation->GetKind() != ETypeAnnotationKind::Unit) {
+                Unsupported("Compiled LIKE OLAP row field annotation is not Unit");
+            }
+        }
+        if (annotatedRow) {
+            const auto* annotatedField = annotatedRow->FindItemType(fieldName);
+            bool annotatedNullable = false;
+            if (!annotatedField || TypeName(annotatedField, &annotatedNullable) != type ||
+                annotatedNullable != nullable)
+            {
+                Unsupported("Compiled LIKE OLAP row annotation disagrees with its descriptor");
+            }
+        }
+        if (fieldName == columnName) {
+            if (!IsStringType(type)) {
+                Unsupported("Compiled LIKE OLAP Apply selected row field is not String or Utf8");
+            }
+            selectedDescriptor = field.Child(1);
+        }
+    }
+    if (!selectedDescriptor) {
+        Unsupported(
+            "Compiled LIKE OLAP Apply table row type omits its column");
+    }
+
+    const auto* column = ResolveOlapColumn(columnName, columns);
+    if (!IsStringType(column->Type)) {
+        Unsupported("Compiled LIKE OLAP Apply requires a String or Utf8 read column");
+    }
+    bool selectedNullable = false;
+    if (CheckOlapDataTypeDescriptor(*selectedDescriptor, &selectedNullable) != column->Type ||
+        selectedNullable != column->Nullable)
+    {
+        Unsupported("Compiled LIKE OLAP selected descriptor disagrees with the read column");
+    }
+    const auto& kernelName = *node.Child(2);
+    if (!kernelName.IsAtom() || !kernelName.Content().empty() ||
+        kernelName.GetTypeAnn())
+    {
+        Unsupported(
+            "Compiled LIKE OLAP Apply requires an empty kernel name");
+    }
+
+    return {column, lambdaArgument, lambda.Child(1)};
+}
+
+TOlapCompiledLike CheckOlapCompiledLike(
+    const TCheckedOlapStringApply& apply,
+    size_t sourceDepth)
+{
+    const auto* column = apply.Column;
+    const auto* lambdaArgument = apply.Argument;
+    const TExprNode* body = apply.Body;
+    bool negated = false;
+    if (body->IsCallable("Not")) {
+        if (body->ChildrenSize() != 1 ||
+            body->GetTypeAnn())
+        {
+            Unsupported(
+                "Compiled LIKE OLAP Apply has a malformed Not");
+        }
+        negated = true;
+        body = body->Child(0);
+    }
+
+    auto like = CheckCompiledLikeApply(
+        *body,
+        sourceDepth,
+        false,
+        ECompiledLikeOuterAnnotations::Absent);
+    const TExprNode* likeInput = like.Input;
+    if (!column->Nullable) {
+        if (!likeInput->IsCallable("Just") || likeInput->ChildrenSize() != 1) {
+            Unsupported("Compiled LIKE OLAP required column must have an exact Just lift");
+        }
+        likeInput = likeInput->Child(0);
+    }
+    if (column->Type == "Utf8") {
+        if (column->Nullable && likeInput->IsCallable("Map")) {
+            likeInput = CompiledLikeUtf8MapInput(*likeInput);
+        } else if (column->Nullable && likeInput->IsCallable("IfPresent")) {
+            likeInput = CompiledLikeUtf8IfPresentInput(*likeInput);
+        } else {
+            if (!likeInput->IsCallable("ToString") || likeInput->ChildrenSize() != 1 ||
+                likeInput->GetTypeAnn())
+            {
+                Unsupported("Compiled LIKE OLAP Utf8 input requires exact ToString conversion");
+            }
+            likeInput = likeInput->Child(0);
+        }
+    }
+    if (likeInput != lambdaArgument) {
+        Unsupported(
+            "Compiled LIKE OLAP Apply must apply to its sole lambda "
+            "argument");
+    }
+    return {
+        .Output = column->Output,
+        .Pattern = std::move(like.Pattern),
+        .Negated = negated,
+        .Type = column->Type,
+        .Nullable = column->Nullable,
+    };
+}
+
+NJson::TJsonValue ExportOlapDateCastComparison(
+    const TKqpOlapApply& operation,
+    const TOlapColumnMap& columns,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth)
+{
+    // YqlApplyPushdown removes annotations from the rebuilt path to its column
+    // argument. Validate that exact path and retain the typed constant and
+    // target descriptors; do not synthesize annotations for arbitrary Apply.
+    const auto apply = CheckOlapStringApply(operation, columns, sourceDepth);
+    const auto& coalesce = *apply.Body;
+    if (!coalesce.IsCallable("Coalesce") || coalesce.ChildrenSize() != 2 || coalesce.GetTypeAnn()) {
+        Unsupported("OLAP Date comparison requires unannotated Coalesce(predicate, false)");
+    }
+    const auto& comparison = *coalesce.Child(0);
+    static const THashMap<TString, TString> comparisons{
+        {"==", "eq"}, {"!=", "eq"}, {"<", "lt"}, {"<=", "lte"}, {">", "gt"}, {">=", "gte"}};
+    const auto* operationName = comparisons.FindPtr(TString(comparison.Content()));
+    if (!operationName || !comparison.IsCallable() || comparison.ChildrenSize() != 2 || comparison.GetTypeAnn()) {
+        Unsupported("OLAP Date comparison requires one unannotated comparison");
+    }
+    const auto& cast = *comparison.Child(0);
+    if (!cast.IsCallable("SafeCast") || cast.ChildrenSize() != 2 || cast.GetTypeAnn() ||
+        cast.Child(0) != apply.Argument)
+    {
+        Unsupported("OLAP Date comparison must cast only its bound String or Utf8 column");
+    }
+    CheckDataDescriptor(*cast.Child(1), NUdf::EDataSlot::Date, true, "OLAP Date SafeCast target");
+    const auto* literal = comparison.Child(1);
+    if (literal->IsCallable("Just")) {
+        if (literal->ChildrenSize() != 1 ||
+            !IsExactDataAnnotation(literal->GetTypeAnn(), NUdf::EDataSlot::Date, true))
+        {
+            Unsupported("OLAP Date comparison Just requires a typed Optional<Date> literal");
+        }
+        literal = literal->Child(0);
+    }
+    const auto date = ParseDirectDateLiteral(*literal);
+    const auto& fallback = *coalesce.Child(1);
+    if (!fallback.IsCallable("Bool") || fallback.ChildrenSize() != 1 ||
+        !fallback.Child(0)->IsAtom("false") ||
+        !IsExactDataAnnotation(fallback.GetTypeAnn(), NUdf::EDataSlot::Bool, false))
+    {
+        Unsupported("OLAP Date comparison requires a typed false fallback");
+    }
+    const bool negated = comparison.IsCallable("!=");
+    const size_t comparisonDepth = normalizedDepth + 1 + static_cast<size_t>(negated);
+    budget.Charge(normalizedDepth);
+    budget.Charge(normalizedDepth + 1, 3); // Predicate, identity handler and false.
+    if (negated) {
+        budget.Charge(comparisonDepth); // Equality below Not.
+    }
+    budget.Charge(comparisonDepth + 1, 2); // Date parser and constant.
+    budget.Charge(comparisonDepth + 2, apply.Column->Nullable ? 3 : 1);
+    if (apply.Column->Nullable) {
+        budget.Charge(comparisonDepth + 3); // Present parser argument.
+    }
+    auto predicate = BinaryExpr(*operationName,
+        DynamicStringDateSafeCastExpr(ColumnExpr(apply.Column->Output), apply.Column->Nullable),
+        ConstantDateValue(date));
+    auto result = JsonMap();
+    result["kind"] = "if_present";
+    result["optional"] = negated ? NotExpr(std::move(predicate)) : std::move(predicate);
+    result["present"] = BoundExpr(0);
+    result["missing"] = LiteralExpr(fallback);
+    result["type"] = "Bool";
+    result["nullable"] = false;
+    return result;
+}
+
+NJson::TJsonValue ExportOlapCompiledLike(
+    const TKqpOlapApply& operation,
+    const TOlapColumnMap& columns,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth)
+{
+    const auto apply = CheckOlapStringApply(operation, columns, sourceDepth);
+    // Pushdown may combine several total Re2.Match predicates over the same
+    // bound column. Admit only Boolean composition of the existing audited
+    // LIKE leaves; arbitrary Apply bodies remain unsupported.
+    const auto exportBody = [&](const auto& self, const TExprNode& body,
+                                size_t normalizedDepth, size_t sourceDepth) -> NJson::TJsonValue
+    {
+        if (body.IsCallable({"And", "Or"})) {
+            if (body.GetTypeAnn() || body.ChildrenSize() < 2) {
+                Unsupported("OLAP LIKE junction requires at least two unannotated Boolean operands");
+            }
+            budget.Charge(normalizedDepth);
+            auto result = JsonMap();
+            result["kind"] = body.IsCallable("And") ? "and" : "or";
+            auto args = JsonArray();
+            for (const auto& child : body.Children()) {
+                args.AppendValue(self(self, *child, normalizedDepth + 1, sourceDepth + 1));
+            }
+            result["args"] = std::move(args);
+            return result;
+        }
+        if (body.IsCallable("Not") && body.ChildrenSize() == 1 &&
+            body.Child(0)->IsCallable({"And", "Or", "Not"}))
+        {
+            if (body.GetTypeAnn()) {
+                Unsupported("OLAP LIKE Boolean Not must be unannotated");
+            }
+            budget.Charge(normalizedDepth);
+            return NotExpr(self(self, *body.Child(0), normalizedDepth + 1, sourceDepth + 1));
+        }
+        auto leaf = apply;
+        leaf.Body = &body;
+        const auto like = CheckOlapCompiledLike(leaf, sourceDepth);
+        const size_t ifPresentDepth =
+            normalizedDepth + static_cast<size_t>(like.Negated);
+
+        budget.Charge(normalizedDepth);
+        if (like.Negated) {
+            budget.Charge(ifPresentDepth);
+        }
+        budget.Charge(ifPresentDepth + 1, 3);
+        budget.Charge(ifPresentDepth + 2);
+
+        auto argument = ColumnExpr(like.Output);
+        if (!like.Nullable) {
+            budget.Charge(ifPresentDepth + 2, 3);
+            argument = AlwaysPresentOptionalExpr(std::move(argument), like.Type);
+        }
+        auto result = CompiledLikeIfPresentExpr(std::move(argument), like.Pattern);
+        return like.Negated
+            ? NotExpr(std::move(result))
+            : std::move(result);
+    };
+    return exportBody(exportBody, *apply.Body, normalizedDepth, sourceDepth);
+}
+
+std::optional<bool> CheckOlapBoolOpType(const TExprNode& node) {
+    if (node.ChildrenSize() != 4) {
+        return std::nullopt;
+    }
+    const auto* descriptor = node.Child(3);
+    bool descriptorNullable = false;
+    if (DataTypeDescriptorName(*descriptor, &descriptorNullable) != "Bool") {
+        Unsupported("OLAP Boolean operation has an invalid result type descriptor");
+    }
+    if (const auto annotation = descriptor->GetTypeAnn()) {
+        if (annotation->GetKind() != ETypeAnnotationKind::Type) {
+            Unsupported("OLAP Boolean operation type annotation is not Type");
+        }
+        bool annotationNullable = false;
+        if (TypeName(
+                annotation->Cast<TTypeExprType>()->GetType(),
+                &annotationNullable) != "Bool" ||
+            annotationNullable != descriptorNullable)
+        {
+            Unsupported("OLAP Boolean operation type annotation disagrees with its descriptor");
+        }
+    }
+    return descriptorNullable;
+}
+
+NJson::TJsonValue ExportOlapBinary(
+    const TKqpOlapFilterBinaryOp& operation,
+    const TOlapColumnMap& columns,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth)
+{
+    const auto& node = operation.Ref();
+    if (node.ChildrenSize() != 3 && node.ChildrenSize() != 4) {
+        Unsupported("Malformed OLAP binary operation");
+    }
+    // The generated tuple wrapper matches every three/four-child expression
+    // list; this explicit tag check is therefore part of the fail-closed
+    // boundary.
+    if (!node.Child(0)->IsAtom()) {
+        Unsupported("OLAP binary operation has a non-Atom operator");
+    }
+    const TString op(operation.Operator().StringValue());
+    const auto resultNullable = CheckOlapBoolOpType(node);
+
+    if (op == "??") {
+        if (!resultNullable || *resultNullable) {
+            Unsupported(
+                "OLAP Boolean coalesce requires an exact non-null Bool "
+                "result descriptor");
+        }
+        const auto left = operation.Left().Ptr();
+        const auto maybeLeftBinary =
+            TMaybeNode<TKqpOlapFilterBinaryOp>(left);
+        if (!maybeLeftBinary) {
+            Unsupported(
+                "OLAP Boolean coalesce requires a typed binary predicate");
+        }
+        const auto leftNullable =
+            CheckOlapBoolOpType(maybeLeftBinary.Ref());
+        if (!leftNullable || !*leftNullable) {
+            Unsupported(
+                "OLAP Boolean coalesce requires an Optional<Bool> "
+                "left predicate");
+        }
+
+        const auto& fallback = operation.Right().Ref();
+        bool fallbackNullable = false;
+        if (!fallback.IsCallable("Bool") || fallback.ChildrenSize() != 1 ||
+            !fallback.Child(0)->IsAtom() ||
+            ScalarTypeName(fallback, &fallbackNullable) != "Bool" ||
+            fallbackNullable)
+        {
+            Unsupported(
+                "OLAP Boolean coalesce requires a direct non-null Bool "
+                "literal fallback");
+        }
+        // LiteralExpr does not recurse into the literal payload Atom; the
+        // outer and fallback nodes are checked by ExportOlapScalar itself.
+        CheckScalarSafetyMetadata(*fallback.Child(0));
+
+        budget.Charge(normalizedDepth);
+        budget.Charge(normalizedDepth + 1); // Present bound value.
+        auto result = JsonMap();
+        result["kind"] = "if_present";
+        result["optional"] = ExportOlapScalar(
+            left,
+            columns,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1);
+        result["present"] = BoundExpr(0);
+        result["missing"] = ExportOlapScalar(
+            operation.Right().Ptr(),
+            columns,
+            budget,
+            normalizedDepth + 1,
+            sourceDepth + 1);
+        result["type"] = "Bool";
+        result["nullable"] = false;
+        return result;
+    }
+
+    if (op == "ends_with" || op == "string_contains") {
+        if (!resultNullable) {
+            Unsupported(
+                "OLAP String predicate requires an explicit Bool result type");
+        }
+        const auto& left = operation.Left().Ref();
+        const auto& right = operation.Right().Ref();
+        if (!left.IsAtom()) {
+            Unsupported(
+                "OLAP String predicate left operand must be a read column");
+        }
+        const auto* column = ResolveOlapColumn(left.Content(), columns);
+        if (column->Type != "String" && column->Type != "Utf8") {
+            Unsupported(
+                "OLAP String predicate requires a String/Utf8 column");
+        }
+
+        bool literalNullable = false;
+        if (!right.IsCallable({"String", "Utf8"}) ||
+            !StringComparisonCompatible(column->Type, ScalarTypeName(right, &literalNullable)) ||
+            literalNullable)
+        {
+            Unsupported(
+                "OLAP String predicate right operand must be a non-null String literal");
+        }
+        LiteralExpr(right);
+        if (*resultNullable != column->Nullable) {
+            Unsupported(
+                "OLAP String predicate result nullability disagrees with its operands");
+        }
+
+        budget.Charge(normalizedDepth);
+        return CanonicalStringPredicateExpr(
+            op,
+            *resultNullable,
+            ExportOlapScalar(
+                operation.Left().Ptr(),
+                columns,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1),
+            ExportOlapScalar(
+                operation.Right().Ptr(),
+                columns,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1));
+    }
+
+    TStringBuf kind;
+    if (op == "eq" || op == "neq") {
+        kind = "eq";
+    } else if (op == "lt" || op == "lte" || op == "gt" || op == "gte") {
+        kind = op;
+    } else {
+        Unsupported(TStringBuilder() << "Unsupported OLAP binary operation " << op);
+    }
+
+    const bool negated = op == "neq";
+    budget.Charge(normalizedDepth);
+    if (negated) {
+        budget.Charge(normalizedDepth + 1); // Inner equality below Not.
+    }
+    const size_t childDepth = normalizedDepth + (negated ? 2 : 1);
+    auto result = BinaryExpr(
+        kind,
+        ExportOlapScalar(
+            operation.Left().Ptr(), columns,
+            budget, childDepth, sourceDepth + 1),
+        ExportOlapScalar(
+            operation.Right().Ptr(), columns,
+            budget, childDepth, sourceDepth + 1));
+    return negated ? NotExpr(std::move(result)) : std::move(result);
+}
+
+NJson::TJsonValue ExportOlapUnary(
+    const TKqpOlapFilterUnaryOp& operation,
+    const TOlapColumnMap& columns,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth)
+{
+    const auto& node = operation.Ref();
+    if (node.ChildrenSize() != 2) {
+        Unsupported("Malformed OLAP unary operation");
+    }
+    // The generated tuple wrapper matches every two-child expression list;
+    // this explicit tag check is therefore part of the fail-closed boundary.
+    if (!node.Child(0)->IsAtom()) {
+        Unsupported("OLAP unary operation has a non-Atom operator");
+    }
+
+    const TString op(operation.Operator().StringValue());
+    if (op == "just") {
+        const auto& argument = operation.Arg().Ref();
+        CheckScalarSafetyMetadata(node);
+        CheckScalarSafetyMetadata(argument);
+        if (!argument.IsCallable("Date") ||
+            !IsExactDataAnnotation(
+                argument.GetTypeAnn(), NUdf::EDataSlot::Date, false))
+        {
+            Unsupported(
+                "OLAP just may erase only a direct non-null Date literal");
+        }
+        budget.Charge(normalizedDepth);
+        return LiteralExpr(argument);
+    }
+    if (op != "exists" && op != "empty") {
+        Unsupported(TStringBuilder() << "Unsupported OLAP unary operation " << op);
+    }
+
+    const bool negated = op == "empty";
+    budget.Charge(normalizedDepth);
+    if (negated) {
+        budget.Charge(normalizedDepth + 1); // Exists below Not.
+    }
+    auto result = ExistsExpr(ExportOlapScalar(
+        operation.Arg().Ptr(), columns,
+        budget, normalizedDepth + (negated ? 2 : 1), sourceDepth + 1));
+    return negated ? NotExpr(std::move(result)) : std::move(result);
+}
+
+NJson::TJsonValue ExportOlapScalar(
+    const TExprNode::TPtr& node,
+    const TOlapColumnMap& columns,
+    TExactScalarBudget& budget,
+    size_t normalizedDepth,
+    size_t sourceDepth)
+{
+    if (sourceDepth > MaxExactScalarDepth) {
+        Unsupported(TStringBuilder()
+            << "Exact scalar expression exceeds the depth audit limit of "
+            << MaxExactScalarDepth);
+    }
+    if (!node) {
+        Unsupported("OLAP predicate contains a null expression node");
+    }
+    CheckScalarSafetyMetadata(
+        *node,
+        node->IsCallable({"KqpOlapAnd", "KqpOlapOr"}));
+
+    if (node->IsAtom()) {
+        budget.Charge(normalizedDepth);
+        return OlapColumnExpr(node->Content(), columns);
+    }
+
+    if (node->IsCallable("Decimal")) {
+        budget.Charge(normalizedDepth);
+        return DecimalLiteralExpr(*node);
+    }
+
+    if (IsStringDateSafeCastCandidate(*node)) {
+        budget.Charge(normalizedDepth);
+        if (node->Child(0)->IsCallable({"String", "Utf8"})) {
+            return ConstantDateValue(ParseDateSafeCast(*node));
+        }
+        const bool nullable = CheckStringDateSafeCast(*node);
+        if (nullable) {
+            budget.Charge(normalizedDepth + 1, 2);
+            budget.Charge(normalizedDepth + 2);
+        }
+        return DynamicStringDateSafeCastExpr(ExportOlapScalar(
+            node->ChildPtr(0), columns, budget, normalizedDepth + 1, sourceDepth + 1), nullable);
+    }
+
+    if (node->IsCallable({"SafeCast", "Convert"}) &&
+        ParseCanonicalDecimalType(ScalarTypeName(*node)))
+    {
+        budget.Charge(normalizedDepth);
+        if (IsStringDecimalSafeCastCandidate(*node)) {
+            return StringLiteralDecimalSafeCastExpr(*node);
+        }
+        return DecimalConstantCastExpr(*node);
+    }
+
+    if (node->IsCallable() && IsSupportedType(node->Content())) {
+        budget.Charge(normalizedDepth);
+        return LiteralExpr(*node);
+    }
+
+    if (const auto maybeApply = TMaybeNode<TKqpOlapApply>(node)) {
+        if (node->ChildrenSize() == 3 && node->Child(0)->IsLambda() &&
+            node->Child(0)->ChildrenSize() == 2 && node->Child(0)->Child(1)->IsCallable("Coalesce"))
+        {
+            return ExportOlapDateCastComparison(maybeApply.Cast(), columns, budget, normalizedDepth, sourceDepth);
+        }
+        return ExportOlapCompiledLike(
+            maybeApply.Cast(),
+            columns,
+            budget,
+            normalizedDepth,
+            sourceDepth);
+    }
+
+    if (const auto maybeUnary = TMaybeNode<TKqpOlapFilterUnaryOp>(node)) {
+        return ExportOlapUnary(
+            maybeUnary.Cast(), columns, budget, normalizedDepth, sourceDepth);
+    }
+
+    if (const auto maybeBinary = TMaybeNode<TKqpOlapFilterBinaryOp>(node)) {
+        return ExportOlapBinary(
+            maybeBinary.Cast(),
+            columns,
+            budget,
+            normalizedDepth,
+            sourceDepth);
+    }
+
+    if (const auto maybeAnd = TMaybeNode<TKqpOlapAnd>(node)) {
+        if (maybeAnd.Ref().ChildrenSize() == 0) {
+            Unsupported("KqpOlapAnd has no arguments");
+        }
+        budget.Charge(normalizedDepth);
+        auto result = JsonMap();
+        result["kind"] = "and";
+        auto args = JsonArray();
+        for (const auto& child : maybeAnd.Ref().Children()) {
+            args.AppendValue(ExportOlapScalar(
+                child,
+                columns,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1));
+        }
+        result["args"] = std::move(args);
+        return result;
+    }
+
+    if (const auto maybeOr = TMaybeNode<TKqpOlapOr>(node)) {
+        if (maybeOr.Ref().ChildrenSize() == 0) {
+            Unsupported("KqpOlapOr has no arguments");
+        }
+        budget.Charge(normalizedDepth);
+        auto result = JsonMap();
+        result["kind"] = "or";
+        auto args = JsonArray();
+        for (const auto& child : maybeOr.Ref().Children()) {
+            args.AppendValue(ExportOlapScalar(
+                child,
+                columns,
+                budget,
+                normalizedDepth + 1,
+                sourceDepth + 1));
+        }
+        result["args"] = std::move(args);
+        return result;
+    }
+
+    if (const auto maybeNot = TMaybeNode<TKqpOlapNot>(node)) {
+        if (maybeNot.Ref().ChildrenSize() != 1) {
+            Unsupported("Malformed KqpOlapNot");
+        }
+        budget.Charge(normalizedDepth);
+        return NotExpr(ExportOlapScalar(
+            maybeNot.Cast().Value().Ptr(), columns,
+            budget, normalizedDepth + 1, sourceDepth + 1));
+    }
+
+    Unsupported(TStringBuilder()
+        << "Unsupported OLAP predicate node "
+        << (node->IsCallable() ? node->Content() : TStringBuf("<non-callable>")));
+}
+
+NJson::TJsonValue ExportOlapPredicate(
+    const TExprNode::TPtr& lambda,
+    const TOlapColumnMap& columns)
+{
+    if (!lambda || !lambda->IsLambda() || lambda->ChildrenSize() != 2) {
+        Unsupported("OLAP process is not a one-body lambda");
+    }
+    const auto* arguments = lambda->Child(0);
+    if (!arguments->IsArguments() || arguments->ChildrenSize() != 1 ||
+        !arguments->Child(0)->IsArgument())
+    {
+        Unsupported("OLAP process does not have exactly one flow argument");
+    }
+    const auto* rowArgument = arguments->Child(0);
+    TVector<TExprNode::TPtr> conditions;
+
+    auto node = lambda->ChildPtr(1);
+    while (node.Get() != rowArgument) {
+        if (!node) {
+            Unsupported("OLAP process contains a null operation");
+        }
+        if (const auto maybeFilter = TMaybeNode<TKqpOlapFilter>(node)) {
+            const auto filter = maybeFilter.Cast();
+            // Two or more pushed filters add one synthetic AND, so 1,023
+            // one-node conditions are the largest possibly admissible chain.
+            if (conditions.size() >= MaxExactScalarNodes - 1) {
+                Unsupported(TStringBuilder()
+                    << "Exact scalar expression exceeds the node audit limit of "
+                    << MaxExactScalarNodes);
+            }
+            conditions.push_back(filter.Condition().Ptr());
+            node = filter.Input().Ptr();
+            continue;
+        }
+        Unsupported(TStringBuilder()
+            << "Unsupported OLAP process operation "
+            << (node->IsCallable() ? node->Content() : TStringBuf("<non-callable>")));
+    }
+
+    std::reverse(conditions.begin(), conditions.end());
+
+    if (conditions.empty()) {
+        Unsupported("OLAP process contains no filter operation");
+    }
+    const bool combined = conditions.size() > 1;
+    TExactScalarBudget budget;
+    if (combined) {
+        budget.Charge(1); // Synthetic conjunction of pushed filters.
+    }
+    const size_t conditionDepth = combined ? 2 : 1;
+    TVector<NJson::TJsonValue> predicates;
+    predicates.reserve(conditions.size());
+    for (const auto& condition : conditions) {
+        predicates.push_back(ExportOlapScalar(
+            condition,
+            columns,
+            budget,
+            conditionDepth,
+            1));
+    }
+
+    if (predicates.size() == 1) {
+        auto result = std::move(predicates.front());
+        AuditExactScalarExpression(result);
+        return result;
+    }
+
+    auto result = JsonMap();
+    result["kind"] = "and";
+    auto args = JsonArray();
+    for (auto& predicate : predicates) {
+        args.AppendValue(std::move(predicate));
+    }
+    result["args"] = std::move(args);
+    AuditExactScalarExpression(result);
+    return result;
+}
+
+#include "read_range_predicate_impl.h"
+
+NJson::TJsonValue ExportReadPredicate(
+    const TOpRead& read,
+    const TSemanticSnapshotCatalogTableV1& table,
+    const TOlapColumnMap& columns)
+{
+    TVector<NJson::TJsonValue> predicates;
+    if (read.RangeInfo) {
+        predicates.push_back(
+            TExactReadRangePredicateExporter(
+                read,
+                table,
+                *read.RangeInfo,
+                columns).Export());
+    }
+    if (read.OlapFilterLambda) {
+        predicates.push_back(
+            ExportOlapPredicate(read.OlapFilterLambda, columns));
+    }
+
+    if (predicates.empty()) {
+        return NJson::TJsonValue(NJson::JSON_NULL);
+    }
+    if (predicates.size() == 1) {
+        return std::move(predicates.front());
+    }
+
+    auto result = JsonMap();
+    result["kind"] = "and";
+    auto args = JsonArray();
+    for (auto& predicate : predicates) {
+        args.AppendValue(std::move(predicate));
+    }
+    result["args"] = std::move(args);
+    AuditExactScalarExpression(result);
+    return result;
+}
+
+NJson::TJsonValue TrueExpr() {
+    auto result = JsonMap();
+    result["kind"] = "literal";
+    result["type"] = "Bool";
+    result["value"] = true;
+    return result;
+}
+
+TString JoinKind(TStringBuf kind) {
+    static const THashMap<TString, TString> Kinds = {
+        {"Cross", "cross"},
+        {"Inner", "inner"},
+        {"Left", "left"},
+        {"Right", "right"},
+        {"Full", "full"},
+        {"LeftSemi", "left_semi"},
+        {"RightSemi", "right_semi"},
+        {"LeftOnly", "left_anti"},
+        {"RightOnly", "right_anti"},
+        {"Exclusion", "exclusion"},
+    };
+    const auto* result = Kinds.FindPtr(kind);
+    if (!result) {
+        Unsupported(TStringBuilder() << "Unsupported join kind " << kind);
+    }
+    return *result;
+}
+
+THashSet<TString> OutputNames(IOperator& op) {
+    THashSet<TString> result;
+    for (const auto& iu : SnapshotOutputIUs(op)) {
+        const TString name = iu.GetFullName();
+        if (name.empty() || !result.insert(name).second) {
+            Unsupported(TStringBuilder() << op.GetExplainName() << " has duplicate or empty output IU " << name);
+        }
+    }
+    return result;
+}
+
+const TStructExprType* OutputStructType(IOperator& op) {
+    const auto* annotation = op.GetTypeAnn();
+    if (!annotation || annotation->GetKind() != ETypeAnnotationKind::List) {
+        Unsupported(TStringBuilder() << op.GetExplainName() << " has no list type annotation");
+    }
+    const auto* item = annotation->Cast<TListExprType>()->GetItemType();
+    if (item->GetKind() != ETypeAnnotationKind::Struct) {
+        Unsupported(TStringBuilder() << op.GetExplainName() << " output is not a struct");
+    }
+    return item->Cast<TStructExprType>();
+}
+
+const TTypeAnnotationNode* OutputType(IOperator& op, TStringBuf name) {
+    const auto* result = OutputStructType(op)->FindItemType(name);
+    if (!result) {
+        Unsupported(TStringBuilder() << op.GetExplainName() << " output type omits IU " << name);
+    }
+    return result;
+}
+
+struct TExactType {
+    TString Name;
+    bool Nullable = false;
+};
+
+TExactType ExactType(const TTypeAnnotationNode* type) {
+    TExactType result;
+    result.Name = TypeName(type, &result.Nullable);
+    return result;
+}
+
+bool SameType(const TExactType& left, const TExactType& right) {
+    return left.Name == right.Name && left.Nullable == right.Nullable;
+}
+
+void RequireOnlyMainConsumer(
+    const THashMap<const IOperator*, TVector<IOperator*>>& parents,
+    IOperator& producer,
+    IOperator& consumer,
+    TStringBuf label)
+{
+    const auto* consumers = parents.FindPtr(&producer);
+    if (!consumers || consumers->size() != 1 ||
+        consumers->front() != &consumer)
+    {
+        Unsupported(TStringBuilder()
+            << label << " must have exactly one audited consumer");
+    }
+}
+
+#include "q51_window_projection_audit_impl.h"
+
+TString Phase(EOpPhase phase) {
+    switch (phase) {
+        case EOpPhase::Undefined:
+            return "undefined";
+        case EOpPhase::Intermediate:
+            return "intermediate";
+        case EOpPhase::Final:
+            return "final";
+    }
+    Unsupported("Unknown operator phase");
+}
+
+bool IsIntegralAverageOutput(
+    const TSnapshotAggregationTrait& trait,
+    const TTypeAnnotationNode* outputType)
+{
+    return trait.AggFunction == "avg" &&
+        (IsExactDataAnnotation(outputType, NUdf::EDataSlot::Double, false) ||
+         IsExactDataAnnotation(outputType, NUdf::EDataSlot::Double, true));
+}
+
+void ValidatePlainIntegralAverageTrait(
+    TOpAggregate& aggregate,
+    const TSnapshotAggregationTrait& trait,
+    TStringBuf phase)
+{
+    if (aggregate.IsDistinctAll() || trait.Distinct || trait.Unwrap) {
+        Unsupported(TStringBuilder()
+            << "Integral avg " << phase
+            << " trait must be non-distinct, non-unwrapped, and outside DistinctAll");
+    }
+}
+
+NJson::TJsonValue IntegralAverageStateContract(
+    TOpAggregate& aggregate, const TSnapshotAggregationTrait& trait)
+{
+    ValidatePlainIntegralAverageTrait(aggregate, trait, Phase(aggregate.GetAggregationPhase()));
+    const auto phase = aggregate.GetAggregationPhase();
+    const TString input = trait.OriginalColName.GetFullName();
+    const TTypeAnnotationNode* sourceAnnotation = nullptr;
+    if (phase == EOpPhase::Final) {
+        if (aggregate.GetInput()->GetKind() != EOperator::Aggregate) {
+            Unsupported("Final integral avg must directly consume an intermediate Aggregate");
+        }
+        auto& intermediate = static_cast<TOpAggregate&>(*aggregate.GetInput());
+        if (intermediate.GetAggregationPhase() != EOpPhase::Intermediate ||
+            SnapshotKeyColumns(intermediate) != SnapshotKeyColumns(aggregate))
+        {
+            Unsupported("Final integral avg must preserve identical ordered intermediate keys");
+        }
+        size_t producers = 0, consumers = 0;
+        for (const auto& candidate : SnapshotAggregationTraits(intermediate)) {
+            if (candidate.ResultColName.GetFullName() == input) {
+                if (candidate.AggFunction != "avg") {
+                    Unsupported("Final integral avg must consume its matching intermediate avg state");
+                }
+                ValidatePlainIntegralAverageTrait(intermediate, candidate, "intermediate");
+                IntegralAverageStateContract(intermediate, candidate);
+                sourceAnnotation = OutputType(*intermediate.GetInput(), candidate.OriginalColName.GetFullName());
+                ++producers;
+            }
+        }
+        for (const auto& candidate : SnapshotAggregationTraits(aggregate)) {
+            consumers += candidate.OriginalColName.GetFullName() == input;
+        }
+        if (producers != 1 || consumers != 1) {
+            Unsupported("Final integral avg must consume exactly one matching intermediate avg state");
+        }
+    } else if (phase == EOpPhase::Undefined || phase == EOpPhase::Intermediate) {
+        sourceAnnotation = OutputType(*aggregate.GetInput(), input);
+    } else {
+        Unsupported("Integral avg has an unknown aggregation phase");
+    }
+    bool sourceNullable = false, inputNullable = false, outputNullable = false;
+    const TString sourceType = TypeName(sourceAnnotation, &sourceNullable);
+    if (!IsIntegerType(sourceType)) {
+        Unsupported("Integral avg source must be an exact fixed-width integer");
+    }
+    const TString inputType = TypeName(OutputType(*aggregate.GetInput(), input), &inputNullable, true);
+    const TString outputType = TypeName(OutputType(aggregate, trait.ResultColName.GetFullName()), &outputNullable, true);
+    if (inputType != (phase == EOpPhase::Final ? TString("Double") : sourceType) || inputNullable != sourceNullable) {
+        Unsupported("Integral avg input must match its source type, phase and nullability");
+    }
+    const bool expectedNullable = sourceNullable ||
+        (phase != EOpPhase::Intermediate && aggregate.GetKeyColumns().Items().empty());
+    if (outputType != "Double" || outputNullable != expectedNullable) {
+        Unsupported("Integral avg output must be Double with exact source/phase/key nullability");
+    }
+    auto state = JsonMap();
+    state["kind"] = "integral_double_v1";
+    state["source_type"] = sourceType;
+    state["sum_type"] = "Double";
+    state["count_type"] = "Uint64";
+    state["nullable"] = sourceNullable;
+    state["exact_when_count_at_most"] = static_cast<ui64>(2);
+    return state;
+}
+
+bool RequiresBinary64Semantics(IOperator& root) {
+    THashSet<const IOperator*> seen;
+    TVector<IOperator*> pending{&root};
+    while (!pending.empty()) {
+        auto* node = pending.back();
+        pending.pop_back();
+        if (!seen.insert(node).second) {
+            continue;
+        }
+        if (node->GetKind() == EOperator::Aggregate) {
+            for (const auto& trait : SnapshotAggregationTraits(static_cast<TOpAggregate&>(*node))) {
+                if (trait.AggFunction == "variance_1_1") {
+                    return true;
+                }
+            }
+        }
+        for (const auto& child : node->GetChildren()) {
+            pending.push_back(child);
+        }
+    }
+    return false;
+}
+
+NJson::TJsonValue VarianceStateContract(TOpAggregate& aggregate, const TSnapshotAggregationTrait& trait) {
+    if (trait.AggFunction != "variance_1_1" || trait.Distinct || trait.Unwrap || aggregate.IsDistinctAll()) {
+        Unsupported("Binary64 variance requires one plain stddev_samp trait");
+    }
+    const TTypeAnnotationNode* sourceAnnotation = nullptr;
+    if (aggregate.GetAggregationPhase() == EOpPhase::Final) {
+        if (aggregate.GetInput()->GetKind() != EOperator::Aggregate) {
+            Unsupported("Final binary64 variance must directly consume an intermediate Aggregate");
+        }
+        auto& intermediate = static_cast<TOpAggregate&>(*aggregate.GetInput());
+        if (intermediate.GetAggregationPhase() != EOpPhase::Intermediate ||
+            SnapshotKeyColumns(intermediate) != SnapshotKeyColumns(aggregate))
+        {
+            Unsupported("Final binary64 variance must preserve its intermediate's ordered keys");
+        }
+        const auto input = trait.OriginalColName.GetFullName();
+        size_t producerCount = 0, consumerCount = 0;
+        for (const auto& candidate : SnapshotAggregationTraits(intermediate)) {
+            if (candidate.ResultColName.GetFullName() == input) {
+                if (candidate.AggFunction != "variance_1_1" || candidate.Distinct || candidate.Unwrap) {
+                    Unsupported("Final binary64 variance requires its matching intermediate state");
+                }
+                ++producerCount;
+                sourceAnnotation = OutputType(*intermediate.GetInput(), candidate.OriginalColName.GetFullName());
+            }
+        }
+        for (const auto& candidate : SnapshotAggregationTraits(aggregate)) {
+            consumerCount += candidate.OriginalColName.GetFullName() == input;
+        }
+        if (producerCount != 1 || consumerCount != 1) {
+            Unsupported("Binary64 variance state requires one matching producer and consumer");
+        }
+    } else {
+        sourceAnnotation = OutputType(*aggregate.GetInput(), trait.OriginalColName.GetFullName());
+    }
+    bool sourceNullable = false;
+    const TString sourceType = TypeName(sourceAnnotation, &sourceNullable, true);
+    if (!IsIntegerType(sourceType) && sourceType != "Double") {
+        Unsupported("Binary64 variance source must be an integer or Double");
+    }
+    bool inputNullable = false, outputNullable = false;
+    const TString inputType = TypeName(OutputType(*aggregate.GetInput(), trait.OriginalColName.GetFullName()), &inputNullable, true);
+    const TString outputType = TypeName(OutputType(aggregate, trait.ResultColName.GetFullName()), &outputNullable, true);
+    const TString expectedInput = aggregate.GetAggregationPhase() == EOpPhase::Final ? TString("Double") : sourceType;
+    const bool expectedNullable = sourceNullable ||
+        (SnapshotKeyColumns(aggregate).empty() && aggregate.GetAggregationPhase() != EOpPhase::Intermediate);
+    if (inputType != expectedInput || inputNullable != sourceNullable ||
+        outputType != "Double" || outputNullable != expectedNullable)
+    {
+        Unsupported("Binary64 variance types/nullability disagree with its physical state contract");
+    }
+    auto state = JsonMap();
+    state["kind"] = "binary64_variance_v1";
+    state["source_type"] = sourceType;
+    state["nullable"] = sourceNullable;
+    state["mean_type"] = "Double";
+    state["count_type"] = "Double";
+    state["m2_type"] = "Double";
+    return state;
+}
+
+class TPlanExporter {
+private:
+    enum class ESubplanKind {
+        Scalar,
+        Exists,
+        In,
+    };
+
+    struct TOuterDependency {
+        TString Name;
+        const TTypeAnnotationNode* Type = nullptr;
+    };
+
+    struct TScalarSubplanDetails {
+        struct TCorrelation {
+            TVector<TOuterDependency> Dependencies;
+        };
+
+        TString OutputColumn;
+        TString Type;
+        bool OutputNullable = false;
+        std::optional<TCorrelation> Correlation;
+    };
+
+    struct TExistsCorrelation {
+        NJson::TJsonValue Predicate;
+        TVector<TOuterDependency> Dependencies;
+    };
+
+    struct TExistsSubplanDetails {
+        std::optional<TExistsCorrelation> Correlation;
+    };
+
+    struct TInSubplanDetails {
+        TString LookupColumn;
+        TString OutputColumn;
+        TString ColumnType;
+        bool LookupNullable = false;
+        bool OutputNullable = false;
+    };
+
+    struct TSubplanDescriptor {
+        TString Binding;
+        // RegistryRoot retains optimizer topology for nesting audits.
+        // ExportedRoot is the closed relation actually serialized.
+        TIntrusivePtr<IOperator> RegistryRoot;
+        TIntrusivePtr<IOperator> ExportedRoot;
+        std::variant<
+            TScalarSubplanDetails,
+            TExistsSubplanDetails,
+            TInSubplanDetails> Details;
+        TVector<IOperator*> Consumers;
+    };
+
+public:
+    TPlanExporter(
+        TOpRoot& root,
+        const TSemanticSnapshotCatalogV1& catalog,
+        TStringBuf cluster,
+        bool stageGraphPresent)
+        : Root(root)
+        , Cluster(cluster)
+        , StageGraphPresent(stageGraphPresent)
+        , Binary64Mode(RequiresBinary64Semantics(*root.GetInput()))
+    {
+        for (const auto& table : catalog.Tables) {
+            if (table.Name.empty() || !Catalog.emplace(table.Name, &table).second) {
+                Unsupported(TStringBuilder() << "Catalog has duplicate or empty table " << table.Name);
+            }
+        }
+    }
+
+    NJson::TJsonValue Export() {
+        ValidateSnapshotTopology(Root);
+        PrepareSubplans();
+        CheckSnapshotProperties(Root, false);
+        if (SnapshotRootColumnOrder(Root).empty()) {
+            Unsupported("Root output order must not be empty");
+        }
+        PrepareDecimalAverageCarriers();
+        PrepareErrorOnNullProjectionDemands();
+
+        TVector<TIntrusivePtr<IOperator>> subplanRoots;
+        for (const auto& subplan : Subplans) {
+            subplanRoots.push_back(subplan.ExportedRoot);
+        }
+        AuditedQ51Windows.emplace(
+            TQ51WindowAdmission::Audit(Root.GetInput(), subplanRoots));
+
+        // Subplan roots precede the main root so descriptors and consumer IDs
+        // share one deterministic post-order node namespace.
+        for (const auto& subplan : Subplans) {
+            ExportNode(subplan.ExportedRoot);
+        }
+        RootId = ExportNode(Root.GetInput());
+        ValidateCheckedConcatProjectionTopology();
+        ValidateWholePartitionWindowProjectionTopology();
+        ValidateGlobalRankProjectionTopology();
+        const auto rootNames = OutputNames(*Root.GetInput());
+        auto output = JsonArray();
+        auto columns = JsonArray();
+        size_t ordinal = 0;
+        TIntegralAverageOrderingColumns resultAverages;
+        TDecimalAverageCarrierTypes resultDecimals;
+        const auto* inputDecimals = DecimalAverageCarrierOutputMap.FindPtr(Root.GetInput().Get());
+        for (const auto& [id, label] : Root.GetColumns().Items()) {
+            const TString inputName = ToString(id);
+            if (!rootNames.contains(inputName)) {
+                Unsupported(TStringBuilder() << "Invalid root output IU " << inputName);
+            }
+            // Position and client label are stable across optimizer ID rewrites.
+            // Repeated bindings or labels remain distinct tuple positions.
+            const TString name = TStringBuilder() << "result[" << ordinal++ << "]:" << label;
+            if (IntegralAverageOrderingOutputs(*Root.GetInput()).contains(inputName)) {
+                resultAverages.insert(name);
+            }
+            if (inputDecimals && inputDecimals->contains(inputName)) {
+                resultDecimals.insert(name);
+            }
+            auto column = JsonMap();
+            column["output"] = name;
+            column["expression"] = ColumnExpr(inputName);
+            columns.AppendValue(std::move(column));
+            output.AppendValue(name);
+        }
+        auto resultProjection = JsonMap();
+        resultProjection["id"] = "result";
+        resultProjection["op"] = "project";
+        resultProjection["input"] = RootId;
+        resultProjection["ordered"] = true;
+        resultProjection["columns"] = std::move(columns);
+        Nodes.AppendValue(std::move(resultProjection));
+        Ids.emplace(&Root, "result");
+        NodeOrder.push_back(&Root);
+        IntegralAverageOrderingOutputMap.emplace(&Root, std::move(resultAverages));
+        DecimalAverageCarrierOutputMap.emplace(&Root, std::move(resultDecimals));
+        RootId = "result";
+
+        auto result = JsonMap();
+        result["nodes"] = std::move(Nodes);
+        result["root"] = RootId;
+        result["output"] = std::move(output);
+        result["subplans"] = ExportSubplans();
+        return result;
+    }
+
+    const THashMap<const IOperator*, TString>& GetNodeIds() const {
+        return Ids;
+    }
+
+    const TVector<IOperator*>& GetNodeOrder() const {
+        return NodeOrder;
+    }
+
+    const THashMap<const IOperator*, TIntegralAverageOrderingColumns>&
+    GetIntegralAverageOrderingOutputs() const
+    {
+        return IntegralAverageOrderingOutputMap;
+    }
+
+    const THashMap<const IOperator*, TDecimalAverageCarrierTypes>&
+    GetDecimalAverageCarrierOutputs() const
+    {
+        return DecimalAverageCarrierOutputMap;
+    }
+
+    void ValidateStageProperties() const {
+        if (!StageGraphPresent) {
+            Unsupported("Stage properties require a StageGraph");
+        }
+        for (auto* op : NodeOrder) {
+            CheckSnapshotProperties(*op, true);
+        }
+    }
+
+    const TString& GetRootId() const {
+        return RootId;
+    }
+
+    bool UsesBinary64Semantics() const {
+        return Binary64Mode;
+    }
+
+private:
+    struct TDecimalAverageCarrierContract {
+        TString LogicalType;
+        TString SumType;
+    };
+
+    static ESubplanKind SubplanKind(const TSubplanDescriptor& subplan) {
+        if (std::get_if<TScalarSubplanDetails>(&subplan.Details)) {
+            return ESubplanKind::Scalar;
+        }
+        if (std::get_if<TExistsSubplanDetails>(&subplan.Details)) {
+            return ESubplanKind::Exists;
+        }
+        if (std::get_if<TInSubplanDetails>(&subplan.Details)) {
+            return ESubplanKind::In;
+        }
+        Unsupported("Subplan descriptor has invalid details");
+    }
+
+    static TString KindName(const TSubplanDescriptor& subplan) {
+        switch (SubplanKind(subplan)) {
+            case ESubplanKind::Scalar:
+                return "Scalar";
+            case ESubplanKind::Exists:
+                return "EXISTS";
+            case ESubplanKind::In:
+                return "IN";
+        }
+        Unsupported("Subplan descriptor has invalid kind");
+    }
+
+    static const TScalarSubplanDetails& ScalarDetails(
+        const TSubplanDescriptor& subplan)
+    {
+        const auto* result =
+            std::get_if<TScalarSubplanDetails>(&subplan.Details);
+        Y_ENSURE(result, "Scalar subplan descriptor has invalid details");
+        return *result;
+    }
+
+    static const TExistsSubplanDetails& ExistsDetails(
+        const TSubplanDescriptor& subplan)
+    {
+        const auto* result =
+            std::get_if<TExistsSubplanDetails>(&subplan.Details);
+        Y_ENSURE(result, "EXISTS subplan descriptor has invalid details");
+        return *result;
+    }
+
+    static const TInSubplanDetails& InDetails(
+        const TSubplanDescriptor& subplan)
+    {
+        const auto* result =
+            std::get_if<TInSubplanDetails>(&subplan.Details);
+        Y_ENSURE(result, "IN subplan descriptor has invalid details");
+        return *result;
+    }
+
+    static TInSubplanDetails& InDetails(
+        TSubplanDescriptor& subplan)
+    {
+        auto* result =
+            std::get_if<TInSubplanDetails>(&subplan.Details);
+        Y_ENSURE(result, "IN subplan descriptor has invalid details");
+        return *result;
+    }
+
+    static const TString& SubplanType(const TSubplanDescriptor& subplan) {
+        if (const auto* scalar =
+                std::get_if<TScalarSubplanDetails>(&subplan.Details))
+        {
+            return scalar->Type;
+        }
+        if (std::get_if<TExistsSubplanDetails>(&subplan.Details) ||
+            std::get_if<TInSubplanDetails>(&subplan.Details))
+        {
+            static const TString BoolType = "Bool";
+            return BoolType;
+        }
+        Unsupported("Subplan descriptor has invalid details");
+    }
+
+    static THashSet<TString> ExpressionColumns(const TExpression& expression) {
+        if (!expression.Node) {
+            Unsupported("Subplan predicate is empty");
+        }
+        THashSet<TString> result;
+        THashSet<const TExprNode*> visited;
+        std::function<void(const TExprNode&)> visit =
+            [&](const TExprNode& node) {
+                if (!visited.insert(&node).second) {
+                    return;
+                }
+                if (node.IsCallable("Member")) {
+                    if (node.ChildrenSize() != 2 || !node.Child(1)->IsAtom()) {
+                        Unsupported("Subplan predicate contains a malformed Member");
+                    }
+                    const TString name(node.Child(1)->Content());
+                    if (name.empty()) {
+                        Unsupported("Subplan predicate contains an empty column name");
+                    }
+                    result.insert(name);
+                }
+                for (const auto& child : node.Children()) {
+                    visit(*child);
+                }
+            };
+        visit(*expression.Node);
+        return result;
+    }
+
+    static std::optional<TString> DirectMemberName(const TExprNode& node) {
+        if (!node.IsCallable("Member") ||
+            node.ChildrenSize() != 2 ||
+            !node.Child(1)->IsAtom())
+        {
+            return std::nullopt;
+        }
+        const TString name(node.Child(1)->Content());
+        return name.empty() ? std::nullopt : std::optional<TString>(name);
+    }
+
+    static bool IsExactDecimalAverageStateType(
+        const TTypeAnnotationNode* annotation,
+        const TDecimalAverageCarrierContract& contract)
+    {
+        if (!annotation ||
+            annotation->GetKind() != ETypeAnnotationKind::Optional)
+        {
+            return false;
+        }
+        const auto* item =
+            annotation->Cast<TOptionalExprType>()->GetItemType();
+        if (!item || item->GetKind() != ETypeAnnotationKind::Tuple) {
+            return false;
+        }
+        const auto* tuple = item->Cast<TTupleExprType>();
+        if (tuple->GetSize() != 2) {
+            return false;
+        }
+        const auto sum = ExactType(tuple->GetItems()[0]);
+        return !sum.Nullable &&
+            sum.Name == contract.SumType &&
+            IsExactDataAnnotation(
+                tuple->GetItems()[1],
+                NUdf::EDataSlot::Uint64,
+                false);
+    }
+
+    static bool IsExactLogicalDecimalCarrierType(
+        const TTypeAnnotationNode* annotation,
+        const TDecimalAverageCarrierContract& contract)
+    {
+        if (!annotation ||
+            annotation->GetKind() !=
+                ETypeAnnotationKind::Optional)
+        {
+            return false;
+        }
+        const auto* item =
+            annotation->Cast<TOptionalExprType>()->GetItemType();
+        return item &&
+            item->GetKind() == ETypeAnnotationKind::Data &&
+            ExactType(annotation).Name == contract.LogicalType;
+    }
+
+    static void ValidateDecimalAverageStateNothing(
+        const TExpression& expression,
+        const TDecimalAverageCarrierContract& contract)
+    {
+        if (!expression.Node ||
+            !expression.Node->IsLambda() ||
+            expression.Node->ChildrenSize() != 2)
+        {
+            Unsupported(
+                "Decimal avg carrier padding is not a one-body lambda");
+        }
+        CheckScalarSafetyMetadata(*expression.Node);
+        const auto* arguments = expression.Node->Child(0);
+        if (!arguments->IsArguments() ||
+            arguments->ChildrenSize() != 1 ||
+            !arguments->Child(0)->IsArgument())
+        {
+            Unsupported(
+                "Decimal avg carrier padding must have one row argument");
+        }
+        CheckScalarSafetyMetadata(*arguments);
+        CheckScalarSafetyMetadata(*arguments->Child(0));
+
+        const auto body = expression.GetExpressionBody();
+        CheckScalarSafetyMetadata(*body);
+        if (!body->IsCallable("Nothing") ||
+            body->ChildrenSize() != 1 ||
+            !IsExactDecimalAverageStateType(
+                body->GetTypeAnn(),
+                contract))
+        {
+            Unsupported(TStringBuilder()
+                << "Decimal avg carrier padding must be exact "
+                << "Nothing(Optional<Tuple<" << contract.SumType
+                << ",Uint64>>)");
+        }
+
+        const auto* optional = body->Child(0);
+        CheckScalarSafetyMetadata(*optional);
+        if (!optional->IsCallable("OptionalType") ||
+            optional->ChildrenSize() != 1 ||
+            !IsSameAnnotation(
+                DescribedType(
+                    *optional,
+                    "Decimal avg carrier OptionalType"),
+                *body->GetTypeAnn()))
+        {
+            Unsupported(
+                "Decimal avg carrier padding OptionalType disagrees "
+                "with its result");
+        }
+
+        const auto* tuple = optional->Child(0);
+        CheckTupleDescriptor(
+            *tuple,
+            2,
+            "Decimal avg carrier TupleType");
+        const auto* state =
+            body->GetTypeAnn()
+                ->Cast<TOptionalExprType>()
+                ->GetItemType();
+        if (!IsSameAnnotation(
+                DescribedType(
+                    *tuple,
+                    "Decimal avg carrier TupleType"),
+                *state))
+        {
+            Unsupported(
+                "Decimal avg carrier padding TupleType disagrees "
+                "with its result");
+        }
+
+        const auto* sum = tuple->Child(0);
+        CheckScalarSafetyMetadata(*sum);
+        bool nullable = false;
+        if (DataTypeDescriptorName(*sum, &nullable) !=
+                contract.SumType ||
+            nullable)
+        {
+            Unsupported(
+                "Decimal avg carrier padding has a mismatched Decimal "
+                "sum descriptor");
+        }
+
+        const auto* count = tuple->Child(1);
+        CheckDataDescriptor(
+            *count,
+            NUdf::EDataSlot::Uint64,
+            false,
+            "Decimal avg carrier count DataType");
+    }
+
+    void RequireOnlyDecimalAverageConsumer(
+        IOperator& op,
+        IOperator& expectedConsumer) const
+    {
+        const auto* consumers = MainConsumers.FindPtr(&op);
+        if (!consumers ||
+            consumers->size() != 1 ||
+            consumers->front() != &expectedConsumer)
+        {
+            Unsupported(
+                "Decimal avg carrier operator must have exactly one "
+                "audited consumer");
+        }
+    }
+
+    void RegisterDecimalAverageCarrier(
+        IOperator& op,
+        TStringBuf name,
+        IOperator& expectedConsumer,
+        const TDecimalAverageCarrierContract& contract)
+    {
+        const TString column(name);
+        RequireOnlyDecimalAverageConsumer(op, expectedConsumer);
+        if (!OutputNames(op).contains(column)) {
+            Unsupported(TStringBuilder()
+                << "Decimal avg carrier output is missing " << column);
+        }
+        const auto* annotation = OutputType(op, column);
+        if (!IsExactLogicalDecimalCarrierType(annotation, contract) &&
+            !IsExactDecimalAverageStateType(annotation, contract))
+        {
+            Unsupported(TStringBuilder()
+                << "Decimal avg carrier " << column
+                << " must remain exact Optional<" << contract.LogicalType
+                << "> or Optional<Tuple<" << contract.SumType
+                << ",Uint64>>");
+        }
+        auto [outputTypes, inserted] =
+            DecimalAverageCarrierOutputMap.emplace(
+                &op,
+                TDecimalAverageCarrierTypes{});
+        Y_UNUSED(inserted);
+        if (!outputTypes->second.insert(column).second) {
+            Unsupported(
+                "Decimal avg carrier was certified twice");
+        }
+        CertifiedDecimalAverageTypes.emplace(std::make_pair(&op, column), contract.LogicalType);
+    }
+
+    TString AggregateScalarType(IOperator& op, TStringBuf column, bool* nullable = nullptr) const {
+        if (const auto* logical = CertifiedDecimalAverageTypes.FindPtr(
+                std::make_pair(&op, TString(column))))
+        {
+            // Only the complete, audited producer/consumer tree can replace
+            // the physical Optional<Tuple<sum,count>> with a logical AVG lane.
+            if (nullable) { *nullable = true; }
+            return *logical;
+        }
+        return TypeName(OutputType(op, column), nullable, Binary64Mode);
+    }
+
+    size_t CertifyDecimalAverageUnionTree(
+        IOperator& op,
+        TStringBuf name,
+        IOperator& expectedConsumer,
+        const TDecimalAverageCarrierContract& contract)
+    {
+        RegisterDecimalAverageCarrier(
+            op,
+            name,
+            expectedConsumer,
+            contract);
+
+        switch (op.GetKind()) {
+            case EOperator::UnionAll: {
+                auto& unionAll = static_cast<TOpUnionAll&>(op);
+                if (unionAll.Ordered) {
+                    Unsupported(
+                        "Decimal avg carrier requires unordered UnionAll");
+                }
+                const TUnionInputRow* mapping = nullptr;
+                for (const auto& [output, inputs] : unionAll.GetColumns().Items()) {
+                    if (ToString(output) == name) {
+                        mapping = &inputs;
+                    }
+                }
+                if (!mapping || mapping->Inputs.size() != unionAll.GetChildCount()) {
+                    Unsupported("Decimal avg carrier UnionAll has no exact input mapping");
+                }
+                size_t producers = 0;
+                for (size_t index = 0; index < unionAll.GetChildCount(); ++index) {
+                    const auto source = mapping->Inputs[index];
+                    for (const auto& [output, inputs] : unionAll.GetColumns().Items()) {
+                        if (inputs.Inputs.size() != unionAll.GetChildCount()) {
+                            Unsupported("Decimal avg carrier UnionAll has inconsistent input arity");
+                        }
+                        if (ToString(output) != name && inputs.Inputs[index] == source) {
+                            Unsupported("Decimal avg carrier UnionAll input must not fan out its state");
+                        }
+                    }
+                    producers += CertifyDecimalAverageUnionTree(
+                        *unionAll.GetChild(index), ToString(source), unionAll, contract);
+                }
+                return producers;
+            }
+
+            case EOperator::Map: {
+                auto& map = static_cast<TOpMap&>(op);
+                // Native Map appends expressions and preserves input order.
+                // This carrier is used only as payload of a keyless final AVG.
+                if (map.GetInput()->GetKind() !=
+                    EOperator::Aggregate)
+                {
+                    Unsupported(
+                        "Decimal avg carrier UnionAll leaf must be "
+                        "exactly one Project over one Aggregate");
+                }
+                auto& aggregate =
+                    static_cast<TOpAggregate&>(*map.GetInput());
+                const auto traits =
+                    SnapshotAggregationTraits(aggregate);
+                if (aggregate.GetAggregationPhase() !=
+                        EOpPhase::Intermediate ||
+                    aggregate.IsDistinctAll() ||
+                    !SnapshotKeyColumns(aggregate).empty())
+                {
+                    Unsupported(
+                        "Decimal avg carrier UnionAll leaf must contain "
+                        "one keyless Intermediate Aggregate");
+                }
+                const auto inputNames = OutputNames(*map.GetInput());
+                const auto* carrierElement = SnapshotFindOutputElement(map,
+                    TInfoUnit(TString(name)));
+                for (const auto& element : SnapshotMapElements(map)) {
+                    if (&element == carrierElement) {
+                        continue;
+                    }
+                    if (ExpressionColumns(
+                            element.GetExpression()).contains(name))
+                    {
+                        Unsupported(
+                            "Decimal avg carrier must not have another "
+                            "Project scalar consumer");
+                    }
+                }
+
+                if (carrierElement &&
+                    carrierElement->GetExpression().Node &&
+                    carrierElement->GetExpression().Node->IsLambda() &&
+                    carrierElement->GetExpression().Node
+                            ->ChildrenSize() == 2 &&
+                    carrierElement->GetExpression()
+                        .GetExpressionBody()
+                        ->IsCallable("Nothing"))
+                {
+                    if (inputNames.contains(name)) {
+                        Unsupported(
+                            "Decimal avg carrier padding must not replace "
+                            "a live same-name input");
+                    }
+                    RequireOnlyDecimalAverageConsumer(
+                        aggregate,
+                        map);
+                    if (std::any_of(traits.begin(), traits.end(), [](const auto& trait) {
+                            return trait.AggFunction == "avg";
+                        })) {
+                        Unsupported(
+                            "Decimal avg carrier padding source must "
+                            "not be another Intermediate avg");
+                    }
+                    ValidateDecimalAverageStateNothing(
+                        carrierElement->GetExpression(),
+                        contract);
+                    if (!CertifiedDecimalAveragePads.emplace(
+                            carrierElement,
+                            contract.LogicalType).second)
+                    {
+                        Unsupported(
+                            "Decimal avg carrier padding was certified twice");
+                    }
+                    return 0;
+                }
+
+                if (carrierElement) {
+                    const TString source = carrierElement->IsRename()
+                        ? carrierElement->GetRename().GetFullName()
+                        : carrierElement->IsColumnAccess()
+                            ? carrierElement
+                                ->GetColumnAccess()
+                                .GetFullName()
+                            : TString();
+                    if (source != name) {
+                        Unsupported(
+                            "Decimal avg carrier Project must use a direct "
+                            "same-name column");
+                    }
+                }
+                if (!inputNames.contains(name)) {
+                    Unsupported(
+                        "Decimal avg carrier Project has no live "
+                        "same-name input");
+                }
+                const auto selected = std::find_if(traits.begin(), traits.end(), [&](const auto& trait) {
+                    return trait.ResultColName.GetFullName() == name;
+                });
+                if (selected == traits.end() ||
+                    selected->AggFunction != "avg" ||
+                    selected->Distinct ||
+                    selected->Unwrap)
+                {
+                    Unsupported(
+                        "Decimal avg carrier live producer must be one "
+                        "plain matching avg trait");
+                }
+                const auto& trait = *selected;
+                if (!IsExactLogicalDecimalCarrierType(
+                        OutputType(
+                            *aggregate.GetInput(),
+                            trait.OriginalColName.GetFullName()),
+                        contract))
+                {
+                    Unsupported(
+                        "Decimal avg carrier live producer input must "
+                        "match the final Optional<Decimal>");
+                }
+                RegisterDecimalAverageCarrier(
+                    aggregate,
+                    name,
+                    map,
+                    contract);
+                return 1;
+            }
+
+            default:
+                Unsupported(TStringBuilder()
+                    << "Decimal avg carrier UnionAll tree reached "
+                    << op.GetExplainName()
+                    << " instead of a direct Project leaf");
+        }
+    }
+
+    const TTypeAnnotationNode* FindDecimalAverageSourceType(IOperator& op, TStringBuf name) const {
+        if (op.GetKind() == EOperator::UnionAll) {
+            auto& unionAll = static_cast<TOpUnionAll&>(op);
+            for (const auto& [output, row] : unionAll.GetColumns().Items()) {
+                if (ToString(output) != name) { continue; }
+                if (row.Inputs.size() != unionAll.GetChildCount()) {
+                    Unsupported("Decimal avg source lookup has inconsistent UnionAll arity");
+                }
+                for (size_t index = 0; index < row.Inputs.size(); ++index) {
+                    if (const auto* type = FindDecimalAverageSourceType(
+                            *unionAll.GetChild(index), ToString(row.Inputs[index])))
+                    {
+                        return type;
+                    }
+                }
+            }
+            return nullptr;
+        }
+        if (op.GetKind() != EOperator::Map) { return nullptr; }
+        auto& map = static_cast<TOpMap&>(op);
+        if (map.GetInput()->GetKind() != EOperator::Aggregate) { return nullptr; }
+        auto& source = static_cast<TOpAggregate&>(*map.GetInput());
+        for (const auto& trait : SnapshotAggregationTraits(source)) {
+            if (trait.ResultColName.GetFullName() == name && trait.AggFunction == "avg") {
+                return OutputType(*source.GetInput(), trait.OriginalColName.GetFullName());
+            }
+        }
+        return nullptr;
+    }
+
+    void CertifyDecimalAverageFinal(
+        TOpAggregate& aggregate,
+        const TSnapshotAggregationTrait& trait)
+    {
+        const TString input =
+            trait.OriginalColName.GetFullName();
+        const TString output =
+            trait.ResultColName.GetFullName();
+        if (aggregate.IsDistinctAll() ||
+            !SnapshotKeyColumns(aggregate).empty() ||
+            trait.Distinct ||
+            trait.Unwrap)
+        {
+            Unsupported(
+                "Decimal avg carrier consumer must be one keyless plain "
+                "Final avg trait");
+        }
+        const size_t inputUses = std::count_if(
+            SnapshotAggregationTraits(aggregate).begin(),
+            SnapshotAggregationTraits(aggregate).end(),
+            [&](const TSnapshotAggregationTrait& candidate) {
+                return candidate.OriginalColName.GetFullName() == input;
+            });
+        if (inputUses != 1) {
+            Unsupported(
+                "Decimal avg carrier must have exactly one final "
+                "aggregate use");
+        }
+
+        // Native DISTINCT padding carries physical AVG tuples. UnionAll and
+        // final Aggregate annotations can retain that tuple until physical
+        // lowering recovers the original Decimal precision from the live
+        // partial producer. Follow the same explicit bindings, then audit the
+        // complete tree below; a tuple's widened sum cannot recover precision.
+        const auto* sourceType = FindDecimalAverageSourceType(*aggregate.GetInput(), input);
+        if (!sourceType) {
+            Unsupported("Decimal avg carrier has no matching live source type");
+        }
+        const auto logicalType = ExactType(sourceType);
+        const auto parameters =
+            ParseCanonicalDecimalType(logicalType.Name);
+        if (!logicalType.Nullable || !parameters) {
+            Unsupported(
+                "Decimal avg carrier source must be exact "
+                "Optional<Decimal>");
+        }
+        const TDecimalAverageCarrierContract contract{
+            logicalType.Name,
+            TStringBuilder()
+                << "Decimal("
+                << static_cast<ui32>(
+                    NYql::NDecimal::MaxPrecision)
+                << "," << static_cast<ui32>(parameters->Scale)
+                << ")",
+        };
+        const auto* outputType = OutputType(aggregate, output);
+        if (!IsExactLogicalDecimalCarrierType(outputType, contract) &&
+            !IsExactDecimalAverageStateType(outputType, contract))
+        {
+            Unsupported("Decimal avg final annotation disagrees with the audited source and state");
+        }
+        const size_t producers = CertifyDecimalAverageUnionTree(
+            *aggregate.GetInput(),
+            input,
+            aggregate,
+            contract);
+        if (producers != 1) {
+            Unsupported(TStringBuilder()
+                << "Decimal avg carrier requires exactly one matching "
+                << "Intermediate avg producer, got " << producers);
+        }
+        // This is the finished scalar, not another intermediate state carrier.
+        CertifiedDecimalAverageTypes.emplace(std::make_pair(&aggregate, output), contract.LogicalType);
+    }
+
+    void PrepareDecimalAverageCarriers() {
+        // ExpandDistinctAggregation introduces the same typed state transport
+        // before stage assignment. Audit its complete producer/consumer tree
+        // at logical transformation boundaries as well as in physical plans.
+        THashSet<const IOperator*> nodes;
+        TVector<IOperator*> orderedNodes;
+        VisitOperators(
+            Root.GetInput(),
+            nodes,
+            [&](IOperator& op) {
+                orderedNodes.push_back(&op);
+                for (const auto& child : op.GetChildren()) {
+                    MainConsumers[child].push_back(&op);
+                }
+            });
+
+        for (auto* op : orderedNodes) {
+            if (op->GetKind() != EOperator::Aggregate) {
+                continue;
+            }
+            auto& aggregate =
+                static_cast<TOpAggregate&>(*op);
+            if (aggregate.GetAggregationPhase() !=
+                    EOpPhase::Final ||
+                aggregate.GetInput()->GetKind() !=
+                    EOperator::UnionAll)
+            {
+                continue;
+            }
+            for (const auto& trait :
+                SnapshotAggregationTraits(aggregate))
+            {
+                if (trait.AggFunction == "avg") {
+                    CertifyDecimalAverageFinal(
+                        aggregate,
+                        trait);
+                }
+            }
+        }
+    }
+
+    struct TDirectCorrelation {
+        TExpression Expression;
+        TString InnerColumn;
+    };
+
+    struct TExistsDirectCorrelation {
+        TExpression Expression;
+        TString Dependency;
+        TString InnerColumn;
+    };
+
+    static TDirectCorrelation ExtractDirectCorrelation(
+        TStringBuf kind,
+        TStringBuf binding,
+        TStringBuf dependency,
+        const TExpression& predicate,
+        const THashSet<TString>& innerNames,
+        const THashSet<TString>& dependencies = {})
+    {
+        std::optional<TExpression> correlation;
+        TString innerColumn;
+        for (const auto& conjunct : SnapshotBooleanTerms(predicate, "And")) {
+            const auto columns = ExpressionColumns(conjunct);
+            if (!columns.contains(dependency)) {
+                for (const auto& column : columns) {
+                    if (!innerNames.contains(column) && !dependencies.contains(column)) {
+                        Unsupported(TStringBuilder()
+                            << kind << " subplan binding " << binding
+                            << " residual predicate references unavailable column "
+                            << column);
+                    }
+                }
+                continue;
+            }
+            if (correlation) {
+                Unsupported(TStringBuilder()
+                    << kind << " subplan binding " << binding
+                    << " references its outer dependency in multiple conjuncts");
+            }
+            const auto body = conjunct.GetExpressionBody();
+            if (!body->IsCallable("==") || body->ChildrenSize() != 2) {
+                Unsupported(TStringBuilder()
+                    << kind << " subplan binding " << binding
+                    << " correlation must be one strict column equality");
+            }
+            const auto left = DirectMemberName(*body->Child(0));
+            const auto right = DirectMemberName(*body->Child(1));
+            if (!left || !right ||
+                ((*left == dependency) == (*right == dependency)))
+            {
+                Unsupported(TStringBuilder()
+                    << kind << " subplan binding " << binding
+                    << " correlation must compare its dependency to one inner column");
+            }
+            innerColumn = *left == dependency ? *right : *left;
+            if (!innerNames.contains(innerColumn) || columns.size() != 2) {
+                Unsupported(TStringBuilder()
+                    << kind << " subplan binding " << binding
+                    << " correlation does not reference exactly one inner column");
+            }
+            correlation = conjunct;
+        }
+        if (!correlation) {
+            Unsupported(TStringBuilder()
+                << kind << " subplan binding " << binding
+                << " has no equality for its outer dependency");
+        }
+        return {
+            .Expression = std::move(*correlation),
+            .InnerColumn = std::move(innerColumn),
+        };
+    }
+
+    static bool SameExpressionBody(
+        const TExpression& left,
+        const TExpression& right)
+    {
+        if (left.GetExpressionBody().Get() == right.GetExpressionBody().Get()) {
+            return true;
+        }
+
+        // Compare the complete lambdas so independently wrapped branch terms
+        // have alpha-equivalent row arguments while their bodies remain ordered.
+        const TExprNode* leftNode = left.GetLambda().Get();
+        const TExprNode* rightNode = right.GetLambda().Get();
+        return CompareExprTrees(leftNode, rightNode);
+    }
+
+    static TDirectCorrelation ExtractScalarCorrelation(
+        TStringBuf binding,
+        TStringBuf dependency,
+        const TExpression& predicate,
+        const THashSet<TString>& innerNames,
+        const THashSet<TString>& dependencies)
+    {
+        if (!predicate.GetExpressionBody()->IsCallable("Or")) {
+            return ExtractDirectCorrelation(
+                "Scalar",
+                binding,
+                dependency,
+                predicate,
+                innerNames,
+                dependencies);
+        }
+
+        const auto branches = SnapshotBooleanTerms(predicate, "Or");
+        if (branches.size() < 2) {
+            Unsupported(TStringBuilder()
+                << "Scalar subplan binding " << binding
+                << " common-correlation OR must have at least two branches");
+        }
+
+        std::optional<TExpression> commonCorrelation;
+        for (const auto& branch : branches) {
+            std::optional<TExpression> branchCorrelation;
+            for (const auto& conjunct : SnapshotBooleanTerms(branch, "And")) {
+                const auto columns = ExpressionColumns(conjunct);
+                if (columns.contains(dependency)) {
+                    if (branchCorrelation) {
+                        Unsupported(TStringBuilder()
+                            << "Scalar subplan binding " << binding
+                            << " common-correlation OR branch references its "
+                               "outer dependency in multiple conjuncts");
+                    }
+                    branchCorrelation = conjunct;
+                    continue;
+                }
+
+                for (const auto& column : columns) {
+                    if (!innerNames.contains(column) && !dependencies.contains(column)) {
+                        Unsupported(TStringBuilder()
+                            << "Scalar subplan binding " << binding
+                            << " residual predicate references unavailable column "
+                            << column);
+                    }
+                }
+            }
+
+            if (!branchCorrelation) {
+                Unsupported(TStringBuilder()
+                    << "Scalar subplan binding " << binding
+                    << " common-correlation OR branch has no conjunct for its "
+                       "outer dependency");
+            }
+            if (commonCorrelation &&
+                !SameExpressionBody(*commonCorrelation, *branchCorrelation))
+            {
+                Unsupported(TStringBuilder()
+                    << "Scalar subplan binding " << binding
+                    << " common-correlation OR must repeat the same ordered "
+                       "outer-dependency conjunct in every branch");
+            }
+            if (!commonCorrelation) {
+                commonCorrelation = std::move(*branchCorrelation);
+            }
+        }
+
+        Y_ENSURE(commonCorrelation);
+        return ExtractDirectCorrelation(
+            "Scalar",
+            binding,
+            dependency,
+            *commonCorrelation,
+            innerNames);
+    }
+
+    static TVector<TExistsDirectCorrelation> ExtractExistsCorrelations(
+        TStringBuf binding,
+        const TVector<TString>& dependencies,
+        const TExpression& predicate,
+        const THashSet<TString>& innerNames)
+    {
+        Y_ENSURE(dependencies.size() == 1 || dependencies.size() == 2);
+        if (dependencies.size() == 1) {
+            auto correlation = ExtractDirectCorrelation(
+                "EXISTS",
+                binding,
+                dependencies.front(),
+                predicate,
+                innerNames);
+            return {{
+                .Expression = std::move(correlation.Expression),
+                .Dependency = dependencies.front(),
+                .InnerColumn = std::move(correlation.InnerColumn),
+            }};
+        }
+
+        THashMap<TString, size_t> dependencyIndices;
+        for (size_t index = 0; index < dependencies.size(); ++index) {
+            if (!dependencyIndices.emplace(dependencies[index], index).second) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has duplicate outer dependencies");
+            }
+        }
+
+        TVector<std::optional<TExistsDirectCorrelation>> correlations(
+            dependencies.size());
+        THashSet<TString> innerColumns;
+        size_t equalityCount = 0;
+        size_t inequalityCount = 0;
+        for (const auto& conjunct : SnapshotBooleanTerms(predicate, "And")) {
+            const auto columns = ExpressionColumns(conjunct);
+            TVector<TString> referencedDependencies;
+            for (const auto& dependency : dependencies) {
+                if (columns.contains(dependency)) {
+                    referencedDependencies.push_back(dependency);
+                }
+            }
+            if (referencedDependencies.empty()) {
+                for (const auto& column : columns) {
+                    if (!innerNames.contains(column)) {
+                        Unsupported(TStringBuilder()
+                            << "EXISTS subplan binding " << binding
+                            << " residual predicate references unavailable column "
+                            << column);
+                    }
+                }
+                continue;
+            }
+            if (referencedDependencies.size() != 1) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " two-dependency correlation conjunct must reference "
+                       "exactly one outer dependency");
+            }
+
+            const TString& dependency = referencedDependencies.front();
+            const size_t dependencyIndex = dependencyIndices.at(dependency);
+            if (correlations[dependencyIndex]) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " references outer dependency " << dependency
+                    << " in multiple conjuncts");
+            }
+
+            const auto body = conjunct.GetExpressionBody();
+            const bool equal = body->IsCallable("==");
+            const bool notEqual = body->IsCallable("!=");
+            if ((!equal && !notEqual) || body->ChildrenSize() != 2) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " two-dependency correlation requires one strict "
+                       "column equality and one strict column inequality");
+            }
+            const auto left = DirectMemberName(*body->Child(0));
+            const auto right = DirectMemberName(*body->Child(1));
+            if (!left || !right ||
+                ((*left == dependency) == (*right == dependency)))
+            {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " two-dependency correlation must compare one dependency "
+                       "to one inner column");
+            }
+            TString innerColumn = *left == dependency ? *right : *left;
+            if (!innerNames.contains(innerColumn) || columns.size() != 2) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " two-dependency correlation does not reference exactly "
+                       "one inner column");
+            }
+            if (!innerColumns.insert(innerColumn).second) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " two-dependency correlation must use distinct inner columns");
+            }
+
+            equalityCount += equal;
+            inequalityCount += notEqual;
+            correlations[dependencyIndex] = TExistsDirectCorrelation{
+                .Expression = conjunct,
+                .Dependency = dependency,
+                .InnerColumn = std::move(innerColumn),
+            };
+        }
+
+        if (equalityCount != 1 || inequalityCount != 1) {
+            Unsupported(TStringBuilder()
+                << "EXISTS subplan binding " << binding
+                << " two-dependency correlation requires exactly one strict "
+                   "column equality and one strict column inequality");
+        }
+
+        TVector<TExistsDirectCorrelation> result;
+        result.reserve(correlations.size());
+        for (size_t index = 0; index < correlations.size(); ++index) {
+            if (!correlations[index]) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has no direct comparison for outer dependency "
+                    << dependencies[index]);
+            }
+            result.push_back(std::move(*correlations[index]));
+        }
+        return result;
+    }
+
+    void ValidateCorrelationTypes(
+        TStringBuf kind,
+        TStringBuf binding,
+        TStringBuf dependency,
+        const TTypeAnnotationNode* dependencyType,
+        IOperator& innerRoot,
+        const TExpression& correlation,
+        TStringBuf innerColumn)
+    {
+        const auto body = correlation.GetExpressionBody();
+        const auto leftName = DirectMemberName(*body->Child(0));
+        const auto rightName = DirectMemberName(*body->Child(1));
+        Y_ENSURE(leftName && rightName);
+
+        const TExprNode* dependencyMember =
+            *leftName == dependency
+                ? body->Child(0)
+                : body->Child(1);
+        const TExprNode* innerMember =
+            *leftName == dependency
+                ? body->Child(1)
+                : body->Child(0);
+
+        const auto declaredDependency = ExactType(dependencyType);
+        bool memberNullable = false;
+        const TExactType dependencyMemberType{
+            ScalarTypeName(*dependencyMember, &memberNullable),
+            memberNullable,
+        };
+        if (!SameType(declaredDependency, dependencyMemberType)) {
+            Unsupported(TStringBuilder()
+                << kind << " subplan binding " << binding
+                << " dependency Member type disagrees with AddDependencies");
+        }
+
+        const auto innerOutput = ExactType(
+            OutputType(innerRoot, innerColumn));
+        memberNullable = false;
+        const TExactType innerMemberType{
+            ScalarTypeName(*innerMember, &memberNullable),
+            memberNullable,
+        };
+        if (!SameType(innerOutput, innerMemberType)) {
+            Unsupported(TStringBuilder()
+                << kind << " subplan binding " << binding
+                << " inner comparison Member type disagrees with its input");
+        }
+        if (declaredDependency.Name != innerOutput.Name) {
+            Unsupported(TStringBuilder()
+                << kind << " subplan binding " << binding
+                << " comparison column types do not match");
+        }
+
+        bool predicateNullable = false;
+        const TString predicateType =
+            ScalarTypeName(*body, &predicateNullable);
+        if (predicateType != "Bool" ||
+            predicateNullable !=
+                (declaredDependency.Nullable || innerOutput.Nullable))
+        {
+            Unsupported(TStringBuilder()
+                << kind << " subplan binding " << binding
+                << " has an invalid comparison result type or nullability");
+        }
+    }
+
+    TScalarSubplanDetails::TCorrelation PrepareScalarCorrelation(
+        const TString& binding,
+        const TSnapshotSubplanEntry& entry,
+        const TIntrusivePtr<IOperator>& plan)
+    {
+        if (entry.DependentIUs.empty()) {
+            Unsupported(TStringBuilder()
+                << "Scalar subplan binding " << binding
+                << " must have at least one outer dependency");
+        }
+        THashSet<TString> dependencies;
+        for (const auto& dependencyIU : entry.DependentIUs) {
+            const TString dependency = dependencyIU.GetFullName();
+            if (dependency.empty() || !dependencies.insert(dependency).second) {
+                Unsupported(TStringBuilder()
+                    << "Scalar subplan binding " << binding
+                    << " has an empty or duplicate outer dependency");
+            }
+        }
+
+        THashSet<const IOperator*> nodes;
+        THashMap<const IOperator*, TVector<IOperator*>> parents;
+        TVector<TOpAddDependencies*> outerBinds;
+        VisitOperators(plan, nodes, [&](IOperator& op) {
+            if (op.GetKind() == EOperator::Limit ||
+                op.GetKind() == EOperator::Sort ||
+                (op.GetKind() == EOperator::UnionAll &&
+                 static_cast<const TOpUnionAll&>(op).Ordered))
+            {
+                Unsupported(TStringBuilder()
+                    << "Correlated scalar subplan binding " << binding
+                    << " has nondeterministic or error-bearing "
+                       "per-invocation semantics");
+            }
+            CheckSnapshotProperties(op, false);
+            for (const auto& child : op.GetChildren()) {
+                parents[child].push_back(&op);
+            }
+            if (op.GetKind() == EOperator::AddDependencies) {
+                outerBinds.push_back(
+                    &static_cast<TOpAddDependencies&>(op));
+            }
+        });
+        if (outerBinds.size() != 1) {
+            Unsupported(TStringBuilder()
+                << "Correlated scalar subplan binding " << binding
+                << " must contain exactly one AddDependencies");
+        }
+
+        auto* outerBind = outerBinds.front();
+        if (SnapshotDependencies(*outerBind).size() != dependencies.size() ||
+            SnapshotDependencyTypes(*outerBind).size() != dependencies.size())
+        {
+            Unsupported(TStringBuilder()
+                << "Scalar subplan binding " << binding
+                << " dependency registry disagrees with AddDependencies");
+        }
+        // Native captures have a local ID distinct from their caller ID.
+        // Validate against local types and expressions; rename only exported
+        // nodes on the single path from the bind to its keyless Aggregate.
+        THashMap<TString, std::pair<TString, const TTypeAnnotationNode*>> captures;
+        for (const auto& [local, capture] : outerBind->GetDependencies().Items()) {
+            if (!capture.Type || !captures.emplace(ToString(capture.Outer),
+                    std::make_pair(ToString(local), capture.Type)).second)
+            {
+                Unsupported(TStringBuilder() << "Scalar subplan binding " << binding
+                    << " has duplicate or untyped outer captures");
+            }
+        }
+        TScalarSubplanDetails::TCorrelation result;
+        THashMap<TString, TString> localToOuter;
+        THashSet<TString> localDependencies;
+        for (const auto& dependencyIU : entry.DependentIUs) {
+            const TString outer = dependencyIU.GetFullName();
+            const auto* capture = captures.FindPtr(outer);
+            if (!capture || !localToOuter.emplace(capture->first, outer).second) {
+                Unsupported(TStringBuilder() << "Scalar subplan binding " << binding
+                    << " dependency registry disagrees with AddDependencies");
+            }
+            localDependencies.insert(capture->first);
+            result.Dependencies.push_back({outer, capture->second});
+        }
+
+        auto shape = plan;
+        size_t aggregateCount = 0;
+        while (shape->GetKind() == EOperator::Map ||
+               shape->GetKind() == EOperator::Aggregate)
+        {
+            if (shape->GetChildren().size() != 1) {
+                Unsupported(TStringBuilder()
+                    << "Correlated scalar subplan binding " << binding
+                    << " root path must be unary");
+            }
+            if (shape.Get() != plan.Get()) {
+                const auto* shapeParents = parents.FindPtr(shape.Get());
+                if (!shapeParents || shapeParents->size() != 1) {
+                    Unsupported(TStringBuilder()
+                        << "Correlated scalar subplan binding " << binding
+                        << " root path must not fan out");
+                }
+            }
+            if (shape->GetKind() == EOperator::Aggregate) {
+                ++aggregateCount;
+                const auto& aggregate =
+                    static_cast<const TOpAggregate&>(*shape);
+                if (aggregate.IsDistinctAll() ||
+                    !SnapshotKeyColumns(aggregate).empty() ||
+                    aggregate.GetAggregationPhase() != EOpPhase::Undefined)
+                {
+                    Unsupported(TStringBuilder()
+                        << "Correlated scalar subplan binding " << binding
+                        << " Aggregate must be ungrouped, undefined, "
+                           "and non-DistinctAll");
+                }
+            }
+            shape = shape->GetChildren().front();
+        }
+        if (aggregateCount != 1) {
+            Unsupported(TStringBuilder()
+                << "Correlated scalar subplan binding " << binding
+                << " root path must contain exactly one Aggregate "
+                   "among Map wrappers");
+        }
+
+        const auto* bindParents = parents.FindPtr(outerBind);
+        if (!bindParents || bindParents->size() != 1 ||
+            bindParents->front()->GetKind() != EOperator::Filter)
+        {
+            Unsupported(TStringBuilder()
+                << "Correlated scalar subplan binding " << binding
+                << " must have one Filter directly above AddDependencies");
+        }
+        auto* filter = static_cast<TOpFilter*>(bindParents->front());
+        const auto* filterParents = parents.FindPtr(filter);
+        if (shape.Get() != filter ||
+            !filterParents ||
+            filterParents->size() != 1 ||
+            filter->GetInput().Get() != outerBind)
+        {
+            Unsupported(TStringBuilder()
+                << "Correlated scalar subplan binding " << binding
+                << " unary path must end in one Filter directly above "
+                   "AddDependencies without fanout");
+        }
+
+        auto innerPlan = outerBind->GetInput();
+        const auto innerNames = OutputNames(*innerPlan);
+        for (const auto& dependency : result.Dependencies) {
+            const auto& local = captures.at(dependency.Name).first;
+            if (innerNames.contains(dependency.Name) || innerNames.contains(local)) {
+                Unsupported(TStringBuilder() << "Scalar subplan binding " << binding
+                    << " outer dependency or local capture collides with an inner column");
+            }
+            const auto correlation = ExtractScalarCorrelation(
+                binding, local, filter->GetFilterExpression(), innerNames, localDependencies);
+            if (!SameType(ExactType(dependency.Type), ExactType(OutputType(*outerBind, local)))) {
+                Unsupported(TStringBuilder() << "Scalar subplan binding " << binding
+                    << " outer_bind output type disagrees with AddDependencies");
+            }
+            ValidateCorrelationTypes(
+                "Scalar", binding, local, dependency.Type,
+                *innerPlan, correlation.Expression, correlation.InnerColumn);
+        }
+
+        THashSet<const IOperator*> expressionNodes;
+        VisitOperators(plan, expressionNodes, [&](IOperator& op) {
+            if (&op == filter) {
+                return;
+            }
+            for (const auto& expression : op.GetExpressions()) {
+                for (const auto& column : ExpressionColumns(expression.get())) {
+                    if (localDependencies.contains(column)) {
+                        Unsupported(TStringBuilder()
+                            << "Scalar subplan binding " << binding
+                            << " uses its outer dependency outside the "
+                               "correlation Filter");
+                    }
+                }
+            }
+            if (op.GetKind() == EOperator::Aggregate) {
+                const auto& candidate =
+                    static_cast<const TOpAggregate&>(op);
+                for (const auto& key : SnapshotKeyColumns(candidate)) {
+                    if (localDependencies.contains(key.GetFullName())) {
+                        Unsupported(TStringBuilder()
+                            << "Scalar subplan binding " << binding
+                            << " aggregates by its outer dependency");
+                    }
+                }
+                for (const auto& trait : SnapshotAggregationTraits(candidate)) {
+                    if (localDependencies.contains(trait.OriginalColName.GetFullName())) {
+                        Unsupported(TStringBuilder()
+                            << "Scalar subplan binding " << binding
+                            << " aggregates its outer dependency");
+                    }
+                }
+            }
+        });
+
+        if (!AuthorizedOuterBinds.insert(outerBind).second) {
+            Unsupported(TStringBuilder()
+                << "Correlated scalar subplan binding " << binding
+                << " shares AddDependencies with another subplan");
+        }
+        auto* renamed = static_cast<IOperator*>(filter);
+        while (renamed->GetKind() != EOperator::Aggregate) {
+            if (renamed->GetKind() != EOperator::Filter && renamed->GetKind() != EOperator::Map) {
+                Unsupported("Scalar capture renaming escaped its audited unary path");
+            }
+            const auto outputNames = OutputNames(*renamed);
+            for (const auto& [local, outer] : localToOuter) {
+                if (local != outer && outputNames.contains(outer)) {
+                    Unsupported("Scalar capture renaming collides with an existing output");
+                }
+            }
+            if (!ScalarCaptureRenames.emplace(renamed, localToOuter).second) {
+                Unsupported("Scalar capture renaming shares an operator with another subplan");
+            }
+            const auto* next = parents.FindPtr(renamed);
+            if (!next || next->size() != 1) {
+                Unsupported("Scalar capture renaming requires one parent up to its Aggregate");
+            }
+            renamed = next->front();
+        }
+        return result;
+    }
+
+    TVector<TString> ReferencedSubplanBindings(IOperator& op) {
+        THashSet<TString> referenced;
+        for (const auto& iu : SnapshotSubplanIUs(op, Root.PlanProps)) {
+            const TString name = iu.GetFullName();
+            if (!SubplanIndices.contains(name)) {
+                Unsupported(TStringBuilder()
+                    << op.GetExplainName()
+                    << " references an undeclared subplan binding "
+                    << name);
+            }
+            referenced.insert(name);
+        }
+
+        TVector<TString> result;
+        result.reserve(referenced.size());
+        for (const auto& subplan : Subplans) {
+            if (referenced.contains(subplan.Binding)) {
+                result.push_back(subplan.Binding);
+            }
+        }
+        return result;
+    }
+
+    TSubplanDescriptor PrepareScalarSubplan(
+        const TString& binding,
+        const TSnapshotSubplanEntry& entry,
+        const TIntrusivePtr<IOperator>& plan)
+    {
+        if (!entry.Tuple.empty()) {
+            Unsupported(TStringBuilder()
+                << "Scalar subplan binding " << binding
+                << " has tuple inputs");
+        }
+        THashSet<const IOperator*> errorNodes;
+        VisitOperators(plan, errorNodes, [&](IOperator& op) {
+            if (HasErrorOnNullProjectionShape(op)) {
+                Unsupported(TStringBuilder()
+                    << "Scalar subplan binding " << binding
+                    << " has an error-bearing Project");
+            }
+        });
+        std::optional<TScalarSubplanDetails::TCorrelation> correlation;
+        if (entry.DependentIUs.empty()) {
+            THashSet<const IOperator*> nodes;
+            VisitOperators(plan, nodes, [&](IOperator& op) {
+                if (op.GetKind() == EOperator::AddDependencies) {
+                    Unsupported(TStringBuilder()
+                        << "Scalar subplan binding " << binding
+                        << " has residual AddDependencies");
+                }
+            });
+        } else {
+            correlation =
+                PrepareScalarCorrelation(binding, entry, plan);
+        }
+        const auto resultIUs = entry.ResultIU ? TVector<TInfoUnit>{*entry.ResultIU} : TVector<TInfoUnit>{};
+        if (resultIUs.size() != 1) {
+            Unsupported(TStringBuilder()
+                << "Scalar subplan binding " << binding
+                << " must have exactly one result column");
+        }
+        const TString output = resultIUs.front().GetFullName();
+        const auto outputNames = OutputNames(*plan);
+        if (output.empty() || !outputNames.contains(output)) {
+            Unsupported(TStringBuilder()
+                << "Scalar subplan binding " << binding
+                << " has an invalid result column " << output);
+        }
+
+        bool outputNullable = false;
+        const TString type = TypeName(
+            OutputType(*plan, output),
+            &outputNullable);
+        return {
+            .Binding = binding,
+            .RegistryRoot = plan,
+            .ExportedRoot = plan,
+            .Details = TScalarSubplanDetails{
+                .OutputColumn = output,
+                .Type = type,
+                .OutputNullable = outputNullable,
+                .Correlation = std::move(correlation),
+            },
+        };
+    }
+
+    std::optional<std::pair<TString, TString>> TryExportCardinalityGuard(
+        TOpMap& map,
+        const TSnapshotMapElement& element,
+        const THashSet<TString>& physicalInputs)
+    {
+        const auto& expression = element.GetExpression();
+        if (!expression.Node || !expression.Node->IsLambda() || expression.Node->ChildrenSize() != 2) {
+            return std::nullopt;
+        }
+        const auto* body = expression.Node->Child(1);
+        if (!body->IsCallable("Ensure")) {
+            return std::nullopt;
+        }
+        const auto fail = [] {
+            Unsupported("Native scalar cardinality Ensure requires direct typed members, count <= Uint64(1), and a literal message");
+        };
+        const auto* arguments = expression.Node->Child(0);
+        if (!arguments->IsArguments() || arguments->ChildrenSize() != 1 ||
+            !arguments->Child(0)->IsArgument() || body->ChildrenSize() != 3)
+        {
+            fail();
+        }
+        const auto* row = arguments->Child(0);
+        const auto memberName = [&](const TExprNode& member) -> TString {
+            if (!member.IsCallable("Member") || member.ChildrenSize() != 2 ||
+                member.Child(0) != row || !member.Child(1)->IsAtom() ||
+                !physicalInputs.contains(TString(member.Child(1)->Content())))
+            {
+                fail();
+            }
+            return TString(member.Child(1)->Content());
+        };
+        const auto* predicate = body->Child(1);
+        const auto* message = body->Child(2);
+        if (!predicate->IsCallable("<=") || predicate->ChildrenSize() != 2 ||
+            !message->IsCallable("String") || message->ChildrenSize() != 1 || !message->Child(0)->IsAtom())
+        {
+            fail();
+        }
+        const auto value = memberName(*body->Child(0));
+        const auto count = memberName(*predicate->Child(0));
+        const auto* one = predicate->Child(1);
+        if (!one->IsCallable("Uint64") || one->ChildrenSize() != 1 ||
+            !one->Child(0)->IsAtom() || one->Child(0)->Content() != "1" ||
+            !SameType(ExactType(one->GetTypeAnn()), {"Uint64", false}) ||
+            !SameType(ExactType(predicate->GetTypeAnn()), {"Bool", false}) ||
+            !SameType(ExactType(message->GetTypeAnn()), {"String", false}) ||
+            !SameType(ExactType(predicate->Child(0)->GetTypeAnn()), {"Uint64", false}) ||
+            !SameType(ExactType(OutputType(*map.GetInput(), count)), {"Uint64", false}))
+        {
+            fail();
+        }
+        const auto valueType = ExactType(OutputType(*map.GetInput(), value));
+        if (!SameType(ExactType(body->Child(0)->GetTypeAnn()), valueType) ||
+            !SameType(ExactType(body->GetTypeAnn()), valueType) ||
+            !SameType(ExactType(OutputType(map, element.GetElementName().GetFullName())), valueType))
+        {
+            fail();
+        }
+        TVector<const TExprNode*> pending{expression.Node.Get()};
+        THashSet<const TExprNode*> visited;
+        while (!pending.empty()) {
+            const auto* node = pending.back();
+            pending.pop_back();
+            if (visited.insert(node).second) {
+                CheckScalarSafetyMetadata(*node);
+                for (const auto& child : node->Children()) {
+                    pending.push_back(child.Get());
+                }
+            }
+        }
+        // The verifier must prove the count guard total on every reachable
+        // routed input before this value projection can support a verdict.
+        return std::make_pair(value, count);
+    }
+
+    std::optional<NJson::TJsonValue>
+    TryExportErrorOnNullStringProjection(
+        TOpMap& map,
+        const TSnapshotMapElement& element,
+        const THashSet<TString>& physicalInputColumns)
+    {
+        if (element.IsRename()) {
+            return std::nullopt;
+        }
+        const auto source = TryExtractErrorOnNullStringUnwrap(
+            element.GetExpression(),
+            physicalInputColumns);
+        if (!source) {
+            return std::nullopt;
+        }
+
+        bool expressionNullable = false;
+        const TExactType expressionType{
+            ScalarTypeName(
+                *element.GetExpression().GetExpressionBody(),
+                &expressionNullable),
+            expressionNullable,
+        };
+        const TString output = element.GetElementName().GetFullName();
+        if (output.empty() ||
+            !SameType(
+                ExactType(OutputType(map, output)),
+                expressionType))
+        {
+            Unsupported(
+                "Exact error-on-null String Unwrap Map output type must "
+                "exactly match its non-null String result");
+        }
+
+        auto result = ColumnExpr(*source);
+        AuditExactScalarExpression(result);
+        return result;
+    }
+
+    bool HasErrorOnNullProjectionShape(IOperator& op) {
+        if (op.GetKind() != EOperator::Map) {
+            return false;
+        }
+        auto& map = static_cast<TOpMap&>(op);
+        const auto physicalInputColumns =
+            OutputNames(*map.GetInput());
+        for (const auto& element : SnapshotMapElements(map)) {
+            if (!element.IsRename() &&
+                TryExtractErrorOnNullStringUnwrap(
+                    element.GetExpression(),
+                    physicalInputColumns))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void PrepareGlobalRankProjection(
+        TOpMap& map,
+        const THashSet<TString>& inputNames);
+
+    void CertifyWholePartitionWindowProjection(
+        TOpMap& map,
+        const TWholePartitionWindow& window);
+
+    void ValidateWholePartitionWindowProjectionTopology();
+
+    void ValidateWindowSubplanSeparation(const IOperator& project, bool allowClosedInRank = false) const;
+
+    void ValidateGlobalRankProjectionTopology();
+
+    void ValidateCheckedConcatProjectionTopology() {
+        // This is the structural half of the checked-error contract.  For a
+        // logical Sort/Limit corridor, the verifier independently proves at
+        // its requested row bound that every pull-driven Limit is nonbinding;
+        // a staged snapshot admits only pure column copies between the checked
+        // Project and result root, after every materializing stage edge.
+        size_t markedCount = 0;
+        for (const auto& [_, outputs] : CheckedConcatProjectionOutputs) {
+            markedCount += outputs.size();
+        }
+        if (markedCount == 0) {
+            return;
+        }
+        if (markedCount != 1) {
+            Unsupported(
+                "Checked Concat requires exactly one audited projection output");
+        }
+
+        THashSet<const IOperator*> mainNodes;
+        THashMap<const IOperator*, TVector<IOperator*>> parents;
+        VisitOperators(
+            Root.GetInput(),
+            mainNodes,
+            [&](IOperator& op) {
+                for (const auto& child : op.GetChildren()) {
+                    parents[child].push_back(&op);
+                }
+            });
+
+        const auto& [producer, outputs] =
+            *CheckedConcatProjectionOutputs.begin();
+        if (!mainNodes.contains(producer) || outputs.size() != 1) {
+            Unsupported(
+                "Checked Concat must be a private main-plan projection");
+        }
+
+        IOperator* current = const_cast<TOpMap*>(producer);
+        THashSet<TString> columns{*outputs.begin()};
+        THashSet<const IOperator*> path;
+        while (current != Root.GetInput().Get()) {
+            if (!path.insert(current).second) {
+                Unsupported("Checked Concat demand path contains a cycle");
+            }
+            const auto* consumers = parents.FindPtr(current);
+            if (!consumers || consumers->size() != 1) {
+                Unsupported(
+                    "Checked Concat must have exactly one rootward consumer");
+            }
+            IOperator* parent = consumers->front();
+            if (StageGraphPresent) {
+                if (parent->GetKind() != EOperator::Map ||
+                    !producer->Props.StageId ||
+                    parent->Props.StageId != producer->Props.StageId)
+                {
+                    Unsupported(
+                        "A staged checked Concat may cross only pure column Projects in the final stage");
+                }
+                for (const auto& element : SnapshotMapElements(static_cast<TOpMap&>(*parent))) {
+                    if (!element.IsColumnAccess()) {
+                        Unsupported(
+                            "A staged checked Concat may cross only pure column Projects in the final stage");
+                    }
+                }
+            }
+            if (parent->GetKind() == EOperator::Limit) {
+                const auto& limit = static_cast<const TOpLimit&>(*parent);
+                if (limit.HasOffset()) {
+                    Unsupported(
+                        "Checked Concat may not cross a Limit with an offset");
+                }
+                if (false) {
+                    Unsupported(
+                        "Checked Concat may not cross an error-bearing Limit");
+                }
+                for (const auto& column : columns) {
+                    if (!OutputNames(*parent).contains(column)) {
+                        Unsupported(
+                            "Checked Concat is not preserved by its Limit consumer");
+                    }
+                }
+                current = parent;
+                continue;
+            }
+            if (parent->GetKind() == EOperator::Sort) {
+                auto& sort = static_cast<TOpSort&>(*parent);
+                for (const auto& element : SnapshotSortElements(sort)) {
+                    if (columns.contains(element.SortColumn.GetFullName())) {
+                        Unsupported(
+                            "Checked Concat may not be demanded as a Sort key");
+                    }
+                }
+                for (const auto& column : columns) {
+                    if (!OutputNames(sort).contains(column)) {
+                        Unsupported(
+                            "Checked Concat is not preserved by its Sort consumer");
+                    }
+                }
+                current = parent;
+                continue;
+            }
+            if (parent->GetKind() == EOperator::Map) {
+                auto& map = static_cast<TOpMap&>(*parent);
+                size_t aliases = 0;
+                auto nextColumns = columns;
+                for (const auto& element : SnapshotMapElements(map)) {
+                    const bool directAlias =
+                        element.IsColumnAccess() &&
+                        columns.contains(element.GetColumnAccess().GetFullName());
+                    for (const auto& input :
+                        SnapshotInputIUs(element.GetExpression(), false, true))
+                    {
+                        if (!columns.contains(input.GetFullName())) {
+                            continue;
+                        }
+                        if (!directAlias) {
+                            Unsupported(
+                                "Checked Concat may only cross a direct Project alias");
+                        }
+                    }
+                    if (directAlias) {
+                        if (++aliases != 1) {
+                            Unsupported(
+                                "Checked Concat may not fan out through Project aliases");
+                        }
+                        nextColumns.insert(element.GetElementName().GetFullName());
+                    }
+                }
+                for (const auto& column : nextColumns) {
+                    if (!OutputNames(map).contains(column)) {
+                        Unsupported(
+                            "Checked Concat is not preserved by its Project consumer");
+                    }
+                }
+                columns = std::move(nextColumns);
+                current = parent;
+                continue;
+            }
+            Unsupported(
+                "Checked Concat demand path permits only Project aliases, Sort, and Limit");
+        }
+
+        const auto& rootColumns = SnapshotRootColumnOrder(Root);
+        if (std::none_of(rootColumns.begin(), rootColumns.end(),
+                [&](const TString& column) { return columns.contains(column); })) {
+            Unsupported(
+                "Checked Concat must terminate in a main result output");
+        }
+    }
+
+    void PrepareErrorOnNullProjectionDemands() {
+        // A result-root Project is necessarily demanded. The second admitted
+        // shape relies on the private keyed RHS being the eager/build side of
+        // left_semi; the empty-left real-runtime regression locks that premise.
+        THashSet<const IOperator*> nodes;
+        THashMap<const IOperator*, TVector<IOperator*>> parents;
+        TVector<IOperator*> orderedNodes;
+        VisitOperators(
+            Root.GetInput(),
+            nodes,
+            [&](IOperator& op) {
+                orderedNodes.push_back(&op);
+                for (const auto& child : op.GetChildren()) {
+                    parents[child].push_back(&op);
+                }
+            });
+
+        for (auto* candidate : orderedNodes) {
+            if (candidate->GetKind() != EOperator::Map) {
+                continue;
+            }
+            auto& map = static_cast<TOpMap&>(*candidate);
+            const auto* mapParents = parents.FindPtr(&map);
+            if (Root.GetInput().Get() == &map && (!mapParents || mapParents->empty())) {
+                DemandedErrorProjectionOutputs[&map] = THashSet<TString>(
+                    SnapshotRootColumnOrder(Root).begin(),
+                    SnapshotRootColumnOrder(Root).end());
+                continue;
+            }
+
+            if (!mapParents || mapParents->size() != 1 || mapParents->front()->GetKind() != EOperator::Join) {
+                continue;
+            }
+            auto& join = static_cast<TOpJoin&>(*mapParents->front());
+            if (JoinKind(join.JoinKind) != "left_semi" ||
+                join.GetRightInput().Get() != &map)
+            {
+                continue;
+            }
+
+            for (const auto& [left, right, equalNulls] : SnapshotJoinKeys(join)) {
+                Y_UNUSED(left);
+                Y_UNUSED(equalNulls);
+                DemandedErrorProjectionOutputs[&map].insert(right.GetFullName());
+            }
+        }
+    }
+
+    TSubplanDescriptor PrepareInSubplan(
+        const TString& binding,
+        const TSnapshotSubplanEntry& entry,
+        const TIntrusivePtr<IOperator>& plan)
+    {
+        if (entry.Tuple.size() != 1) {
+            Unsupported(TStringBuilder()
+                << "IN subplan binding " << binding
+                << " must have exactly one tuple input");
+        }
+        if (!entry.DependentIUs.empty()) {
+            Unsupported(TStringBuilder()
+                << "IN subplan binding " << binding
+                << " must be uncorrelated");
+        }
+
+        const TString lookup = entry.Tuple.front().GetFullName();
+        if (lookup.empty()) {
+            Unsupported(TStringBuilder()
+                << "IN subplan binding " << binding
+                << " has an empty lookup column");
+        }
+        THashSet<const IOperator*> nodes;
+        VisitOperators(plan, nodes, [&](IOperator& op) {
+            if (op.GetKind() == EOperator::AddDependencies) {
+                Unsupported(TStringBuilder()
+                    << "IN subplan binding " << binding
+                    << " has residual AddDependencies");
+            }
+            if (false) {
+                Unsupported(TStringBuilder()
+                    << "IN subplan binding " << binding
+                    << " has an error-bearing cardinality check");
+            }
+            if (HasErrorOnNullProjectionShape(op)) {
+                Unsupported(TStringBuilder()
+                    << "IN subplan binding " << binding
+                    << " has an error-bearing Project");
+            }
+        });
+
+        const auto resultIUs = entry.ResultIU ? TVector<TInfoUnit>{*entry.ResultIU} : TVector<TInfoUnit>{};
+        if (resultIUs.size() != 1) {
+            Unsupported(TStringBuilder()
+                << "IN subplan binding " << binding
+                << " must have exactly one result column");
+        }
+        const TString output = resultIUs.front().GetFullName();
+        const auto outputNames = OutputNames(*plan);
+        if (output.empty() || !outputNames.contains(output)) {
+            Unsupported(TStringBuilder()
+                << "IN subplan binding " << binding
+                << " has an invalid result column " << output);
+        }
+
+        const auto outputType = ExactType(OutputType(*plan, output));
+        if (!IsExactDynamicInColumnType(outputType.Name)) {
+            Unsupported(TStringBuilder()
+                << "IN subplan binding " << binding
+                << " result must be a fixed-width integer, Date, or String");
+        }
+        return {
+            .Binding = binding,
+            .RegistryRoot = plan,
+            .ExportedRoot = plan,
+            .Details = TInSubplanDetails{
+                .LookupColumn = lookup,
+                .OutputColumn = output,
+                .ColumnType = outputType.Name,
+                .OutputNullable = outputType.Nullable,
+            },
+        };
+    }
+
+    void ValidatePeeledExistsMap(TOpMap& map, const TString& binding) {
+        CheckSnapshotProperties(map, false);
+        if (HasErrorOnNullProjectionShape(map)) {
+            Unsupported(TStringBuilder()
+                << "EXISTS subplan binding " << binding
+                << " has an error-bearing Project");
+        }
+        const auto inputNames = OutputNames(*map.GetInput());
+        const auto outputNames = OutputNames(map);
+        if (outputNames.empty()) {
+            Unsupported(TStringBuilder()
+                << "EXISTS subplan binding " << binding
+                << " has a peeled Map with no output");
+        }
+        THashSet<TString> produced;
+        for (const auto& element : SnapshotMapElements(map)) {
+            if (!element.IsColumnAccess()) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has a Map wrapper that is not a plain column projection");
+            }
+            const TString source = element.GetColumnAccess().GetFullName();
+            const TString output = element.GetElementName().GetFullName();
+            if (source.empty() || !inputNames.contains(source) ||
+                output.empty() || !produced.insert(output).second)
+            {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has an invalid Map wrapper");
+            }
+            bool expressionNullable = false;
+            const TExactType expressionType{
+                ScalarTypeName(
+                    *element.GetExpression().GetExpressionBody(),
+                    &expressionNullable),
+                expressionNullable,
+            };
+            if (!SameType(
+                    ExactType(OutputType(*map.GetInput(), source)),
+                    expressionType) ||
+                !SameType(
+                    ExactType(OutputType(map, output)),
+                    expressionType))
+            {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has a Map wrapper with inconsistent column types");
+            }
+            Y_UNUSED(ExportExpr(element.GetExpression(), inputNames));
+        }
+    }
+
+    void ValidateClosedExistsRoot(
+        const TIntrusivePtr<IOperator>& plan,
+        const TString& binding,
+        bool correlated)
+    {
+        THashSet<const IOperator*> nodes;
+        VisitOperators(plan, nodes, [&](IOperator& op) {
+            if (op.GetKind() == EOperator::AddDependencies) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has residual AddDependencies below its exported root");
+            }
+            if (false) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has an error-bearing cardinality check");
+            }
+            if (HasErrorOnNullProjectionShape(op)) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has an error-bearing Project");
+            }
+            if (correlated &&
+                (op.GetKind() == EOperator::Limit ||
+                 (op.GetKind() == EOperator::Source &&
+                  static_cast<TOpRead&>(op).Limit) ||
+                 (op.GetKind() == EOperator::Sort &&
+                  static_cast<TOpSort&>(op).IsTopSort())))
+            {
+                Unsupported(TStringBuilder()
+                    << "Correlated EXISTS subplan binding " << binding
+                    << " has per-invocation row-selection semantics");
+            }
+        });
+    }
+
+    void ValidatePeeledExistsAddDependencies(
+        TStringBuf binding,
+        TOpAddDependencies& addDependencies,
+        const TVector<TString>& localDependencies)
+    {
+        const auto inputs = OutputNames(*addDependencies.GetInput());
+        const auto outputs = OutputNames(addDependencies);
+        auto expected = inputs;
+        for (const auto& local : localDependencies) {
+            if (!expected.insert(local).second) {
+                Unsupported(TStringBuilder() << "EXISTS subplan binding " << binding
+                    << " has a duplicate or colliding local capture");
+            }
+        }
+        if (outputs != expected || OutputStructType(addDependencies)->GetItems().size() != outputs.size()) {
+            Unsupported(TStringBuilder() << "EXISTS subplan binding " << binding
+                << " AddDependencies has an invalid output shape");
+        }
+        for (const auto& input : inputs) {
+            if (!SameType(ExactType(OutputType(*addDependencies.GetInput(), input)),
+                    ExactType(OutputType(addDependencies, input))))
+            {
+                Unsupported(TStringBuilder() << "EXISTS subplan binding " << binding
+                    << " AddDependencies must preserve its input schema exactly");
+            }
+        }
+        for (const auto& [local, capture] : addDependencies.GetDependencies().Items()) {
+            if (!capture.Type || !SameType(ExactType(capture.Type),
+                    ExactType(OutputType(addDependencies, ToString(local)))))
+            {
+                Unsupported(TStringBuilder() << "EXISTS subplan binding " << binding
+                    << " AddDependencies dependency type is inconsistent");
+            }
+        }
+    }
+
+    TSubplanDescriptor PrepareExistsSubplan(
+        const TString& binding,
+        const TSnapshotSubplanEntry& entry,
+        const TIntrusivePtr<IOperator>& originalPlan)
+    {
+        if (!entry.Tuple.empty()) {
+            Unsupported(TStringBuilder()
+                << "EXISTS subplan binding " << binding
+                << " has tuple inputs");
+        }
+        if (entry.DependentIUs.empty()) {
+            TSubplanDescriptor result{
+                .Binding = binding,
+                .RegistryRoot = originalPlan,
+                .ExportedRoot = originalPlan,
+                .Details = TExistsSubplanDetails{},
+            };
+            ValidateClosedExistsRoot(result.ExportedRoot, binding, false);
+            return result;
+        }
+        if (entry.DependentIUs.size() != 1 &&
+            entry.DependentIUs.size() != 2)
+        {
+            Unsupported(TStringBuilder()
+                << "EXISTS subplan binding " << binding
+                << " must have one equality dependency or exactly two "
+                   "equality/inequality dependencies");
+        }
+        TVector<TString> dependencies;
+        dependencies.reserve(entry.DependentIUs.size());
+        THashSet<TString> seenDependencies;
+        for (const auto& dependencyIU : entry.DependentIUs) {
+            TString dependency = dependencyIU.GetFullName();
+            if (dependency.empty() ||
+                !seenDependencies.insert(dependency).second)
+            {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " has an empty or duplicate outer dependency");
+            }
+            dependencies.push_back(std::move(dependency));
+        }
+
+        auto shape = originalPlan;
+        while (shape->GetKind() == EOperator::Map) {
+            auto map = CastOperator<TOpMap>(shape);
+            ValidatePeeledExistsMap(*map, binding);
+            shape = map->GetInput();
+        }
+        if (shape->GetKind() != EOperator::Filter) {
+            Unsupported(TStringBuilder()
+                << "Correlated EXISTS subplan binding " << binding
+                << " must contain one Filter directly above AddDependencies");
+        }
+        auto filter = CastOperator<TOpFilter>(shape);
+        CheckSnapshotProperties(*filter, false);
+        if (filter->GetInput()->GetKind() != EOperator::AddDependencies) {
+            Unsupported(TStringBuilder()
+                << "Correlated EXISTS subplan binding " << binding
+                << " Filter is not directly above AddDependencies");
+        }
+        auto addDependencies =
+            CastOperator<TOpAddDependencies>(filter->GetInput());
+        CheckSnapshotProperties(*addDependencies, false);
+        if (SnapshotDependencies(*addDependencies).size() !=
+                entry.DependentIUs.size() ||
+            SnapshotDependencyTypes(*addDependencies).size() !=
+                entry.DependentIUs.size())
+        {
+            Unsupported(TStringBuilder()
+                << "EXISTS subplan binding " << binding
+                << " dependency registry disagrees with AddDependencies");
+        }
+        // Native captures define fresh local IDs. The existing EXISTS model
+        // binds caller IDs, so audit native types first and alpha-rename only
+        // the serialized predicate. Keep the compiler's expression untouched.
+        THashMap<TString, std::pair<TString, const TTypeAnnotationNode*>> captures;
+        for (const auto& [local, capture] : addDependencies->GetDependencies().Items()) {
+            if (!capture.Type || !captures.emplace(ToString(capture.Outer),
+                    std::make_pair(ToString(local), capture.Type)).second)
+            {
+                Unsupported(TStringBuilder() << "EXISTS subplan binding " << binding
+                    << " has duplicate or untyped outer captures");
+            }
+        }
+        TVector<TString> localDependencies;
+        TVector<const TTypeAnnotationNode*> dependencyTypes;
+        THashMap<TString, TString> localToOuter;
+        for (const auto& dependency : dependencies) {
+            const auto* capture = captures.FindPtr(dependency);
+            if (!capture || !localToOuter.emplace(capture->first, dependency).second) {
+                Unsupported(TStringBuilder() << "EXISTS subplan binding " << binding
+                    << " dependency registry disagrees with AddDependencies");
+            }
+            localDependencies.push_back(capture->first);
+            dependencyTypes.push_back(capture->second);
+        }
+
+        auto innerPlan = addDependencies->GetInput();
+        const auto innerNames = OutputNames(*innerPlan);
+        for (const auto& dependency : dependencies) {
+            if (innerNames.contains(dependency)) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << binding
+                    << " outer dependency " << dependency
+                    << " collides with an inner column");
+            }
+        }
+        auto predicateJson = ExportExpr(
+            filter->GetFilterExpression(),
+            [&]() {
+                auto visible = innerNames;
+                visible.insert(
+                    localDependencies.begin(),
+                    localDependencies.end());
+                return visible;
+            }());
+        const auto correlations = ExtractExistsCorrelations(
+            binding,
+            localDependencies,
+            filter->GetFilterExpression(),
+            innerNames);
+
+        TVector<TOuterDependency> descriptorDependencies;
+        descriptorDependencies.reserve(dependencies.size());
+        for (size_t index = 0; index < dependencies.size(); ++index) {
+            descriptorDependencies.push_back({
+                .Name = dependencies[index],
+                .Type = dependencyTypes[index],
+            });
+        }
+        RenameSnapshotExpressionColumns(predicateJson, localToOuter);
+        TSubplanDescriptor result{
+            .Binding = binding,
+            .RegistryRoot = originalPlan,
+            .ExportedRoot = innerPlan,
+            .Details = TExistsSubplanDetails{
+                .Correlation = TExistsCorrelation{
+                    .Predicate = std::move(predicateJson),
+                    .Dependencies = std::move(descriptorDependencies),
+                },
+            },
+        };
+        ValidateClosedExistsRoot(result.ExportedRoot, binding, true);
+        ValidatePeeledExistsAddDependencies(
+            binding,
+            *addDependencies,
+            localDependencies);
+        const auto& details = ExistsDetails(result);
+        Y_ENSURE(
+            details.Correlation,
+            "Correlated EXISTS subplan descriptor has no correlation details");
+        Y_ENSURE(
+            correlations.size() ==
+                details.Correlation->Dependencies.size());
+        for (size_t index = 0; index < correlations.size(); ++index) {
+            const auto& correlation = correlations[index];
+            const auto& dependency =
+                details.Correlation->Dependencies[index];
+            Y_ENSURE(correlation.Dependency == localDependencies[index]);
+            ValidateCorrelationTypes(
+                "EXISTS",
+                result.Binding,
+                localDependencies[index],
+                dependency.Type,
+                *result.ExportedRoot,
+                correlation.Expression,
+                correlation.InnerColumn);
+        }
+        return result;
+    }
+
+    void ValidateExistsConsumer(const TSubplanDescriptor& subplan) {
+        const auto& details = ExistsDetails(subplan);
+        if (!details.Correlation) {
+            return;
+        }
+        Y_ENSURE(subplan.Consumers.size() == 1);
+        auto* consumer = subplan.Consumers.front();
+        const auto inputNames = OutputNames(*consumer->GetChildren().front());
+        for (const auto& dependency :
+            details.Correlation->Dependencies)
+        {
+            if (!inputNames.contains(dependency.Name)) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << subplan.Binding
+                    << " dependency " << dependency.Name
+                    << " is absent from its Filter input");
+            }
+            const auto outerType = ExactType(
+                OutputType(
+                    *consumer->GetChildren().front(),
+                    dependency.Name));
+            const auto declaredType =
+                ExactType(dependency.Type);
+            if (!SameType(outerType, declaredType)) {
+                Unsupported(TStringBuilder()
+                    << "EXISTS subplan binding " << subplan.Binding
+                    << " dependency " << dependency.Name
+                    << " type or nullability disagrees with its consumer input");
+            }
+        }
+    }
+
+    void ValidateScalarConsumer(const TSubplanDescriptor& subplan) {
+        const auto& details = ScalarDetails(subplan);
+        if (!details.Correlation) {
+            return;
+        }
+        Y_ENSURE(subplan.Consumers.size() == 1);
+        auto* consumer = subplan.Consumers.front();
+        auto& input = *consumer->GetChildren().front();
+        const auto inputNames = OutputNames(input);
+        for (const auto& dependency : details.Correlation->Dependencies) {
+            if (!inputNames.contains(dependency.Name)) {
+                Unsupported(TStringBuilder()
+                    << "Scalar subplan binding " << subplan.Binding
+                    << " dependency is absent from its consumer input");
+            }
+            if (!SameType(
+                    ExactType(OutputType(input, dependency.Name)),
+                    ExactType(dependency.Type)))
+            {
+                Unsupported(TStringBuilder()
+                    << "Scalar subplan binding " << subplan.Binding
+                    << " dependency type or nullability disagrees with its "
+                       "consumer input");
+            }
+        }
+    }
+
+    static void ValidatePositiveNullableInConsumer(
+        TStringBuf binding,
+        const TOpFilter& consumer)
+    {
+        bool found = false;
+        for (const auto& conjunct : SnapshotBooleanTerms(consumer.GetFilterExpression(), "And")) {
+            if (!ExpressionColumns(conjunct).contains(binding)) {
+                continue;
+            }
+            const auto body = conjunct.GetExpressionBody();
+            const auto member =
+                body ? DirectMemberName(*body) : std::nullopt;
+            if (!member || *member != binding) {
+                Unsupported(TStringBuilder()
+                    << "Nullable IN subplan binding " << binding
+                    << " must be a direct positive Filter conjunct");
+            }
+            found = true;
+        }
+        if (!found) {
+            Unsupported(TStringBuilder()
+                << "Nullable IN subplan binding " << binding
+                << " is absent from its positive Filter conjuncts");
+        }
+    }
+
+    void ValidateInConsumer(TSubplanDescriptor& subplan) {
+        Y_ENSURE(subplan.Consumers.size() == 1);
+        auto& details = InDetails(subplan);
+        auto& input = *subplan.Consumers.front()->GetChildren().front();
+        const auto inputNames = OutputNames(input);
+        if (!inputNames.contains(details.LookupColumn)) {
+            Unsupported(TStringBuilder()
+                << "IN subplan binding " << subplan.Binding
+                << " lookup column is absent from its Filter input");
+        }
+        const auto lookupType =
+            ExactType(OutputType(input, details.LookupColumn));
+        if (lookupType.Name != details.ColumnType) {
+            Unsupported(TStringBuilder()
+                << "IN subplan binding " << subplan.Binding
+                << " lookup and result must have the same supported type");
+        }
+        details.LookupNullable = lookupType.Nullable;
+        if (details.LookupNullable || details.OutputNullable) {
+            ValidatePositiveNullableInConsumer(
+                subplan.Binding,
+                static_cast<const TOpFilter&>(
+                    *subplan.Consumers.front()));
+        }
+    }
+
+    void RegisterSubplans(
+        const TVector<TIntrusivePtr<IOperator>>& roots)
+    {
+        Subplans.reserve(roots.size());
+        for (size_t index = 0; index < roots.size(); ++index) {
+            const auto bindingIU = SnapshotSubplanBindings(Root.PlanProps.Subplans)[index];
+            const TString binding = bindingIU.GetFullName();
+            const auto entry = SnapshotSubplanEntry(Root.PlanProps.Subplans.At(FromString<TInfoUnitId>(binding)));
+            if (!SubplanIndices.emplace(binding, Subplans.size()).second) {
+                Unsupported(TStringBuilder()
+                    << "Duplicate subplan binding " << binding);
+            }
+
+            switch (entry.Type) {
+                case ESubplanType::EXPR:
+                    Subplans.push_back(
+                        PrepareScalarSubplan(binding, entry, roots[index]));
+                    break;
+                case ESubplanType::EXISTS:
+                    Subplans.push_back(
+                        PrepareExistsSubplan(binding, entry, roots[index]));
+                    break;
+                case ESubplanType::IN_SUBPLAN:
+                    Subplans.push_back(
+                        PrepareInSubplan(binding, entry, roots[index]));
+                    break;
+                default:
+                    Unsupported(TStringBuilder()
+                        << "Subplan binding " << binding
+                        << " has an unknown subplan type");
+            }
+        }
+    }
+
+    void ValidateSubplanRootTopology() {
+        THashSet<const IOperator*> mainReachable;
+        VisitOperators(
+            Root.GetInput(),
+            mainReachable,
+            [](IOperator&) {});
+        for (const auto& subplan : Subplans) {
+            if (mainReachable.contains(subplan.RegistryRoot.Get()) ||
+                mainReachable.contains(subplan.ExportedRoot.Get()))
+            {
+                Unsupported(TStringBuilder()
+                    << KindName(subplan)
+                    << " subplan root for binding "
+                    << subplan.Binding
+                    << " is reachable from the main plan");
+            }
+        }
+
+        TVector<THashSet<const IOperator*>> subplanReachable(Subplans.size());
+        for (size_t index = 0; index < Subplans.size(); ++index) {
+            VisitOperators(
+                Subplans[index].RegistryRoot,
+                subplanReachable[index],
+                [](IOperator&) {});
+        }
+        for (size_t outer = 0; outer < Subplans.size(); ++outer) {
+            for (size_t inner = 0; inner < Subplans.size(); ++inner) {
+                if (outer == inner ||
+                    Subplans[outer].RegistryRoot.Get() ==
+                        Subplans[inner].RegistryRoot.Get())
+                {
+                    continue;
+                }
+                if (subplanReachable[outer].contains(
+                        Subplans[inner].RegistryRoot.Get()))
+                {
+                    Unsupported(TStringBuilder()
+                        << KindName(Subplans[inner])
+                        << " subplan root for binding "
+                        << Subplans[inner].Binding
+                        << " is reachable below distinct subplan binding "
+                        << Subplans[outer].Binding);
+                }
+            }
+        }
+
+        TVector<THashSet<const IOperator*>> exportedSubplanReachable(
+            Subplans.size());
+        for (size_t index = 0; index < Subplans.size(); ++index) {
+            VisitOperators(
+                Subplans[index].ExportedRoot,
+                exportedSubplanReachable[index],
+                [](IOperator&) {});
+        }
+        for (size_t outer = 0; outer < Subplans.size(); ++outer) {
+            for (size_t inner = 0; inner < Subplans.size(); ++inner) {
+                if (outer == inner ||
+                    Subplans[outer].ExportedRoot.Get() ==
+                        Subplans[inner].ExportedRoot.Get())
+                {
+                    continue;
+                }
+                if (exportedSubplanReachable[outer].contains(
+                        Subplans[inner].ExportedRoot.Get()))
+                {
+                    Unsupported(TStringBuilder()
+                        << KindName(Subplans[inner])
+                        << " exported subplan root for binding "
+                        << Subplans[inner].Binding
+                        << " is reachable below distinct subplan binding "
+                        << Subplans[outer].Binding);
+                }
+            }
+        }
+    }
+
+    void ValidateNestedSubplanConsumer(
+        const TSubplanDescriptor& owner,
+        const TSubplanDescriptor& nested)
+    {
+        const auto* scalar =
+            std::get_if<TScalarSubplanDetails>(&nested.Details);
+        const bool admissible =
+            SubplanKind(owner) == ESubplanKind::In &&
+            (scalar ||
+             SubplanKind(nested) == ESubplanKind::In);
+        if (!admissible) {
+            Unsupported(TStringBuilder()
+                << KindName(owner)
+                << " subplan binding " << owner.Binding
+                << " contains an unsupported nested subplan reference to "
+                << KindName(nested) << " binding " << nested.Binding
+                << "; only a leaf scalar or a one-level closed IN "
+                   "binding may be consumed inside an IN subplan");
+        }
+        // A correlated scalar is invoked by its immediate consumer inside
+        // the closed IN root. ValidateScalarConsumer checks those local row
+        // types; scalar roots still cannot own any nested binding.
+        NestedSubplanReferences.emplace_back(
+            owner.Binding,
+            nested.Binding);
+    }
+
+    void ValidateNestedSubplanTopology() const {
+        THashSet<TString> owners;
+        for (const auto& reference : NestedSubplanReferences) {
+            owners.insert(reference.first);
+        }
+        for (const auto& [ownerBinding, nestedBinding] :
+            NestedSubplanReferences)
+        {
+            const auto& nested =
+                Subplans[SubplanIndices.at(nestedBinding)];
+            if (SubplanKind(nested) == ESubplanKind::In &&
+                owners.contains(nestedBinding))
+            {
+                Unsupported(TStringBuilder()
+                    << "Nested IN subplan binding " << nestedBinding
+                    << " inside IN subplan binding " << ownerBinding
+                    << " must be closed; cyclic subplan references and "
+                       "nesting deeper than one level are unsupported");
+            }
+        }
+    }
+
+    void IndexSubplanConsumersUnder(
+        const TIntrusivePtr<IOperator>& root,
+        const TSubplanDescriptor* owner)
+    {
+        THashSet<const IOperator*> nodes;
+        VisitOperators(
+            root,
+            nodes,
+            [&](IOperator& op) {
+                const auto outputNames = OutputNames(op);
+                for (const auto& subplan : Subplans) {
+                    if (outputNames.contains(subplan.Binding)) {
+                        const auto kind = SubplanKind(subplan);
+                        Unsupported(TStringBuilder()
+                            << op.GetExplainName()
+                            << " output collides with "
+                            << (kind == ESubplanKind::Scalar
+                                ? "scalar"
+                                : kind == ESubplanKind::Exists
+                                    ? "EXISTS"
+                                    : "IN")
+                            << " subplan binding " << subplan.Binding);
+                    }
+                }
+                auto bindings = ReferencedSubplanBindings(op);
+                if (bindings.empty()) {
+                    return;
+                }
+                if (op.GetChildren().size() != 1) {
+                    Unsupported(TStringBuilder()
+                        << op.GetExplainName()
+                        << " subplan consumer is not unary");
+                }
+                const auto inputNames = OutputNames(*op.GetChildren().front());
+                for (const auto& binding : bindings) {
+                    auto& subplan = Subplans[SubplanIndices.at(binding)];
+                    if (owner) {
+                        ValidateNestedSubplanConsumer(*owner, subplan);
+                    }
+                    const auto kind = SubplanKind(subplan);
+                    const bool allowed =
+                        kind == ESubplanKind::Scalar
+                            ? op.GetKind() == EOperator::Map ||
+                                op.GetKind() == EOperator::Filter
+                            : op.GetKind() == EOperator::Filter;
+                    if (!allowed) {
+                        Unsupported(TStringBuilder()
+                            << op.GetExplainName() << " cannot consume "
+                            << (kind == ESubplanKind::Scalar
+                                ? "a scalar"
+                                : kind == ESubplanKind::Exists
+                                    ? "an EXISTS"
+                                    : "an IN")
+                            << " subplan binding");
+                    }
+                    if (inputNames.contains(binding)) {
+                        Unsupported(TStringBuilder()
+                            << op.GetExplainName()
+                            << " subplan binding collides with input column "
+                            << binding);
+                    }
+                    subplan.Consumers.push_back(&op);
+                }
+                if (!ConsumerBindings.emplace(&op, std::move(bindings)).second) {
+                    Unsupported(TStringBuilder()
+                        << op.GetExplainName()
+                        << " subplan consumer is reachable from multiple "
+                           "plan roots");
+                }
+            });
+    }
+
+    void IndexSubplanConsumers() {
+        IndexSubplanConsumersUnder(Root.GetInput(), nullptr);
+        for (const auto& subplan : Subplans) {
+            IndexSubplanConsumersUnder(
+                subplan.RegistryRoot,
+                &subplan);
+        }
+    }
+
+    void ValidateSubplanConsumerContracts() {
+        for (auto& subplan : Subplans) {
+            if (subplan.Consumers.empty()) {
+                Unsupported(TStringBuilder()
+                    << KindName(subplan)
+                    << " subplan binding " << subplan.Binding
+                    << " has no consumer");
+            }
+            switch (SubplanKind(subplan)) {
+                case ESubplanKind::Scalar: {
+                    const auto& scalar = ScalarDetails(subplan);
+                    if (scalar.Correlation) {
+                        if (subplan.Consumers.size() != 1) {
+                            Unsupported(TStringBuilder()
+                                << "Correlated scalar subplan binding "
+                                << subplan.Binding
+                                << " must have exactly one Project or Filter "
+                                   "consumer");
+                        }
+                        ValidateScalarConsumer(subplan);
+                    }
+                    break;
+                }
+                case ESubplanKind::Exists:
+                    if (subplan.Consumers.size() != 1) {
+                        Unsupported(TStringBuilder()
+                            << "EXISTS subplan binding " << subplan.Binding
+                            << " must have exactly one Filter consumer");
+                    }
+                    ValidateExistsConsumer(subplan);
+                    break;
+                case ESubplanKind::In:
+                    if (subplan.Consumers.size() != 1) {
+                        Unsupported(TStringBuilder()
+                            << "IN subplan binding " << subplan.Binding
+                            << " must have exactly one Filter consumer");
+                    }
+                    ValidateInConsumer(subplan);
+                    break;
+            }
+        }
+    }
+
+    void PrepareSubplans() {
+        const auto roots = OrderedSubplanRoots(Root.PlanProps.Subplans);
+        if (!roots.empty() && StageGraphPresent) {
+            Unsupported(
+                "A staged logical snapshot cannot contain residual subplans");
+        }
+        if (roots.empty()) {
+            return;
+        }
+
+        RegisterSubplans(roots);
+        ValidateSubplanRootTopology();
+        IndexSubplanConsumers();
+        ValidateNestedSubplanTopology();
+        ValidateSubplanConsumerContracts();
+    }
+
+    const TVector<TString>& VirtualBindings(const IOperator& op) const {
+        static const TVector<TString> Empty;
+        const auto* result = ConsumerBindings.FindPtr(&op);
+        return result ? *result : Empty;
+    }
+
+    THashSet<TString> VisibleInputNames(
+        IOperator& consumer,
+        IOperator& input) const
+    {
+        auto result = OutputNames(input);
+        for (const auto& binding : VirtualBindings(consumer)) {
+            if (!result.insert(binding).second) {
+                Unsupported(TStringBuilder()
+                    << consumer.GetExplainName()
+                    << " subplan binding collides with input column "
+                    << binding);
+            }
+        }
+        return result;
+    }
+
+    void AuditInputMemberTypes(
+        const TExpression& expression,
+        IOperator& input) const
+    {
+        // A typed scalar spelling may select its encoder from Member's type.
+        // That annotation must agree with the actual row, not only its parent
+        // expression. Unannotated direct columns get their type from the schema.
+        if (!expression.Node || !expression.Node->IsLambda() ||
+            expression.Node->ChildrenSize() != 2 ||
+            !expression.Node->Child(0)->IsArguments() ||
+            expression.Node->Child(0)->ChildrenSize() != 1)
+        {
+            return; // The ordinary expression exporter diagnoses malformed lambdas.
+        }
+        const auto* row = expression.Node->Child(0)->Child(0);
+        const TStructExprType* schema = nullptr;
+        VisitExpr(expression.GetExpressionBody(), [&](const TExprNode::TPtr& node) {
+            if (node->IsCallable("Member") && node->ChildrenSize() == 2 &&
+                node->Child(0) == row && node->Child(1)->IsAtom() && node->GetTypeAnn())
+            {
+                if (!schema) {
+                    schema = OutputStructType(input);
+                }
+                const auto name = node->Child(1)->Content();
+                const auto* actual = schema->FindItemType(name);
+                if (actual && !IsSameAnnotation(*actual, *node->GetTypeAnn())) {
+                    Unsupported(TStringBuilder() << "Input Member " << name
+                        << " type annotation disagrees with the actual input column");
+                }
+            }
+            return true;
+        });
+    }
+
+    void AuditVirtualBindingMemberTypes(
+        const TExpression& expression,
+        const IOperator& consumer) const
+    {
+        const auto& bindings = VirtualBindings(consumer);
+        if (bindings.empty()) {
+            return;
+        }
+        THashSet<TString> expected(bindings.begin(), bindings.end());
+        THashSet<const TExprNode*> visited;
+        std::function<void(const TExprNode&)> visit =
+            [&](const TExprNode& node) {
+                if (!visited.insert(&node).second) {
+                    return;
+                }
+                if (node.IsCallable("Member") &&
+                    node.ChildrenSize() == 2 &&
+                    node.Child(1)->IsAtom())
+                {
+                    const TString name(node.Child(1)->Content());
+                    if (expected.contains(name)) {
+                        bool nullable = false;
+                        const TString type = ScalarTypeName(node, &nullable);
+                        const auto& subplan =
+                            Subplans[SubplanIndices.at(name)];
+                        const auto kind = SubplanKind(subplan);
+                        const bool expectedNullable =
+                            kind == ESubplanKind::Scalar;
+                        if (type != SubplanType(subplan) ||
+                            nullable != expectedNullable)
+                        {
+                            Unsupported(TStringBuilder()
+                                << consumer.GetExplainName()
+                                << " subplan Member " << name
+                                << " must be "
+                                << (expectedNullable ? "Optional<" : "")
+                                << SubplanType(subplan)
+                                << (expectedNullable ? ">" : ""));
+                        }
+                    }
+                }
+                for (const auto& child : node.Children()) {
+                    visit(*child);
+                }
+            };
+        if (!expression.Node) {
+            Unsupported(TStringBuilder()
+                << consumer.GetExplainName()
+                << " has an empty subplan expression");
+        }
+        visit(*expression.Node);
+    }
+
+    NJson::TJsonValue ExportSubplans() const {
+        auto result = JsonArray();
+        for (const auto& subplan : Subplans) {
+            const auto* rootId = Ids.FindPtr(subplan.ExportedRoot.Get());
+            if (!rootId) {
+                Unsupported(TStringBuilder()
+                    << KindName(subplan)
+                    << " subplan root was not exported for binding "
+                    << subplan.Binding);
+            }
+
+            auto dependencies = JsonArray();
+            const auto kind = SubplanKind(subplan);
+            if (kind == ESubplanKind::Scalar) {
+                const auto& scalar = ScalarDetails(subplan);
+                if (scalar.Correlation) {
+                    for (const auto& dependency : scalar.Correlation->Dependencies) {
+                        dependencies.AppendValue(dependency.Name);
+                    }
+                }
+            } else if (kind == ESubplanKind::Exists) {
+                const auto& exists = ExistsDetails(subplan);
+                if (exists.Correlation) {
+                    for (const auto& dependency :
+                        exists.Correlation->Dependencies)
+                    {
+                        dependencies.AppendValue(dependency.Name);
+                    }
+                }
+            }
+            auto consumers = JsonArray();
+            for (const auto* consumer : subplan.Consumers) {
+                const auto* consumerId = Ids.FindPtr(consumer);
+                if (!consumerId) {
+                    Unsupported(TStringBuilder()
+                        << KindName(subplan)
+                        << " subplan consumer was not exported for binding "
+                        << subplan.Binding);
+                }
+                consumers.AppendValue(*consumerId);
+            }
+
+            auto descriptor = JsonMap();
+            descriptor["binding"] = subplan.Binding;
+            descriptor["root"] = *rootId;
+            descriptor["type"] = SubplanType(subplan);
+            descriptor["dependencies"] = std::move(dependencies);
+            descriptor["consumers"] = std::move(consumers);
+            if (kind == ESubplanKind::Scalar) {
+                const auto& scalar = ScalarDetails(subplan);
+                auto output = JsonMap();
+                output["column"] = scalar.OutputColumn;
+                output["type"] = scalar.Type;
+                output["nullable"] = scalar.OutputNullable;
+                descriptor["kind"] = "scalar";
+                descriptor["output"] = std::move(output);
+                descriptor["nullable"] = true;
+            } else if (kind == ESubplanKind::Exists) {
+                const auto& exists = ExistsDetails(subplan);
+                descriptor["kind"] = "exists";
+                descriptor["predicate"] = exists.Correlation
+                    ? exists.Correlation->Predicate
+                    : NJson::TJsonValue(NJson::JSON_NULL);
+                descriptor["nullable"] = false;
+            } else {
+                const auto& in = InDetails(subplan);
+                auto lookup = JsonMap();
+                lookup["column"] = in.LookupColumn;
+                lookup["type"] = in.ColumnType;
+                lookup["nullable"] = in.LookupNullable;
+                auto output = JsonMap();
+                output["column"] = in.OutputColumn;
+                output["type"] = in.ColumnType;
+                output["nullable"] = in.OutputNullable;
+                descriptor["kind"] = "in";
+                descriptor["lookup"] = std::move(lookup);
+                descriptor["output"] = std::move(output);
+                descriptor["nullable"] = false;
+            }
+            result.AppendValue(std::move(descriptor));
+        }
+        return result;
+    }
+
+    TString ExportGroupingSets(TOpGroupingSets& grouping) {
+        // The child Aggregate is a definition, not the stream consumed by
+        // GroupingSets. Encode the SQL bag union independently of the rewrite
+        // rule, so mistakes in that rule are observable by the verifier.
+        if (StageGraphPresent || grouping.GetChildCount() != 1 ||
+            grouping.GetInput()->GetKind() != EOperator::Aggregate)
+        {
+            Unsupported("GroupingSets requires a logical Aggregate template");
+        }
+        auto& aggregate = static_cast<TOpAggregate&>(*grouping.GetInput());
+        if (aggregate.GetAggregationPhase() != EOpPhase::Undefined ||
+            aggregate.IsDistinctAll() || grouping.GetGroupingSets().empty())
+        {
+            Unsupported("GroupingSets requires nonempty sets and a phase-undefined ordinary Aggregate");
+        }
+        if (ScalarCaptureRenames.contains(&grouping) || ScalarCaptureRenames.contains(&aggregate)) {
+            Unsupported("GroupingSets does not support scalar capture renaming");
+        }
+        CheckSnapshotProperties(grouping, false);
+        CheckSnapshotProperties(aggregate, false);
+        auto& input = *aggregate.GetInput();
+        const auto sourceId = ExportNode(aggregate.GetInput());
+        const auto& templateKeys = aggregate.GetKeyColumns();
+        const auto& mappings = grouping.GetColumns();
+        const auto& indicators = grouping.GetGroupingIndicators();
+        const auto aggregateOutputs = aggregate.GetOutputIUs();
+        const auto outputNames = OutputNames(grouping);
+        if (outputNames.empty() || mappings.Keys().HasAny(aggregateOutputs) ||
+            indicators.Keys().HasAny(aggregateOutputs) || indicators.Keys().HasAny(mappings.Keys()) ||
+            outputNames.size() != mappings.Keys().Size() + indicators.Keys().Size() ||
+            OutputStructType(grouping)->GetItems().size() != outputNames.size())
+        {
+            Unsupported("GroupingSets must define distinct fresh nonempty output bindings");
+        }
+
+        auto commonKeys = templateKeys.Unordered();
+        bool hasEmptySet = false;
+        for (const auto& keys : grouping.GetGroupingSets()) {
+            if (!keys.IsSubsetOf(templateKeys.Unordered())) {
+                Unsupported("GroupingSets references an unknown grouping key");
+            }
+            commonKeys.IntersectWith(keys);
+            hasEmptySet = hasEmptySet || keys.Empty();
+        }
+        // Reuse the ordinary exporter only for type/trait auditing. This
+        // template is deliberately not emitted as a relational input.
+        const auto templateNode = ExportOperator(aggregate, "template", {sourceId});
+        THashMap<TString, bool> inputNullability;
+        THashSet<TString> optionalScalarResults;
+        THashSet<TString> integralAverages;
+        for (const auto& trait : templateNode["aggregates"].GetArraySafe()) {
+            const auto& function = trait["function"].GetStringSafe();
+            const auto& source = trait["input"].GetStringSafe();
+            const auto& output = trait["output"].GetStringSafe();
+            if (function != "count" && function != "sum" && function != "min" &&
+                function != "max" && function != "avg")
+            {
+                Unsupported("GroupingSets supports only count, sum, min, max, and audited avg traits");
+            }
+            if (trait["unwrap"].GetBooleanSafe()) {
+                Unsupported("GroupingSets aggregate traits must not unwrap");
+            }
+            bool nullable = false;
+            const auto* sourceType = OutputType(input, source);
+            // COUNT(*) consumes the exact Void unit carrier already audited
+            // by the ordinary Aggregate exporter and the private-void path.
+            if (function != "count" || sourceType->GetKind() != ETypeAnnotationKind::Void) {
+                TypeName(sourceType, &nullable);
+            }
+            inputNullability.emplace(output, nullable);
+            if (function != "count") {
+                optionalScalarResults.insert(output);
+            }
+            const bool integralAverage = function == "avg" && trait["type"].GetStringSafe() == "Double";
+            if (integralAverage) {
+                integralAverages.insert(output);
+            }
+            const bool templateNullable = function != "count" &&
+                (nullable || templateKeys.Items().empty() || integralAverage);
+            if (trait["nullable"].GetBooleanSafe() != templateNullable) {
+                Unsupported("GroupingSets template aggregate has inconsistent result nullability");
+            }
+        }
+        if (hasEmptySet && templateNode["aggregates"].GetArraySafe().empty()) {
+            Unsupported("GroupingSets with an empty set currently requires aggregate traits");
+        }
+
+        TStoredStringColumns strings;
+        TIntegralAverageOrderingColumns averages;
+        for (const auto& [output, source] : mappings.Items()) {
+            const TString outputName = ToString(output), sourceName = ToString(source);
+            if (!aggregateOutputs.Contains(source) || !outputNames.contains(outputName)) {
+                Unsupported("GroupingSets has an unavailable output mapping");
+            }
+            bool sourceNullable = false, outputNullable = false;
+            const auto type = TypeName(OutputType(aggregate, sourceName), &sourceNullable,
+                integralAverages.contains(sourceName));
+            const auto outputType = TypeName(OutputType(grouping, outputName), &outputNullable,
+                integralAverages.contains(sourceName));
+            const bool expectedNullable = sourceNullable ||
+                (templateKeys.Unordered().Contains(source) && !commonKeys.Contains(source)) ||
+                (hasEmptySet && optionalScalarResults.contains(sourceName));
+            if (type != outputType || outputNullable != expectedNullable) {
+                Unsupported("GroupingSets output type disagrees with grouping-set nullability");
+            }
+            if (templateKeys.Unordered().Contains(source)) {
+                if (const auto* provenance = StoredStringOutputs(input).FindPtr(sourceName)) {
+                    strings.emplace(outputName, TStoredStringProvenance{expectedNullable, provenance->MaximumBytes, provenance->Type});
+                }
+            }
+            if (integralAverages.contains(sourceName)) {
+                averages.insert(outputName);
+            }
+        }
+        for (const auto& [output, key] : indicators.Items()) {
+            if (!templateKeys.Unordered().Contains(key) || !outputNames.contains(ToString(output)) ||
+                !IsExactDataAnnotation(OutputType(grouping, ToString(output)), NUdf::EDataSlot::Uint64, false))
+            {
+                Unsupported("GroupingSets indicators require a known key and a non-null Uint64 output");
+            }
+        }
+
+        const auto nextId = [&] { return TString(TStringBuilder() << "n" << Nodes.GetArraySafe().size()); };
+        auto unionInputs = JsonArray();
+        TString resultId;
+        for (const auto& keys : grouping.GetGroupingSets()) {
+            auto branch = templateNode;
+            branch["id"] = nextId();
+            branch["keys"] = JsonArray();
+            for (const auto key : templateKeys.Items()) {
+                if (keys.Contains(key)) {
+                    branch["keys"].AppendValue(ToString(key));
+                }
+            }
+            for (auto& trait : branch["aggregates"].GetArraySafe()) {
+                const auto& output = trait["output"].GetStringSafe();
+                trait["nullable"] = trait["function"].GetStringSafe() != "count" &&
+                    (inputNullability.at(output) || keys.Empty() || integralAverages.contains(output));
+            }
+            const auto branchId = branch["id"].GetStringSafe();
+            Nodes.AppendValue(std::move(branch));
+            auto projection = JsonMap();
+            projection["id"] = nextId();
+            projection["op"] = "project";
+            projection["input"] = branchId;
+            projection["ordered"] = false;
+            auto columns = JsonArray();
+            auto names = JsonArray();
+            for (const auto& [output, source] : mappings.Items()) {
+                const TString outputName = ToString(output), sourceName = ToString(source);
+                bool nullable = false;
+                const auto type = TypeName(OutputType(grouping, outputName), &nullable,
+                    integralAverages.contains(sourceName));
+                auto expression = ColumnExpr(sourceName);
+                if (templateKeys.Unordered().Contains(source)) {
+                    if (!keys.Contains(source)) {
+                        expression = JsonMap();
+                        expression["kind"] = "null";
+                        expression["type"] = type;
+                    } else {
+                        bool inputNullable = false;
+                        TypeName(OutputType(input, sourceName), &inputNullable);
+                        if (nullable && !inputNullable) {
+                            expression = AlwaysPresentOptionalExpr(std::move(expression), type);
+                        }
+                    }
+                } else if (nullable && !keys.Empty() && !inputNullability.at(sourceName) &&
+                           !integralAverages.contains(sourceName))
+                {
+                    expression = AlwaysPresentOptionalExpr(std::move(expression), type);
+                }
+                auto column = JsonMap();
+                column["output"] = outputName;
+                column["expression"] = std::move(expression);
+                columns.AppendValue(std::move(column));
+                names.AppendValue(outputName);
+            }
+            for (const auto& [output, key] : indicators.Items()) {
+                auto column = JsonMap();
+                column["output"] = ToString(output);
+                column["expression"] = JsonMap();
+                column["expression"]["kind"] = "literal";
+                column["expression"]["type"] = "Uint64";
+                column["expression"]["value"] = ui64(keys.Contains(key) ? 0 : 1);
+                columns.AppendValue(std::move(column));
+                names.AppendValue(ToString(output));
+            }
+            projection["columns"] = std::move(columns);
+            resultId = projection["id"].GetStringSafe();
+            Nodes.AppendValue(std::move(projection));
+            auto unionInput = JsonMap();
+            unionInput["node"] = resultId;
+            unionInput["columns"] = std::move(names);
+            unionInputs.AppendValue(std::move(unionInput));
+        }
+        if (unionInputs.GetArraySafe().size() > 1) {
+            auto node = JsonMap();
+            resultId = nextId();
+            node["id"] = resultId;
+            node["op"] = "union_all";
+            node["ordered"] = false;
+            node["output"] = unionInputs[0]["columns"];
+            node["inputs"] = std::move(unionInputs);
+            Nodes.AppendValue(std::move(node));
+        }
+        StoredStringOutputMap.emplace(&grouping, std::move(strings));
+        IntegralAverageOrderingOutputMap.emplace(&grouping, std::move(averages));
+        Ids.emplace(&grouping, resultId);
+        NodeOrder.push_back(&grouping);
+        return resultId;
+    }
+
+    TString ExportNode(const TIntrusivePtr<IOperator>& op) {
+        if (!op) {
+            Unsupported("Plan contains a null operator");
+        }
+        if (const auto* existing = Ids.FindPtr(op.Get())) {
+            return *existing;
+        }
+        if (!Visiting.insert(op.Get()).second) {
+            Unsupported("Plan contains an operator cycle");
+        }
+
+        if (op->GetKind() == EOperator::GroupingSets) {
+            const auto result = ExportGroupingSets(static_cast<TOpGroupingSets&>(*op));
+            Visiting.erase(op.Get());
+            return result;
+        }
+
+        TVector<TString> children;
+        children.reserve(op->GetChildren().size());
+        for (const auto& child : op->GetChildren()) {
+            children.push_back(ExportNode(child));
+        }
+        Visiting.erase(op.Get());
+        if (!StageGraphPresent) {
+            CheckSnapshotProperties(*op, false);
+        }
+
+        const TString id = TStringBuilder() << "n" << Nodes.GetArraySafe().size();
+        auto node = ExportOperator(*op, id, children);
+        if (const auto* renames = ScalarCaptureRenames.FindPtr(op.Get())) {
+            if (op->GetKind() == EOperator::Map) {
+                for (auto& column : node["columns"].GetArraySafe()) {
+                    const auto* outer = renames->FindPtr(column["output"].GetStringSafe());
+                    if (outer) {
+                        const auto& expression = column["expression"];
+                        if (expression["kind"].GetStringSafe() != "column" ||
+                            expression["column"].GetStringSafe() != column["output"].GetStringSafe())
+                        {
+                            Unsupported("Scalar capture projection must be an exact pass-through");
+                        }
+                        column["output"] = *outer;
+                    }
+                }
+            }
+            RenameSnapshotExpressionColumns(node, *renames);
+        }
+        TrackStoredStringOutputs(*op);
+        TrackIntegralAverageOrderingOutputs(*op);
+        Ids.emplace(op.Get(), id);
+        NodeOrder.push_back(op.Get());
+        Nodes.AppendValue(std::move(node));
+        return id;
+    }
+
+    const TStoredStringColumns& StoredStringOutputs(const IOperator& op) const {
+        const auto* result = StoredStringOutputMap.FindPtr(&op);
+        if (!result) {
+            Unsupported("Stored String provenance is unavailable for an operator input");
+        }
+        return *result;
+    }
+
+    void TrackStoredStringOutputs(IOperator& base) {
+        TStoredStringColumns result;
+
+        switch (base.GetKind()) {
+            case EOperator::EmptySource:
+                break;
+
+            case EOperator::TableLookup: {
+                auto& lookup = static_cast<TOpTableLookup&>(base);
+                const auto table = TableReference(lookup.Table, Cluster);
+                const auto* captured = Catalog.FindPtr(table.Identity);
+                if (!captured) { Unsupported("TableLookup stored-value provenance lacks its target catalog"); }
+                for (const auto id : lookup.GetColumns()) {
+                    const TString& name = Root.PlanProps.InfoUnitRegistry.Get(id).GetColumnName();
+                    for (const auto& column : (*captured)->Columns) {
+                        if (column.Name == name && (column.Type == "String" || column.Type == "Utf8") &&
+                            (*captured)->MaximumStoredStringCellBytes != 0)
+                        {
+                            result.emplace(ToString(id), TStoredStringProvenance{
+                                column.Nullable, (*captured)->MaximumStoredStringCellBytes, column.Type});
+                        }
+                    }
+                }
+                break;
+            }
+
+            case EOperator::Source: {
+                auto& read = static_cast<TOpRead&>(base);
+                const auto table = TableReference(read, Cluster);
+                const auto* catalogTable = Catalog.FindPtr(table.Identity);
+                if (!catalogTable) {
+                    Unsupported("Stored String provenance has no catalog table");
+                }
+                if ((*catalogTable)->MaximumStoredStringCellBytes == 0 ||
+                    !TKqpTable(read.TableCallable).SysView().StringValue().empty())
+                {
+                    break;
+                }
+                TStoredStringColumns stringColumns;
+                for (const auto& column : (*catalogTable)->Columns) {
+                    if (column.Type == "String" || column.Type == "Utf8") {
+                        stringColumns.emplace(
+                            column.Name,
+                            TStoredStringProvenance{
+                                column.Nullable,
+                                (*catalogTable)->MaximumStoredStringCellBytes, column.Type});
+                    }
+                }
+                const auto outputIUs = SnapshotOutputIUs(read);
+                // A scan's serialized semantics come from this captured catalog
+                // and its source/output mapping.  The initial RBO boundary can
+                // legitimately precede operator type annotation; the Concat
+                // auditor still requires each Member annotation to match the
+                // catalog nullability carried here.
+                for (size_t index = 0; index < SnapshotReadColumns(read, Root.PlanProps.InfoUnitRegistry).size(); ++index) {
+                    const auto* provenance = stringColumns.FindPtr(SnapshotReadColumns(read, Root.PlanProps.InfoUnitRegistry)[index]);
+                    const TString output = outputIUs[index].GetFullName();
+                    if (provenance) {
+                        result.emplace(output, *provenance);
+                    }
+                }
+                break;
+            }
+
+            case EOperator::Replicate: {
+                auto& port = static_cast<TOpReplicate&>(base);
+                const auto& input = StoredStringOutputs(*port.GetInput());
+                for (const auto source : port.GetInput()->GetOutputIUs()) {
+                    if (const auto* provenance = input.FindPtr(ToString(source))) {
+                        const auto output = port.IsPrimary() ? source : port.GetRebindings().At(source);
+                        result.emplace(ToString(output), *provenance);
+                    }
+                }
+                break;
+            }
+
+            case EOperator::Map: {
+                auto& map = static_cast<TOpMap&>(base);
+                const auto& input = StoredStringOutputs(*map.GetInput());
+                THashSet<TString> renameSources;
+                for (const auto& element : SnapshotMapElements(map)) {
+                    if (element.IsRename()) {
+                        renameSources.insert(element.GetRename().GetFullName());
+                    }
+                }
+                for (const auto& iu : SnapshotOutputIUs(*map.GetInput())) {
+                    const TString name = iu.GetFullName();
+                    if (!renameSources.contains(name) &&
+                        input.contains(name))
+                    {
+                        result.emplace(name, *input.FindPtr(name));
+                    }
+                }
+                for (const auto& element : SnapshotMapElements(map)) {
+                    if (element.IsColumnAccess() &&
+                        input.contains(element.GetColumnAccess().GetFullName()))
+                    {
+                        result.emplace(
+                            element.GetElementName().GetFullName(),
+                            *input.FindPtr(element.GetColumnAccess().GetFullName()));
+                    }
+                }
+                break;
+            }
+
+            case EOperator::Filter:
+            case EOperator::Limit:
+            case EOperator::Sort:
+            case EOperator::AddDependencies:
+            case EOperator::Window: {
+                const auto& input = base.GetChildren().front();
+                const auto outputNames = OutputNames(base);
+                for (const auto& [name, provenance] : StoredStringOutputs(*input)) {
+                    if (outputNames.contains(name)) {
+                        result.emplace(name, provenance);
+                    }
+                }
+                break;
+            }
+
+            case EOperator::Aggregate: {
+                auto& aggregate = static_cast<TOpAggregate&>(base);
+                if (!aggregate.IsDistinctAll()) {
+                    const auto& input = StoredStringOutputs(*aggregate.GetInput());
+                    for (const auto& key : SnapshotKeyColumns(aggregate)) {
+                        const TString name = key.GetFullName();
+                        if (input.contains(name)) {
+                            result.emplace(name, *input.FindPtr(name));
+                        }
+                    }
+                }
+                break;
+            }
+
+            case EOperator::Join: {
+                auto& join = static_cast<TOpJoin&>(base);
+                const auto& outputNames = OutputNames(base);
+                const TString kind = JoinKind(join.JoinKind);
+                const bool keepLeft =
+                    kind != "right_semi" && kind != "right_anti";
+                const bool keepRight =
+                    kind != "left_semi" && kind != "left_anti";
+                const bool nullableLeft =
+                    kind == "right" || kind == "full" || kind == "exclusion";
+                const bool nullableRight =
+                    kind == "left" || kind == "full" || kind == "exclusion";
+                const auto propagate = [&](IOperator& child, bool keep, bool forceNullable) {
+                    if (!keep) {
+                        return;
+                    }
+                    for (const auto& [name, provenance] : StoredStringOutputs(child)) {
+                        if (outputNames.contains(name)) {
+                            result.emplace(
+                                name,
+                                TStoredStringProvenance{
+                                    provenance.Nullable || forceNullable,
+                                    provenance.MaximumBytes, provenance.Type});
+                        }
+                    }
+                };
+                propagate(*join.GetLeftInput(), keepLeft, nullableLeft);
+                propagate(*join.GetRightInput(), keepRight, nullableRight);
+                break;
+            }
+
+            case EOperator::UnionAll: {
+                auto& unionAll = static_cast<TOpUnionAll&>(base);
+                for (const auto& [id, sources] : unionAll.GetColumns().Items()) {
+                    if (sources.Inputs.size() != unionAll.GetChildCount()) {
+                        Unsupported("UnionAll provenance mapping has the wrong arity");
+                    }
+                    std::optional<TStoredStringProvenance> combined;
+                    bool complete = true;
+                    for (size_t index = 0; index < sources.Inputs.size(); ++index) {
+                        const auto& input = StoredStringOutputs(*unionAll.GetChild(index));
+                        const auto* provenance = input.FindPtr(ToString(sources.Inputs[index]));
+                        if (!provenance || (combined && combined->Type != provenance->Type)) { complete = false; break; }
+                        if (!combined) { combined = *provenance; }
+                        else {
+                            combined->Nullable = combined->Nullable || provenance->Nullable;
+                            combined->MaximumBytes = std::max(combined->MaximumBytes, provenance->MaximumBytes);
+                        }
+                    }
+                    if (complete && combined) { result.emplace(ToString(id), *combined); }
+                }
+                break;
+            }
+
+            default:
+                Unsupported("Stored String provenance reached an unsupported operator");
+        }
+
+        if (!StoredStringOutputMap.emplace(&base, std::move(result)).second) {
+            Unsupported("Stored String provenance was recorded twice");
+        }
+    }
+
+    const TIntegralAverageOrderingColumns&
+    IntegralAverageOrderingOutputs(const IOperator& op) const
+    {
+        const auto* result = IntegralAverageOrderingOutputMap.FindPtr(&op);
+        if (!result) {
+            Unsupported(
+                "Integral avg ordering provenance is unavailable for an operator input");
+        }
+        return *result;
+    }
+
+    void TrackIntegralAverageOrderingOutputs(IOperator& base) {
+        TIntegralAverageOrderingColumns result;
+
+        const auto certifyDirectCarrier = [&](
+            IOperator& input,
+            TStringBuf inputName,
+            TStringBuf outputName)
+        {
+            const TString inputColumn(inputName);
+            const TString outputColumn(outputName);
+            if (!IntegralAverageOrderingOutputs(input).contains(
+                    inputColumn))
+            {
+                return;
+            }
+            const auto* inputType = OutputType(input, inputColumn);
+            const auto* outputType = OutputType(base, outputColumn);
+            const bool inputOptional = IsExactDataAnnotation(inputType, NUdf::EDataSlot::Double, true);
+            const bool outputOptional = IsExactDataAnnotation(outputType, NUdf::EDataSlot::Double, true);
+            if ((!inputOptional && !IsExactDataAnnotation(inputType, NUdf::EDataSlot::Double, false)) ||
+                (!outputOptional && !IsExactDataAnnotation(outputType, NUdf::EDataSlot::Double, false)) ||
+                (inputOptional && !outputOptional))
+            {
+                Unsupported(TStringBuilder() << base.GetExplainName()
+                    << " integral avg ordering carrier " << outputColumn
+                    << " must retain its Double type without removing optionality");
+            }
+            result.insert(outputColumn);
+        };
+
+        switch (base.GetKind()) {
+            case EOperator::EmptySource:
+            case EOperator::Source:
+            case EOperator::TableLookup:
+                break;
+
+            case EOperator::Replicate: {
+                auto& port = static_cast<TOpReplicate&>(base);
+                for (const auto source : port.GetInput()->GetOutputIUs()) {
+                    const auto output = port.IsPrimary() ? source : port.GetRebindings().At(source);
+                    certifyDirectCarrier(*port.GetInput(), ToString(source), ToString(output));
+                }
+                break;
+            }
+
+            case EOperator::Map: {
+                auto& map = static_cast<TOpMap&>(base);
+                THashSet<TString> renameSources;
+                for (const auto& element : SnapshotMapElements(map)) {
+                    if (element.IsRename()) {
+                        renameSources.insert(
+                            element.GetRename().GetFullName());
+                    }
+                }
+                for (const auto& iu : SnapshotOutputIUs(*map.GetInput())) {
+                    const TString name = iu.GetFullName();
+                    if (!renameSources.contains(name)) {
+                        certifyDirectCarrier(
+                            *map.GetInput(),
+                            name,
+                            name);
+                    }
+                }
+                for (const auto& element : SnapshotMapElements(map)) {
+                    if (!element.IsRename() &&
+                        !element.IsColumnAccess())
+                    {
+                        continue;
+                    }
+                    const TString source = element.IsRename()
+                        ? element.GetRename().GetFullName()
+                        : element.GetColumnAccess().GetFullName();
+                    certifyDirectCarrier(
+                        *map.GetInput(),
+                        source,
+                        element.GetElementName().GetFullName());
+                }
+                break;
+            }
+
+            case EOperator::Filter:
+            case EOperator::Limit:
+            case EOperator::Sort:
+            case EOperator::AddDependencies:
+            case EOperator::Window: {
+                auto& input = *base.GetChildren().front();
+                const auto outputs = OutputNames(base);
+                for (const auto& name :
+                     IntegralAverageOrderingOutputs(input))
+                {
+                    if (outputs.contains(name)) {
+                        certifyDirectCarrier(input, name, name);
+                    }
+                }
+                break;
+            }
+
+            case EOperator::Aggregate: {
+                auto& aggregate = static_cast<TOpAggregate&>(base);
+                if (aggregate.GetAggregationPhase() ==
+                    EOpPhase::Intermediate)
+                {
+                    break;
+                }
+                for (const auto& trait :
+                     SnapshotAggregationTraits(aggregate))
+                {
+                    const TString output =
+                        trait.ResultColName.GetFullName();
+                    if (IsIntegralAverageOutput(
+                            trait,
+                            OutputType(aggregate, output)))
+                    {
+                        IntegralAverageStateContract(
+                            aggregate,
+                            trait);
+                        result.insert(output);
+                    }
+                }
+                break;
+            }
+
+            case EOperator::Join: {
+                auto& join = static_cast<TOpJoin&>(base);
+                const TString kind = JoinKind(join.JoinKind);
+                const bool keepLeft =
+                    kind != "right_semi" && kind != "right_anti";
+                const bool keepRight =
+                    kind != "left_semi" && kind != "left_anti";
+                const auto outputs = OutputNames(join);
+                const auto propagate = [&](
+                    IOperator& input,
+                    bool keep)
+                {
+                    if (!keep) {
+                        return;
+                    }
+                    for (const auto& name :
+                         IntegralAverageOrderingOutputs(input))
+                    {
+                        if (outputs.contains(name)) {
+                            certifyDirectCarrier(
+                                input,
+                                name,
+                                name);
+                        }
+                    }
+                };
+                propagate(*join.GetLeftInput(), keepLeft);
+                propagate(*join.GetRightInput(), keepRight);
+                break;
+            }
+
+            case EOperator::UnionAll: {
+                auto& unionAll = static_cast<TOpUnionAll&>(base);
+                for (const auto& [id, sources] : unionAll.GetColumns().Items()) {
+                    if (sources.Inputs.size() != unionAll.GetChildCount()) {
+                        Unsupported("UnionAll average carrier mapping has the wrong arity");
+                    }
+                    const TString output = ToString(id);
+                    bool complete = true;
+                    for (size_t index = 0; index < sources.Inputs.size(); ++index) {
+                        auto& input = *unionAll.GetChild(index);
+                        const TString column = ToString(sources.Inputs[index]);
+                        if (!IntegralAverageOrderingOutputs(input).contains(column)) {
+                            complete = false;
+                            break;
+                        }
+                        const auto* inputType = OutputType(input, column);
+                        if ((!IsExactDataAnnotation(inputType, NUdf::EDataSlot::Double, true) &&
+                             !IsExactDataAnnotation(inputType, NUdf::EDataSlot::Double, false)) ||
+                            !IsSameAnnotation(*inputType, *OutputType(unionAll, output)))
+                        {
+                            Unsupported("UnionAll average carriers must retain identical Double type and optionality");
+                        }
+                    }
+                    if (complete) {
+                        result.insert(output);
+                    }
+                }
+                break;
+            }
+
+            case EOperator::CBOTree:
+            case EOperator::Root:
+            default:
+                Unsupported(
+                    "Integral avg ordering provenance reached an unsupported operator");
+        }
+
+        if (!IntegralAverageOrderingOutputMap.emplace(
+                &base,
+                std::move(result)).second)
+        {
+            Unsupported(
+                "Integral avg ordering provenance was recorded twice");
+        }
+    }
+
+    NJson::TJsonValue ExportOperator(IOperator& base, const TString& id, const TVector<TString>& children) {
+        auto node = JsonMap();
+        node["id"] = id;
+
+        switch (base.GetKind()) {
+            case EOperator::EmptySource:
+                if (!children.empty() || static_cast<TOpEmptySource&>(base).Input) {
+                    Unsupported("Literal or parameter row sources require an explicit snapshot encoding");
+                }
+                node["op"] = "empty_source";
+                return node;
+
+            case EOperator::Window: {
+                auto& window = static_cast<TOpWindow&>(base);
+                bool onlyRanks = !window.GetWindowFuncs().Items().empty();
+                for (const auto& [_, function] : window.GetWindowFuncs().Items()) {
+                    onlyRanks = onlyRanks && function.Kind == EWindowFuncKind::Native &&
+                        function.Function == "rank" && function.Arguments.Items().empty();
+                }
+                if (onlyRanks) {
+                    if (children.size() != 1 || window.GetWindowFuncs().Items().size() > 2 ||
+                        window.GetPartitionKeys().Items().size() > 4 || window.GetSortElements().Items().size() > 2)
+                    {
+                        Unsupported("Native Rank exceeds its function/key audit bounds");
+                    }
+                    auto& input = *window.GetInput();
+                    const auto inputNames = OutputNames(input);
+                    auto partitions = JsonArray();
+                    for (const auto key : window.GetPartitionKeys().Items()) {
+                        const TString name = ToString(key);
+                        if (!inputNames.contains(name)) {
+                            Unsupported("Native Rank partition key is absent from its input");
+                        }
+                        TypeName(OutputType(input, name));
+                        partitions.AppendValue(name);
+                    }
+                    auto order = JsonArray();
+                    TVector<TString> orderColumns;
+                    for (const auto& element : SnapshotSortElements(window)) {
+                        const TString name = element.SortColumn.GetFullName();
+                        if (!inputNames.contains(name) || !IsModeledOrderingType(TypeName(OutputType(input, name)))) {
+                            Unsupported("Native Rank requires modeled direct order keys");
+                        }
+                        auto item = JsonMap();
+                        item["column"] = name;
+                        item["ascending"] = element.Ascending;
+                        item["nulls_first"] = element.NullsFirst;
+                        order.AppendValue(std::move(item));
+                        orderColumns.push_back(name);
+                    }
+                    auto columns = JsonArray();
+                    auto outputs = inputNames;
+                    for (const auto& iu : SnapshotOutputIUs(input)) {
+                        const TString name = iu.GetFullName();
+                        if (!IsSameAnnotation(*OutputType(input, name), *OutputType(window, name))) {
+                            Unsupported("Native Rank must preserve input column types");
+                        }
+                        auto column = JsonMap();
+                        column["output"] = name;
+                        column["expression"] = ColumnExpr(name);
+                        columns.AppendValue(std::move(column));
+                    }
+                    ui32 executionOrder = 0;
+                    for (const auto& [output, _] : window.GetWindowFuncs().Items()) {
+                        const TString name = ToString(output);
+                        if (!outputs.insert(name).second ||
+                            !IsExactDataAnnotation(OutputType(window, name), NUdf::EDataSlot::Uint64, false))
+                        {
+                            Unsupported("Native Rank requires fresh non-null Uint64 results");
+                        }
+                        auto expression = JsonMap();
+                        if (orderColumns.empty()) {
+                            // Without ORDER BY every row in a partition is a peer.
+                            expression["kind"] = "literal";
+                            expression["type"] = "Uint64";
+                            expression["value"] = static_cast<ui64>(1);
+                        } else {
+                            const TString windowName = TStringBuilder() << "native_rank_" << id;
+                            expression["kind"] = "window_rank";
+                            expression["window_name"] = windowName;
+                            expression["execution_order"] = executionOrder;
+                            expression["partition_by"] = partitions;
+                            expression["order_by"] = order;
+                            // Native ranking ignores the aggregate frame; physical
+                            // peer changes use AggrNotEquals on the complete key.
+                            expression["frame"] = "rows_unbounded_preceding_current_row";
+                            expression["type"] = "Uint64";
+                            expression["nullable"] = false;
+                            GlobalRankProjectionWindows[&window].push_back(
+                                {name, windowName, orderColumns, executionOrder});
+                        }
+                        auto column = JsonMap();
+                        column["output"] = name;
+                        column["expression"] = std::move(expression);
+                        columns.AppendValue(std::move(column));
+                        ++executionOrder;
+                    }
+                    if (outputs != OutputNames(window)) {
+                        Unsupported("Native Rank output schema disagrees with its input and functions");
+                    }
+                    node["op"] = "project";
+                    node["input"] = children.front();
+                    node["ordered"] = false;
+                    node["columns"] = std::move(columns);
+                    return node;
+                }
+                if (children.size() != 1 || !window.GetFrame().IsWholePartition() ||
+                    !window.GetSortElements().Items().empty() ||
+                    window.GetWindowFuncs().Items().size() != 1)
+                {
+                    Unsupported("Native Window requires one unordered whole-partition aggregate");
+                }
+                auto& input = *window.GetInput();
+                // Keep the Maps in the exported plan; only resolve lineage
+                // for the grouped-SUM admission premise. Computed/error-bearing
+                // expressions are deliberately outside this alias corridor.
+                IOperator* grouped = &input;
+                THashMap<TString, TString> lineage;
+                for (const auto& name : OutputNames(input)) {
+                    lineage.emplace(name, name);
+                }
+                size_t aliasCount = 0;
+                while (grouped->GetKind() == EOperator::Map) {
+                    if (++aliasCount > 8) {
+                        Unsupported("Native Window alias corridor exceeds eight Maps");
+                    }
+                    auto& map = static_cast<TOpMap&>(*grouped);
+                    auto& source = *map.GetInput();
+                    const auto sourceNames = OutputNames(source);
+                    const auto targetNames = OutputNames(map);
+                    THashMap<TString, TString> bindings;
+                    for (const auto& name : sourceNames) {
+                        bindings.emplace(name, name);
+                    }
+                    for (const auto& element : SnapshotMapElements(map)) {
+                        if (!element.IsColumnAccess() || element.IsRename()) {
+                            Unsupported("Native Window aliases require direct column-copy Maps");
+                        }
+                        const TString output = element.GetElementName().GetFullName();
+                        const TString column = element.GetColumnAccess().GetFullName();
+                        if (!sourceNames.contains(column) || !bindings.emplace(output, column).second) {
+                            Unsupported("Native Window alias has invalid column membership");
+                        }
+                        const TTypeAnnotationNode* expressionType = element.GetExpression().GetExpressionBody()->GetTypeAnn();
+                        if (!expressionType || !IsSameAnnotation(*OutputType(source, column), *expressionType))
+                        {
+                            Unsupported("Native Window alias has inconsistent expression type");
+                        }
+                    }
+                    if (bindings.size() != targetNames.size()) {
+                        Unsupported("Native Window alias has inconsistent output membership");
+                    }
+                    for (const auto& name : targetNames) {
+                        const auto* column = bindings.FindPtr(name);
+                        if (!column || !IsSameAnnotation(*OutputType(source, *column), *OutputType(map, name))) {
+                            Unsupported("Native Window alias has inconsistent output type");
+                        }
+                    }
+                    for (auto& [_, name] : lineage) {
+                        const auto* column = bindings.FindPtr(name);
+                        if (!column) {
+                            Unsupported("Native Window alias has stale column lineage");
+                        }
+                        name = *column;
+                    }
+                    grouped = &source;
+                }
+                if (grouped->GetKind() != EOperator::Aggregate) {
+                    Unsupported("Native Window aliases must consume a grouped Aggregate");
+                }
+                auto& aggregate = static_cast<TOpAggregate&>(*grouped);
+                if (aggregate.IsDistinctAll() || aggregate.GetKeyColumns().Items().empty() ||
+                    (aggregate.GetAggregationPhase() != EOpPhase::Undefined &&
+                     aggregate.GetAggregationPhase() != EOpPhase::Final))
+                {
+                    Unsupported("Native Window requires a logical or final grouped Aggregate");
+                }
+                const auto& [output, function] = *window.GetWindowFuncs().Items().begin();
+                const bool isSum = function.Function == "sum";
+                if (function.Kind != EWindowFuncKind::Aggregate ||
+                    (!isSum && function.Function != "avg") || function.Arguments.Items().size() != 1)
+                {
+                    Unsupported("Native Window supports only direct Decimal SUM or AVG");
+                }
+                const TString argument = ToString(function.Arguments.Items().front());
+                const TString outputName = ToString(output);
+                bool argumentNullable = false;
+                bool outputNullable = false;
+                if (TypeName(OutputType(input, argument), &argumentNullable) != "Decimal(35,2)" ||
+                    !argumentNullable ||
+                    TypeName(OutputType(window, outputName), &outputNullable) != "Decimal(35,2)" ||
+                    !outputNullable)
+                {
+                    Unsupported("Native Window requires Optional<Decimal(35,2)> input and result");
+                }
+                const auto* groupedArgument = lineage.FindPtr(argument);
+                if (!groupedArgument) {
+                    Unsupported("Native Window has no grouped argument lineage");
+                }
+                size_t matchingSums = 0;
+                for (const auto& [id, trait] : aggregate.GetAggregationTraits().Items()) {
+                    if (ToString(id) == *groupedArgument && trait.AggFunction == "sum" &&
+                        !trait.Distinct && !trait.Unwrap)
+                    {
+                        ++matchingSums;
+                    }
+                }
+                if (matchingSums != 1) {
+                    Unsupported("Native Window argument must be one direct grouped SUM result");
+                }
+                const auto& keys = window.GetPartitionKeys().Items();
+                if ((isSum && keys.size() != 1) || (!isSum && (keys.empty() || keys.size() > 5))) {
+                    Unsupported("Native Window has an unsupported partition key count");
+                }
+                auto partitions = JsonArray();
+                for (const auto key : keys) {
+                    bool nullable = false;
+                    const TString name = ToString(key);
+                    const TString type = TypeName(OutputType(input, name), &nullable);
+                    const auto* groupedKey = lineage.FindPtr(name);
+                    const bool isGroupingKey = groupedKey && std::any_of(
+                        aggregate.GetKeyColumns().Items().begin(), aggregate.GetKeyColumns().Items().end(),
+                        [&](const auto id) { return ToString(id) == *groupedKey; });
+                    if (!isGroupingKey || !nullable ||
+                        (type != "String" && type != "Utf8" && (isSum || type != "Int64")))
+                    {
+                        Unsupported("Native Window partition keys must be supported nullable grouping keys");
+                    }
+                    partitions.AppendValue(name);
+                }
+                auto expression = JsonMap();
+                expression["kind"] = isSum ? "window_sum" : "window_avg";
+                expression["input"] = argument;
+                if (isSum) {
+                    expression["partition_by"] = ToString(keys.front());
+                } else {
+                    expression["partition_by"] = std::move(partitions);
+                }
+                expression["type"] = "Decimal(35,2)";
+                expression["nullable"] = true;
+                auto columns = JsonArray();
+                THashSet<TString> outputs;
+                for (const auto& iu : SnapshotOutputIUs(input)) {
+                    const TString name = iu.GetFullName();
+                    outputs.insert(name);
+                    auto column = JsonMap();
+                    column["output"] = name;
+                    column["expression"] = ColumnExpr(name);
+                    columns.AppendValue(std::move(column));
+                }
+                if (!outputs.insert(outputName).second || outputs != OutputNames(window)) {
+                    Unsupported("Native Window has an inconsistent output schema");
+                }
+                auto result = JsonMap();
+                result["output"] = outputName;
+                result["expression"] = std::move(expression);
+                columns.AppendValue(std::move(result));
+                node["op"] = "project";
+                node["input"] = children.front();
+                node["ordered"] = false;
+                node["columns"] = std::move(columns);
+                return node;
+            }
+
+            case EOperator::TableLookup: {
+                auto& lookup = static_cast<TOpTableLookup&>(base);
+                CheckPointLookupShape(lookup);
+                if (children.size() != 1) { Unsupported("TableLookup has an invalid probe arity"); }
+                const auto reference = TableReference(lookup.Table, Cluster);
+                const auto* captured = Catalog.FindPtr(reference.Identity);
+                if (!captured || (*captured)->DerivedFrom || !(*captured)->PrimaryKey || (*captured)->PrimaryKey->empty() ||
+                    !TKqpTable(lookup.Table).SysView().StringValue().empty())
+                {
+                    Unsupported("TableLookup requires a captured ordinary base table with its physical key");
+                }
+                // This corridor only follows a validated ready synchronous index
+                // of this very target; arbitrary lookup join families stay closed.
+                auto* probe = lookup.GetInput().Get();
+                if (probe->GetKind() == EOperator::Filter) { probe = probe->GetChild(0).Get(); }
+                if (probe->GetKind() != EOperator::Source) {
+                    Unsupported("TableLookup probe must be one index Read with an optional residual Filter");
+                }
+                const auto indexReference = TableReference(static_cast<const TOpRead&>(*probe), Cluster);
+                const auto* index = Catalog.FindPtr(indexReference.Identity);
+                if (!index || !(*index)->DerivedFrom || *(*index)->DerivedFrom != reference.Identity) {
+                    Unsupported("TableLookup probe must be a derived synchronous index of its target");
+                }
+                const auto& primaryKey = *(*captured)->PrimaryKey;
+                if (lookup.LookupKeys.Items().size() != primaryKey.size()) {
+                    Unsupported("TableLookup does not bind every physical primary-key component");
+                }
+                THashMap<TString, const TSemanticSnapshotCatalogColumnV1*> physical;
+                for (const auto& column : (*captured)->Columns) { physical.emplace(column.Name, &column); }
+                auto keys = JsonArray();
+                size_t ordinal = 0;
+                THashSet<TString> inputNames;
+                for (const auto& [id, name] : lookup.LookupKeys.Items()) {
+                    const TString input = ToString(id);
+                    const auto* column = physical.FindPtr(name);
+                    if (name != primaryKey.at(ordinal++) || !column || !inputNames.insert(input).second ||
+                        ExactType(OutputType(*lookup.GetInput(), input)).Name != (*column)->Type)
+                    {
+                        Unsupported("TableLookup key order, identity, or scalar type differs from the physical key");
+                    }
+                    auto key = JsonMap(); key["input"] = input; key["source"] = name;
+                    keys.AppendValue(std::move(key));
+                }
+                auto columns = JsonArray();
+                THashSet<TString> fetched;
+                for (const auto id : lookup.GetColumns()) {
+                    const TString name = Root.PlanProps.InfoUnitRegistry.Get(id).GetColumnName();
+                    const TString output = ToString(id);
+                    const auto* column = physical.FindPtr(name);
+                    const auto type = ExactType(OutputType(lookup, output));
+                    if (!column || !fetched.insert(name).second || type.Name != (*column)->Type ||
+                        type.Nullable != (*column)->Nullable)
+                    {
+                        Unsupported("TableLookup fetched fields disagree with captured storage metadata");
+                    }
+                    auto mapping = JsonMap(); mapping["source"] = name; mapping["output"] = output;
+                    columns.AppendValue(std::move(mapping));
+                }
+                if (OutputStructType(lookup)->GetSize() != SnapshotOutputIUs(lookup).size()) {
+                    Unsupported("TableLookup output contains unmodeled fields");
+                }
+                node["op"] = "point_lookup";
+                node["input"] = children.front();
+                node["table"] = reference.Identity;
+                node["keys"] = std::move(keys);
+                node["columns"] = std::move(columns);
+                return node;
+            }
+
+            case EOperator::Source: {
+                if (!children.empty()) {
+                    Unsupported("Read unexpectedly has children");
+                }
+                auto& read = static_cast<TOpRead&>(base);
+                const auto outputIUs = SnapshotOutputIUs(read);
+                if (read.SortDir != ESortDir::None) {
+                    Unsupported("Read has range or ordering semantics absent from logical snapshot v1");
+                }
+                if (read.RangeInfo &&
+                    read.StorageType != NYql::EStorageType::ColumnStorage &&
+                    read.StorageType != NYql::EStorageType::RowStorage)
+                {
+                    Unsupported("Read pushed range requires an audited row or column source");
+                }
+                if (read.OlapFilterLambda &&
+                    read.StorageType != NYql::EStorageType::ColumnStorage)
+                {
+                    Unsupported("Read pushed predicate is supported only for column storage");
+                }
+                if (read.Limit && read.StorageType != NYql::EStorageType::ColumnStorage) {
+                    Unsupported("Read pushed limit is supported only for column storage");
+                }
+                if (read.Limit && !StageGraphPresent) {
+                    Unsupported("Read pushed limit requires a StageGraph source boundary");
+                }
+                if (SnapshotReadColumns(read, Root.PlanProps.InfoUnitRegistry).size() != outputIUs.size()) {
+                    Unsupported("Read has an empty or inconsistent column mapping");
+                }
+                // COUNT(*) may prune every payload column. The scan still
+                // carries one presence bit per source row.
+                if (outputIUs.empty() && OutputStructType(read)->GetSize() != 0) {
+                    Unsupported("Empty Read mapping has a nonempty row type");
+                }
+                const auto table = TableReference(read, Cluster);
+                const auto* catalogTable = Catalog.FindPtr(table.Identity);
+                if (!catalogTable) {
+                    Unsupported(TStringBuilder()
+                        << "Read table identity " << table.Identity
+                        << " is absent from the captured catalog");
+                }
+                THashMap<
+                    TString,
+                    const TSemanticSnapshotCatalogColumnV1*> catalogColumns;
+                for (const auto& column : (*catalogTable)->Columns) {
+                    if (!catalogColumns.emplace(column.Name, &column).second) {
+                        Unsupported(TStringBuilder()
+                            << "Catalog table " << table.Path
+                            << " has duplicate column " << column.Name);
+                    }
+                }
+                THashSet<TString> sources;
+                THashSet<TString> outputs;
+                TOlapColumnMap olapColumns;
+                auto columns = JsonArray();
+                for (size_t index = 0; index < SnapshotReadColumns(read, Root.PlanProps.InfoUnitRegistry).size(); ++index) {
+                    const TString output = outputIUs[index].GetFullName();
+                    const auto* catalogColumn =
+                        catalogColumns.FindPtr(SnapshotReadColumns(read, Root.PlanProps.InfoUnitRegistry)[index]);
+                    if (!catalogColumn ||
+                        !sources.insert(SnapshotReadColumns(read, Root.PlanProps.InfoUnitRegistry)[index]).second || output.empty() ||
+                        !outputs.insert(output).second)
+                    {
+                        Unsupported(TStringBuilder() << "Invalid Read column mapping for " << table.Path);
+                    }
+                    const TOlapColumn olapColumn{
+                        output,
+                        (*catalogColumn)->Type,
+                        (*catalogColumn)->Nullable,
+                    };
+                    AddOlapColumnReference(
+                        olapColumns,
+                        SnapshotReadColumns(read, Root.PlanProps.InfoUnitRegistry)[index],
+                        olapColumn);
+                    AddOlapColumnReference(
+                        olapColumns,
+                        outputIUs[index].GetFullName(),
+                        olapColumn);
+                    AddOlapColumnReference(
+                        olapColumns,
+                        outputIUs[index].GetColumnName(),
+                        olapColumn);
+                    auto column = JsonMap();
+                    column["source"] = SnapshotReadColumns(read, Root.PlanProps.InfoUnitRegistry)[index];
+                    column["output"] = output;
+                    columns.AppendValue(std::move(column));
+                }
+                auto predicateColumns = JsonArray();
+                if (read.RangeInfo || read.OlapFilterLambda) {
+                    for (const auto& column : (*catalogTable)->Columns) {
+                        if (sources.contains(column.Name)) {
+                            continue;
+                        }
+                        // A pushed predicate may retain a physical column that
+                        // column pruning removes from this Read's output IUs.
+                        // Bind it only inside the predicate; never manufacture
+                        // an output IU or expose it to downstream operators.
+                        TString binding = TStringBuilder() << "$rbo_scan_predicate_" << predicateColumns.GetArraySafe().size();
+                        while (outputs.contains(binding)) {
+                            binding += "_";
+                        }
+                        outputs.insert(binding);
+                        AddOlapColumnReference(olapColumns, column.Name,
+                            {binding, column.Type, column.Nullable});
+                        auto mapping = JsonMap();
+                        mapping["source"] = column.Name;
+                        mapping["output"] = binding;
+                        predicateColumns.AppendValue(std::move(mapping));
+                    }
+                }
+                if (!predicateColumns.GetArraySafe().empty()) {
+                    node["predicate_columns"] = std::move(predicateColumns);
+                }
+                node["op"] = "scan";
+                node["table"] = table.Identity;
+                node["columns"] = std::move(columns);
+                node["predicate"] = ExportReadPredicate(
+                    read,
+                    **catalogTable,
+                    olapColumns);
+                node["pushed_limit"] = read.Limit
+                    ? Uint64LiteralExpr(*read.Limit, "Read pushed limit")
+                    : NJson::TJsonValue(NJson::JSON_NULL);
+                return node;
+            }
+
+            case EOperator::Replicate: {
+                if (children.size() != 1) {
+                    Unsupported("Native Replicate must have exactly one shared producer");
+                }
+                auto& port = static_cast<TOpReplicate&>(base);
+                auto& input = *port.GetInput();
+                auto columns = JsonArray();
+                THashSet<TString> outputs;
+                for (const auto source : input.GetOutputIUs()) {
+                    const auto* binding = port.IsPrimary() ? &source : port.GetRebindings().Find(source);
+                    if (!binding) {
+                        Unsupported("Native Replicate has no binding for a current input column");
+                    }
+                    const TString inputName = ToString(source);
+                    const TString outputName = ToString(*binding);
+                    const auto* inputType = OutputType(input, inputName);
+                    const auto* outputType = OutputType(port, outputName);
+                    // Passive ports may rename COUNT(*)'s exact unit carrier.
+                    // The parser still requires every Void path to terminate
+                    // in canonical COUNT, without exposing it as a result.
+                    const bool voidCarrier = inputType->GetKind() == ETypeAnnotationKind::Void &&
+                        outputType->GetKind() == ETypeAnnotationKind::Void;
+                    if (!outputs.insert(outputName).second ||
+                        (!voidCarrier && !SameType(ExactType(inputType), ExactType(outputType))))
+                    {
+                        Unsupported("Native Replicate has duplicate outputs or inconsistent column types");
+                    }
+                    auto column = JsonMap();
+                    column["output"] = outputName;
+                    column["expression"] = ColumnExpr(inputName);
+                    columns.AppendValue(std::move(column));
+                }
+                if (outputs.empty() || outputs != OutputNames(port) ||
+                    OutputStructType(port)->GetItems().size() != outputs.size())
+                {
+                    Unsupported("Native Replicate has an inconsistent output schema");
+                }
+                // Every port points at the same exported producer node. Its
+                // choices and errors stay shared; only the column IDs change.
+                node["op"] = "project";
+                node["input"] = children.front();
+                node["columns"] = std::move(columns);
+                node["ordered"] = true;
+                return node;
+            }
+
+            case EOperator::AddDependencies: {
+                if (children.size() != 1) {
+                    Unsupported("AddDependencies must have one input");
+                }
+                auto& outerBind =
+                    static_cast<TOpAddDependencies&>(base);
+                if (!AuthorizedOuterBinds.contains(&outerBind)) {
+                    Unsupported(
+                        "AddDependencies is not authorized as a correlated "
+                        "scalar outer_bind");
+                }
+                const size_t count = SnapshotDependencies(outerBind).size();
+                if (!count || SnapshotDependencyTypes(outerBind).size() != count ||
+                    std::any_of(SnapshotDependencyTypes(outerBind).begin(), SnapshotDependencyTypes(outerBind).end(),
+                        [](const auto* type) { return !type; }))
+                {
+                    Unsupported(
+                        "A correlated scalar outer_bind must have a nonempty "
+                        "aligned typed dependency tuple");
+                }
+
+                const auto& inputIUs =
+                    SnapshotOutputIUs(*outerBind.GetInput());
+                const auto& outputIUs = SnapshotOutputIUs(outerBind);
+                auto names = OutputNames(*outerBind.GetInput());
+                if (outputIUs.size() != inputIUs.size() + count ||
+                    OutputStructType(outerBind)->GetItems().size() !=
+                        outputIUs.size())
+                {
+                    Unsupported(
+                        "A correlated scalar outer_bind has an invalid "
+                        "dependency or output shape");
+                }
+                for (const auto& inputIU : inputIUs) {
+                    const TString input = inputIU.GetFullName();
+                    if (input.empty() || !SameType(
+                            ExactType(OutputType(*outerBind.GetInput(), input)),
+                            ExactType(OutputType(outerBind, input))))
+                    {
+                        Unsupported("A correlated scalar outer_bind must preserve its input schema");
+                    }
+                }
+                for (const auto& [local, capture] : outerBind.GetDependencies().Items()) {
+                    const TString dependency = ToString(local);
+                    if (!names.insert(dependency).second ||
+                        !SameType(ExactType(capture.Type), ExactType(OutputType(outerBind, dependency))))
+                    {
+                        Unsupported("A correlated scalar outer_bind has an inconsistent local capture");
+                    }
+                }
+                if (names != OutputNames(outerBind)) {
+                    Unsupported("A correlated scalar outer_bind has inconsistent output membership");
+                }
+
+                // Binding a tuple adds no rows or choices. Reuse the typed
+                // one-column operator as a contiguous chain; the final node
+                // retains the real operator id and its complete output schema.
+                node["op"] = "outer_bind";
+                TString input = children[0];
+                size_t index = 0;
+                for (const auto& [local, capture] : outerBind.GetDependencies().Items()) {
+                    Y_UNUSED(local);
+                    const TString nodeId = index + 1 == count
+                        ? id
+                        : TString(TStringBuilder() << id << ":dependency:" << index);
+                    const auto type = ExactType(capture.Type);
+                    node["id"] = nodeId;
+                    node["input"] = input;
+                    node["dependency"] = ToString(capture.Outer);
+                    node["type"] = type.Name;
+                    node["nullable"] = type.Nullable;
+                    if (index + 1 < count) {
+                        Nodes.AppendValue(node);
+                    }
+                    input = nodeId;
+                    ++index;
+                }
+                return node;
+            }
+
+            case EOperator::Map: {
+                if (children.size() != 1) {
+                    Unsupported("Map must have one input");
+                }
+                auto& map = static_cast<TOpMap&>(base);
+                const auto physicalInputNames =
+                    OutputNames(*map.GetInput());
+                const auto inputNames =
+                    VisibleInputNames(map, *map.GetInput());
+                PrepareGlobalRankProjection(map, inputNames);
+                THashSet<TString> renameSources;
+                for (const auto& element : SnapshotMapElements(map)) {
+                    AuditInputMemberTypes(element.GetExpression(), *map.GetInput());
+                    AuditVirtualBindingMemberTypes(
+                        element.GetExpression(),
+                        map);
+                    if (element.IsRename()) {
+                        const TString source = element.GetRename().GetFullName();
+                        if (!inputNames.contains(source)) {
+                            Unsupported(TStringBuilder() << "Invalid Map rename source " << source);
+                        }
+                        renameSources.insert(source);
+                    }
+                }
+
+                auto columns = JsonArray();
+                THashSet<TString> outputs;
+                for (const auto& iu : SnapshotOutputIUs(*map.GetInput())) {
+                    const TString name = iu.GetFullName();
+                    if (renameSources.contains(name)) {
+                        continue;
+                    }
+                    if (!outputs.insert(name).second) {
+                        Unsupported(TStringBuilder() << "Duplicate Map output " << name);
+                    }
+                    auto column = JsonMap();
+                    column["output"] = name;
+                    column["expression"] = ColumnExpr(name);
+                    columns.AppendValue(std::move(column));
+                }
+                for (const auto& element : SnapshotMapElements(map)) {
+                    const TString output = element.GetElementName().GetFullName();
+                    if (output.empty() || !outputs.insert(output).second) {
+                        Unsupported(TStringBuilder() << "Duplicate or empty Map output " << output);
+                    }
+                    auto column = JsonMap();
+                    column["output"] = output;
+                    if (const auto* expression =
+                            AuditedQ51Windows->FindExpression(element))
+                    {
+                        column["expression"] = *expression;
+                    } else if (auto* rank =
+                            PreparedGlobalRankWindows.FindPtr(&element))
+                    {
+                        column["expression"] =
+                            std::move(rank->Expression);
+                    } else if (const auto* pad =
+                            CertifiedDecimalAveragePads.FindPtr(
+                                &element))
+                    {
+                        auto expression = JsonMap();
+                        expression["kind"] = "null";
+                        expression["type"] = *pad;
+                        AuditExactScalarExpression(expression);
+                        column["expression"] =
+                            std::move(expression);
+                    } else if (element.IsRename()) {
+                        column["expression"] =
+                            ColumnExpr(element.GetRename().GetFullName());
+                    } else if (SnapshotWindowMetadata(element.GetExpression())) {
+                        auto window = ExportWholePartitionWindow(
+                            element.GetExpression(),
+                            inputNames);
+                        CertifyWholePartitionWindowProjection(map, window);
+                        WindowProjectionOutputs[&map].insert(output);
+                        column["expression"] =
+                            std::move(window.Expression);
+                    } else if (auto cardinality = TryExportCardinalityGuard(map, element, physicalInputNames)) {
+                        column["expression"] = ColumnExpr(cardinality->first);
+                        column["require_at_most_one"] = cardinality->second;
+                    } else if (auto exactUnwrap =
+                            TryExportErrorOnNullStringProjection(
+                                map,
+                                element,
+                                physicalInputNames))
+                    {
+                        const auto* stored = StoredStringOutputs(*map.GetInput()).FindPtr(
+                            (*exactUnwrap)["column"].GetStringSafe());
+                        const auto* demanded = DemandedErrorProjectionOutputs.FindPtr(&map);
+                        if (!stored || !stored->Nullable || !demanded || !demanded->contains(output)) {
+                            // Outside the reviewed eager/storage corridor, no
+                            // demand assumption is made. The verifier must first
+                            // prove that no successful input can reach NULL here.
+                            column["require_total"] = true;
+                        }
+                        column["expression"] = std::move(*exactUnwrap);
+                        column["error_on_null"] = true;
+                    } else {
+                        auto expression = ExportExpr(
+                            element.GetExpression(),
+                            inputNames,
+                            StoredStringOutputs(*map.GetInput()),
+                            Binary64Mode);
+                        if (expression["kind"].GetStringSafe() ==
+                            "checked_concat")
+                        {
+                            CheckedConcatProjectionOutputs[&map].insert(output);
+                        }
+                        column["expression"] = std::move(expression);
+                    }
+                    columns.AppendValue(std::move(column));
+                }
+                if (outputs.empty()) {
+                    Unsupported("Project with no columns is absent from logical snapshot v1");
+                }
+                node["op"] = "project";
+                node["input"] = children[0];
+                node["columns"] = std::move(columns);
+                node["ordered"] = true;
+                return node;
+            }
+
+            case EOperator::Filter: {
+                if (children.size() != 1) {
+                    Unsupported("Filter must have one input");
+                }
+                auto& filter = static_cast<TOpFilter&>(base);
+                const auto inputNames =
+                    VisibleInputNames(filter, *filter.GetInput());
+                AuditVirtualBindingMemberTypes(filter.GetFilterExpression(), filter);
+                node["op"] = "filter";
+                node["input"] = children[0];
+                node["predicate"] = ExportExpr(filter.GetFilterExpression(), inputNames, Binary64Mode);
+                return node;
+            }
+
+            case EOperator::Limit: {
+                if (children.size() != 1) {
+                    Unsupported("Limit must have one input");
+                }
+                auto& limit = static_cast<TOpLimit&>(base);
+                const auto& inputIUs = SnapshotOutputIUs(*limit.GetInput());
+                const auto& outputIUs = SnapshotOutputIUs(limit);
+                if (inputIUs.size() != outputIUs.size()) {
+                    Unsupported("Limit output IUs do not match its input");
+                }
+                for (size_t index = 0; index < inputIUs.size(); ++index) {
+                    if (inputIUs[index].GetFullName() != outputIUs[index].GetFullName()) {
+                        Unsupported("Limit output IUs do not match its input");
+                    }
+                }
+
+                node["op"] = "limit";
+                node["input"] = children[0];
+                node["count"] = Uint64LiteralExpr(limit.GetLimitCond(), "Limit count");
+                const auto offset = limit.GetOffsetCond();
+                node["offset"] = offset
+                    ? Uint64LiteralExpr(*offset, "Limit offset")
+                    : NJson::TJsonValue(NJson::JSON_NULL);
+                node["phase"] = Phase(limit.GetLimitPhase());
+                node["ensure_at_most_one"] = false;
+                return node;
+            }
+
+            case EOperator::Sort: {
+                if (children.size() != 1) {
+                    Unsupported("Sort must have one input");
+                }
+                auto& sort = static_cast<TOpSort&>(base);
+                const auto& inputIUs = SnapshotOutputIUs(*sort.GetInput());
+                const auto& outputIUs = SnapshotOutputIUs(sort);
+                if (inputIUs.size() != outputIUs.size()) {
+                    Unsupported("Sort output IUs do not match its input");
+                }
+                for (size_t index = 0; index < inputIUs.size(); ++index) {
+                    const TString inputName = inputIUs[index].GetFullName();
+                    const TString outputName = outputIUs[index].GetFullName();
+                    if (inputName != outputName) {
+                        Unsupported("Sort output IUs do not match its input");
+                    }
+
+                    const auto* inputAnnotation =
+                        OutputType(*sort.GetInput(), inputName);
+                    const auto* outputAnnotation =
+                        OutputType(sort, outputName);
+                    const bool inputPassiveDouble =
+                        IsExactDataAnnotation(
+                            inputAnnotation,
+                            NUdf::EDataSlot::Double,
+                            true) || ((Binary64Mode || IntegralAverageOrderingOutputs(*sort.GetInput()).contains(inputName)) &&
+                            IsExactDataAnnotation(inputAnnotation, NUdf::EDataSlot::Double, false));
+                    const bool outputPassiveDouble =
+                        IsExactDataAnnotation(
+                            outputAnnotation,
+                            NUdf::EDataSlot::Double,
+                            true) || ((Binary64Mode || IntegralAverageOrderingOutputs(*sort.GetInput()).contains(inputName)) &&
+                            IsExactDataAnnotation(outputAnnotation, NUdf::EDataSlot::Double, false));
+                    if (inputPassiveDouble || outputPassiveDouble) {
+                        if (!inputPassiveDouble || !outputPassiveDouble ||
+                            !IsSameAnnotation(*inputAnnotation, *outputAnnotation)) {
+                            Unsupported(TStringBuilder()
+                                << "Sort passive Double carrier type "
+                                   "disagrees with input IU "
+                                << inputName);
+                        }
+                        continue;
+                    }
+
+                    bool inputNullable = false;
+                    bool outputNullable = false;
+                    const TString inputType = TypeName(
+                        inputAnnotation,
+                        &inputNullable);
+                    const TString outputType = TypeName(
+                        outputAnnotation,
+                        &outputNullable);
+                    if (inputType != outputType || inputNullable != outputNullable) {
+                        Unsupported(TStringBuilder()
+                            << "Sort output type disagrees with input IU " << inputName);
+                    }
+                }
+
+                const auto inputNames = OutputNames(*sort.GetInput());
+                const auto outputNames = OutputNames(sort);
+                const auto& sortElements = SnapshotSortElements(sort);
+                if (sortElements.empty()) {
+                    Unsupported("Sort order must not be empty");
+                }
+
+                auto order = JsonArray();
+                for (const auto& element : sortElements) {
+                    const TString column = element.SortColumn.GetFullName();
+                    if (column.empty() || !inputNames.contains(column) ||
+                        !outputNames.contains(column))
+                    {
+                        Unsupported(TStringBuilder() << "Invalid Sort key " << column);
+                    }
+                    const auto* orderingType =
+                        OutputType(*sort.GetInput(), column);
+                    const bool binary64Ordering = Binary64Mode && (
+                        IsExactDataAnnotation(orderingType, NUdf::EDataSlot::Double, false) ||
+                        IsExactDataAnnotation(orderingType, NUdf::EDataSlot::Double, true));
+                    const bool integralAverageOrdering =
+                        !binary64Ordering && (
+                            IsExactDataAnnotation(orderingType, NUdf::EDataSlot::Double, false) ||
+                            IsExactDataAnnotation(orderingType, NUdf::EDataSlot::Double, true));
+                    if (integralAverageOrdering &&
+                        !IntegralAverageOrderingOutputs(
+                            *sort.GetInput()).contains(column))
+                    {
+                        Unsupported(TStringBuilder()
+                            << "Sort ordering column " << column
+                            << " is Optional<Double> without completed "
+                               "integral avg provenance");
+                    }
+                    if (!integralAverageOrdering && !binary64Ordering) {
+                        const TString type = TypeName(orderingType);
+                        if (!IsModeledOrderingType(type)) {
+                            Unsupported(TStringBuilder()
+                                << "Sort ordering column " << column
+                                << " has unsupported type " << type
+                                << "; modeled types are integers, Date, String, Utf8, and Decimal");
+                        }
+                    }
+
+                    auto item = JsonMap();
+                    item["column"] = column;
+                    item["ascending"] = element.Ascending;
+                    item["nulls_first"] = element.NullsFirst;
+                    if (binary64Ordering) {
+                        item["comparison"] = TString(Binary64OrderingComparison);
+                    } else if (integralAverageOrdering) {
+                        item["comparison"] =
+                            TString(IntegralAverageOrderingComparisonV1);
+                    }
+                    order.AppendValue(std::move(item));
+                }
+
+                node["op"] = "sort";
+                node["input"] = children[0];
+                node["order"] = std::move(order);
+                node["limit"] = sort.LimitCond
+                    ? Uint64LiteralExpr(*sort.LimitCond, "Sort limit")
+                    : NJson::TJsonValue(NJson::JSON_NULL);
+                node["phase"] = Phase(sort.GetSortPhase());
+                return node;
+            }
+
+            case EOperator::Aggregate: {
+                if (children.size() != 1) {
+                    Unsupported("Aggregate must have one input");
+                }
+                auto& aggregate = static_cast<TOpAggregate&>(base);
+                const auto inputNames = OutputNames(*aggregate.GetInput());
+                const auto outputNames = OutputNames(aggregate);
+                auto traits = SnapshotAggregationTraits(aggregate);
+                const auto& keyColumns = SnapshotKeyColumns(aggregate);
+                // Main represents grouping-only DISTINCT as nonempty keys
+                // without traits. The physical builder rejects the keyless form.
+                if (traits.empty() && (keyColumns.empty() || aggregate.IsDistinctAll())) {
+                    Unsupported("Aggregate without traits requires nonempty grouping keys and no DistinctAll aliases");
+                }
+                const size_t ordinaryDistinctTraits = std::count_if(
+                    traits.begin(),
+                    traits.end(),
+                    [](const TSnapshotAggregationTrait& trait) {
+                        return trait.Distinct;
+                    });
+                if (ordinaryDistinctTraits > 2) {
+                    Unsupported(
+                        "Aggregate supports at most two ordinary distinct traits");
+                }
+                if (aggregate.IsDistinctAll() && keyColumns.empty()) {
+                    Unsupported("DistinctAll requires nonempty grouping keys");
+                }
+
+                auto keys = JsonArray();
+                THashSet<TString> expectedOutputs;
+                THashSet<TString> seenKeys;
+                for (const auto& key : keyColumns) {
+                    const TString name = key.GetFullName();
+                    if (name.empty() || !inputNames.contains(name)) {
+                        Unsupported(TStringBuilder() << "Invalid Aggregate key " << name);
+                    }
+                    if (!seenKeys.insert(name).second) {
+                        if (!aggregate.IsDistinctAll()) {
+                            Unsupported(TStringBuilder() << "Invalid Aggregate key " << name);
+                        }
+                        // Repeating a direct IU does not change its grouping
+                        // tuple. Retain every result alias below, independently.
+                        continue;
+                    }
+                    keys.AppendValue(name);
+                    if (!aggregate.IsDistinctAll()) {
+                        expectedOutputs.insert(name);
+                        bool inputNullable = false;
+                        bool outputNullable = false;
+                        const TString inputType = TypeName(
+                            OutputType(*aggregate.GetInput(), name),
+                            &inputNullable);
+                        const TString outputType = TypeName(
+                            OutputType(aggregate, name),
+                            &outputNullable);
+                        if (inputType != outputType || inputNullable != outputNullable) {
+                            Unsupported(TStringBuilder()
+                                << "Aggregate key output type disagrees with input IU " << name);
+                        }
+                    }
+                }
+
+                auto aggregates = JsonArray();
+                THashSet<TString> distinctAliasKeys;
+                THashSet<TString> integralAverageOutputs;
+                for (size_t index = 0; index < traits.size(); ++index) {
+                    const auto& trait = traits[index];
+                    const TString input = trait.OriginalColName.GetFullName();
+                    const TString output = trait.ResultColName.GetFullName();
+                    if (input.empty() || !inputNames.contains(input) || output.empty() ||
+                        !expectedOutputs.insert(output).second || trait.AggFunction.empty())
+                    {
+                        Unsupported(TStringBuilder() << "Invalid Aggregate trait " << output);
+                    }
+                    bool outputNullable = false;
+                    const auto* outputAnnotation =
+                        OutputType(aggregate, output);
+                    const bool integralAverage =
+                        IsIntegralAverageOutput(trait, outputAnnotation);
+                    const TString outputType = [&] {
+                        if (integralAverage) {
+                            return TypeName(outputAnnotation, &outputNullable, true);
+                        }
+                        return AggregateScalarType(aggregate, output, &outputNullable);
+                    }();
+                    if (trait.Distinct && trait.Unwrap) {
+                        Unsupported(
+                            "Aggregate unwrap requires distinct=false");
+                    }
+                    if (trait.Distinct && !aggregate.IsDistinctAll()) {
+                        if (aggregate.GetAggregationPhase() != EOpPhase::Undefined) {
+                            Unsupported(
+                                "Ordinary count-distinct requires undefined phase");
+                        }
+                        if (trait.AggFunction != "count") {
+                            Unsupported(
+                                "Ordinary distinct requires the count function");
+                        }
+                        bool inputNullable = false;
+                        const TString inputType = TypeName(
+                            OutputType(*aggregate.GetInput(), input),
+                            &inputNullable);
+                        const bool exactInteger =
+                            IsIntegerType(inputType);
+                        const bool exactNullableDecimal =
+                            inputNullable &&
+                            ParseCanonicalDecimalType(inputType).has_value();
+                        if (!exactInteger && !exactNullableDecimal) {
+                            Unsupported(
+                                "Ordinary count-distinct requires an exact "
+                                "fixed-width integer or nullable canonical Decimal input");
+                        }
+                        if (!IsExactDataAnnotation(
+                                OutputType(aggregate, output),
+                                NUdf::EDataSlot::Uint64,
+                                false))
+                        {
+                            Unsupported(
+                                "Ordinary count-distinct requires an exact non-null Uint64 output");
+                        }
+                    }
+                    if (trait.Unwrap) {
+                        if (aggregate.IsDistinctAll()) {
+                            Unsupported(
+                                "Aggregate unwrap is not supported for DistinctAll");
+                        }
+                        if (!keyColumns.empty()) {
+                            Unsupported(
+                                "Aggregate unwrap requires a keyless Aggregate");
+                        }
+                        if (aggregate.GetAggregationPhase() != EOpPhase::Final) {
+                            Unsupported(
+                                "Aggregate unwrap requires final phase");
+                        }
+                        if (trait.AggFunction != "sum") {
+                            Unsupported(
+                                "Aggregate unwrap requires the sum function");
+                        }
+                        if (trait.Distinct) {
+                            Unsupported(
+                                "Aggregate unwrap requires distinct=false");
+                        }
+                        if (!IsExactDataAnnotation(
+                                OutputType(*aggregate.GetInput(), input),
+                                NUdf::EDataSlot::Uint64,
+                                true))
+                        {
+                            Unsupported(
+                                "Aggregate unwrap requires an exact Optional<Uint64> input");
+                        }
+                        if (!IsExactDataAnnotation(
+                                OutputType(aggregate, output),
+                                NUdf::EDataSlot::Uint64,
+                                true))
+                        {
+                            Unsupported(
+                                "Aggregate unwrap requires an exact Optional<Uint64> raw output");
+                        }
+                    }
+                    if (aggregate.IsDistinctAll()) {
+                        if (trait.AggFunction != "distinct" ||
+                            !seenKeys.contains(input) ||
+                            trait.Distinct ||
+                            trait.Unwrap)
+                        {
+                            Unsupported(
+                                "DistinctAll traits must be plain distinct "
+                                "aliases of grouping keys");
+                        }
+                        bool inputNullable = false;
+                        const TString inputType = TypeName(
+                            OutputType(*aggregate.GetInput(), input),
+                            &inputNullable);
+                        if (inputType != outputType ||
+                            inputNullable != outputNullable)
+                        {
+                            Unsupported(
+                                "DistinctAll output type and nullability must "
+                                "match its input key");
+                        }
+                        distinctAliasKeys.insert(input);
+                    } else if (trait.AggFunction == "distinct") {
+                        Unsupported(
+                            "The distinct aggregate requires DistinctAll");
+                    }
+                    auto item = JsonMap();
+                    item["input"] = input;
+                    item["function"] = trait.AggFunction;
+                    item["output"] = output;
+                    item["type"] = outputType;
+                    item["nullable"] = outputNullable;
+                    item["distinct"] = trait.Distinct;
+                    item["unwrap"] = trait.Unwrap;
+                    if (trait.AggFunction == "variance_1_1") {
+                        if (!Binary64Mode) {
+                            Unsupported("Binary64 variance requires explicit semantics");
+                        }
+                        item["function"] = "stddev_samp";
+                        item["state"] = VarianceStateContract(aggregate, trait);
+                    }
+                    if (trait.AggFunction == "avg") {
+                        if (integralAverage) {
+                            integralAverageOutputs.insert(output);
+                            item["state"] = IntegralAverageStateContract(aggregate, trait);
+                            aggregates.AppendValue(std::move(item));
+                            continue;
+                        }
+
+                        bool inputNullable = false;
+                        const TString inputType = AggregateScalarType(
+                            *aggregate.GetInput(), input, &inputNullable);
+                        const auto inputDecimal =
+                            ParseCanonicalDecimalType(inputType);
+                        const auto outputDecimal =
+                            ParseCanonicalDecimalType(outputType);
+                        if (!inputDecimal || !outputDecimal ||
+                            inputType != outputType)
+                        {
+                            Unsupported(TStringBuilder()
+                                << "Aggregate avg requires identical canonical "
+                                << "Decimal input and output types, got "
+                                << inputType << " and " << outputType);
+                        }
+
+                        auto state = JsonMap();
+                        state["sum_type"] = TStringBuilder()
+                            << "Decimal("
+                            << static_cast<ui32>(NYql::NDecimal::MaxPrecision)
+                            << "," << static_cast<ui32>(inputDecimal->Scale)
+                            << ")";
+                        state["count_type"] = "Uint64";
+                        state["nullable"] = inputNullable;
+                        item["state"] = std::move(state);
+                    }
+                    aggregates.AppendValue(std::move(item));
+                }
+                if (aggregate.IsDistinctAll() && distinctAliasKeys != seenKeys) {
+                    Unsupported("DistinctAll aliases must cover every grouping key");
+                }
+                const auto* outputStruct = OutputStructType(aggregate);
+                if (outputStruct->GetItems().size() != expectedOutputs.size()) {
+                    Unsupported("Aggregate output type field count does not match output IUs");
+                }
+                for (const auto* item : outputStruct->GetItems()) {
+                    const TString name(item->GetName());
+                    if (!expectedOutputs.contains(name)) {
+                        Unsupported(TStringBuilder() << "Unexpected Aggregate output type field " << name);
+                    }
+                    if (integralAverageOutputs.contains(name)) {
+                        if (!IsExactDataAnnotation(item->GetItemType(), NUdf::EDataSlot::Double, true) &&
+                            !IsExactDataAnnotation(item->GetItemType(), NUdf::EDataSlot::Double, false))
+                        {
+                            Unsupported(
+                                "Integral avg output field must retain its exact Double carrier");
+                        }
+                    } else {
+                        AggregateScalarType(aggregate, name);
+                    }
+                }
+                // Native output membership is unordered; only the explicit root
+                // projection defines externally observable column positions.
+                if (expectedOutputs != outputNames) {
+                    Unsupported("Aggregate output IUs do not match keys and traits");
+                }
+
+                node["op"] = "aggregate";
+                node["input"] = children[0];
+                node["keys"] = std::move(keys);
+                node["aggregates"] = std::move(aggregates);
+                node["phase"] = Phase(aggregate.GetAggregationPhase());
+                node["distinct_all"] = aggregate.IsDistinctAll();
+                return node;
+            }
+
+            case EOperator::Join: {
+                if (children.size() != 2) {
+                    Unsupported("Join must have two inputs");
+                }
+                auto& join = static_cast<TOpJoin&>(base);
+                const auto leftNames = OutputNames(*join.GetLeftInput());
+                const auto rightNames = OutputNames(*join.GetRightInput());
+                const TString kind = JoinKind(join.JoinKind);
+                THashSet<TString> sharedNames;
+                for (const auto& name : leftNames) {
+                    if (rightNames.contains(name)) {
+                        sharedNames.insert(name);
+                    }
+                }
+                if (!sharedNames.empty()) {
+                    if (kind != "left_semi" && kind != "left_anti" &&
+                        kind != "right_semi" && kind != "right_anti")
+                    {
+                        Unsupported(
+                            "Join inputs may share IUs only when exactly one "
+                            "side is present in the output");
+                    }
+                    if (!join.JoinFilters.empty()) {
+                        Unsupported(
+                            "Join filters cannot disambiguate shared input IUs");
+                    }
+                }
+                auto visibleNames = leftNames;
+                visibleNames.insert(rightNames.begin(), rightNames.end());
+
+                TExactScalarBudget budget;
+                auto keys = JsonArray();
+                for (const auto& [left, right, equalNulls] : SnapshotJoinKeys(join)) {
+                    const TString leftName = left.GetFullName();
+                    const TString rightName = right.GetFullName();
+                    if (!leftNames.contains(leftName) || !rightNames.contains(rightName)) {
+                        Unsupported(TStringBuilder() << "Join key is absent from its declared input");
+                    }
+                    budget.Charge(1); // Side-explicit equality.
+                    budget.Charge(2, 2); // Left and right key columns.
+                    auto key = JsonMap();
+                    key["left"] = leftName;
+                    key["right"] = rightName;
+                    if (equalNulls) {
+                        const TString leftType = TypeName(OutputType(*join.GetLeftInput(), leftName));
+                        const TString rightType = TypeName(OutputType(*join.GetRightInput(), rightName));
+                        const bool reviewed = IsIntegerType(leftType) || IsStringType(leftType) ||
+                            leftType == "Bool" || leftType == "Date" ||
+                            leftType == "Datetime" || leftType == "Timestamp";
+                        if (!reviewed || leftType != rightType) {
+                            Unsupported("Null-equal join keys require identical reviewed scalar types");
+                        }
+                        key["equal_nulls"] = true;
+                    }
+                    keys.AppendValue(std::move(key));
+                }
+
+                size_t residualDepth = 1;
+                if (!SnapshotJoinKeys(join).empty()) {
+                    // Join matching is the effective conjunction of the
+                    // side-explicit keys and this residual expression.
+                    budget.Charge(1);
+                    residualDepth = 2;
+                }
+                const bool residualCombined = join.JoinFilters.size() > 1;
+                if (residualCombined) {
+                    budget.Charge(residualDepth);
+                }
+                const size_t filterDepth =
+                    residualCombined ? residualDepth + 1 : residualDepth;
+                auto filters = JsonArray();
+                for (const auto& filter : join.JoinFilters) {
+                    filters.AppendValue(ExportExprWithBudget(
+                        filter,
+                        visibleNames,
+                        budget,
+                        filterDepth));
+                }
+
+                NJson::TJsonValue predicate;
+                if (join.JoinFilters.empty()) {
+                    budget.Charge(residualDepth);
+                    predicate = TrueExpr();
+                } else if (join.JoinFilters.size() == 1) {
+                    predicate = std::move(filters[0]);
+                } else {
+                    predicate = JsonMap();
+                    predicate["kind"] = "and";
+                    predicate["args"] = std::move(filters);
+                }
+                AuditExactScalarExpression(predicate);
+                node["op"] = "join";
+                node["left"] = children[0];
+                node["right"] = children[1];
+                node["kind"] = kind;
+                node["keys"] = std::move(keys);
+                node["predicate"] = std::move(predicate);
+                return node;
+            }
+
+            case EOperator::UnionAll: {
+                auto& unionAll = static_cast<TOpUnionAll&>(base);
+                if (children.size() < 2 || children.size() != unionAll.GetChildCount()) {
+                    Unsupported("UnionAll has an invalid input or output shape");
+                }
+                auto inputs = JsonArray();
+                auto output = JsonArray();
+                for (const auto& [id, sources] : unionAll.GetColumns().Items()) {
+                    if (sources.Inputs.size() != children.size()) {
+                        Unsupported("UnionAll column mapping has the wrong input arity");
+                    }
+                    output.AppendValue(ToString(id));
+                }
+                for (size_t index = 0; index < children.size(); ++index) {
+                    const auto names = OutputNames(*unionAll.GetChild(index));
+                    auto columns = JsonArray();
+                    for (const auto& [id, sources] : unionAll.GetColumns().Items()) {
+                        Y_UNUSED(id);
+                        const TString name = ToString(sources.Inputs[index]);
+                        if (!names.contains(name)) {
+                            Unsupported("UnionAll references an unavailable input column");
+                        }
+                        columns.AppendValue(name);
+                    }
+                    auto input = JsonMap();
+                    input["node"] = children[index];
+                    input["columns"] = std::move(columns);
+                    inputs.AppendValue(std::move(input));
+                }
+                node["op"] = "union_all";
+                node["inputs"] = std::move(inputs);
+                node["output"] = std::move(output);
+                node["ordered"] = unionAll.Ordered;
+                return node;
+            }
+
+            default:
+                Unsupported(TStringBuilder() << "Unsupported operator " << base.GetExplainName());
+        }
+    }
+
+private:
+    TOpRoot& Root;
+    TString Cluster;
+    bool StageGraphPresent = false;
+    bool Binary64Mode = false;
+    THashMap<TString, const TSemanticSnapshotCatalogTableV1*> Catalog;
+    THashMap<const IOperator*, TStoredStringColumns> StoredStringOutputMap;
+    THashMap<const TOpMap*, THashSet<TString>> DemandedErrorProjectionOutputs;
+    THashMap<const IOperator*, TIntegralAverageOrderingColumns>
+        IntegralAverageOrderingOutputMap;
+    THashMap<const IOperator*, TDecimalAverageCarrierTypes>
+        DecimalAverageCarrierOutputMap;
+    THashMap<std::pair<IOperator*, TString>, TString> CertifiedDecimalAverageTypes;
+    THashMap<const TSnapshotMapElement*, TString>
+        CertifiedDecimalAveragePads;
+    THashMap<const TOpMap*, THashSet<TString>>
+        CheckedConcatProjectionOutputs;
+    THashMap<TOpMap*, THashSet<TString>>
+        WindowProjectionOutputs;
+    size_t WholePartitionSumCount = 0;
+    THashMap<const TSnapshotMapElement*, TGlobalRankWindow>
+        PreparedGlobalRankWindows;
+    THashMap<IOperator*, TVector<TGlobalRankProjectionWindow>>
+        GlobalRankProjectionWindows;
+    // Set once before node export; only completed, read-only Q51 admission
+    // results reach serialization. Candidate maps belong to the auditor.
+    std::optional<TAuditedQ51WindowPlan> AuditedQ51Windows;
+    THashMap<const IOperator*, TVector<IOperator*>>
+        MainConsumers;
+    THashMap<const IOperator*, TString> Ids;
+    THashSet<const IOperator*> Visiting;
+    THashSet<const TOpAddDependencies*> AuthorizedOuterBinds;
+    THashMap<const IOperator*, THashMap<TString, TString>> ScalarCaptureRenames;
+    TVector<IOperator*> NodeOrder;
+    TVector<TSubplanDescriptor> Subplans;
+    THashMap<TString, size_t> SubplanIndices;
+    TVector<std::pair<TString, TString>> NestedSubplanReferences;
+    THashMap<const IOperator*, TVector<TString>> ConsumerBindings;
+    TString RootId;
+    NJson::TJsonValue Nodes = JsonArray();
+};
+
+#include "window_projection_audit_impl.h"
+
+class TStageGraphExporter {
+private:
+    using TStagePair = std::pair<ui32, ui32>;
+
+    struct TBoundary {
+        IOperator* ProducerNode = nullptr;
+        IOperator* ConsumerNode = nullptr;
+        TIntrusivePtr<TConnection> Connection;
+        ui32 Occurrence = 0;
+    };
+
+public:
+    TStageGraphExporter(
+        TOpRoot& root,
+        const THashMap<const IOperator*, TString>& nodeIds,
+        const TVector<IOperator*>& nodeOrder,
+        const THashMap<
+            const IOperator*,
+            TIntegralAverageOrderingColumns>&
+            integralAverageOrderingOutputs,
+        const THashMap<
+            const IOperator*,
+            TDecimalAverageCarrierTypes>&
+            decimalAverageCarrierOutputs,
+        TString rootNodeId,
+        bool binary64Mode)
+        : Root(root)
+        , Graph(root.PlanProps.StageGraph)
+        , NodeIds(nodeIds)
+        , NodeOrder(nodeOrder)
+        , IntegralAverageOrderingOutputs(
+            integralAverageOrderingOutputs)
+        , DecimalAverageCarrierOutputs(
+            decimalAverageCarrierOutputs)
+        , RootNodeId(std::move(rootNodeId))
+        , Binary64Mode(binary64Mode)
+    {
+    }
+
+    NJson::TJsonValue Export() {
+        NormalizeStageIds();
+        ValidateGraphContainers();
+        IndexStageNodes();
+        IndexBoundaries();
+        BuildEdgesAndInputs();
+        ValidateTaskSemantics();
+        ValidateAndCompleteOutputs();
+
+        auto stages = JsonArray();
+        for (ui32 stageId = 0; stageId < StageCount; ++stageId) {
+            auto stage = JsonMap();
+            stage["id"] = StableStageId(stageId);
+
+            auto nodes = JsonArray();
+            for (const auto* op : StageNodes[stageId]) {
+                nodes.AppendValue(NodeId(*op));
+            }
+            stage["nodes"] = std::move(nodes);
+
+            auto inputs = JsonArray();
+            for (const auto& nodeId : StageInputNodes[stageId]) {
+                inputs.AppendValue(nodeId);
+            }
+            stage["inputs"] = std::move(inputs);
+
+            auto outputs = JsonArray();
+            for (const auto& [index, nodeId] : StageOutputNodes[stageId]) {
+                auto output = JsonMap();
+                output["index"] = static_cast<ui64>(index);
+                output["node"] = nodeId;
+                outputs.AppendValue(std::move(output));
+            }
+            stage["outputs"] = std::move(outputs);
+
+            const auto source = Graph.SourceStages.find(stageId);
+            if (source == Graph.SourceStages.end()) {
+                stage["source_storage"] = NJson::TJsonValue(NJson::JSON_NULL);
+            } else {
+                stage["source_storage"] = SourceStorage(source->second.StorageType);
+            }
+            stages.AppendValue(std::move(stage));
+        }
+
+        auto result = JsonMap();
+        result["root_stage"] = StableStageId(RootStageId);
+        result["stages"] = std::move(stages);
+        result["edges"] = std::move(Edges);
+        result["assumptions"] = JsonArray();
+        return result;
+    }
+
+private:
+    static TString StableStageId(ui32 stageId) {
+        return TStringBuilder() << "s" << stageId;
+    }
+
+    const TString& NodeId(const IOperator& op) const {
+        const auto* id = NodeIds.FindPtr(&op);
+        if (!id) {
+            Unsupported(TStringBuilder()
+                << "StageGraph references an operator absent from the logical plan: "
+                << op.GetExplainName());
+        }
+        return *id;
+    }
+
+    ui32 OperatorStage(const IOperator& op) const {
+        if (&op == &Root) {
+            return OperatorStage(*Root.GetInput());
+        }
+        if (!op.Props.StageId || *op.Props.StageId < 0 ||
+            !DenseStageIds.contains(static_cast<ui32>(*op.Props.StageId)))
+        {
+            Unsupported(TStringBuilder()
+                << "StageGraph has a missing or invalid stage for " << op.GetExplainName());
+        }
+        return DenseStageIds.at(static_cast<ui32>(*op.Props.StageId));
+    }
+
+    static TString SourceStorage(NYql::EStorageType storage) {
+        switch (storage) {
+            case NYql::EStorageType::RowStorage:
+                return "row";
+            case NYql::EStorageType::ColumnStorage:
+                return "column";
+            default:
+                Unsupported("StageGraph has unsupported source distribution storage");
+        }
+    }
+
+    // Main numbers stages across all optimizer roots. Export a dense local
+    // numbering without changing operator properties or the physical graph.
+    void NormalizeStageIds() {
+        TVector<ui32> ids(Graph.StageIds.begin(), Graph.StageIds.end());
+        ::Sort(ids);
+        if (ids.size() > std::numeric_limits<ui32>::max()) {
+            Unsupported("StageGraph has too many stages");
+        }
+        for (size_t index = 0; index < ids.size(); ++index) {
+            if (!DenseStageIds.emplace(ids[index], static_cast<ui32>(index)).second) {
+                Unsupported("StageGraph stage IDs must be unique");
+            }
+        }
+        auto dense = [&](ui32 id) {
+            const auto* result = DenseStageIds.FindPtr(id);
+            if (!result) {
+                Unsupported("StageGraph references an unknown stage");
+            }
+            return *result;
+        };
+        TStageGraph normalized;
+        for (const auto id : ids) {
+            normalized.StageIds.push_back(dense(id));
+        }
+        auto remapKeys = [&](const auto& source, auto& target) {
+            for (const auto& [id, value] : source) {
+                target.emplace(dense(id), value);
+            }
+        };
+        remapKeys(Graph.SourceStages, normalized.SourceStages);
+        remapKeys(Graph.SinkStages, normalized.SinkStages);
+        remapKeys(Graph.StageOutputIndices, normalized.StageOutputIndices);
+        remapKeys(Graph.StageGUIDs, normalized.StageGUIDs);
+        auto remapEdges = [&](const auto& source, auto& target) {
+            for (const auto& [id, edges] : source) {
+                auto& output = target[dense(id)];
+                for (const auto other : edges) {
+                    output.push_back(dense(other));
+                }
+            }
+        };
+        remapEdges(Graph.StageInputs, normalized.StageInputs);
+        remapEdges(Graph.StageOutputs, normalized.StageOutputs);
+        for (const auto& [pair, connections] : Graph.Connections) {
+            normalized.Connections.emplace(
+                TStagePair{dense(pair.first), dense(pair.second)}, connections);
+        }
+        Graph = std::move(normalized);
+    }
+
+    void ValidateGraphContainers() {
+        if (!Graph.SinkStages.empty()) {
+            Unsupported("Effect sink stages are outside read-only snapshot semantics");
+        }
+        StageCount = Graph.StageIds.size();
+        if (StageCount == 0 || StageCount > std::numeric_limits<ui32>::max()) {
+            Unsupported("StageGraph must contain a representable non-empty stage set");
+        }
+
+        THashSet<ui32> stageIds;
+        for (const auto stageId : Graph.StageIds) {
+            if (stageId >= StageCount || !stageIds.insert(stageId).second) {
+                Unsupported("StageGraph stage IDs must be unique and contiguous from zero");
+            }
+        }
+        for (ui32 stageId = 0; stageId < StageCount; ++stageId) {
+            if (!stageIds.contains(stageId)) {
+                Unsupported("StageGraph stage IDs must be unique and contiguous from zero");
+            }
+        }
+
+        if (Graph.StageInputs.size() != StageCount ||
+            Graph.StageOutputs.size() != StageCount ||
+            Graph.StageGUIDs.size() != StageCount)
+        {
+            Unsupported("StageGraph stage containers do not cover the exact stage set");
+        }
+
+        THashSet<TString> guids;
+        for (ui32 stageId = 0; stageId < StageCount; ++stageId) {
+            if (!Graph.StageInputs.contains(stageId) ||
+                !Graph.StageOutputs.contains(stageId))
+            {
+                Unsupported("StageGraph input/output containers have an unknown or missing stage");
+            }
+            const auto guid = Graph.StageGUIDs.find(stageId);
+            if (guid == Graph.StageGUIDs.end() || guid->second.empty() ||
+                !guids.insert(guid->second).second)
+            {
+                Unsupported("StageGraph GUIDs must be present and unique");
+            }
+        }
+        for (const auto& [stageId, _] : Graph.StageInputs) {
+            if (!stageIds.contains(stageId)) {
+                Unsupported("StageGraph inputs contain an unknown stage");
+            }
+        }
+        for (const auto& [stageId, _] : Graph.StageOutputs) {
+            if (!stageIds.contains(stageId)) {
+                Unsupported("StageGraph outputs contain an unknown stage");
+            }
+        }
+        for (const auto& [stageId, traits] : Graph.SourceStages) {
+            if (!stageIds.contains(stageId)) {
+                Unsupported("StageGraph source traits contain an unknown stage");
+            }
+            SourceStorage(traits.StorageType);
+        }
+
+        TMap<TStagePair, size_t> inputCounts;
+        TMap<TStagePair, size_t> outputCounts;
+        for (ui32 consumer = 0; consumer < StageCount; ++consumer) {
+            for (const auto producer : Graph.StageInputs.at(consumer)) {
+                if (!stageIds.contains(producer) || producer == consumer) {
+                    Unsupported("StageGraph inputs contain an unknown or self stage edge");
+                }
+                ++inputCounts[{producer, consumer}];
+            }
+        }
+        for (ui32 producer = 0; producer < StageCount; ++producer) {
+            for (const auto consumer : Graph.StageOutputs.at(producer)) {
+                if (!stageIds.contains(consumer) || producer == consumer) {
+                    Unsupported("StageGraph outputs contain an unknown or self stage edge");
+                }
+                ++outputCounts[{producer, consumer}];
+            }
+        }
+
+        if (inputCounts.size() != Graph.Connections.size() ||
+            outputCounts.size() != Graph.Connections.size())
+        {
+            Unsupported("StageGraph connection keys disagree with stage inputs or outputs");
+        }
+        for (const auto& [pair, connections] : Graph.Connections) {
+            if (!stageIds.contains(pair.first) || !stageIds.contains(pair.second) ||
+                pair.first == pair.second || connections.empty())
+            {
+                Unsupported("StageGraph contains an invalid connection group");
+            }
+            const auto inputCount = inputCounts.find(pair);
+            const auto outputCount = outputCounts.find(pair);
+            if (inputCount == inputCounts.end() || outputCount == outputCounts.end() ||
+                inputCount->second != connections.size() ||
+                outputCount->second != connections.size())
+            {
+                Unsupported("StageGraph duplicate edge counts are inconsistent");
+            }
+            for (const auto& connection : connections) {
+                if (!connection) {
+                    Unsupported("StageGraph contains a null connection");
+                }
+            }
+        }
+
+        // Kahn's algorithm counts duplicate occurrences exactly as the physical graph does.
+        TVector<size_t> indegree(StageCount, 0);
+        for (ui32 stageId = 0; stageId < StageCount; ++stageId) {
+            indegree[stageId] = Graph.StageInputs.at(stageId).size();
+        }
+        TVector<ui32> ready;
+        for (ui32 stageId = 0; stageId < StageCount; ++stageId) {
+            if (indegree[stageId] == 0) {
+                ready.push_back(stageId);
+            }
+        }
+        size_t processed = 0;
+        for (size_t index = 0; index < ready.size(); ++index) {
+            const auto stageId = ready[index];
+            TopologicalStages.push_back(stageId);
+            ++processed;
+            for (const auto consumer : Graph.StageOutputs.at(stageId)) {
+                if (indegree[consumer] == 0) {
+                    Unsupported("StageGraph edge multiplicities underflow during validation");
+                }
+                if (--indegree[consumer] == 0) {
+                    ready.push_back(consumer);
+                }
+            }
+        }
+        if (processed != StageCount) {
+            Unsupported("StageGraph contains a cycle");
+        }
+
+        StageNodes.resize(StageCount);
+        StageSinks.resize(StageCount, nullptr);
+        StagePortHubs.resize(StageCount, nullptr);
+        StageInputNodes.resize(StageCount);
+        LogicalInputNodes.resize(StageCount);
+        StageOutputNodes.resize(StageCount);
+    }
+
+    void IndexStagePorts(ui32 stageId, const THashMap<const IOperator*, size_t>& sameStageParents) {
+        const TReplicate* hub = nullptr;
+        THashSet<const IOperator*> ports;
+        for (auto* op : StageNodes[stageId]) {
+            if (op->GetKind() != EOperator::Replicate) {
+                continue;
+            }
+            const auto& port = static_cast<const TOpReplicate&>(*op);
+            const auto& candidate = port.GetReplicate();
+            if ((hub && hub != &candidate) ||
+                candidate.GetInput()->GetKind() == EOperator::Replicate ||
+                OperatorStage(*candidate.GetInput()) != stageId ||
+                sameStageParents.at(op) != 0)
+            {
+                Unsupported("Native Replicate stage ports must be passive sinks of one same-stage producer");
+            }
+            hub = &candidate;
+            ports.insert(op);
+        }
+        if (!hub) {
+            return;
+        }
+        if (ports.size() != hub->GetOutputs().size()) {
+            Unsupported("Native Replicate reachable ports disagree with stage membership");
+        }
+        for (const auto* port : hub->GetOutputs()) {
+            if (!ports.contains(port)) {
+                Unsupported("Native Replicate contains a port outside its exported stage");
+            }
+        }
+        for (auto* op : StageNodes[stageId]) {
+            if (sameStageParents.at(op) == 0 && !ports.contains(op)) {
+                Unsupported("Native Replicate stage has an unrelated logical sink");
+            }
+        }
+        StagePortHubs[stageId] = hub;
+    }
+
+    void IndexStageNodes() {
+        if (NodeOrder.empty() || NodeOrder.size() != NodeIds.size()) {
+            Unsupported("StageGraph operator membership cannot be indexed");
+        }
+
+        TVector<size_t> sourceCounts(StageCount, 0);
+        THashMap<const IOperator*, size_t> sameStageParents;
+        for (auto* op : NodeOrder) {
+            const auto stageId = OperatorStage(*op);
+            StageNodes[stageId].push_back(op);
+            sameStageParents.emplace(op, 0);
+
+            if (op->GetKind() == EOperator::Join) {
+                const auto& props = op->Props;
+                if ((props.LeftShuffleBy && props.LeftShuffleBy->Items().empty()) ||
+                    (props.RightShuffleBy && props.RightShuffleBy->Items().empty()))
+                {
+                    Unsupported(
+                        "StageGraph relies on an unsupported source co-partitioning "
+                        "assumption from shuffle elimination");
+                }
+            }
+
+            if (op->GetKind() != EOperator::Source) {
+                continue;
+            }
+            ++sourceCounts[stageId];
+            const auto source = Graph.SourceStages.find(stageId);
+            const auto& read = static_cast<const TOpRead&>(*op);
+            if (source == Graph.SourceStages.end() ||
+                source->second.StorageType != read.StorageType)
+            {
+                Unsupported("StageGraph source operator and source distribution traits disagree");
+            }
+        }
+
+        for (auto* parent : NodeOrder) {
+            const auto parentStage = OperatorStage(*parent);
+            for (const auto& child : parent->GetChildren()) {
+                if (!child || OperatorStage(*child) != parentStage) {
+                    continue;
+                }
+                auto* parentCount = sameStageParents.FindPtr(child);
+                if (!parentCount) {
+                    Unsupported("StageGraph same-stage child is absent from plan membership");
+                }
+                ++*parentCount;
+            }
+        }
+
+        for (ui32 stageId = 0; stageId < StageCount; ++stageId) {
+            if (StageNodes[stageId].empty()) {
+                Unsupported("StageGraph contains a stage with no operator node membership");
+            }
+            IndexStagePorts(stageId, sameStageParents);
+            const auto* portHub = StagePortHubs[stageId];
+            const bool sourceStage = Graph.SourceStages.contains(stageId);
+            if ((sourceStage && sourceCounts[stageId] != 1) ||
+                (!sourceStage && sourceCounts[stageId] != 0))
+            {
+                Unsupported("StageGraph source stage membership is inconsistent");
+            }
+            if (sourceStage &&
+                Graph.SourceStages.at(stageId).StorageType == NYql::EStorageType::RowStorage &&
+                StageNodes[stageId].size() != 1 &&
+                !(portHub && portHub->GetInput()->GetKind() == EOperator::Source &&
+                  StageNodes[stageId].size() == 1 + portHub->GetOutputs().size()) &&
+                !(stageId == OperatorStage(*Root.GetInput()) &&
+                  StageNodes[stageId].size() == 2 && StageNodes[stageId].back() == &Root))
+            {
+                Unsupported("StageGraph row-storage source stage must contain only its Read");
+            }
+            if (sourceStage && !Graph.StageInputs.at(stageId).empty()) {
+                Unsupported("StageGraph source stage unexpectedly has stage inputs");
+            }
+
+            if (portHub) {
+                // Outputs are the individually audited passive ports below.
+                StageSinks[stageId] = portHub->GetInput().Get();
+                continue;
+            }
+            for (auto* op : StageNodes[stageId]) {
+                const auto* parentCount = sameStageParents.FindPtr(op);
+                if (parentCount && *parentCount == 0) {
+                    if (StageSinks[stageId]) {
+                        Unsupported("StageGraph stage has more than one logical sink");
+                    }
+                    StageSinks[stageId] = op;
+                }
+            }
+            if (!StageSinks[stageId]) {
+                Unsupported("StageGraph stage has no logical sink");
+            }
+        }
+
+        RootStageId = OperatorStage(*Root.GetInput());
+        if (StageSinks[RootStageId] != &Root ||
+            NodeId(*StageSinks[RootStageId]) != RootNodeId)
+        {
+            Unsupported("StageGraph root operator does not match plan.root");
+        }
+        if (!Graph.StageOutputs.at(RootStageId).empty()) {
+            Unsupported("StageGraph root stage must be the unique output sink");
+        }
+
+        THashSet<ui32> reachesRoot;
+        TVector<ui32> pending = {RootStageId};
+        for (size_t index = 0; index < pending.size(); ++index) {
+            const auto stageId = pending[index];
+            if (!reachesRoot.insert(stageId).second) {
+                continue;
+            }
+            for (const auto producer : Graph.StageInputs.at(stageId)) {
+                pending.push_back(producer);
+            }
+        }
+        if (reachesRoot.size() != StageCount) {
+            Unsupported("StageGraph contains a stage disconnected from the root stage");
+        }
+    }
+
+    void IndexBoundaries() {
+        for (auto* consumerNode : NodeOrder) {
+            const auto consumerStage = OperatorStage(*consumerNode);
+            for (const auto& child : consumerNode->GetChildren()) {
+                if (!child) {
+                    Unsupported("StageGraph logical operator has a null child");
+                }
+                const auto producerStage = OperatorStage(*child);
+                if (producerStage == consumerStage) {
+                    if (consumerNode->GetKind() == EOperator::Join ||
+                        consumerNode->GetKind() == EOperator::UnionAll ||
+                        consumerNode->GetKind() == EOperator::TableLookup)
+                    {
+                        Unsupported(
+                            "StageGraph Join/UnionAll input must be a cross-stage consumer input");
+                    }
+                    continue;
+                }
+
+                const TStagePair pair{producerStage, consumerStage};
+                auto& boundaries = Boundaries[pair];
+                const auto occurrence = boundaries.size();
+                if (occurrence > std::numeric_limits<ui32>::max()) {
+                    Unsupported("StageGraph has too many duplicate edge occurrences");
+                }
+                const auto connection = Graph.TryGetConnection(
+                    producerStage,
+                    consumerStage,
+                    static_cast<ui32>(occurrence));
+                if (!connection) {
+                    Unsupported("StageGraph lacks a connection for a cross-stage logical child");
+                }
+                boundaries.push_back({child, consumerNode, connection, static_cast<ui32>(occurrence)});
+                LogicalInputNodes[consumerStage].push_back(NodeId(*child));
+            }
+        }
+
+        if (Boundaries.size() != Graph.Connections.size()) {
+            Unsupported("StageGraph connections do not match cross-stage logical children");
+        }
+        for (const auto& [pair, connections] : Graph.Connections) {
+            const auto boundaries = Boundaries.find(pair);
+            if (boundaries == Boundaries.end() ||
+                boundaries->second.size() != connections.size())
+            {
+                Unsupported("StageGraph connection occurrences do not match logical child occurrences");
+            }
+        }
+    }
+
+    TString HashFunction(const TShuffleConnection& shuffle) const {
+        if (!shuffle.HashFuncType) {
+            Unsupported("StageGraph HashShuffle connection has no hash function");
+        }
+        switch (*shuffle.HashFuncType) {
+            case NYql::NDq::EHashShuffleFuncType::HashV1:
+                return "HashV1";
+            case NYql::NDq::EHashShuffleFuncType::HashV2:
+                return "HashV2";
+            case NYql::NDq::EHashShuffleFuncType::ColumnShardHashV1:
+                Unsupported(
+                    "StageGraph ColumnShardHashV1 requires shard mapping absent from "
+                    "the version-one snapshot");
+        }
+        Unsupported("StageGraph HashShuffle connection has an unsupported hash function");
+    }
+
+    void CheckConnectionType(const TConnection& connection, TStringBuf expected) const {
+        if (connection.Type != expected) {
+            Unsupported(TStringBuilder()
+                << "StageGraph connection runtime type disagrees with Type="
+                << connection.Type);
+        }
+    }
+
+    NJson::TJsonValue ExportEdge(
+        const TStagePair& pair,
+        const TBoundary& boundary,
+        ui32 consumerInput,
+        size_t edgeIndex)
+    {
+        const auto& connection = *boundary.Connection;
+        const ui32 outputIndex = connection.GetOutputIndex();
+        const TString& producerNodeId = NodeId(*boundary.ProducerNode);
+        if (const auto* hub = StagePortHubs[pair.first]) {
+            if (boundary.ProducerNode->GetKind() != EOperator::Replicate ||
+                &static_cast<const TOpReplicate&>(*boundary.ProducerNode).GetReplicate() != hub ||
+                GetReplicateOutputIndex(*boundary.ProducerNode) != outputIndex)
+            {
+                Unsupported("Native Replicate connection output index disagrees with its port");
+            }
+        } else if (StageSinks[pair.first] != boundary.ProducerNode) {
+            Unsupported("StageGraph producer output does not map the stage's logical sink");
+        }
+        auto [output, inserted] = StageOutputNodes[pair.first].emplace(
+            outputIndex,
+            producerNodeId);
+        if (!inserted) {
+            Unsupported("StageGraph reuses a producer output index for multiple edge occurrences");
+        }
+
+        auto edge = JsonMap();
+        edge["id"] = TStringBuilder() << "e" << edgeIndex;
+        edge["producer"] = StableStageId(pair.first);
+        edge["consumer"] = StableStageId(pair.second);
+        edge["occurrence"] = static_cast<ui64>(boundary.Occurrence);
+        edge["producer_output"] = static_cast<ui64>(outputIndex);
+        edge["consumer_input"] = static_cast<ui64>(consumerInput);
+
+        const auto* decimalAverageCarriers =
+            DecimalAverageCarrierOutputs.FindPtr(
+                boundary.ProducerNode);
+
+        if (const auto* stream = dynamic_cast<const TStreamLookupConnection*>(&connection)) {
+            CheckConnectionType(connection, "StreamLookup");
+            if (boundary.ConsumerNode->GetKind() != EOperator::TableLookup ||
+                LogicalInputNodes[pair.second].size() != 1 || consumerInput != 0)
+            {
+                Unsupported("StreamLookup must be the sole input of its TableLookup stage");
+            }
+            auto& lookup = static_cast<TOpTableLookup&>(*boundary.ConsumerNode);
+            CheckPointLookupShape(lookup);
+            if (stream->Table != lookup.Table || !stream->Columns || !stream->Columns->IsList() ||
+                !stream->Settings || !stream->Settings->IsList() || stream->Settings->ChildrenSize() != 1 ||
+                !stream->InputType)
+            {
+                Unsupported("StreamLookup connection has mismatched table or noncanonical settings");
+            }
+            const auto& setting = *stream->Settings->Child(0);
+            if (!setting.IsList() || setting.ChildrenSize() != 2 || !setting.Child(0)->IsAtom() ||
+                !setting.Child(1)->IsAtom() || setting.Child(0)->Content() != "Strategy" ||
+                setting.Child(1)->Content() != "LookupRows")
+            {
+                Unsupported("StreamLookup supports exactly the LookupRows strategy setting");
+            }
+            THashSet<TString> expected, actual;
+            for (const auto id : lookup.GetColumns()) {
+                expected.insert(Root.PlanProps.InfoUnitRegistry.Get(id).GetColumnName());
+            }
+            for (const auto& column : stream->Columns->Children()) {
+                if (!column->IsAtom() || !actual.insert(TString(column->Content())).second) {
+                    Unsupported("StreamLookup fetched fields are not unique atoms");
+                }
+            }
+            if (actual != expected) { Unsupported("StreamLookup fetched columns disagree with TableLookup"); }
+            const auto& type = *stream->InputType;
+            if (!type.IsCallable("ListType") || type.ChildrenSize() != 1 ||
+                !type.Child(0)->IsCallable("StructType") ||
+                type.Child(0)->ChildrenSize() != lookup.LookupKeys.Items().size())
+            {
+                Unsupported("StreamLookup input type must describe the exact physical key struct list");
+            }
+            const TStructExprType* annotatedKeys = nullptr;
+            if (type.GetTypeAnn()) {
+                const auto& annotation = DescribedType(type, "StreamLookup annotated input");
+                if (annotation.GetKind() != ETypeAnnotationKind::List ||
+                    annotation.Cast<TListExprType>()->GetItemType()->GetKind() != ETypeAnnotationKind::Struct)
+                { Unsupported("StreamLookup input descriptor has a contradictory annotation"); }
+                annotatedKeys = annotation.Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                if (annotatedKeys->GetSize() != lookup.LookupKeys.Items().size()) {
+                    Unsupported("StreamLookup input annotation omits or adds physical keys");
+                }
+            }
+            const TStructExprType* annotatedStruct = nullptr;
+            if (type.Child(0)->GetTypeAnn()) {
+                const auto& annotation = DescribedType(*type.Child(0), "StreamLookup annotated key struct");
+                if (annotation.GetKind() != ETypeAnnotationKind::Struct ||
+                    annotation.Cast<TStructExprType>()->GetSize() != lookup.LookupKeys.Items().size())
+                { Unsupported("StreamLookup key struct has a contradictory annotation"); }
+                annotatedStruct = annotation.Cast<TStructExprType>();
+            }
+            THashMap<TString, const TExprNode*> keyTypes;
+            for (const auto& item : type.Child(0)->Children()) {
+                if (!item->IsList() || item->ChildrenSize() != 2 || !item->Child(0)->IsAtom() ||
+                    !keyTypes.emplace(TString(item->Child(0)->Content()), item->Child(1)).second)
+                { Unsupported("StreamLookup key type has invalid or duplicate named fields"); }
+            }
+            for (const auto& [id, name] : lookup.LookupKeys.Items()) {
+                const auto* field = keyTypes.FindPtr(name);
+                if (!field) { Unsupported("StreamLookup key type omits a physical key component"); }
+                const auto* inputType = OutputType(*boundary.ProducerNode, ToString(id));
+                const auto exact = ExactType(inputType);
+                if (((*field)->GetTypeAnn() && !IsSameAnnotation(DescribedType(**field, "StreamLookup key"), *inputType)) ||
+                    (annotatedKeys && (!annotatedKeys->FindItemType(name) ||
+                     !IsSameAnnotation(*annotatedKeys->FindItemType(name), *inputType))) ||
+                    (annotatedStruct && (!annotatedStruct->FindItemType(name) ||
+                     !IsSameAnnotation(*annotatedStruct->FindItemType(name), *inputType))))
+                { Unsupported("StreamLookup key descriptor has contradictory scalar annotations"); }
+                const auto* scalar = *field;
+                if (exact.Nullable) {
+                    if (!scalar->IsCallable("OptionalType") || scalar->ChildrenSize() != 1) {
+                        Unsupported("StreamLookup key descriptor loses probe nullability");
+                    }
+                    scalar = scalar->Child(0);
+                }
+                if (scalar->GetTypeAnn()) {
+                    const auto annotated = ExactType(&DescribedType(*scalar, "StreamLookup primitive key"));
+                    if (annotated.Nullable || annotated.Name != exact.Name) {
+                        Unsupported("StreamLookup primitive key has a contradictory annotation");
+                    }
+                }
+                if (!scalar->IsCallable("DataType") || scalar->ChildrenSize() != 1 ||
+                    !scalar->Child(0)->IsAtom() || scalar->Child(0)->Content() != exact.Name)
+                {
+                    Unsupported("StreamLookup key descriptor is not the exact primitive probe type");
+                }
+            }
+            edge["kind"] = "stream_lookup";
+            return edge;
+        }
+        if (boundary.ConsumerNode->GetKind() == EOperator::TableLookup) {
+            Unsupported("TableLookup stage input requires its audited StreamLookup connection");
+        }
+        if (dynamic_cast<const TMapConnection*>(&connection)) {
+            CheckConnectionType(connection, "Map");
+            edge["kind"] = "map";
+            return edge;
+        }
+        if (dynamic_cast<const TBroadcastConnection*>(&connection)) {
+            CheckConnectionType(connection, "Broadcast");
+            edge["kind"] = "broadcast";
+            return edge;
+        }
+        if (const auto* shuffle = dynamic_cast<const TShuffleConnection*>(&connection)) {
+            CheckConnectionType(connection, "HashShuffle");
+            if (shuffle->Keys.Items().empty()) {
+                Unsupported("StageGraph HashShuffle connection has no keys");
+            }
+            edge["kind"] = "hash_shuffle";
+            auto keys = JsonArray();
+            const auto producerOutputs = OutputNames(*boundary.ProducerNode);
+            for (const auto& key : SnapshotIUs(shuffle->Keys)) {
+                const TString name = key.GetFullName();
+                if (name.empty() || !producerOutputs.contains(name)) {
+                    Unsupported("StageGraph HashShuffle key is absent from its producer output");
+                }
+                if (decimalAverageCarriers &&
+                    decimalAverageCarriers->contains(name))
+                {
+                    Unsupported(
+                        "StageGraph Decimal avg carrier must not be a "
+                        "HashShuffle key");
+                }
+                keys.AppendValue(name);
+            }
+            edge["keys"] = std::move(keys);
+            edge["hash_function"] = HashFunction(*shuffle);
+            edge["use_spilling"] = shuffle->UseSpilling;
+            return edge;
+        }
+        if (const auto* unionAll = dynamic_cast<const TUnionAllConnection*>(&connection)) {
+            CheckConnectionType(connection, "UnionAll");
+            edge["kind"] = "union_all";
+            edge["parallel"] = unionAll->IsParallel();
+            return edge;
+        }
+        if (const auto* merge = dynamic_cast<const TMergeConnection*>(&connection)) {
+            CheckConnectionType(connection, "Merge");
+            if (merge->Order.Items().empty()) {
+                Unsupported("StageGraph Merge connection has no ordering");
+            }
+            edge["kind"] = "merge";
+            auto order = JsonArray();
+            const auto producerOutputs = OutputNames(*boundary.ProducerNode);
+            const auto* certifiedIntegralAverages =
+                IntegralAverageOrderingOutputs.FindPtr(
+                    boundary.ProducerNode);
+            if (!certifiedIntegralAverages) {
+                Unsupported(
+                    "StageGraph Merge producer has no integral avg "
+                    "ordering provenance");
+            }
+            for (const auto& sort : SnapshotMergeOrder(*merge)) {
+                const TString column = sort.SortColumn.GetFullName();
+                if (column.empty() || !producerOutputs.contains(column)) {
+                    Unsupported("StageGraph Merge column is absent from its producer output");
+                }
+                if (decimalAverageCarriers &&
+                    decimalAverageCarriers->contains(column))
+                {
+                    Unsupported(
+                        "StageGraph Decimal avg carrier must not be a "
+                        "Merge ordering column");
+                }
+                const auto* orderingType =
+                    OutputType(*boundary.ProducerNode, column);
+                const bool binary64Ordering = Binary64Mode && (
+                    IsExactDataAnnotation(orderingType, NUdf::EDataSlot::Double, false) ||
+                    IsExactDataAnnotation(orderingType, NUdf::EDataSlot::Double, true));
+                const bool integralAverageOrdering =
+                    !binary64Ordering && (
+                        IsExactDataAnnotation(orderingType, NUdf::EDataSlot::Double, false) ||
+                        IsExactDataAnnotation(orderingType, NUdf::EDataSlot::Double, true));
+                if (integralAverageOrdering &&
+                    !certifiedIntegralAverages->contains(column))
+                {
+                    Unsupported(TStringBuilder()
+                        << "StageGraph Merge ordering column " << column
+                        << " is Optional<Double> without completed "
+                           "integral avg provenance");
+                }
+                if (!integralAverageOrdering && !binary64Ordering) {
+                    const TString type = TypeName(orderingType);
+                    if (!IsModeledOrderingType(type)) {
+                        Unsupported(TStringBuilder()
+                            << "StageGraph Merge ordering column "
+                            << column << " has unsupported type "
+                            << type
+                            << "; modeled types are integers, Date, "
+                               "String, Utf8, and Decimal");
+                    }
+                }
+                auto item = JsonMap();
+                item["column"] = column;
+                item["ascending"] = sort.Ascending;
+                item["nulls_first"] = sort.NullsFirst;
+                if (binary64Ordering) {
+                    item["comparison"] = TString(Binary64OrderingComparison);
+                } else if (integralAverageOrdering) {
+                    item["comparison"] =
+                        TString(IntegralAverageOrderingComparisonV1);
+                }
+                order.AppendValue(std::move(item));
+            }
+            edge["order"] = std::move(order);
+            return edge;
+        }
+        if (dynamic_cast<const TSourceConnection*>(&connection)) {
+            Unsupported("StageGraph source connections have unsupported distribution semantics");
+        }
+        Unsupported(TStringBuilder()
+            << "StageGraph has unsupported connection type " << connection.Type);
+    }
+
+    void BuildEdgesAndInputs() {
+        size_t edgeIndex = 0;
+        for (ui32 consumer = 0; consumer < StageCount; ++consumer) {
+            THashSet<ui32> processedProducers;
+            ui32 consumerInput = 0;
+            // Keep this identical to TPhysicalQueryBuilder::BuildPhysicalStageGraph:
+            // at a producer's first StageInputs occurrence, append every connection
+            // for that (producer, consumer) pair in connection insertion order.
+            for (const auto producer : Graph.StageInputs.at(consumer)) {
+                if (!processedProducers.insert(producer).second) {
+                    continue;
+                }
+
+                const TStagePair pair{producer, consumer};
+                const auto boundaries = Boundaries.find(pair);
+                if (boundaries == Boundaries.end()) {
+                    Unsupported("StageGraph stage input has no logical boundary");
+                }
+                for (const auto& boundary : boundaries->second) {
+                    if (consumerInput == std::numeric_limits<ui32>::max()) {
+                        Unsupported("StageGraph has too many consumer inputs");
+                    }
+                    const TString& producerNodeId = NodeId(*boundary.ProducerNode);
+                    StageInputNodes[consumer].push_back(producerNodeId);
+                    Edges.AppendValue(ExportEdge(
+                        pair,
+                        boundary,
+                        consumerInput,
+                        edgeIndex++));
+                    ++consumerInput;
+                }
+            }
+
+            if (StageInputNodes[consumer] != LogicalInputNodes[consumer]) {
+                Unsupported(
+                    "StageGraph effective consumer input order disagrees with "
+                    "cross-stage logical child order");
+            }
+        }
+    }
+
+    void ValidateAndCompleteOutputs() {
+        for (const auto& [stageId, _] : Graph.StageOutputIndices) {
+            if (stageId >= StageCount) {
+                Unsupported("StageGraph output-index state contains an unknown stage");
+            }
+        }
+
+        for (ui32 stageId = 0; stageId < StageCount; ++stageId) {
+            auto& outputs = StageOutputNodes[stageId];
+            const auto recorded = Graph.StageOutputIndices.find(stageId);
+            if (stageId == RootStageId) {
+                if (!outputs.empty() || recorded != Graph.StageOutputIndices.end()) {
+                    Unsupported("StageGraph root stage unexpectedly has producer outputs");
+                }
+                // The final gather is implicit at this snapshot boundary.
+                outputs.emplace(0, RootNodeId);
+                continue;
+            }
+
+            if (const auto* hub = StagePortHubs[stageId]) {
+                // AssignStages addresses Replicate's compacted live port order;
+                // it does not allocate generic StageOutputIndices for that stage.
+                if (recorded != Graph.StageOutputIndices.end() || outputs.size() != hub->GetOutputs().size()) {
+                    Unsupported("Native Replicate stage output-index state is inconsistent");
+                }
+            } else if (outputs.empty() || recorded == Graph.StageOutputIndices.end() ||
+                recorded->second != outputs.size() - 1)
+            {
+                Unsupported("StageGraph producer output-index state is incomplete");
+            }
+            ui32 expected = 0;
+            for (const auto& [index, _] : outputs) {
+                if (index != expected++) {
+                    Unsupported("StageGraph producer output indices must be contiguous from zero");
+                }
+            }
+        }
+    }
+
+    void ValidateTaskSemantics() {
+        // Mirror CountComputeTasks with a bounded choice of two tasks for a
+        // non-Map HashShuffle stage. Channel-builder constraints are checked
+        // against the final count below.
+        TaskCounts.assign(StageCount, 0);
+        for (const auto stageId : TopologicalStages) {
+            if (Graph.SourceStages.contains(stageId)) {
+                TaskCounts[stageId] = 2;
+                continue;
+            }
+            if (Graph.StageInputs.at(stageId).empty()) {
+                TaskCounts[stageId] = 1;
+                continue;
+            }
+
+            ui32 taskCount = 1;
+            bool hasShuffle = false;
+            bool forceMapTasks = false;
+            ui32 mapConnectionCount = 0;
+            THashSet<ui32> processedProducers;
+            for (const auto producer : Graph.StageInputs.at(stageId)) {
+                if (!processedProducers.insert(producer).second) {
+                    continue;
+                }
+                for (const auto& connection : Graph.GetConnections(producer, stageId)) {
+                    if (dynamic_cast<const TMapConnection*>(connection.Get()) ||
+                        dynamic_cast<const TStreamLookupConnection*>(connection.Get())) {
+                        taskCount = TaskCounts[producer];
+                        forceMapTasks = true;
+                        ++mapConnectionCount;
+                    } else if (dynamic_cast<const TShuffleConnection*>(connection.Get())) {
+                        hasShuffle = true;
+                    } else if (const auto* unionAll =
+                        dynamic_cast<const TUnionAllConnection*>(connection.Get()))
+                    {
+                        if (unionAll->IsParallel()) {
+                            taskCount = std::max(taskCount, TaskCounts[producer]);
+                        }
+                    }
+                }
+            }
+
+            if (mapConnectionCount > 1) {
+                Unsupported("StageGraph consumer has more than one Map connection");
+            }
+            if (hasShuffle && !forceMapTasks) {
+                taskCount = 2;
+            }
+            if (taskCount == 0 || taskCount > 2) {
+                Unsupported("StageGraph task count exceeds the version-one bound");
+            }
+
+            processedProducers.clear();
+            for (const auto producer : Graph.StageInputs.at(stageId)) {
+                if (!processedProducers.insert(producer).second) {
+                    continue;
+                }
+                for (const auto& connection : Graph.GetConnections(producer, stageId)) {
+                    if (dynamic_cast<const TMapConnection*>(connection.Get()) ||
+                        dynamic_cast<const TStreamLookupConnection*>(connection.Get())) {
+                        if (TaskCounts[producer] != taskCount) {
+                            Unsupported(
+                                "StageGraph Map producer and consumer task counts must match");
+                        }
+                    } else if (const auto* unionAll =
+                        dynamic_cast<const TUnionAllConnection*>(connection.Get()))
+                    {
+                        if (!unionAll->IsParallel() && taskCount != 1) {
+                            Unsupported(
+                                "StageGraph serial UnionAll requires exactly one consumer task");
+                        }
+                    } else if (dynamic_cast<const TMergeConnection*>(connection.Get())) {
+                        if (taskCount != 1) {
+                            Unsupported(
+                                "StageGraph Merge requires exactly one consumer task");
+                        }
+                    } else if (!dynamic_cast<const TShuffleConnection*>(connection.Get()) &&
+                        !dynamic_cast<const TBroadcastConnection*>(connection.Get()))
+                    {
+                        Unsupported("StageGraph connection has unsupported task-count semantics");
+                    }
+                }
+            }
+            TaskCounts[stageId] = taskCount;
+        }
+    }
+
+private:
+    TOpRoot& Root;
+    TStageGraph Graph;
+    THashMap<ui32, ui32> DenseStageIds;
+    const THashMap<const IOperator*, TString>& NodeIds;
+    const TVector<IOperator*>& NodeOrder;
+    const THashMap<const IOperator*, TIntegralAverageOrderingColumns>&
+        IntegralAverageOrderingOutputs;
+    const THashMap<const IOperator*, TDecimalAverageCarrierTypes>&
+        DecimalAverageCarrierOutputs;
+    TString RootNodeId;
+    bool Binary64Mode = false;
+    size_t StageCount = 0;
+    ui32 RootStageId = 0;
+    TVector<TVector<IOperator*>> StageNodes;
+    TVector<IOperator*> StageSinks;
+    TVector<const TReplicate*> StagePortHubs;
+    TVector<ui32> TopologicalStages;
+    TVector<TVector<TString>> StageInputNodes;
+    TVector<TVector<TString>> LogicalInputNodes;
+    TVector<TMap<ui32, TString>> StageOutputNodes;
+    TVector<ui32> TaskCounts;
+    TMap<TStagePair, TVector<TBoundary>> Boundaries;
+    NJson::TJsonValue Edges = JsonArray();
+};
+
+NJson::TJsonValue ExportCatalog(const TSemanticSnapshotCatalogV1& catalog) {
+    auto tables = JsonArray();
+    THashSet<TString> tableNames;
+    for (const auto& table : catalog.Tables) {
+        if (table.Name.empty() || !tableNames.insert(table.Name).second || table.Columns.empty()) {
+            Unsupported(TStringBuilder() << "Invalid catalog table " << table.Name);
+        }
+        auto tableJson = JsonMap();
+        tableJson["name"] = table.Name;
+        auto columns = JsonArray();
+        THashSet<TString> columnNames;
+        for (const auto& column : table.Columns) {
+            if (column.Name.empty() || !columnNames.insert(column.Name).second || !IsSupportedType(column.Type)) {
+                Unsupported(TStringBuilder() << "Invalid catalog column " << table.Name << "." << column.Name);
+            }
+            auto columnJson = JsonMap();
+            columnJson["name"] = column.Name;
+            columnJson["type"] = column.Type;
+            columnJson["nullable"] = column.Nullable;
+            columns.AppendValue(std::move(columnJson));
+        }
+        tableJson["columns"] = std::move(columns);
+
+        auto keys = JsonArray();
+        for (const auto& key : table.UniqueKeys) {
+            if (key.Columns.empty()) {
+                Unsupported(TStringBuilder() << "Empty unique key on table " << table.Name);
+            }
+            auto keyColumns = JsonArray();
+            THashSet<TString> seen;
+            for (const auto& column : key.Columns) {
+                if (!columnNames.contains(column) || !seen.insert(column).second) {
+                    Unsupported(TStringBuilder() << "Invalid unique key column " << table.Name << "." << column);
+                }
+                keyColumns.AppendValue(column);
+            }
+            auto keyJson = JsonMap();
+            keyJson["columns"] = std::move(keyColumns);
+            keyJson["nulls_distinct"] = key.NullsDistinct;
+            keys.AppendValue(std::move(keyJson));
+        }
+        tableJson["unique_keys"] = std::move(keys);
+        if (table.PrimaryKey) {
+            auto primary = JsonArray();
+            THashSet<TString> seen;
+            if (table.PrimaryKey->empty() || !std::any_of(table.UniqueKeys.begin(), table.UniqueKeys.end(),
+                [&](const auto& key) { return !key.NullsDistinct && key.Columns == *table.PrimaryKey; }))
+            {
+                Unsupported("Catalog physical primary key lacks its exact NULL-safe uniqueness constraint");
+            }
+            for (const auto& name : *table.PrimaryKey) {
+                if (!columnNames.contains(name) || !seen.insert(name).second) {
+                    Unsupported("Catalog physical primary key has unknown or repeated columns");
+                }
+                primary.AppendValue(name);
+            }
+            tableJson["primary_key"] = std::move(primary);
+        }
+        if (table.DerivedFrom) { tableJson["derived_from"] = *table.DerivedFrom; }
+        tables.AppendValue(std::move(tableJson));
+    }
+
+    auto schema = JsonMap();
+    schema["tables"] = std::move(tables);
+    return schema;
+}
+
+TString SerializeSnapshot(
+    TOpRoot& root,
+    const TSemanticSnapshotCatalogV1& catalog,
+    TStringBuf cluster)
+{
+    TSnapshotOperatorViewScope viewScope;
+    ValidateSnapshotTopology(root);
+    const bool stageGraphPresent = HasStageGraphState(root);
+    TPlanExporter planExporter(root, catalog, cluster, stageGraphPresent);
+
+    auto snapshot = JsonMap();
+    snapshot["format"] = "ydb-rbo-semantic-snapshot";
+    snapshot["version"] = 1;
+    snapshot["schema"] = ExportCatalog(catalog);
+    snapshot["plan"] = planExporter.Export();
+    if (planExporter.UsesBinary64Semantics()) {
+        snapshot["semantic_mode"] = TString(Binary64SemanticMode);
+    }
+    if (stageGraphPresent) {
+        TStageGraphExporter stageGraphExporter(
+            root,
+            planExporter.GetNodeIds(),
+            planExporter.GetNodeOrder(),
+            planExporter.GetIntegralAverageOrderingOutputs(),
+            planExporter.GetDecimalAverageCarrierOutputs(),
+            planExporter.GetRootId(),
+            planExporter.UsesBinary64Semantics());
+        snapshot["stage_graph"] = stageGraphExporter.Export();
+        planExporter.ValidateStageProperties();
+    } else {
+        snapshot["stage_graph"] = NJson::TJsonValue(NJson::JSON_NULL);
+    }
+
+    NJsonWriter::TBuf writer;
+    writer.WriteJsonValue(&snapshot, true, PREC_NDIGITS, 17);
+    return writer.Str();
+}
+
+template <typename TResult, typename TAction>
+TResult CatchUnsupported(TAction&& action) {
+    TResult result;
+    try {
+        action(result);
+    } catch (const TUnsupportedSnapshot& error) {
+        result.UnsupportedReason = error.what();
+    } catch (const std::exception& error) {
+        result.UnsupportedReason = TStringBuilder() << "Snapshot export failed closed: " << error.what();
+    }
+    return result;
+}
+
+// Collect enforced input-domain constraints even when an index is not selected.
+// Ready UNIQUE implementations may be derived below only after this validation.
+TVector<TSemanticSnapshotCatalogKeyV1> CaptureUniqueIndexConstraints(
+    const TKikimrTableMetadata& metadata, TStringBuf cluster, TStringBuf identity,
+    TSet<TString>& columns)
+{
+    if (metadata.IsIndexImplTable) {
+        Unsupported("Direct index-implementation reads lack parent UNIQUE constraint metadata");
+    }
+    TVector<TSemanticSnapshotCatalogKeyV1> constraints;
+    THashSet<TString> names;
+    THashSet<TString> implementationIdentities;
+    for (size_t ordinal = 0; ordinal < metadata.Indexes.size(); ++ordinal) {
+        const auto& index = metadata.Indexes[ordinal];
+        if (index.Name.empty() || index.Name.Contains('/') || !names.insert(index.Name).second) {
+            Unsupported("Catalog has ambiguous index names");
+        }
+        switch (index.Type) {
+            case TIndexDescription::EType::GlobalSyncUnique:
+                break;
+            case TIndexDescription::EType::GlobalSync:
+            case TIndexDescription::EType::GlobalAsync:
+            case TIndexDescription::EType::GlobalSyncVectorKMeansTree:
+            case TIndexDescription::EType::GlobalFulltextPlain:
+            case TIndexDescription::EType::GlobalFulltextRelevance:
+            case TIndexDescription::EType::LocalBloomFilter:
+            case TIndexDescription::EType::LocalBloomNgramFilter:
+            case TIndexDescription::EType::GlobalJson:
+            case TIndexDescription::EType::LocalMinMax:
+            case TIndexDescription::EType::GlobalFulltextCompact:
+            case TIndexDescription::EType::GlobalFulltextCompactRelevance:
+            case TIndexDescription::EType::GlobalJsonCompact:
+                continue; // Known non-unique index kinds add no input constraint.
+            default:
+                Unsupported("Catalog index kind has unaudited uniqueness semantics");
+        }
+        if (index.State != TIndexDescription::EIndexState::Ready ||
+            !std::holds_alternative<std::monostate>(index.SpecializedIndexDescription) ||
+            !metadata.DoesExist || metadata.Kind != EKikimrTableKind::Datashard ||
+            !metadata.SysView.empty() || metadata.KeyColumnNames.empty() ||
+            metadata.Indexes.size() != metadata.ImplTables.size() ||
+            MetadataTableReference(metadata, cluster).Identity != identity ||
+            index.KeyColumns.empty())
+        {
+            Unsupported("Catalog UNIQUE index requires complete ready ordinary row-table metadata");
+        }
+        const auto& impl = metadata.ImplTables[ordinal];
+        const TString expectedPath = TStringBuilder() << metadata.Name << "/" << index.Name << "/indexImplTable";
+        if (!impl || impl->Next || !impl->DoesExist || impl->Kind != EKikimrTableKind::Datashard ||
+            !impl->SysView.empty() || impl->Name != expectedPath || impl->Cluster != metadata.Cluster ||
+            !impl->Indexes.empty())
+        {
+            Unsupported("Catalog UNIQUE index implementation is missing, chained, or inconsistent");
+        }
+        const auto implementationIdentity = MetadataTableReference(*impl, cluster).Identity;
+        if (implementationIdentity == identity || !implementationIdentities.insert(implementationIdentity).second) {
+            Unsupported("Catalog UNIQUE index implementations have ambiguous identities");
+        }
+        TVector<TString> expectedKeys = index.KeyColumns;
+        TSet<TString> expectedColumns(index.KeyColumns.begin(), index.KeyColumns.end());
+        if (expectedColumns.size() != index.KeyColumns.size()) {
+            Unsupported("Catalog UNIQUE index has duplicate original key columns");
+        }
+        for (const auto& key : metadata.KeyColumnNames) {
+            if (expectedColumns.insert(key).second) { expectedKeys.push_back(key); }
+        }
+        expectedColumns.insert(index.DataColumns.begin(), index.DataColumns.end());
+        if (impl->KeyColumnNames != expectedKeys || impl->Columns.size() != expectedColumns.size()) {
+            Unsupported("Catalog UNIQUE index does not have its exact physical key and stored schema");
+        }
+        for (const auto& name : expectedColumns) {
+            const auto baseColumn = metadata.Columns.find(name);
+            const auto indexColumn = impl->Columns.find(name);
+            if (baseColumn == metadata.Columns.end() || indexColumn == impl->Columns.end() ||
+                baseColumn->second.SetNotNullInProgress || indexColumn->second.SetNotNullInProgress ||
+                baseColumn->second.IsBuildInProgress || indexColumn->second.IsBuildInProgress ||
+                MetadataTypeName(baseColumn->second) != MetadataTypeName(indexColumn->second) ||
+                baseColumn->second.NotNull != indexColumn->second.NotNull)
+            {
+                Unsupported("Catalog UNIQUE index columns have unaudited types or constraint transitions");
+            }
+        }
+        for (const auto& key : index.KeyColumns) {
+            if (!IsSupportedType(MetadataTypeName(metadata.Columns.at(key)))) {
+                Unsupported("Catalog UNIQUE index key type has no exact storage-equality model");
+            }
+            columns.insert(key); // Hidden and unselected constraints need their original fields.
+        }
+        // Physical storage equality is used by the model, including NaN=self.
+        // Any NULL component exempts the tuple from this business-key law.
+        constraints.push_back({index.KeyColumns, true});
+    }
+    return constraints;
+}
+
+} // anonymous namespace
+
+TSemanticSnapshotCatalogCaptureResult CaptureSemanticSnapshotCatalogV1(
+    TOpRoot& initialRoot,
+    const TRBOContext& ctx)
+{
+    TSnapshotOperatorViewScope viewScope;
+    return CatchUnsupported<TSemanticSnapshotCatalogCaptureResult>([&](auto& result) {
+        ValidateSnapshotTopology(initialRoot);
+        const auto subplanRoots =
+            OrderedSubplanRoots(initialRoot.PlanProps.Subplans);
+
+        struct TScannedTable {
+            TString Path;
+            TSet<TString> Columns;
+        };
+        TMap<TString, TScannedTable> scanned;
+        THashSet<const IOperator*> visited;
+        const auto recordRead = [&](IOperator& op) {
+            if (op.GetKind() != EOperator::Source) {
+                return;
+            }
+            auto& read = static_cast<TOpRead&>(op);
+            if (SnapshotReadColumns(read, initialRoot.PlanProps.InfoUnitRegistry).size() != SnapshotOutputIUs(read).size()) {
+                Unsupported("Read has an empty or inconsistent column mapping");
+            }
+            const auto table = TableReference(read, ctx.KqpCtx.Cluster);
+            auto& scannedTable = scanned[table.Identity];
+            if (!scannedTable.Path.empty() && scannedTable.Path != table.Path) {
+                Unsupported(TStringBuilder() << "Colliding table identity " << table.Identity);
+            }
+            scannedTable.Path = table.Path;
+            scannedTable.Columns.insert(SnapshotReadColumns(read, initialRoot.PlanProps.InfoUnitRegistry).begin(), SnapshotReadColumns(read, initialRoot.PlanProps.InfoUnitRegistry).end());
+        };
+        VisitOperators(initialRoot.GetInput(), visited, recordRead);
+        for (const auto& subplanRoot : subplanRoots) {
+            VisitOperators(subplanRoot, visited, recordRead);
+        }
+
+        for (auto& [identity, scannedTable] : scanned) {
+            const auto& path = scannedTable.Path;
+            auto& columns = scannedTable.Columns;
+            const auto& description = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, path);
+            if (!description.Metadata) {
+                Unsupported(TStringBuilder() << "Missing metadata for table " << path);
+            }
+            const auto& metadata = *description.Metadata;
+            columns.insert(metadata.KeyColumnNames.begin(), metadata.KeyColumnNames.end());
+            const auto uniqueConstraints = CaptureUniqueIndexConstraints(
+                metadata, ctx.KqpCtx.Cluster, identity, columns);
+            TVector<TSemanticSnapshotCatalogTableV1> derivedIndexes;
+            if (metadata.DoesExist && metadata.Kind == EKikimrTableKind::Datashard && metadata.SysView.empty() &&
+                !metadata.KeyColumnNames.empty() && metadata.Indexes.size() == metadata.ImplTables.size() &&
+                MetadataTableReference(metadata, ctx.KqpCtx.Cluster).Identity == identity)
+            {
+                for (size_t ordinal = 0; ordinal < metadata.Indexes.size(); ++ordinal) {
+                    const auto& index = metadata.Indexes[ordinal];
+                    const auto& impl = metadata.ImplTables[ordinal];
+                    // CaptureUniqueIndexConstraints above validates UNIQUE metadata
+                    // and keeps its original business-key law on the base table.
+                    // Both synchronous kinds store one row per base row, under
+                    // the original index keys plus the missing base-PK suffix.
+                    if ((index.Type != TIndexDescription::EType::GlobalSync &&
+                         index.Type != TIndexDescription::EType::GlobalSyncUnique) ||
+                        index.State != TIndexDescription::EIndexState::Ready || !impl || impl->Next ||
+                        !impl->DoesExist || impl->Kind != EKikimrTableKind::Datashard || !impl->SysView.empty() ||
+                        index.KeyColumns.empty()) { continue; }
+                    TVector<TString> expectedKeys = index.KeyColumns;
+                    TSet<TString> expectedColumns(index.KeyColumns.begin(), index.KeyColumns.end());
+                    if (expectedColumns.size() != index.KeyColumns.size()) { continue; }
+                    for (const auto& key : metadata.KeyColumnNames) {
+                        if (expectedColumns.insert(key).second) { expectedKeys.push_back(key); }
+                    }
+                    expectedColumns.insert(index.DataColumns.begin(), index.DataColumns.end());
+                    if (impl->KeyColumnNames != expectedKeys || impl->Columns.size() != expectedColumns.size()) { continue; }
+                    TSemanticSnapshotCatalogTableV1 derived;
+                    derived.Name = MetadataTableReference(*impl, ctx.KqpCtx.Cluster).Identity;
+                    derived.DerivedFrom = identity;
+                    derived.MaximumStoredStringCellBytes = MaxDatashardStoredStringBytes;
+                    derived.UniqueKeys.push_back({expectedKeys, false});
+                    derived.PrimaryKey = expectedKeys;
+                    bool exact = derived.Name != identity;
+                    for (const auto& name : expectedColumns) {
+                        const auto baseColumn = metadata.Columns.find(name);
+                        const auto indexColumn = impl->Columns.find(name);
+                        if (baseColumn == metadata.Columns.end() || indexColumn == impl->Columns.end() ||
+                            baseColumn->second.SetNotNullInProgress || indexColumn->second.SetNotNullInProgress ||
+                            baseColumn->second.IsBuildInProgress || indexColumn->second.IsBuildInProgress)
+                        { exact = false; break; }
+                        const TString type = MetadataTypeName(baseColumn->second);
+                        if (!IsSupportedType(type) || type != MetadataTypeName(indexColumn->second) ||
+                            baseColumn->second.NotNull != indexColumn->second.NotNull)
+                        { exact = false; break; }
+                        derived.Columns.push_back({name, type, !baseColumn->second.NotNull});
+                    }
+                    if (exact) {
+                        columns.insert(expectedColumns.begin(), expectedColumns.end());
+                        derivedIndexes.push_back(std::move(derived));
+                    }
+                }
+            }
+
+            TSemanticSnapshotCatalogTableV1 table;
+            table.Name = identity;
+            if (metadata.Kind == EKikimrTableKind::Datashard) {
+                table.MaximumStoredStringCellBytes =
+                    MaxDatashardStoredStringBytes;
+            } else if (metadata.Kind == EKikimrTableKind::Olap) {
+                table.MaximumStoredStringCellBytes =
+                    MaxOlapStoredStringBytes;
+            }
+            THashSet<TString> emitted;
+            auto appendColumn = [&](const TString& name) {
+                if (!columns.contains(name) || !emitted.insert(name).second) {
+                    return;
+                }
+                const auto it = metadata.Columns.find(name);
+                if (it == metadata.Columns.end()) {
+                    Unsupported(TStringBuilder() << "Missing metadata for column " << path << "." << name);
+                }
+                const auto& column = it->second;
+                const TString type = MetadataTypeName(column);
+                if (column.SetNotNullInProgress || !IsSupportedType(type)) {
+                    Unsupported(TStringBuilder() << "Unsupported metadata for column " << path << "." << name);
+                }
+                table.Columns.push_back({name, type, !column.NotNull});
+            };
+            for (const auto& name : metadata.ColumnOrder) {
+                appendColumn(name);
+            }
+            for (const auto& name : columns) {
+                appendColumn(name);
+            }
+            if (table.Columns.empty() || emitted.size() != columns.size()) {
+                Unsupported(TStringBuilder() << "Could not capture every referenced column for table " << path);
+            }
+            if (!metadata.KeyColumnNames.empty()) {
+                table.UniqueKeys.push_back({metadata.KeyColumnNames, false});
+                table.PrimaryKey = metadata.KeyColumnNames;
+            }
+            table.UniqueKeys.insert(table.UniqueKeys.end(), uniqueConstraints.begin(), uniqueConstraints.end());
+            result.Catalog.Tables.push_back(std::move(table));
+            for (auto& index : derivedIndexes) {
+                result.Catalog.Tables.push_back(std::move(index));
+            }
+        }
+    });
+}
+
+TSemanticSnapshotExportResult ExportSemanticSnapshotV1(
+    TOpRoot& root,
+    const TRBOContext& ctx,
+    const TSemanticSnapshotCatalogV1& catalog)
+{
+    return CatchUnsupported<TSemanticSnapshotExportResult>([&](auto& result) {
+        result.Json = SerializeSnapshot(root, catalog, ctx.KqpCtx.Cluster);
+    });
+}
+
+TSemanticSnapshotExportResult ExportSemanticSnapshotV1(TOpRoot& root, const TRBOContext& ctx) {
+    const auto catalog = CaptureSemanticSnapshotCatalogV1(root, ctx);
+    if (!catalog.IsSupported()) {
+        TSemanticSnapshotExportResult result;
+        result.UnsupportedReason = catalog.UnsupportedReason;
+        return result;
+    }
+    return ExportSemanticSnapshotV1(root, ctx, catalog.Catalog);
+}
+
+TSemanticSnapshotPairCaptureV1::TSemanticSnapshotPairCaptureV1(
+    IRBOSemanticSnapshotSink* sink) noexcept
+    : Sink(sink)
+{
+}
+
+void TSemanticSnapshotPairCaptureV1::CaptureInitial(
+    TOpRoot& root,
+    TRBOContext& ctx) noexcept
+{
+    if (!Sink) {
+        return;
+    }
+
+    TSnapshotOperatorViewScope viewScope;
+    InitialAttempted = true;
+    Catalog.reset();
+    CatalogFailure.clear();
+    TRBOSemanticSnapshotBoundaryResultV1 result{
+        ERBOSemanticSnapshotBoundaryV1::Initial,
+        {},
+        {},
+        {},
+    };
+
+    try {
+        ValidateSnapshotTopology(root);
+        if (HasStageGraphState(root)) {
+            CatalogFailure =
+                "Initial semantic snapshot boundary requires stage_graph:null";
+            result.UnsupportedReason = CatalogFailure;
+        } else {
+            auto catalog = CaptureSemanticSnapshotCatalogV1(root, ctx);
+            if (!catalog.IsSupported()) {
+                CatalogFailure = std::move(catalog.UnsupportedReason);
+                result.UnsupportedReason = CatalogFailure;
+            } else {
+                if (NeedsInitialSnapshotTypeMaterialization(root)) {
+                    root.RecomputeOutputIUsSubtree();
+                    if (root.ComputeTypes(ctx) != IGraphTransformer::TStatus::Ok) {
+                        Unsupported("RBO type annotation failed for the initial semantic snapshot");
+                    }
+                }
+                Catalog.emplace(std::move(catalog.Catalog));
+                auto snapshot = ExportSemanticSnapshotV1(root, ctx, *Catalog);
+                result.Json = std::move(snapshot.Json);
+                result.UnsupportedReason = std::move(snapshot.UnsupportedReason);
+            }
+        }
+    } catch (const std::exception& error) {
+        result.UnsupportedReason = TStringBuilder()
+            << "Initial semantic snapshot capture failed closed: " << error.what();
+        CatalogFailure = result.UnsupportedReason;
+        Catalog.reset();
+    } catch (...) {
+        result.UnsupportedReason = "Initial semantic snapshot capture failed closed with an unknown exception";
+        CatalogFailure = result.UnsupportedReason;
+        Catalog.reset();
+    }
+
+    Deliver(std::move(result));
+}
+
+void TSemanticSnapshotPairCaptureV1::CaptureFinal(
+    TOpRoot& root,
+    const TRBOContext& ctx) noexcept
+{
+    if (!Sink) {
+        return;
+    }
+
+    TSnapshotOperatorViewScope viewScope;
+    TRBOSemanticSnapshotBoundaryResultV1 result{
+        ERBOSemanticSnapshotBoundaryV1::Final,
+        {},
+        {},
+        ctx.TransformationDebug.Events,
+    };
+
+    try {
+        ValidateSnapshotTopology(root);
+        if (!InitialAttempted) {
+            result.UnsupportedReason = "Initial semantic snapshot capture was not attempted";
+        } else if (!Catalog) {
+            result.UnsupportedReason = CatalogFailure.empty()
+                ? TString("Initial semantic snapshot catalog is unavailable")
+                : CatalogFailure;
+        } else if (!HasStageGraphState(root)) {
+            result.UnsupportedReason =
+                "Final semantic snapshot boundary requires a non-null stage_graph";
+        } else {
+            auto snapshot = ExportSemanticSnapshotV1(root, ctx, *Catalog);
+            result.Json = std::move(snapshot.Json);
+            result.UnsupportedReason = std::move(snapshot.UnsupportedReason);
+        }
+    } catch (const std::exception& error) {
+        result.UnsupportedReason = TStringBuilder()
+            << "Final semantic snapshot capture failed closed: " << error.what();
+    } catch (...) {
+        result.UnsupportedReason = "Final semantic snapshot capture failed closed with an unknown exception";
+    }
+
+    Deliver(std::move(result));
+}
+
+void TSemanticSnapshotPairCaptureV1::CaptureTransformationPrefix(
+    TOpRoot& root,
+    TRBOContext& ctx,
+    const TVector<TRBOTransformationEventV1>& events) noexcept
+{
+    if (!Sink) {
+        return;
+    }
+
+    TSnapshotOperatorViewScope viewScope;
+    TRBOSemanticSnapshotBoundaryResultV1 result{
+        ERBOSemanticSnapshotBoundaryV1::TransformationPrefix,
+        {},
+        {},
+        events,
+    };
+
+    try {
+        ValidateSnapshotTopology(root);
+        bool validEvents = !result.TransformationEvents.empty();
+        for (ui64 index = 0; index < result.TransformationEvents.size(); ++index) {
+            const auto& event = result.TransformationEvents[index];
+            validEvents = validEvents &&
+                event.Ordinal == index + 1 &&
+                (event.Kind == ERBOTransformationEventKindV1::RuleApplication ||
+                    event.Kind == ERBOTransformationEventKindV1::AtomicStageCommit) &&
+                !event.Stage.empty() &&
+                !event.Name.empty();
+        }
+        if (!validEvents) {
+            result.UnsupportedReason =
+                "Transformation-prefix metadata must be non-empty, contiguous, and have a valid kind, stage, and name";
+        } else if (!InitialAttempted) {
+            result.UnsupportedReason = "Initial semantic snapshot capture was not attempted";
+        } else if (!Catalog) {
+            result.UnsupportedReason = CatalogFailure.empty()
+                ? TString("Initial semantic snapshot catalog is unavailable")
+                : CatalogFailure;
+        } else {
+            // A committed transformation invalidates derived properties. Rebuild the
+            // minimum semantic caches only after the optimizer has stopped;
+            // this diagnostic path must never perturb later rule matching.
+            root.RecomputeOutputIUsSubtree();
+            if (root.ComputeTypes(ctx) != IGraphTransformer::TStatus::Ok) {
+                Unsupported("RBO type annotation failed for a transformation-prefix snapshot");
+            }
+            auto snapshot = ExportSemanticSnapshotV1(root, ctx, *Catalog);
+            result.Json = std::move(snapshot.Json);
+            result.UnsupportedReason = std::move(snapshot.UnsupportedReason);
+        }
+    } catch (const std::exception& error) {
+        result.UnsupportedReason = TStringBuilder()
+            << "Transformation-prefix semantic snapshot capture failed closed: "
+            << error.what();
+    } catch (...) {
+        result.UnsupportedReason =
+            "Transformation-prefix semantic snapshot capture failed closed with an unknown exception";
+    }
+
+    Deliver(std::move(result));
+}
+
+std::optional<ui64> TSemanticSnapshotPairCaptureV1::GetTransformationPrefixTarget() const noexcept {
+    if (!Sink) {
+        return std::nullopt;
+    }
+    try {
+        const auto target = Sink->GetTransformationPrefixTarget();
+        return target && *target > 0 ? target : std::nullopt;
+    } catch (...) {
+        // Instrumentation configuration must not alter normal compilation.
+        return std::nullopt;
+    }
+}
+
+void TSemanticSnapshotPairCaptureV1::Deliver(
+    TRBOSemanticSnapshotBoundaryResultV1 result) noexcept
+{
+    try {
+        Sink->OnSemanticSnapshot(std::move(result));
+    } catch (...) {
+        // Snapshot instrumentation must never alter query compilation.
+    }
+}
+
+} // namespace NKikimr::NKqp

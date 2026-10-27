@@ -1,0 +1,684 @@
+"""Admission for the three deliberately restricted window capabilities.
+
+Expression typing lives in ir.py. These checks establish whole-plan premises
+(private lineage, supported topology and isolated ordered-ROWS families). They are
+mandatory before evaluation and do not imply support for arbitrary SQL windows.
+"""
+
+from __future__ import annotations
+
+from typing import Mapping
+
+from .ir import (
+    Aggregate, Column, ExistsSubplan, InSubplan, Expr, PlanNode, Project, Snapshot, ValueType,
+    MAX_WINDOW_RANKS_PER_PROJECT, MAX_WINDOW_RANKS_PER_SNAPSHOT,
+    MAX_WHOLE_PARTITION_WINDOWS_PER_SNAPSHOT,
+    MAX_WINDOW_ROWS_PER_PROJECT, MAX_WINDOW_ROWS_PER_SNAPSHOT,
+    MAX_WINDOW_ROWS_PROJECTS_PER_SNAPSHOT, Q51_PRICE_TYPE, Q51_WINDOW_NAMES,
+    WHOLE_PARTITION_DECIMAL_SUM_TYPE, WINDOW_ROWS_KINDS,
+    _expression_kind_count, _fail, _node_expressions, _plan_descendants,
+    plan_node_inputs,
+)
+
+
+def validate_window_dataflow(snapshot: Snapshot, schemas: Mapping[str, Mapping[str, Column]]) -> None:
+    """Establish all supported-window premises; no caller may skip a family."""
+
+    _validate_window_rows_dataflow(snapshot, schemas)
+    _validate_whole_partition_decimal_window_dataflow(snapshot, schemas)
+    _validate_window_rank_dataflow(snapshot, schemas)
+
+
+def _validate_window_subplan_separation(
+    snapshot: Snapshot, project: Project, *, allow_closed_in_rank: bool = False,
+) -> None:
+    # Subplans already evaluated below this input remain part of its shared
+    # source outcome. A window itself cannot bind/invoke a subplan: its
+    # per-task evaluation intentionally has no binding callback. Deterministic
+    # Rank also composes inside one closed leaf IN relation evaluated by node().
+    nodes = snapshot.plan.node_map()
+    main = _plan_descendants(nodes, snapshot.plan.root)
+    owners = []
+    for subplan in snapshot.plan.subplans:
+        if project.id in subplan.consumers:
+            _fail(f"node {project.id!r}", "window Project must be separate from subplan evaluation")
+        region = _plan_descendants(nodes, subplan.root)
+        if project.id in region:
+            owners.append((subplan, region))
+    if not owners and project.id in main:
+        return
+    if allow_closed_in_rank and len(owners) == 1 and project.id not in main:
+        owner, region = owners[0]
+        if (
+            isinstance(owner, InSubplan)
+            and all(consumer in main for consumer in owner.consumers)
+            and not any(
+                consumer in region
+                for subplan in snapshot.plan.subplans
+                for consumer in subplan.consumers
+            )
+        ):
+            return
+    _fail(f"node {project.id!r}", "window Project must be separate from subplan evaluation")
+
+
+def _validate_whole_partition_decimal_window_dataflow(
+    snapshot: Snapshot,
+    schemas: Mapping[str, Mapping[str, Column]],
+) -> None:
+    """Admit bounded, independently private grouped-SUM window corridors."""
+
+    window_kinds = ("window_sum", "window_avg")
+    owners: list[tuple[str, PlanNode]] = []
+    for node in snapshot.plan.nodes:
+        for expression in _node_expressions(node):
+            for kind in window_kinds:
+                owners.extend(
+                    (kind, node)
+                    for _ in range(_expression_kind_count(expression, kind))
+                )
+    predicate_windows = any(
+        _expression_kind_count(subplan.predicate, kind)
+        for subplan in snapshot.plan.subplans
+        if isinstance(subplan, ExistsSubplan) and subplan.predicate is not None
+        for kind in window_kinds
+    )
+    if not owners and not predicate_windows:
+        return
+    if predicate_windows or any(not isinstance(node, Project) for _kind, node in owners):
+        _fail("snapshot.plan", "whole-partition windows require main-plan Projects")
+    if len(owners) > MAX_WHOLE_PARTITION_WINDOWS_PER_SNAPSHOT:
+        _fail("snapshot.plan", "whole-partition window count exceeds the snapshot audit bound")
+    if sum(kind == "window_sum" for kind, _project in owners) > 1:
+        _fail("snapshot.plan", "exactly one window_sum expression is modeled")
+    project_ids: set[str] = set()
+    for kind, project in owners:
+        if project.id in project_ids:
+            _fail("snapshot.plan", f"exactly one {kind} expression is modeled per Project")
+        project_ids.add(project.id)
+    for kind, project in owners:
+        _validate_whole_partition_decimal_window_corridor(snapshot, schemas, kind, project)
+
+
+def _validate_whole_partition_decimal_window_corridor(
+    snapshot: Snapshot,
+    schemas: Mapping[str, Mapping[str, Column]],
+    kind: str,
+    project: PlanNode,
+) -> None:
+    assert isinstance(project, Project)
+    _validate_window_subplan_separation(snapshot, project)
+    nodes = snapshot.plan.node_map()
+    # Alias Projects retain their actual row/error/stage semantics in the
+    # plan. Trace only direct, total column lineage back to the grouped SUM.
+    aliases: list[Project] = []
+    aggregate = nodes.get(project.input)
+    while isinstance(aggregate, Project):
+        if len(aliases) == 8:
+            _fail(f"node {project.id!r}.input", "window alias corridor exceeds eight Projects")
+        if any(
+            column.expression.kind != "column"
+            or column.error_on_null
+            or column.require_total
+            or column.require_at_most_one is not None
+            for column in aggregate.columns
+        ):
+            _fail(f"node {aggregate.id!r}", "window aliases require total direct column Projects")
+        aliases.append(aggregate)
+        aggregate = nodes.get(aggregate.input)
+    if not (
+        isinstance(aggregate, Aggregate)
+        and aggregate.phase in {"undefined", "final"}
+        and aggregate.keys
+        and not aggregate.distinct_all
+    ):
+        _fail(
+            f"node {project.id!r}.input",
+            f"{kind} Project must consume, through at most eight column aliases, one grouped, "
+            "logical or final Aggregate",
+        )
+
+    expressions = tuple(
+        projection.expression
+        for projection in project.columns
+        if _expression_kind_count(projection.expression, kind)
+    )
+    assert len(expressions) == 1
+
+    def find(expression: Expr) -> Expr:
+        if expression.kind == kind:
+            return expression
+        matches = tuple(
+            find(argument)
+            for argument in expression.args
+            if _expression_kind_count(argument, kind)
+        )
+        assert len(matches) == 1
+        return matches[0]
+
+    window = find(expressions[0])
+    assert window.window_input is not None and window.partition_by is not None
+    argument = window.window_input
+    partitions = window.partition_by
+    for alias in aliases:
+        bindings = {column.output: column.expression.column for column in alias.columns}
+        argument = bindings[argument]
+        partitions = tuple(bindings[partition] for partition in partitions)
+    if any(partition not in aggregate.keys for partition in partitions):
+        _fail(
+            f"node {project.id!r}.columns",
+            f"{kind} partition must contain only direct keys of its Aggregate input",
+        )
+    matching_traits = tuple(
+        trait
+        for trait in aggregate.aggregates
+        if trait.output == argument
+    )
+    if not (
+        len(matching_traits) == 1
+        and matching_traits[0].function == "sum"
+        and not matching_traits[0].distinct
+        and not matching_traits[0].unwrap
+        and matching_traits[0].output_type == WHOLE_PARTITION_DECIMAL_SUM_TYPE
+        and matching_traits[0].output_nullable
+    ):
+        _fail(
+            f"node {project.id!r}.columns",
+            f"{kind} input must be the direct Optional<Decimal(35,2)> "
+            "SUM output of its Aggregate input",
+        )
+
+    intermediate: Aggregate | None = None
+    if aggregate.phase == "final":
+        candidate = nodes.get(aggregate.input)
+        if not (
+            isinstance(candidate, Aggregate)
+            and candidate.phase == "intermediate"
+            and not candidate.distinct_all
+            and candidate.keys == aggregate.keys
+        ):
+            _fail(
+                f"node {aggregate.id!r}.input",
+                f"final {kind} Aggregate must directly consume one "
+                "matching intermediate Aggregate",
+            )
+        intermediate = candidate
+        state = matching_traits[0].input
+        source_traits = tuple(
+            trait
+            for trait in intermediate.aggregates
+            if (
+                trait.output == state
+                and trait.function == "sum"
+                and not trait.distinct
+                and not trait.unwrap
+            )
+        )
+        final_uses = tuple(
+            trait for trait in aggregate.aggregates if trait.input == state
+        )
+        if not (
+            len(source_traits) == 1
+            and len(final_uses) == 1
+            and schemas[intermediate.id][state].value_type
+            == ValueType(WHOLE_PARTITION_DECIMAL_SUM_TYPE, True)
+        ):
+            _fail(
+                f"node {aggregate.id!r}.aggregates",
+                f"final {kind} must consume exactly one matching "
+                "Optional<Decimal(35,2)> intermediate SUM state",
+            )
+
+    consumers: dict[str, list[PlanNode]] = {
+        node.id: [] for node in snapshot.plan.nodes
+    }
+    for consumer in snapshot.plan.nodes:
+        for producer in plan_node_inputs(consumer):
+            consumers[producer].append(consumer)
+    consumer = project
+    for producer in [*aliases, aggregate]:
+        if consumers[producer.id] != [consumer]:
+            _fail(
+                f"node {producer.id!r}",
+                f"a {kind} alias corridor must have one direct consumer and no fanout",
+            )
+        consumer = producer
+    if intermediate is not None and consumers[intermediate.id] != [aggregate]:
+        _fail(
+            f"node {intermediate.id!r}",
+            f"a {kind} intermediate Aggregate must have one direct final "
+            "Aggregate consumer and no fanout",
+        )
+    if len(consumers[project.id]) > 1:
+        _fail(
+            f"node {project.id!r}",
+            f"a {kind} Project must not fan out",
+        )
+
+    # The ordinary type checker already established both direct operands.
+    expected_partition_types = (
+        {ValueType("String", True), ValueType("Utf8", True)}
+        if kind == "window_sum"
+        else {ValueType("Int64", True), ValueType("String", True), ValueType("Utf8", True)}
+    )
+    assert all(
+        schemas[aggregate.id][partition].value_type in expected_partition_types
+        for partition in partitions
+    )
+    assert schemas[aggregate.id][argument].value_type == ValueType(
+        WHOLE_PARTITION_DECIMAL_SUM_TYPE,
+        True,
+    )
+
+
+def _validate_window_rank_dataflow(
+    snapshot: Snapshot,
+    schemas: Mapping[str, Mapping[str, Column]],
+) -> None:
+    """Admit bounded, private ANSI Rank Projects with fully typed direct keys.
+
+    Rank reads the complete task-local partition, regardless of frame. Scalar
+    key semantics are ordinary preceding Projects, not query-specific lineage.
+    """
+
+    ranks_by_project: dict[str, list[Expr]] = {}
+    rank_count = 0
+    for node in snapshot.plan.nodes:
+        if isinstance(node, Project):
+            for index, projection in enumerate(node.columns):
+                count = _expression_kind_count(
+                    projection.expression,
+                    "window_rank",
+                )
+                rank_count += count
+                if not count:
+                    continue
+                if count != 1 or projection.expression.kind != "window_rank":
+                    _fail(
+                        f"node {node.id!r}.columns[{index}].expression",
+                        "window_rank must be one complete top-level Project expression",
+                    )
+                ranks_by_project.setdefault(node.id, []).append(
+                    projection.expression
+                )
+            continue
+        if any(
+            _expression_kind_count(expression, "window_rank")
+            for expression in _node_expressions(node)
+        ):
+            _fail(
+                f"node {node.id!r}",
+                "window_rank may appear only as a top-level Project expression",
+            )
+
+    for index, subplan in enumerate(snapshot.plan.subplans):
+        if isinstance(subplan, ExistsSubplan) and subplan.predicate is not None:
+            predicate_ranks = _expression_kind_count(
+                subplan.predicate,
+                "window_rank",
+            )
+            rank_count += predicate_ranks
+            if predicate_ranks:
+                _fail(
+                    f"snapshot.plan.subplans[{index}].predicate",
+                    "window_rank may appear only as a top-level Project expression",
+                )
+
+    if not rank_count:
+        return
+    if rank_count > MAX_WINDOW_RANKS_PER_SNAPSHOT:
+        _fail(
+            "snapshot.plan",
+            "window_rank count exceeds the "
+            f"{MAX_WINDOW_RANKS_PER_SNAPSHOT}-leaf snapshot audit bound",
+        )
+
+    nodes = snapshot.plan.node_map()
+    consumers: dict[str, list[PlanNode]] = {
+        node.id: [] for node in snapshot.plan.nodes
+    }
+    for consumer in snapshot.plan.nodes:
+        for producer in plan_node_inputs(consumer):
+            consumers[producer].append(consumer)
+    for project_id, ranks in ranks_by_project.items():
+        project = nodes[project_id]
+        assert isinstance(project, Project)
+        _validate_window_subplan_separation(snapshot, project, allow_closed_in_rank=True)
+        if len(consumers[project_id]) > 1:
+            _fail(
+                f"node {project_id!r}",
+                "a window_rank Project must not fan out",
+            )
+        if len(ranks) > MAX_WINDOW_RANKS_PER_PROJECT:
+            _fail(
+                f"node {project_id!r}.columns",
+                "window_rank count exceeds the "
+                f"{MAX_WINDOW_RANKS_PER_PROJECT}-leaf Project audit bound",
+            )
+        orders = tuple(rank.execution_order for rank in ranks)
+        if sorted(orders) != list(range(len(ranks))):
+            _fail(
+                f"node {project_id!r}.columns",
+                "window_rank execution_order must be the complete distinct "
+                f"range 0..{len(ranks) - 1}",
+            )
+        definitions: dict[str, tuple[object, ...]] = {}
+        for rank in ranks:
+            assert rank.window_name is not None
+            assert rank.order_by is not None and 1 <= len(rank.order_by) <= 2
+            definition = (rank.partition_by, rank.order_by, rank.window_frame)
+            previous = definitions.setdefault(rank.window_name, definition)
+            if previous != definition:
+                _fail(f"node {project_id!r}", "one window_rank name must describe one definition")
+
+        if snapshot.stage_graph is not None:
+            stage_outputs = tuple(
+                (stage.id, output.index)
+                for stage in snapshot.stage_graph.stages
+                for output in stage.outputs
+                if output.node == project_id
+            )
+            outgoing = tuple(
+                edge
+                for stage_id, output_index in stage_outputs
+                for edge in snapshot.stage_graph.edges
+                if (
+                    edge.producer == stage_id
+                    and edge.producer_output == output_index
+                )
+            )
+            if len(outgoing) > 1:
+                _fail(
+                    f"node {project_id!r}",
+                    "a staged window_rank Project output must not fan out",
+                )
+
+
+def _validate_window_rows_dataflow(
+    snapshot: Snapshot,
+    schemas: Mapping[str, Mapping[str, Column]],
+) -> None:
+    """Admit only q51's private ordered-ROWS Project leaves."""
+
+    windows_by_project: dict[str, list[Expr]] = {}
+    window_count = 0
+    mixed_window_count = 0
+    for node in snapshot.plan.nodes:
+        for expression in _node_expressions(node):
+            mixed_window_count += sum(
+                _expression_kind_count(expression, kind)
+                for kind in ("window_sum", "window_avg", "window_rank")
+            )
+        if isinstance(node, Project):
+            for index, projection in enumerate(node.columns):
+                counts = {
+                    kind: _expression_kind_count(projection.expression, kind)
+                    for kind in WINDOW_ROWS_KINDS
+                }
+                count = sum(counts.values())
+                window_count += count
+                if not count:
+                    continue
+                if count != 1 or projection.expression.kind not in WINDOW_ROWS_KINDS:
+                    _fail(
+                        f"node {node.id!r}.columns[{index}].expression",
+                        "q51 ROWS window must be one complete top-level Project expression",
+                    )
+                windows_by_project.setdefault(node.id, []).append(
+                    projection.expression
+                )
+            continue
+        if any(
+            sum(
+                _expression_kind_count(expression, kind)
+                for kind in WINDOW_ROWS_KINDS
+            )
+            for expression in _node_expressions(node)
+        ):
+            _fail(
+                f"node {node.id!r}",
+                "q51 ROWS windows may appear only as top-level Project expressions",
+            )
+
+    predicate_window_count = 0
+    for subplan in snapshot.plan.subplans:
+        if isinstance(subplan, ExistsSubplan) and subplan.predicate is not None:
+            predicate_window_count += sum(
+                _expression_kind_count(subplan.predicate, kind)
+                for kind in WINDOW_ROWS_KINDS
+            )
+            mixed_window_count += sum(
+                _expression_kind_count(subplan.predicate, kind)
+                for kind in ("window_sum", "window_avg", "window_rank")
+            )
+    window_count += predicate_window_count
+    if not window_count:
+        return
+    if snapshot.plan.subplans:
+        _fail("snapshot.plan.subplans", "q51 ROWS windows do not admit subplans")
+    if predicate_window_count:
+        _fail(
+            "snapshot.plan",
+            "q51 ROWS windows may appear only as top-level Project expressions",
+        )
+    if mixed_window_count:
+        _fail(
+            "snapshot.plan",
+            "q51 ROWS windows may not be mixed with other window leaves",
+        )
+    if window_count != MAX_WINDOW_ROWS_PER_SNAPSHOT:
+        _fail(
+            "snapshot.plan",
+            "q51 requires exactly four ROWS window leaves",
+        )
+    if len(windows_by_project) != MAX_WINDOW_ROWS_PROJECTS_PER_SNAPSHOT:
+        _fail(
+            "snapshot.plan",
+            "q51 requires exactly three ROWS window Projects",
+        )
+
+    all_windows = tuple(
+        window
+        for windows in windows_by_project.values()
+        for window in windows
+    )
+    if sum(window.kind == "window_rows_sum" for window in all_windows) != 2:
+        _fail("snapshot.plan", "q51 requires exactly two running SUM leaves")
+    if sum(window.kind == "window_rows_max" for window in all_windows) != 2:
+        _fail("snapshot.plan", "q51 requires exactly two running MAX leaves")
+    names = tuple(window.window_name for window in all_windows)
+    if len(set(names)) != len(names) or set(names) != set(Q51_WINDOW_NAMES):
+        _fail(
+            "snapshot.plan",
+            "q51 ROWS window names must be exactly "
+            f"{Q51_WINDOW_NAMES!r}",
+        )
+
+    nodes = snapshot.plan.node_map()
+    main_nodes = _plan_descendants(nodes, snapshot.plan.root)
+    consumers: dict[str, list[PlanNode]] = {
+        node.id: [] for node in snapshot.plan.nodes
+    }
+    for consumer in snapshot.plan.nodes:
+        for producer in plan_node_inputs(consumer):
+            consumers[producer].append(consumer)
+
+    for project_id, windows in windows_by_project.items():
+        project = nodes[project_id]
+        assert isinstance(project, Project)
+        if project_id not in main_nodes:
+            _fail(
+                f"node {project_id!r}",
+                "q51 ROWS window must belong to the main result plan",
+            )
+        if len(consumers[project_id]) > 1:
+            _fail(
+                f"node {project_id!r}",
+                "a q51 ROWS window Project must not fan out",
+            )
+        if len(windows) > MAX_WINDOW_ROWS_PER_PROJECT:
+            _fail(
+                f"node {project_id!r}.columns",
+                "q51 ROWS window count exceeds the "
+                f"{MAX_WINDOW_ROWS_PER_PROJECT}-leaf Project audit bound",
+            )
+        orders = tuple(window.execution_order for window in windows)
+        if sorted(orders) != list(range(len(windows))):
+            _fail(
+                f"node {project_id!r}.columns",
+                "q51 ROWS window execution_order must be the complete distinct "
+                f"range 0..{len(windows) - 1}",
+            )
+        kinds = {window.kind for window in windows}
+        if "window_rows_sum" in kinds and (
+            len(windows) != 1 or kinds != {"window_rows_sum"}
+        ):
+            _fail(
+                f"node {project_id!r}.columns",
+                "a q51 running SUM Project must contain exactly one window leaf",
+            )
+        if kinds == {"window_rows_sum"}:
+            if windows[0].window_name not in Q51_WINDOW_NAMES[:2]:
+                _fail(
+                    f"node {project_id!r}.columns",
+                    "q51 running SUM names must be canonical windows 0 and 1",
+                )
+        elif tuple(
+            window.window_name
+            for window in sorted(windows, key=lambda item: item.execution_order)
+        ) != Q51_WINDOW_NAMES[2:]:
+            _fail(
+                f"node {project_id!r}.columns",
+                "q51 running MAX orders 0 and 1 must be canonical windows 2 and 3",
+            )
+
+        aggregate = nodes.get(project.input)
+        for window in windows:
+            assert window.window_input is not None
+            assert window.partition_by is not None
+            assert window.order_by is not None
+            if window.kind != "window_rows_sum":
+                continue
+            if not (
+                isinstance(aggregate, Aggregate)
+                and aggregate.phase in {"undefined", "final"}
+                and aggregate.keys
+                and not aggregate.distinct_all
+            ):
+                _fail(
+                    f"node {project_id!r}.input",
+                    "a q51 running SUM Project must directly consume one grouped, "
+                    "logical or final Aggregate",
+                )
+            required_keys = window.partition_by + tuple(
+                item.column for item in window.order_by
+            )
+            if any(column not in aggregate.keys for column in required_keys):
+                _fail(
+                    f"node {project_id!r}.columns",
+                    "q51 running SUM partition and order columns must be direct "
+                    "keys of its Aggregate input",
+                )
+            matching_traits = tuple(
+                trait
+                for trait in aggregate.aggregates
+                if trait.output == window.window_input
+            )
+            if not (
+                len(matching_traits) == 1
+                and matching_traits[0].function == "sum"
+                and not matching_traits[0].distinct
+                and not matching_traits[0].unwrap
+                and matching_traits[0].output_type
+                == WHOLE_PARTITION_DECIMAL_SUM_TYPE
+                and matching_traits[0].output_nullable
+            ):
+                _fail(
+                    f"node {project_id!r}.columns",
+                    "q51 running SUM input must be the direct "
+                    "Optional<Decimal(35,2)> SUM output of its Aggregate input",
+                )
+            if aggregate.phase == "undefined" and schemas[aggregate.input][
+                matching_traits[0].input
+            ].value_type != ValueType(Q51_PRICE_TYPE, True):
+                _fail(
+                    f"node {aggregate.id!r}.aggregates",
+                    "logical q51 running SUM must consume Optional<Decimal(7,2)>",
+                )
+            if consumers[aggregate.id] != [project]:
+                _fail(
+                    f"node {aggregate.id!r}",
+                    "a q51 running SUM Aggregate must have one direct Project "
+                    "consumer and no fanout",
+                )
+            if aggregate.phase == "final":
+                intermediate = nodes.get(aggregate.input)
+                state = matching_traits[0].input
+                if not (
+                    isinstance(intermediate, Aggregate)
+                    and intermediate.phase == "intermediate"
+                    and not intermediate.distinct_all
+                    and intermediate.keys == aggregate.keys
+                ):
+                    _fail(
+                        f"node {aggregate.id!r}.input",
+                        "final q51 running SUM Aggregate must directly consume "
+                        "one matching intermediate Aggregate",
+                    )
+                source_traits = tuple(
+                    trait
+                    for trait in intermediate.aggregates
+                    if (
+                        trait.output == state
+                        and trait.function == "sum"
+                        and not trait.distinct
+                        and not trait.unwrap
+                    )
+                )
+                final_uses = tuple(
+                    trait for trait in aggregate.aggregates if trait.input == state
+                )
+                if not (
+                    len(source_traits) == 1
+                    and len(final_uses) == 1
+                    and schemas[intermediate.id][state].value_type
+                    == ValueType(WHOLE_PARTITION_DECIMAL_SUM_TYPE, True)
+                    and schemas[intermediate.input][source_traits[0].input].value_type
+                    == ValueType(Q51_PRICE_TYPE, True)
+                ):
+                    _fail(
+                        f"node {aggregate.id!r}.aggregates",
+                        "final q51 running SUM must consume exactly one matching "
+                        "Optional<Decimal(35,2)> intermediate SUM state",
+                    )
+                if consumers[intermediate.id] != [aggregate]:
+                    _fail(
+                        f"node {intermediate.id!r}",
+                        "a q51 running SUM intermediate Aggregate must have one "
+                        "direct final Aggregate consumer and no fanout",
+                    )
+
+    max_projects = tuple(
+        nodes[project_id]
+        for project_id, windows in windows_by_project.items()
+        if windows[0].kind == "window_rows_max"
+    )
+    assert len(max_projects) == 1
+    max_project = max_projects[0]
+    assert isinstance(max_project, Project)
+    max_windows = tuple(
+        sorted(
+            windows_by_project[max_project.id],
+            key=lambda window: window.execution_order,
+        )
+    )
+    if (
+        max_windows[0].window_input == max_windows[1].window_input
+        or max_windows[0].partition_by != max_windows[1].partition_by
+        or max_windows[0].order_by != max_windows[1].order_by
+    ):
+        _fail(
+            f"node {max_project.id!r}.columns",
+            "q51 running MAX requires two distinct inputs over one identical "
+            "partition/order specification",
+        )

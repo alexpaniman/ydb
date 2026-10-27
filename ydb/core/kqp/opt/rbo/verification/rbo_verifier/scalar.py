@@ -1,0 +1,1117 @@
+"""Nullable scalar and SQL three-valued Boolean semantics."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Mapping, TypeAlias
+
+from . import decimal, floating, smt, stable_pickle
+from .ir import Expr, ValueType
+from .list_parameters import LIST_TYPES, ListParameter
+from .types import BOOL, DATE, DATE_TIME_BOUNDS, DOUBLE, VOID, family, integer_bounds, integer_width, is_scalar_type
+
+
+DecimalSumState = decimal.DecimalSumState
+
+
+def smt_sort(scalar_type: str) -> str:
+    return smt.BOOL if family(scalar_type) in {"bool", "unit"} else smt.INT
+
+
+def date_domain(value: smt.Term, scalar_type: str = DATE) -> smt.Term:
+    lower, upper = DATE_TIME_BOUNDS[scalar_type]
+    return smt.and_(
+        smt.not_(smt.lt(value, smt.int_value(lower))),
+        smt.lt(value, smt.int_value(upper)),
+    )
+
+
+def integer_domain(value: smt.Term, scalar_type: str) -> smt.Term:
+    bounds = integer_bounds(scalar_type)
+    if bounds is None:
+        raise ValueError(f"not an integer type: {scalar_type!r}")
+    lower, upper = bounds
+    return smt.and_(
+        smt.not_(smt.lt(value, smt.int_value(lower))),
+        smt.lt(value, smt.int_value(upper)),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DecimalAverageState:
+    """Symbolic physical (sum, count) state with conservative proof bounds."""
+
+    sum_type: str
+    sum: smt.Term
+    count: smt.Term
+    finite_abs_bound: int
+    count_bound: int
+
+
+@dataclass(frozen=True, slots=True)
+class IntegralAverageState:
+    """Exact original-Int64 summary carried by one intermediate AVG state."""
+
+    count: smt.Term
+    minimum: smt.Term
+    maximum: smt.Term
+    count_bound: int
+
+
+@dataclass(frozen=True, slots=True)
+class IntegralAverageCertificate:
+    """Node-local cardinality certificate for one completed integral AVG."""
+
+    count: smt.Term
+
+
+AverageMetadata: TypeAlias = (
+    DecimalAverageState
+    | IntegralAverageState
+    | IntegralAverageCertificate
+)
+
+
+def average_metadata_terms(
+    metadata: AverageMetadata,
+) -> tuple[smt.Term, ...]:
+    if isinstance(metadata, DecimalAverageState):
+        return (metadata.sum, metadata.count)
+    if isinstance(metadata, IntegralAverageState):
+        return (metadata.count, metadata.minimum, metadata.maximum)
+    return (metadata.count,)
+
+
+def decimal_sum_state_terms(
+    state: DecimalSumState,
+) -> tuple[smt.Term, ...]:
+    return (
+        state.any_non_null,
+        state.has_nan,
+        state.has_pos_inf,
+        state.has_neg_inf,
+        state.finite_total,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class Value:
+    type: str
+    is_null: smt.Term
+    value: smt.Term
+    # For Decimal values, a known B covers abs(coefficient) for every non-NULL
+    # finite valuation. It intentionally says nothing about specials; None is
+    # an unknown bound.
+    decimal_finite_abs_bound: int | None = None
+    # Tagged hidden intermediate state or node-local completed-AVG proof
+    # metadata. Snapshot validation forbids intermediate state from ordinary
+    # scalar flow; the completed certificate is consumed by a node observer.
+    average_metadata: AverageMetadata | None = None
+    # Proof-only summary of one validated intermediate Decimal SUM. Unlike an
+    # AVG tuple, this is not physical wire state: the ordinary Decimal scalar
+    # remains authoritative and is used whenever the certificate cannot be
+    # transported to its one matching final aggregate.
+    decimal_sum_state: DecimalSumState | None = None
+    # Physical binary64 wire state in explicit floating mode, never proof hints.
+    binary64_state: floating.State | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _OpaqueFunctions:
+    is_null: smt.Function | None
+    value: smt.Function
+
+
+@dataclass(frozen=True, slots=True)
+class _OpaqueApplication:
+    key: tuple[object, ...]
+    sorts: tuple[str, ...]
+    arguments: tuple[smt.Term, ...]
+
+
+class Encoder:
+    def __init__(self, script: smt.Script, *, semantic_mode: str | None = None) -> None:
+        if semantic_mode not in {None, floating.SEMANTIC_MODE}:
+            raise smt.SmtError(f"unknown scalar semantic mode {semantic_mode!r}")
+        self.script = script
+        self.semantic_mode = semantic_mode
+        self.binary64 = floating.Kernel(script) if semantic_mode is not None else None
+        self._opaque: dict[tuple[object, ...], _OpaqueFunctions] = {}
+        self._stable_pickle = stable_pickle.Kernel(script)
+        self._checked_concat_failure: dict[tuple[object, ...], smt.Function] = {}
+        self._integral_average: smt.Function | None = None
+        # Query inputs belong to the database valuation, never to an execution
+        # choice. One encoder is shared by both plans and all stage invocations.
+        self.parameters: dict[str, Value] = {}
+        self.list_parameters: dict[str, ListParameter] = {}
+        self._parameter_types: dict[str, ValueType] = {}
+
+    def register_parameters(self, declarations: Mapping[str, ValueType]) -> None:
+        for name, declared in declarations.items():
+            if not isinstance(name, str) or len(name) < 2 or not name.startswith("$"):
+                raise smt.SmtError("only external SQL parameter names beginning with '$' are modeled")
+            is_list = declared.name in LIST_TYPES
+            if (not (is_scalar_type(declared.name) or is_list)
+                    or type(declared.nullable) is not bool or (is_list and declared.nullable)):
+                raise smt.SmtError("query parameter requires an exact supported type and nullability")
+            previous = self._parameter_types.get(name)
+            if previous is not None:
+                if previous != declared:
+                    raise smt.SmtError(f"query parameter {name!r} has inconsistent declared types")
+                continue
+            if is_list:
+                self.list_parameters[name] = ListParameter.create(self.script, name, declared.name)
+                self._parameter_types[name] = declared
+                continue
+            if declared.name == DOUBLE:
+                raise smt.SmtError("Double query parameters require a separate input-domain audit")
+            is_null = (
+                self.script.fresh_constant(f"parameter:{name}:null", smt.BOOL)
+                if declared.nullable else smt.FALSE
+            )
+            value = self.script.fresh_constant(f"parameter:{name}:value", smt_sort(declared.name))
+            if family(declared.name) == "string":
+                self.script.register_string_term(value)
+            elif declared.name in DATE_TIME_BOUNDS:
+                self.script.assert_global(date_domain(value, declared.name))
+            elif family(declared.name) == "int":
+                self.script.assert_global(integer_domain(value, declared.name))
+            elif decimal.is_type(declared.name):
+                # All legal finite coefficients and +/-Inf/NaN remain possible.
+                self.script.assert_global(decimal.domain(value, declared.name))
+            self.parameters[name] = Value(declared.name, is_null, value)
+            self._parameter_types[name] = declared
+
+    @property
+    def uses_abstract_integral_average(self) -> bool:
+        return self._integral_average is not None
+
+    def integral_integer_average(
+        self,
+        count: smt.Term,
+        minimum: smt.Term,
+        maximum: smt.Term,
+        source_type: str = "Int64",
+    ) -> smt.Term:
+        """Shared carrier, interpreted exactly only after proving count <= 2."""
+
+        if self.binary64 is not None:
+            # The existing domain exclusion still proves count <= 2. Finite
+            # Fixed-width integer casts and their two-term sum cannot overflow binary64; their
+            # runtime sum is independent of the two input/partition orders.
+            lower = self.binary64.from_integer(minimum, source_type)
+            upper = self.binary64.from_integer(maximum, source_type)
+            pair = self.binary64.div(self.binary64.add(lower, upper), floating.literal_bits(0x4000000000000000))
+            return smt.ite(smt.eq(count, smt.ONE), lower.bits, pair.bits)
+        if self._integral_average is None:
+            self._integral_average = self.script.fresh_function(
+                "integral_integer_average_at_most_two",
+                (smt.INT, smt.INT, smt.INT),
+                smt.INT,
+            )
+        return self._integral_average(count, minimum, maximum)
+
+    def evaluate(
+        self,
+        expression: Expr,
+        row: Mapping[str, Value],
+        relational_values: Mapping[Expr, Value] | None = None,
+    ) -> Value:
+        return self._evaluate(expression, row, (), relational_values or {})
+
+    def _evaluate(
+        self,
+        expression: Expr,
+        row: Mapping[str, Value],
+        bindings: tuple[Value, ...],
+        relational_values: Mapping[Expr, Value],
+    ) -> Value:
+        if expression.kind == "column":
+            assert expression.column is not None
+            return row[expression.column]
+
+        if expression.kind == "parameter":
+            assert expression.parameter is not None
+            assert expression.result_type is not None and expression.nullable is not None
+            self.register_parameters({
+                expression.parameter: ValueType(expression.result_type, expression.nullable),
+            })
+            return self.parameters[expression.parameter]
+
+        if expression.kind == "in_parameter":
+            if (expression.parameter is None or expression.parameter_type not in LIST_TYPES
+                    or len(expression.args) != 1 or type(expression.ansi) is not bool):
+                raise smt.SmtError("malformed IN parameter expression")
+            self.register_parameters({expression.parameter: ValueType(expression.parameter_type, False)})
+            lookup = self._evaluate(expression.args[0], row, bindings, relational_values)
+            if lookup.type != "String":
+                raise smt.SmtError("IN parameter lookup must be String")
+            self.script.register_string_term(lookup.value)
+            parameter = self.list_parameters[expression.parameter]
+            is_null, truth = parameter.contains(lookup.is_null, lookup.value, expression.ansi)
+            return Value(BOOL, is_null, truth)
+
+        if expression.kind == "bound":
+            assert expression.depth is not None and 0 <= expression.depth < len(bindings)
+            return bindings[expression.depth]
+
+        if expression.kind == "void":
+            return Value(VOID, smt.FALSE, smt.FALSE)
+
+        if expression.kind == "literal":
+            assert expression.result_type is not None
+            literal = self._literal(expression.result_type, expression.value)
+            finite_abs_bound = None
+            if decimal.is_type(expression.result_type):
+                assert isinstance(expression.value, decimal.Literal)
+                if expression.value.kind == decimal.FINITE:
+                    assert expression.value.scaled is not None
+                    finite_abs_bound = abs(expression.value.scaled)
+                else:
+                    finite_abs_bound = 0
+            return Value(
+                expression.result_type,
+                smt.FALSE,
+                literal,
+                finite_abs_bound,
+            )
+
+        if expression.kind == "null":
+            assert expression.result_type is not None
+            return self.null(expression.result_type)
+
+        if expression.kind in {
+            "window_sum",
+            "window_avg",
+            "window_rank",
+            "window_rows_sum",
+            "window_rows_max",
+        }:
+            try:
+                return relational_values[expression]
+            except KeyError as error:
+                raise AssertionError(
+                    f"{expression.kind} requires its enclosing Project relation"
+                ) from error
+
+        if expression.kind == "not":
+            argument = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            return Value(BOOL, argument.is_null, smt.not_(argument.value))
+
+        if expression.kind == "exists":
+            argument = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            return Value(BOOL, smt.FALSE, smt.not_(argument.is_null))
+
+        if expression.kind in {"and", "or"}:
+            arguments = tuple(
+                self._evaluate(argument, row, bindings, relational_values)
+                for argument in expression.args
+            )
+            return self._and(arguments) if expression.kind == "and" else self._or(arguments)
+
+        if expression.kind == "in":
+            lookup = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            items = tuple(
+                self._evaluate(item, row, bindings, relational_values)
+                for item in expression.args[1:]
+            )
+            comparisons = tuple(
+                Value(
+                    BOOL,
+                    smt.or_(lookup.is_null, item.is_null),
+                    smt.eq(lookup.value, item.value),
+                )
+                for item in items
+            )
+            return self._or(comparisons)
+
+        if expression.kind in {"eq", "lt", "lte", "gt", "gte"}:
+            left = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            right = self._evaluate(
+                expression.args[1], row, bindings, relational_values
+            )
+            return self._comparison(
+                expression.kind,
+                left,
+                right,
+                null_safe=expression.kind == "eq" and expression.null_safe,
+            )
+
+        if expression.kind in {"add", "sub", "mul", "div"}:
+            assert expression.result_type is not None
+            left = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            right = self._evaluate(
+                expression.args[1], row, bindings, relational_values
+            )
+            operand_is_null = smt.or_(left.is_null, right.is_null)
+            if expression.result_type == DOUBLE:
+                if self.binary64 is None:
+                    raise smt.SmtError("floating arithmetic requires explicit binary64 semantic mode")
+                value = getattr(self.binary64, expression.kind)(self._binary64_value(left), self._binary64_value(right))
+                return Value(DOUBLE, operand_is_null, value.bits)
+            if decimal.is_type(expression.result_type):
+                if expression.kind == "add":
+                    value = decimal.add(left.value, right.value, expression.result_type)
+                elif expression.kind == "sub":
+                    value = decimal.subtract(left.value, right.value, expression.result_type)
+                elif expression.kind == "mul":
+                    value = decimal.multiply(
+                        left.value,
+                        right.value,
+                        expression.result_type,
+                        right.type,
+                    )
+                else:
+                    assert expression.kind == "div"
+                    value = decimal.divide(
+                        left.value,
+                        right.value,
+                        expression.result_type,
+                        right.type,
+                    )
+                if expression.kind in {"add", "sub"}:
+                    finite_abs_bound = _decimal_additive_finite_abs_bound(
+                        left,
+                        right,
+                        expression.result_type,
+                    )
+                else:
+                    finite_abs_bound = _decimal_integral_arithmetic_finite_abs_bound(
+                        expression.kind,
+                        left,
+                        right,
+                        expression.result_type,
+                    )
+                return Value(
+                    expression.result_type,
+                    operand_is_null,
+                    value,
+                    finite_abs_bound,
+                )
+            if expression.kind == "div":
+                value, arithmetic_is_null = _divide_integer(
+                    smt.ite(left.is_null, smt.ZERO, left.value),
+                    smt.ite(right.is_null, smt.ZERO, right.value),
+                    expression.result_type,
+                )
+                is_null = smt.or_(operand_is_null, arithmetic_is_null)
+                return Value(
+                    expression.result_type,
+                    is_null,
+                    smt.ite(is_null, smt.ZERO, value),
+                )
+            if expression.kind == "add":
+                raw = smt.add(left.value, right.value)
+            elif expression.kind == "sub":
+                raw = smt.sub(left.value, right.value)
+            elif expression.kind == "mul":
+                raw = smt.mul(left.value, right.value)
+            else:
+                raise AssertionError(f"unknown integer arithmetic kind {expression.kind!r}")
+            return Value(
+                expression.result_type,
+                operand_is_null,
+                _wrap_integer(raw, expression.result_type),
+            )
+
+        if expression.kind in {"cast_double", "sqrt_double", "is_nan_double"}:
+            if self.binary64 is None:
+                raise smt.SmtError("floating scalar requires explicit binary64 semantic mode")
+            argument = self._evaluate(expression.args[0], row, bindings, relational_values)
+            if expression.kind == "cast_double":
+                value = self.binary64.from_integer(argument.value, argument.type)
+            elif expression.kind == "sqrt_double":
+                value = self.binary64.sqrt(self._binary64_value(argument))
+            else:
+                return Value(BOOL, argument.is_null, floating.is_nan(self._binary64_value(argument)))
+            return Value(DOUBLE, argument.is_null, value.bits)
+
+        if expression.kind == "decimal_abs":
+            assert expression.result_type is not None
+            argument = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            assert argument.type == expression.result_type
+            return Value(
+                expression.result_type,
+                argument.is_null,
+                decimal.absolute(argument.value),
+                argument.decimal_finite_abs_bound,
+            )
+
+        if expression.kind == "cast_decimal":
+            assert expression.result_type is not None
+            argument = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            if family(argument.type) == "int":
+                value = decimal.cast_integral(
+                    argument.value,
+                    argument.type,
+                    expression.result_type,
+                )
+                finite_abs_bound = _integral_decimal_cast_finite_abs_bound(
+                    argument.type,
+                    expression.result_type,
+                )
+            else:
+                value = decimal.cast_decimal(
+                    argument.value,
+                    argument.type,
+                    expression.result_type,
+                )
+                finite_abs_bound = _decimal_cast_finite_abs_bound(
+                    argument,
+                    expression.result_type,
+                )
+            return Value(
+                expression.result_type,
+                argument.is_null,
+                value,
+                finite_abs_bound,
+            )
+
+        if expression.kind == "cast_integral":
+            assert expression.result_type is not None and expression.nullable is True
+            argument = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            assert family(argument.type) == "int"
+            in_range = integer_domain(argument.value, expression.result_type)
+            is_null = smt.or_(argument.is_null, smt.not_(in_range))
+            return Value(
+                expression.result_type,
+                is_null,
+                smt.ite(is_null, _default(expression.result_type), argument.value),
+            )
+
+        if expression.kind == "if":
+            assert expression.result_type is not None
+            condition = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            then = self._evaluate(
+                expression.args[1], row, bindings, relational_values
+            )
+            otherwise = self._evaluate(
+                expression.args[2], row, bindings, relational_values
+            )
+            assert condition.type == BOOL
+            assert then.type == otherwise.type == expression.result_type
+            if then.binary64_state is not None or otherwise.binary64_state is not None:
+                raise smt.SmtError("scalar If cannot consume binary64 physical state")
+            bound = (
+                _selected_decimal_finite_abs_bound(then, otherwise)
+                if decimal.is_type(expression.result_type)
+                else None
+            )
+            # MiniKQL propagates a NULL optional condition without selecting a
+            # branch.  Both branch terms are nevertheless safe to build because
+            # the closed-world exporter admits only deterministic, total trees.
+            return Value(
+                expression.result_type,
+                smt.or_(
+                    condition.is_null,
+                    smt.ite(condition.value, then.is_null, otherwise.is_null),
+                ),
+                smt.ite(condition.value, then.value, otherwise.value),
+                bound,
+            )
+
+        if expression.kind == "if_present":
+            assert expression.result_type is not None
+            optional = self._evaluate(
+                expression.args[0], row, bindings, relational_values
+            )
+            if optional.binary64_state is not None:
+                raise smt.SmtError("scalar IfPresent cannot consume binary64 physical state")
+            present_expression = expression.args[1]
+            missing_expression = expression.args[2]
+            if (
+                expression.result_type == BOOL
+                and expression.nullable is False
+                and present_expression.kind == "bound"
+                and present_expression.depth == 0
+                and missing_expression.kind == "literal"
+                and missing_expression.result_type == BOOL
+                and missing_expression.nullable is False
+                and type(missing_expression.value) is bool
+            ):
+                assert optional.type == BOOL
+                value = (
+                    smt.or_(optional.is_null, optional.value)
+                    if missing_expression.value
+                    else smt.and_(
+                        smt.not_(optional.is_null),
+                        optional.value,
+                    )
+                )
+                return Value(BOOL, smt.FALSE, value)
+
+            payload = Value(
+                optional.type,
+                smt.FALSE,
+                optional.value,
+                optional.decimal_finite_abs_bound,
+            )
+            present = self._evaluate(
+                present_expression,
+                row,
+                (payload, *bindings),
+                relational_values,
+            )
+            missing = self._evaluate(
+                missing_expression, row, bindings, relational_values
+            )
+            assert present.type == missing.type == expression.result_type
+            if present.binary64_state is not None or missing.binary64_state is not None:
+                raise smt.SmtError("scalar IfPresent cannot return binary64 physical state")
+            bound = (
+                _selected_decimal_finite_abs_bound(present, missing)
+                if decimal.is_type(expression.result_type)
+                else None
+            )
+            # The result is exactly one already-typed branch value.  Its domain
+            # constraints and String rank therefore come from the branches;
+            # registering the derived ite would only enlarge the String quotient.
+            return Value(
+                expression.result_type,
+                smt.ite(optional.is_null, missing.is_null, present.is_null),
+                smt.ite(optional.is_null, missing.value, present.value),
+                bound,
+            )
+
+        if expression.kind == "stable_pickle":
+            argument = self._evaluate(expression.args[0], row, bindings, relational_values)
+            if argument.type != expression.source_type:
+                raise smt.SmtError("StablePickle source type disagrees with its argument")
+            return Value("String", smt.FALSE, self._stable_pickle.encode(
+                argument.type, argument.is_null, argument.value))
+
+        if expression.kind in {"opaque", "opaque_double", "checked_concat"}:
+            return self._evaluate_opaque(
+                expression,
+                row,
+                bindings,
+                relational_values,
+            )
+
+        raise AssertionError(f"unknown expression kind {expression.kind!r}")
+
+    def null(self, scalar_type: str) -> Value:
+        return Value(
+            scalar_type,
+            smt.TRUE,
+            _default(scalar_type),
+            0 if decimal.is_type(scalar_type) else None,
+        )
+
+    @staticmethod
+    def is_true(value: Value) -> smt.Term:
+        assert value.type == BOOL
+        return smt.and_(smt.not_(value.is_null), value.value)
+
+    def equal(self, left: Value, right: Value) -> Value:
+        """Return ordinary SQL equality for two validated-compatible values."""
+
+        return self._comparison("eq", left, right, null_safe=False)
+
+    @staticmethod
+    def aggregate_equal(left: Value, right: Value) -> smt.Term:
+        """Return MiniKQL aggregate equality for two non-NULL values.
+
+        Aggregate de-duplication compares the underlying value codes.  This
+        differs from ordinary Decimal equality only for NaN, whose raw code is
+        equal to itself even though SQL equality reports false.
+        """
+
+        assert left.type == right.type
+        return smt.eq(left.value, right.value)
+
+    @staticmethod
+    def not_distinct(left: Value, right: Value) -> smt.Term:
+        assert left.type == right.type
+        return smt.or_(
+            smt.and_(left.is_null, right.is_null),
+            smt.and_(smt.not_(left.is_null), smt.not_(right.is_null), smt.eq(left.value, right.value)),
+        )
+
+    def _evaluate_opaque(
+        self,
+        expression: Expr,
+        row: Mapping[str, Value],
+        bindings: tuple[Value, ...],
+        relational_values: Mapping[Expr, Value],
+    ) -> Value:
+        application = self._opaque_application(
+            expression,
+            row,
+            bindings,
+            relational_values,
+        )
+        assert expression.fingerprint is not None
+        assert expression.result_type is not None
+        assert expression.nullable is not None
+        functions = self._opaque.get(application.key)
+        if functions is None:
+            functions = _OpaqueFunctions(
+                is_null=(
+                    self.script.fresh_function(
+                        f"opaque_null:{expression.fingerprint}",
+                        application.sorts,
+                        smt.BOOL,
+                    )
+                    if expression.nullable
+                    else None
+                ),
+                value=self.script.fresh_function(
+                    f"opaque_value:{expression.fingerprint}",
+                    application.sorts,
+                    smt_sort(expression.result_type),
+                ),
+            )
+            self._opaque[application.key] = functions
+        result = Value(
+            expression.result_type,
+            (
+                functions.is_null(*application.arguments)
+                if functions.is_null is not None
+                else smt.FALSE
+            ),
+            functions.value(*application.arguments),
+        )
+        if family(result.type) == "string":
+            self.script.register_string_term(result.value)
+        elif result.type in DATE_TIME_BOUNDS:
+            self.script.assert_choice_invariant(
+                smt.or_(result.is_null, date_domain(result.value, result.type))
+            )
+        elif family(result.type) == "int":
+            self.script.assert_choice_invariant(
+                smt.or_(result.is_null, integer_domain(result.value, result.type))
+            )
+        elif decimal.is_type(result.type):
+            self.script.assert_choice_invariant(
+                smt.or_(result.is_null, decimal.domain(result.value, result.type))
+            )
+        elif family(result.type) == "carrier":
+            # A passive Double is an uninterpreted identity token.  No
+            # arithmetic or ordering domain is attached to its SMT integer.
+            if self.binary64 is not None:
+                self.binary64.from_bits(result.value)
+        return result
+
+    def checked_concat_failure(
+        self,
+        expression: Expr,
+        row: Mapping[str, Value],
+    ) -> smt.Term:
+        """Return the shared arbitrary failure predicate for one audited Concat."""
+
+        assert expression.kind == "checked_concat"
+        assert expression.fingerprint is not None
+        assert expression.result_type in {"String", "Utf8"}
+        assert expression.nullable is False
+        application = self._opaque_application(expression, row, (), {})
+        function = self._checked_concat_failure.get(application.key)
+        if function is None:
+            function = self.script.fresh_function(
+                f"checked_concat_failure:{expression.fingerprint}",
+                application.sorts,
+                smt.BOOL,
+            )
+            self._checked_concat_failure[application.key] = function
+        return function(*application.arguments)
+
+    def _opaque_application(
+        self,
+        expression: Expr,
+        row: Mapping[str, Value],
+        bindings: tuple[Value, ...],
+        relational_values: Mapping[Expr, Value],
+    ) -> _OpaqueApplication:
+        """Canonical shared identity and arguments for every opaque UF."""
+
+        assert expression.fingerprint is not None
+        assert expression.result_type is not None
+        assert expression.nullable is not None
+        arguments = tuple(
+            self._evaluate(argument, row, bindings, relational_values)
+            for argument in expression.args
+        )
+        return _OpaqueApplication(
+            key=(
+                expression.fingerprint,
+                expression.result_type,
+                expression.nullable,
+                tuple(argument.type for argument in arguments),
+            ),
+            sorts=tuple(
+                sort
+                for argument in arguments
+                for sort in (smt.BOOL, smt_sort(argument.type))
+            ),
+            arguments=tuple(
+                term
+                for argument in arguments
+                for term in (
+                    argument.is_null,
+                    smt.ite(
+                        argument.is_null,
+                        _default(argument.type),
+                        argument.value,
+                    ),
+                )
+            ),
+        )
+
+    def _literal(
+        self,
+        scalar_type: str,
+        value: bool | int | str | decimal.Literal | None,
+    ) -> smt.Term:
+        if scalar_type == DOUBLE:
+            if self.binary64 is None:
+                raise smt.SmtError("Double literal requires explicit binary64 semantic mode")
+            return floating.literal_bits(value).bits
+        if family(scalar_type) == "string":
+            assert isinstance(value, str)
+            return self.script.string_atom(value)
+        if decimal.is_type(scalar_type):
+            assert isinstance(value, decimal.Literal)
+            return smt.int_value(decimal.literal_code(value, scalar_type))
+        return _literal(scalar_type, value)
+
+    def _comparison(
+        self,
+        kind: str,
+        left: Value,
+        right: Value,
+        null_safe: bool,
+    ) -> Value:
+        if self.binary64 is not None and DOUBLE in {left.type, right.type}:
+            if null_safe:
+                raise smt.SmtError("null-safe binary64 scalar comparison is not admitted")
+            lhs, rhs = self._binary64_value(left), self._binary64_value(right)
+            equal = floating.equal(lhs, rhs)
+            if kind == "eq":
+                compared = equal
+            elif kind in {"lt", "lte"}:
+                compared = floating.less(lhs, rhs)
+            else:
+                compared = floating.less(rhs, lhs)
+            if kind in {"lte", "gte"}:
+                compared = smt.or_(equal, compared)
+            return Value(BOOL, smt.or_(left.is_null, right.is_null), compared)
+        decimal_operands = decimal.is_type(left.type) or decimal.is_type(right.type)
+        left_value, right_value = (
+            decimal.align(left.value, left.type, right.value, right.type)
+            if decimal_operands
+            else (left.value, right.value)
+        )
+        known_equality = (
+            self.script.known_string_atom_equality(left_value, right_value)
+            if (
+                kind == "eq"
+                and family(left.type) == "string"
+                and family(right.type) == "string"
+            )
+            else None
+        )
+
+        if null_safe:
+            value_equality = (
+                known_equality
+                if known_equality is not None
+                else smt.eq(left_value, right_value)
+            )
+            return Value(
+                BOOL,
+                smt.FALSE,
+                smt.or_(
+                    smt.and_(left.is_null, right.is_null),
+                    smt.and_(
+                        smt.not_(left.is_null),
+                        smt.not_(right.is_null),
+                        value_equality,
+                    ),
+                ),
+            )
+
+        if decimal_operands:
+            comparison = decimal.compare(kind, left_value, right_value)
+        elif kind == "eq":
+            comparison = (
+                known_equality
+                if known_equality is not None
+                else smt.eq(left_value, right_value)
+            )
+        elif kind == "lt":
+            comparison = smt.lt(left_value, right_value)
+        elif kind == "lte":
+            comparison = smt.not_(smt.lt(right_value, left_value))
+        elif kind == "gt":
+            comparison = smt.lt(right_value, left_value)
+        else:
+            assert kind == "gte"
+            comparison = smt.not_(smt.lt(left_value, right_value))
+        return Value(BOOL, smt.or_(left.is_null, right.is_null), comparison)
+
+    def _binary64_value(self, value: Value) -> floating.Binary64:
+        if self.binary64 is None or value.type != DOUBLE:
+            raise smt.SmtError("binary64 operation requires Double in explicit floating mode")
+        if value.binary64_state is not None or isinstance(value.average_metadata, (DecimalAverageState, IntegralAverageState)):
+            raise smt.SmtError("binary64 scalar operation cannot consume physical aggregate state")
+        # In this mode every admitted Double producer establishes bit bounds;
+        # selection and transport preserve them. Only external opaque producers
+        # need from_bits admission, not every subsequent scalar read of a DAG.
+        return floating.Binary64(value.value)
+
+    @staticmethod
+    def _and(arguments: tuple[Value, ...]) -> Value:
+        false = smt.or_(
+            *(smt.and_(smt.not_(argument.is_null), smt.not_(argument.value)) for argument in arguments)
+        )
+        true = smt.and_(
+            *(smt.and_(smt.not_(argument.is_null), argument.value) for argument in arguments)
+        )
+        return Value(BOOL, smt.not_(smt.or_(false, true)), true)
+
+    @staticmethod
+    def _or(arguments: tuple[Value, ...]) -> Value:
+        true = smt.or_(
+            *(smt.and_(smt.not_(argument.is_null), argument.value) for argument in arguments)
+        )
+        false = smt.and_(
+            *(smt.and_(smt.not_(argument.is_null), smt.not_(argument.value)) for argument in arguments)
+        )
+        return Value(BOOL, smt.not_(smt.or_(true, false)), true)
+
+
+def _literal(scalar_type: str, value: bool | int | str | None) -> smt.Term:
+    scalar_family = family(scalar_type)
+    if scalar_family == "bool":
+        assert isinstance(value, bool)
+        return smt.bool_value(value)
+    if scalar_family in {"int", "date"}:
+        assert isinstance(value, int) and not isinstance(value, bool)
+        return smt.int_value(value)
+    raise AssertionError(f"unknown scalar type {scalar_type!r}")
+
+
+def _default(scalar_type: str) -> smt.Term:
+    scalar_family = family(scalar_type)
+    if scalar_family == "bool":
+        return smt.FALSE
+    if scalar_family in {"int", "date"}:
+        return smt.ZERO
+    if scalar_family in {"string", "atom"}:
+        return smt.ZERO
+    if scalar_family == "carrier":
+        return smt.ZERO
+    if scalar_family == "unit":
+        return smt.FALSE
+    raise AssertionError(f"unknown scalar type {scalar_type!r}")
+
+
+def _selected_decimal_finite_abs_bound(
+    present: Value,
+    missing: Value,
+) -> int | None:
+    """Conservatively bound either branch when both bounds are known."""
+
+    if (
+        present.decimal_finite_abs_bound is None
+        or missing.decimal_finite_abs_bound is None
+    ):
+        return None
+    return max(
+        present.decimal_finite_abs_bound,
+        missing.decimal_finite_abs_bound,
+    )
+
+
+def _decimal_additive_finite_abs_bound(
+    left: Value,
+    right: Value,
+    result_type: str,
+) -> int | None:
+    """Bound every finite Decimal add/sub result from bounded operands."""
+
+    if (
+        left.decimal_finite_abs_bound is None
+        or right.decimal_finite_abs_bound is None
+    ):
+        return None
+    decimal_type = decimal.parse_type(result_type)
+    assert decimal_type is not None
+    return min(
+        10**decimal_type.precision - 1,
+        left.decimal_finite_abs_bound + right.decimal_finite_abs_bound,
+    )
+
+
+def _decimal_integral_arithmetic_finite_abs_bound(
+    kind: str,
+    left: Value,
+    right: Value,
+    result_type: str,
+) -> int | None:
+    """Bound finite Decimal products and quotients with an integral right side."""
+
+    if left.decimal_finite_abs_bound is None or family(right.type) != "int":
+        return None
+    if kind == "div":
+        # Every nonzero integral divisor has absolute value at least one.
+        # Rounded division therefore cannot increase the coefficient's
+        # magnitude.  A zero divisor and a special left operand produce only
+        # Decimal specials, outside the finite-bound contract.
+        return left.decimal_finite_abs_bound
+
+    assert kind == "mul"
+    right_bounds = integer_bounds(right.type)
+    decimal_type = decimal.parse_type(result_type)
+    assert right_bounds is not None and decimal_type is not None
+    right_lower, right_upper = right_bounds
+    right_abs_bound = max(abs(right_lower), abs(right_upper - 1))
+    return min(
+        10**decimal_type.precision - 1,
+        left.decimal_finite_abs_bound * right_abs_bound,
+    )
+
+
+def _integral_decimal_cast_finite_abs_bound(
+    source_type: str,
+    result_type: str,
+) -> int:
+    """Return the tight finite bound for a saturating integral Decimal cast."""
+
+    source_bounds = integer_bounds(source_type)
+    decimal_type = decimal.parse_type(result_type)
+    assert source_bounds is not None and decimal_type is not None
+    source_lower, source_upper = source_bounds
+    source_abs_bound = max(abs(source_lower), abs(source_upper - 1))
+    scale = 10**decimal_type.scale
+    max_finite_coefficient = 10**decimal_type.precision - 1
+    max_finite_source = max_finite_coefficient // scale
+    return min(source_abs_bound, max_finite_source) * scale
+
+
+def _decimal_cast_finite_abs_bound(
+    argument: Value,
+    result_type: str,
+) -> int:
+    """Return the exact finite-result bound for an admitted Decimal cast."""
+
+    source = decimal.parse_type(argument.type)
+    result = decimal.parse_type(result_type)
+    assert source is not None and result is not None
+    source_bound = (
+        argument.decimal_finite_abs_bound
+        if argument.decimal_finite_abs_bound is not None
+        else 10**source.precision - 1
+    )
+    if result.integral_digits < source.integral_digits and result.scale != source.scale:
+        # Match the runtime's source-scale narrowing before any rescaling.
+        precision = result.integral_digits + source.scale
+        source_bound = min(source_bound, 10**precision - 1)
+    if source.scale < result.scale:
+        source_bound *= 10**(result.scale - source.scale)
+    elif source.scale > result.scale:
+        divisor = 10**(source.scale - result.scale)
+        quotient, remainder = divmod(source_bound, divisor)
+        source_bound = quotient + int(
+            2 * remainder > divisor
+            or (2 * remainder == divisor and quotient % 2 == 1)
+        )
+    return min(source_bound, 10**result.precision - 1)
+
+
+def _wrap_integer(value: smt.Term, scalar_type: str) -> smt.Term:
+    """Return the canonical value after fixed-width two's-complement wrap."""
+
+    width = integer_width(scalar_type)
+    assert width is not None
+    modulus = 1 << width
+    if scalar_type.startswith("Uint"):
+        return smt.mod(value, modulus)
+    sign = 1 << (width - 1)
+    return smt.sub(
+        smt.mod(smt.add(value, smt.int_value(sign)), modulus),
+        smt.int_value(sign),
+    )
+
+
+def _divide_integer(
+    left: smt.Term,
+    right: smt.Term,
+    scalar_type: str,
+) -> tuple[smt.Term, smt.Term]:
+    """MiniKQL fixed-width integral division with an explicit NULL guard.
+
+    SMT integer ``div`` rounds negative quotients toward minus infinity, while
+    C++ and MiniKQL truncate toward zero. Divide nonnegative magnitudes using
+    the narrow trusted primitive, then restore the sign. Replacing an invalid
+    zero denominator by one prevents SMT's totalized zero-division value from
+    leaking into any observable branch. Callers canonicalize NULL payloads to
+    zero; snapshot domain constraints bound every remaining present operand.
+    """
+
+    bounds = integer_bounds(scalar_type)
+    assert bounds is not None
+    signed = scalar_type.startswith("Int")
+    right_is_zero = smt.eq(right, smt.ZERO)
+    overflow = (
+        smt.and_(
+            smt.eq(left, smt.int_value(bounds[0])),
+            smt.eq(right, smt.int_value(-1)),
+        )
+        if signed
+        else smt.FALSE
+    )
+
+    if signed:
+        left_negative = smt.lt(left, smt.ZERO)
+        right_negative = smt.lt(right, smt.ZERO)
+        left_magnitude = smt.ite(
+            left_negative,
+            smt.sub(smt.ZERO, left),
+            left,
+        )
+        right_magnitude = smt.ite(
+            right_negative,
+            smt.sub(smt.ZERO, right),
+            right,
+        )
+    else:
+        left_negative = smt.FALSE
+        right_negative = smt.FALSE
+        left_magnitude = left
+        right_magnitude = right
+
+    safe_denominator = smt.ite(
+        right_is_zero,
+        smt.ONE,
+        right_magnitude,
+    )
+    magnitude = smt.div_nonnegative_by_positive(
+        left_magnitude,
+        safe_denominator,
+    )
+    negative = smt.not_(smt.eq(left_negative, right_negative))
+    quotient = smt.ite(
+        negative,
+        smt.sub(smt.ZERO, magnitude),
+        magnitude,
+    )
+    return quotient, smt.or_(right_is_zero, overflow)

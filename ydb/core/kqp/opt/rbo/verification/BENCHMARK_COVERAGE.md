@@ -1,0 +1,341 @@
+# Current TPCH/TPC-DS coverage runbook
+
+Formula construction measures reach, not equivalence. Preparation success,
+exact capture, verifier entry, formula construction, and bounded proof are
+different facts. [coverage_policy.json](benchmark_ut/coverage_policy.json) is
+the authoritative checked-in floor; the table below is generated from it, not
+a newly measured corpus run.
+
+<!-- coverage-policy:start -->
+| Suite | Corpus | Prepare | Exact pair | Explicit entry | Formula | Proof |
+|---|---:|---:|---:|---:|---:|---:|
+| TPCH_YQL | 22 | 22 | 22 | 3 | 22 | 16 |
+| TPCDS_YQL | 99 | 98 | 99 | 8 | 99 | 34 |
+| Total | 121 | 120 | 121 | 11 | 121 | 50 |
+<!-- coverage-policy:end -->
+
+The exact-pair floor is the union of supplemental pair, verifier-entry, and
+formula requirements. Proof requirements are a subset of formula requirements.
+Preparation is orthogonal: an exact pre-physical pair can remain auditable after
+later physical preparation fails. Supplemental pair lists are currently empty.
+The explicit entry column is not the total number of formula/proof queries
+that necessarily pass through the verifier.
+
+Render the replacement table with `python3 benchmark_ut/render_policy.py` from
+this directory; use `--check` to check this document without writing it.
+
+## Additional analytical corpora
+
+`ClickBenchExploratory` runs the repository's 43 YQL adaptations of
+[ClickBench](https://github.com/ClickHouse/ClickBench).
+`JoinOrderBenchmarkExploratory` runs all 113 queries from the
+[Join Order Benchmark distribution](https://github.com/gregrahn/join-order-benchmark),
+revision `a39603662e023e449cb2121997a5034df9e02ebf`, accompanying
+[How Good Are Query Optimizers, Really?](https://www.vldb.org/pvldb/vol9/p204-leis.pdf).
+These suites use the same real-host initial/final captures and bounded checker.
+They have no coverage floors and do not relax the TPCH/TPCDS policy.
+
+The JOB corpus is reproducibly adapted by `benchmark_ut/adapt_job.py`.
+Its `corpora/job/source.json` records original filenames, source and adapted
+SHA-256 hashes, and schema changes. Projections and predicates are preserved;
+table paths and the comma-join pragma are changed for YQL. Text uses YDB's UTF-8
+byte ordering, and varchar length restrictions are not modeled. No IMDb data is
+included. These are dialect adaptations, not benchmark performance measurements.
+
+Use `RBO_COVERAGE_QUERIES` to select manageable batches and
+`RBO_COVERAGE_USE_SOLVER=1` for proof attempts. Keep preparation, export,
+construction and proof results separate in the generated reports.
+
+The [archived measurements and findings](history/pre-audit-refactor/BENCHMARK_COVERAGE.md)
+retain all earlier corpus inventories, focused solver results, artifacts,
+commit references, and corrected/superseded checkpoints. They are historical
+evidence, not results of the current working tree.
+
+## Rebased corpus measurement (2026-10-19)
+
+The SMT branch is based on fetched main `6ceb698dd99a525fc885121dfdbcad9deca11974`.
+The complete formula census at `4e7f9c024ddf` and the fixed 50-query proof run
+at `0e7c1886047d` give the following comparison against the rebased baseline
+`2f53bf4498b0`:
+
+| Measure | Rebased baseline | After admission and construction changes |
+|---|---:|---:|
+| TPCH whole-query formulas | 15/22 | 15/22 |
+| TPCDS whole-query formulas | 30/99 | 48/99 |
+| Total formulas | 45/121 | 63/121 |
+| TPCH pinned bounded proofs | 10/16 | 10/16 |
+| TPCDS pinned bounded proofs | 14/34 | 22/34 |
+| Total pinned bounded proofs | 24/50 | 32/50 |
+
+The remaining census results are one UNKNOWN, 50 UNSUPPORTED and seven
+OPTIMIZER_FAILURE. The proof run has four UNKNOWN and 14 UNSUPPORTED, and
+preserves every baseline proof. Its UNKNOWN cases are TPCH q15 and TPCDS
+q43, q50 and q76; the construction UNKNOWN is TPCDS q17.
+
+All 22 TPCH queries and 92/99 TPCDS queries prepare. The seven TPCDS failures
+are q14, q24, q39, q44, q47, q57 and q70. The query-mode diagnostic confirms
+that all seven prepare as generic queries with `_KqpEnableSpilling=true`;
+both default data-query and default generic-query settings fail. The pinned
+corpus configuration was retained. This diagnostic is not a wrong-result finding.
+
+The policy gates still fail: the required 121 formulas and 50 proofs have not
+been restored. Unsupported cases include GroupingSets, StablePickle,
+compiled LIKE/text and Date wrappers, and additional window shapes. There
+were no counterexamples in the fixed proof run. `UNKNOWN` remains unproved;
+formula construction is not proof. The bounds remain two rows per table and
+two tasks, with 60 seconds of solver time per query.
+
+The eight new pinned proofs are TPCDS q15, q34, q46, q48, q68, q69, q73 and q97.
+All eight re-proved in the optional nonempty-output sweep. Seven have modeled
+successful nonempty executions on both boundaries; q34 is UNSAT on both at two
+rows per table. Its proof therefore does not exercise nonempty output at this
+bound. SAT is modeled reachability, not runtime replay or exhaustive branch
+coverage. Receipts and input/tool hashes are in
+`/tmp/rbo-main-audit-20261019/new-proof-nonempty-4e7f9c024dd`; peak RSS was 0.13 GiB.
+
+The first refreshed census used a 60-second construction ceiling and emitted
+60 formulas, but TPCDS q2 timed out on the same snapshots that previously
+completed in about 53 seconds. The final census uses 120 seconds for construction
+and rendering. q2 completed in 43.9 seconds, q4 in 80.3 seconds, and q64
+in 119.2 seconds; q64 remains close to the ceiling and timing-sensitive.
+Memory limits are unchanged. The proof run used the stricter
+60-second construction ceiling; the subsequent change affects only the benchmark
+construction allowance and its documentation, with verifier semantics and the
+proof policy unchanged. The source binding is recorded in
+`/tmp/rbo-main-audit-20261019/final-source-binding.json`.
+
+Reports, input/source hashes and available verdict artifacts are archived locally:
+
+- `/tmp/rbo-main-audit-20261019/census-4e7f9c024ddf-20261019T185443Z`
+- `/tmp/rbo-main-audit-20261019/proof-floor-0e7c1886047d-20261019T184213Z`
+- `/tmp/rbo-main-audit-20261019/census-0e7c1886047d-20261019T183441Z`
+
+These are dated measurements, not replacements for the checked-in coverage policy.
+
+## Initial complete measurement (2026-09-06)
+
+A fresh formula-only census covered the complete corrected corpus: TPCH
+22/22 and TPCDS 99/99 emitted whole-query formulas. Separately, all 47 pinned
+proofs passed at two rows per table, two tasks, and 60 seconds per query.
+This raised the formula floor from 102 to 121, with a proof floor of 47.
+
+The corpus includes three approved source corrections: explicit output aliases
+and a Decimal-typed comparison literal in TPCDS q47/q57, and a Decimal-typed
+zero in q67's `Coalesce`. These fix type-checking errors; joins, grouping,
+windows and row limits are unchanged. All three prepare and emit formulas.
+q51 is the only remaining physical-preparation failure; it still emits an
+auditable pre-physical formula. Formula coverage does not establish executability.
+
+TPCH ran as one complete suite; four disjoint TPCDS batches covered exactly
+1..99. Source, query and tool hashes were unchanged across the census. The local
+`/tmp/rbo-complete-corpus-twrb4n/receipt.json` indexes the reports and the
+companion `inputs.json` records their source/tool baseline. These are local
+receipts, not checked-in artifacts. The largest construction costs were q17
+at 321 seconds and q39 at 941 seconds; q39 compares both result
+slots jointly, not as separate proofs. Neither timing is a proof result.
+
+## Proof usefulness and construction audit (2026-09-06)
+
+A complete solver census on the frozen `6abc462dc40` baseline measured
+**51 `VERIFIED_BOUNDED`, 69 `UNKNOWN`, and one `COUNTEREXAMPLE` candidate**
+(TPCDS q40, not runtime-confirmed), at two rows, two tasks, and 60 seconds.
+The receipt selects exactly 121 artifact-complete results; 28 infrastructure-
+affected captures were repaired, without selectively retrying solver outcomes.
+Reports, source/tool/input hashes, and the original failed captures are retained
+under `/tmp/rbo-proof-depth-1FnuVM/repaired-census-receipt.json`.
+
+TPCH q20 and TPCDS q23/q46 also proved on source replays and are newly pinned,
+raising the proof floor to 50. q23 proves its complete result bundle jointly.
+All three have modeled successful nonempty executions on both sides. q91
+proved in the census but timed out on repeat with identical canonical bytes;
+it is measured coverage, not a new mandatory proof. These promotions record
+existing capability, not newly enabled semantics. The final native gate proved
+all 50 pinned queries; `/tmp/rbo-proof-depth-1FnuVM/promoted-floor-receipt.json`
+binds the final source, policy, reports and checked artifact hashes.
+
+An optional nonempty-output sweep of the previous 47 pinned pairs found modeled
+successful nonempty executions on both sides for 45 queries. TPCDS q8 and q34
+returned `UNSAT` on both sides: their count thresholds cannot be reached at
+two rows per table. This is not exhaustive branch coverage or runtime replay.
+The same source-CLI sweep re-proved 46 pairs; q50 returned `UNKNOWN` at 60
+seconds despite its earlier proof. A subsequent native proof-floor run proved
+all 47, including q50 in 44.920 seconds with identical canonical bytes; retain
+both outcomes as evidence of proof-budget sensitivity.
+Raw per-query receipts are local `/tmp/rbo-proof-depth-1FnuVM/proof-depth/`.
+
+After the changes below, a formula-only replay on the final source again
+emitted **121/121 formulas**, with 76 byte-identical and 45 changed relative to
+the exact census inputs. This is not a second full solver census. Source and
+input hashes are cross-bound in `/tmp/rbo-final-formula-Qkud4F/receipt.json`
+and its `binding-receipt.json`. q39 still costs 702 seconds to build/render and
+produces a 1.176 GB formula, slightly larger (+0.029%); scaling is not solved.
+
+A frozen-source q17 comparison measured the following construction costs;
+these are single paired measurements, not solver results or timing gates:
+
+| Metric | Before | After |
+|---|---:|---:|
+| Build + render | 206.50 s | 188.83 s |
+| Peak RSS | 6,691,272 KiB | 5,966,436 KiB |
+| Formula size | 703,421,013 bytes | 688,647,908 bytes |
+
+The renderer alone preserves exact formula bytes while removing redundant
+alias-ordering structures. Reusing already computed aggregate membership
+predicates additionally shares their DAG and changes the serialization, not
+their meaning. Admission, resource ceilings, arithmetic and solver deadlines
+are unchanged. Source/input hashes and isolated renderer measurements are in
+`/tmp/rbo-smt-profile-gCkmtH/`; the combined receipt is
+`/tmp/rbo-final-q17-GYZKss/production_probe.log`.
+
+## Fixed workload and host
+
+Sources are `ydb/core/kqp/ut/rbo/data/schema/tpch.sql`,
+`schema/tpcds.sql`, `yql-tpch/q1.yql..q22.yql`, and
+`yql-tpcds/q1.yql..q99.yql`. The exact assembled query includes:
+
+```yql
+$to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };
+$to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
+$round = ($x,$y) -> { return $x; };
+```
+
+The real KQP host creates column-store tables with minimum partition count 16,
+enables new RBO, disables YQL fallback, permits OLAP data queries, enables the
+maximum language version and all backports, and clears the result-row limit.
+It links the production PostgreSQL translator/runtime, not the dummy provider.
+Every obligation uses two row slots per referenced table and two modeled tasks.
+Capture ends before `ConvertToPhysical`; successful proof does not establish
+executability or correctness of later lowering/runtime behavior.
+
+## Run from the repository root
+
+```bash
+set -o pipefail
+python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
+  ./ya make --build relwithdebinfo -DRBO_LOW_MEMORY_LINK=yes --threads=2 --link-threads=1 \
+  --test-threads=1 --dist-store-threads=2 --memory-limit=48GB -tA \
+  ydb/core/kqp/opt/rbo/verification/benchmark_ut \
+  -F '*::TPCH' --test-env=RBO_COVERAGE_USE_SOLVER=0 \
+  2>&1 | tail -n 100
+
+python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
+  ./ya make --build relwithdebinfo -DRBO_LOW_MEMORY_LINK=yes --threads=2 --link-threads=1 \
+  --test-threads=1 --dist-store-threads=2 --memory-limit=48GB -tA \
+  ydb/core/kqp/opt/rbo/verification/benchmark_ut \
+  -F '*::TPCDS' --test-env=RBO_COVERAGE_USE_SOLVER=0 \
+  2>&1 | tail -n 100
+
+python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
+  ./ya make --build relwithdebinfo -DRBO_LOW_MEMORY_LINK=yes --threads=2 --link-threads=1 \
+  --test-threads=1 --dist-store-threads=2 --memory-limit=48GB -tA \
+  ydb/core/kqp/opt/rbo/verification/benchmark_ut \
+  -F '*ProofFloor*' 2>&1 | tail -n 100
+```
+
+The proof floor selects exactly the policy's proof queries, uses the pinned
+`contrib/tools/z3/z3` executable with 60 seconds per query, and ignores ambient
+`RBO_COVERAGE_*` settings. Only `VERIFIED_BOUNDED` satisfies its proof floor.
+
+For a non-gating experiment, use `-F '*::TPCDS'` and explicitly pass:
+
+```text
+--test-env=RBO_COVERAGE_USE_SOLVER=1
+--test-env=RBO_COVERAGE_TIMEOUT_MS=60000
+--test-env=RBO_COVERAGE_QUERIES=1,4-7,96
+```
+
+Absent/empty/zero solver selection means formula-only; `1` selects hermetic Z3;
+other values fail closed. The positive timeout defaults to 10000 ms.
+Empty query selection means the full suite. Focused runs and solver experiments
+do not enforce the full formula-dashboard floors. Bare ambient variables are
+not inherited by the `ya` sandbox: pass `--test-env` explicitly.
+
+## Reports and retained evidence
+
+Tests write `tpch_coverage.json` / `tpcds_coverage.json` or
+`tpch_proof_floor.json` / `tpcds_proof_floor.json` to their test output
+directories. Report format version 5 has separate `summary` and
+`prepare_summary` partitions. Each row retains `prepare_status` and
+`prepare_reason` independently of semantic status.
+
+`optimizer_failure_inventory` groups all failed preparations, including
+formula/proof/unsupported rows captured before the failure.
+`unsupported_inventory` groups semantic admission failures.
+These inventories overlap; do not sum them. Terminal `OPTIMIZER_FAILURE`
+means no exact normal pair was available. `HARNESS_ERROR` means capture,
+execution, or subprocess protocol failed; it is not a semantic verdict.
+
+Counterexamples, unknowns, schema mismatches, solver/protocol failures, failed-
+preparation pairs, proof-floor results, and explicit solver-experiment results
+retain relevant evidence, including successful proofs and their paired inputs.
+Routine successful formula dashboards do not retain every large formula.
+The subprocess result is captured before decoding. Diagnostic/proof records
+retain raw stdout/stderr, command arguments, exit code, timing, and any emitted
+formula in `process_artifacts`, with SHA-256 digests. Malformed JSON or an
+exit/status mismatch must not discard those bytes.
+
+The normal `artifacts` map retains the exact query, both supported snapshots
+(or unsupported boundary diagnostics), and the byte-exact verdict when valid.
+Its existing counterexample shape is unchanged for confirmation compatibility.
+The parsed report verdict deliberately omits the witness: wide Decimal
+integers must not be rounded by the C++ JSON object's numeric representation.
+Only the SHA-bound raw verdict is authoritative for the candidate database.
+
+The saved SMT is the canonical formula, not a transcript of the exact internal
+solver portfolio. The command record identifies the verifier invocation, not
+every Z3 branch. Preserve that distinction when reproducing timing or auditing
+a proof; see [the theorem](contracts/THEOREM.md).
+No source/tool content hashes or full solver transcript are implied by the
+current report.
+
+Every `COUNTEREXAMPLE` requires the separate
+[confirmation workflow](README.md#confirm-a-candidate) on explicit isolated
+targets. A missing witness or inconsistent artifact remains unresolved.
+
+## Literal SUM proof timing (2026-09-05)
+
+`aggregate.wrap_sum` now omits modular wrapping only when a literal/CASE sum's
+entire inferred interval fits its Int64/Uint64 result. Unknown or overflowing
+intervals retain the original encoding; no domain assumption is added.
+
+Against `77c6028e3f8`, three alternating cold-process old/new pairs per query
+used identical snapshots and Z3, two rows, two tasks, and 60 seconds. All twelve
+runs verified. Only `aggregate.py` differed between the measured versions.
+
+| Query | Old median | New median | Speedup |
+|---|---:|---:|---:|
+| TPCDS q62 | 43.880 s | 23.556 s | 1.86× |
+| TPCDS q99 | 56.192 s | 23.371 s | 2.40× |
+
+Times include snapshot loading, construction, canonical emission, and the full
+production solver portfolio; interpreter startup and receipt writes are excluded.
+Rendering stayed near 0.7 seconds: the improvement is in proof search. These are
+measurements, not CI timing gates or a claim about every query.
+Local receipts, source/input/solver hashes, and attempted formulas are indexed
+by `/tmp/rbo-sum-repeatability-yV3yki/summary.json`; they are not checked in.
+
+The proof floor adds TPCH q10 and TPCDS q50, q68, q76, q79. Same-input old/new
+replays distinguish the gains: q50 changed from `UNKNOWN` at 60 seconds to
+`VERIFIED_BOUNDED` in 40.692 seconds; the other four already proved on the
+baseline and are newly pinned coverage, not newly enabled semantics.
+
+## Policy maintenance
+
+[benchmark_policy](benchmark_policy) is a JSON-only library for strict decoding,
+floor evaluation, and policy-report rendering. Its
+[small unit target](benchmark_policy/ut) runs without KQP, Z3, or per-test forks:
+
+```bash
+python3 ydb/core/kqp/opt/rbo/verification/tools/run_limited.py \
+  ./ya make --build relwithdebinfo -DRBO_LOW_MEMORY_LINK=yes --threads=2 --link-threads=1 \
+  --test-threads=1 --dist-store-threads=2 --memory-limit=48GB -tA \
+  ydb/core/kqp/opt/rbo/verification/benchmark_policy/ut 2>&1 | tail -n 100
+```
+
+The benchmark harness owns the host, environment, subprocesses, artifact
+retention, and corpus iteration. It retains the single fixed-contract query
+membership lock and host/environment/process tests. Pure tiny-policy, malformed
+decoder, monotonic-depth, and floor-regression tests run in the small target;
+their assertions are not deleted to reduce heavyweight test overhead.
+Do not weaken the lock as an incidental refactor or infer a new floor from a
+focused run. Raise measured-coverage claims only with retained complete reruns.

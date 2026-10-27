@@ -1,0 +1,242 @@
+"""Command-line entry point kept separate from the verification kernel."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import signal
+import sys
+import threading
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Sequence
+
+from .ir import SnapshotError, load_snapshot, parse_snapshot
+from .bundle import build_bundle_problem, load_bundle
+from .diagnostics import NonemptyOutputObserver, diagnose_nonempty_outputs
+from .stages import TASKS
+from .verify import (
+    SchemaMismatch,
+    SolverError,
+    VerificationError,
+    build_problem,
+    build_transformation_pair_problem,
+    build_transformation_prefix_problem,
+    solve,
+)
+
+
+class _ConstructionTimeout(Exception):
+    pass
+
+
+class _ConstructionDeadlineUnavailable(Exception):
+    pass
+
+
+@contextmanager
+def _construction_deadline(timeout_ms: int | None):
+    """Interrupt only construction, before any solver subprocess can exist."""
+    if timeout_ms is None:
+        yield
+        return
+    if not all(hasattr(signal, name) for name in ("SIGALRM", "ITIMER_REAL", "setitimer", "getitimer")):
+        raise _ConstructionDeadlineUnavailable("construction deadline requires POSIX interval timers")
+    if threading.current_thread() is not threading.main_thread():
+        raise _ConstructionDeadlineUnavailable("construction deadline requires the main thread")
+    if any(signal.getitimer(signal.ITIMER_REAL)):
+        raise _ConstructionDeadlineUnavailable("construction deadline cannot replace an active interval timer")
+    previous = signal.getsignal(signal.SIGALRM)
+
+    def expired(signum, frame):
+        raise _ConstructionTimeout(f"construction deadline exceeded ({timeout_ms} ms); no proof was attempted")
+
+    signal.signal(signal.SIGALRM, expired)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, timeout_ms / 1000)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="Check bounded equivalence of two new-RBO snapshots")
+    result.add_argument("before", type=Path, nargs="?")
+    result.add_argument("after", type=Path, nargs="?")
+    result.add_argument("--bundle", type=Path, help="strict v1 buffered result-bundle manifest (instead of two snapshots)")
+    result.add_argument("--rows", type=int, default=2, help="symbolic row slots per table")
+    result.add_argument("--timeout-ms", type=int, default=10_000)
+    result.add_argument(
+        "--construction-timeout-ms", type=int,
+        help="POSIX deadline for loading, model construction and --emit-smt rendering; expiry is UNKNOWN",
+    )
+    result.add_argument("--solver", type=Path, help="explicit Z3 executable")
+    result.add_argument(
+        "--diagnose-nonempty-output", action="store_true",
+        help="separately check modeled successful nonempty output reachability; never changes the verdict",
+    )
+    result.add_argument(
+        "--diagnostic-timeout-ms", type=int, default=10_000,
+        help="separate total solver budget for optional reachability checks (default: 10000)",
+    )
+    result.add_argument(
+        "--emit-smt",
+        type=Path,
+        help="write the exact canonical SMT-LIB obligation, not the solver portfolio transcript",
+    )
+    diagnostic = result.add_mutually_exclusive_group()
+    diagnostic.add_argument(
+        "--diagnostic-transformation-prefix",
+        action="store_true",
+        help="compare the logical initial snapshot with one transformation prefix",
+    )
+    diagnostic.add_argument(
+        "--diagnostic-transformation-pair", action="store_true",
+        help="diagnostically compare two captured logical or staged transformation boundaries",
+    )
+    result.add_argument(
+        "--diagnostic-observation-snapshot", type=Path,
+        help="original logical initial snapshot defining pair bag/sequence observation (required with pair)",
+    )
+    return result
+
+
+def main(arguments: Sequence[str] | None = None) -> int:
+    options = parser().parse_args(arguments)
+    comparison_scope = (
+        "OPTIMIZER_TRANSFORMATION_PAIR" if options.diagnostic_transformation_pair else
+        "OPTIMIZER_TRANSFORMATION_PREFIX"
+        if options.diagnostic_transformation_prefix
+        else "BUFFERED_RESULT_BUNDLE" if options.bundle is not None else None
+    )
+    if options.diagnostic_transformation_pair != (options.diagnostic_observation_snapshot is not None):
+        return _error("INVALID_ARGUMENT", "--diagnostic-transformation-pair requires --diagnostic-observation-snapshot, which is only valid with pair", comparison_scope)
+    if options.bundle is not None:
+        if options.before is not None or options.after is not None or options.diagnostic_transformation_prefix or options.diagnostic_transformation_pair:
+            return _error("INVALID_ARGUMENT", "--bundle excludes positional snapshots and transformation diagnostic modes", comparison_scope)
+    elif options.before is None or options.after is None:
+        return _error("INVALID_ARGUMENT", "provide before and after snapshots, or --bundle", comparison_scope)
+    if options.rows < 0:
+        return _error(
+            "INVALID_ARGUMENT", "--rows must not be negative", comparison_scope
+        )
+    if options.timeout_ms <= 0:
+        return _error(
+            "INVALID_ARGUMENT", "--timeout-ms must be positive", comparison_scope
+        )
+    if options.construction_timeout_ms is not None and options.construction_timeout_ms <= 0:
+        return _error("INVALID_ARGUMENT", "--construction-timeout-ms must be positive", comparison_scope)
+    if options.solver is None and options.emit_smt is None:
+        return _error(
+            "INVALID_ARGUMENT",
+            "provide --solver, --emit-smt, or both",
+            comparison_scope,
+        )
+    if options.diagnose_nonempty_output and (options.solver is None or options.diagnostic_timeout_ms <= 0):
+        return _error(
+            "INVALID_ARGUMENT", "--diagnose-nonempty-output requires --solver and a positive diagnostic timeout",
+            comparison_scope,
+        )
+
+    observer = NonemptyOutputObserver() if options.diagnose_nonempty_output else None
+    observation_options = {} if observer is None else {"boundary_observer": observer}
+    observation_metadata: dict[str, object] = {}
+    try:
+        with _construction_deadline(options.construction_timeout_ms):
+            if options.diagnostic_observation_snapshot is not None:
+                try:
+                    source = options.diagnostic_observation_snapshot.read_bytes()
+                    observation_metadata["observation_snapshot_sha256"] = hashlib.sha256(source).hexdigest()
+                    observation_options["observation_snapshot"] = parse_snapshot(json.loads(source.decode("utf-8")))
+                except (OSError, UnicodeError, ValueError, RecursionError) as error:
+                    raise SnapshotError(f"cannot load observation snapshot: {error}") from error
+            if options.bundle is not None:
+                problem = build_bundle_problem(
+                    load_bundle(options.bundle), options.rows, options.timeout_ms, **observation_options,
+                )
+            else:
+                before = load_snapshot(options.before)
+                after = load_snapshot(options.after)
+                builder = (build_transformation_pair_problem if options.diagnostic_transformation_pair
+                           else build_transformation_prefix_problem if options.diagnostic_transformation_prefix else build_problem)
+                problem = builder(before, after, options.rows, options.timeout_ms, **observation_options)
+            formula = problem.formula() if options.emit_smt is not None else None
+        if problem.observation_kind is not None:
+            observation_metadata["observation_kind"] = problem.observation_kind
+        if options.emit_smt is not None:
+            options.emit_smt.write_text(formula, encoding="utf-8")
+        if options.solver is None:
+            verdict = _scoped(
+                {
+                    "status": "FORMULA_EMITTED",
+                    "row_bound": options.rows,
+                    "task_bound": TASKS,
+                    **({"semantic_mode": problem.semantic_mode} if problem.semantic_mode is not None else {}),
+                },
+                comparison_scope, observation_metadata,
+            )
+            print(json.dumps(verdict, sort_keys=True))
+            return 0
+        result = solve(problem, options.solver, options.rows, options.timeout_ms)
+    except _ConstructionTimeout as error:
+        verdict = _scoped({
+            "status": "UNKNOWN", "reason": str(error), "phase": "construction",
+            "row_bound": options.rows, "task_bound": TASKS,
+            "construction_timeout_ms": options.construction_timeout_ms,
+        }, comparison_scope, observation_metadata)
+        print(json.dumps(verdict, sort_keys=True))
+        return 2
+    except _ConstructionDeadlineUnavailable as error:
+        return _error("INVALID_ARGUMENT", str(error), comparison_scope)
+    except SchemaMismatch as error:
+        verdict = _scoped(
+            {
+                "status": "SCHEMA_MISMATCH",
+                "row_bound": options.rows,
+                "task_bound": TASKS,
+                "reason": str(error),
+            },
+            comparison_scope, observation_metadata,
+        )
+        print(json.dumps(verdict, sort_keys=True))
+        return 1
+    except (SnapshotError, VerificationError) as error:
+        return _error("UNSUPPORTED", str(error), comparison_scope)
+    except SolverError as error:
+        return _error("SOLVER_ERROR", str(error), comparison_scope)
+
+    verdict = _scoped(result.to_json(), comparison_scope, observation_metadata)
+    if observer is not None:
+        try:
+            verdict["nonempty_output_diagnostic"] = diagnose_nonempty_outputs(
+                problem, observer, options.solver, options.rows, options.diagnostic_timeout_ms,
+            )
+        except Exception as error:
+            # Diagnostics are optional: even an unexpected diagnostic failure
+            # must leave the completed equivalence verdict and exit code intact.
+            verdict["nonempty_output_diagnostic"] = {"status": "ERROR", "reason": str(error)}
+    print(json.dumps(verdict, sort_keys=True))
+    return {
+        "VERIFIED_BOUNDED": 0,
+        "COUNTEREXAMPLE": 1,
+        "UNKNOWN": 2,
+    }[result.status]
+
+
+def _error(status: str, reason: str, comparison_scope: str | None = None) -> int:
+    verdict = _scoped({"status": status, "reason": reason}, comparison_scope)
+    print(json.dumps(verdict, sort_keys=True), file=sys.stderr)
+    return 2
+
+
+def _scoped(
+    verdict: dict[str, object], comparison_scope: str | None,
+    observation_metadata: dict[str, object] | None = None,
+) -> dict[str, object]:
+    if observation_metadata:
+        verdict = {**verdict, **observation_metadata}
+    if comparison_scope is not None:
+        return {**verdict, "comparison_scope": comparison_scope}
+    return verdict

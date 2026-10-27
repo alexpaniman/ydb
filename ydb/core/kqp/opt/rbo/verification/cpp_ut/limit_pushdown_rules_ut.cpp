@@ -1,0 +1,800 @@
+#include <ydb/core/kqp/common/kqp_user_request_context.h>
+#include <ydb/core/kqp/opt/kqp_opt_impl.h>
+#include <ydb/core/kqp/opt/rbo/kqp_operator.h>
+#include <ydb/core/kqp/opt/rbo/kqp_rbo_rules.h>
+#include <ydb/core/kqp/provider/yql_kikimr_provider.h>
+#include <ydb/core/kqp/provider/yql_kikimr_settings.h>
+
+#include <library/cpp/random_provider/random_provider.h>
+#include <library/cpp/testing/unittest/registar.h>
+#include <library/cpp/time_provider/time_provider.h>
+
+#include <yql/essentials/core/yql_graph_transformer.h>
+#include <yql/essentials/core/yql_type_annotation.h>
+#include <yql/essentials/minikql/invoke_builtins/mkql_builtins.h>
+#include <yql/essentials/minikql/mkql_function_registry.h>
+
+#include <algorithm>
+
+namespace {
+
+using namespace NKikimr;
+using namespace NKikimr::NKqp;
+using namespace NYql;
+
+struct TRuleTestContext {
+    TRuleTestContext()
+        : FuncRegistry(NKikimr::NMiniKQL::CreateFunctionRegistry(
+              NKikimr::NMiniKQL::CreateBuiltinRegistry()))
+        , Config(MakeIntrusive<TKikimrConfiguration>())
+        , QueryCtx(MakeIntrusive<TKikimrQueryContext>(
+              FuncRegistry.Get(), CreateDefaultTimeProvider(), CreateDefaultRandomProvider()))
+        , Tables(MakeIntrusive<TKikimrTablesData>())
+        , UserRequestContext(MakeIntrusive<TUserRequestContext>())
+        , KqpCtx("ut", Config, QueryCtx, Tables, UserRequestContext)
+        , RboCtx(KqpCtx, ExprCtx, TypeCtx, TypeAnnTransformer, *FuncRegistry)
+    {
+    }
+
+    TExprContext ExprCtx;
+    TTypeAnnotationContext TypeCtx;
+    TNullTransformer TypeAnnTransformer;
+    TIntrusivePtr<NKikimr::NMiniKQL::IFunctionRegistry> FuncRegistry;
+    TIntrusivePtr<TKikimrConfiguration> Config;
+    TIntrusivePtr<TKikimrQueryContext> QueryCtx;
+    TIntrusivePtr<TKikimrTablesData> Tables;
+    TIntrusivePtr<TUserRequestContext> UserRequestContext;
+    NOpt::TKqpOptimizeContext KqpCtx;
+    TRBOContext RboCtx;
+    TPlanProps PlanProps;
+};
+
+TIntrusivePtr<TOpRead> MakeRead(
+    NYql::EStorageType storage,
+    TPositionHandle pos,
+    const TPhysicalOpProps& props,
+    const TVector<TInfoUnit>& columns)
+{
+    TVector<TString> columnNames;
+    columnNames.reserve(columns.size());
+    for (const auto& column : columns) {
+        columnNames.push_back(column.GetFullName());
+    }
+
+    return MakeIntrusive<TOpRead>(
+        "",
+        columnNames,
+        columns,
+        storage,
+        nullptr,
+        nullptr,
+        nullptr,
+        std::nullopt,
+        std::nullopt,
+        ESortDir::None,
+        props,
+        pos);
+}
+
+TIntrusivePtr<TOpRead> MakeRead(
+    NYql::EStorageType storage,
+    TPositionHandle pos,
+    const TPhysicalOpProps& props = {},
+    const TString& column = "a")
+{
+    return MakeRead(
+        storage,
+        pos,
+        props,
+        TVector<TInfoUnit>{TInfoUnit(column)});
+}
+
+void ComputeParents(
+    const TIntrusivePtr<IOperator>& left,
+    const TIntrusivePtr<IOperator>& right,
+    TPositionHandle pos)
+{
+    auto unionAll = MakeIntrusive<TOpUnionAll>(
+        left,
+        right,
+        pos,
+        TVector<TInfoUnit>{TInfoUnit("a")});
+    TOpRoot root(unionAll, pos, {"a"});
+    root.ComputeParents();
+}
+
+TExpression MakeWindowColumnAccess(
+    const TInfoUnit& column,
+    TPositionHandle pos,
+    TExprContext& exprCtx,
+    TPlanProps& planProps)
+{
+    const auto access = MakeColumnAccess(
+        column,
+        pos,
+        &exprCtx,
+        &planProps);
+    return TExpression(
+        access.GetLambda(),
+        &exprCtx,
+        &planProps,
+        exprCtx.NewAtom(pos, "window_definition"));
+}
+
+TExpression MakeUntrackedWindowColumnAccess(
+    const TInfoUnit& column,
+    TPositionHandle pos,
+    TExprContext& exprCtx,
+    TPlanProps& planProps)
+{
+    const auto access = MakeColumnAccess(
+        column,
+        pos,
+        &exprCtx,
+        &planProps);
+    const auto lambda = access.GetLambda();
+    return TExpression(
+        exprCtx.NewLambda(
+            pos,
+            lambda->ChildPtr(0),
+            exprCtx.NewCallable(
+                pos,
+                "YqlAggWin",
+                {lambda->ChildPtr(1)})),
+        &exprCtx,
+        &planProps);
+}
+
+Y_UNIT_TEST_SUITE(KqpRboLimitPushdownRules) {
+    Y_UNIT_TEST(DelaysPureProjectionUntilAfterTopSort) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit payload("payload");
+        const TInfoUnit projected("projected");
+
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{id, payload});
+        auto expression = MakeBinaryPredicate(
+            "+",
+            MakeColumnAccess(payload, pos, &ctx.ExprCtx, &ctx.PlanProps),
+            MakeConstant("Int64", "1", pos, &ctx.ExprCtx));
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            TVector<TMapElement>{TMapElement(projected, expression)});
+        auto sort = MakeIntrusive<TOpSort>(
+            map,
+            pos,
+            TVector<TSortElement>{TSortElement(id, true, true)});
+        auto limit = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Undefined);
+        TOpRoot root(limit, pos, {projected.GetFullName()});
+        root.ComputeParents();
+
+        TPushLimitIntoSortRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT(result->Kind == EOperator::Map);
+        const auto delayedMap = CastOperator<TOpMap>(result);
+        UNIT_ASSERT_VALUES_EQUAL(delayedMap->GetMapElements().size(), 1);
+        UNIT_ASSERT(
+            delayedMap->GetMapElements().front().GetElementName() == projected);
+        UNIT_ASSERT(delayedMap->GetInput()->Kind == EOperator::Sort);
+
+        const auto topSort = CastOperator<TOpSort>(delayedMap->GetInput());
+        UNIT_ASSERT(topSort->LimitCond.has_value());
+        UNIT_ASSERT_VALUES_EQUAL(topSort->GetSortElements().size(), 1);
+        UNIT_ASSERT(topSort->GetSortElements().front().SortColumn == id);
+        UNIT_ASSERT_VALUES_EQUAL(topSort->GetInput().Get(), read.Get());
+    }
+
+    Y_UNIT_TEST(DelaysDirectSortKeyRenameAndRewritesKey) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit key("key");
+
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{id});
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            TVector<TMapElement>{TMapElement(
+                key,
+                id,
+                pos,
+                &ctx.ExprCtx,
+                &ctx.PlanProps,
+                /*isRename=*/true)});
+        auto sort = MakeIntrusive<TOpSort>(
+            map,
+            pos,
+            TVector<TSortElement>{TSortElement(key, true, true)});
+        auto limit = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Undefined);
+        TOpRoot root(limit, pos, {key.GetFullName()});
+        root.ComputeParents();
+
+        TPushLimitIntoSortRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT(result->Kind == EOperator::Map);
+        const auto delayedMap = CastOperator<TOpMap>(result);
+        UNIT_ASSERT(delayedMap->GetMapElements().front().IsRename());
+        UNIT_ASSERT(delayedMap->GetMapElements().front().GetRename() == id);
+        const auto topSort = CastOperator<TOpSort>(delayedMap->GetInput());
+        UNIT_ASSERT(topSort->GetSortElements().front().SortColumn == id);
+        UNIT_ASSERT_VALUES_EQUAL(topSort->GetInput().Get(), read.Get());
+    }
+
+    Y_UNIT_TEST(KeepsComputedSortKeyBelowTopSort) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit key("key");
+
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{id});
+        auto expression = MakeBinaryPredicate(
+            "+",
+            MakeColumnAccess(id, pos, &ctx.ExprCtx, &ctx.PlanProps),
+            MakeConstant("Int64", "1", pos, &ctx.ExprCtx));
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            TVector<TMapElement>{TMapElement(key, expression)});
+        auto sort = MakeIntrusive<TOpSort>(
+            map,
+            pos,
+            TVector<TSortElement>{TSortElement(key, true, true)});
+        auto limit = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Undefined);
+        TOpRoot root(limit, pos, {key.GetFullName()});
+        root.ComputeParents();
+
+        TPushLimitIntoSortRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), sort.Get());
+        UNIT_ASSERT(sort->LimitCond.has_value());
+        UNIT_ASSERT_VALUES_EQUAL(sort->GetInput().Get(), map.Get());
+    }
+
+    Y_UNIT_TEST(KeepsSharedProjectionBelowTopSort) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit projected("projected");
+
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{id});
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            TVector<TMapElement>{TMapElement(
+                projected,
+                MakeColumnAccess(id, pos, &ctx.ExprCtx, &ctx.PlanProps))});
+        auto sort = MakeIntrusive<TOpSort>(
+            map,
+            pos,
+            TVector<TSortElement>{TSortElement(id, true, true)});
+        auto limit = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Undefined);
+        auto otherConsumer = MakeIntrusive<TOpLimit>(
+            map,
+            pos,
+            MakeConstant("Uint64", "2", pos, &ctx.ExprCtx),
+            EOpPhase::Final);
+        ComputeParents(limit, otherConsumer, pos);
+
+        UNIT_ASSERT_VALUES_EQUAL(map->Parents.size(), 2);
+        TPushLimitIntoSortRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), sort.Get());
+        UNIT_ASSERT(sort->LimitCond.has_value());
+        UNIT_ASSERT_VALUES_EQUAL(sort->GetInput().Get(), map.Get());
+    }
+
+    Y_UNIT_TEST(KeepsSideEffectingProjectionBelowTopSort) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit projected("projected");
+
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{id});
+        auto expression = MakeColumnAccess(
+            id,
+            pos,
+            &ctx.ExprCtx,
+            &ctx.PlanProps);
+        expression.GetExpressionBody()->SetSideEffects(
+            ESideEffects::General);
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            TVector<TMapElement>{TMapElement(projected, expression)});
+        auto sort = MakeIntrusive<TOpSort>(
+            map,
+            pos,
+            TVector<TSortElement>{TSortElement(id, true, true)});
+        auto limit = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Undefined);
+        TOpRoot root(limit, pos, {projected.GetFullName()});
+        root.ComputeParents();
+
+        TPushLimitIntoSortRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), sort.Get());
+        UNIT_ASSERT(sort->LimitCond.has_value());
+        UNIT_ASSERT_VALUES_EQUAL(sort->GetInput().Get(), map.Get());
+    }
+
+    Y_UNIT_TEST(KeepsUntrackedWindowProjectionBelowTopSort) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit projected("projected");
+
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{id});
+        const auto windowExpression = MakeUntrackedWindowColumnAccess(
+            id,
+            pos,
+            ctx.ExprCtx,
+            ctx.PlanProps);
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            TVector<TMapElement>{TMapElement(projected, windowExpression)});
+        auto sort = MakeIntrusive<TOpSort>(
+            map,
+            pos,
+            TVector<TSortElement>{TSortElement(id, true, true)});
+        auto limit = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Undefined);
+        TOpRoot root(limit, pos, {projected.GetFullName()});
+        root.ComputeParents();
+
+        TPushLimitIntoSortRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), sort.Get());
+        UNIT_ASSERT(sort->LimitCond.has_value());
+        UNIT_ASSERT_VALUES_EQUAL(sort->GetInput().Get(), map.Get());
+        UNIT_ASSERT(!map->GetMapElements()
+            .front()
+            .GetExpression()
+            .GetWindowMetadata());
+        UNIT_ASSERT(map->GetMapElements()
+            .front()
+            .GetExpression()
+            .HasWindowSemantics());
+    }
+
+    Y_UNIT_TEST(KeepsNestedPositionAwareProjectionBelowTopSort) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit projected("projected");
+
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{id});
+        auto expression = MakeBinaryPredicate(
+            "+",
+            MakeColumnAccess(id, pos, &ctx.ExprCtx, &ctx.PlanProps),
+            MakeConstant("Int64", "1", pos, &ctx.ExprCtx));
+        UNIT_ASSERT(!expression.GetExpressionBody()->IsPosAware());
+        expression.GetExpressionBody()->Child(0)->SetPosAware();
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            TVector<TMapElement>{TMapElement(projected, expression)});
+        auto sort = MakeIntrusive<TOpSort>(
+            map,
+            pos,
+            TVector<TSortElement>{TSortElement(id, true, true)});
+        auto limit = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Undefined);
+        TOpRoot root(limit, pos, {projected.GetFullName()});
+        root.ComputeParents();
+
+        TPushLimitIntoSortRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), sort.Get());
+        UNIT_ASSERT(sort->LimitCond.has_value());
+        UNIT_ASSERT_VALUES_EQUAL(sort->GetInput().Get(), map.Get());
+    }
+
+    Y_UNIT_TEST(DoesNotPushIntermediateLimitIntoSharedRead) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+
+        TPhysicalOpProps stageProps;
+        stageProps.StageId = 1;
+        auto read = MakeRead(NYql::EStorageType::ColumnStorage, pos, stageProps);
+        auto limit = MakeIntrusive<TOpLimit>(
+            read,
+            pos,
+            stageProps,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Intermediate);
+        auto otherConsumer = MakeIntrusive<TOpLimit>(
+            read,
+            pos,
+            MakeConstant("Uint64", "2", pos, &ctx.ExprCtx),
+            EOpPhase::Final);
+        ComputeParents(limit, otherConsumer, pos);
+
+        UNIT_ASSERT_VALUES_EQUAL(read->Parents.size(), 2);
+        UNIT_ASSERT(!read->Limit);
+
+        TPropagateLimitThroughStageRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), limit.Get());
+        UNIT_ASSERT(!read->Limit);
+        UNIT_ASSERT_VALUES_EQUAL(read->Parents.size(), 2);
+    }
+
+    Y_UNIT_TEST(DoesNotPushIntermediateLimitThroughWindowProjection) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit projected("projected");
+
+        TPhysicalOpProps stageProps;
+        stageProps.StageId = 1;
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            stageProps,
+            TVector<TInfoUnit>{id});
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            stageProps,
+            TVector<TMapElement>{TMapElement(
+                projected,
+                MakeWindowColumnAccess(
+                    id,
+                    pos,
+                    ctx.ExprCtx,
+                    ctx.PlanProps))});
+        auto limit = MakeIntrusive<TOpLimit>(
+            map,
+            pos,
+            stageProps,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Intermediate);
+        TOpRoot root(limit, pos, {projected.GetFullName()});
+        root.ComputeParents();
+
+        TPropagateLimitThroughStageRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), limit.Get());
+        UNIT_ASSERT_VALUES_EQUAL(limit->GetInput().Get(), map.Get());
+        UNIT_ASSERT_VALUES_EQUAL(map->GetInput().Get(), read.Get());
+    }
+
+    Y_UNIT_TEST(DoesNotPushLimitIntoSharedSort) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+
+        auto read = MakeRead(NYql::EStorageType::RowStorage, pos);
+        auto sort = MakeIntrusive<TOpSort>(
+            read,
+            pos,
+            TVector<TSortElement>{TSortElement(TInfoUnit("a"), true, true)});
+        auto limit = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "1", pos, &ctx.ExprCtx),
+            EOpPhase::Undefined);
+        auto otherConsumer = MakeIntrusive<TOpLimit>(
+            sort,
+            pos,
+            MakeConstant("Uint64", "2", pos, &ctx.ExprCtx),
+            EOpPhase::Final);
+        ComputeParents(limit, otherConsumer, pos);
+
+        UNIT_ASSERT_VALUES_EQUAL(sort->Parents.size(), 2);
+        UNIT_ASSERT(!sort->LimitCond);
+
+        TPushLimitIntoSortRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(limit, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), limit.Get());
+        UNIT_ASSERT(!sort->LimitCond);
+        UNIT_ASSERT_VALUES_EQUAL(sort->Parents.size(), 2);
+    }
+}
+
+Y_UNIT_TEST_SUITE(KqpRboWindowMapRules) {
+    Y_UNIT_TEST(DoesNotPushFilterUnderWindowProjection) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit id("id");
+        const TInfoUnit keep("keep");
+        const TInfoUnit projected("projected");
+
+        auto read = MakeRead(
+            NYql::EStorageType::ColumnStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{id, keep});
+        auto map = MakeIntrusive<TOpMap>(
+            read,
+            pos,
+            TVector<TMapElement>{TMapElement(
+                projected,
+                MakeWindowColumnAccess(
+                    id,
+                    pos,
+                    ctx.ExprCtx,
+                    ctx.PlanProps))});
+        auto predicate = MakeBinaryPredicate(
+            "==",
+            MakeColumnAccess(keep, pos, &ctx.ExprCtx, &ctx.PlanProps),
+            MakeConstant("Int64", "1", pos, &ctx.ExprCtx));
+        auto filter = MakeIntrusive<TOpFilter>(map, pos, predicate);
+        TOpRoot root(filter, pos, {projected.GetFullName()});
+        root.ComputeParents();
+
+        TPushFilterUnderMapRule rule;
+        const auto result =
+            rule.SimpleMatchAndApply(filter, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), filter.Get());
+        UNIT_ASSERT_VALUES_EQUAL(filter->GetInput().Get(), map.Get());
+        UNIT_ASSERT_VALUES_EQUAL(map->GetInput().Get(), read.Get());
+    }
+}
+
+Y_UNIT_TEST_SUITE(KqpRboOrderSensitiveJoinRules) {
+    Y_UNIT_TEST(KeepsMarkedJoinOutsideCboWhileOptimizingBothSides) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        TBuildInitialCBOTreeRule buildCboTree;
+
+        auto markedJoin = MakeIntrusive<TOpJoin>(
+            MakeRead(NYql::EStorageType::RowStorage, pos),
+            MakeRead(NYql::EStorageType::RowStorage, pos),
+            pos,
+            "Cross",
+            TVector<std::pair<TInfoUnit, TInfoUnit>>{});
+        markedJoin->PreserveInputOrder = true;
+
+        const auto markedResult =
+            buildCboTree.SimpleMatchAndApply(markedJoin, ctx.RboCtx, ctx.PlanProps);
+        UNIT_ASSERT_VALUES_EQUAL(markedResult.Get(), markedJoin.Get());
+
+        auto makeCboSide = [&]() {
+            auto join = MakeIntrusive<TOpJoin>(
+                MakeRead(NYql::EStorageType::RowStorage, pos),
+                MakeRead(NYql::EStorageType::RowStorage, pos),
+                pos,
+                "Cross",
+                TVector<std::pair<TInfoUnit, TInfoUnit>>{});
+            auto result =
+                buildCboTree.SimpleMatchAndApply(join, ctx.RboCtx, ctx.PlanProps);
+            UNIT_ASSERT_VALUES_UNEQUAL(result.Get(), join.Get());
+            UNIT_ASSERT(result->Kind == EOperator::CBOTree);
+            return result;
+        };
+
+        auto leftCboTree = makeCboSide();
+        auto rightCboTree = makeCboSide();
+        auto markedJoinWithCboSides = MakeIntrusive<TOpJoin>(
+            leftCboTree,
+            rightCboTree,
+            pos,
+            "Cross",
+            TVector<std::pair<TInfoUnit, TInfoUnit>>{});
+        markedJoinWithCboSides->PreserveInputOrder = true;
+
+        TExpandCBOTreeRule expandCboTree;
+        const auto expandedResult = expandCboTree.SimpleMatchAndApply(
+            markedJoinWithCboSides,
+            ctx.RboCtx,
+            ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(
+            expandedResult.Get(),
+            markedJoinWithCboSides.Get());
+        UNIT_ASSERT_VALUES_EQUAL(
+            markedJoinWithCboSides->GetLeftInput().Get(),
+            leftCboTree.Get());
+        UNIT_ASSERT_VALUES_EQUAL(
+            markedJoinWithCboSides->GetRightInput().Get(),
+            rightCboTree.Get());
+    }
+
+    Y_UNIT_TEST(DoesNotConvertMarkedCrossJoinThroughFilterPushdown) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit leftColumn("left");
+        const TInfoUnit rightColumn("right");
+
+        auto markedJoin = MakeIntrusive<TOpJoin>(
+            MakeRead(NYql::EStorageType::RowStorage, pos, {}, leftColumn.GetFullName()),
+            MakeRead(NYql::EStorageType::RowStorage, pos, {}, rightColumn.GetFullName()),
+            pos,
+            "Cross",
+            TVector<std::pair<TInfoUnit, TInfoUnit>>{});
+        markedJoin->PreserveInputOrder = true;
+        auto equality = MakeBinaryPredicate(
+            "==",
+            MakeColumnAccess(leftColumn, pos, &ctx.ExprCtx, &ctx.PlanProps),
+            MakeColumnAccess(rightColumn, pos, &ctx.ExprCtx, &ctx.PlanProps));
+        auto filter = MakeIntrusive<TOpFilter>(
+            markedJoin,
+            pos,
+            equality);
+        TOpRoot root(filter, pos, {"left", "right"});
+        root.ComputeParents();
+        UNIT_ASSERT(markedJoin->IsSingleConsumer());
+
+        TPushFilterIntoJoinRule pushFilter;
+        const auto result =
+            pushFilter.SimpleMatchAndApply(filter, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), filter.Get());
+        UNIT_ASSERT_VALUES_EQUAL(markedJoin->JoinKind, "Cross");
+        UNIT_ASSERT(markedJoin->JoinKeys.empty());
+    }
+
+    Y_UNIT_TEST(PushesSharedIUPredicateToLeftOfLeftSemiJoin) {
+        TRuleTestContext ctx;
+        const auto pos = TPositionHandle();
+        const TInfoUnit factItemSk("store_sales.ss_item_sk");
+        const TInfoUnit itemId("i_item_id");
+        const TInfoUnit itemSk("item.i_item_sk");
+
+        auto fact = MakeRead(
+            NYql::EStorageType::RowStorage,
+            pos,
+            {},
+            factItemSk.GetFullName());
+        auto outerItem = MakeRead(
+            NYql::EStorageType::RowStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{itemId, itemSk});
+        auto semiJoinInput = MakeIntrusive<TOpJoin>(
+            fact,
+            outerItem,
+            pos,
+            "Cross",
+            TVector<std::pair<TInfoUnit, TInfoUnit>>{});
+        auto innerItem = MakeRead(
+            NYql::EStorageType::RowStorage,
+            pos,
+            {},
+            TVector<TInfoUnit>{itemId, itemSk});
+        auto semiJoin = MakeIntrusive<TOpJoin>(
+            semiJoinInput,
+            innerItem,
+            pos,
+            "LeftSemi",
+            TVector<std::pair<TInfoUnit, TInfoUnit>>{{itemId, itemId}});
+        auto equality = MakeBinaryPredicate(
+            "==",
+            MakeColumnAccess(
+                factItemSk,
+                pos,
+                &ctx.ExprCtx,
+                &ctx.PlanProps),
+            MakeColumnAccess(
+                itemSk,
+                pos,
+                &ctx.ExprCtx,
+                &ctx.PlanProps));
+        auto filter = MakeIntrusive<TOpFilter>(
+            semiJoin,
+            pos,
+            equality);
+        TOpRoot root(
+            filter,
+            pos,
+            {
+                factItemSk.GetFullName(),
+                itemId.GetFullName(),
+                itemSk.GetFullName(),
+            });
+        root.ComputeParents();
+        UNIT_ASSERT(semiJoin->IsSingleConsumer());
+
+        TPushFilterIntoJoinRule pushFilter;
+        const auto result =
+            pushFilter.SimpleMatchAndApply(filter, ctx.RboCtx, ctx.PlanProps);
+
+        UNIT_ASSERT_VALUES_EQUAL(result.Get(), semiJoin.Get());
+        UNIT_ASSERT_VALUES_EQUAL(semiJoin->JoinKind, "LeftSemi");
+        UNIT_ASSERT(
+            semiJoin->JoinKeys ==
+            (TVector<std::pair<TInfoUnit, TInfoUnit>>{{
+                itemId,
+                itemId,
+            }}));
+        UNIT_ASSERT_VALUES_EQUAL(
+            semiJoin->GetRightInput().Get(),
+            innerItem.Get());
+        UNIT_ASSERT(
+            semiJoin->GetLeftInput()->Kind == EOperator::Filter);
+
+        auto pushedFilter =
+            CastOperator<TOpFilter>(semiJoin->GetLeftInput());
+        UNIT_ASSERT_VALUES_EQUAL(
+            pushedFilter->GetInput().Get(),
+            semiJoinInput.Get());
+        const auto& pushedIUs =
+            pushedFilter->FilterExpr.GetInputIUs(true, true);
+        UNIT_ASSERT_VALUES_EQUAL(pushedIUs.size(), 2);
+        UNIT_ASSERT(
+            std::find(pushedIUs.begin(), pushedIUs.end(), factItemSk) !=
+            pushedIUs.end());
+        UNIT_ASSERT(
+            std::find(pushedIUs.begin(), pushedIUs.end(), itemSk) !=
+            pushedIUs.end());
+    }
+}
+
+} // namespace
