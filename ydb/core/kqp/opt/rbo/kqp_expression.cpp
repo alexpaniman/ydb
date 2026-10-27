@@ -517,9 +517,9 @@ bool TExpression::MaybeConstantCondition() const {
 }
 
 bool TExpression::IsLiteralOne() const {
-    auto body = Node->ChildPtr(1);
-    if (TCoUint32::Match(body.Get())) {
-        return TString(body->Content()) == "1";
+    const auto body = Node->ChildPtr(1);
+    if (TCoUint32::Match(body.Get()) || TCoUint64::Match(body.Get())) {
+        return body->Head().IsAtom("1");
     }
     return false;
 }

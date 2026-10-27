@@ -70,6 +70,78 @@ void CheckMapPullup(const TString& kind, bool fromLeft, EMapUse use, bool expect
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
+
+    Y_UNIT_TEST(LiteralOneReadsTheUnsignedLiteralValue) {
+        TIdTestContext f;
+        for (const TString& type : {TString("Uint32"), TString("Uint64")}) {
+            const auto one = MakeConstant(type, "1", f.Pos, &f.ExprCtx);
+            // The callable names the type; the child atom holds the value.
+            UNIT_ASSERT_VALUES_EQUAL(one.GetExpressionBody()->Content(), type);
+            UNIT_ASSERT_VALUES_EQUAL(one.GetExpressionBody()->Head().Content(), "1");
+            UNIT_ASSERT_C(one.IsLiteralOne(), type);
+            UNIT_ASSERT_C(!MakeConstant(type, "0", f.Pos, &f.ExprCtx).IsLiteralOne(), type);
+            UNIT_ASSERT_C(!MakeConstant(type, "2", f.Pos, &f.ExprCtx).IsLiteralOne(), type);
+        }
+        for (const TString& type : {TString("Int32"), TString("Int64"), TString("Float"), TString("Double"), TString("String")}) {
+            UNIT_ASSERT_C(!MakeConstant(type, "1", f.Pos, &f.ExprCtx).IsLiteralOne(), type);
+        }
+        for (const TString& type : {TString("Uint32"), TString("Uint64")}) {
+            const auto optionalOne = MakeUnaryCallable("Just", MakeConstant(type, "1", f.Pos, &f.ExprCtx));
+            UNIT_ASSERT_C(!optionalOne.IsLiteralOne(), type);
+        }
+        const auto parameter = f.ExprCtx.NewCallable(f.Pos, "Parameter", {
+            f.ExprCtx.NewAtom(f.Pos, "$one"),
+            f.ExprCtx.NewCallable(f.Pos, "DataType", {f.ExprCtx.NewAtom(f.Pos, "Uint64")})});
+        UNIT_ASSERT(!TExpression(parameter, &f.ExprCtx, &f.Props).IsLiteralOne());
+        UNIT_ASSERT(!f.Column(f.Id()).IsLiteralOne());
+    }
+
+    Y_UNIT_TEST(LimitOneTightensCardinalityWithoutChangingItsInput) {
+        const std::pair<ELogicalCardinality, ELogicalCardinality> cases[] = {
+            {ELogicalCardinality::ZeroOrMore, ELogicalCardinality::ZeroOrOne},
+            {ELogicalCardinality::OneOrMore, ELogicalCardinality::One},
+            {ELogicalCardinality::Zero, ELogicalCardinality::Zero},
+            {ELogicalCardinality::ZeroOrOne, ELogicalCardinality::ZeroOrOne},
+            {ELogicalCardinality::One, ELogicalCardinality::One},
+        };
+        for (const TString& type : {TString("Uint32"), TString("Uint64")}) {
+            for (const auto& [inputCardinality, expected] : cases) {
+                TIdTestContext f;
+                const auto id = f.Id();
+                auto read = f.Read({id});
+                read->Props.Metadata.emplace();
+                read->Props.Metadata->LogicalCard = inputCardinality;
+                read->Props.Metadata->KeyColumns = {id};
+                auto limit = MakeIntrusive<TOpLimit>(read, f.Pos,
+                    MakeConstant(type, "1", f.Pos, &f.ExprCtx), EOpPhase::Undefined);
+                limit->ComputeMetadata(f.RboCtx, f.Props);
+                UNIT_ASSERT(limit->Props.Metadata);
+                UNIT_ASSERT_VALUES_EQUAL(limit->Props.Metadata->LogicalCard, expected);
+                UNIT_ASSERT_VALUES_EQUAL(read->Props.Metadata->LogicalCard, inputCardinality);
+                UNIT_ASSERT(limit->Props.Metadata->KeyColumns == read->Props.Metadata->KeyColumns);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(LimitOneMetadataDoesNotTreatOtherExpressionsAsOne) {
+        TIdTestContext f;
+        const auto id = f.Id();
+        auto read = f.Read({id});
+        read->Props.Metadata.emplace();
+        read->Props.Metadata->LogicalCard = ELogicalCardinality::ZeroOrMore;
+        auto limitTwo = MakeIntrusive<TOpLimit>(read, f.Pos,
+            MakeConstant("Uint64", "2", f.Pos, &f.ExprCtx), EOpPhase::Undefined);
+        limitTwo->ComputeMetadata(f.RboCtx, f.Props);
+        UNIT_ASSERT_VALUES_EQUAL(limitTwo->Props.Metadata->LogicalCard, ELogicalCardinality::ZeroOrMore);
+        const auto parameter = f.ExprCtx.NewCallable(f.Pos, "Parameter", {
+            f.ExprCtx.NewAtom(f.Pos, "$one"),
+            f.ExprCtx.NewCallable(f.Pos, "DataType", {f.ExprCtx.NewAtom(f.Pos, "Uint64")})});
+        auto dynamicLimit = MakeIntrusive<TOpLimit>(read, f.Pos,
+            TExpression(parameter, &f.ExprCtx, &f.Props), EOpPhase::Undefined);
+        dynamicLimit->ComputeMetadata(f.RboCtx, f.Props);
+        UNIT_ASSERT_VALUES_EQUAL(dynamicLimit->Props.Metadata->LogicalCard, ELogicalCardinality::ZeroOrMore);
+    }
+
     Y_UNIT_TEST(ExpandReplicateReplacesAllPorts) {
         TIdTestContext f;
         f.Config->_KqpEnableSpilling = false;
