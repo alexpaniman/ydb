@@ -821,7 +821,7 @@ Y_UNIT_TEST_SUITE(TRBOSemanticSnapshotIntegration) {
         UNIT_ASSERT_STRING_CONTAINS(command.GetOutput(), "Z3 version 4.16.0");
     }
 
-    Y_UNIT_TEST(RealHostStopsAtNoOpConstantFoldingAtomicCheckpoint) {
+    Y_UNIT_TEST(RealHostStopsAtEarlyPruningAtomicCheckpoint) {
         TKikimrRunner kikimr;
 
         NYql::TExprContext moduleContext;
@@ -854,10 +854,10 @@ Y_UNIT_TEST_SUITE(TRBOSemanticSnapshotIntegration) {
             ERBOTransformationEventKindV1::AtomicStageCommit);
         UNIT_ASSERT_VALUES_EQUAL(
             results[1].TransformationEvents[0].Stage,
-            "Constant folding stage");
+            "Early pruning");
         UNIT_ASSERT_VALUES_EQUAL(
             results[1].TransformationEvents[0].Name,
-            "Fold constant expressions");
+            "Prune unused definitions");
 
         const auto initial = ParseSnapshot(results[0]);
         const auto prefix = ParseSnapshot(results[1]);
