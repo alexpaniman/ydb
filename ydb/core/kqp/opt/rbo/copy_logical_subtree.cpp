@@ -26,6 +26,14 @@ bool CanDuplicateAggregation(const TOpAggregate& aggregate) {
     return true;
 }
 
+// Plain imported index reads have no ID-bound lookup program to clone.
+// Their inputs still pass the recursive read/repeatability checks below.
+bool CanCopyTableLookup(const TOpTableLookup& lookup) {
+    return lookup.Strategy == ELookupStrategy::LookupRows && lookup.JoinKind.empty()
+        && !lookup.FetchedRowFilter && !lookup.Prefix && !lookup.SourceRead
+        && lookup.ResidualJoinKeys.Items().empty() && !lookup.KeysFromInputLookup;
+}
+
 bool IsRepeatable(const IOperator& op) {
     for (const auto& expression : op.GetExpressions()) {
         if (!IsRepeatable(expression.get().Node)) {
@@ -42,11 +50,13 @@ bool IsRepeatable(const IOperator& op) {
             return true;
         case EOperator::Source: {
             const auto& read = CastOperator<TOpRead>(op);
-            return !read.Limit && (!read.RangeInfo ||
+            return !read.Limit && IsRepeatable(read.ReadSettings) && (!read.RangeInfo ||
                 (IsRepeatable(read.RangeInfo->ComputeNode) &&
                  std::all_of(read.RangeInfo->PointPrefixes.begin(), read.RangeInfo->PointPrefixes.end(),
                              [](const TOpRead::TPointPrefix& prefix) { return IsRepeatable(prefix.Points); })));
         }
+        case EOperator::TableLookup:
+            return CanCopyTableLookup(CastOperator<TOpTableLookup>(op));
         case EOperator::EmptySource:
             return IsRepeatable(CastOperator<TOpEmptySource>(op).Input);
         case EOperator::Aggregate:
@@ -267,7 +277,19 @@ TIntrusivePtr<IOperator> TOpRead::CopyImpl(TInfoUnitRegistry& registry, TSubstit
         return nullptr;
     }
     return MakeIntrusive<TOpRead>(Alias, CopyColumns(Columns_, registry, renames), StorageType,
-        TableCallable, nullptr, Limit, RangeInfo, std::nullopt, SortDir, TPhysicalOpProps{}, Pos);
+        TableCallable, nullptr, Limit, RangeInfo, std::nullopt, SortDir, TPhysicalOpProps{}, Pos, ReadSettings);
+}
+
+TIntrusivePtr<IOperator> TOpTableLookup::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {
+    if (!CanCopyTableLookup(*this)) {
+        return nullptr;
+    }
+    auto copy = MakeIntrusive<TOpTableLookup>(GetInput(), Pos, Table,
+        CopyColumns(Columns, registry, renames), LookupKeys);
+    // Copy() rebinds input IDs after every definition has been allocated.
+    // Storage key names and their physical order remain unchanged.
+    copy->AllowNullKeys = AllowNullKeys;
+    return copy;
 }
 
 TIntrusivePtr<IOperator> TOpMap::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {

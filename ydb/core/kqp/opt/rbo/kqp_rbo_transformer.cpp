@@ -715,6 +715,7 @@ void TKqpNewRBOTransformer::InitializeRBOOptimizationStages() {
     RBO.AddStage(std::make_unique<TRuleBasedStage>("Physical rewrites I", std::move(physicalStageRules)));
 
     TVector<std::unique_ptr<IRule>> indexSelectionRules;
+    indexSelectionRules.emplace_back(std::make_unique<TUseCoveringImportedIndexRule>());
     indexSelectionRules.emplace_back(std::make_unique<TPushRangesRule>(NYql::EStorageType::RowStorage));
     RBO.AddStage(std::make_unique<TRuleBasedStage>("Index selection rules", std::move(indexSelectionRules)));
 

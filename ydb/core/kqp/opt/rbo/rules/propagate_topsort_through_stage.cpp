@@ -253,14 +253,14 @@ TIntrusivePtr<IOperator> TPropagateTopSortThroughStageRule::SimpleMatchAndApply(
         const auto read = CastOperator<TOpRead>(sortInput);
         const auto limitCond = sort->LimitCond->Node->ChildPtr(1);
         auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapFilterLambda, limitCond,
-                                                    read->RangeInfo, read->OriginalPredicate, static_cast<ESortDir>(sortDirecion), read->Props, read->Pos);
+                                                    read->RangeInfo, read->OriginalPredicate, static_cast<ESortDir>(sortDirecion), read->Props, read->Pos, read->ReadSettings);
         // We keep sort in stage even after push to read, because cs read can return values not sorted.
         return MakeIntrusive<TOpSort>(newRead, sort->Pos, sort->Props, sort->GetSortElements(), sort->LimitCond, EOpPhase::Intermediate);
     } else if (CanPushSortToRowRead(sort, sortInput, ctx, props.InfoUnitRegistry, sortDirecion)) {
         const auto read = CastOperator<TOpRead>(sortInput);
         const auto limitCond = sort->LimitCond->Node->ChildPtr(1);
         auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapFilterLambda, limitCond,
-                                      read->RangeInfo, read->OriginalPredicate, static_cast<ESortDir>(sortDirecion), read->Props, read->Pos);
+                                      read->RangeInfo, read->OriginalPredicate, static_cast<ESortDir>(sortDirecion), read->Props, read->Pos, read->ReadSettings);
         // TODO: We need to handle merge connection for row storage. So we keep sort until add them.
         return MakeIntrusive<TOpSort>(newRead, sort->Pos, sort->Props, sort->GetSortElements(), sort->LimitCond, EOpPhase::Intermediate);
     }

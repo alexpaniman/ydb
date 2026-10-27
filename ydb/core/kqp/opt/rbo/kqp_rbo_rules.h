@@ -393,6 +393,16 @@ class TPeepholePredicate : public ISimplifiedRule {
 /**
  * Push ranges to read.
  */
+// Reconsider an imported explicit-index lookup after whole-plan demand pruning.
+class TUseCoveringImportedIndexRule final: public ISimplifiedRule {
+public:
+    TUseCoveringImportedIndexRule()
+        : ISimplifiedRule("Use covering imported index", ERuleProperties::RequireParents | ERuleProperties::RequireLiveness) {}
+
+    bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
+    TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) override;
+};
+
 class TPushRangesRule: public ISimplifiedRule {
 public:
     TPushRangesRule(NYql::EStorageType applicableTableType)

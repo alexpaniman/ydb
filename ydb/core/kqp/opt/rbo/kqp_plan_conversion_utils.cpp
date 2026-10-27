@@ -360,7 +360,46 @@ TIntrusivePtr<IOperator> PlanConverter::ExprNodeToOperator(TExprNode::TPtr node)
         }
         Projections[key] = std::move(projection);
         OutputBindings[TImportKey{node.Get(), BindingContext}] = std::move(bindings);
-        result = std::move(read);
+        result = read;
+        if (const auto indexRead = source.IndexRead()) {
+            auto lowered = indexRead.Cast().Ptr();
+            const auto lookup = TMaybeNode<TKqlStreamLookupTable>(lowered);
+            if (lookup) {
+                lowered = lookup.Cast().LookupKeys().Ptr();
+            }
+            const auto storageRead = TKqlReadTableRanges(lowered);
+            TIntrusivePtr<TOpRead> indexSource = read;
+            TOpTableLookup::TLookupKeys keys;
+            if (lookup) {
+                TUnorderedIUs keyColumns;
+                for (const auto column : storageRead.Columns()) {
+                    const auto id = PlanProps.InfoUnitRegistry.Add(TInfoUnit(read->Alias, column.StringValue()));
+                    keyColumns.Add(id);
+                    keys.Append(id, column.StringValue());
+                }
+                indexSource = MakeIntrusive<TOpRead>(read->Alias, std::move(keyColumns), NYql::EStorageType::RowStorage,
+                    storageRead.Table().Ptr(), nullptr, nullptr, std::nullopt, std::nullopt, ESortDir::None,
+                    TPhysicalOpProps{}, node->Pos());
+            }
+            indexSource->TableCallable = storageRead.Table().Ptr();
+            indexSource->ReadSettings = storageRead.Settings().Ptr();
+            const auto settings = TKqpReadTableSettings::Parse(storageRead);
+            indexSource->Limit = settings.ItemsLimit;
+            if (settings.IsSorted()) {
+                indexSource->SortDir = settings.IsReverse() ? ESortDir::Desc : ESortDir::Asc;
+            }
+            if (!storageRead.Ranges().Maybe<TCoVoid>()) {
+                TOpRead::TRangeInfo ranges;
+                ranges.ComputeNode = storageRead.Ranges().Ptr();
+                indexSource->RangeInfo = std::move(ranges);
+            }
+            if (lookup) {
+                auto tableLookup = MakeIntrusive<TOpTableLookup>(std::move(indexSource), node->Pos(),
+                    lookup.Cast().Table().Ptr(), read->GetColumns(), std::move(keys));
+                tableLookup->AllowNullKeys = true;
+                result = std::move(tableLookup);
+            }
+        }
     } else if (NYql::NNodes::TKqpOpMap::Match(node.Get())) {
         result = ConvertTKqpOpMap(node);
     } else if (NYql::NNodes::TKqpInfuseDependents::Match(node.Get())) {

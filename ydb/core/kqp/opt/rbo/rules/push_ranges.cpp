@@ -102,7 +102,7 @@ bool IsSuitableToExtractAndPushRanges(IOperator* input, const NYql::EStorageType
 
     const auto read = CastOperator<TOpRead>(maybeRead);
     const auto tableType = read->GetTableStorageType();
-    return !read->GetRanges() && (tableType == applicableTableType);
+    return !read->Limit && !read->GetRanges() && (tableType == applicableTableType);
 }
 
 TPredicateExtractorSettings PrepareExtractorSettings(TKqpOptimizeContext& kqpCtx) {
@@ -500,6 +500,83 @@ TExprNode::TPtr BuildTableCallable(const TKikimrTableMetadata& meta, TPositionHa
 
 } // anonymous namespace
 
+bool TUseCoveringImportedIndexRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
+    return input->Kind == EOperator::TableLookup;
+}
+
+TIntrusivePtr<IOperator> TUseCoveringImportedIndexRule::SimpleMatchAndApply(
+    const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
+    if (!QuickMatch(input) || ctx.KqpCtx.Config->GetEnableQueryServiceSpilling()) {
+        return input;
+    }
+    const auto lookup = CastOperator<TOpTableLookup>(input);
+    if (lookup->Parents.size() != 1 || lookup->IsJoin() || !lookup->AllowNullKeys || lookup->Prefix || lookup->FetchedRowFilter
+        || lookup->KeysFromInputLookup || lookup->SourceRead || !lookup->ResidualJoinKeys.Items().empty()
+        || lookup->GetInput()->Kind != EOperator::Source) {
+        return input;
+    }
+    const auto read = CastOperator<TOpRead>(lookup->GetInput());
+    if (!read->ReadSettings || read->GetTableStorageType() != NYql::EStorageType::RowStorage
+        || read->OlapFilterLambda || read->OriginalPredicate) {
+        return input;
+    }
+    const auto* mainTable = FindTable(ctx.KqpCtx, TKqpTable(lookup->Table).Path().StringValue());
+    if (!mainTable || !mainTable->Metadata) {
+        return input;
+    }
+    const auto& mainMeta = *mainTable->Metadata;
+    if (mainMeta.KeyColumnNames.empty() || lookup->LookupKeys.Items().size() != mainMeta.KeyColumnNames.size()) {
+        return input;
+    }
+    size_t keyIndex = 0;
+    for (const auto& [id, column] : lookup->LookupKeys.Items()) {
+        if (column != mainMeta.KeyColumnNames[keyIndex++] || !read->GetColumns().Contains(id)
+            || props.InfoUnitRegistry.Get(id).GetColumnName() != column) {
+            return input;
+        }
+    }
+    TIntrusivePtr<TKikimrTableMetadata> indexMeta;
+    const auto indexTable = TKqpTable(read->TableCallable).Path().StringValue();
+    for (size_t i = 0; i < mainMeta.Indexes.size() && i < mainMeta.ImplTables.size(); ++i) {
+        const auto& index = mainMeta.Indexes[i];
+        const auto& implTable = mainMeta.ImplTables[i];
+        if (implTable && implTable->Name == indexTable
+            && (index.Type == TIndexDescription::EType::GlobalSync || index.Type == TIndexDescription::EType::GlobalSyncUnique)
+            && index.State == TIndexDescription::EIndexState::Ready) {
+            indexMeta = implTable;
+            break;
+        }
+    }
+    const auto* indexTableDesc = FindTable(ctx.KqpCtx, indexTable);
+    if (!indexMeta || !indexTableDesc || !indexTableDesc->Metadata) {
+        return input;
+    }
+    // The original import lowered a full-schema read before demand was known.
+    // Use all consumers' live outputs, never an inferred SQL projection.
+    auto columns = lookup->GetColumns();
+    columns.IntersectWith(GetLiveOut(lookup.Get()));
+    if (columns.Empty()) {
+        return input;
+    }
+    for (const auto id : columns) {
+        const auto column = props.InfoUnitRegistry.Get(id).GetColumnName();
+        if (!indexMeta->Columns.contains(column)) {
+            return input;
+        }
+        const auto* mainType = mainTable->GetColumnType(column);
+        const auto* indexType = indexTableDesc->GetColumnType(column);
+        if (!mainType || !indexType || !IsSameAnnotation(*mainType, *indexType)) {
+            return input;
+        }
+    }
+    // Move the fetched definitions to a fresh index read. The existing read may
+    // have other consumers, and its private lookup-key IDs must not be renamed.
+    auto covering = MakeIntrusive<TOpRead>(read->Alias, std::move(columns), NYql::EStorageType::RowStorage,
+        read->TableCallable, nullptr, read->Limit, read->RangeInfo, std::nullopt,
+        read->SortDir, TPhysicalOpProps{}, lookup->Pos, read->ReadSettings);
+    return covering;
+}
+
 bool TPushRangesRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
     return input->Kind == EOperator::Filter &&
         input->GetChildren().front()->Kind == EOperator::Source;
@@ -679,7 +756,7 @@ TIntrusivePtr<IOperator> TPushRangesRule::SimpleMatchAndApply(const TIntrusivePt
 
         auto indexRead = MakeIntrusive<TOpRead>(read->Alias, std::move(indexColumns), GetStorageType(*lookupIndexMeta),
                                                 BuildTableCallable(*lookupIndexMeta, read->Pos, ctx), nullptr, nullptr,
-                                                std::move(rangeInfo), std::nullopt, ESortDir::None, read->Props, read->Pos);
+                                                std::move(rangeInfo), std::nullopt, ESortDir::None, read->Props, read->Pos, read->ReadSettings);
 
         TSubstitutions substitutions;
         for (const auto id : filter->GetFilterIUs(props)) {
@@ -747,7 +824,7 @@ TIntrusivePtr<IOperator> TPushRangesRule::SimpleMatchAndApply(const TIntrusivePt
     const auto tableCallable = chosenIndexMeta ? BuildTableCallable(*chosenIndexMeta, read->Pos, ctx) : read->TableCallable;
     const auto sortDir = chosenIndexMeta ? ESortDir::None : read->SortDir;
     auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), storageType, tableCallable, read->OlapFilterLambda,
-                                          read->Limit, std::move(rangeInfo), TExpression(originalLambda, &ctx, &props), sortDir, read->Props, read->Pos);
+                                          read->Limit, std::move(rangeInfo), TExpression(originalLambda, &ctx, &props), sortDir, read->Props, read->Pos, read->ReadSettings);
     // An always true filter would stand between the read and its consumers, e.g. an OLAP aggregate.
     if (IsPrunedToTrue(chosen.PrunedLambda)) {
         return newRead;

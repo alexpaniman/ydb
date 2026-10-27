@@ -270,6 +270,9 @@ void TOpRead::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
     Props.Metadata = TRBOMetadata();
 
     const auto& tableData = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, path.Value());
+    if (RangeInfo && RangeInfo->KeyColumns.empty()) {
+        RangeInfo->KeyColumns = tableData.Metadata->KeyColumnNames;
+    }
     Props.Metadata->ColumnsCount = GetColumns().Size();
     const auto bindings = AddSourceLineage(planProps.ColumnLineage, *Props.Metadata, GetColumns(), planProps.InfoUnitRegistry, path.StringValue(), Alias);
     Props.Metadata->KeyColumns = ResolveStorageColumns(tableData.Metadata->KeyColumnNames, bindings);

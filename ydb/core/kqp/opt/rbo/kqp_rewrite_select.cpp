@@ -1,6 +1,7 @@
 #include "kqp_rbo_transformer.h"
 
 #include <ydb/core/kqp/common/kqp_yql.h>
+#include <ydb/core/kqp/opt/logical/kqp_opt_log_rules.h>
 
 #include <yql/essentials/core/yql_expr_optimize.h>
 #include <yql/essentials/core/yql_expr_type_annotation.h>
@@ -1858,6 +1859,35 @@ TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& input, TExprContext& ctx, c
                         .UniqueId().Value(std::to_string(uniqueSourceIdCounter++)).Build()
                     .Done().Ptr();
                     // clang-format on
+                }
+                else if (TKqlReadTableIndexRanges::Match(childExpr.Get())) {
+                    const auto read = TKqlReadTableIndexRanges(childExpr);
+                    YQL_ENSURE(!TKqpReadTableSettings::Parse(read).Sampling,
+                        "Sampling is not supported by the relational optimizer");
+                    // Reuse the index lowering contract: a covering implementation-table
+                    // read, or that read followed by a lookup using the full primary key.
+                    auto lowered = NOpt::KqpRewriteIndexRead(read, ctx, kqpCtx);
+                    YQL_ENSURE(lowered.Raw() != childExpr.Get(), "Unsupported explicit index read");
+                    if (const auto lookup = lowered.Maybe<TKqlStreamLookupTable>()) {
+                        // Legacy reads address key fields by name and sort their payload.
+                        // The relational lookup contract uses physical primary-key order.
+                        const auto& table = kqpCtx.Tables->ExistingTable(kqpCtx.Cluster, read.Table().Path());
+                        TVector<TExprNode::TPtr> keyColumns;
+                        for (const auto& key : table.Metadata->KeyColumnNames) {
+                            keyColumns.push_back(ctx.NewAtom(read.Pos(), key));
+                        }
+                        auto keys = ctx.ChangeChild(lookup.Cast().LookupKeys().Ref(), TKqlReadTableRanges::idx_Columns,
+                            ctx.NewList(read.Pos(), std::move(keyColumns)));
+                        lowered = TExprBase(ctx.ChangeChild(lookup.Cast().Ref(), TKqlStreamLookupTable::idx_LookupKeys, std::move(keys)));
+                    }
+                    fromExpr = Build<TKqpOpRead>(ctx, node->Pos())
+                        .Table(read.Table())
+                        .Alias(alias)
+                        .Columns(read.Columns())
+                        .SourceType().Build("Row")
+                        .UniqueId().Value(std::to_string(uniqueSourceIdCounter++)).Build()
+                        .IndexRead(lowered)
+                        .Done().Ptr();
                 }
                 else if (childExpr->IsCallable("YqlSelect")){
                     TExprNode::TPtr subquery;

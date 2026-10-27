@@ -207,7 +207,9 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
                 ranges = literalRange;
             }
 
-            TKqpReadTableSettings settings;
+            auto settings = Read.ReadSettings
+                ? TKqpReadTableSettings::Parse(TCoNameValueTupleList(Read.ReadSettings))
+                : TKqpReadTableSettings{};
             if (Read.SortDir != ESortDir::None) {
                 settings.SetSorting(Read.SortDir == ESortDir::Asc ? ERequestSorting::ASC : ERequestSorting::DESC);
                 if (Read.Limit) {
@@ -288,7 +290,9 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
                 outputFields = storageColumns;
             }
 
-            TKqpReadTableSettings settings;
+            auto settings = Read.ReadSettings
+                ? TKqpReadTableSettings::Parse(TCoNameValueTupleList(Read.ReadSettings))
+                : TKqpReadTableSettings{};
             if (Read.Limit) {
                 settings.SetItemsLimit(Read.Limit);
             }

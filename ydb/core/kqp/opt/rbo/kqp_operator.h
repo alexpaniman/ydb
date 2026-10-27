@@ -642,7 +642,8 @@ public:
     // Reconstruction preserves the supplied bindings; it never allocates IDs.
     TOpRead(const TString& alias, TUnorderedIUs columns, const NYql::EStorageType storageType,
             const TExprNode::TPtr& tableCallable, const TExprNode::TPtr& olapFilterLambda, const TExprNode::TPtr& limit, std::optional<TRangeInfo> ranges,
-            const std::optional<TExpression>& originalPredicate, const ESortDir sortDirection, const TPhysicalOpProps& props, TPositionHandle pos);
+            const std::optional<TExpression>& originalPredicate, const ESortDir sortDirection, const TPhysicalOpProps& props, TPositionHandle pos,
+            const TExprNode::TPtr& readSettings = nullptr);
 
     const TUnorderedIUs& GetColumns() const Y_LIFETIME_BOUND { return Columns_; }
     TUnorderedIUs& GetColumns() Y_LIFETIME_BOUND { return Columns_; }
@@ -674,6 +675,8 @@ public:
 
     // TODO: put it in read settings.
     TExprNode::TPtr TableCallable;
+    // Imported storage settings survive read reconstruction and physical export.
+    TExprNode::TPtr ReadSettings;
     // Binding atoms and embedded row-schema fields use decimal IU IDs. The
     // program preserves Columns_ membership, but may change values and types.
     TExprNode::TPtr OlapFilterLambda;
@@ -1312,6 +1315,7 @@ public:
     std::optional<TSourceRead> SourceRead;
 
 protected:
+    TIntrusivePtr<IOperator> CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const override;
     void ComputeOutputIUs() override;
 
 private:

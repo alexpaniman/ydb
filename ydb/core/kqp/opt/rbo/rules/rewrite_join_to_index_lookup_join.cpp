@@ -10,6 +10,12 @@ using namespace NYql;
 using namespace NYql::NNodes;
 
 std::optional<TExpression> BuildFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
+    // A lookup does not retain storage restrictions such as a read limit,
+    // skipped null keys or an explicit tablet selection.
+    if (read.ReadSettings && read.ReadSettings->ChildrenSize()) {
+        supported = false;
+        return std::nullopt;
+    }
     TVector<TExpression> conjuncts;
     if (read.RangeInfo.has_value()) {
         if (!read.OriginalPredicate.has_value()) {
