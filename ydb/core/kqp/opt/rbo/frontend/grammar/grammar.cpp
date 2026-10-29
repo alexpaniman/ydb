@@ -75,6 +75,7 @@ public:
         : Names(names), Positions(positions), Settings(settings) {}
 
     TParsedQuery Run(TRule* root) {
+        Result.UsedGeneratedParser = true;
         auto* list = Child(root, "sql_stmt_list");
         if (!list) Unsupported(root, EFeature::LanguageVersion, "unsupported SQL language mode");
         for (auto* statement : Children(list, "sql_stmt")) {
@@ -157,10 +158,15 @@ private:
         }
         return result;
     }
-    std::string Id(TTree* node) const { return Decode(node->getText(), node, true); }
+    std::string Identifier(std::string text, TTree* node) const {
+        if (!text.empty() && (text.front() == '\'' || text.front() == '"' || text.starts_with("@@")))
+            Unsupported(node, EFeature::Syntax, "string literals as identifiers are outside native-read-v1; use backticks");
+        return Decode(std::move(text), node, true);
+    }
+    std::string Id(TTree* node) const { return Identifier(node->getText(), node); }
     std::string Variable(TTree* node) const {
         auto text = node->getText();
-        return Decode(text.substr(1), node, true);
+        return Identifier(text.substr(1), node);
     }
     std::string Type(TTree* node) const {
         if (Name(node) == "type_name_or_bind") {

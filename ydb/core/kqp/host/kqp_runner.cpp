@@ -246,7 +246,7 @@ public:
             Config))
         , ActorSystem(actorSystem)
     {
-        CreateGraphTransformer(typesCtx, sessionCtx, funcRegistry);
+        sessionCtx->SetInternalTypeAnnTransformer(CreateKqpTypeAnnotationTransformer(Cluster, sessionCtx->TablesPtr(), Config));
     }
 
     TIntrusivePtr<TAsyncQueryResult> PrepareNativeQuery(const TString& cluster,
@@ -495,7 +495,6 @@ private:
             Gateway, Cluster, TransformCtx, &funcRegistry, *typesCtx, OptimizeCtx);
 
         sessionCtx->SetInternalTypeAnnTransformer(CreateKqpTypeAnnotationTransformer(Cluster, sessionCtx->TablesPtr(), Config));
-
         auto physicalOptimizePipeline = TTransformationPipeline(typesCtx)
             .AddServiceTransformers()
             .Add(Log("PhysicalOptimize"), "LogPhysicalOptimize")

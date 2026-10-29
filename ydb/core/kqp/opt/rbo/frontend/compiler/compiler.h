@@ -6,11 +6,11 @@
 namespace NKikimr::NKqp::NFrontend {
 
 enum class ECompilerMode { NativeRequired, Auto, Legacy };
-enum class EParser { Grammar, Handwritten, Verify };
+enum class EParser { Grammar, Handwritten, Verify, Fast };
 
 struct TCompilerSettings {
     ECompilerMode Mode = ECompilerMode::NativeRequired;
-    EParser Parser = EParser::Grammar;
+    EParser Parser = EParser::Fast;
     TParseSettings Parsing;
     TBindSettings Binding;
 };
@@ -33,8 +33,8 @@ struct TTableRequest {
 };
 
 // Parsing and binding can be separated by asynchronous catalog I/O. Both use
-// only native types. The generated parser is the default; Verify compares the
-// complete supported syntax structure before permitting handwritten output.
+// only native types. Fast uses the handwritten subset and delegates unhandled
+// syntax to the independent generated parser. Verify checks correspondence.
 TParsedQuery ParseNative(std::string_view sql, const TCompilerSettings& settings = {});
 std::vector<TTableRequest> CollectTables(const TParsedQuery& syntax, const TBindSettings& settings = {});
 TBoundProgram BindNative(const TParsedQuery& syntax, const TTableResolver& catalog,

@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
                              "  --table NAME COLUMNS   comma-separated name:type schema (Decimal commas allowed)\n"
                              "  --bench N              parse+bind N times and report average time\n"
                              "  --ansi                 ANSI string escaping and nested comments\n"
-                             "  --parser NAME          grammar (default), handwritten, verify\n"
+                             "  --parser NAME          fast (default), grammar, handwritten, verify\n"
                              "  --mode NAME            required (default), auto, legacy\n"
                              "  --support              print the execution profile\n";
                 return 0;
@@ -30,7 +30,8 @@ int main(int argc, char** argv) {
             if (arg == "--support") { std::cout << SupportManifest() << '\n'; return 0; }
             if (arg == "--parser" && i + 1 < argc) {
                 const std::string_view value = argv[++i];
-                if (value == "grammar") settings.Parser = EParser::Grammar;
+                if (value == "fast") settings.Parser = EParser::Fast;
+                else if (value == "grammar") settings.Parser = EParser::Grammar;
                 else if (value == "handwritten") settings.Parser = EParser::Handwritten;
                 else if (value == "verify") settings.Parser = EParser::Verify;
                 else throw std::runtime_error("unknown parser");

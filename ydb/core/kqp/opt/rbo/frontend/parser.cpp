@@ -1,4 +1,5 @@
 #include "parser.h"
+#include "diagnostic.h"
 
 #include <algorithm>
 #include <array>
@@ -10,11 +11,17 @@ namespace {
 
 enum class EToken { End, Identifier, QuotedIdentifier, Number, String, Symbol };
 
+enum EIdentifier { ExprIdentifier = 1, TableIdentifier = 2, AliasIdentifier = 4, GeneralIdentifier = 8 };
+struct TKeyword { std::string_view Word; unsigned Identifiers; };
+#include <ydb/core/kqp/opt/rbo/frontend/grammar_keywords.inc>
+
 struct TToken {
     EToken Kind;
     std::string Text;
     TSourcePosition Position;
     std::size_t EndOffset = 0;
+    std::string Word = {};
+    unsigned Identifiers = 15;
 };
 
 std::string Upper(std::string_view text) {
@@ -31,6 +38,35 @@ bool Alpha(char ch) {
 
 bool Digit(char ch) { return ch >= '0' && ch <= '9'; }
 
+bool SupportedNumber(std::string_view text) {
+    const auto upper = Upper(text);
+    std::size_t end = 0;
+    if (upper.starts_with("0X") || upper.starts_with("0B") || upper.starts_with("0O")) {
+        const auto digits = upper[1] == 'X' ? "0123456789ABCDEF" : upper[1] == 'B' ? "01" : "012345678";
+        end = 2;
+        while (end < upper.size() && std::string_view(digits).find(upper[end]) != std::string_view::npos) ++end;
+        if (end == 2) return false;
+    } else {
+        while (end < upper.size() && Digit(upper[end])) ++end;
+        bool real = false;
+        if (end < upper.size() && upper[end] == '.') {
+            real = true; ++end;
+            while (end < upper.size() && Digit(upper[end])) ++end;
+        }
+        if (end < upper.size() && upper[end] == 'E') {
+            real = true; ++end;
+            if (end < upper.size() && (upper[end] == '+' || upper[end] == '-')) ++end;
+            const auto start = end;
+            while (end < upper.size() && Digit(upper[end])) ++end;
+            if (end == start) return false;
+        }
+        if (real) return end == upper.size() || upper.substr(end) == "F";
+    }
+    if (end < upper.size() && (upper[end] == 'U' || upper[end] == 'P')) ++end;
+    if (end < upper.size() && std::string_view("LSTIBN").find(upper[end]) != std::string_view::npos) ++end;
+    return end == upper.size();
+}
+
 class TLexer {
 public:
     TLexer(std::string_view text, bool ansi) : Text(text), Ansi(ansi) {}
@@ -43,7 +79,12 @@ public:
         const char ch = Peek();
         if (Alpha(ch)) {
             do { Advance(); } while (Alpha(Peek()) || Digit(Peek()));
-            return {EToken::Identifier, std::string(Text.substr(start, Position.Offset - start)), pos};
+            TToken token{EToken::Identifier, std::string(Text.substr(start, Position.Offset - start)), pos};
+            token.Word = Upper(token.Text);
+            const auto it = std::lower_bound(std::begin(Keywords), std::end(Keywords), token.Word,
+                [](const TKeyword& key, std::string_view word) { return key.Word < word; });
+            if (it != std::end(Keywords) && it->Word == token.Word) token.Identifiers = it->Identifiers;
+            return token;
         }
         if (Digit(ch)) {
             Advance();
@@ -61,7 +102,9 @@ public:
                 }
                 while (Alpha(Peek()) || Digit(Peek())) Advance();
             }
-            return {EToken::Number, std::string(Text.substr(start, Position.Offset - start)), pos};
+            const auto number = Text.substr(start, Position.Offset - start);
+            if (!SupportedNumber(number)) throw TUnsupportedFeature(EFeature::Syntax, pos, "numeric token requires grammar parser");
+            return {EToken::Number, std::string(number), pos};
         }
         if (ch == '\'' || ch == '"' || ch == '`') {
             const bool identifier = ch == '`';
@@ -72,7 +115,7 @@ public:
                 char current = Peek();
                 Advance();
                 if (current == ch) {
-                    if (Peek() == ch) { Advance(); value += ch; continue; }
+                    if ((Ansi || identifier) && Peek() == ch) { Advance(); value += ch; continue; }
                     closed = true;
                     break;
                 }
@@ -91,19 +134,12 @@ public:
                 value += current;
             }
             if (!closed) throw TFrontendError(pos, "unterminated quoted value");
-            // The suffix is emitted as a separate token, allowing the parser to
-            // distinguish Utf8 from String without treating quoted names as keywords.
+            if (!identifier && (Alpha(Peek()) || Peek() == '@'))
+                throw TUnsupportedFeature(EFeature::Syntax, pos, "typed or adjacent string literal requires grammar parser");
             return {identifier ? EToken::QuotedIdentifier : EToken::String, std::move(value), pos, Position.Offset};
         }
         if (ch == '@' && Peek(1) == '@') {
-            Advance(); Advance();
-            std::string value;
-            while (Position.Offset < Text.size() && !(Peek() == '@' && Peek(1) == '@')) {
-                value += Peek(); Advance();
-            }
-            if (Position.Offset == Text.size()) throw TFrontendError(pos, "unterminated multiline string");
-            Advance(); Advance();
-            return {EToken::String, std::move(value), pos, Position.Offset};
+            throw TUnsupportedFeature(EFeature::Syntax, pos, "multiline literal requires grammar parser");
         }
         constexpr std::array pairs{"<=", ">=", "!=", "<>", "==", "||", "??", "::", "->", "<<", ">>"};
         for (auto pair : pairs) {
@@ -127,9 +163,9 @@ private:
     }
     void SkipSpace() {
         while (Position.Offset < Text.size()) {
-            if (std::isspace(static_cast<unsigned char>(Peek()))) { Advance(); continue; }
+            if (std::string_view(" \r\t\f\n").find(Peek()) != std::string_view::npos) { Advance(); continue; }
             if (Peek() == '-' && Peek(1) == '-') {
-                while (Position.Offset < Text.size() && Peek() != '\n') Advance();
+                while (Position.Offset < Text.size() && Peek() != '\n' && Peek() != '\r') Advance();
                 continue;
             }
             if (Peek() == '/' && Peek(1) == '*') {
@@ -155,11 +191,15 @@ private:
 class TParser {
 public:
     TParser(std::string_view text, const TParseSettings& settings) : Settings(settings) {
-        if (text.size() > settings.MaxQueryBytes) throw TFrontendError({}, "query size limit exceeded");
+        if (text.size() > settings.MaxQueryBytes) throw TResourceLimitError({}, "query size limit exceeded");
+        // The grammar runtime validates UTF-8 and reports character positions.
+        // Delegate non-ASCII input until the fast lexer has the same contract.
+        for (unsigned char c : text) if (c >= 128)
+            throw TUnsupportedFeature(EFeature::Syntax, {}, "non-ASCII input requires grammar parser");
         TLexer lexer(text, settings.AnsiQuotes);
         do {
             Tokens.push_back(lexer.Next());
-            if (Tokens.size() > settings.MaxNodes * 8) throw TFrontendError(Tokens.back().Position, "token limit exceeded");
+            if ((Tokens.size() - 1) / 8 >= settings.MaxNodes) throw TResourceLimitError(Tokens.back().Position, "token limit exceeded");
         } while (Tokens.back().Kind != EToken::End);
     }
 
@@ -176,7 +216,7 @@ private:
     struct TDepth {
         TParser& Parser;
         explicit TDepth(TParser& parser) : Parser(parser) {
-            if (++Parser.Depth > Parser.Settings.MaxDepth) Parser.Fail("nesting limit exceeded");
+            if (++Parser.Depth > Parser.Settings.MaxDepth) throw TResourceLimitError(Parser.Token().Position, "nesting limit exceeded");
         }
         ~TDepth() { --Parser.Depth; }
     };
@@ -185,31 +225,39 @@ private:
     bool End() const { return Token().Kind == EToken::End; }
     bool Is(std::string_view text, std::size_t ahead = 0) const {
         const auto& token = Token(ahead);
-        return (token.Kind == EToken::Identifier && Upper(token.Text) == text) ||
+        return (token.Kind == EToken::Identifier && token.Word == text) ||
             (token.Kind == EToken::Symbol && token.Text == text);
     }
     bool Take(std::string_view text) { if (!Is(text)) return false; ++Index; return true; }
     void Expect(std::string_view text) { if (!Take(text)) Fail("expected " + std::string(text)); }
     [[noreturn]] void Fail(std::string message) const { throw TFrontendError(Token().Position, std::move(message)); }
-    std::string Identifier() {
+    std::string Identifier(unsigned category = GeneralIdentifier) {
+        if (Token().Kind == EToken::String)
+            throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "string literals as identifiers are outside native-read-v1; use backticks");
         if (Token().Kind != EToken::Identifier && Token().Kind != EToken::QuotedIdentifier &&
             Token().Kind != EToken::String) Fail("expected identifier");
+        if (Token().Kind == EToken::Identifier && !(Token().Identifiers & category)) Fail("keyword is not an identifier here");
         return Tokens[Index++].Text;
     }
     std::string Variable() { Expect("$"); return Identifier(); }
     TSyntaxId Add(ESyntaxKind kind, TSourcePosition pos, std::string text = {}, std::vector<TSyntaxId> args = {}) {
-        if (Result.Expressions.size() >= Settings.MaxNodes || Result.Expressions.size() >= NoSyntax) Fail("expression limit exceeded");
+        if (Result.Expressions.size() >= Settings.MaxNodes || Result.Expressions.size() >= NoSyntax)
+            throw TResourceLimitError(pos, "expression limit exceeded");
         const auto id = static_cast<TSyntaxId>(Result.Expressions.size());
         Result.Expressions.push_back({kind, pos, std::move(text), std::move(args), {}, false});
         return id;
     }
     bool CanAlias() const {
-        if (Token().Kind == EToken::QuotedIdentifier) return true;
+        if (Token().Kind == EToken::QuotedIdentifier || Token().Kind == EToken::String) return true;
         if (Token().Kind != EToken::Identifier) return false;
-        static constexpr std::array stops{"SELECT", "FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT",
-            "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "JOIN", "ON", "USING", "WINDOW", "WITH", "WITHOUT", "ASSUME", "INTO", "SAMPLE", "TABLESAMPLE", "FLATTEN", "ASC", "DESC", "NULLS"};
-        const auto word = Upper(Token().Text);
-        return std::find(stops.begin(), stops.end(), word) == stops.end();
+        // These words can be aliases in isolation, but the grammar's adaptive
+        // prediction gives a following clause precedence. An isolated alias
+        // using one of them is handled by the generated parser.
+        for (auto word : {"GROUP", "ORDER", "INNER", "LEFT", "RIGHT", "CROSS", "JOIN", "ON", "USING",
+                          "NATURAL", "EXCLUSION", "OUTER", "ANY", "WINDOW", "WITH", "WITHOUT", "ASSUME",
+                          "INTO", "SAMPLE", "TABLESAMPLE", "FLATTEN"})
+            if (Token().Word == word) return false;
+        return Token().Identifiers & AliasIdentifier;
     }
 
     std::string TypeName() {
@@ -220,7 +268,7 @@ private:
         } else if (Upper(name) == "DECIMAL") {
             Expect("(");
             if (Token().Kind != EToken::Number) Fail("expected Decimal precision");
-            name = "Decimal(" + Tokens[Index++].Text;
+            name += "(" + Tokens[Index++].Text;
             Expect(",");
             if (Token().Kind != EToken::Number) Fail("expected Decimal scale");
             name += "," + Tokens[Index++].Text + ")";
@@ -286,8 +334,8 @@ private:
         else {
             if (Take("$")) result.Name = "$" + Identifier();
             else {
-                result.Name = Identifier();
-                while (Take(".")) result.Name += "." + Identifier();
+                result.Name = Identifier(TableIdentifier);
+                if (Is(".")) Fail("cluster-qualified source requires grammar parser");
             }
         }
         if (Take("AS") || CanAlias()) result.Alias = Identifier();
@@ -324,6 +372,7 @@ private:
         auto result = SelectCore();
         while (Take("UNION")) {
             if (!Take("ALL")) Fail("only UNION ALL is supported");
+            if (Is("WITH")) Fail("UNION branch cannot start with WITH");
             result->UnionAll.push_back(SelectCore());
         }
         if (Take("ORDER")) {
@@ -339,6 +388,8 @@ private:
             if (Take(",")) { result->Offset = result->Limit; result->Limit = Expression(); }
             else if (Take("OFFSET")) result->Offset = Expression();
         }
+        if (!result->UnionAll.empty() && (!result->OrderBy.empty() || result->Limit != NoSyntax))
+            throw TUnsupportedFeature(EFeature::SetOperation, result->Position, "ordered or limited UNION branch");
         return result;
     }
 
@@ -346,18 +397,27 @@ private:
         auto result = std::make_shared<TSelect>(); result->Position = Token().Position;
         if (Take("WITH")) {
             do {
-                auto name = Identifier(); Expect("AS"); Expect("(");
+                auto name = Identifier(TableIdentifier); Expect("AS"); Expect("(");
                 auto query = Select(); Expect(")"); result->Ctes.emplace_back(std::move(name), std::move(query));
-            } while (Take(","));
+            } while (Take(",") && !Is("SELECT") && !Is("FROM"));
         }
         if (Take("FROM")) From(*result);
         Expect("SELECT");
         if (Take("DISTINCT")) result->Distinct = true; else Take("ALL");
         do {
-            TNamedExpr item{Expression()};
-            if (Take("AS") || CanAlias()) item.Alias = Identifier();
+            TNamedExpr item;
+            if (Take("*")) item.Expression = Add(ESyntaxKind::Star, Tokens[Index - 1].Position);
+            else if (Is(".", 1) && Is("*", 2)) {
+                const auto position = Token().Position;
+                auto qualifier = Identifier(); Expect("."); Expect("*");
+                item.Expression = Add(ESyntaxKind::Star, position, std::move(qualifier));
+            } else item.Expression = Expression();
+            if (Result.Expressions[item.Expression].Kind == ESyntaxKind::Star) {
+                if (Is("AS") || CanAlias()) Fail("star cannot have an alias");
+            } else if (Take("AS") || CanAlias()) item.Alias = Identifier();
             result->Projection.push_back(std::move(item));
-        } while (Take(",") && !Is("FROM") && !End() && !Is(";") && !Is(")"));
+        } while (Take(",") && !Is("FROM") && !Is("WHERE") && !Is("GROUP") && !Is("HAVING") &&
+            !Is("ORDER") && !Is("LIMIT") && !Is("UNION") && !End() && !Is(";") && !Is(")"));
         if (Take("FROM")) {
             if (result->Source) Fail("duplicate FROM clause");
             From(*result);
@@ -394,9 +454,13 @@ private:
     TSyntaxId Expression(int minimum = 1) {
         TDepth depth(*this);
         auto left = Primary();
+        bool predicate = false, ordering = false;
         while (Precedence() >= minimum) {
             const auto pos = Token().Position;
             const int precedence = Precedence();
+            if ((precedence == 4 && std::exchange(predicate, true)) ||
+                (precedence == 5 && std::exchange(ordering, true)))
+                throw TUnsupportedFeature(EFeature::Expression, pos, "chained comparison requires grammar parser");
             auto op = Upper(Tokens[Index++].Text);
             bool negate = false;
             if (op == "NOT") { negate = true; op = Upper(Tokens[Index++].Text); }
@@ -409,12 +473,13 @@ private:
                 left = Add(ESyntaxKind::Between, pos, {}, {left, low, high});
             } else if (op == "IN") {
                 Expect("(");
-                if (Is("SELECT") || Is("WITH")) {
+                if (Is("SELECT") || Is("WITH") || Is("FROM")) {
                     auto query = Select(); Expect(")");
                     auto id = Add(ESyntaxKind::In, pos, {}, {left}); Result.Expressions[id].Query = std::move(query); left = id;
                 } else {
                     std::vector<TSyntaxId> args{left};
-                    if (!Take(")")) { do { args.push_back(Expression()); } while (Take(",")); Expect(")"); }
+                    if (Is(")")) Fail("empty IN list");
+                    do { args.push_back(Expression()); } while (Take(",") && !Is(")")); Expect(")");
                     left = Add(ESyntaxKind::In, pos, {}, std::move(args));
                 }
             } else {
@@ -430,12 +495,12 @@ private:
         const auto token = Token();
         const auto pos = token.Position;
         if (Take("+") || Take("-") || Take("NOT") || Take("~")) {
+            if (Is("+") || Is("-") || Is("NOT") || Is("~")) Fail("multiple unary operators require parentheses");
             return Add(ESyntaxKind::Unary, pos, Upper(token.Text), {Expression(10)});
         }
         if (Take("NULL")) return Add(ESyntaxKind::Null, pos);
         if (Take("TRUE")) return Add(ESyntaxKind::Boolean, pos, "true");
         if (Take("FALSE")) return Add(ESyntaxKind::Boolean, pos, "false");
-        if (Take("*")) return Add(ESyntaxKind::Star, pos);
         if (token.Kind == EToken::Number) {
             ++Index;
             const bool radix = token.Text.size() > 1 && token.Text[0] == '0' &&
@@ -444,14 +509,7 @@ private:
         }
         if (token.Kind == EToken::String) {
             ++Index;
-            auto id = Add(ESyntaxKind::String, pos, token.Text);
-            // S/U are accepted as explicit suffixes. Other typed strings need
-            // their own execution representation and are rejected by the caller.
-            if (Token().Position.Offset == token.EndOffset) {
-                if (Is("U")) { ++Index; id = Add(ESyntaxKind::Cast, pos, "Utf8", {id}); }
-                else Take("S");
-            }
-            return id;
+            return Add(ESyntaxKind::String, pos, token.Text);
         }
         if (Take("CAST")) {
             Expect("("); auto arg = Expression(); Expect("AS"); auto type = TypeName(); Expect(")");
@@ -483,18 +541,24 @@ private:
             auto result = Expression(); Expect(")"); return result;
         }
         const bool variable = Take("$");
-        std::string name = Identifier();
+        std::string name = Identifier(variable || Is("::", 1) ? GeneralIdentifier : ExprIdentifier);
         if (!variable) {
-            while (Take("::")) name += "::" + Identifier();
+            if (Take("::")) name += "::" + Identifier();
             while (Take(".")) {
-                if (Take("*")) return Add(ESyntaxKind::Star, pos, std::move(name));
                 name += "." + Identifier();
             }
         }
         if (!Take("(")) return Add(variable ? ESyntaxKind::Variable : ESyntaxKind::Column, pos, std::move(name));
         const bool distinct = Take("DISTINCT");
+        const bool quantified = distinct || Take("ALL");
         std::vector<TSyntaxId> args;
-        if (!Take(")")) { do { args.push_back(Expression()); } while (Take(",")); Expect(")"); }
+        if (Take("*")) {
+            if (quantified) Fail("invalid star argument");
+            args.push_back(Add(ESyntaxKind::Star, Tokens[Index - 1].Position)); Expect(")");
+        } else if (!Take(")")) { do { args.push_back(Expression()); } while (Take(",") && !Is(")")); Expect(")"); }
+        if (quantified && args.empty()) Fail("set quantifier requires an argument");
+        for (auto arg : args) if (Result.Expressions[arg].Kind == ESyntaxKind::Star &&
+            (quantified || args.size() != 1 || !Result.Expressions[arg].Text.empty())) Fail("invalid star argument");
         auto id = Add(ESyntaxKind::Call, pos, variable ? "$" + name : name, std::move(args));
         Result.Expressions[id].Distinct = distinct;
         return id;

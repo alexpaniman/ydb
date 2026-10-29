@@ -39,18 +39,18 @@ def main():
         command = [str(args.cli), "--table", "t", schema]
         subprocess.run(command + ["--parser", "verify"], input=sql, text=True,
                        capture_output=True, check=True, timeout=60)
-        samples = {kind: [] for kind in ("grammar", "handwritten")}
+        samples = {kind: [] for kind in ("grammar", "fast")}
         for trial in range(args.trials):
-            order = ("grammar", "handwritten") if trial % 2 == 0 else ("handwritten", "grammar")
+            order = ("grammar", "fast") if trial % 2 == 0 else ("fast", "grammar")
             for kind in order:
                 result = subprocess.run(command + ["--parser", kind, "--bench", str(args.iterations)],
                                         input=sql, text=True, capture_output=True, check=True, timeout=60)
                 samples[kind].append(float(re.search(r"parse_bind_us=([0-9.]+)", result.stdout)[1]))
         medians = {kind: statistics.median(values) for kind, values in samples.items()}
-        ratio = medians["grammar"] / medians["handwritten"]
+        ratio = medians["grammar"] / medians["fast"]
         report["cases"].append({"name": name, "sql": sql, "schema": schema, "bytes": len(sql.encode()),
                                 "samples_us": samples, "median_us": medians, "ratio": ratio})
-        print(f"{name}: grammar={medians['grammar']:.2f} us handwritten={medians['handwritten']:.2f} us ratio={ratio:.2f}", flush=True)
+        print(f"{name}: grammar={medians['grammar']:.2f} us fast={medians['fast']:.2f} us ratio={ratio:.2f}", flush=True)
     if args.output:
         args.output.write_text(json.dumps(report, indent=2) + "\n")
 

@@ -103,6 +103,20 @@ TResultSnapshot TableQuery(TMode mode) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST(ParserDispatchRemainsNative) {
+        TKikimrRunner kikimr(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        for (const auto& [sql, parser] : {std::pair{"SELECT 1 AS answer", "handwritten"},
+                                        {"SELECT 'привет' AS answer", "grammar"}}) {
+            const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+            Snapshot(result);
+            const auto explained = session.ExplainDataQuery(sql).GetValueSync();
+            UNIT_ASSERT_C(explained.IsSuccess(), explained.GetIssues().ToString());
+            UNIT_ASSERT_C(explained.GetAst().find(std::string("native parser: ") + parser) != std::string::npos,
+                explained.GetAst());
+        }
+    }
+
     Y_UNIT_TEST(ScalarSemanticsMatchLegacyAcrossReusedSessions) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
@@ -111,6 +125,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         TString failures;
         for (const auto* sql : {
             "SELECT 1",
+            "--!ansi_lexer\nSELECT 'a''b'",
             "SELECT a.x FROM (SELECT 1 AS x) AS a",
             "SELECT 1 = NULL, NULL = NULL, NULL IN (1, NULL)",
             "SELECT SUM(x) AS total, COUNT(*) AS n FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q",
@@ -206,16 +221,18 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
     Y_UNIT_TEST(RequiredModeRejectsUnsupportedWithoutFallback) {
         TKikimrRunner kikimr(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
-        const auto result = session.ExecuteDataQuery("SELECT ListLength([1, 2]) AS n",
-            TTxControl::BeginTx().CommitTx()).GetValueSync();
-        UNIT_ASSERT(!result.IsSuccess());
-        UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+        for (const auto* sql : {"SELECT ListLength([1, 2]) AS n", "SELECT 'a''b'", "SELECT 1 AS 'answer'", "SELECT * FROM 'table'"}) {
+            const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT_C(!result.IsSuccess(), sql);
+            UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+        }
     }
 
     Y_UNIT_TEST(AutoModeDoesNotFallbackForInvalidQueries) {
         TKikimrRunner kikimr(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_AUTO));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
-        for (const auto* sql : {"SELECT missing_column", "SELECT FROM"}) {
+        for (const auto* sql : {"SELECT missing_column", "SELECT FROM", "SELECT NOT NOT true", "SELECT * AS x FROM t",
+                               "$unused = *; SELECT 1"}) {
             const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
             UNIT_ASSERT_C(!result.IsSuccess(), sql);
             UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());

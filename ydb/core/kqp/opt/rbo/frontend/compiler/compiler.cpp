@@ -170,6 +170,17 @@ TParsedQuery ParseNative(std::string_view sql, const TCompilerSettings& settings
         ++line;
     }
     if (settings.Parser == EParser::Handwritten) return Parse(sql, parsing);
+    if (settings.Parser == EParser::Fast) {
+        try {
+            return Parse(sql, parsing);
+        } catch (const TResourceLimitError&) {
+            throw;
+        } catch (const TFrontendError&) {
+            // This is parser dispatch, not optimizer fallback. The grammar
+            // parser supplies authoritative rejection/unsupported diagnostics.
+            return ParseGrammar(sql, parsing);
+        }
+    }
     auto grammar = ParseGrammar(sql, parsing);
     if (settings.Parser == EParser::Verify) {
         auto handwritten = Parse(sql, parsing);
@@ -206,13 +217,13 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 }
 
 std::string_view SupportManifest() {
-    return R"({"profile":"native-read-v1","default_parser":"shared-grammar-antlr4",
+    return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
 "relations":["read","project","filter","on-join","aggregate","sort","limit","union-all"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","explicit casts only to integer; runtime casts require integral input","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no floating division, substring or bare NULL arithmetic","no UNION ordering","no windows, subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers, PostgreSQL or Decimal","no floating or temporal text formatting","no system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","explicit casts only to integer; runtime casts require integral input","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no floating division, substring or bare NULL arithmetic","no UNION ordering","no windows, subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers, PostgreSQL or Decimal","no floating or temporal text formatting","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

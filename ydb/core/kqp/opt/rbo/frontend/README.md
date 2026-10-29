@@ -1,17 +1,17 @@
 # Native SQL frontend for RBO
 
-The native path parses the shared SQL v1 grammar, binds names and types in its
-own representation, and constructs new RBO operators directly. It skips YQL
-SQL translation, `CompileExpr`, graph type annotation, `BuildKqlQuery`,
+The native path uses a handwritten SQL subset with a shared-grammar parser for
+unhandled syntax, binds names and types in its own representation, and constructs
+new RBO operators directly. It skips YQL SQL translation, `CompileExpr`, graph type annotation, `BuildKqlQuery`,
 `RewriteSelect`, and `PlanConverter` before entering RBO.
 
-This is an opt-in implementation of the first migration milestone, not a full
-YQL replacement. Existing catalog/session infrastructure, RBO schema wrappers,
-and the physical backend remain in use. After RBO, the backend may still run
+This is an opt-in read-query frontend, not a full YQL replacement. Existing
+catalog/session infrastructure, RBO schema wrappers, and the physical backend
+remain in use. After RBO, the backend may still run
 YQL annotation and lowering. Removing those dependencies is a later boundary.
 
 ```
-SQL -> shared grammar parser -> compact syntax
+SQL -> fast parser (grammar for unhandled syntax) -> compact syntax
                                   |
                          catalog + native binding
                                   |
@@ -31,7 +31,10 @@ SQL -> shared grammar parser -> compact syntax
 - `NATIVE_AUTO`: compile natively when supported; delegate the whole query to
   the legacy YQL optimizer only for a structured `TUnsupportedFeature`.
 
-The host supports native data, scan, and generic read-query preparation.
+The host supports native data, scan, and generic read-query preparation. Native
+RBO roots are constructed before initializing backend providers. This path does
+not construct either YQL frontend pipeline or the legacy optimizer pipeline; the
+runner creates legacy optimizer pipelines only when its legacy entry is used.
 It loads catalog metadata asynchronously through the existing authenticated
 gateway and binds against plain native column descriptions. Parameter names
 are adapted to the backend's `$name` convention at the RBO boundary.
@@ -42,7 +45,8 @@ Fallback reports `[native_frontend_fallback]`, `compiler=legacy-yql`, a stable
 feature identifier, source position, and reason. It does not run the old YQL
 frontend into new RBO. Invalid supported syntax/types, resource-limit errors,
 internal errors, and native RBO failures do not trigger fallback. Native
-explain ASTs identify `native-read-v1` and include the native relational plan.
+explain ASTs identify `native-read-v1`, the selected parser (`handwritten` or
+`grammar`), and the native relational plan.
 
 The APIs are:
 
@@ -64,12 +68,25 @@ translation, or type libraries. Strict recognition covers the full shared
 grammar; the translator explicitly rejects productions outside the native
 semantic subset. Error-recovered trees are never compiled.
 
-The generated parser is the default. The handwritten parser remains available
-for measurements and gradual migration. `--parser verify` compares complete
-syntax fingerprints from both parsers, including precedence, clauses, names,
-and types, before using the handwritten result. This is a test/development
-mode; it intentionally pays for both parsers. Standalone differential tests
-cover representative supported constructs and both lexer modes.
+`--parser fast` is the default in both the CLI and host. It uses the handwritten
+subset, and invokes the independent generated parser for unhandled syntax or
+parse errors. The generated parser then supplies authoritative diagnostics or
+an equivalent native syntax tree. This parser dispatch never invokes YQL
+translation or the legacy optimizer. Binding errors do not retry parsing, and
+resource-limit errors never retry either parser.
+
+The handwritten lexer's identifier categories are generated from the original
+grammar at build time. Ambiguous aliases, non-ASCII input, multiline strings,
+and other uncovered syntax can use generated parsing. `--parser grammar` forces
+the generated parser; `--parser handwritten` runs only the small parser.
+`--parser verify` compares their complete syntax fingerprints, including
+precedence, clauses, names, and types. Verify is a development tool and can
+reject syntax outside the handwritten subset even if fast mode supports it.
+
+Correspondence tests cover all 164 checked-in benchmark queries, every keyword
+in identifier/alias/join contexts, operator combinations, syntax mutations, and
+both lexer modes. They check rejection as well as structure. Generated parsing
+is still an essential part of the fast mode's compatibility contract.
 
 ANSI mode changes string escaping and nested-comment behavior. Double quotes
 remain string quotes in this YQL grammar; backticks quote identifiers. Leading
@@ -115,7 +132,8 @@ Explicitly outside the profile:
   bare-NULL arithmetic, dynamic text parsing, and nonintegral runtime casts.
 - General LIKE patterns and unverified function aliases. Invalid aliases are
   delegated in auto mode so legacy YQL supplies its own diagnostic.
-- System columns, typed-string suffixes, and string escapes beyond newline,
+- String literals used as identifiers (use backticks), system columns,
+  typed-string suffixes, and string escapes beyond newline,
   carriage return, tab, zero, quote/backtick, and backslash.
 
 These exclusions avoid known semantic differences in the early expression
@@ -178,32 +196,35 @@ and explicitly delegated all 22 TPC-H and 99 TPC-DS queries, primarily because
 Decimal/casts are excluded. These numbers measure frontend acceptance only;
 they supersede the broader prototype's unverified parse/bind counts.
 
-## Initial validation and measurements
+## Validation and measurements
 
-The selected relwithdebinfo checks passed 135 tests: 48 standalone frontend
-tests, 15 native/RBO/host tests, and 72 shared RBO regression tests. Host tests
+The selected relwithdebinfo checks passed 140 tests: 52 standalone frontend
+tests, 16 native/RBO/host tests, and 72 shared RBO regression tests. Host tests
 compare values and column names/types against the legacy optimizer, including
 prepared parameters, table reads, joins, aggregation, DISTINCT, UNION ALL,
 ordering, limits, generic multiple results, scans, and explicit fallback.
-This is a regression suite, not proof of complete YQL compatibility.
+They also check handwritten/generated parser selection through explain output
+and execute both routes. This is a regression suite, not proof of complete YQL
+compatibility.
+
+Fast and generated modes have identical routing on all 164 benchmark queries:
+36 native and 128 explicit legacy delegations, with no hard errors. The standalone
+CLI contains no YQL or MiniKQL symbols; the frontend's only parser runtime
+dependency is generic ANTLR.
 
 Run `python3 ydb/core/kqp/opt/rbo/frontend/tools/bench_parsers.py --output /tmp/native-parser-bench.json`
-with an idle machine to reproduce the parser comparison. A local relwithdebinfo
-run on 2026-10-30 measured the following medians of five trials of 1,000 warm
-compilations each (microseconds per compilation):
+with an idle machine to compare generated parsing with fast mode. A local
+relwithdebinfo run on 2026-10-30 measured these medians of five trials of 1,000
+warm compilations each (microseconds per compilation):
 
-| Query | Shared grammar | Handwritten | Ratio |
+| Query | Shared grammar | Fast | Ratio |
 | --- | ---: | ---: | ---: |
-| Projection/filter | 47.21 | 6.98 | 6.77 |
-| Grouping/sort | 139.52 | 14.40 | 9.69 |
-| Join | 123.84 | 16.44 | 7.53 |
-| 100 computed columns | 1859.79 | 295.64 | 6.29 |
+| Projection/filter | 48.52 | 6.18 | 7.86 |
+| Grouping/sort | 130.16 | 11.64 | 11.18 |
+| Join | 124.83 | 13.38 | 9.33 |
+| 100 computed columns | 1832.16 | 232.12 | 7.89 |
 
 These compare two native frontends, not complete native versus legacy YQL
-compilation. The measured gap supports migrating the handwritten parser
-gradually, with correspondence checks. `probe_corpus.py --parser verify`
-agreed on all 36 currently accepted corpus queries, but reported 18 structural
-or acceptance discrepancies in TPC-DS queries outside the execution profile
-(including subqueries and trailing commas). The handwritten parser remains
-experimental and is not selectable in the host; generated grammar remains
-the host's parser until those boundaries are tested adequately.
+compilation. Fast mode still delegates unhandled syntax to generated parsing;
+its correspondence tests exercise that full dispatch path. The benchmark cases
+also verify direct handwritten/generated syntax agreement before timing.

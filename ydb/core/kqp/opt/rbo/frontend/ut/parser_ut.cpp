@@ -47,17 +47,17 @@ Y_UNIT_TEST_SUITE(KqpNativeParser) {
         UNIT_ASSERT_VALUES_EQUAL(parsed.Expressions[query.Projection[1].Expression].Text, "a\n");
         TParseSettings settings;
         settings.AnsiQuotes = true;
-        const auto ansi = Parse("SELECT \"x\" FROM \"t\"", settings);
+        const auto ansi = Parse("SELECT \"x\" FROM `t`", settings);
         UNIT_ASSERT(ansi.Expressions[ansi.Statements[0].Query->Projection[0].Expression].Kind == ESyntaxKind::String);
         Parse("/* outer /* inner */ outer */ SELECT 1", settings);
     }
 
     Y_UNIT_TEST(StringSuffixMustBeAdjacent) {
-        const auto parsed = Parse("SELECT 'x' u, 'y'u AS y");
+        const auto parsed = Parse("SELECT 'x' u");
         const auto& projection = parsed.Statements[0].Query->Projection;
         UNIT_ASSERT_VALUES_EQUAL(projection[0].Alias, "u");
         UNIT_ASSERT(parsed.Expressions[projection[0].Expression].Kind == ESyntaxKind::String);
-        UNIT_ASSERT(parsed.Expressions[projection[1].Expression].Kind == ESyntaxKind::Cast);
+        UNIT_ASSERT_EXCEPTION(Parse("SELECT 'y'u AS y"), TFrontendError);
     }
 
     Y_UNIT_TEST(CasePredicatesAndJoins) {

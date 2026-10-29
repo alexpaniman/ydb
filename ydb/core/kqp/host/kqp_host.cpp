@@ -1555,7 +1555,7 @@ private:
                         // RBO/backend boundary. Up to here the query was parsed,
                         // resolved and typed using only the native representation.
                         Config->SetEnableNewRBO(true);
-                        SetupYqlTransformer(queryType);
+                        SetupSession(queryType, /*nativeFrontend=*/true);
                         const auto sqlVersion = SetupQueryParameters(settings, queryType);
                         auto roots = ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
                             const auto& meta = metadata.at(std::string(path));
@@ -1573,6 +1573,10 @@ private:
                             return TNativeTable{schema(path, pos), NOpt::BuildTableMeta(*meta, position, ctx).Ptr(),
                                 meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
                         }, ctx);
+                        // The first backend initialization happens with native
+                        // RBO roots already built. No YQL frontend pipeline is
+                        // constructed on this path.
+                        Init(queryType, /*nativeBackend=*/true);
                         for (const auto& [name, type] : nativeParameters) {
                             auto& param = *SessionCtx->Query().PreparingQuery->AddParameters();
                             param.SetName("$" + TString(name));
@@ -1585,14 +1589,15 @@ private:
                         IKikimrQueryExecutor::TExecuteSettings execute;
                         auto prepared = KqpRunner->PrepareNativeQuery(Cluster, std::move(roots), ctx, execute);
                         return AsyncApplyResult<TQueryResult, TQueryResult>(prepared,
-                            [this, text, explain, sqlVersion](TQueryResult&& result) {
+                            [this, text, explain, sqlVersion, generatedParser = syntax->UsedGeneratedParser](TQueryResult&& result) {
                             if (result.Success()) {
                                 FillColumnMeta(SessionCtx->Query().PreparingQuery->GetPhysicalQuery(), result);
                                 result.PreparingQuery = std::move(SessionCtx->Query().PreparingQuery);
                                 result.PreparingQuery->SetText(text);
                                 result.SqlVersion = sqlVersion;
                                 result.QueryPlan = result.PreparingQuery->GetPhysicalQuery().GetQueryPlan();
-                                result.QueryAst = TStringBuilder() << "native frontend: native-read-v1\n" << explain << '\n'
+                                result.QueryAst = TStringBuilder() << "native frontend: native-read-v1\nnative parser: "
+                                    << (generatedParser ? "grammar" : "handwritten") << '\n' << explain << '\n'
                                     << result.PreparingQuery->GetPhysicalQuery().GetQueryAst();
                                 result.PreparingQuery->MutablePhysicalQuery()->SetQueryAst(result.QueryAst);
                                 result.AllowCache = true;
@@ -2348,7 +2353,7 @@ private:
         });
     }
 
-    void Init(EKikimrQueryType queryType) {
+    void Init(EKikimrQueryType queryType, bool nativeBackend = false) {
         TransformCtx = MakeIntrusive<TKqlTransformContext>(Config, SessionCtx->QueryPtr(), SessionCtx->TablesPtr());
         KqpRunner = CreateKqpRunner(Gateway, Cluster, TypesCtx, SessionCtx, TransformCtx, *FuncRegistry, ActorSystem, UsePessimisticLocks);
 
@@ -2389,7 +2394,7 @@ private:
 
         bool isSupportedQueryType = queryType == EKikimrQueryType::Script || queryType == EKikimrQueryType::Query
             || queryType == EKikimrQueryType::YqlScript || queryType == EKikimrQueryType::YqlScriptStreaming;
-        if (isSupportedQueryType && FederatedQuerySetup) {
+        if (!nativeBackend && isSupportedQueryType && FederatedQuerySetup) {
             TVector<std::function<TFuture<void>()>> finalizers;
             if (AppData()->FeatureFlags.GetEnableExternalDataSources()) {
                 InitS3Provider(queryType);
@@ -2418,7 +2423,7 @@ private:
             TypesCtx->StreamLookupJoin = Config->GetEnableDqSourceStreamLookupJoin();
         }
 
-        InitPgProvider();
+        if (!nativeBackend) InitPgProvider();
 
         TypesCtx->UdfResolver = CreateSimpleUdfResolver(FuncRegistry);
         TypesCtx->TimeProvider = TAppData::TimeProvider;
@@ -2463,6 +2468,13 @@ private:
         TypesCtx->MatchRecognize = QueryServiceConfig.GetEnableMatchRecognize();
 
         YQL_ENSURE(TypesCtx->Initialize(*ExprCtx));
+
+        if (nativeBackend) {
+            YqlTransformer = nullptr;
+            YqlTransformerNewRBO = nullptr;
+            DataQueryAstTransformer = nullptr;
+            return;
+        }
 
         YqlTransformer = TTransformationPipeline(TypesCtx)
             .AddServiceTransformers()
@@ -2555,13 +2567,13 @@ private:
             .Build();
     }
 
-    void SetupSession(EKikimrQueryType queryType) {
+    void SetupSession(EKikimrQueryType queryType, bool nativeFrontend = false) {
         SessionCtx->Reset(KeepConfigChanges);
         SessionCtx->Query().Type = queryType;
 
         DataProvidersFinalizer = nullptr;
 
-        Init(queryType);
+        if (!nativeFrontend) Init(queryType);
 
         ExprCtx->Reset();
         if (queryType != EKikimrQueryType::Query && queryType != EKikimrQueryType::Script) {

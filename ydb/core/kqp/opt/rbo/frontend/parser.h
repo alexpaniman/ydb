@@ -86,6 +86,8 @@ struct TStatement {
 struct TParsedQuery {
     std::vector<TSyntaxExpr> Expressions;
     std::vector<TStatement> Statements;
+    // Diagnostic only; deliberately excluded from syntax correspondence.
+    bool UsedGeneratedParser = false;
 };
 
 struct TParseSettings {

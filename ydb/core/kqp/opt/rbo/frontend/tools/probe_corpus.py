@@ -43,7 +43,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", type=Path, default=ROOT / "ydb/core/kqp/opt/rbo/frontend/cli/kqp_native_frontend")
     parser.add_argument("--output", type=Path, help="write per-query routing and diagnostics as JSON")
-    parser.add_argument("--parser", choices=("grammar", "handwritten", "verify"), default="grammar")
+    parser.add_argument("--parser", choices=("fast", "grammar", "handwritten", "verify"), default="fast")
     options = parser.parse_args()
     report = {"measurement": "frontend routing only; not execution coverage", "parser": options.parser, "suites": {}}
     errors = 0
