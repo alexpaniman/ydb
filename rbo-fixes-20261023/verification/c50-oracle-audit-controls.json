@@ -1,0 +1,114 @@
+{
+  "generator_sha256": "3b5c25b5ff5d7d25eeb12a50ffe641fab3556b53a29dfd07d6b65ef149869ee4",
+  "production_edited": false,
+  "records": [
+    {
+      "case": "c50_normalized_control",
+      "mode": "legacy",
+      "settings_sha256": "8c4848f6f65826c72e2dfe804af8e1ca465dc4076d18402ec329cbe07c74c6c9",
+      "query_sha256": "f1fae0f1d4b7271daac90c2912b602ef798a3e19a63145fd4162aefd1e1030cd",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "UseBlockHashJoin": true,
+        "DqHashOperatorsUseBlocks": false,
+        "DefaultEnableShuffleElimination": false,
+        "EnableQueryServiceSpilling": true,
+        "EnableSpillingInHashJoinShuffleConnections": true,
+        "EnableSpillingNodes": "All"
+      },
+      "exit_code": -6,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error",
+      "diagnostic_source_locations": [
+        "util/system/yassert.cpp:55",
+        "util/system/yassert.cpp:86",
+        "ydb/tests/tools/kqprun/kqprun.cpp:1135",
+        "ydb/tests/tools/kqprun/kqprun.cpp:1181",
+        "ydb/tests/tools/kqprun/kqprun.cpp:457",
+        "ydb/tests/tools/kqprun/src/kqp_runner.cpp:37",
+        "ydb/tests/tools/kqprun/src/kqp_runner.cpp:616",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:145",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:507",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:620",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:949"
+      ],
+      "semantic_oracle_pass": false,
+      "audit": "C50 oracle/setup controls",
+      "rows": 24
+    },
+    {
+      "case": "c50_int_double_inner_row",
+      "mode": "legacy",
+      "settings_sha256": "f16c3090b9f18535b16d8a82207172b236c63511accd8ef28c5b97472192fc29",
+      "query_sha256": "1437de63c1fc2c729ef3572bdc32135ed9319a872a6d7598343876a40979cef8",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "UseBlockHashJoin": false,
+        "DqHashOperatorsUseBlocks": false,
+        "DefaultEnableShuffleElimination": false,
+        "EnableQueryServiceSpilling": true,
+        "EnableSpillingInHashJoinShuffleConnections": true,
+        "EnableSpillingNodes": "All"
+      },
+      "exit_code": -6,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error",
+      "diagnostic_source_locations": [
+        "util/system/yassert.cpp:55",
+        "util/system/yassert.cpp:86",
+        "ydb/tests/tools/kqprun/kqprun.cpp:1135",
+        "ydb/tests/tools/kqprun/kqprun.cpp:1181",
+        "ydb/tests/tools/kqprun/kqprun.cpp:457",
+        "ydb/tests/tools/kqprun/src/kqp_runner.cpp:37",
+        "ydb/tests/tools/kqprun/src/kqp_runner.cpp:616",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:145",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:507",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:620",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:949"
+      ],
+      "semantic_oracle_pass": false,
+      "audit": "C50 oracle/setup controls",
+      "rows": 24
+    },
+    {
+      "case": "c50_int_double_inner_single_node",
+      "mode": "legacy",
+      "settings_sha256": "8c4848f6f65826c72e2dfe804af8e1ca465dc4076d18402ec329cbe07c74c6c9",
+      "query_sha256": "1437de63c1fc2c729ef3572bdc32135ed9319a872a6d7598343876a40979cef8",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "UseBlockHashJoin": true,
+        "DqHashOperatorsUseBlocks": false,
+        "DefaultEnableShuffleElimination": false,
+        "EnableQueryServiceSpilling": true,
+        "EnableSpillingInHashJoinShuffleConnections": true,
+        "EnableSpillingNodes": "All"
+      },
+      "exit_code": -6,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error",
+      "diagnostic_source_locations": [
+        "util/system/yassert.cpp:55",
+        "util/system/yassert.cpp:86",
+        "ydb/tests/tools/kqprun/kqprun.cpp:1135",
+        "ydb/tests/tools/kqprun/kqprun.cpp:1181",
+        "ydb/tests/tools/kqprun/kqprun.cpp:457",
+        "ydb/tests/tools/kqprun/src/kqp_runner.cpp:37",
+        "ydb/tests/tools/kqprun/src/kqp_runner.cpp:616",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:145",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:507",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:620",
+        "ydb/tests/tools/kqprun/src/ydb_setup.cpp:949"
+      ],
+      "semantic_oracle_pass": false,
+      "audit": "C50 oracle/setup controls",
+      "rows": 24
+    }
+  ]
+}

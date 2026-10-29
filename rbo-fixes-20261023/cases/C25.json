@@ -1,0 +1,48 @@
+{
+  "id": "C25",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c25-decorrelate-before-distinct",
+  "commit": "33e1d0f59ccf5c07308337e019b73f110cd98d53",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  ],
+  "rationale": "Decorrelate logical aggregates before splitting DISTINCT into Intermediate and Final phases.",
+  "checks": [
+    "git diff --check passed"
+  ],
+  "generator_cases": [
+    "correlated_multi_distinct"
+  ],
+  "verification_plan": "Correlated multi-DISTINCT native semantic oracle, ordinary multi-DISTINCT and existing decorrelation tests.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C25",
+    "revision": "33e1d0f59ccf5c07308337e019b73f110cd98d53",
+    "exit_code": 0,
+    "elapsed_seconds": 86.9,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4587520,
+      "peak_scope_usage_bytes": 43271229440,
+      "minimum_host_available_bytes": 109617008640,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 86.6
+    },
+    "diagnostic_sha256": "50b1fe57c2e74a81586196dd83f4f17d6fe9cf03c1f6830f43305487105e2a21",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/33e1d0f59ccf5c07308337e019b73f110cd98d53-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 3,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C25-33e1d0f59ccf-1792731485611398809.jsonl"
+  }
+}

@@ -1,0 +1,643 @@
+{
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "phase": "baseline",
+  "invalid_attempts": "Restricted-socket startup failures are retained and excluded. Raw Pg-valued YQL WHERE fails type validation, and actual Pg syntax is rejected by pinned-main host before optimizer entry. Pg probes are outside active coverage; see C04-pg-coverage-limit.json.",
+  "groups": {
+    "C05": [
+      {
+        "case": "demand_extra_domains",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C05-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "demand_extra_domains",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C05-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "demand_requested_only_control",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C05-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "demand_requested_only_control",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C05-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c05_demanded_cardinality",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": true,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C05-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c05_demanded_cardinality",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C05-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c05_demanded_single_control",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C05-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c05_demanded_single_control",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C05-e8700d379b3b.jsonl"
+      }
+    ],
+    "C06": [
+      {
+        "case": "typed_capture_collision",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "typed_capture_collision",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "typed_same_type_control",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "typed_same_type_control",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c06_generic_exists_mixed_types",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c06_generic_exists_mixed_types",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c06_generic_exists_optional_mismatch",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c06_generic_exists_optional_mismatch",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c06_generic_exists_same_type",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c06_generic_exists_same_type",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C06-e8700d379b3b.jsonl"
+      }
+    ],
+    "C07": [
+      {
+        "case": "nan_domain_equality",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "nan_domain_equality",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "nan_finite_control",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "nan_finite_control",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c07_generic_exists_nan",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c07_generic_exists_nan",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c07_generic_exists_null",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c07_generic_exists_null",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c07_generic_exists_finite",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c07_generic_exists_finite",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C07-e8700d379b3b.jsonl"
+      }
+    ],
+    "C08": [
+      {
+        "case": "empty_scalar_projection",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "empty_scalar_projection",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "empty_count_restore_control",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "empty_count_restore_control",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c08_scalar_empty_projection",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": false,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c08_scalar_empty_projection",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c08_grouped_empty_projection",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c08_grouped_empty_projection",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c08_scalar_nonempty_projection",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c08_scalar_nonempty_projection",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c08_grouped_nonempty_projection",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c08_grouped_nonempty_projection",
+        "mode": "legacy",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C08-e8700d379b3b.jsonl"
+      }
+    ],
+    "C41": [
+      {
+        "case": "c41_results_then_effect",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_results_then_effect",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_effect_then_results",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_effect_then_results",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_multiple_results_effect",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_multiple_results_effect",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_write_then_read_same_table",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_write_then_read_same_table",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_materialized_blocks",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_materialized_blocks",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_effect_only",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_effect_only",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_read_only",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_read_only",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_empty_first_result",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_empty_first_result",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_empty_last_result",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_empty_last_result",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_multiple_effects",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c41_multiple_effects",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C41-e8700d379b3b.jsonl"
+      }
+    ],
+    "C47": [
+      {
+        "case": "c47_covering",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_covering",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_noncovering",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_noncovering",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_composite_primary_key",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_composite_primary_key",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_nullable_primary_key",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_nullable_primary_key",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_nullable_index_key",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_nullable_index_key",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_range_filter",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_range_filter",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_alias_join",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_alias_join",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_sorted_limit",
+        "mode": "new",
+        "exit_code": 1,
+        "semantic_oracle_pass": false,
+        "failure_stage": "target",
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_sorted_limit",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_main_table_control",
+        "mode": "new",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      },
+      {
+        "case": "c47_main_table_control",
+        "mode": "legacy",
+        "exit_code": 0,
+        "semantic_oracle_pass": true,
+        "failure_stage": null,
+        "evidence": "verification/baseline-C47-e8700d379b3b.jsonl"
+      }
+    ]
+  }
+}

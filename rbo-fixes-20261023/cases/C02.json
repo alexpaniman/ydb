@@ -1,0 +1,88 @@
+{
+  "id": "C02",
+  "branch": "fix/new-rbo/c02-preserve-volatile-group-filters",
+  "commit": "6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.h",
+    "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp"
+  ],
+  "rationale": "Apply the existing subtree-copy repeatability policy to each aggregate-filter conjunct before pushdown. Volatile or conservatively nonrepeatable predicates stay above aggregation; deterministic grouping-key filters still push. Expose the existing expression helper without changing its copying behavior.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed scalar-aggregate barrier, unresolved-subplan guard, and DISTINCT key remapping",
+    "Checked unchanged repeatability semantics for existing copy callers",
+    "No build or native execution"
+  ],
+  "generator_cases": [
+    "c02_volatile_group",
+    "c02_volatile_mixed",
+    "c02_deterministic_group",
+    "c02_unfiltered_group"
+  ],
+  "expected_oracle_controls": [
+    "Every retained group retains its full input aggregate, independent of volatile filter outcome",
+    "Deterministic grouping-key predicate still pushes below aggregation",
+    "Mixed deterministic and volatile conjuncts preserve aggregation values"
+  ],
+  "concerns": [
+    "Existing repeatability policy conservatively rejects Udf/ScriptUdf/SqlCall; their pushdown remains available only after a future explicit repeatability proof.",
+    "Generator syntax and oracle helpers checked; native path reachability remains unverified."
+  ],
+  "generator_module": "rbo-fixes-20261023/logical_checks.py",
+  "build_verification": {
+    "bug": "C02",
+    "revision": "6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41",
+    "exit_code": 0,
+    "elapsed_seconds": 91.7,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4628480,
+      "peak_scope_usage_bytes": 43271831552,
+      "minimum_host_available_bytes": 74210365440,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 91.6
+    },
+    "diagnostic_sha256": "23b5e72b37e063a0d4c7151d74ddcc946e897e32de4ecb57bcccce14856be188",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 18,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C02-6f8b0f5ccd36-1793150099081594575.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Build/native verification is pending root coordination.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ],
+  "status_before_verification": "verified",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "69a08ff6e7738e94cb0243d9776508a7d90f99149acdd5d9814b91597ccb86db"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C02-1793150155318775826.json",
+    "coverage_evidence_sha256": "2adbeda62e0fcc40a969f826ba60942770a4b904b47361c7ab4c01a5871e620c",
+    "remaining_qualifications": []
+  }
+}

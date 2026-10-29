@@ -1,0 +1,392 @@
+{
+  "status": "prepared_unverified",
+  "recommended_n": 32,
+  "cases": {
+    "c09_legacy_null_rhs": {
+      "bug": "C09",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "DisableAnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "Fallback-sensitive legacy tests additionally require C11"
+    },
+    "c09_ansi_null_rhs": {
+      "bug": "C09",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "Fallback-sensitive legacy tests additionally require C11"
+    },
+    "c09_legacy_null_lookup_empty": {
+      "bug": "C09",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "DisableAnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "Fallback-sensitive legacy tests additionally require C11"
+    },
+    "c09_ansi_null_lookup_empty": {
+      "bug": "C09",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "Fallback-sensitive legacy tests additionally require C11"
+    },
+    "c09_matching_control": {
+      "bug": "C09",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "Fallback-sensitive legacy tests additionally require C11"
+    },
+    "c10_nan_in": {
+      "bug": "C10",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c10_value_in": {
+      "bug": "C10",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c10_null_in": {
+      "bug": "C10",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c10_nan_empty": {
+      "bug": "C10",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c11_nullable_rhs_fallback": {
+      "bug": "C11",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c11_nullable_lookup_fallback": {
+      "bug": "C11",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c11_nonnullable_control": {
+      "bug": "C11",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c11_exists_control": {
+      "bug": "C11",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [
+        "AnsiInForEmptyOrNullableItemsCollections"
+      ],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c12_hidden_group_key": {
+      "bug": "C12",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c12_visible_group_key": {
+      "bug": "C12",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c12_no_distinct": {
+      "bug": "C12",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c13_aggregate_group_expression": {
+      "bug": "C13",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c13_distinct_group_expression": {
+      "bug": "C13",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c13_direct_group_control": {
+      "bug": "C13",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c13_plain_group_expression": {
+      "bug": "C13",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c14_nested_receivers": {
+      "bug": "C14",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c14_deep_receivers": {
+      "bug": "C14",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c14_direct_control": {
+      "bug": "C14",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    },
+    "c14_nested_having": {
+      "bug": "C14",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "assertions": [
+        "Successful execution",
+        "Match legacy unordered result hash",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "integration_note": "No native verification claimed"
+    }
+  }
+}

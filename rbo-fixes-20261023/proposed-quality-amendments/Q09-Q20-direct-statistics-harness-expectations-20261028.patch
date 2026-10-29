@@ -1,0 +1,26 @@
+--- a/rbo-fixes-20261023/quality_pairing_contracts.py
++++ b/rbo-fixes-20261023/quality_pairing_contracts.py
+@@ -276,10 +276,12 @@
+              patch.object(driver, 'profile_fingerprint', return_value='d' * 64), \
+              patch('binary_provenance.write_build_receipt', return_value=folder / 'receipt.json'), \
+              patch('sys.argv', argv):
+-            check(driver.main() == 0)
++            # Q09 needs fixed direct statistics evidence in addition to SQL.
++            check(driver.main() == 2)
+             check(len(builds) == 3 and all(workers == 8 for _, workers in builds))
+             check(switches == ['b' * 40, 'f' * 40, 'f' * 40])
+-            check(all(json.loads((folder / 'cases' / (bug + '.json')).read_text())['status'] == 'verified_quality' for bug in ('Q08', 'Q09')))
++            check(json.loads((folder / 'cases/Q08.json').read_text())['status'] == 'verified_quality')
++            check(json.loads((folder / 'cases/Q09.json').read_text())['status'] == 'verified_semantics_quality_pending')
+             reset_cases(); builds.clear(); switches.clear()
+             with patch.object(driver, 'run_build', return_value=(SimpleNamespace(returncode=1, stdout='', stderr=''), {'watchdog_stopped': True})):
+                 check(driver.main() == 1)
+@@ -293,7 +295,7 @@
+             with patch.object(driver, 'invoke_native', side_effect=failed_baseline_semantics):
+                 check(driver.main() == 2 and len(builds) == 3)
+                 check(json.loads((folder / 'cases/Q08.json').read_text())['status'] == 'verified_semantics_quality_pending')
+-                check(json.loads((folder / 'cases/Q09.json').read_text())['status'] == 'verified_quality')
++                check(json.loads((folder / 'cases/Q09.json').read_text())['status'] == 'verified_semantics_quality_pending')
+             reset_cases()
+             partial_path = folder / 'cases/Q08.json'
+             partial_case = json.loads(partial_path.read_text()); partial_case['status'] = 'partial_prepared_unverified'

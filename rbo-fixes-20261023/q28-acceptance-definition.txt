@@ -1,0 +1,70 @@
+Q28 acceptance definition after the effect-aware worklist amendment
+
+Judgment
+
+The current amendment is a complete scoped implementation of Q28's recommended
+architectural change, with native acceptance still pending. It introduces a
+reusable rule-effect interface, an owning worklist, local dependency-aware
+output recomputation, and a conservative default. Both complete production
+stages containing the three reviewed rules use this mechanism. Additional
+rule opt-ins are useful follow-up optimization work, not a necessary condition
+for this scoped scheduler change to be considered implemented.
+
+The original finding calls out unconditional restart/invalidation after every
+match and recommends profiling plus a worklist and dependency-aware invalidation.
+It does not promise incremental maintenance of every optimizer analysis. The
+original quality-root-plans explicitly recommends classifying a small set of
+local rules and retaining fallback for unclassified effects. The older
+right-join-only batch was a one-stage special case; this amendment also handles
+in-place mutations, newly created candidates and bounded output-property changes
+in the complete Map-push stage. That is a material implementation distinction.
+
+This judgment does not mean all repeated whole-plan work has disappeared. Mixed
+filter stages, decorrelation, CBO, physical stages and global analyses retain
+their existing behavior. Whole-plan logical-boundary cleanup also remains.
+Those effects need their own contracts before incremental maintenance is safe.
+An open-ended requirement to classify every future rule would prevent any
+conservative scheduler from reaching a defined implementation milestone.
+
+Required acceptance before reporting Q28 fixed and verified
+
+1. Compile the exact independent main-based Q28 branch and pinned-main baseline.
+   Run the same production-rule generator against both with matching generator
+   and dependency-closure provenance. The 26 cases cover normal movement,
+   retained and removed Maps, both Join children, transparent chains, canonical
+   Replicate producers, active subplan-root replacement and excluded effects.
+2. Preserve independent result evaluation, IU invariants, stage fixed points,
+   rule order, output ownership and fallback behavior. Retain the separate
+   right-join semantic acceptance profile. Direct local checks do not replace
+   end-to-end query verification.
+3. Capture actual candidate visits, rule attempts and source output refreshes.
+   Increasing eligible plan families must show bounded local growth and lower
+   work than pinned main and the same-build forced-conservative control.
+   Excluded cases must retain the conservative counts and results. No exact
+   latency speedup is claimed from these counters.
+4. Verify that overall query planning/semantics remain valid when full logical
+   stage-boundary invalidation runs after the new local scheduler. Profile at
+   least representative generated query plans; investigate any dominant stage
+   or regression revealed by that evidence before final acceptance.
+
+Claims that remain outside this acceptance
+
+No optimizer-wide incremental types, parents, metadata, statistics or liveness;
+no removal of the rewrite ceiling; no elimination of trace serialization cost;
+no universal linear optimizer complexity; no measured production latency gain.
+Fallback itself is required correctness behavior, not evidence of a failed fix.
+
+Source basis
+
+rbo-review-20261021/optimization-quality.txt: Q28.
+quality-root-plans.txt: Q28 original implementation plan.
+kqp_rbo_transformer.cpp: InitializeRBOOptimizationStages creates dedicated
+Rewrite right joins and Push map elements stages; the latter contains precisely
+ThroughInput followed by IntoMap, matching the production-generator order.
+kqp_rbo.cpp and kqp_rbo.h: explicit local-effect contract, property gate,
+owning worklist and final conservative fixed-point traversal.
+kqp_operator.cpp: FinishLogicalRewrite retains whole-plan boundary invalidation.
+
+The case status should continue to say verification pending. Changing its
+implementation-scope flag is a reporting decision for the root reviewer; this
+document does not modify case state or substitute model checks for native proof.

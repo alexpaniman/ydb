@@ -1,0 +1,566 @@
+[
+  {
+    "id": "C01",
+    "priority": "P1",
+    "title": "Typed join predicates are copied across unequal key types",
+    "description": "Predicate propagation substitutes a join key without preserving the original expression type. Valid matches disappear. Require type-preserving substitution or an equivalent expression in the original type.",
+    "location": "rules/push_filter_into_join.cpp:165; rules/push_simple_join_filter.cpp:72",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "mixed-int",
+      "cast-predicate"
+    ]
+  },
+  {
+    "id": "C02",
+    "priority": "P1",
+    "title": "Volatile filters change aggregate values",
+    "description": "A filter above grouped aggregation moves below it based only on column dependencies. Expressions evaluated once per group become evaluated once per input row. Gate movement on repeatability and evaluation semantics.",
+    "location": "rules/push_filter_through_aggregate.cpp:51",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "having"
+    ]
+  },
+  {
+    "id": "C03",
+    "priority": "P1",
+    "title": "DISTINCT aggregates over grouping sets compute incorrect subtotals",
+    "description": "Postorder traversal expands DISTINCT before the enclosing grouping sets, so subtotal branches reuse deduplication at the wrong granularity. Expand grouping sets first, then deduplicate within each branch.",
+    "location": "rules/expand_distinct_aggregation.cpp:35; rules/expand_grouping_sets.cpp:100",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "rollup",
+      "grouped-distinct-multi"
+    ]
+  },
+  {
+    "id": "C04",
+    "priority": "P1",
+    "title": "Filter fusion evaluates expressions on rows already rejected",
+    "description": "Fusion reverses the execution order of adjacent filters. A guarded operation can fail on rows the original inner filter removed. Preserve filter evaluation boundaries and nullable short-circuit semantics.",
+    "location": "rules/fuse_filters.cpp:28",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "fusion"
+    ]
+  },
+  {
+    "id": "C05",
+    "priority": "P1",
+    "title": "Scalar subquery validation runs for unrelated correlation keys",
+    "description": "Domain elimination expands the inner computation to keys never requested by the outer query. Scalar cardinality checks run before those keys are discarded, rejecting valid queries. Restrict validation to demanded domains.",
+    "location": "rules/decorrelation/dependent_join_pushdown.cpp:435; rules/inline_scalar_subplan.cpp:43",
+    "status": "Current-revision native verification against an independent semantic oracle; paired control passes. Legacy rejects the tested shape, so no legacy-success claim.",
+    "evidence_labels": [
+      "demand_extra_domains",
+      "demand_requested_only_control"
+    ]
+  },
+  {
+    "id": "C06",
+    "priority": "P1",
+    "title": "Correlation can select the wrong row after a key type changes",
+    "description": "Domain elimination replaces a captured value with an equal value of a different type. Serialized correlation keys no longer represent the same value and can collide with another key. Preserve capture types and equality semantics.",
+    "location": "rules/decorrelation/dependent_join_pushdown.cpp:421",
+    "status": "Current-revision native verification against an independent semantic oracle; paired control passes. Legacy rejects the tested shape, so no legacy-success claim.",
+    "evidence_labels": [
+      "typed_capture_collision",
+      "typed_same_type_control"
+    ]
+  },
+  {
+    "id": "C07",
+    "priority": "P1",
+    "title": "Domain elimination admits matches forbidden by NaN equality",
+    "description": "Removing an equality condition and retaining only a non-null check changes semantics for NaN. The domain join can then accept a match the original predicate rejected. Preserve the original equality for nonreflexive values.",
+    "location": "rules/decorrelation/dependent_join_pushdown.cpp:398",
+    "status": "Current-revision native verification against an independent semantic oracle; paired control passes. Legacy rejects the tested shape, so no legacy-success claim.",
+    "evidence_labels": [
+      "nan_domain_equality",
+      "nan_finite_control"
+    ]
+  },
+  {
+    "id": "C08",
+    "priority": "P1",
+    "title": "Empty correlated scalar aggregates skip their result expression",
+    "description": "Decorrelation restores empty aggregate groups only on the COUNT path. Other aggregate results vanish before surrounding expressions run, so defaults and transformations are lost. Restore the scalar row for every aggregate before evaluating its projection.",
+    "location": "rules/decorrelation/dependent_join_pushdown.cpp:543",
+    "status": "Current-revision native verification against an independent semantic oracle; paired control passes. Legacy rejects the tested shape, so no legacy-success claim.",
+    "evidence_labels": [
+      "empty_scalar_projection",
+      "empty_count_restore_control"
+    ]
+  },
+  {
+    "id": "C09",
+    "priority": "P1",
+    "title": "IN subqueries ignore the requested NULL-semantics mode",
+    "description": "Subquery translation discards the ANSI/legacy IN setting; generic inlining always applies ANSI behavior. Preserve and use the mode through lowering.",
+    "location": "kqp_rewrite_select.cpp:1592; rules/inline_generic_in_exists_subplan.cpp",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "legacy-in"
+    ]
+  },
+  {
+    "id": "C10",
+    "priority": "P1",
+    "title": "Nullable NaN is mistaken for NULL in IN handling",
+    "description": "Generic IN detects nullness using self-equality. NaN fails that test despite being present, changing NOT IN results. Test presence directly.",
+    "location": "rules/inline_generic_in_exists_subplan.cpp:243",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "nan-in"
+    ]
+  },
+  {
+    "id": "C11",
+    "priority": "P1",
+    "title": "IN typing removes a necessary COALESCE fallback",
+    "description": "The subplan result is prematurely typed as nonnullable Boolean. Type-driven simplification discards a fallback before later lowering restores three-valued behavior. Model nullable IN consistently from initial annotation onward.",
+    "location": "kqp_rbo_type_ann.cpp:191; ../kqp_type_ann.cpp:2887",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "in-coalesce"
+    ]
+  },
+  {
+    "id": "C12",
+    "priority": "P1",
+    "title": "Hidden grouping columns prevent DISTINCT from removing duplicates",
+    "description": "Post-aggregate DISTINCT includes grouping keys absent from the selected result. Rows equal in the visible result remain distinct internally. Deduplicate precisely the selected expressions.",
+    "location": "kqp_rewrite_select.cpp:1484",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "distinct-count"
+    ]
+  },
+  {
+    "id": "C13",
+    "priority": "P1",
+    "title": "Grouped result expressions are replaced by a bare grouping key",
+    "description": "When a materialized aggregate/window/distinct output expression contains a nested grouping-column reference, translation can replace the complete expression with the first nested reference. Results or types change. Preserve the complete expression and replace only its grouped reference nodes; the ordinary nonmaterialized expression path already performs recursive replacement.",
+    "location": "kqp_rewrite_select.cpp:2278",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "group-arithmetic-coalesce",
+      "group-arithmetic",
+      "distinct-group-expr"
+    ]
+  },
+  {
+    "id": "C14",
+    "priority": "P1",
+    "title": "Aggregates on different nested fields share the wrong input",
+    "description": "Aggregate input deduplication identifies a member by its final field name, losing the containing structure. Different fields can feed both aggregates from the first input. Use expression identity and the full member-access chain.",
+    "location": "kqp_rewrite_select.cpp:1034; kqp_rewrite_select.cpp:1067",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "nested-qualified"
+    ]
+  },
+  {
+    "id": "C15",
+    "priority": "P1",
+    "title": "A scalar subquery is evaluated outside its conditional guard",
+    "description": "Scalar inlining hoists cardinality validation from a branch that need not execute. An unused branch can abort a valid query. Preserve conditional evaluation of the subquery and its check.",
+    "location": "rules/inline_scalar_subplan.cpp:43; rules/inline_scalar_subplan.cpp:129",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "guard-scalar"
+    ]
+  },
+  {
+    "id": "C16",
+    "priority": "P2",
+    "title": "Unresolved subqueries enter block-cross join filters too early",
+    "description": "A fast path moves subplan references into join filters before subplan inlining, leaving unavailable columns during type annotation. Guard unresolved subplans or defer this rewrite.",
+    "location": "rules/push_filter_into_join.cpp:88",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "block-subplan"
+    ]
+  },
+  {
+    "id": "C17",
+    "priority": "P2",
+    "title": "Shared-plan pruning leaves references to removed columns",
+    "description": "Singleton secondary-port collapse uses a stale producer schema after pruning. It creates copies of deleted columns and fails compilation. Invalidate or recompute schemas before collapse.",
+    "location": "kqp_operator.cpp:168; kqp_operator.cpp:1762",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "r14-prune-cache"
+    ]
+  },
+  {
+    "id": "C18",
+    "priority": "P2",
+    "title": "Pruning leaves an invalid operator under an empty grouping-set wrapper",
+    "description": "An unused scalar aggregate is replaced underneath a wrapper that still requires an Aggregate object. Source inspection finds an unchecked cast of the replacement operator, and native execution rejects the valid query. Normalize grouping sets together with their defining aggregate.",
+    "location": "kqp_operator.cpp:1722; kqp_rbo_type_ann.cpp:423",
+    "status": "Current-revision native failure plus source-verified invalid cast; exact runtime failure attribution was not independently traced",
+    "evidence_labels": [
+      "group-empty-prune"
+    ]
+  },
+  {
+    "id": "C19",
+    "priority": "P2",
+    "title": "Unordered rank functions construct an invalid expression",
+    "description": "The physical window builder disables the peer-change expression without adapting rank accumulation. Valid unordered ranking fails with a null child. Handle the all-peers case explicitly.",
+    "location": "physical_conversion/kqp_rbo_physical_window_builder.cpp:242; physical_conversion/kqp_rbo_physical_window_builder.cpp:471",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "rank"
+    ]
+  },
+  {
+    "id": "C20",
+    "priority": "P2",
+    "title": "Window ranking loses the nullable-key compatibility setting",
+    "description": "Translation drops rank settings while physical lowering always implements ANSI behavior. The resulting nullability disagrees with the declared result type. Preserve the requested ranking mode.",
+    "location": "kqp_rewrite_select.cpp:ProcessWindowCalls; physical_conversion/kqp_rbo_physical_window_builder.cpp:BuildAccumulator",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "nullable-rank"
+    ]
+  },
+  {
+    "id": "C21",
+    "priority": "P2",
+    "title": "Window AVG uses the wrong physical type for intervals",
+    "description": "Logical typing accepts an interval result, but physical accumulation forces Double for non-decimal inputs. Valid queries fail stage type inference. Match the logical interval accumulator and result type.",
+    "location": "physical_conversion/kqp_rbo_physical_window_builder.cpp:367",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "win-interval"
+    ]
+  },
+  {
+    "id": "C22",
+    "priority": "P2",
+    "title": "Repeated window keys produce an invalid physical sort",
+    "description": "Partition and ordering keys are concatenated without deduplicating physical columns. Repeated aliases or overlap between the two lists produce rejected sort indices. Normalize the physical sort keys while retaining peer semantics.",
+    "location": "physical_conversion/kqp_rbo_physical_window_builder.cpp:358",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "duplicate-window",
+      "window-overlap"
+    ]
+  },
+  {
+    "id": "C23",
+    "priority": "P2",
+    "title": "Grouping sets mishandle a bare NULL key type",
+    "description": "Placeholder construction treats every Optional-or-Null type as an Optional wrapper. A bare Null reaches an invalid cast. Handle Null and other special types explicitly.",
+    "location": "rules/expand_grouping_sets.cpp:18",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "group-null"
+    ]
+  },
+  {
+    "id": "C24",
+    "priority": "P2",
+    "title": "DISTINCT expansion creates a nested optional for interval SUM",
+    "description": "Padding and state wrapping use input nullability rather than the aggregate result type, yielding an unsupported nested optional. Derive branch types from the actual aggregate state/result.",
+    "location": "rules/expand_distinct_aggregation.cpp:99",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "dist-interval"
+    ]
+  },
+  {
+    "id": "C25",
+    "priority": "P2",
+    "title": "Correlated multi-aggregate DISTINCT fails between stages",
+    "description": "DISTINCT expansion creates Final/Intermediate aggregate phases before decorrelation, which accepts only the Undefined phase. Align stage order or support the expanded phases.",
+    "location": "rules/decorrelation/dependent_join_pushdown.cpp:508",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "corr-distinct"
+    ]
+  },
+  {
+    "id": "C26",
+    "priority": "P2",
+    "title": "DISTINCT combined with sample standard deviation is rejected",
+    "description": "Multi-distinct expansion explicitly rejects the variance state while constructing padding. Supply a compatible state representation for this otherwise supported aggregate combination.",
+    "location": "rules/expand_distinct_aggregation.cpp:78",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "dist-stddev"
+    ]
+  },
+  {
+    "id": "C27",
+    "priority": "P2",
+    "title": "HAVING without an aggregate call fails translation",
+    "description": "Predicate collection omits a plain grouping-key or constant expression, then asserts that one predicate was collected. Preserve every valid HAVING expression.",
+    "location": "kqp_rewrite_select.cpp:1457",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "having-key"
+    ]
+  },
+  {
+    "id": "C28",
+    "priority": "P2",
+    "title": "DISTINCT over window results references columns before definition",
+    "description": "The DISTINCT aggregate is built before the window produces its result columns. Place result deduplication after window evaluation.",
+    "location": "kqp_rewrite_select.cpp:983; kqp_rewrite_select.cpp:2256",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "distinct-window"
+    ]
+  },
+  {
+    "id": "C29",
+    "priority": "P2",
+    "title": "Mixed set-operation precedence is lowered without a real operand stack",
+    "description": "The set-operation converter tracks only one accumulated result and a count of new operands rather than the operand stack required by postfix precedence trees. Valid mixed set-operation trees fail. Use an explicit stack and validate operand counts.",
+    "location": "kqp_rewrite_select.cpp:2458",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "set-postfix"
+    ]
+  },
+  {
+    "id": "C30",
+    "priority": "P2",
+    "title": "INSERT OR REVERT loses its conflict policy",
+    "description": "The imported policy is not carried into sink settings; conflicts return an error instead of the requested successful no-op. Preserve the policy through physical write generation.",
+    "location": "kqp_operator.cpp:1622; kqp_plan_conversion_utils.cpp:972",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "insert-revert"
+    ]
+  },
+  {
+    "id": "C31",
+    "priority": "P2",
+    "title": "Late join-filter inlining recreates unsupported sharing",
+    "description": "With block joins and spilling disabled, a late rewrite introduces sharing after the duplication stage has passed. Valid joins fail stage assignment. Duplicate eligible late producers or reorder the stages.",
+    "location": "kqp_rbo_transformer.cpp:704; rules/inline_join_filters.cpp:90; rules/assign_stages.cpp:112",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "no-block:late-share"
+    ]
+  },
+  {
+    "id": "C32",
+    "priority": "P2",
+    "title": "Forced Map mode selects an unsupported algorithm for FULL JOIN",
+    "description": "When CBO leaves the algorithm unset, stage assignment chooses Map without validating the join kind. Use a supported fallback for FULL joins.",
+    "location": "rules/assign_stages.cpp:19",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "full-map"
+    ]
+  },
+  {
+    "id": "C33",
+    "priority": "P2",
+    "title": "Set-operation output column order follows the final arm",
+    "description": "Result ordering is overwritten while visiting each arm. Named values survive, but positional result consumers see a different column order. Preserve the first/canonical output contract.",
+    "location": "kqp_rewrite_select.cpp:2264; kqp_rewrite_select.cpp:2500",
+    "status": "Current-revision native verification",
+    "evidence_labels": [
+      "union-order"
+    ]
+  },
+  {
+    "id": "C34",
+    "priority": "P2",
+    "title": "Scalar tuple-valued aggregates are mistaken for AVG state",
+    "description": "Empty-input handling interprets every tuple result as the internal AVG accumulator. A valid tuple-valued SOME fails, and comparable tuple MIN/MAX share the affected path. Decode tuple states only for the applicable function and phase.",
+    "location": "physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:1312",
+    "status": "Current-revision in-memory generated native verification",
+    "evidence_labels": [
+      "tuple_some"
+    ]
+  },
+  {
+    "id": "C35",
+    "priority": "P2",
+    "title": "Ordinary AVG uses an incompatible accumulator for intervals",
+    "description": "Physical aggregation converts nondecimal inputs to Double even where the logical AVG result is an interval. Use an interval-compatible accumulator and finalization.",
+    "location": "physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:63",
+    "status": "Current-revision in-memory generated native verification",
+    "evidence_labels": [
+      "interval_average"
+    ]
+  },
+  {
+    "id": "C36",
+    "priority": "P2",
+    "title": "Repeated ordinary ORDER BY keys fail physical type checking",
+    "description": "The sort builder preserves repeated physical column indices. WideSort/WideTopSort reject these valid order specifications. Deduplicate equivalent physical keys before construction.",
+    "location": "physical_conversion/kqp_rbo_physical_sort_builder.cpp:73",
+    "status": "Current-revision in-memory generated native verification",
+    "evidence_labels": [
+      "repeated_order"
+    ]
+  },
+  {
+    "id": "C37",
+    "priority": "P1",
+    "title": "Window repartitioning leaves stale distribution metadata and breaks later grouping",
+    "description": "With shuffle elimination enabled and multiple partitions, Window inherits its input distribution even though it repartitions on different window keys. Later aggregation can skip its shuffle and produce duplicate groups and partial totals. Derive the actual window distribution before downstream metadata is computed, or invalidate and recompute all dependent metadata.",
+    "location": "kqp_operator.h:974; kqp_rbo_compute_statistics.cpp:121; rules/assign_stages.cpp:265; rules/assign_stages.cpp:249",
+    "status": "Current-revision in-memory generated native verification, four nodes; new and legacy results differ",
+    "evidence_labels": [
+      "window_distribution"
+    ]
+  },
+  {
+    "id": "C38",
+    "priority": "P1",
+    "title": "Full outer joins advertise a false left-key distribution and break later grouping",
+    "description": "With shuffle elimination enabled and multiple partitions, Full join metadata claims partitioning by left join keys. Unmatched right rows have NULL left keys but remain spread across partitions, so downstream grouping can emit duplicate NULL groups. Full joins must not claim a one-sided key distribution.",
+    "location": "kqp_rbo_compute_statistics.cpp:674; rules/assign_stages.cpp:249; kqp_rbo_utils.cpp:45",
+    "status": "Current-revision in-memory generated native verification, four nodes; new and legacy results differ",
+    "evidence_labels": [
+      "full_distribution"
+    ]
+  },
+  {
+    "id": "C39",
+    "priority": "P1",
+    "title": "Full joins silently discard residual ON predicates when block joins are enabled",
+    "description": "With global block joins enabled and forced residual-filter inlining disabled, an equijoin with a residual ON condition keeps that predicate for block evaluation. Full joins subsequently select nonblock Grace, which ignores the residual. Rows match incorrectly and required unmatched outer rows disappear. Base predicate lowering on the final algorithm capability and reject any unimplemented residual.",
+    "location": "rules/inline_join_filters.cpp:68; rules/assign_stages.cpp:42; physical_conversion/kqp_rbo_physical_join_builder.cpp:502",
+    "status": "Current-revision in-memory generated native verification against relational full-join semantics; legacy path rejects this shape",
+    "evidence_labels": [
+      "full_residual"
+    ]
+  },
+  {
+    "id": "C40",
+    "priority": "P2",
+    "title": "Multiple JSON projections from one column fail compilation",
+    "description": "OLAP projection collection creates a synthetic alias for a second extraction from the same JSON column, but the RBO rule asserts that no such alias exists. Support separate output information units or decline the unsupported pushdown without rejecting the query.",
+    "location": "rules/push_olap_projection.cpp:97",
+    "status": "Current-revision in-memory generated native verification; legacy succeeds",
+    "evidence_labels": [
+      "olap_multiple_json"
+    ]
+  },
+  {
+    "id": "C41",
+    "priority": "P2",
+    "title": "Mixed read and write statements lose result bindings and fail task construction",
+    "description": "The query builder treats the complete root set as effects-only when any root writes, omitting result bindings for read roots. Native execution fails while constructing task outputs. Keep result ownership per root and preserve statement dependencies.",
+    "location": "physical_conversion/kqp_rbo_physical_query_builder.cpp:596; physical_conversion/kqp_rbo_physical_query_builder.cpp:636; kqp_rbo_transformer.cpp:507",
+    "status": "Current-revision in-memory generated native verification with per-statement execution disabled; legacy succeeds",
+    "evidence_labels": [
+      "mixed_effect_results"
+    ]
+  },
+  {
+    "id": "C42",
+    "priority": "P2",
+    "title": "Nested unions do not consistently widen branch types",
+    "description": "Set-operation import widens direct map inputs but misses nested union inputs. A later nullable branch leaves earlier nested branches nonnullable; physical sequence combination rejects the mismatch. Normalize every branch to the common output schema at every set-operation boundary.",
+    "location": "kqp_plan_conversion_utils.cpp:598; kqp_rbo_type_ann.cpp:320; physical_conversion/kqp_rbo_physical_union_all_builder.cpp",
+    "status": "Current-revision in-memory generated native verification; legacy succeeds",
+    "evidence_labels": [
+      "nested_union_nullable"
+    ]
+  },
+  {
+    "id": "C43",
+    "priority": "P2",
+    "title": "Focused physical lowering rejects supported composite expressions",
+    "description": "When EnableNewRBOPhysicalStagePeephole is disabled, the focused compatibility checker requires complex comparisons and membership to be lowered, but its rewrites cover only scalar and shallow tuple cases. Valid nested composite comparisons are rejected. Reuse complete recursive lowering for all admitted types.",
+    "location": "physical_conversion/kqp_rbo_compatibility.cpp:62; physical_conversion/kqp_rbo_compatibility.cpp:225; physical_conversion/kqp_rbo_compatibility.cpp:408",
+    "status": "Current-revision in-memory generated native verification under the affected flag; legacy succeeds",
+    "evidence_labels": [
+      "focused_composite_compare"
+    ]
+  },
+  {
+    "id": "C44",
+    "priority": "P1",
+    "title": "Successful indexed INSERT can omit required index maintenance",
+    "description": "Indexed INSERT becomes a base-table sink without expanding maintenance for indexes the sink cannot update. Native controls confirm base rows are inserted while noncompact fulltext indexes, and ordinary synchronous indexes with EnableIndexStreamWrite disabled, remain empty. Preserve explicit maintenance for nonsink index families, or fall back before executing the write.",
+    "location": "kqp_operator.cpp:1622; rules/assign_stages.cpp:324; ydb/core/kqp/query_compiler/kqp_query_compiler.cpp:1978",
+    "status": "Current-revision native index-content checks with matching base-table controls for both affected index configurations; semantic oracles fail in new and pass in legacy",
+    "evidence_labels": [
+      "fulltext_postings",
+      "fulltext_base_control",
+      "index_write_maintenance",
+      "index_base_control"
+    ]
+  },
+  {
+    "id": "C45",
+    "priority": "P2",
+    "title": "Window expressions lose nested-field receivers",
+    "description": "Window argument and key translation treats a nested Member as a direct row column and retains only the final field name. A valid window aggregate over a nested field fails argument binding. The same receiver assumption exists for partition and ordering keys. Preserve the complete access expression or materialize it into a dedicated column.",
+    "location": "kqp_rewrite_select.cpp:1143; kqp_rewrite_select.cpp:1253",
+    "status": "Current-revision native valid-query rejection; legacy succeeds. Wrong-column variants remain source-only",
+    "evidence_labels": [
+      "nested_window_member"
+    ]
+  },
+  {
+    "id": "C46",
+    "priority": "P2",
+    "title": "Conditional UPDATE is rejected by table-effect translation",
+    "description": "A valid conditional UPDATE reaches RewriteTableEffect with an input outside the two accepted translated root/map forms and is rejected. Native checks fail with and without a secondary index. Translate the normalized conditional-update input and preserve its effect mode and row shape.",
+    "location": "kqp_rewrite_select.cpp:1678",
+    "status": "Current-revision native target-operation failure, independently checked with and without an index; legacy succeeds",
+    "evidence_labels": [
+      "conditional_update"
+    ]
+  },
+  {
+    "id": "C47",
+    "priority": "P2",
+    "title": "Explicit secondary-index reads are not imported",
+    "description": "Reading an ordinary synchronous secondary index through explicit VIEW produces TKqlReadTableIndexRanges. The source importer has no matching branch and rejects the query. Add the index-range source conversion while preserving index metadata, requested columns, and ranges.",
+    "location": "kqp_rewrite_select.cpp:1892",
+    "status": "Current-revision native target-operation failure; legacy succeeds",
+    "evidence_labels": [
+      "direct_index_read"
+    ]
+  },
+  {
+    "id": "C48",
+    "priority": "P2",
+    "title": "Indexed UPSERT is rejected when sink index maintenance is disabled",
+    "description": "With EnableIndexStreamWrite disabled, indexed UPSERT is represented by KqlUpsertRowsIndex. Table-effect translation does not handle that operation and rejects it. Support the explicit index-maintenance path or fall back before committing to the new optimizer.",
+    "location": "kqp_rewrite_select.cpp:1792; ydb/core/kqp/opt/kqp_opt_kql.cpp:587",
+    "status": "Current-revision native target-operation failure under the affected flag; legacy succeeds",
+    "evidence_labels": [
+      "indexed_upsert_no_stream"
+    ]
+  },
+  {
+    "id": "C49",
+    "priority": "P1",
+    "title": "Incomplete lookup keys make residual LEFT JOIN reconstruction mix different rows",
+    "description": "A noncovering secondary-index lookup advertises the surviving part of a composite primary key as unique. Late residual-filter inlining uses that false identity to reattach matches, multiplying rows and assigning matches to the wrong left rows. Native verification fails with a partial key and passes when the complete key is retained. Require all primary-key components before advertising uniqueness and preserve a proven row identity for reconstruction.",
+    "location": "kqp_rbo_compute_statistics.cpp:225; rules/push_ranges.cpp:690; rules/inline_join_filters.cpp:109",
+    "status": "Current-revision native semantic oracle with a passing complete-key control; late filter inlining and channel spilling enabled. Legacy rejects this shape. Semi/anti variants remain source-only",
+    "evidence_labels": [
+      "partial_lookup_key"
+    ]
+  },
+  {
+    "id": "C50",
+    "priority": "P1",
+    "title": "Mixed numeric join keys can be shuffled before type normalization and lose matches",
+    "description": "Distributed joins partition inputs using the original key types, then normalize keys inside the join stage. Numerically equal keys with different hash representations can be sent to different partitions and never meet. Normalize keys before shuffle construction, and include normalized type/hash identity in distribution proofs. This also reproduces with the legacy optimizer and is not claimed as newly introduced.",
+    "location": "rules/assign_stages.cpp:170; rules/assign_stages.cpp:181; physical_conversion/kqp_rbo_physical_join_builder.cpp:247",
+    "status": "Current-revision four-node native semantic oracle fails in both optimizers; explicit common-type controls pass in both",
+    "evidence_labels": [
+      "mixed_numeric_shuffle",
+      "mixed_numeric_normalized"
+    ],
+    "shared_with_legacy": true
+  }
+]

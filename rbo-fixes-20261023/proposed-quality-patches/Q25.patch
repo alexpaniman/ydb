@@ -1,0 +1,165 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_operator.h
++++ b/ydb/core/kqp/opt/rbo/kqp_operator.h
+@@ -696,14 +696,16 @@
+ // The output ID is the TMappedIUs key, not duplicated inside the value.
+ class TMapElement {
+ public:
+-    explicit TMapElement(TExpression expr)
++    explicit TMapElement(TExpression expr, bool needToPush = false)
+         : Expr(std::move(expr))
++        , NeedToPush(needToPush)
+     {}
+ 
+     bool IsColumnAccess() const {
+         return Expr.IsColumnAccess();
+     }
+     TInfoUnitId GetColumnAccess() const;
++    bool NeedsPushdown() const { return NeedToPush; }
+     const TExpression& GetExpression() const Y_LIFETIME_BOUND { return Expr; }
+     bool DependsOnlyOn(const TUnorderedIUs& available) const {
+         return Expr.GetInputIUs(false, true).IsSubsetOf(available);
+@@ -711,6 +713,8 @@
+ 
+ private:
+     TExpression Expr;
++    // Intent belongs to this definition, including after Map fusion and copies.
++    bool NeedToPush = false;
+ };
+ 
+ struct TMapDependencies {
+@@ -751,7 +755,8 @@
+     void SetMapElementExpression(TInfoUnitId output, TExpression expression);
+     const TMapElement* FindOutputElement(TInfoUnitId output) const Y_LIFETIME_BOUND { return MapElements.Find(output); }
+ 
+-    bool NeedToPush = false;
++    bool NeedsPushdown() const;
++    void MarkElementsForPushdown();
+ 
+ protected:
+     TIntrusivePtr<IOperator> CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const override;
+--- a/ydb/core/kqp/opt/rbo/kqp_operator.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_operator.cpp
+@@ -504,7 +504,9 @@
+ TOpMap::TOpMap(TIntrusivePtr<IOperator> input, TPositionHandle pos, TMapIUs elements, bool needToPush)
+     : TOpMap(std::move(input), pos, TPhysicalOpProps{}, std::move(elements))
+ {
+-    NeedToPush = needToPush;
++    if (needToPush) {
++        MarkElementsForPushdown();
++    }
+ }
+ 
+ TOpMap::TOpMap(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TPhysicalOpProps& props,
+@@ -513,6 +515,21 @@
+     , MapElements(std::move(elements))
+ {}
+ 
++bool TOpMap::NeedsPushdown() const {
++    for (const auto& [id, element] : MapElements.Items()) {
++        if (element.NeedsPushdown()) {
++            return true;
++        }
++    }
++    return false;
++}
++
++void TOpMap::MarkElementsForPushdown() {
++    for (const auto& [id, element] : MapElements.Items()) {
++        MapElements.Replace(id, element.GetExpression(), true);
++    }
++}
++
+ void TOpMap::SetMapElements(TMapIUs elements) {
+     MapElements = std::move(elements);
+     Props.OutputIUs.reset();
+@@ -532,7 +549,7 @@
+     const auto* element = MapElements.Find(output);
+     Y_ENSURE(element, "Unknown Map output " << output);
+     // Output IDs are unchanged: a definition edit keeps the Map's output set.
+-    MapElements.Replace(output, std::move(expression));
++    MapElements.Replace(output, std::move(expression), element->NeedsPushdown());
+ }
+ 
+ void TOpMap::ComputeOutputIUs() {
+--- a/ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp
++++ b/ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp
+@@ -271,7 +271,7 @@
+ }
+ 
+ TIntrusivePtr<IOperator> TOpMap::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {
+-    return MakeIntrusive<TOpMap>(GetInput(), Pos, CopyDefinitions(MapElements, registry, renames), NeedToPush);
++    return MakeIntrusive<TOpMap>(GetInput(), Pos, CopyDefinitions(MapElements, registry, renames));
+ }
+ 
+ TIntrusivePtr<IOperator> TOpAddDependencies::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {
+--- a/ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp
+@@ -28,7 +28,7 @@
+         case EOperator::Join:
+             return true;
+         case EOperator::Map:
+-            return CastOperator<TOpMap>(op).NeedToPush == false;
++            return !CastOperator<TOpMap>(op).NeedsPushdown();
+         default:
+             return false;
+     }
+@@ -100,7 +100,7 @@
+ }
+ 
+ bool TPushMapElementsThroughInputRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
+-    return input->Kind == EOperator::Map && CastOperator<TOpMap>(input)->NeedToPush && CanPushMapThroughInput(*input->GetChild(0));
++    return input->Kind == EOperator::Map && CastOperator<TOpMap>(input)->NeedsPushdown() && CanPushMapThroughInput(*input->GetChild(0));
+ }
+ 
+ TIntrusivePtr<IOperator> TPushMapElementsThroughInputRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
+@@ -111,7 +111,7 @@
+     }
+ 
+     auto& map = CastOperator<TOpMap>(*input);
+-    if (!map.NeedToPush) {
++    if (!map.NeedsPushdown()) {
+         return input;
+     }
+ 
+@@ -121,6 +121,10 @@
+     bool hasPushed = false;
+     for (const auto id : map.GetMapElements().Keys()) {
+         const auto& element = *map.GetMapElements().Find(id);
++        if (!element.NeedsPushdown()) {
++            kept.Add(id, element);
++            continue;
++        }
+         ui32 childIdx = 0;
+         while (childIdx < op.GetChildCount() && !CanPushMapElementToChild(op, childIdx, element)) {
+             ++childIdx;
+@@ -139,7 +143,7 @@
+ 
+     for (ui32 childIdx = 0; childIdx < pushed.size(); ++childIdx) {
+         if (!pushed[childIdx].Keys().Empty()) {
+-            op.SetChild(childIdx, MakeIntrusive<TOpMap>(op.GetChild(childIdx), map.Pos, std::move(pushed[childIdx]), true));
++            op.SetChild(childIdx, MakeIntrusive<TOpMap>(op.GetChild(childIdx), map.Pos, std::move(pushed[childIdx])));
+         }
+     }
+     op.Props.OutputIUs.reset();
+--- a/ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp
+@@ -108,7 +108,7 @@
+                     .Build()
+                 .Done().Ptr();
+                 // clang-format on
+-                mapElement = TMapElement(TExpression(newLambda, &ctx.ExprCtx, &props));
++                mapElement = TMapElement(TExpression(newLambda, &ctx.ExprCtx, &props), mapElement.NeedsPushdown());
+             }
+         }
+         newMapElements.Add(output, std::move(mapElement));
+--- a/ydb/core/kqp/ut/rbo/kqp_rbo_global_ut.cpp
++++ b/ydb/core/kqp/ut/rbo/kqp_rbo_global_ut.cpp
+@@ -713,7 +713,7 @@
+             UNIT_ASSERT(!rule.QuickMatch(map));
+             UNIT_ASSERT(rule.SimpleMatchAndApply(map, f.RboCtx, f.Props).Get() == map.Get());
+ 
+-            map->NeedToPush = true;
++            map->MarkElementsForPushdown();
+             UNIT_ASSERT(rule.QuickMatch(map));
+             auto result = rule.SimpleMatchAndApply(std::move(map), f.RboCtx, f.Props);
+             const bool inner = kind == "Inner";

@@ -1,0 +1,27 @@
+{
+  "author": "root",
+  "status": "dormant_source_proposal_not_applied",
+  "issue": "OA10",
+  "patch": "proposed-quality-amendments/quality-baseline-evidence-binding.patch",
+  "patch_sha256": "0fd89fe863d1512e436ba820ad537ea250713216708256eb78691a9985588d30",
+  "requires_prior_patch_sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70",
+  "source_before_sha256": "2375b60d1f842e1a06f4516fe6270ca36eaac3ff143dbda1fd194943ca7c17ce",
+  "source_after_sha256": "4cd4d3bc248d382b0f345247fc4779aea272a7c5c905360376532a427b23a011",
+  "scope": [
+    "Return the unique profile-augmented guarded baseline artifact from preparation.",
+    "Record its exact path and content digest in every paired quality case rather than the append-only pre-guard filename.",
+    "Preserve per-record baseline hashes and every semantic, provenance, quality and memory gate."
+  ],
+  "checks": [
+    "All five return/call sites updated consistently, including build-only and both failure paths.",
+    "Repository search found exactly one prepare_quality_baseline caller.",
+    "Temporary application and source syntax parse passed."
+  ],
+  "limits": [
+    "Independent review and actual use remain pending.",
+    "No cached baseline reuse or acceptance change added."
+  ],
+  "builds": 0,
+  "native_runs": 0,
+  "live_helper_edits": false
+}

@@ -1,0 +1,16 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp
+@@ -201,6 +201,13 @@
+ 
+     // Without a pushed predicate the read can be redirected to a covering index whose key starts with join keys.
+     if (autoIndexSelection && !read.RangeInfo.has_value()) {
++        // A complete physical key bounds each probe to one row. Do not replace
++        // that bound with a longer but incomplete secondary-index prefix.
++        const auto& main = tableDesc.Metadata;
++        if (IsLookupTable(*main) && IsCoveringTable(*main, readColumns)
++            && GetLookupKeyPrefixLen(main->KeyColumnNames, 0, joinKeyColumns) == main->KeyColumnNames.size()) {
++            return TLookupJoinTarget{main, nullptr, nullptr};
++        }
+         if (auto index = TryToFindBestIndexForRightSide(tableDesc, readColumns, joinKeyColumns); index && IsLookupTable(*index)) {
+             return TLookupJoinTarget{index, nullptr, nullptr};
+         }

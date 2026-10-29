@@ -1,0 +1,34 @@
+{
+  "reviewer": "root",
+  "status": "approved_source_only",
+  "bug": "Q11",
+  "patch": "proposed-quality-amendments/Q11-direct-union-admission-artifacts.patch",
+  "patch_sha256": "5b00b05d4c9ffd61f0bb3a01af55eb7ce02fbeac61d5b98453ed20a8b8c8fa12",
+  "revision": "f9279dcfeac87c596f58ccc8e3add4722c66a960",
+  "combined_after_cpp_lifecycle_and_q19": {
+    "anonymous_cpp_verify.py": "a34689c4870748eea21707cce97814b0a93826496168909b4973337f29fd1b6a",
+    "quality_union_cpp_profile.json": "bb0664a231d0f29baea57af13e3a7fc1e659af982e0c9e89905cc03a55151717",
+    "anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf",
+    "quality_union_cpp_contract.py": "3b7bd8de5d199f08519718b34d27fe73e96db3b626209011e763d37f7920a8fb",
+    "quality_union_cpp_generator.py": "8eb0b44ba1be62a92875b84c5cc8dbfd35d5388397fac53593c29cb33d04d5ce"
+  },
+  "contract_count": 19,
+  "checks": [
+    "Reviewed actual rule against typed operator fixture preconditions and both UnionAll constructors.",
+    "Positive cases preserve Ordered, complete per-branch column mappings and fresh filter objects without mutating original or shared inputs.",
+    "Member checks bind exact lambda argument and expected renamed column, not only member counts.",
+    "Negative cases exercise rejected effects, unresolved/out-of-scope references, partial-pushdown state and late branch type mismatches.",
+    "Profile pins generator/source bytes, case order, count and exact assertion counts; actual execution remains independently guarded and receipt-bound.",
+    "Admission grants only fixed local contracts and explicitly preserves query and optimization verdicts as false.",
+    "Composed temporary patch application, Python syntax and in-memory generator/profile hash/count checks passed."
+  ],
+  "limits": [
+    "Actual production compilation/linking/execution and paired SQL quality checks remain pending.",
+    "Structural call placement and ordering-state identity are not runtime effect-count measurements."
+  ],
+  "production_edits": false,
+  "live_helper_edits": false,
+  "builds": 0,
+  "native_runs": 0,
+  "rendered_source_persisted": false
+}

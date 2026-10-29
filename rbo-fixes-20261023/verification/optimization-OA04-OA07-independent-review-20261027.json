@@ -1,0 +1,151 @@
+{
+  "schema_version": "independent_source_review_v1",
+  "recorded_unix_ns": 1793133566106855596,
+  "reviewer": "/root/fix_series_evidence_audit",
+  "scope": "OA04/OA07 Q01/Q02/Q22 physical-window contracts, SUM controls and Q29 per-positive improvements",
+  "verdict": "approved_source_prepared_only_pending_synthetic_and_native_validation",
+  "artifact_sha256": {
+    "optimization-window-physical-contracts.patch": "fc97df50c74b413b7ec58ddac1b4bb788c850ab548265983b7751203ae8aac14",
+    "optimization-window-physical-contracts-candidate.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+    "optimization-physical-pairing-contracts.patch": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8",
+    "optimization-physical-pairing-candidate.py": "92a3688c70e64d658950dfba5d0774ff84980024c477eb19acbd35ae329922be"
+  },
+  "source_proposal_sha256": "7fa522810b63c1b9662ed508935d1ed7005f110827eb536a4105d8c95676492c",
+  "production_blob_bindings": [
+    {
+      "finding": "Q01",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "sha256": "f272aab6c4cbbd90db7bf151899477bfab66b79a2abb8ef583030433f1fb5a95",
+      "matches": true
+    },
+    {
+      "finding": "Q02",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "path": "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp",
+      "sha256": "ab79046e97ff5abffdc13311a1e629dedd8694f4a75651613d70f4bbf9c2eefe",
+      "matches": true
+    },
+    {
+      "finding": "Q02",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "path": "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+      "sha256": "278fa0d9db785e9e4026fa4bf203f506015f8c186b3d6646e65b17d69c727825",
+      "matches": true
+    },
+    {
+      "finding": "Q02",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "sha256": "475c6688bca99a6a84da780e1ddff8461d1937dda25cf249515e28abe86dd8df",
+      "matches": true
+    },
+    {
+      "finding": "Q22",
+      "revision": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.cpp",
+      "sha256": "d112dc5ad9e04199b9e6cd2fd2c37d221a29e65676d9cebfdd47656414e66739",
+      "matches": true
+    },
+    {
+      "finding": "Q22",
+      "revision": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+      "sha256": "f14bc67e5fe0a8247afe8342d779652c4544a93a18d2d8225967f5e953c4ac75",
+      "matches": true
+    },
+    {
+      "finding": "Q29",
+      "revision": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+      "sha256": "adaf0ed3dff4df24d075c69bf66e5b566ddd96742dd20464108438fbd260f9e7",
+      "matches": true
+    }
+  ],
+  "production_blob_bindings_all_match": true,
+  "active_source_blockers": [],
+  "resolved_review_finding": {
+    "id": "OA04-OA07-R01",
+    "severity": "medium",
+    "issue": "The original unchanged-callable helper checked counter types only on the baseline map; Python mapping equality can equate malformed fixed booleans/floats with integer counts.",
+    "fix": "Require exact nonnegative integer values on both maps before admitting preserved shape.",
+    "original_pairing_patch_sha256": "455688896e0fd033b902c5f4bda7864dc5eab92797a269b7db2c8a4a27b21e44",
+    "corrected_pairing_patch_sha256": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8",
+    "verification": "Independent source inspection and AST parsing only; negative contract execution remains pending."
+  },
+  "checked_contracts": [
+    {
+      "area": "Q02 actual frame source",
+      "result": "The descriptor recognizes one concrete Fold1, an optional identity Map wrapper and six-argument WinFrame. Its QueueCreate must be the same resolved object passed as queue to exactly one reachable WinFramesCollector. Equality of queue names alone does not establish this check.",
+      "candidate": "optimization-window-physical-contracts-candidate.py",
+      "line": 416
+    },
+    {
+      "area": "Q02 exact accumulator width",
+      "result": "Init and update must expose direct AsStruct field maps with duplicate names rejected. The recognized optional COUNT init/update bind the same item Member and the matching prior-state Member. Fixed descriptor is exactly one optional count field; paired admission requires a wider valid baseline and fixed width exactly one. Counts and arities use exact integer type checks.",
+      "candidate": "optimization-physical-pairing-candidate.py",
+      "line": 153
+    },
+    {
+      "area": "Q02 lexical uncertainty",
+      "result": "Unresolved frame/state/queue aliases, nonidentity maps, unsupported block lambdas and ambiguous references cannot supply the required descriptor. Empty or incomplete fold inventories fail the final required-one-fold checks. No lexical parser expansion or presumed alias equivalence is introduced.",
+      "candidate": "optimization-window-physical-contracts-candidate.py",
+      "line": 416
+    },
+    {
+      "area": "Q22 nullable boundary controls",
+      "result": "A separate DAG counter handles the symbolic equality callable, which the identifier-only callable counter omitted. All eight size-five ANSI/legacy, tuple/list and nullable/required controls require nonzero observed comparisons, lowered SqlIn and paired preservation of equality count and relevant callable shape. The checker does not assume exactly five comparisons or forbid Contains in nullable normalization.",
+      "candidate": "optimization-window-physical-contracts-candidate.py",
+      "line": 413
+    },
+    {
+      "area": "Q01 mixed COUNT/integer SUM",
+      "result": "The previously uncovered mixed case now requires collector/boundary access and no reachable general Fold/Fold1. The exact branch source sends COUNT and admitted integer SUM through prefix/boundary paths. Row semantics remain independently checked; this is a structural contract, not measured scaling.",
+      "candidate": "optimization-window-physical-contracts-candidate.py",
+      "line": 515
+    },
+    {
+      "area": "SUM specialized controls",
+      "result": "All named SUM negative controls except the explicitly positive native-control case require parsed before/fixed plans and identical typed nonempty callable counters. A parse-only fixed assertion cannot bypass that paired check.",
+      "candidate": "optimization-physical-pairing-candidate.py",
+      "line": 242
+    },
+    {
+      "area": "Q29 both positive cases",
+      "result": "Each primitive/optional residual case individually requires positive exact integer comparison counts with a strict baseline-to-fixed decrease before generic assertions can pass. Improvement of one positive case cannot cover no improvement or regression in the other. Existing unsafe-expression/guard controls remain enforced.",
+      "candidate": "optimization-physical-pairing-candidate.py",
+      "line": 247
+    }
+  ],
+  "limits": [
+    "No generated AST, workload or actual native graph was constructed or executed during review.",
+    "Q02 recognizes the checked production shape only; later peephole rewrites or lexical block forms may reject and require a separately reviewed narrow extension. Do not weaken these failures to parsed-plan success.",
+    "Q02 queue/state checks prove the scoped physical state-width relationship; complete row/frame semantics still come from the independent native oracle.",
+    "Callable/equality DAG counters establish structural differences and controls, not exact runtime evaluation counts or effect-placement identity.",
+    "Q01 full resource/work scaling admission remains separately pending under OA05.",
+    "All baseline/fixed semantic, exact receipt, optimizer configuration and mandatory canonical-profile gates remain required."
+  ],
+  "required_next_validation": [
+    "Execute metadata-only negative contracts for malformed counters on both sides, missing/desynchronized Q02 descriptors, changed SUM/Q22 controls and either Q29 positive without strict decrease.",
+    "Obtain actual receipt-bound baseline/fixed physical evidence for the mandatory Q01 mixed, Q02 partial and all eight Q22 boundary controls.",
+    "Keep unsupported printer/peephole forms pending rather than infer acceptance."
+  ],
+  "oa05_restack": {
+    "patch": "proposed-quality-amendments/Q01-resource-scaling-admission-gate.patch",
+    "patch_sha256": "c1a800815db08f4bcb2dbb86fccf39c1ec44ffb2763e14b5991a1d3590c27368",
+    "required_pairing_patch_sha256": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8",
+    "combined_quality_pairing_sha256": "900f69f107f1c6124c3da3e6395559670d165d2c60783f3767bc4166b13d47c9",
+    "in_memory_context_application_and_syntax_passed": true
+  },
+  "actions": {
+    "live_edits": false,
+    "source_ast_parse": true,
+    "imports": 0,
+    "mock_runs": 0,
+    "native_runs": 0,
+    "builds": 0,
+    "graph_runs": 0,
+    "toolchain_runs": 0,
+    "raw_plan_or_workload_saved": false
+  }
+}

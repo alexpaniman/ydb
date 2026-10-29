@@ -1,0 +1,41 @@
+{
+  "assertions_passed": 751,
+  "builds": 0,
+  "checks": [
+    "Exact reviewed patch and after-file identities; Python syntax",
+    "Current contract source hash, specification hash, assertion counts and named ordered vectors",
+    "Incomplete, duplicate, invalid-count, invalid-type, inconsistent-exit and unknown-field verdict rejection",
+    "Every baseline control independently required, with exact baseline_statistics_control_failed rejection",
+    "Wrong revision, source, vector, assertion count, process guard, binary identity and environment metadata rejected",
+    "Missing real receipt rejected; valid native evidence was not synthesized or accepted",
+    "Q09 and Q20 fixed direct evidence mandatory even if optional flag is absent or false",
+    "Existing quality orchestration contracts pass with Q09 SQL-only status pending"
+  ],
+  "coverage": {
+    "Q09": {
+      "assertions": 292,
+      "cases": 38,
+      "controls": 12
+    },
+    "Q20": {
+      "assertions": 848,
+      "cases": 72,
+      "controls": 24
+    }
+  },
+  "existing_stacked_quality_metadata_assertions_passed": 98,
+  "generated_sources_persisted": false,
+  "graphs": 0,
+  "harness_expectation_patch_sha256": "721a2b79b34c7f52c0e9fc7137047d3c52a84735f05046bfe96c884947950763",
+  "live_helper_or_production_edits": false,
+  "metadata_check_generator_sha256": "48652cb9df8d2e050d389723952e7dab5e78580c9896685e6f796924ea897dc6",
+  "native_evidence_fabricated_or_accepted": false,
+  "native_runs": 0,
+  "patch_sha256": "ff881e9c99b2a6630020b2bea6cd0e12154f2b3cd2a5b9852d99d30cc880c619",
+  "query_or_plan_payloads_persisted": false,
+  "schema_version": "q09_q20_independent_metadata_review_v1",
+  "scope": "Source and metadata checks; generated C++ hashed in RAM only; invalid evidence stand-ins never native verification",
+  "synthetic_verdicts_used_only_for_metadata_checks": true,
+  "temporary_17_stack_plus_candidate_and_expectations_application": true,
+  "toolchain_runs": 0
+}

@@ -1,0 +1,50 @@
+r36 — Physical query construction, effect lowering, transactions, and result roots
+Two source-review passes completed. No repository sources changed, no builds executed, no concrete reproduction inputs written or included. Native confirmation is delegated to the root through in-memory generation.
+
+CORRECTNESS
+
+1. P1: Index maintenance is missing when the index cannot be maintained by the sink.
+Status: source-confirmed end-to-end omission; native confirmation pending.
+The new optimizer lowers indexed insert/update/delete to exactly the same base-table sink modes as unindexed writes. It does not create the additional index-table writes or transformation stages that the legacy effect lowering generates. The query compiler delegates index maintenance only to indexes supported by the sink. Its support is explicitly restricted to compact fulltext/JSON indexes and, when EnableIndexStreamWrite is enabled, ordinary synchronous indexes. Thus ordinary synchronous secondary indexes become stale when EnableIndexStreamWrite is disabled. Vector indexes and noncompact fulltext/JSON indexes need the legacy expansion even with the default enabled setting; they are also omitted here. A unique synchronous index under the disabled configuration additionally loses uniqueness enforcement.
+Primary locations: ydb/core/kqp/opt/rbo/kqp_operator.cpp:1622-1636 (indexed operations collapsed to ordinary modes), ydb/core/kqp/opt/rbo/rules/assign_stages.cpp:324-333 (one base sink).
+Downstream proof: ydb/core/kqp/query_compiler/kqp_query_compiler.cpp:1978-2013,2557-2579; ydb/core/kqp/provider/yql_kikimr_gateway.h:452-454.
+Legacy contrast: ydb/core/kqp/opt/physical/effects/kqp_opt_phy_insert_index.cpp:107-123,160-190 and following loop; delete/update counterparts perform equivalent additional writes.
+Correction: preserve the legacy affected-index expansion for indexes not written by the sink, or reject/fallback before selecting this lowering. Native verification should compare base-table and index-visible row counts/contents following successful writes using generated fixtures, and retain only hashes/counts.
+Second-pass challenge: downstream query compiler and runtime do not independently enumerate missing index writes. Runtime consumes explicit Settings.Indexes; metadata support function explicitly excludes the affected classes. Ordinary default-config sync indexes ARE maintained and should not be included in this report condition.
+
+2. P2 native-confirmed: Mixed read/effect roots are globally classified as effects-only and fail task construction.
+Status: root verified native new-RBO failure at kqp_tasks_graph.cpp:1762 (Unexpected task output type), while legacy succeeds. The observed outcome is valid-query rejection, not silently missing results.
+GetPhysicalTxSettings ORs WithEffects across all roots. BuildPhysicalQuery then omits every main transaction result and every query result binding if any root has effects, including roots that are ordinary reads. Statement containers are replaced with the same combined plan. This cannot represent the expected results of a supported mixed read/write multi-statement query; depending on surrounding query blocks it may fail compilation before an observable empty-result outcome.
+Locations: physical_conversion/kqp_rbo_physical_query_builder.cpp:596-610,636-644,701-708; kqp_rbo_transformer.cpp:507-526.
+Correction: classify outputs per root and keep result sinks independent of effect presence; maintain statement/transaction dependencies and source-container result ownership.
+Second-pass challenge: multiple read-only result containers are covered by existing tests and work; that alone does not disprove mixed effects, because the global WithEffects branch is not entered. DML RETURNING is explicitly rejected earlier and is not the case claimed here. Parent tested mixed generated scripts with fallback disabled and confirmed the failure above.
+
+3. Review candidate only: Type annotation retries do not feed replacement output into the next iteration.
+Status: contract violation visible in source, no concrete reachable failing shape identified; do not present as confirmed native bug.
+physical_query_builder.cpp:1044-1046 repeatedly transforms the original input while storing the returned replacement only after completion. Other RBO type-annotation helpers use Transform(lambda, lambda, ...). A transformer returning a different root with Repeat can have its rewrite discarded or be retried indefinitely. Corrective direction: feed each successful replacement into the following pass, respecting null/error/async status.
+
+EXCLUDED / CHALLENGED
+- Duplicate external parameter bindings from different roots are harmless to current downstream external-binding materialization (it checks existing parameter type rather than reinserting). Deduplication would improve plan size only.
+- Removing KqpWriteConstraint appears dangerous, but row datashard write validation enforces explicit NULL rejection for NOT NULL columns (datashard_write_operation.cpp:173-200), and OLAP batch builder receives not-null metadata. No data-constraint bypass claimed.
+- Sink StreamWrite=false does NOT by itself disable ordinary secondary-index maintenance; that uses a separate configuration switch in the compiler.
+- C30 conflict-mode loss and C33 set-operation column order are known and not duplicated.
+- Final result column ordering is enforced by DqCnResult column hints; avoiding a rename map when names match does not itself lose presentation order.
+- Source-stage omission from the intermediate vector is repaired by final-stage construction plus later topological reconstruction; no new issue claimed.
+
+OPTIMIZATION QUALITY (SEPARATE)
+- Effect stage assignment always creates UnionAll into one sink task (assign_stages.cpp:327-333), and settings force StreamWrite=false (operator.cpp:1664). Unlike the legacy OLAP streaming/inconsistent-write path (kqp_opt_effects.cpp:463-483), the new path cannot retain partition-parallel sink execution. This is a quality limitation for bulk OLAP writes; ordinary transactional OLTP intentionally uses one sink in the legacy path too, so no general OLTP regression is claimed.
+- Materialized range expressions are independently built per source/root and each external parameter list is independently appended. Shared computed ranges and shared parameters across roots incur redundant graph nodes/bindings. No benchmark performed.
+
+FOLLOW-UP CHALLENGE (operation guards)
+- INSERT into an indexed table always emits TKqlInsertRowsIndex at kqp_opt_kql.cpp:689-706. RewriteTableEffect explicitly accepts it, its Settings child index matches the normal insert layout, and the plan converter/sink builder accept it. This is the preferred native verification route for missing maintenance. Empty input would mask the omission; generated fixtures should include actual inserted rows.
+- UPDATE ON emits TKqlUpdateRowsIndex only when supplied indexed key/data columns are affected (kqp_opt_kql.cpp:747-779). An update that does not affect any indexed column correctly becomes a plain TKqlUpdateRows and is excluded from the corruption claim.
+- Conditional UPDATE with ordinary sync indexes and stream writes disabled can expand additional index writes earlier in kqp_opt_kql.cpp:1267 onward. Do not use that path as proof that the RBO indexed-effect omission is reachable.
+- Indexed UPSERT and indexed REPLACE requiring nonsink maintenance emit KqlUpsertRowsIndex (kqp_opt_kql.cpp:612-619,654-662). New RewriteTableEffect does not handle that callable and rejects it at1792. Root observed this rejection during initial fixture setup. Those operations are not claimed to silently corrupt an index; they are a separate unsupported valid-query case.
+
+ADDITIONAL SOURCE-SUPPORTED CONDITIONAL UPDATE MODE LOSS
+For conditional UPDATE of a table with ordinary synchronous indexes and default EnableIndexStreamWrite=true, kqp_opt_kql.cpp:1248-1263 produces an old/new row-pair input and a KqlUpsertRows carrying Settings Mode=update_conditional. RBO BuildSettings chooses mode=upsert solely from the effect enum (operator.cpp:1630-1632), placing the original settings in the generic Settings list without applying its Mode. query_compiler.cpp:1899-1901 requires the top-level sink Mode to be update_conditional for that row-pair representation. This is a valid-query rejection candidate, distinct from index-maintenance omission; native verification pending. No-index conditional UPDATE uses flat input and is excluded from this specific assertion claim. Corrective direction: preserve effective mode and other semantic write options when constructing sink settings.
+
+NATIVE FOLLOW-UP STATUS (parent observations)
+- Noncompact fulltext INSERT completed under new RBO; a subsequent fulltext lookup returned zero rows where legacy returned three. This is consistent with missing index writes, but lookup/read selection remains a confounder until direct posting-table and base-table controls complete. Do not label this native-confirmed index corruption yet.
+- Ordinary sync-index INSERT with stream writes disabled encountered RewriteSelect unsupported-source guard at kqp_rewrite_select.cpp:1892 during fixture setup. That location rejects an unsupported FROM child callable; it is not the indexed-effect lowering guard. The failed callable name alone is sufficient for further attribution. No omission outcome was observed for this probe.
+- Conditional indexed UPDATE mode-loss remains source-supported pending a reachable native test. The guard analysis is complete: no-index conditional UPDATE is excluded, as are UPDATE ON inputs unaffected by index columns.

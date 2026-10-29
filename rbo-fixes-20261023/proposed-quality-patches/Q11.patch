@@ -1,0 +1,122 @@
+--- /dev/null
++++ b/ydb/core/kqp/opt/rbo/rules/push_filter_through_union_all.cpp
+@@ -0,0 +1,62 @@
++#include "kqp_rules_include.h"
++
++namespace NKikimr::NKqp {
++namespace {
++
++bool IsTotalUnionPredicate(const TExpression& expression) {
++    // Keep the first implementation to total primitive predicates. In particular,
++    // do not move UDFs, volatile calls or expressions that can raise row errors.
++    return !FindNode(expression.Node, [](const TExprNode::TPtr& node) {
++        return node->IsCallable() && !node->IsCallable({
++            "Member", "Parameter", "And", "Or", "Not", "Coalesce", "Exists", "Just", "Nothing",
++            "==", "!=", "<", "<=", ">", ">=", "DataType", "OptionalType",
++            "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
++            "Float", "Double", "Decimal", "String", "Utf8", "Date", "Datetime", "Timestamp",
++            "Interval", "Date32", "Datetime64", "Timestamp64", "Interval64"});
++    });
++}
++
++} // namespace
++
++bool TPushFilterThroughUnionAllRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
++    return input->Kind == EOperator::Filter && input->GetChildren().front()->Kind == EOperator::UnionAll;
++}
++
++TIntrusivePtr<IOperator> TPushFilterThroughUnionAllRule::SimpleMatchAndApply(
++    const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props)
++{
++    const auto filter = CastOperator<TOpFilter>(input);
++    const auto unionAll = CastOperator<TOpUnionAll>(filter->GetInput());
++    const auto& predicate = filter->GetFilterExpression();
++    if (filter->PartiallyPushedDown || ReferencesUnresolvedSubplan(predicate, props) ||
++        !IsTotalUnionPredicate(predicate)) {
++        return input;
++    }
++    const auto used = predicate.GetInputIUs(false, true);
++    if (!used.IsSubsetOf(unionAll->GetColumns().Keys())) {
++        return input;
++    }
++
++    TVector<TIntrusivePtr<IOperator>> children;
++    children.reserve(unionAll->GetChildCount());
++    for (size_t index = 0; index < unionAll->GetChildCount(); ++index) {
++        const auto& child = unionAll->GetInput(index);
++        TSubstitutions renames;
++        for (const auto output : used) {
++            const auto* row = unionAll->GetColumns().Find(output);
++            Y_ENSURE(row && index < row->Inputs.size());
++            const auto source = row->Inputs[index];
++            const auto* outputType = unionAll->GetIUType(output, ctx.ExprCtx);
++            const auto* inputType = child->GetIUType(source, ctx.ExprCtx);
++            // Optional widening needs a typed expression adapter, not just ID replacement.
++            if (!outputType || !inputType || !IsSameAnnotation(*outputType, *inputType)) {
++                return input;
++            }
++            renames.Add(output, source);
++        }
++        children.push_back(MakeIntrusive<TOpFilter>(child, filter->Pos, predicate.ApplyRenames(renames)));
++    }
++    return MakeIntrusive<TOpUnionAll>(std::move(children), unionAll->Pos, unionAll->GetColumns(), unionAll->Ordered);
++}
++
++} // namespace NKikimr::NKqp
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_rules.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_rules.h
+@@ -335,6 +335,18 @@
+ };
+ 
+ /**
++ * Push total filters through UnionAll.
++ */
++class TPushFilterThroughUnionAllRule : public ISimplifiedRule {
++public:
++    TPushFilterThroughUnionAllRule()
++        : ISimplifiedRule("Push filter through UnionAll", ERuleProperties::RequireTypes) {}
++    bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
++    TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input,
++        TRBOContext& ctx, TPlanProps& props) override;
++};
++
++/**
+  * Push filter through aggregate.
+  */
+ class TPushFilterThroughAggregateRule : public ISimplifiedRule {
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+@@ -631,6 +631,7 @@
+     earlyPushFilterRules.emplace_back(std::make_unique<TPushFilterIntoJoinRule>());
+     earlyPushFilterRules.emplace_back(std::make_unique<TPushFilterUnderMapRule>());
+     earlyPushFilterRules.emplace_back(std::make_unique<TPushFilterThroughAggregateRule>());
++    earlyPushFilterRules.emplace_back(std::make_unique<TPushFilterThroughUnionAllRule>());
+     RBO.AddStage(std::make_unique<TRuleBasedStage>("Push filters before inlining", std::move(earlyPushFilterRules)));
+ 
+     // Subplan inlining. For correlated subqueries we create dependent join.
+@@ -681,6 +682,7 @@
+     logicalStage_I_Rules.emplace_back(std::make_unique<TPushSimpleJoinFilterRule>());
+     logicalStage_I_Rules.emplace_back(std::make_unique<TPushFilterUnderMapRule>());
+     logicalStage_I_Rules.emplace_back(std::make_unique<TPushFilterThroughAggregateRule>());
++    logicalStage_I_Rules.emplace_back(std::make_unique<TPushFilterThroughUnionAllRule>());
+     RBO.AddStage(std::make_unique<TRuleBasedStage>("Logical rewrites I", std::move(logicalStage_I_Rules)));
+ 
+     TVector<std::unique_ptr<IRule>> logicalStage_II_Rules;
+@@ -690,6 +692,7 @@
+     logicalStage_II_Rules.emplace_back(std::make_unique<TPushFilterIntoJoinRule>());
+     logicalStage_II_Rules.emplace_back(std::make_unique<TPushFilterUnderMapRule>());
+     logicalStage_II_Rules.emplace_back(std::make_unique<TPushFilterThroughAggregateRule>());
++    logicalStage_II_Rules.emplace_back(std::make_unique<TPushFilterThroughUnionAllRule>());
+     logicalStage_II_Rules.emplace_back(std::make_unique<TEliminateLeftJoinRule>());
+     logicalStage_II_Rules.emplace_back(std::make_unique<TPushLimitIntoSortRule>());
+     RBO.AddStage(std::make_unique<TRuleBasedStage>("Logical rewrites II", std::move(logicalStage_II_Rules)));
+--- a/ydb/core/kqp/opt/rbo/rules/ya.make
++++ b/ydb/core/kqp/opt/rbo/rules/ya.make
+@@ -47,6 +47,7 @@
+     all_push_filter.cpp
+     push_filter_into_join.cpp
+     push_filter_through_aggregate.cpp
++    push_filter_through_union_all.cpp
+     push_filter_under_map.cpp
+ )
+ 

@@ -1,0 +1,105 @@
+{
+  "controls": [
+    {
+      "case": "f03_interval64_balanced_rows_overlap_required_asc",
+      "mode": "new",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "failure_category": "query or compilation error",
+      "diagnostic_source_locations": [
+        "ydb/tests/tools/kqprun/kqprun.cpp:327",
+        "yql/essentials/minikql/invoke_builtins/llvm16/mkql_builtins.cpp:259"
+      ],
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "5cb7d1a9afa4f871c5db6f426e72fdaef99b374d39802c955efd773f26b4e0cf",
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "case": "f03_interval64_balanced_rows_overlap_required_asc",
+      "mode": "legacy",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "failure_category": "query or compilation error",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:488",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "a34ce05133b8177ef16a2746804b50a6ab3022b329d6d6d8cf41f794ca506c60",
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "case": "f03_interval_cancellation_rows_running_required_asc",
+      "mode": "new",
+      "exit_code": 0,
+      "semantic_oracle_pass": false,
+      "failure_category": null,
+      "diagnostic_source_locations": null,
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "e58598a54bcfb76c276d936cb18af9d6918a1b5dc654f851bdabc9df0fdf4b5e",
+      "result_sha256": "33fb97d2319b47ad170f4bb5360f174a79adec617a77dddbbc39aba047b3398a"
+    },
+    {
+      "case": "f03_interval_cancellation_rows_running_required_asc",
+      "mode": "legacy",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "failure_category": "query or compilation error",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:488",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "837926ca75e6f7a9f341fd4b9a35f9de7e72d43ea089dffd55e92830952ea4ed",
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "case": "f03_interval_cancellation_rows_overlap_required_asc",
+      "mode": "new",
+      "exit_code": 0,
+      "semantic_oracle_pass": false,
+      "failure_category": null,
+      "diagnostic_source_locations": null,
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "2794668a6d49e31025c790876bd91414cea840b230eebeeb12a410ec9141286c",
+      "result_sha256": "b7a7fcce2b956232070318f6015fe8c1ecdbdb175fcf6d43cd0d3f612b3d4c47"
+    },
+    {
+      "case": "f03_interval_cancellation_rows_overlap_required_asc",
+      "mode": "legacy",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "failure_category": "query or compilation error",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:488",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "1820b4989aedc244428b94e24778168fcc480c56ccbd03216f801873f5bdc801",
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "revision": "cb7a4189eea1f56dfdc7bbbb012c96403c090636",
+  "physical_source_matches_pinned_main": true,
+  "binary_provenance_verified": true,
+  "build_receipt_sha256": "1fb3ecc35ccd81b5dd4df4d336e44dfe50753c0bad1256eb59f6acc155792e42",
+  "unchanged_executable": true,
+  "memory": {
+    "elapsed_seconds": 21.541,
+    "peak_scope_usage_bytes": 560091136,
+    "peak_group_rss_bytes": 560091136,
+    "minimum_host_available_bytes": 114355458048,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_collection_after_completion": false,
+    "scope_membership_accounting_available": true,
+    "exit_code": 0,
+    "stdout_sha256": "35a2803d3355e0009dd577b21a06120f28b3eb87c29da3e0e351fe95ce48d38c",
+    "stdout_bytes": 3432,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic_bytes": 0
+  }
+}

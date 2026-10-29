@@ -1,0 +1,99 @@
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp
+@@ -838,7 +838,7 @@
+ }
+ 
+ // Processes whole partition and accumulates it into one value.
+-TExprNode::TPtr TPhysicalWindowBuilder::BuildFoldLambda(bool update) const {
++TExprNode::TPtr TPhysicalWindowBuilder::BuildFoldLambda(bool update, bool skipCount) const {
+     auto itemArg = Ctx.NewArgument(Pos, "fold_item");
+     TExprNode::TListType args{itemArg};
+ 
+@@ -852,7 +852,7 @@
+     const auto& funcs = Functions;
+     for (ui32 f = 0; f < funcs.size(); ++f) {
+         const auto& func = *Window.GetWindowFuncs().Find(funcs[f]);
+-        if (func.Kind == EWindowFuncKind::Native) {
++        if (func.Kind == EWindowFuncKind::Native || (skipCount && func.Function == "count")) {
+             continue;
+         }
+         stateMembers.emplace_back(AccumulatorName(f), BuildAccumulator(func, f, itemArg, previousState, nullptr, stateMembers));
+@@ -1420,27 +1420,22 @@
+ 
+     auto rowArg = Ctx.NewArgument(Pos, "frame_row");
+     // clang-format off
+-    auto frameRows = Ctx.Builder(Pos)
+-        .Callable("OrderedMap")
+-            .Callable(0, "WinFrame")
+-                .Add(0, queue)
+-                .Add(1, zero)
+-                .Callable(2, "Bool").Atom(0, "false").Seal()
+-                .Callable(3, "Bool").Atom(0, isRange ? "true" : "false").Seal()
+-                .Callable(4, "Bool").Atom(0, "false").Seal()
+-                .Callable(5, "DependsOn").Add(0, rowArg).Seal()
+-            .Seal()
+-            .Lambda(1)
+-                .Param("frame_item")
+-                .Arg("frame_item")
+-            .Seal()
+-        .Seal().Build();
++    auto frameRows = Ctx.NewCallable(Pos, "WinFrame", {
++        queue, zero,
++        Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "false")}),
++        Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, isRange ? "true" : "false")}),
++        Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "false")}),
++        Ctx.NewCallable(Pos, "DependsOn", {rowArg})});
++    auto firstRow = Ctx.NewCallable(Pos, "Head", {frameRows});
++    // The single-element form returns the final row in constant time.
++    auto lastRow = Ctx.ChangeChild(*frameRows, 4,
++        Ctx.NewCallable(Pos, "Bool", {Ctx.NewAtom(Pos, "true")}));
+ 
+     auto folded = Ctx.Builder(Pos)
+         .Callable("Fold1")
+             .Add(0, frameRows)
+-            .Add(1, BuildFoldLambda(/*update=*/false))
+-            .Add(2, BuildFoldLambda(/*update=*/true))
++            .Add(1, BuildFoldLambda(/*update=*/false, /*skipCount=*/true))
++            .Add(2, BuildFoldLambda(/*update=*/true, /*skipCount=*/true))
+         .Seal().Build();
+     // clang-format on
+ 
+@@ -1457,12 +1452,24 @@
+             continue;
+         }
+ 
++        if (func.Function == "count") {
++            auto first = Ctx.NewArgument(Pos, "first_row");
++            auto last = Ctx.NewArgument(Pos, "last_row");
++            TVector<std::pair<TString, TExprNode::TPtr>> unusedState;
++            auto firstCount = BuildAccumulator(func, f, first, nullptr, nullptr, unusedState);
++            // Queued outputs already hold cumulative counts. Reuse those
++            // states without visiting every row of an overlapping frame.
++            auto count = Ctx.NewCallable(Pos, "+", {
++                Ctx.NewCallable(Pos, "-", {Member(last, name), Member(first, name)}), firstCount});
++            auto result = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {first, last}), std::move(count));
++            members.emplace_back(name, Ctx.NewCallable(Pos, "IfPresent", {firstRow, lastRow, result, zero}));
++            continue;
++        }
++
+         auto stateArg = Ctx.NewArgument(Pos, "frame_state");
+         auto result = Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {stateArg}),
+                                     BuildResultFromAccumulator(funcs[f], Member(stateArg, AccumulatorName(f))));
+-        if (func.Function == "count") {
+-            members.emplace_back(name, Ctx.NewCallable(Pos, "Coalesce", {Ctx.NewCallable(Pos, "Map", {folded, result}), BuildUint64(0)}));
+-        } else if (IsNonOptionalAggregate(funcs[f])) {
++        if (IsNonOptionalAggregate(funcs[f])) {
+             members.emplace_back(name, Ctx.NewCallable(Pos, "Unwrap", {Ctx.NewCallable(Pos, "Map", {folded, result})}));
+         } else {
+             members.emplace_back(name, Ctx.NewCallable(Pos, "FlatMap", {folded, result}));
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h
+@@ -38,7 +38,7 @@
+     TExprNode::TPtr BuildAccumulator(const TOpWindowFunc& func, ui32 funcIndex, TExprNode::TPtr itemArg, TExprNode::TPtr previousState,
+                                      TExprNode::TPtr sortKeyChanged, TVector<std::pair<TString, TExprNode::TPtr>>& stateMembers) const;
+     TExprNode::TPtr BuildWholePartition(TExprNode::TPtr wideFlow) const;
+-    TExprNode::TPtr BuildFoldLambda(bool update) const;
++    TExprNode::TPtr BuildFoldLambda(bool update, bool skipCount = false) const;
+     TExprNode::TPtr BuildChainOutputs(TExprNode::TPtr wideFlow) const;
+     TExprNode::TPtr BuildPartitionList(TExprNode::TPtr flow) const;
+     TExprNode::TPtr BuildQueue(TExprNode::TPtr wideFlow) const;

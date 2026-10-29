@@ -1,0 +1,9 @@
+{
+  "status": "metadata_mock_contracts_passed_native_unverified",
+  "assertions": 215,
+  "real_process_launches": 0,
+  "real_memfds": 0,
+  "native_runs": 0,
+  "rendered_inputs_persisted": false,
+  "acceptance_thresholds_implemented": false
+}

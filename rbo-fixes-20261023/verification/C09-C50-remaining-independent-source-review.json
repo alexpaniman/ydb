@@ -1,0 +1,383 @@
+{
+  "schema_version": 1,
+  "reviewer": "c41_review",
+  "review_kind": "independent_source_second_pass",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "scope": [
+    "C09",
+    "C10",
+    "C11",
+    "C30",
+    "C31",
+    "C34",
+    "C35",
+    "C42",
+    "C43",
+    "C45",
+    "C46",
+    "C47",
+    "C48",
+    "C49",
+    "C50"
+  ],
+  "native_execution": false,
+  "compilation": false,
+  "production_edits": false,
+  "repro_artifacts_written": false,
+  "source_contract_blockers": [
+    {
+      "finding": "C11",
+      "introduced_at": "01377607ad9f47a341d473c648285402e56deb96",
+      "discovered_by": "root compiler build",
+      "independently_confirmed": true,
+      "cause": "auto pointer deduction cannot deduce through TCheckedDerefPtr implicit conversion",
+      "narrow_correction": "Change const auto* lookupType to const auto lookupType in AnnotateSublinkBase",
+      "evidence": [
+        "yql/essentials/ast/yql_expr.h:2321",
+        "yql/essentials/utils/checked_deref_ptr.h:44",
+        "yql/essentials/utils/checked_deref_ptr.h:50",
+        "ydb/core/kqp/opt/kqp_type_ann.cpp:2901"
+      ],
+      "status": "root owns amendment and rebuild"
+    }
+  ],
+  "review_reassessment": "Initial source pass missed the C11 deduction mismatch. Subsequent audit checked all added auto pointer declarations against canonical API return types; no further direct GetTypeAnn auto* additions were present in these branches or the Q01 MIN/MAX artifact.",
+  "cases": [
+    {
+      "finding": "C09",
+      "commit": "1525ba0d79efbdae93eb658a6ab75daa5371f411",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+        "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_plan_props.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_plan_props.h",
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+        "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "ee1024c8e5885b006b04b25b07a081f7ab798b9cd11983d8172830825f9fcbdd",
+      "topic": "IN settings, subplan ownership and legacy null policy",
+      "contracts_checked": [
+        "Trailing optional Settings keeps older three-child callers valid. TSubplans::Add retains defaults, and its sole direct TSubplanEntry allocation passes the new settings. Logical copying preserves settings.",
+        "Legacy HasNull is a Boolean recursive null test; the type annotator accepts any computable input. Legacy collection-null handling remains separate from ANSI handling."
+      ],
+      "limits": [
+        "C09/C11 touch shared settings plumbing and must be reconciled once when integrating. C10 remains a separate ANSI NaN fix."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C10",
+      "commit": "8c96cdf3c1ef0a971b7d736facd8d2610a5335d9",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "34b4d2aa6bbb6653d95d6163430971b3293d8a0b23938adb9f817e7dfffa5364",
+      "topic": "IN null-presence test",
+      "contracts_checked": [
+        "HasNull returns required Bool and tests null presence without relying on reflexive equality, preserving NaN as a present value."
+      ],
+      "limits": [],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C11",
+      "commit": "d23472b33678121343af7ebc4f532c88e0488d51",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+        "ydb/core/kqp/opt/kqp_type_ann.cpp",
+        "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_plan_props.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_plan_props.h",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "3560ac2db31d4ed908c5f371fc560b2ae491091642fe5b88adf64ad46fefa364",
+      "topic": "Imported IN type contract and checked-pointer API",
+      "contracts_checked": [
+        "Root build discovered const auto* deduction from GetTypeAnn; source independently confirms the return is TCheckedDerefPtr<const TTypeAnnotationNode>, not a raw pointer.",
+        "Changing only const auto* to const auto preserves checked dereference and implicit conversion to the IsSqlInCollectionItemsNullable raw-pointer argument. Other added pointer deductions use APIs returning actual pointers.",
+        "The imported result setting is typed before consumption; its contained result is checked as Bool or Optional<Bool>. The fallback compares lookup and collection-item types."
+      ],
+      "limits": [
+        "Original reviewed commit does not compile. Root owns the one-line correction and subsequent rebuild; this review makes no build-success claim."
+      ],
+      "verdict": "root_build_blocker_confirmed_narrow_correction_reviewed"
+    },
+    {
+      "finding": "C30",
+      "commit": "d3f07e4572af7719c1846c38fc3a8200e9c2ebd6",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/host/kqp_host.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "f59d4f69058278cf96a72f08dafb92c93279a6a39fb11bad9eb79ecbe08853ef",
+      "topic": "Early insert-or-revert routing",
+      "contracts_checked": [
+        "Write mode lookup is guarded by callable, child count, Kikimr sink, list, tuple size and atom checks.",
+        "Routing runs after compilation of the complete statement AST and before optimization, changing both optimizer enablement and YqlSelect expansion. The configuration object is shared with SessionCtx; ordinary host Reset restores it unless KeepConfigChanges is explicitly requested."
+      ],
+      "limits": [
+        "This intentionally uses existing whole-query lowering. KeepConfigChanges can retain optimizer fallback as it already can for sampling; this is a quality/session-behavior consideration, not a demonstrated result regression."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C31",
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "0a5da0fd7167b5e906e942b81e8755de0725754bacb02784ffbdadddf6e164c0",
+      "topic": "Join filter inlining before non-spilling copy expansion",
+      "contracts_checked": [
+        "The moved rule declares types, metadata and parent requirements. It removes residual filters on a successful rewrite, so the later rule is idempotent on those joins.",
+        "The early pass runs before physical index reads and CBO, while the relevant producers still have logical Copy support."
+      ],
+      "limits": [
+        "The previously stated block-enabled/post-CBO Lookup sharing gap was retracted after exact lifecycle analysis; see C31-sharing-lifecycle-reassessment.json.",
+        "Separate archived nullable/keyless identity and general nonrepeatable-producer restrictions are not claimed fixed by C31. Native verification remains pending."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C34",
+      "commit": "80b8d1dcee88c42a687c820600955953ec413c49",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "28a9ad0c49158eca99a1be59668394a34c312241ceae8a3ff0c33be5e0a63bf4",
+      "topic": "AVG-only tuple-state interpretation",
+      "contracts_checked": [
+        "Both the trigger and the tuple decoding branch require avg, preserving arbitrary tuple-valued aggregates when another aggregate has an AVG state.",
+        "Traits and output/input type accessors are unchanged APIs."
+      ],
+      "limits": [
+        "Mixed AVG plus tuple aggregates still require native finalization and empty-input controls."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C35",
+      "commit": "461e53cf080ab7c2f213adcab4aee779b5c2ba0c",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+        "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "216a70992a3a9bbfefe12f2a9cd919b32d5533f70cd305d881aae333f5b5ab84",
+      "topic": "Interval AVG accumulator and finalization",
+      "contracts_checked": [
+        "IntervalType removes optionality before accessing a data slot. Its returned raw pointer and the added builder declarations match their definitions.",
+        "Interval and Interval64 use integral Decimal(35,0) sums and Uint64 counts, while non-interval AVG retains its prior cast path.",
+        "Final decimal-backed tuple states recover the original input type through the existing union/partial-aggregate binding map; its map strips optionality, and the finish path separately retains optional state handling.",
+        "DISTINCT padding strips optionality before calling GetAggregationType, so the added data-slot access is not applied directly to an Optional node at that call site."
+      ],
+      "limits": [
+        "Original interval type recovery and optional/empty split aggregation require native coverage; source reasoning alone does not establish runtime casts or overflow limits. C24/C34 touch adjacent state handling and need semantic integration review."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C42",
+      "commit": "6eeadd50b057ceec10173d3fb1104b4a81ddbafe",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "b2140f87de30419bc4a2e4d364800cbe32c592b41a5cd124243d34e20f287067",
+      "topic": "Per-edge set operation widening",
+      "contracts_checked": [
+        "The widened map allocates fresh IUs and updates copied bindings without mutating memoized producer bindings. The producer-kind gate is the only removed restriction.",
+        "Existing union correspondence and nullable StablePickle paths consume the adjusted edge bindings."
+      ],
+      "limits": [],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C43",
+      "commit": "fd7ba4678acdce0c5473cb765187abdde514a16e",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "652604153e9f093ad58a2d4df3ed36593c23b4d8873fbf8d12445dc1e8ed3521",
+      "topic": "Full physical peephole fallback",
+      "contracts_checked": [
+        "PeepHoleOptimizePhysicalStages accepts the same rvalue stage vector, retypes the root if needed, replaces stage programs and returns a newly topologically sorted graph.",
+        "When focused lowering cannot finish, full peephole intentionally restarts from the original vector rather than mixing rewritten and original stage graphs."
+      ],
+      "limits": [
+        "Full peephole may produce a different physical plan; fallback composite callable and block-shape controls remain native gates."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C45",
+      "commit": "6d8e86a79f5417c74d46a8314e3591d6e3b88eed",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "235d16732fb80e50f0625a4e05f02fd4a8d19965da7ca12716f60e386322ba2e",
+      "topic": "Window Member receiver ownership",
+      "contracts_checked": [
+        "Direct column resolution now requires the Member receiver to be the exact lambda row argument. Nested receivers retain their complete expression through existing materialization.",
+        "TCoMember construction remains guarded by the callable test, and lambda arguments follow the preexisting one-row lambda contract."
+      ],
+      "limits": [],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C46",
+      "commit": "43cf0cc6ab0a627e42844759086ac020bd98925f",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/host/kqp_host.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "6de25f65ef8a3a77d50137c9013be6a6ca5895cd403ee7f22a3100b134fb91d4",
+      "topic": "Conditional update routing",
+      "contracts_checked": [
+        "The mode detector uses the same guarded Write settings contract as C30 and checks the conditional update mode specifically.",
+        "Whole-query legacy lowering is chosen before optimization, preserving old/new row and explicit-index effect handling."
+      ],
+      "limits": [
+        "The same explicit KeepConfigChanges persistence consideration as C30 applies."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C47",
+      "commit": "92a3aebcaa4858c945c9a56e929b5d2d4a030b58",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+        "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_operator.h",
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+        "ydb/core/kqp/opt/rbo/rules/propagate_limit_through_stage.cpp",
+        "ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp",
+        "ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp",
+        "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp",
+        "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+        "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "e9c730585d673fa89a08c1a70c4d57c52120329049936a2bf1fcf4096953d861",
+      "topic": "Explicit index-read import, range/settings and lookup identity",
+      "contracts_checked": [
+        "KqpRewriteIndexRead has the exact TExprBase, TExprContext&, const TKqpOptimizeContext& signature used; RBO already depends on the logical library containing the definition.",
+        "The reused lowering returns a covering TKqlReadTableRanges or a full-primary-key stream lookup over that read. The no-extra-columns call does not introduce an intermediate map/filter wrapper.",
+        "The imported key read allocates fresh IUs in base primary-key order, while requested result bindings remain attached to the table lookup. AllowNullKeys preserves nullable base primary keys.",
+        "Read settings are stored in a trailing constructor parameter with a default, retained by Copy and changed reconstruction sites, and parsed by the existing TCoNameValueTupleList overload at physical export.",
+        "A limited imported read cannot have a filter pushed beneath its limit; reads carrying nonempty settings are declined by lookup conversion that cannot retain those restrictions.",
+        "An imported explicit noncovering lookup lacks SourceRead, so MatchLookupJoinRightSide declines the path that synthesizes a replacement base read without its settings."
+      ],
+      "limits": [
+        "Explicit-index controls must cover covering/noncovering, composite and nullable keys, limits, sorting and shared consumers. The broader inability to duplicate a physical TableLookup is not repaired here."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C48",
+      "commit": "35bc8b6938f42a11e92747063bfafc1dec0b9b5c",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/host/kqp_host.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "0ab77f6755421dad83db9efc5a83dc776bcef27e094d54fb2fc3897a90a9ed1c",
+      "topic": "Replacement and explicit index-write routing",
+      "contracts_checked": [
+        "The guarded detector selects replace, and upsert only when index stream maintenance is disabled, before metadata-dependent optimization.",
+        "The fallback uses existing default-filling/effect lowering and synchronizes IgnoreExpandPg."
+      ],
+      "limits": [
+        "The same explicit KeepConfigChanges persistence consideration as C30 applies."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C49",
+      "commit": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+        "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "d2b11af7bc82c1e7ba03f25eb306cd177f303b461b204618f0a738adea20a7e3",
+      "topic": "Complete lookup row identity",
+      "contracts_checked": [
+        "ResolveStorageColumns returns no key when any physical key component is absent, instead of claiming uniqueness for a proper subset.",
+        "The noncovering lookup fetches fresh hidden IUs only for missing physical primary-key names; the original requested IUs are retained.",
+        "The change does not alter lookup input key ordering or manufacture duplicate storage columns."
+      ],
+      "limits": [
+        "Late liveness and residual reconstruction must be verified together; hidden identity fields are internal and must not leak into result projection."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    },
+    {
+      "finding": "C50",
+      "commit": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "base_matches": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/kqp_operator.h",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_sha256": "f620e5f095281678736a6252cc8ddd825c8f2f67f896db0916570274fb90edd2",
+      "topic": "Mixed-key gather and distribution invalidation",
+      "contracts_checked": [
+        "GetIUType returns an actual const TTypeAnnotationNode*; paired exact annotation comparison is valid and conservatively includes optional/composite representation changes.",
+        "The marker is copied with physical properties, forces Grace before block eligibility is finalized, and causes metadata recomputation to suppress hash-distribution claims.",
+        "Both new connections are ordinary UnionAll: CommonBuildTasks keeps one partition, BuildUnionAllChannels requires one destination task, and the KQP task graph also leaves the default task count at one for ordinary UnionAll inputs.",
+        "Whole-root clearing removes saved CBO shuffle decisions and cached distribution before assignment. Subsequent ordinary joins can establish their own shuffles."
+      ],
+      "limits": [
+        "Distributed native placement and nested-join controls remain required. Q07 fallback and C50 must share the persistent gather marker when integrating."
+      ],
+      "verdict": "no_additional_source_blocker_found"
+    }
+  ],
+  "followup_reassessment": "C31 alleged Lookup/residual lifecycle gap retracted after all CBO packing and post-CBO predicate attachment paths were inspected."
+}

@@ -1,0 +1,30 @@
+{
+  "reviewer": "root",
+  "status": "approved_source_and_metadata_contracts",
+  "patch": "proposed-correctness-amendments/runner-receipt-ctime-revalidation.patch",
+  "patch_sha256": "45a32322b03746ef772feddd7de00455782f30f863a8ebbd0d3dd3367f5d8115",
+  "after": {
+    "binary_provenance_contracts.py": "e5c39e5b23de72cb2c650ab28bbe1e980c2808defeafdacf119e2ca40926c6ab",
+    "binary_provenance.py": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c"
+  },
+  "checks": [
+    "Receipt/current comparison permits only ctime variation after complete field-set and exact SHA/path/device/inode/size/mtime equality.",
+    "Strict ctime checks remain during fingerprint reads and subsequent per-query identity checks.",
+    "Returned provenance uses the freshly measured identity and records the allowed difference without rewriting the original receipt.",
+    "Actual full runner read established only a ctime difference at the exact clean C31 revision."
+  ],
+  "actual_content_recheck": "verification/C31-runner-metadata-recheck-20261027.json",
+  "metadata_contracts": {
+    "status": "metadata_contracts_passed_native_unexecuted",
+    "assertions": 35,
+    "real_runner_fingerprints": 0,
+    "native_runs": 0,
+    "builds": 0
+  },
+  "limits": [
+    "Actual native C31 observations remain pending.",
+    "Missing historical exact-executable receipts are not excused; all13 historical reruns remain required."
+  ],
+  "live_helper_edits": false,
+  "native_acceptance_changed": false
+}

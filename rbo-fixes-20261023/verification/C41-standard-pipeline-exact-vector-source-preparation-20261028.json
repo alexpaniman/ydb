@@ -1,0 +1,20 @@
+{
+  "schema": "C41_standard_pipeline_acceptance_binding_refresh_v1",
+  "predecessor_manifest": "verification/C41-amended-exact-vector-20261028.json",
+  "predecessor_manifest_sha256": "c38aac3168417f57a49f8d8bdb92d92a2030efd4b2fa72ba1d3ecb8d0f804347",
+  "predecessor_checker": "proposed-correctness-amendments/c41_amended_exact_vector_check_20261028.py",
+  "predecessor_checker_sha256": "fbd7a0aa9268993dfd2a928dd590189bc791b316c35eed9e07a58ad841a3daf5",
+  "manifest": "verification/C41-standard-pipeline-exact-vector-20261028.json",
+  "manifest_sha256": "2986bdca21258973c08a5a30fcc7a62ceded15f5117f8ac4e674ba99a626b8e9",
+  "checker": "proposed-correctness-amendments/c41_standard_pipeline_exact_vector_check_20261028.py",
+  "checker_sha256": "007924f3ad50729f15fc574ee824b7e8a65e9fcd9d2835f395856f831942c0f8",
+  "revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+  "checker_function_bodies_unchanged": true,
+  "checker_exact_three_literal_changes": true,
+  "original12_vector_unchanged": true,
+  "all35_helper_bindings_unchanged": true,
+  "unchanged_suite_files": 178,
+  "source_changes": "Only revision, final boundary digest, installed ledger provenance and preparation timestamp in manifest.",
+  "native_runs": 0,
+  "independent_review_pending": true
+}

@@ -1,0 +1,76 @@
+{
+  "assertions": 132,
+  "build_runs": 0,
+  "exact_existing_graph_plan_prepared": true,
+  "generated_source_object_executable_or_diagnostics_persisted": false,
+  "immutable_receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "live_helper_edits": false,
+  "native_runs": 0,
+  "production_file_count": 16,
+  "production_version_input": {
+    "compile_argv_sha256": "06f121fb805129fde368f033bc32c656bff7f0231a3b73f5542c461c684256b1",
+    "expected_production_source": {
+      "sha256": "5d0593c4ce9c00282c234d4d496ba040abe1ba63e81edeb6e53a2e982bb793a8",
+      "size_bytes": 5351
+    },
+    "generate_argv_sha256": "2a815e7b22d1bb27d9c571406bc5f15b7248324fd88b2d87cb6b0cc836affefc",
+    "graph_sha256": "37bbc5a74beeb372e530f96a4ea83c6577529add7afa448b0840b715c447c93c",
+    "link_node_uid": "DsOEJz0VGkQzg1RxA5CmHg",
+    "metadata_strings_used_as_source_provenance": false,
+    "original_steps_sha256": "a572731e32a5b20a390bf5a1addcfc50f8a5b3b4841903d7d208e9d5c0f11db0",
+    "restored_input_position": 134,
+    "restored_link_argv_sha256": "946bbbb642f51372cb09797f52f90160235c082a684d6c4d1946c2b2dbce96ab",
+    "schema_version": "graph_bound_production_version_object_v1",
+    "target_resource_objects_changed": false,
+    "vcs_resource_bytes": 1543,
+    "vcs_resource_sha256": "8ef6f728fa6ab8197cd6a32856e34cc6069ab650886126cc88f5263db29671aa"
+  },
+  "scenarios": {
+    "compile_environment": {
+      "mocked_guarded_steps": 2,
+      "temporary_descriptors_closed": 2
+    },
+    "compile_failure": {
+      "mocked_guarded_steps": 2,
+      "temporary_descriptors_closed": 2
+    },
+    "compile_guard": {
+      "mocked_guarded_steps": 2,
+      "temporary_descriptors_closed": 2
+    },
+    "dependency_changed": {
+      "mocked_guarded_steps": 2,
+      "temporary_descriptors_closed": 2
+    },
+    "empty_source": {
+      "mocked_guarded_steps": 1,
+      "temporary_descriptors_closed": 2
+    },
+    "generate_failure": {
+      "mocked_guarded_steps": 1,
+      "temporary_descriptors_closed": 2
+    },
+    "generate_overflow": {
+      "mocked_guarded_steps": 1,
+      "temporary_descriptors_closed": 2
+    },
+    "generated_source_differs": {
+      "mocked_guarded_steps": 1,
+      "temporary_descriptors_closed": 2
+    },
+    "oversized_object": {
+      "mocked_guarded_steps": 2,
+      "temporary_descriptors_closed": 2
+    },
+    "seal_failure": {
+      "mocked_guarded_steps": 0,
+      "temporary_descriptors_closed": 2
+    },
+    "valid": {
+      "mocked_guarded_steps": 2,
+      "temporary_descriptors_closed": 2
+    }
+  },
+  "status": "source_prepared_native_pending",
+  "toolchain_runs": 0
+}

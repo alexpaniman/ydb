@@ -1,0 +1,24 @@
+{
+  "bug": "Q02",
+  "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+  "exit_code": 0,
+  "elapsed_seconds": 313.6,
+  "target": "ydb/tests/tools/kqprun",
+  "memory": {
+    "scheduler_memory_threshold": "40GB",
+    "requested_cgroup_memory_max_gib": 72,
+    "requested_cgroup_memory_high_gib": 56,
+    "watchdog_min_host_available_gib": 36,
+    "watchdog_max_scope_usage_gib": 52,
+    "peak_group_rss_bytes": 4694016,
+    "peak_scope_usage_bytes": 43185324032,
+    "minimum_host_available_bytes": 90590855168,
+    "watchdog_stopped": false,
+    "explicit_build_workers": 8,
+    "scope_memory_accounting_available": false,
+    "scope_process_rss_available": true,
+    "elapsed_seconds": 313.6
+  },
+  "diagnostic_sha256": "4586f9b5cbc9d6fb0214cb15bf15fb65757fb6fa05e6010d7d3e245c9ac941ea",
+  "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/1b50d28716f74eb02571e7490181132b14c37bff-0270cdce795d4724.json"
+}

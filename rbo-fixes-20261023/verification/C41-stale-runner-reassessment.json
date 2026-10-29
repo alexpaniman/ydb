@@ -1,0 +1,26 @@
+{
+  "bug": "C41",
+  "revision": "ddd3afcc0d22ef44eb5cff279ba4d3eb35a0b4b8",
+  "evidence": "verification/fixed-C41-ddd3afcc0d22.jsonl",
+  "evidence_snapshot_sha256": "08884f9b0d06fde7642b44255fd0566e528a3128e6c074ee7ddfb8b833c4e2e0",
+  "quarantined_line_count": 12,
+  "quarantined_line_sha256": [
+    "1f0e8cdf3c0374b87271cd6da36d050d141026aa6b64b65879cda5d3d95f90d4",
+    "617dbba2808bf47d4fc51b0a90edb748fcf67bbd29beb05a5370a73f46f1cc94",
+    "626454bcb39960d768cedf1f44453dc591d7e658595f41b3e7842f834653e720",
+    "af1dc18d8462513d16067582100b8bf2ba459187abd37371c408458774b2faad",
+    "4ab8f40726fdb8f2bbcbcdc1b62446d57c479923150a96737e3da29c93196c50",
+    "3676da14ec6a6556c6654a53c6d37d5650badb831c80af75655feb304eb1ae7e",
+    "446123e999c33e9194f1c9dad7449f313e870b69b8ad08760feb4d3c84c34fe0",
+    "33c9e780377342f73c6c6b77f3e27768437e770ff3f7344223845e90835ca222",
+    "778579bde161e37c45b2bdac63a2327a8a5653dd838cfc5349a01eb306818375",
+    "89278dce53d61545ca9f891e39a5f797e3b815af8d5b1cc0a493082b3b58d168",
+    "b61f53953f7a58e43348e4096b1bb4bf681f7c4e4962d5c9d95a83b701ba8ad4",
+    "69d0c731252d1314d761a152fd832316a0196b5b0946a2fff43316012fb0aabd"
+  ],
+  "status": "invalid_binary_provenance",
+  "eligible_for_verification": false,
+  "reason": "The preceding combined build failed. The runner symlink timestamp was from the prior C48 build; no successful C41 runner build receipt or binary fingerprint binds these records to C41. Neither passing nor failing outcomes establish C41 behavior.",
+  "required_followup": "Successful C41 runner build, matching executable fingerprint receipt, and fresh native verification. Preserve original records for audit.",
+  "recorded_unix_ns": 1792719913017242351
+}

@@ -1,0 +1,422 @@
+{
+  "actual_evidence_relabelled": false,
+  "build_runs": 0,
+  "candidate_source_sha256": "b6fe548ee0dc25e49e1d8011246e5a8971e0abad68e7247d4ea8e8e12b7980d4",
+  "checks": 240,
+  "combined_after_sha256": {
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_scope_observation.py": "53936c074cbfd900616accec68caaf0308e8866c12db2d04b3fa91d6504df9a7",
+    "c31_shared_field_probe.py": "b6fe548ee0dc25e49e1d8011246e5a8971e0abad68e7247d4ea8e8e12b7980d4",
+    "c31_shared_origin_probe.py": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "c31_switch_shape_observation.py": "f7352e08ab1abdcd3aaa82bb2c4f4dc2fe89a6c733ccc48b4b504f7b0b266fc8",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "compiler_runs": 0,
+  "composed_observer_checks": 765,
+  "live_before_sha256": {
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_scope_observation.py": "5a3781ce5847e1f9670d9ae83363a20265992b1e73575d514480a5b2e091e73d",
+    "c31_shared_field_probe.py": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298",
+    "c31_shared_origin_probe.py": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "c31_switch_shape_observation.py": "5839cb9e13b6dfd0987db6d426e2449b9737ea4193df514eba7b1003af48fce1",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "live_changes": false,
+  "measurements": [
+    {
+      "after": {
+        "iterations": 5,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 5,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 0,
+      "variant": "plain"
+    },
+    {
+      "after": {
+        "iterations": 7,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 9,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 1,
+      "variant": "plain"
+    },
+    {
+      "after": {
+        "iterations": 13,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 65,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 4,
+      "variant": "plain"
+    },
+    {
+      "after": {
+        "iterations": 21,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 1025,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 8,
+      "variant": "plain"
+    },
+    {
+      "after": {
+        "iterations": 29,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 16385,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 12,
+      "variant": "plain"
+    },
+    {
+      "after": {
+        "iterations": 12,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 12,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 0,
+      "variant": "equal_distinct_tuples"
+    },
+    {
+      "after": {
+        "iterations": 14,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 16,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 1,
+      "variant": "equal_distinct_tuples"
+    },
+    {
+      "after": {
+        "iterations": 20,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 72,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 4,
+      "variant": "equal_distinct_tuples"
+    },
+    {
+      "after": {
+        "iterations": 28,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 1032,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 8,
+      "variant": "equal_distinct_tuples"
+    },
+    {
+      "after": {
+        "iterations": 36,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 16392,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 12,
+      "variant": "equal_distinct_tuples"
+    },
+    {
+      "after": {
+        "iterations": 8,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 8,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 0,
+      "variant": "repeated_callable"
+    },
+    {
+      "after": {
+        "iterations": 10,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 12,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 1,
+      "variant": "repeated_callable"
+    },
+    {
+      "after": {
+        "iterations": 16,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 68,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 4,
+      "variant": "repeated_callable"
+    },
+    {
+      "after": {
+        "iterations": 24,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 1028,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 8,
+      "variant": "repeated_callable"
+    },
+    {
+      "after": {
+        "iterations": 32,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 16388,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 12,
+      "variant": "repeated_callable"
+    },
+    {
+      "after": {
+        "iterations": 10,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 10,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 0,
+      "variant": "nested_stage"
+    },
+    {
+      "after": {
+        "iterations": 12,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 14,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 1,
+      "variant": "nested_stage"
+    },
+    {
+      "after": {
+        "iterations": 18,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 70,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 4,
+      "variant": "nested_stage"
+    },
+    {
+      "after": {
+        "iterations": 26,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 1030,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 8,
+      "variant": "nested_stage"
+    },
+    {
+      "after": {
+        "iterations": 34,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "before": {
+        "iterations": 16390,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 12,
+      "variant": "nested_stage"
+    },
+    {
+      "after": {
+        "iterations": 10,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "before": {
+        "iterations": 10,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "tuple_depth": 0,
+      "variant": "shared_program"
+    },
+    {
+      "after": {
+        "iterations": 14,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "before": {
+        "iterations": 18,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "tuple_depth": 1,
+      "variant": "shared_program"
+    },
+    {
+      "after": {
+        "iterations": 26,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "before": {
+        "iterations": 130,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "tuple_depth": 4,
+      "variant": "shared_program"
+    },
+    {
+      "after": {
+        "iterations": 42,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "before": {
+        "iterations": 2050,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "tuple_depth": 8,
+      "variant": "shared_program"
+    },
+    {
+      "after": {
+        "iterations": 58,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "before": {
+        "iterations": 32770,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 2
+      },
+      "tuple_depth": 12,
+      "variant": "shared_program"
+    },
+    {
+      "after": {
+        "iterations": 133,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 64,
+      "variant": "plain_large_fixed_only"
+    },
+    {
+      "after": {
+        "iterations": 517,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 256,
+      "variant": "plain_large_fixed_only"
+    },
+    {
+      "after": {
+        "iterations": 2053,
+        "rejection": "identity_field_unknown",
+        "traced_stages": 1
+      },
+      "tuple_depth": 1024,
+      "variant": "plain_large_fixed_only"
+    }
+  ],
+  "native_runs": 0,
+  "ordered_patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-field-stage-tuple-identity-guard-20261028.patch",
+      "sha256": "34089e31abcd8f58cd3ba5dd91d1bb2d89fd0386c3e21d6660bf880568b82e24"
+    },
+    {
+      "path": "proposed-correctness-amendments/C31-wide-switch-projection-observation-20261028.patch",
+      "sha256": "663071e6b09e6db24a991e2df0f706fd3ba33bd237c6da75fb45c11a6c94a5a8"
+    }
+  ],
+  "proof_predicates_unchanged": true,
+  "rendered_inputs_saved": false,
+  "status": "source_metadata_only_passed",
+  "supported_profiles_unchanged": [
+    "c31_stability_float_domain__spilling__left",
+    "c31_stability_integer_domain__spilling__left"
+  ]
+}

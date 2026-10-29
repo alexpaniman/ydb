@@ -1,0 +1,132 @@
+{
+  "schema_version": "independent_source_review_v1",
+  "recorded_unix_ns": 1793132431212587512,
+  "reviewer": "/root/fix_series_evidence_audit",
+  "finding": "C31",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "verdict": "approved_for_bounded_candidate_field_observation_only",
+  "reviewed_artifact_sha256": {
+    "C31-shared-field-probe-candidate.py": "da4de444927190d983c7068fa416c9b3371eb70f929c8a40073137c538dfa85e",
+    "C31-shared-field-probe-install.patch": "78f87b83b950062c605ce402b3828a2b0dbdddd56e19c1916fec638e5d179add",
+    "C31-scope-observation-field-wrapper.py": "3fdc8e7decc2db06c9a2adbec7544ae6a21f5867a575557efad06d40b4928f76",
+    "C31-scope-observation-field-wrapper.patch": "a42c6bcaa41f671aa16b6d9f53a98d85904166280be01fdc509389b4cf57f23a"
+  },
+  "production_source_hash_checks": {
+    "yql/essentials/ast/yql_expr.cpp": true,
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp": true,
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h": true,
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_map_builder.cpp": true,
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_filter_builder.cpp": true,
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp": true,
+    "yql/essentials/core/expr_nodes/yql_expr_nodes.json": true,
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp": true,
+    "ydb/library/yql/dq/expr_nodes/dq_expr_nodes.json": true,
+    "ydb/library/yql/dq/type_ann/dq_type_ann.cpp": true,
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp": true,
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": true
+  },
+  "production_source_hashes_all_match": true,
+  "active_observation_blockers": [],
+  "reviewed_contracts": [
+    {
+      "area": "lexical_identity",
+      "result": "Lambda arguments are distinct identity objects. Let references resolve through copied lexical environments; block returns remain scoped and multi-body lambdas retain output order. Repeated printed names and unbound references reject rather than alias.",
+      "source": "C31-shared-field-probe-candidate.py",
+      "line": 83
+    },
+    {
+      "area": "stage_and_port_remapping",
+      "result": "Connections use the actual TDqOutput stage node and checked port index. Stage input count matches program arity; port indexes select the checked Switch branch order. No generic dependency set is promoted to value lineage.",
+      "source": "C31-shared-field-probe-candidate.py",
+      "line": 218
+    },
+    {
+      "area": "shared_hub_boundary",
+      "result": "Each accepted Switch branch directly renames unique source Members from its own row argument. Ports expose identical nonempty source sets. The hub is an explicit provenance boundary, so upstream reductions remain unproved.",
+      "source": "C31-shared-field-probe-candidate.py",
+      "line": 232
+    },
+    {
+      "area": "value_transformations",
+      "result": "Only direct projection, checked wide/narrow argument mapping and StablePickle preserve field identity. Unknown scalar computations erase provenance; null-unwrapping fields are erased.",
+      "source": "C31-shared-field-probe-candidate.py",
+      "line": 191
+    },
+    {
+      "area": "GraceJoin_output_renames",
+      "result": "The ten-child schema and empty flags match production. Source/output positions are checked, output positions are unique and contiguous, and join side is retained in provenance. Nullable right outputs of Left joins lose provenance. Reconstruction right keys must traverse the Inner LEFT output.",
+      "source": "C31-shared-field-probe-candidate.py",
+      "line": 326
+    },
+    {
+      "area": "complete_reconstruction_keys",
+      "result": "Outer keys cover every shared-hub source field exactly once. Each paired key has identical hub identity, corresponding distinct port, source field and permitted codec; merely similar names or arbitrary inner outputs do not pass.",
+      "source": "C31-shared-field-probe-candidate.py",
+      "line": 447
+    },
+    {
+      "area": "zero_state_domain",
+      "result": "Direct unique key arguments, empty init/update state bodies, exact argument widths and bijective key-only finish are checked. The final domain check requires the entire key vector to match the hub field count and exact unencoded hub/port/source set; extra unknown or foreign keys cannot hide behind a set subset.",
+      "source": "C31-shared-field-probe-candidate.py",
+      "line": 305
+    },
+    {
+      "area": "wrapper_and_admission",
+      "result": "Wrapper loads snapshots, records four source digests, requires physical-AST digest agreement, and rejects either probe if any full-proof flag is not exactly false. Observation fields stay nested and do not replace semantic/structural verdicts.",
+      "source": "C31-scope-observation-field-wrapper.py",
+      "line": 115
+    }
+  ],
+  "resolved_during_author_preparation": [
+    {
+      "issue": "Earlier candidate projection discarded unknown domain keys, so an exact set match could hide additional grouping keys.",
+      "final_resolution": "Final snapshot retains all keys and checks exact cardinality, all-field identity, port and codec before counting a complete domain.",
+      "resolved_in_sha256": "da4de444927190d983c7068fa416c9b3371eb70f929c8a40073137c538dfa85e"
+    }
+  ],
+  "full_acceptance_blockers": [
+    {
+      "id": "C31-P01",
+      "issue": "No actual graph or generated negative contract has exercised the checker; source shape assumptions may conservatively reject real printer variants.",
+      "required": "Run the two bounded anonymous observation profiles against the exact receipt-bound C31 executable after source freeze; retain sanitized counters/hashes only."
+    },
+    {
+      "id": "C31-P02",
+      "issue": "The terminal shared hub is not bound to the intended upstream aggregate, cast or UNION field.",
+      "required": "Independent field-specific upstream lineage to the intended aggregate output before aggregation_value_to_identity_binding_proved or exact_shared_producer_origin_proved can change."
+    },
+    {
+      "id": "C31-P03",
+      "issue": "Exact-scalar type/domain requirements are a declared precondition, not proved by this printed graph checker.",
+      "required": "Bind successful actual direct production identity contracts and source type-admission invariants to the same C31 revision and observed AST."
+    },
+    {
+      "id": "C31-P04",
+      "issue": "Key-only shape and field provenance do not prove global domain uniqueness, final aggregation placement, predicate equivalence or complete bag semantics. DqPhyHashCombine can be partial and connection partitioning is not validated.",
+      "required": "Keep these claims outside candidate_complete_domain_count; retain semantic/native and placement obligations before full acceptance."
+    }
+  ],
+  "hard_false_fields": [
+    "exact_shared_producer_origin_proved",
+    "aggregation_value_to_identity_binding_proved",
+    "full_shared_producer_contract_pass"
+  ],
+  "conservative_limits": [
+    "Only two named profiles, two Grace joins, one Inner and one Left, supported.",
+    "Binding shadowing, declarations, unfamiliar statements and unsupported wrappers reject.",
+    "All hub branch field sets must match, so legitimate liveness differences may reject.",
+    "Typed calculations, unknown computations and right-side outer-join null extension do not preserve provenance.",
+    "A positive candidate observation establishes only the stated local key-pair paths from the shared-hub boundary."
+  ],
+  "actions": {
+    "source_ast_parse": true,
+    "artifact_imports": 0,
+    "mock_runs": 0,
+    "native_runs": 0,
+    "builds": 0,
+    "graph_runs": 0,
+    "toolchain_runs": 0,
+    "live_edits": 0,
+    "raw_AST_or_workload_material_saved": false
+  }
+}

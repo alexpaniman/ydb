@@ -1,0 +1,192 @@
+{
+  "status": "stopped",
+  "started_unix_ns": 1793149678401712174,
+  "bugs": [
+    "C01",
+    "C02",
+    "C03",
+    "C04",
+    "C05",
+    "C06",
+    "C07",
+    "C08",
+    "C17",
+    "C18",
+    "C26",
+    "C44",
+    "C48",
+    "C41"
+  ],
+  "completed": [
+    "C01",
+    "C02",
+    "C03",
+    "C04",
+    "C05",
+    "C06",
+    "C07",
+    "C08",
+    "C17",
+    "C18",
+    "C26",
+    "C44",
+    "C48"
+  ],
+  "results": [
+    {
+      "bug": "C01",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "bab7ea591122e6f764de78e90a92ac25dd25b6d70c08f918500022df8463320f",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C01-40a5bea4e432-1793149970123876738.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C01-1793149997671994676.json",
+      "coverage_evidence_sha256": "ef58c5cebd556477299d5d1b0b9bded5aa70245af0077ff6f2f10fe718014b77"
+    },
+    {
+      "bug": "C02",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "5a0950dcee6fa761dc76dbc17ecdefdad27587482b164e3118c0418b059ad52b",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C02-6f8b0f5ccd36-1793150099081594575.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C02-1793150155318775826.json",
+      "coverage_evidence_sha256": "2adbeda62e0fcc40a969f826ba60942770a4b904b47361c7ab4c01a5871e620c"
+    },
+    {
+      "bug": "C03",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "d99defd77e483633d772be20f47a0a077cd1937051d9f4b644acc0b1ee0a6a29",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C03-40b098bc31f1-1793150242639372841.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C03-1793150262960555280.json",
+      "coverage_evidence_sha256": "b2f531c9f3723657865500129b9928bc99f6611b4242cbf64177e880ec1ef02e"
+    },
+    {
+      "bug": "C04",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "293457f844bf487c1d8cadedff0f68eb20ee32aaf5e486e4e85ed09add0530d5",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C04-69b7c53d2f5a-1793150409177182549.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C04-1793150430874726304.json",
+      "coverage_evidence_sha256": "b98cc1ce1b7410d7d946026bf02b88933cf646d91b737e41fb1823ef58e5fb5b"
+    },
+    {
+      "bug": "C05",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "5efb54637e0794f2b8d513ffb5064ea0e45e4ed4dc62802e666a477167985365",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C05-bf6527096b7a-1793150984876176604.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C05-1793151006520196337.json",
+      "coverage_evidence_sha256": "743a0134e3376b6e2cdb789a47cf41e51df682b050b3b3daef69bb014963c682"
+    },
+    {
+      "bug": "C06",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "59d7fdcbce307ad6cadc97cba16ad60caa6fff441c4310fa9141479d5f9c2912",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C06-446592a476b9-1793151141354908258.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C06-1793151165817956221.json",
+      "coverage_evidence_sha256": "9c6f084d9c2e54220812aa1aab676df118c9d07f98af203b3cc91595456d4c75"
+    },
+    {
+      "bug": "C07",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "8057495374e3d957fddcd273e2fb6483949ccd999d1eb5cbe7c06ba81519b1af",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C07-2e4843e6be7a-1793151273702693860.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C07-1793151297025408542.json",
+      "coverage_evidence_sha256": "92066b31f39b7f7b631e1ae1e6c8bee1ebe9dcabb722b5680064806593f9698e"
+    },
+    {
+      "bug": "C08",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "4bb4fe3e0440e9859622766f12cb8521c909e6bc0c51cdff8c8da1ac9e430e3f",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C08-af05d7c39519-1793151388645270557.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C08-1793151414194075129.json",
+      "coverage_evidence_sha256": "d7c6ef4197e66fc2f1e3788dd93dc61dd8d56daf12603a70481e007814fdddd8"
+    },
+    {
+      "bug": "C17",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "d71302f5d81435fc79617bc906c5e61e5196ab32bd8d3c9752b53bc19fd94d22",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C17-d08902de5389-1793151518285180487.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C17-1793151547747124053.json",
+      "coverage_evidence_sha256": "429301d3bfec7e161a8653d1520ab08813ce4a4463618825206e046a30236635"
+    },
+    {
+      "bug": "C18",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "0668296314f4e0965580f4e2893c2c5acbf5ea9e5f8967e9e957feb8dca61e65",
+      "case_status": "verified_new_parser_invariant",
+      "native_evidence": "verification/guarded-fixed-C18-ec25a7d3319c-1793151641720576203.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C18-1793151682860836173.json",
+      "coverage_evidence_sha256": "9316bf6faeb0e6b527792ee65ffe1fd3a3a795d4f1fbc7ca3a3dc0fe558e64d6"
+    },
+    {
+      "bug": "C26",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "e634a100beb5c31fce61aa500617bae168930c0c2e9be4ab685a1ee279e6de2d",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C26-d40b5b11a3c4-1793151931978021668.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C26-1793151964265569601.json",
+      "coverage_evidence_sha256": "2de9b3bc2af0a51fdfcc57e1ecd416db6735c9d4d4921bd80b5bf4a04950bda4"
+    },
+    {
+      "bug": "C44",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "fead6b91a6ee0105d694c4e02483a988f39b59b368409b745bdd53a0c6a93d3d",
+      "case_status": "verified_guard",
+      "native_evidence": "verification/guarded-fixed-C44-329c771f34f9-1793152071715190394.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C44-1793152089367367645.json",
+      "coverage_evidence_sha256": "151bfd76ee937c8f5bd4c43a0fca2813d2a03bd61ffded3a0d7e1f5c52a992b1"
+    },
+    {
+      "bug": "C48",
+      "driver_exit_code": 0,
+      "driver_output_sha256": "79b777a577e57c0784125c72df8a1eb5508882d570ba3c418edca316fa2c4646",
+      "case_status": "verified",
+      "native_evidence": "verification/guarded-fixed-C48-35bc8b6938f4-1793152187050507850.jsonl",
+      "coverage_checker_exit": 0,
+      "coverage_check": true,
+      "coverage_evidence": "verification/historical-vector-C48-1793152218059235680.json",
+      "coverage_evidence_sha256": "7f0595802d29f19038555fd39d00b4da00c80d5b923e29b797cd2164475196e1"
+    },
+    {
+      "bug": "C41",
+      "driver_exit_code": 1,
+      "driver_output_sha256": "6acfe0864986a3375fa9362bd3afcbf566a85bfe84b50fd2c2751c968fd7c186",
+      "case_status": "build_failed",
+      "native_evidence": "verification/fixed-C41-b71ac02fc35f.jsonl",
+      "coverage_check": "not_run_after_driver_failure_or_missing_fresh_slice"
+    }
+  ],
+  "manifest_sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58",
+  "checker_sha256": "c532b97282b370c4398b7a0db158844614a8e2d564ff86bbdd7dd3ecf48c282f",
+  "active_bug": "C41",
+  "step": "driver_failure"
+}

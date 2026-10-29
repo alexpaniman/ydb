@@ -1,0 +1,50 @@
+{
+  "id": "Q29",
+  "title": "Lookup filters can duplicate deterministic residual evaluation.",
+  "branch": "fix/new-rbo/q29-lookup-filters-can-duplicate-deterministic-residual-evaluation",
+  "commit": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h",
+    "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp"
+  ],
+  "proposal_sha256": "f0e9f1856ac61692420c3bd61fb3cee7ff8c46a146c23a477baa9a0e9d5dfe3c",
+  "proposal": "proposed-quality-patches/Q29.patch",
+  "proposal_metadata": {
+    "id": "Q29",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_patch_only",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp",
+      "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp"
+    ],
+    "scope": "Share fetched-filter reconstruction; deduplicate only alpha-equivalent total primitive comparisons with typed read-member bindings. Preserve original conjuncts and unsafe expressions.",
+    "validation_plan": [
+      "Compare fetched physical predicates before/after lowering; repeated safe comparison removed, newly introduced residual retained",
+      "Optional Boolean and NULL behavior, member/member and member/literal comparisons, distinct IU IDs, distinct literal types",
+      "Volatile, UDF, Ensure, cast, arithmetic and guarded expression controls retain evaluation count and order",
+      "Check ranged reads without recoverable provenance still reject; compare all supported lookup join kinds"
+    ],
+    "static_checks": [
+      "git apply --check against pinned baseline passed"
+    ],
+    "limits": [
+      "No compilation, native execution or plan-quality measurement yet",
+      "Construction-only optimization until physical occurrence/evaluation measurement confirms surviving duplication",
+      "Independent Q07 still needs to remove the CBO target fast return that bypasses filter eligibility",
+      "Integration must retain C47 imported-read restrictions"
+    ]
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

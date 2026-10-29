@@ -1,0 +1,55 @@
+--- a/ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp
++++ b/ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp
+@@ -24,6 +24,14 @@
+         }
+     }
+     return true;
++}
++
++// Plain imported index reads have no ID-bound lookup program to clone.
++// Their inputs still pass the recursive read/repeatability checks below.
++bool CanCopyTableLookup(const TOpTableLookup& lookup) {
++    return lookup.Strategy == ELookupStrategy::LookupRows && lookup.JoinKind.empty()
++        && !lookup.FetchedRowFilter && !lookup.Prefix && !lookup.SourceRead
++        && lookup.ResidualJoinKeys.Items().empty() && !lookup.KeysFromInputLookup;
+ }
+ 
+ bool IsRepeatable(const IOperator& op) {
+@@ -47,6 +55,8 @@
+                  std::all_of(read.RangeInfo->PointPrefixes.begin(), read.RangeInfo->PointPrefixes.end(),
+                              [](const TOpRead::TPointPrefix& prefix) { return IsRepeatable(prefix.Points); })));
+         }
++        case EOperator::TableLookup:
++            return CanCopyTableLookup(CastOperator<TOpTableLookup>(op));
+         case EOperator::EmptySource:
+             return IsRepeatable(CastOperator<TOpEmptySource>(op).Input);
+         case EOperator::Aggregate:
+@@ -270,6 +280,18 @@
+         TableCallable, nullptr, Limit, RangeInfo, std::nullopt, SortDir, TPhysicalOpProps{}, Pos, ReadSettings);
+ }
+ 
++TIntrusivePtr<IOperator> TOpTableLookup::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {
++    if (!CanCopyTableLookup(*this)) {
++        return nullptr;
++    }
++    auto copy = MakeIntrusive<TOpTableLookup>(GetInput(), Pos, Table,
++        CopyColumns(Columns, registry, renames), LookupKeys);
++    // Copy() rebinds input IDs after every definition has been allocated.
++    // Storage key names and their physical order remain unchanged.
++    copy->AllowNullKeys = AllowNullKeys;
++    return copy;
++}
++
+ TIntrusivePtr<IOperator> TOpMap::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {
+     return MakeIntrusive<TOpMap>(GetInput(), Pos, CopyDefinitions(MapElements, registry, renames), NeedToPush);
+ }
+--- a/ydb/core/kqp/opt/rbo/kqp_operator.h
++++ b/ydb/core/kqp/opt/rbo/kqp_operator.h
+@@ -1315,6 +1315,7 @@
+     std::optional<TSourceRead> SourceRead;
+ 
+ protected:
++    TIntrusivePtr<IOperator> CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const override;
+     void ComputeOutputIUs() override;
+ 
+ private:

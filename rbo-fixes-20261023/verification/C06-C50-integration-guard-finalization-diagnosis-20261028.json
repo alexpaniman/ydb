@@ -1,0 +1,9 @@
+{
+  "schema": "integration_guard_completion_diagnosis_v1",
+  "summary": "verification/integration-C06-C50-2bc207a991cc-fc51b723bdbc48d9b2a532613105df41-summary.json",
+  "semantic_and_record_checks_passed": 16,
+  "full_integration_admission": false,
+  "rejection": "Final scope-membership availability false after scope collection; no guard exception/watchdog stop and exit0/cleanuptrue.",
+  "cause_status": "source_lifecycle_audit_pending",
+  "next": "Ordinary unchanged guarded retry; preserve failed admission and all original requirements."
+}

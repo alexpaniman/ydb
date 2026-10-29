@@ -1,0 +1,52 @@
+{
+  "generator": "quality_range_runtime_cpp_generator",
+  "source_commit": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+  "generator_sha256": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+  "case_count": 42,
+  "fixed_only": true,
+  "required_profile": "kqp_runtime",
+  "production_target": "ydb/core/kqp/runtime/streaming/ut",
+  "sample_source": "ydb/core/kqp/runtime/streaming/kqp_streaming_aggregation_ut.cpp",
+  "required_symbol": "NKikimr::NMiniKQL::WrapKqpRangeMinMax",
+  "verdict_numeric_fields": [
+    "input_rows",
+    "input_fetches",
+    "input_yields",
+    "output_rows",
+    "output_yields",
+    "peak_live_rows",
+    "allocator_allocations",
+    "allocator_offloads",
+    "allocator_offloaded_bytes",
+    "peak_used_delta",
+    "peak_allocated_delta",
+    "sampled_used_delta",
+    "cleanup_live_rows",
+    "limit_rejections",
+    "operator_instances",
+    "cycles"
+  ],
+  "compilation_executed": false,
+  "native_executed": false,
+  "generated_sources_persisted": false,
+  "proof_scope": "linked_production_runtime_lifecycle_contracts",
+  "limitations": [
+    "Int64 payloads only; SQL typed coverage is separate.",
+    "Source fetch/allocation counters are measured, internal deque comparisons are not instrumented.",
+    "Allocator-limit rejection covers reserve accounting before allocation; std::vector allocation-failure injection is not included.",
+    "Public allocator metrics are process-local MiniKQL accounting, not RSS.",
+    "Peak deltas measure growth above the allocator prior high-water mark; sampled_used_delta measures observed runtime usage above its prepared-graph baseline. Neither is a query RSS bound.",
+    "Mixed mode uses the real collector and frame length; full RBO lowering and other native functions remain SQL acceptance responsibilities.",
+    "GetUsed modulo-page cleanup check assumes no unrelated offloaded allocations enter the fixture; native validation is still required."
+  ],
+  "generation_check_passed": true,
+  "generated_bytes": 19438,
+  "generated_source_sha256": "75823d8a078d57f3c56c7641f21690d39093967fe3fcbe059ceddca70d4c3fab",
+  "construction_api_source_review": [
+    "TSetup<false> custom factory overload",
+    "WrapKqpRangeMinMax linked production declaration",
+    "TProgramBuilder literal/collector/frame APIs",
+    "TAlignedPagePool public counters, SetLimit and increase-limit callback",
+    "IComputationGraph::Invalidate and resource tag API"
+  ]
+}

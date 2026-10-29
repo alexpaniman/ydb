@@ -1,0 +1,14 @@
+{
+  "finding": "Exact C47 TOrderedIUs has Items() but no Size(); only this generated API expression is corrected.",
+  "patch": "proposed-correctness-amendments/C47-copy-generator-ordered-key-api-20261028.patch",
+  "patch_sha256": "e0e65ce613aadb1c659800a4d289492273ccd81f92752c6206e613450b6cf206",
+  "before_sha256": "74e378d5b40ec2aea8289b4b1e7c83b3324a6b3499944dc592d419a0e8a66224",
+  "after_sha256": "7e717869cb10b65043ade9032a170c3dfec96e8e341847c774245637f35033df",
+  "case_count": 19,
+  "case_names_and_assertion_meanings_unchanged": true,
+  "rendered_source_before_sha256": "bda579bc80fb588b7dfc80d6f167c293e95642b4d18425363aa9f5cd5243c838",
+  "rendered_source_after_sha256": "e610ac774afe761407c33e1565ea9a74d93d5d6a7429e2fc0572dda8326a9d4c",
+  "native_pending": true,
+  "rendered_source_persisted": false,
+  "live_generator_unchanged": true
+}

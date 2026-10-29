@@ -1,0 +1,67 @@
+{
+  "schema": "RBO_continuation_checkpoint_v1",
+  "updated_unix_time": 1793159784.456115,
+  "active_workload": {
+    "kind": "C41_fullsuite_and12",
+    "session_id": 20144,
+    "worktree": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+    "revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+    "workers": 8,
+    "source_freeze": true
+  },
+  "helper_ledger": 58,
+  "helper_ledger_record": "verification/idle-C31-owner-repair-applied58-20261028.json",
+  "C31": {
+    "status": "verified",
+    "commit": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+    "direct_cases": 37,
+    "direct_checkpoints": 1442,
+    "SQL_semantics": 46,
+    "SQL_guards": 4,
+    "acceptance": "verification/C31-bounded-correctness-acceptance-20261028.json",
+    "limits_retained": true
+  },
+  "C41": {
+    "status": "verification_in_progress",
+    "commit": "c6a5904e300b925032913f51e6a19518ceb842c2",
+    "suite_good": 139,
+    "suite_failed": 209,
+    "suite_crashed": 0,
+    "failure": "verification/C41-fullsuite-failure-dd1d8cab-20261028.json",
+    "outcomes": "verification/C41-fullsuite-sanitized-outcomes-dd1d8cab-20261028.json",
+    "diagnosis": "208 logs show missing constraint completion; one explain failure remains unclassified.",
+    "dormant_patch": "proposed-correctness-amendments/C41-final-query-standard-post-type-pipeline-20261028.patch",
+    "patch_sha256": "725b784e7785826c6530f205e46ac0c1f5f2b35579cf0ba0fa51eec41189a924",
+    "independent_review_pending": false,
+    "patch_applied": true,
+    "exact_acceptance_checker": "proposed-correctness-amendments/c41_standard_pipeline_exact_vector_check_20261028.py"
+  },
+  "next": [
+    "Finish C41fullsuite+12 then exact-vector check.",
+    "Atidle install independently reviewed integrationempty-result witness; rerun exact16 usingexistingfreshbuildreceipt andMathUDF.",
+    "ProceedqualityQ08/Q02 then paired/directs; Q01/Q28/Q14helperfollowupsremain dormant."
+  ],
+  "quality": {
+    "accepted": 0,
+    "prepared": 29,
+    "Q01_stageA_patch_sha256": "46a0940c71f2281569b5e9dc01be21b3693152ea828d331c5178c8bf1f40c2b1",
+    "Q01_source_review": "verification/Q01-concrete-stage-A-independent-review-20261028.json",
+    "Q28_source_review": "verification/Q28-map-fusion-refresh-depth-independent-review-20261028.json",
+    "Q28_binding_plan": "verification/Q28-depth-amendment-binding-update-plan-20261028.json",
+    "Q28_extra4_driver": "unfinished dormant draft; author interrupted forC41"
+  },
+  "no_essentials_edits": true,
+  "no_generated_repros_persisted": true,
+  "integration": {
+    "revision": "2bc207a991cc036e1a74616d7ea3e7df6137d8dd",
+    "runner_build_passed": true,
+    "Math_UDF_build_passed": true,
+    "records": "verification/integration-C06-C50-2bc207a991cc-4366390bb07240379f07b9162a14ce3b-records.jsonl",
+    "guard_pass": true,
+    "accepted_records": 12,
+    "empty_boundary_rejections": 4,
+    "all_four_observed_row_oracles_passed": true,
+    "production_row_bug_demonstrated": false,
+    "source_only_empty_witness_preparation_active": true
+  }
+}

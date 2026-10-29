@@ -1,0 +1,11 @@
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp
+@@ -316,7 +316,7 @@
+         Ctx.NewCallable(Pos, "Just", {stateArg})});
+     return Ctx.NewCallable(Pos, "IfPresent", {
+         lambdaArgState,
+-        Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {stateArg}), update),
++        Ctx.NewLambda(Pos, Ctx.NewArguments(Pos, {stateArg}), std::move(update)),
+         BuildAvgAggregationInitialStateForOptionalType(lambdaArgField, typeNode)});
+ }
+ 

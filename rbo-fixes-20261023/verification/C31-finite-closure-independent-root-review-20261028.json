@@ -1,0 +1,21 @@
+{
+  "schema": "C31_finite_scope_root_review_v1",
+  "assessment": "verification/C31-finite-closure-scope-assessment-20261028.json",
+  "assessment_sha256": "8890eb63a6eb60c829ea5ba879cb9dba24a4c0b93217da68bf3b67f80dd3d62c",
+  "production_source_bindings_checked": 20,
+  "status": "scope_approved_actual37_required",
+  "mandatory_actual_direct_cases": 37,
+  "mandatory_actual_direct_checkpoints": 1442,
+  "mandatory_SQL_records": 50,
+  "SQL_semantic_successes": 46,
+  "SQL_guard_outcomes": 4,
+  "final_SQL_field_lineage_verified": false,
+  "reason": "The requested bug concerns changed construction, identity admission, sharing and lowering. Exact SQL outcomes plus production local contracts test those paths; an unobserved diagnostic through every later generic rewrite is not a demonstrated remaining bug.",
+  "limitations": [
+    "Unsupported identities and nonrepeatable copied producers remain deliberately guarded.",
+    "Frontend-unavailable Semi/Only forms and zero-column end-to-end coverage remain excluded.",
+    "Final serialized-plan lineage observer flags remain false."
+  ],
+  "case_status_changed": false,
+  "actual37_pass_pending": true
+}

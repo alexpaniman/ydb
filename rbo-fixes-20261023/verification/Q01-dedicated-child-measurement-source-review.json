@@ -1,0 +1,117 @@
+{
+  "actions": {
+    "acceptance_changes": false,
+    "builds": 0,
+    "generated_workloads": 0,
+    "graph_runs": 0,
+    "live_guard_edits": false,
+    "live_helper_edits": false,
+    "measurements": 0,
+    "native_runs": 0,
+    "production_edits": false,
+    "toolchain_runs": 0
+  },
+  "api": "run_measured_anonymous(argv, cwd, fds, *, stdin_fd=None, **guard_options) -> (guard_record, bounded_stdout, raw_child_observation)",
+  "architecture": [
+    "The caller retains the existing serial verification lease. The wrapper forwards every guard option unchanged to existing run_anonymous; no guard, driver, acceptance or production file is changed.",
+    "The parent copies the static wrapper Python source into a sealed memfd and allocates a fresh report memfd. Existing guard descriptor reopening and token expansion transport both without named generated files.",
+    "Inside the existing scope, a fresh wrapper launches exactly one target child. It preserves cwd, environment, session, process group and inherited rlimits; the existing outer worker still disables core files.",
+    "os.wait4(process.pid, 0) reaps that exact child and returns its kernel resource record. It does not use cumulative getrusage(RUSAGE_CHILDREN) or statistics from the outer systemd launcher.",
+    "Only original payload descriptors are inherited by the target. Wrapper source/report descriptors close on target exec. Stdin is /dev/null unless an existing payload memfd is selected; target stdout/stderr retain the guard routing and bounds.",
+    "A bounded numeric report is written once into its separate memfd, then sealed. The target output stream is not altered by measurement JSON.",
+    "Normal target exit codes are returned unchanged. Natural target signals are explicitly recorded and re-raised by the wrapper; existing guard-worker mapping to128+signal remains intact. Cancellation can produce a missing report and is never treated as a successful observation.",
+    "Parent-side parsing checks nonce, sealed bounded record, numeric types and consistency of raw wait status, code and signal. It retains raw failed observations but grants no semantic, resource-scaling or optimization admission."
+  ],
+  "artifacts": [
+    {
+      "path": "proposed-quality-amendments/Q01-dedicated-child-measurement.patch",
+      "sha256": "f4191c68677a6ae2451344b51a9f09f424930851bea8e261dab7fc941d8f4537",
+      "size_bytes": 12318
+    },
+    {
+      "path": "proposed-quality-amendments/Q01-child-measurement-files/anonymous_child_measurement.py",
+      "sha256": "99c8c9d0233475daf052aaeb1d4ad3d202906e058978dbf428d2088a92858cc1",
+      "size_bytes": 11986
+    },
+    {
+      "path": "verification/Q01-child-measurement-static-checks.json",
+      "sha256": "cba99e0dc1be60b58f2bc2f081731a1a355cb225d09b4ff864342819723b9718",
+      "size_bytes": 732
+    }
+  ],
+  "changed_destinations": [
+    "anonymous_child_measurement.py (new independent module only)"
+  ],
+  "live_guard_source": {
+    "path": "anonymous_cpp_guard.py",
+    "sha256": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+    "size_bytes": 13419
+  },
+  "metric_contract": {
+    "bindings": [
+      "sealed wrapper source SHA256",
+      "guard source SHA256",
+      "Python executable SHA256",
+      "Linux release",
+      "argument-template SHA256",
+      "stdin descriptor selection",
+      "fresh nonce and report SHA256"
+    ],
+    "caller_obligations": [
+      "Continue binding the exact executable/production receipt, workload/profile/cell/revision and guard evidence using the future frozen Q01 resource contract.",
+      "Record absolute scope/allocator metrics separately and preserve failed/inconclusive samples.",
+      "Use identical wrapper/configuration and sufficient target CPU signal for paired comparisons."
+    ],
+    "cpu": "user_cpu_seconds and system_cpu_seconds from the selected wait4 rusage record; entire target lifetime including fork/exec/startup/setup and kernel-attributed waited descendants.",
+    "failure": "Guard stop, overflow, incomplete cleanup, missing/malformed report or changed source binding prevents raw-observation completion. Natural nonzero target exits can retain raw numeric observations but do not grant any acceptance.",
+    "rss": "Absolute Linux ru_maxrss KiB and bytes (KiB*1024). This is a kernel lifetime high-water observation, not aggregate concurrent cgroup RSS, not a target-interval delta, and not a MiniKQL allocation counter.",
+    "wrapper_overhead": "Wrapper-parent CPU is excluded by exact-child wait4; child pre-exec/startup overhead remains. Existing scope watchdog accounts the extra wrapper process, and all original ceilings stay unchanged."
+  },
+  "plan_source": {
+    "path": "verification/Q01-resource-scaling-admission-plan-20261027.json",
+    "sha256": "4f5cf34f70cf9a651b579017dee36afbfe907e0903530f9624300c2cfab4e596",
+    "size_bytes": 12899
+  },
+  "primary_references": [
+    {
+      "fact": "Positive-pid wait4 selects the specific child and supplies its resource usage.",
+      "url": "https://man7.org/linux/man-pages/man2/wait4.2.html"
+    },
+    {
+      "fact": "Linux ru_maxrss units are KiB; child accounting has descendant/largest-child limitations, and CPU values describe user/system execution.",
+      "url": "https://man7.org/linux/man-pages/man2/getrusage.2.html"
+    },
+    {
+      "fact": "Python exposes the waited pid, raw status and resource structure; waitstatus_to_exitcode preserves the distinction between exit and signal.",
+      "url": "https://docs.python.org/3/library/os.html#os.wait4"
+    }
+  ],
+  "priority": "Future Q01 resource work after correctness; not a prerequisite for C31/C47.",
+  "schema_version": "q01_dedicated_child_measurement_source_design_v1",
+  "status": "dormant_source_candidate_requires_independent_and_native_review",
+  "unresolved_before_use": [
+    "Independent source review of descriptor ownership, signal propagation and cancelled-child cleanup is still required.",
+    "No process was launched and no rusage observation was collected. Future guarded integration must verify normal/nonzero/signal exits, failed exec, cancellation/timeout/memory stops, stdout overflow and cleanup without relaxing any guard.",
+    "Future descriptor checks must verify stdin payload transport, unchanged target stdout/stderr, report/source descriptors excluded from target inheritance and no generated disk output.",
+    "Future resource checks must verify sequential fresh calls do not share accounting, named units agree with Linux kernel observations, and the Python/fork startup floor does not dominate accepted samples.",
+    "No Q01 acceptance interface, scaling threshold, matrix runner or performance assertion is enabled by this module.",
+    "The wrapper supplies whole-child observations only; operator-only CPU and MiniKQL allocation/peak interval instrumentation remain separate work."
+  ],
+  "validation": {
+    "child_processes_launched": 0,
+    "cumulative_child_accounting_used": false,
+    "exact_child_wait4_calls": 2,
+    "guard_options_forwarded_without_override": true,
+    "guard_source_sha256": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+    "measurements_produced": 0,
+    "module_imported_or_executed": false,
+    "no_new_session_environment_cwd_or_rlimit_override": true,
+    "patch_sha256": "f4191c68677a6ae2451344b51a9f09f424930851bea8e261dab7fc941d8f4537",
+    "production_sources_modified": false,
+    "python_syntax_valid": true,
+    "status": "source_checks_only",
+    "workload_launch_sites": 1,
+    "workloads_executed": 0,
+    "wrapper_source_sha256": "99c8c9d0233475daf052aaeb1d4ad3d202906e058978dbf428d2088a92858cc1"
+  }
+}

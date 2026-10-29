@@ -1,0 +1,7 @@
+{
+  "q01_scaling_recipe_metadata_contracts.py": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+  "quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+  "quality_range_runtime_contract.py": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+  "quality_range_runtime_cpp_generator.py": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+  "quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+}

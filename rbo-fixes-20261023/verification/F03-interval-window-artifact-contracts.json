@@ -1,0 +1,62 @@
+{
+  "finding": "F03",
+  "base_revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "3d1b84a5e0d5010e2d548fbbd87a22d3788fbc7ab2d170f1f0258ff0a385c3d4",
+  "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+  "case_count": 68,
+  "source_contracts_passed": 12,
+  "abstract_contracts": {
+    "builder_oracle_acceptances": 204,
+    "oracle_mutation_rejections": 204,
+    "duplicate_composite_peer_contracts": 2,
+    "optional_wide_state_laws": 18660,
+    "premature_overflow_mutations_rejected": 4
+  },
+  "source_reference_sha256": {
+    "yql/essentials/mount/lib/yql/aggregate.yqls": "06d562276d04647c006d7a1bd6a08ef3a3670338756ef1f3a91c40208331a94a",
+    "yql/essentials/core/yql_expr_type_annotation.cpp": "ecc498af21df8e5eb732f9af38b69039c8cecf1d90c55023fdea14d562ea6432",
+    "yql/essentials/core/type_ann/type_ann_core.cpp": "f9114a8e4762ef888b0c98032def3c25c4d8d46c7cf18a8571e1dbc609c12dc7",
+    "yql/essentials/public/udf/udf_data_type.cpp": "2e99306b58bc49ffb4e23530aa3061efe455d1f8700a0c0595865bf2464e0593",
+    "yql/essentials/public/udf/udf_data_type.h": "b5c7197680c88d53b0063f10b3451520c52a23335a25d626f494e7a89938d427"
+  },
+  "frame_families": [
+    "finite ROWS",
+    "running ROWS",
+    "suffix ROWS",
+    "incremental ROWS",
+    "finite RANGE",
+    "running RANGE",
+    "suffix RANGE",
+    "incremental RANGE",
+    "composite peers"
+  ],
+  "data_contracts": [
+    "Interval and Interval64",
+    "required and optional inputs",
+    "all-null and empty input",
+    "final positive and negative range overflow",
+    "wide partial cancellation",
+    "range edge",
+    "empty prefix and tail frames",
+    "ascending and descending order",
+    "partition separation",
+    "Int64 and Decimal controls"
+  ],
+  "cast_option_proof": [
+    "Required Interval or Interval64 to Int64 is complete.",
+    "Required Int64 to Decimal(35,0) is complete, so Just does not create a nested Optional.",
+    "Optional input casts remain one Optional layer.",
+    "Decimal to Int64 may fail; the final Interval cast remains Optional.",
+    "GetSumResultType declares interval SUM output Optional, even for required input."
+  ],
+  "limitations": [
+    "No compiler or native execution; actual lowering and baseline failure still require guarded confirmation.",
+    "Whole-partition windows rewritten to logical aggregation require independent F02.",
+    "These source/model contracts do not establish optimization quality or memory bounds."
+  ],
+  "compile_executed": false,
+  "native_executed": false,
+  "production_sources_edited": false,
+  "generated_queries_saved": false,
+  "generated_rows_saved": false
+}

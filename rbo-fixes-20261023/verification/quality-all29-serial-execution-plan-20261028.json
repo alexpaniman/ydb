@@ -1,0 +1,2863 @@
+{
+  "admission_order": [
+    "Do not execute an SQL lane with query/channel spilling enabled until a reviewed no-payload-persistence bound/configuration exists for its exact workloads. Current82 such cells span14 findings; retain each whole lane as contingent rather than claim incomplete subsets complete.",
+    "Actual fixed local runtime/IR checks first for direct findings; paired local evidence where supported. The current SQL validator requires the fixed record for Q09/Q11/Q20 unconditionally, all19 Q15 cases, and239 Q01 cases.",
+    "For SQL evidence require exact complete canonical owners, generator/config/workload hashes, identical phase matrices and matching pinned-base/fixed receipts, functional semantics and parsed physical/plan evidence. No subset/extra profile can redefine acceptance.",
+    "Only an existing passing complete quality gate can produce verified_quality. Local pairs always retain query_semantics_verified=false and quality_finding_fully_verified=false; they cannot promote SQL status by themselves.",
+    "Q01 resource gate, Q14/Q25 noncanonical extra lanes, Q16/Q18/Q19/Q27 missing SQL lanes and Q28 absent generic improvement/timing admission remain qualified pending even if their available checks pass.",
+    "Reconcile fresh guarded output slices and required recipe repetitions before status promotion. Never override --repetitions1 for Q25; its volatile control needs4. Plan counts exclude legacy preflights."
+  ],
+  "base_revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "baseline_reuse": {
+    "SQL": "verify_series.prepare_quality_baseline always builds pinned main once per invocation and runs each selected profile; no CLI reuse-baseline-evidence switch exists. Batch the10 unblocked canonical findings now. Keep the12 spilling-dependent canonical findings as a whole deferred batch and Q14/Q01 whole lanes deferred until reviewed setup; do not silently omit their spilling cells. Q25 has a separate invocation. Keep baseline worktree separate from rotating fixed checkout.",
+    "direct": "One exact baseline rbo closure may serve8 paired generator runs if verify_receipt passes at each use. Every finding still needs its own generator-bound baseline evidence. Q27 requires ast closure, Q01 is fixed-only kqp_runtime. Fixed receipts are never reused across revisions. New closure captures preserve build and graph lifecycle records.",
+    "failure": "Failed or incomplete baseline semantics cannot support a claimed paired SQL improvement. Preserve missing/failing records and independent-finding attribution. Do not relabel failed controls to obtain a pass.",
+    "saved_pair": "Before pairing saved evidence, current case revisions, exact generator and rendered-source identity, ordered case vector, successful compile/link/cleanup, object/executable hashes and immutable receipt bytes must validate. Q27 intentionally renders source-extracted helper separately per revision. Do not combine old profile/adapter records with repaired generators."
+  },
+  "constraints": {
+    "authorized_build_workers": 8,
+    "build_watchdog_scope_gib": 52,
+    "case_or_live_helper_edits": false,
+    "correctness_queue_first": true,
+    "direct_compile_scope_gib": 24,
+    "direct_link_scope_gib": 36,
+    "direct_native_scope_gib": 12,
+    "host_headroom_gib": 36,
+    "native_SQL_scope_gib": 24,
+    "new_thresholds": false,
+    "raw_payloads_persisted": false,
+    "single_build_or_native_scope_at_a_time": true,
+    "source_freeze_required": true,
+    "spill_enabled_SQL_lanes_require_reviewed_no_payload_persistence_setup": true,
+    "yql_essentials_edits": false
+  },
+  "direct_order": {
+    "baseline_ast_separate": "Q27",
+    "baseline_rbo_receipt_reuse_for": [
+      "Q09",
+      "Q14",
+      "Q16",
+      "Q18",
+      "Q19",
+      "Q20",
+      "Q25",
+      "Q28"
+    ],
+    "fixed_before_SQL_cli_evidence": [
+      "Q01",
+      "Q09",
+      "Q11",
+      "Q15",
+      "Q20"
+    ],
+    "fixed_only": [
+      "Q01",
+      "Q11",
+      "Q15"
+    ],
+    "fixed_runtime_profile_separate": "Q01",
+    "paired": [
+      "Q09",
+      "Q14",
+      "Q16",
+      "Q18",
+      "Q19",
+      "Q20",
+      "Q25",
+      "Q27",
+      "Q28"
+    ],
+    "release": "Root must finish correctness/build scopes, retain source freeze, set existing work-state phase direct_cpp_verification and hold existing serial_slot. This plan does not mutate work-state."
+  },
+  "finding_count": 29,
+  "findings": [
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q01-general-window-frames-repeatedly-aggregate-the-whole-frame",
+      "bug": "Q01",
+      "case_file_sha256": "37ada3cc56c2b0b2f0bede00ef59f541d1a9b433a128002b09e4e0b94cb9020c",
+      "default_modules": [
+        "quality_window_checks",
+        "quality_sum_checks",
+        "quality_minmax_checks",
+        "quality_range_minmax_checks"
+      ],
+      "default_profiles": [
+        "window",
+        "sum",
+        "minmax",
+        "range_minmax"
+      ],
+      "direct": {
+        "acceptance_scope": "fixed_runtime_lifecycle_only",
+        "before_sql": true,
+        "case_count": 42,
+        "case_vector_sha256": "6334c15c0344559ae41ad334a4c5b915c8c498480b0090a462bea03cc2306ade",
+        "closure_profile": "kqp_runtime",
+        "generator_sha256": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+        "module": "quality_range_runtime_cpp_generator",
+        "phase_policy": "fixed_only",
+        "supplies_quality_ir_evidence_cli": true
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": false,
+      "notes": [
+        "652 canonical SQL cases plus fixed-only42 runtime cases do not unlock resource gate. Named-window/setup patch dormant. Child CPU/RSS raw observations include startup, fixture loading and compilation; full resource validator, suffix/fallback resource cells and allocation evidence remain missing."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": true,
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "spill_enabled_case_count": 4,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 12,
+          "generator_sha256": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+          "metadata_repetition_histogram": {
+            "1": 12
+          },
+          "module": "quality_window_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 12,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "2878b757d1843b31af0bda39341f0f6df1e8ee24cc6b7006653fa14f6e010dfd"
+        },
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 197,
+          "generator_sha256": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+          "metadata_repetition_histogram": {
+            "1": 197
+          },
+          "module": "quality_sum_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 197,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "e448ef3e057cc150fc613fb6639e43161da705d36c0133651f882e6ad34ce376"
+        },
+        {
+          "additional_ir_required_case_count": 1,
+          "case_count": 161,
+          "generator_sha256": "42d8fbf1f983b739448dc1c6e19432ac464ea9f4a4bf6343e0a10e573f4d74d4",
+          "metadata_repetition_histogram": {
+            "1": 161
+          },
+          "module": "quality_minmax_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 161,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "f3f7c83d88bd4f38d88746ae6cc37b7e47f70df55a69c0363933623c0f268714"
+        },
+        {
+          "additional_ir_required_case_count": 238,
+          "case_count": 282,
+          "generator_sha256": "2d2a23f017e76a67552260d7e15dcfe1e2b53be727ac92543ab99b32978eb390",
+          "metadata_repetition_histogram": {
+            "1": 282
+          },
+          "module": "quality_range_minmax_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 282,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "f2c4adee23ad226f37b02b2fee140dec067c536b23eda0ca357cd8f5bbda095f"
+        }
+      ],
+      "sql_cases": 652,
+      "sql_records_per_phase": 652,
+      "status_at_plan": "prepared_unverified",
+      "title": "General window frames repeatedly aggregate the whole frame."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q02-unused-window-results-retain-their-complete-execution-pipeline",
+      "bug": "Q02",
+      "case_file_sha256": "ba0d7d0853a8ce1d6bf5ae22fe54037cead33ace6f2e6a3b22d6be87c4a9459c",
+      "default_modules": [
+        "quality_window_checks"
+      ],
+      "default_profiles": [
+        "window"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 4,
+          "generator_sha256": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+          "metadata_repetition_histogram": {
+            "1": 4
+          },
+          "module": "quality_window_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 4,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "34588e24cd807146dc3225a88e2c443b5f5602b45808d05fd3a9612bd13158f9"
+        }
+      ],
+      "sql_cases": 4,
+      "sql_records_per_phase": 4,
+      "status_at_plan": "prepared_unverified",
+      "title": "Unused window results retain their complete execution pipeline."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q03-an-uncovered-residual-predicate-prevents-a-selective-index-access-path",
+      "bug": "Q03",
+      "case_file_sha256": "d8753b9c18730523e1450ee892864167fb96f3d768f3f5c5c213a58c20a718aa",
+      "default_modules": [
+        "quality_lookup_checks"
+      ],
+      "default_profiles": [
+        "lookup"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "939173f5abcbcd596dd23ddfefed806df0d243ed",
+      "spill_enabled_case_count": 5,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 5,
+          "generator_sha256": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+          "metadata_repetition_histogram": {
+            "1": 5
+          },
+          "module": "quality_lookup_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 5,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "fa91903d8b49140b2267b8bbe2c920d5fe14eb486ac51d35f2cef669ef2a370f"
+        }
+      ],
+      "sql_cases": 5,
+      "sql_records_per_phase": 5,
+      "status_at_plan": "prepared_unverified",
+      "title": "An uncovered residual predicate prevents a selective index access path."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q04-an-unfiltered-bounded-sort-does-not-consider-a-matching-secondary-index",
+      "bug": "Q04",
+      "case_file_sha256": "372dc644a7e7e8335e40f9b61a4eb6bd76840c8489fd5eebbe456f727ea7efc6",
+      "default_modules": [
+        "quality_lookup_checks"
+      ],
+      "default_profiles": [
+        "lookup"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "a9df61306aa47badfbf1cec2fc043b3336addfd3",
+      "spill_enabled_case_count": 7,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 7,
+          "generator_sha256": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+          "metadata_repetition_histogram": {
+            "1": 7
+          },
+          "module": "quality_lookup_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 7,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "0bf91be0f9642be945642ef724dab53a39fe1a10ae26d5976df1406f46bc5059"
+        }
+      ],
+      "sql_cases": 7,
+      "sql_records_per_phase": 7,
+      "status_at_plan": "prepared_unverified",
+      "title": "An unfiltered bounded sort does not consider a matching secondary index."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q05-descending-primary-key-top-n-loses-row-store-ordered-read-pushdown",
+      "bug": "Q05",
+      "case_file_sha256": "9a614cd8d5987bec1454bafe3aa2a58f5067e16b702efaadb0bfa15cf1858396",
+      "default_modules": [
+        "quality_rule_checks"
+      ],
+      "default_profiles": [
+        "rules"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "33bc67934dd9a881ca1aecbf4c6cefd0f882f8c1",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 11,
+          "generator_sha256": "79928bb8b273843ea6c4dd575c11ea4aa8fe377741e5091d027193852eee236e",
+          "metadata_repetition_histogram": {
+            "1": 11
+          },
+          "module": "quality_rule_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 11,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "dabc815e5e1c6bfee3b329bef60e0677a62a6d6ea367a5cee8e23ed5523bd4b2"
+        }
+      ],
+      "sql_cases": 11,
+      "sql_records_per_phase": 11,
+      "status_at_plan": "prepared_unverified",
+      "title": "Descending primary-key top-N loses row-store ordered-read pushdown."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q06-lookup-selection-can-choose-a-broad-secondary-index-prefix-over-a-complete",
+      "bug": "Q06",
+      "case_file_sha256": "fbed82046e77395a1966fd7074878e203cfae7dc2ea622ecb3c25e2124c18424",
+      "default_modules": [
+        "quality_lookup_checks"
+      ],
+      "default_profiles": [
+        "lookup"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "864bd56c1abb0c47f9f1ee669acf722819354dee",
+      "spill_enabled_case_count": 4,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 4,
+          "generator_sha256": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+          "metadata_repetition_histogram": {
+            "1": 4
+          },
+          "module": "quality_lookup_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 4,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "9c01ed8aae0c617dc66436b3c497c2f07e9bff03bf9b2a2c1c658bacb8e907eb"
+        }
+      ],
+      "sql_cases": 4,
+      "sql_records_per_phase": 4,
+      "status_at_plan": "prepared_unverified",
+      "title": "Lookup selection can choose a broad secondary-index prefix over a complete primary-key probe."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q07-lookup-costing-and-actual-lookup-eligibility-disagree",
+      "bug": "Q07",
+      "case_file_sha256": "fe50912fe294f167db4d5eb6bedefb8d2a36eae40ce313e6e5154560119ba83e",
+      "default_modules": [
+        "quality_lookup_checks"
+      ],
+      "default_profiles": [
+        "lookup"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "18eb64e0a7e18ccf2f50340a75f98b3ced6ab646",
+      "spill_enabled_case_count": 11,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 11,
+          "generator_sha256": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+          "metadata_repetition_histogram": {
+            "1": 11
+          },
+          "module": "quality_lookup_checks",
+          "node_counts": [
+            1,
+            4
+          ],
+          "records_per_phase": 11,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "e360c567cac802e45d2b155712d0111e2207d4205034b66995f15c7647cb155b"
+        }
+      ],
+      "sql_cases": 11,
+      "sql_records_per_phase": 11,
+      "status_at_plan": "prepared_unverified",
+      "title": "Lookup costing and actual lookup eligibility disagree."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q08-filters-apply-earlier-selectivity-again-to-already-reduced-estimates",
+      "bug": "Q08",
+      "case_file_sha256": "8e165ae40899fc75263be81515f79187d597be22a2441dbc328673e7587cfde1",
+      "default_modules": [
+        "quality_statistics_checks"
+      ],
+      "default_profiles": [
+        "statistics"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 2,
+          "generator_sha256": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4",
+          "metadata_repetition_histogram": {
+            "1": 2
+          },
+          "module": "quality_statistics_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 2,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "1a9aa28dbca5317ba9a077061e920cc354e8f62bf534648b8e697325df95e8b9"
+        }
+      ],
+      "sql_cases": 2,
+      "sql_records_per_phase": 2,
+      "status_at_plan": "prepared_unverified",
+      "title": "Filters apply earlier selectivity again to already-reduced estimates."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q09-scalar-aggregate-cardinality-is-estimated-as-its-input-cardinality",
+      "bug": "Q09",
+      "case_file_sha256": "62132da6d75df34e35fa43095890bda95bebd21f7e6a4e7b1aab227132639df5",
+      "default_modules": [
+        "quality_statistics_checks"
+      ],
+      "default_profiles": [
+        "statistics"
+      ],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 38,
+        "case_vector_sha256": "5f6119965f7f161b63f2667489e8519df53d5e351b2c126f00b5c1d3061623bc",
+        "closure_profile": "rbo",
+        "generator_sha256": "89cd11f199a6d6dd91c95687759f7464b7db6a2046a5a34427e6ea0c1f72d044",
+        "module": "quality_statistics_cpp_generator",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": true
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": true,
+      "revision": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 3,
+          "generator_sha256": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4",
+          "metadata_repetition_histogram": {
+            "1": 3
+          },
+          "module": "quality_statistics_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 3,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "277e060e53a75b31feea57a3fcd391830be2a5bf23f54ea634d90f7537d341b9"
+        }
+      ],
+      "sql_cases": 3,
+      "sql_records_per_phase": 3,
+      "status_at_plan": "prepared_unverified",
+      "title": "Scalar aggregate cardinality is estimated as its input cardinality."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q10-multiple-distinct-aggregates-duplicate-deduplication-of-the-same-argument",
+      "bug": "Q10",
+      "case_file_sha256": "e15635b8fb66548b92271fdd714c76944011873ffc7265368b26c31c399bdc89",
+      "default_modules": [
+        "quality_window_checks"
+      ],
+      "default_profiles": [
+        "window"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "efeebb38e72fd7a7c84ab65121e49362f93e2d4b",
+      "spill_enabled_case_count": 10,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 10,
+          "generator_sha256": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+          "metadata_repetition_histogram": {
+            "1": 10
+          },
+          "module": "quality_window_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 10,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "83e7fec84c4c52c0be002fd7bd59277ce3fe76de2e596f5acfb8dfd1745a3f9f"
+        }
+      ],
+      "sql_cases": 10,
+      "sql_records_per_phase": 10,
+      "status_at_plan": "prepared_unverified",
+      "title": "Multiple DISTINCT aggregates duplicate deduplication of the same argument."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q11-filters-above-unionall-miss-branch-local-access-path-optimization",
+      "bug": "Q11",
+      "case_file_sha256": "24b2438023d49f4736322bca6cc59e53dd35ae5f8646e51f396f8f445de9076c",
+      "default_modules": [
+        "quality_union_checks"
+      ],
+      "default_profiles": [
+        "union"
+      ],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 19,
+        "case_vector_sha256": "68b18bb51507411928efa7c9b54c152acf8162612876918c601140b1c850bb1a",
+        "closure_profile": "rbo",
+        "generator_sha256": "8eb0b44ba1be62a92875b84c5cc8dbfd35d5388397fac53593c29cb33d04d5ce",
+        "module": "quality_union_cpp_generator",
+        "phase_policy": "fixed_only",
+        "supplies_quality_ir_evidence_cli": true
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": true,
+      "revision": "f9279dcfeac87c596f58ccc8e3add4722c66a960",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 11,
+          "generator_sha256": "a83b641614853848cfd3091d8d7f40422b5f5f8f7cf5b53c12850a21e2b88b4b",
+          "metadata_repetition_histogram": {
+            "1": 11
+          },
+          "module": "quality_union_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 11,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "d9126723a4c0368a661a00fc9263852e4f24469f63c5304c9a5f60de832db238"
+        }
+      ],
+      "sql_cases": 11,
+      "sql_records_per_phase": 11,
+      "status_at_plan": "prepared_unverified",
+      "title": "Filters above UnionAll miss branch-local access-path optimization."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q12-early-peephole-expansion-prevents-native-json-filter-pushdown",
+      "bug": "Q12",
+      "case_file_sha256": "d3b9c4a967055cfef0557a107039678722944ed5b4fcb4f151f383c9bb750a6d",
+      "default_modules": [
+        "quality_rule_checks"
+      ],
+      "default_profiles": [
+        "rules"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "a92df58f248c54a46f82586f50fc58ae5b207e8e",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 7,
+          "generator_sha256": "79928bb8b273843ea6c4dd575c11ea4aa8fe377741e5091d027193852eee236e",
+          "metadata_repetition_histogram": {
+            "1": 7
+          },
+          "module": "quality_rule_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 7,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "89b9f482ffb6a9391ac1082b9800076ee32727779e49c0c9f82d575f209d081e"
+        }
+      ],
+      "sql_cases": 7,
+      "sql_records_per_phase": 7,
+      "status_at_plan": "prepared_unverified",
+      "title": "Early peephole expansion prevents native JSON filter pushdown."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q13-bulk-olap-writes-cannot-retain-parallel-streaming-sinks",
+      "bug": "Q13",
+      "case_file_sha256": "500535e7bd7b14ee07d4a67e94c649d1c8d5fff1128be3037b912f96ec1ca3bc",
+      "default_modules": [
+        "quality_window_checks"
+      ],
+      "default_profiles": [
+        "window"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "b0df3bf71706e6a13041e3dda141e13312130b97",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 3,
+          "generator_sha256": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+          "metadata_repetition_histogram": {
+            "1": 3
+          },
+          "module": "quality_window_checks",
+          "node_counts": [
+            4
+          ],
+          "records_per_phase": 3,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "ece7886d085d0d955e69c5d243f399ee007ac828cfaea0bb5dd688cc50403c80"
+        }
+      ],
+      "sql_cases": 3,
+      "sql_records_per_phase": 3,
+      "status_at_plan": "prepared_unverified",
+      "title": "Bulk OLAP writes cannot retain parallel streaming sinks."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q14-reverseblockjoin-loses-the-cbo-s-shuffle-directives",
+      "bug": "Q14",
+      "case_file_sha256": "5bea033e0ba3e97e4458a61710b83e0566f1ace04c6bdfd390ef4943664e7ebf",
+      "default_modules": [],
+      "default_profiles": [],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 12,
+        "case_vector_sha256": "d72118356737b6e9de7ccb078f5a29332c2e2ab6b87538d36532436c5bffb014",
+        "closure_profile": "rbo",
+        "generator_sha256": "e732ca4705744697e0ff597ed930d6aa21403a9f3aa47f6dcede5f2d56ec2cca",
+        "module": "quality_rule_cpp_generator",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": false
+      },
+      "extra_modules": [
+        "quality_join_shuffle_checks"
+      ],
+      "full_quality_automated_gate_available": false,
+      "notes": [
+        "Run explicit six-case four-node semantic/shape module separately. Then require six owner-fingerprinted pair_observations checks; direct12 paired CBO contracts remain separate. No canonical AUTO profile or generic improvement clause; no full finding promotion."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd",
+      "spill_enabled_case_count": 6,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 6,
+          "generator_sha256": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+          "metadata_repetition_histogram": {
+            "1": 6
+          },
+          "module": "quality_join_shuffle_checks",
+          "node_counts": [
+            4
+          ],
+          "records_per_phase": 6,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "c96be465ae3b8743c04b1922733dfb6a1d69a833d9ca8aed90b2aef6ee70ef9b"
+        }
+      ],
+      "sql_cases": 6,
+      "sql_records_per_phase": 6,
+      "status_at_plan": "prepared_unverified",
+      "title": "ReverseBlockJoin loses the CBO's shuffle directives."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q15-every-window-repartitions-even-when-input-partitioning-is-sufficient",
+      "bug": "Q15",
+      "case_file_sha256": "cf13ab0a2f653a1ffd0b77ec5fd8d9aa721a73837df0f3df46286fb19964c553",
+      "default_modules": [
+        "quality_partition_subset_checks"
+      ],
+      "default_profiles": [
+        "partition_subset"
+      ],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 15,
+        "case_vector_sha256": "95ffcb49ac688bedc926099e371cbccf03d9741005e7085a69a8148faddd8b7d",
+        "closure_profile": "rbo",
+        "generator_sha256": "0fd904a0055d82b12013f2e2ce126b5a2bd20f110455dee747948a223c261a3b",
+        "module": "quality_partition_cpp_checks",
+        "phase_policy": "fixed_only",
+        "supplies_quality_ir_evidence_cli": true
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [
+        "Canonical partition_subset19 only; older partition12 and window7 alternatives cannot replace it and may overlap case names. All19 require fixed-only15 direct contracts."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": true,
+      "revision": "4e6d9217ef22bdcced5cd1879d3639508717e8e0",
+      "spill_enabled_case_count": 1,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 19,
+          "case_count": 19,
+          "generator_sha256": "4a7c8816c021df7388ec50fc873b4a76f9c61ed32d1b7a06b6e2fced88469f93",
+          "metadata_repetition_histogram": {
+            "1": 19
+          },
+          "module": "quality_partition_subset_checks",
+          "node_counts": [
+            4
+          ],
+          "records_per_phase": 19,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "5dd3d199515650101d65572aa36e5961c93023ff4621768275ff9f637fadac7e"
+        }
+      ],
+      "sql_cases": 19,
+      "sql_records_per_phase": 19,
+      "status_at_plan": "prepared_unverified",
+      "title": "Every window repartitions even when input partitioning is sufficient."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q16-a-wide-row-store-limit-disables-the-query-wide-block-engine",
+      "bug": "Q16",
+      "case_file_sha256": "a0cdbd93ae1f23cda7d331c23eb5822cbd1b244b54e4ce7b3dcb91eaf92a09da",
+      "default_modules": [],
+      "default_profiles": [],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 76,
+        "case_vector_sha256": "cdcd862095d53d525dfe51129c67b985fdd1ceacb0ba153acc96c69cc33d09ca",
+        "closure_profile": "rbo",
+        "generator_sha256": "e732ca4705744697e0ff597ed930d6aa21403a9f3aa47f6dcede5f2d56ec2cca",
+        "module": "quality_rule_cpp_generator",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": false
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": false,
+      "notes": [
+        "No available canonical SQL profile or extra semantic module was found in current PROFILES. Direct pair remains local evidence; do not invoke ordinary SQL driver with an empty profile or mark full finding verified."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "36000459cb44ccfe5e548a2622bfa21ffff591c7",
+      "spill_enabled_case_count": 0,
+      "sql": [],
+      "sql_cases": 0,
+      "sql_records_per_phase": 0,
+      "status_at_plan": "prepared_unverified",
+      "title": "A wide row-store LIMIT disables the query-wide block engine."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q17-covering-lookup-indexes-are-rejected-when-outputs-use-implicit-primary-key",
+      "bug": "Q17",
+      "case_file_sha256": "876def739ea76d4fd4b45171498ff7383dd73340e7a054d2122a1c5ce4fa7c10",
+      "default_modules": [
+        "quality_lookup_checks"
+      ],
+      "default_profiles": [
+        "lookup"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "a5a23189d946a8bd772e10279bc44e270648ec02",
+      "spill_enabled_case_count": 5,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 5,
+          "generator_sha256": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+          "metadata_repetition_histogram": {
+            "1": 5
+          },
+          "module": "quality_lookup_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 5,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "d3699900ff172417b683c28e711cf8de8838bc8a03e7cc8a7608c3bf22af9d0a"
+        }
+      ],
+      "sql_cases": 5,
+      "sql_records_per_phase": 5,
+      "status_at_plan": "prepared_unverified",
+      "title": "Covering lookup indexes are rejected when outputs use implicit primary-key columns."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q18-fetched-statistics-are-discarded-when-any-table-statistics-already-exist",
+      "bug": "Q18",
+      "case_file_sha256": "9168b2312e7c0802bcdf3ee92095cb1ef18db6d585065ea1bb1afe6d317c185f",
+      "default_modules": [],
+      "default_profiles": [],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 3,
+        "case_vector_sha256": "8fc1f6c6f09593296fec9b8320048c0149b6fda38d05d9e7af5f79e075109af8",
+        "closure_profile": "rbo",
+        "generator_sha256": "f7f85132057a0c6b42b7663a59faf5a8012ed325bd43b42cf532248165e8390f",
+        "module": "quality_cpp_contract_generator",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": false
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": false,
+      "notes": [
+        "No available canonical SQL profile or extra semantic module was found in current PROFILES. Direct pair remains local evidence; do not invoke ordinary SQL driver with an empty profile or mark full finding verified."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "f27cc1474705c540c5a64c2700f19eb4df749f54",
+      "spill_enabled_case_count": 0,
+      "sql": [],
+      "sql_cases": 0,
+      "sql_records_per_phase": 0,
+      "status_at_plan": "prepared_unverified",
+      "title": "Fetched statistics are discarded when any table statistics already exist."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q19-a-failure-in-the-first-statistics-request-discards-later-successful-statis",
+      "bug": "Q19",
+      "case_file_sha256": "ec74c37af0f0abd8e42c4653e242c4df85d90033835631837027784e71f2f0fe",
+      "default_modules": [],
+      "default_profiles": [],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 6,
+        "case_vector_sha256": "e51dc4a4247a5792f281c03984d16be47f2613963aafe77c9923a9ca12f6fdcb",
+        "closure_profile": "rbo",
+        "generator_sha256": "f7f85132057a0c6b42b7663a59faf5a8012ed325bd43b42cf532248165e8390f",
+        "module": "quality_cpp_contract_generator",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": false
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": false,
+      "notes": [
+        "No available canonical SQL profile or extra semantic module was found in current PROFILES. Direct pair remains local evidence; do not invoke ordinary SQL driver with an empty profile or mark full finding verified.",
+        "Actual receipt-bound definition/caller objects and both existing request-call relocations must be inspected by the guarded direct driver. Do not invent wrapper symbols or borrow objects from another revision."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "c261bd389b61872b7c78851a26bf46283b95b9cb",
+      "spill_enabled_case_count": 0,
+      "sql": [],
+      "sql_cases": 0,
+      "sql_records_per_phase": 0,
+      "status_at_plan": "prepared_unverified",
+      "title": "A failure in the first statistics request discards later successful statistics."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q20-join-statistics-omit-right-side-aliases-when-applying-hints",
+      "bug": "Q20",
+      "case_file_sha256": "ad9b6e0889b729d98178e1068ec24e9fba76970f04f5f816f4ff88091df1bf14",
+      "default_modules": [
+        "quality_statistics_checks"
+      ],
+      "default_profiles": [
+        "statistics"
+      ],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 72,
+        "case_vector_sha256": "96684916d61418386344c43a6d0f9a31dcb1d2480859ee8468e9cf57f1a863d4",
+        "closure_profile": "rbo",
+        "generator_sha256": "89cd11f199a6d6dd91c95687759f7464b7db6a2046a5a34427e6ea0c1f72d044",
+        "module": "quality_statistics_cpp_generator",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": true
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": true,
+      "revision": "49b33e196eefd41df663417e7392f7ca0e1504cd",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 3,
+          "generator_sha256": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4",
+          "metadata_repetition_histogram": {
+            "1": 3
+          },
+          "module": "quality_statistics_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 3,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "93c967ef99db065acd9f927beda27fa0e490272a487e38dc934418a8f9d6a46f"
+        }
+      ],
+      "sql_cases": 3,
+      "sql_records_per_phase": 3,
+      "status_at_plan": "prepared_unverified",
+      "title": "Join statistics omit right-side aliases when applying hints."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q21-positive-limit-inside-a-correlated-exists-becomes-unnecessary-window-work",
+      "bug": "Q21",
+      "case_file_sha256": "18f286ce8263b1aadc4023eeb9cdc53b859cffea0349b22aeca8f4280154dcbc",
+      "default_modules": [
+        "quality_rule_checks"
+      ],
+      "default_profiles": [
+        "rules"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "a15cf405bd258b86dedf171e6a9eaac9022dd644",
+      "spill_enabled_case_count": 13,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 13,
+          "generator_sha256": "79928bb8b273843ea6c4dd575c11ea4aa8fe377741e5091d027193852eee236e",
+          "metadata_repetition_histogram": {
+            "1": 13
+          },
+          "module": "quality_rule_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 13,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "cf472c594a4afeb36caf5c795b9abb2875282e148b2ad37e597edda29c4bf636"
+        }
+      ],
+      "sql_cases": 13,
+      "sql_records_per_phase": 13,
+      "status_at_plan": "prepared_unverified",
+      "title": "Positive LIMIT inside a correlated EXISTS becomes unnecessary window work."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q22-focused-scalar-in-lowering-expands-large-explicit-collections-linearly",
+      "bug": "Q22",
+      "case_file_sha256": "b0a39a17313075c01850c4f6f324ef2d9691ae88f8e5b8e0876b3df0d88b92fb",
+      "default_modules": [
+        "quality_window_checks"
+      ],
+      "default_profiles": [
+        "window"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 25,
+          "generator_sha256": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+          "metadata_repetition_histogram": {
+            "1": 25
+          },
+          "module": "quality_window_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 25,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "245db093ed0be2feac9d0342886c12e5dff95816fb9e02ff529407ce2e825cd7"
+        }
+      ],
+      "sql_cases": 25,
+      "sql_records_per_phase": 25,
+      "status_at_plan": "prepared_unverified",
+      "title": "Focused scalar IN lowering expands large explicit collections linearly."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q23-original-lookup-keys-stay-in-payloads-after-their-last-semantic-use",
+      "bug": "Q23",
+      "case_file_sha256": "da0b2bec7201cf57d004414d82a2bd7016cee7962066b816f5f50b394f6bd132",
+      "default_modules": [
+        "quality_lookup_checks"
+      ],
+      "default_profiles": [
+        "lookup"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "183be021902ede0113798fcee8118c4479966713",
+      "spill_enabled_case_count": 5,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 5,
+          "generator_sha256": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+          "metadata_repetition_histogram": {
+            "1": 5
+          },
+          "module": "quality_lookup_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 5,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "d26325cc7c4a855975b609a075e16c2db5b0813f5a668c70644de199d78f2e7e"
+        }
+      ],
+      "sql_cases": 5,
+      "sql_records_per_phase": 5,
+      "status_at_plan": "prepared_unverified",
+      "title": "Original lookup keys stay in payloads after their last semantic use."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q24-range-enforced-predicate-columns-remain-projected-for-provenance-alone",
+      "bug": "Q24",
+      "case_file_sha256": "ed95ee299184a174c2a635fbccfdff0ed083acc9e6cd9b99d41a9fd2db568a32",
+      "default_modules": [
+        "quality_lookup_checks"
+      ],
+      "default_profiles": [
+        "lookup"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "734379d38b24d68712098d96cd57fe79d1c90253",
+      "spill_enabled_case_count": 5,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 5,
+          "generator_sha256": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+          "metadata_repetition_histogram": {
+            "1": 5
+          },
+          "module": "quality_lookup_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 5,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "ef7ad4849f34fa4b5c4f505531e978727f424cb9d2bd0299752a56f32556abe9"
+        }
+      ],
+      "sql_cases": 5,
+      "sql_records_per_phase": 5,
+      "status_at_plan": "prepared_unverified",
+      "title": "Range-enforced predicate columns remain projected for provenance alone."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q25-map-fusion-drops-the-request-to-continue-pushing-definitions",
+      "bug": "Q25",
+      "case_file_sha256": "bd9cb19ece755ec98e09886ba532ca48463bd066c9c9d0a59690be0408958ac6",
+      "default_modules": [],
+      "default_profiles": [],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 48,
+        "case_vector_sha256": "a93f46b1f8bd3685e6e43e789fb1e388cd36e201e62a58363ab5757fb0585699",
+        "closure_profile": "rbo",
+        "generator_sha256": "36616ebce47c0bdaed66e0f0baf7a452cb61670a01d889d4b40ffc124043eed8",
+        "module": "quality_map_contract_generator",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": false
+      },
+      "extra_modules": [
+        "quality_map_semantic_checks"
+      ],
+      "full_quality_automated_gate_available": false,
+      "notes": [
+        "Eight semantic cases produce11 records per phase because volatile control repeats4 times; preserve recipe repetitions. Explicit unused-scalar multirow control is tagged independent C15 and may fail on standalone Q25; retain it without stacking C15 or weakening the oracle. Rule-path reachability remains unproved; direct48 and semantics stay separate."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "1300a777c320158fe82cd9416b355165dbe73ecd",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 8,
+          "generator_sha256": "f4bb620657c063e98b0a136d6866243f96ee0c6a2d03fdb99a7dfd058e572d66",
+          "metadata_repetition_histogram": {
+            "1": 7,
+            "4": 1
+          },
+          "module": "quality_map_semantic_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 11,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "3b97fdec050906c94fe6b1da7ae32b74f1db89848d9f1b0127f5560aa6b980d2"
+        }
+      ],
+      "sql_cases": 8,
+      "sql_records_per_phase": 11,
+      "status_at_plan": "prepared_unverified",
+      "title": "Map fusion drops the request to continue pushing definitions."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q26-configured-sequential-read-concurrency-is-not-forwarded",
+      "bug": "Q26",
+      "case_file_sha256": "7e331abaf0fec32884d5b51703c53fa2d530050f559e81eea2f86efbde0da028",
+      "default_modules": [
+        "quality_source_settings_checks"
+      ],
+      "default_profiles": [
+        "source_settings"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [
+        "Canonical source_settings18 covers source kinds; older statistics6 is not its replacement. Keep exact ordered row results and unchanged descriptors/callables for controls; no measured latency claim."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "c0e36684231f975761822543f88edae5a4e3297e",
+      "spill_enabled_case_count": 0,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 18,
+          "generator_sha256": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba",
+          "metadata_repetition_histogram": {
+            "1": 18
+          },
+          "module": "quality_source_settings_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 18,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "904b5ecd2447d3eb8521457539ebc8138760c2790798588cd5dd2a2e987684af"
+        }
+      ],
+      "sql_cases": 18,
+      "sql_records_per_phase": 18,
+      "status_at_plan": "prepared_unverified",
+      "title": "Configured sequential-read concurrency is not forwarded."
+    },
+    {
+      "SQL_execution_prerequisite": "existing_guards_and_receipts",
+      "branch": "fix/new-rbo/q27-shared-nonterminal-ast-nodes-are-revisited-during-top-level-select-collect",
+      "bug": "Q27",
+      "case_file_sha256": "aa40ead6692f7f82a82d8359dff78c05d91936262027e92da1cfdeb844fce493",
+      "default_modules": [],
+      "default_profiles": [],
+      "direct": {
+        "acceptance_scope": "source_extracted_select_collector_helper_only",
+        "before_sql": true,
+        "case_count": 20,
+        "case_vector_sha256": "3a9b553d8601057a0a430e7321d9cb39787b78bfe9d0c13535b6b9cb3140c101",
+        "closure_profile": "ast",
+        "generator_sha256": "7e7f04b3c85bcd59c225ed44a970c8453ef5a4a4adfc79ffe0e600229ce4093e",
+        "module": "quality_ast_collection_generator",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": false
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": false,
+      "notes": [
+        "No available canonical SQL profile or extra semantic module was found in current PROFILES. Direct pair remains local evidence; do not invoke ordinary SQL driver with an empty profile or mark full finding verified."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "72e17774d130a022ed4649c26c3db7656d83d971",
+      "spill_enabled_case_count": 0,
+      "sql": [],
+      "sql_cases": 0,
+      "sql_records_per_phase": 0,
+      "status_at_plan": "prepared_unverified",
+      "title": "Shared nonterminal AST nodes are revisited during top-level SELECT collection."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q28-every-successful-rule-restarts-traversal-and-recomputes-global-properties",
+      "bug": "Q28",
+      "case_file_sha256": "63da69639afdba5bb4417f5778a6758f0b0fc91387feb6f3950dc25643a07097",
+      "default_modules": [
+        "quality_scheduler_semantic_checks"
+      ],
+      "default_profiles": [
+        "scheduler_semantics"
+      ],
+      "direct": {
+        "acceptance_scope": "production_local_contracts_only",
+        "before_sql": true,
+        "case_count": 26,
+        "case_vector_sha256": "cfa4be6e9898d1cde4570bbcf9d928cd1d104a2f595c363db58ae4f792981ea3",
+        "closure_profile": "rbo",
+        "generator_sha256": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7",
+        "module": "quality_scheduler_cpp_checks",
+        "phase_policy": "paired_baseline_and_fixed",
+        "supplies_quality_ir_evidence_cli": false
+      },
+      "extra_modules": [],
+      "full_quality_automated_gate_available": false,
+      "notes": [
+        "Direct26 measures exact three-rule/two-stage work counts and conservative exclusions, not all-rules scheduling. Eight SQL cases provide bags/final-plan/CBO observations, not stage timing; no generic _improvement clause. Dormant SDK pilot executes7 of8 cases only; shared-spilling remains unexecuted and full quality false."
+      ],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+      "spill_enabled_case_count": 1,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 8,
+          "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+          "metadata_repetition_histogram": {
+            "1": 8
+          },
+          "module": "quality_scheduler_semantic_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 8,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "60cd0229ba6a2c0fbd62d6e9319e392c5925829e08561eb6ad7848df1aa236bc"
+        }
+      ],
+      "sql_cases": 8,
+      "sql_records_per_phase": 8,
+      "status_at_plan": "prepared_unverified",
+      "title": "Every successful rule restarts traversal and recomputes global properties."
+    },
+    {
+      "SQL_execution_prerequisite": "blocked_until_source_reviewed_no_payload_spill_setup_for_entire_lane",
+      "branch": "fix/new-rbo/q29-lookup-filters-can-duplicate-deterministic-residual-evaluation",
+      "bug": "Q29",
+      "case_file_sha256": "682ae49cc3459b2ef4fd9e4b77d333b71bf51f3d1cc571274f242aaf702e2f90",
+      "default_modules": [
+        "quality_lookup_checks"
+      ],
+      "default_profiles": [
+        "lookup"
+      ],
+      "direct": null,
+      "extra_modules": [],
+      "full_quality_automated_gate_available": true,
+      "notes": [],
+      "parent_verified": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "quality_ir_evidence_required": false,
+      "revision": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+      "spill_enabled_case_count": 5,
+      "sql": [
+        {
+          "additional_ir_required_case_count": 0,
+          "case_count": 5,
+          "generator_sha256": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+          "metadata_repetition_histogram": {
+            "1": 5
+          },
+          "module": "quality_lookup_checks",
+          "node_counts": [
+            1
+          ],
+          "records_per_phase": 5,
+          "syntax": [
+            "yql"
+          ],
+          "vector_sha256": "a0400eba6537780c43ce9e6004f537866001f081af2b0e28f6aa4377da054dc7"
+        }
+      ],
+      "sql_cases": 5,
+      "sql_records_per_phase": 5,
+      "status_at_plan": "prepared_unverified",
+      "title": "Lookup filters can duplicate deterministic residual evaluation."
+    }
+  ],
+  "installation_order": [
+    "At next idle source boundary, verify current applied44 hashes. The three API repairs are already applied; never apply them twice.",
+    "Apply independently reviewed Q01 shared-window/setup patch if preparing resource pilot. It is not needed to replace canonical SQL profiles.",
+    "Apply Q28 pilot, runtime identity, version replay, read-only executable patches in this order before SDK pilot. Preserve exact current direct-helper composition and perform source/metadata checks after composition.",
+    "Freeze and recompute generator/profile/dependency hashes after final installation. Existing profile hashes from before these installations are not interchangeable."
+  ],
+  "prepared_unix_ns": 1793149685523284323,
+  "references": {
+    "verification/Q-CPP-API-repair-independent-root-review-20261028.json": "5e3b236c97e77a3136007c561524ebdc4908a3271c4411062d2a6dacb6c247db",
+    "verification/Q01-native-measurement-execution-manifest-20261028.json": "314b8eec3a608b89e3931330bfb48d8ebc6295cab9763cb52597423cc40c386f",
+    "verification/Q01-resource-scaling-admission-plan-20261027.json": "4f5cf34f70cf9a651b579017dee36afbfe907e0903530f9624300c2cfab4e596",
+    "verification/Q28-compilation-statistics-api-source-review-20261028.json": "7282e468f6e63d92aff70e5021077906307417c3ec8e0585f444a975cf89c795"
+  },
+  "schema_version": "quality_serial_execution_plan_v1",
+  "serial_command_templates": [
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q09",
+        "--phase",
+        "baseline"
+      ],
+      "id": "baseline_rbo_prepare",
+      "precondition": "Clean baseline_worktree selected at pinned base; direct serial_slot released; skip only if an existing exact rbo closure passes verify_receipt now.",
+      "provides": "{baseline_rbo_receipt}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q09",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_rbo_receipt}"
+      ],
+      "id": "baseline_direct_Q09",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q09}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q14",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_rbo_receipt}"
+      ],
+      "id": "baseline_direct_Q14",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q14}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q16",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_rbo_receipt}"
+      ],
+      "id": "baseline_direct_Q16",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q16}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q18",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_rbo_receipt}"
+      ],
+      "id": "baseline_direct_Q18",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q18}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q19",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_rbo_receipt}"
+      ],
+      "id": "baseline_direct_Q19",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q19}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q20",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_rbo_receipt}"
+      ],
+      "id": "baseline_direct_Q20",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q20}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q25",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_rbo_receipt}"
+      ],
+      "id": "baseline_direct_Q25",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q25}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q27",
+        "--phase",
+        "baseline"
+      ],
+      "id": "baseline_ast_prepare",
+      "precondition": "Exact pinned baseline; AST closure is separate from rbo. Building this target does not authorize editing yql/essentials.",
+      "provides": "{baseline_ast_receipt}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q27",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_ast_receipt}"
+      ],
+      "id": "baseline_direct_Q27",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q27}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "{baseline_worktree}",
+        "--bug",
+        "Q28",
+        "--phase",
+        "baseline",
+        "--receipt",
+        "{baseline_rbo_receipt}"
+      ],
+      "id": "baseline_direct_Q28",
+      "precondition": "All prior processes cleaned; receipt validates current path/revision/files/profile. Save failing baseline contracts as evidence; compiler/guard failures are not comparison evidence.",
+      "provides": "{baseline_direct_Q28}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "a3f90f2d1667ae3249d34d75daf4e8d84a71185e"
+      ],
+      "id": "fixed_select_Q09",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q09",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q09",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q09}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q09",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q09}"
+      ],
+      "id": "fixed_direct_Q09",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q09}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q09",
+        "--baseline",
+        "{baseline_direct_Q09}",
+        "--fixed",
+        "{fixed_direct_Q09}"
+      ],
+      "id": "pair_direct_Q09",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd"
+      ],
+      "id": "fixed_select_Q14",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q14",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q14",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q14}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q14",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q14}"
+      ],
+      "id": "fixed_direct_Q14",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q14}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q14",
+        "--baseline",
+        "{baseline_direct_Q14}",
+        "--fixed",
+        "{fixed_direct_Q14}"
+      ],
+      "id": "pair_direct_Q14",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "36000459cb44ccfe5e548a2622bfa21ffff591c7"
+      ],
+      "id": "fixed_select_Q16",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q16",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q16",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q16}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q16",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q16}"
+      ],
+      "id": "fixed_direct_Q16",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q16}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q16",
+        "--baseline",
+        "{baseline_direct_Q16}",
+        "--fixed",
+        "{fixed_direct_Q16}"
+      ],
+      "id": "pair_direct_Q16",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "f27cc1474705c540c5a64c2700f19eb4df749f54"
+      ],
+      "id": "fixed_select_Q18",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q18",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q18",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q18}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q18",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q18}"
+      ],
+      "id": "fixed_direct_Q18",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q18}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q18",
+        "--baseline",
+        "{baseline_direct_Q18}",
+        "--fixed",
+        "{fixed_direct_Q18}"
+      ],
+      "id": "pair_direct_Q18",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "c261bd389b61872b7c78851a26bf46283b95b9cb"
+      ],
+      "id": "fixed_select_Q19",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q19",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q19",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q19}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q19",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q19}"
+      ],
+      "id": "fixed_direct_Q19",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q19}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q19",
+        "--baseline",
+        "{baseline_direct_Q19}",
+        "--fixed",
+        "{fixed_direct_Q19}"
+      ],
+      "id": "pair_direct_Q19",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "49b33e196eefd41df663417e7392f7ca0e1504cd"
+      ],
+      "id": "fixed_select_Q20",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q20",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q20",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q20}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q20",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q20}"
+      ],
+      "id": "fixed_direct_Q20",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q20}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q20",
+        "--baseline",
+        "{baseline_direct_Q20}",
+        "--fixed",
+        "{fixed_direct_Q20}"
+      ],
+      "id": "pair_direct_Q20",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "1300a777c320158fe82cd9416b355165dbe73ecd"
+      ],
+      "id": "fixed_select_Q25",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q25",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q25",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q25}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q25",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q25}"
+      ],
+      "id": "fixed_direct_Q25",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q25}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q25",
+        "--baseline",
+        "{baseline_direct_Q25}",
+        "--fixed",
+        "{fixed_direct_Q25}"
+      ],
+      "id": "pair_direct_Q25",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "72e17774d130a022ed4649c26c3db7656d83d971"
+      ],
+      "id": "fixed_select_Q27",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q27",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q27",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q27}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q27",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q27}"
+      ],
+      "id": "fixed_direct_Q27",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q27}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q27",
+        "--baseline",
+        "{baseline_direct_Q27}",
+        "--fixed",
+        "{fixed_direct_Q27}"
+      ],
+      "id": "pair_direct_Q27",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "567d22ff15c8036cbc9741e0bb29daa6c140f0c1"
+      ],
+      "id": "fixed_select_Q28",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q28",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q28",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q28}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q28",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q28}"
+      ],
+      "id": "fixed_direct_Q28",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q28}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "pair",
+        "--bug",
+        "Q28",
+        "--baseline",
+        "{baseline_direct_Q28}",
+        "--fixed",
+        "{fixed_direct_Q28}"
+      ],
+      "id": "pair_direct_Q28",
+      "precondition": "Current generator/case vector/source and saved receipts match both phases. Output never grants full SQL/quality admission.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "f9279dcfeac87c596f58ccc8e3add4722c66a960"
+      ],
+      "id": "fixed_select_Q11",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q11",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q11",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q11}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q11",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q11}"
+      ],
+      "id": "fixed_direct_Q11",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q11}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "4e6d9217ef22bdcced5cd1879d3639508717e8e0"
+      ],
+      "id": "fixed_select_Q15",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q15",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q15",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q15}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q15",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q15}"
+      ],
+      "id": "fixed_direct_Q15",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q15}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "switch",
+        "--detach",
+        "3e2a57e559557a716bba6f42eccff44bbc2ed8d7"
+      ],
+      "id": "fixed_select_Q01",
+      "precondition": "No build/native process; clean tracked worktree; exact parent checked. No cherry-pick or stacked fixes.",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q01",
+        "--phase",
+        "fixed"
+      ],
+      "id": "fixed_prepare_Q01",
+      "precondition": "Independent fixed revision selected; serial8-worker guard.",
+      "provides": "{fixed_closure_Q01}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "Q01",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "{fixed_closure_Q01}"
+      ],
+      "id": "fixed_direct_Q01",
+      "precondition": "Fresh exact closure validates; all required fixed contracts must pass.",
+      "provides": "{fixed_direct_Q01}",
+      "stage": "direct"
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--quality-baseline-worktree",
+        "{baseline_worktree}",
+        "--bugs",
+        "Q02",
+        "Q05",
+        "Q08",
+        "Q09",
+        "Q11",
+        "Q12",
+        "Q13",
+        "Q20",
+        "Q22",
+        "Q26",
+        "--rows",
+        "24",
+        "--runner-only",
+        "--build-workers",
+        "8",
+        "--quality-ir-evidence",
+        "{fixed_direct_Q09}",
+        "--quality-ir-evidence",
+        "{fixed_direct_Q11}",
+        "--quality-ir-evidence",
+        "{fixed_direct_Q20}"
+      ],
+      "expected_cases": 87,
+      "expected_records_per_phase": 87,
+      "id": "canonical_SQL_unblocked_profiles",
+      "precondition": "Direct phase idle; Q09/Q11/Q20 fixed admission evidence available and pair review completed where applicable. Freeze installed profile fingerprints; this set has no metadata-enabled query spilling.",
+      "stage": "SQL",
+      "status_limit": "Each finding still requires its complete passing current quality gate; no run or acceptance is asserted by this plan."
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--quality-baseline-worktree",
+        "{baseline_worktree}",
+        "--bugs",
+        "Q03",
+        "Q04",
+        "Q06",
+        "Q07",
+        "Q10",
+        "Q15",
+        "Q17",
+        "Q21",
+        "Q23",
+        "Q24",
+        "Q28",
+        "Q29",
+        "--rows",
+        "24",
+        "--runner-only",
+        "--build-workers",
+        "8",
+        "--quality-ir-evidence",
+        "{fixed_direct_Q15}"
+      ],
+      "execution_blocked": true,
+      "expected_cases": 97,
+      "expected_records_per_phase": 97,
+      "id": "canonical_SQL_after_reviewed_spill_setup",
+      "precondition": "Do not run until source-reviewed no-payload-persistence bounds/configuration are installed for every enabled spilling cell and exact generators/profiles are refrozen; preserve the whole canonical vectors. Direct Q15 admission also required.",
+      "stage": "SQL",
+      "status_limit": "Q28 remains full-quality pending even when observations pass. No cells may be silently skipped to declare a complete lane."
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--quality-baseline-worktree",
+        "{baseline_worktree}",
+        "--bugs",
+        "Q14",
+        "--rows",
+        "24",
+        "--runner-only",
+        "--build-workers",
+        "8",
+        "--generator-module",
+        "quality_join_shuffle_checks"
+      ],
+      "execution_blocked": true,
+      "expected_cases": 6,
+      "expected_records_per_phase": 6,
+      "id": "extra_SQL_Q14",
+      "precondition": "Paired direct evidence completed; run this extra module alone so it cannot change another finding canonical profile fingerprint. Do not execute this complete SQL lane until its spilling cells have a source-reviewed no-payload-persistence setup and refreshed bound fingerprints.",
+      "stage": "SQL",
+      "status_limit": "No default required-profile owner vector or generic quality improvement gate; semantics/local observation only, preserve all failures."
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--quality-baseline-worktree",
+        "{baseline_worktree}",
+        "--bugs",
+        "Q25",
+        "--rows",
+        "24",
+        "--runner-only",
+        "--build-workers",
+        "8",
+        "--generator-module",
+        "quality_map_semantic_checks"
+      ],
+      "expected_cases": 8,
+      "expected_records_per_phase": 11,
+      "id": "extra_SQL_Q25",
+      "precondition": "Paired direct evidence completed; run this extra module alone so it cannot change another finding canonical profile fingerprint.",
+      "stage": "SQL",
+      "status_limit": "No default required-profile owner vector or generic quality improvement gate; semantics/local observation only, preserve all failures."
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--quality-baseline-worktree",
+        "{baseline_worktree}",
+        "--bugs",
+        "Q01",
+        "--rows",
+        "24",
+        "--runner-only",
+        "--build-workers",
+        "8",
+        "--quality-ir-evidence",
+        "{fixed_direct_Q01}"
+      ],
+      "execution_blocked": true,
+      "expected_cases": 652,
+      "expected_records_per_phase": 652,
+      "id": "canonical_SQL_Q01",
+      "precondition": "Fixed42 lifecycle suite valid. Four canonical modules selected by AUTO, no --quality-profile subset or scaling module extras. Do not execute this complete SQL lane until its spilling cells have a source-reviewed no-payload-persistence setup and refreshed bound fingerprints.",
+      "stage": "SQL",
+      "status_limit": "Resource gate keeps full quality false regardless of SQL/structural success."
+    }
+  ],
+  "source_bindings": {
+    "anonymous_cpp_guard.py": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+    "anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf",
+    "anonymous_cpp_verify.py": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873",
+    "binary_provenance.py": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c",
+    "memory_safe_build.py": "ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd",
+    "native_verify.py": "a0abb05ec07f94dd3cb8a016616233073c044715e0a1f85e0088b2a5daaa4bd1",
+    "production_version_object.py": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+    "quality_ast_collection_generator.py": "7e7f04b3c85bcd59c225ed44a970c8453ef5a4a4adfc79ffe0e600229ce4093e",
+    "quality_cpp_contract_generator.py": "f7f85132057a0c6b42b7663a59faf5a8012ed325bd43b42cf532248165e8390f",
+    "quality_join_shuffle_checks.py": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+    "quality_lookup_checks.py": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+    "quality_map_contract_generator.py": "36616ebce47c0bdaed66e0f0baf7a452cb61670a01d889d4b40ffc124043eed8",
+    "quality_map_semantic_checks.py": "f4bb620657c063e98b0a136d6866243f96ee0c6a2d03fdb99a7dfd058e572d66",
+    "quality_minmax_checks.py": "42d8fbf1f983b739448dc1c6e19432ac464ea9f4a4bf6343e0a10e573f4d74d4",
+    "quality_pairing.py": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+    "quality_partition_cpp_checks.py": "0fd904a0055d82b12013f2e2ce126b5a2bd20f110455dee747948a223c261a3b",
+    "quality_partition_subset_checks.py": "4a7c8816c021df7388ec50fc873b4a76f9c61ed32d1b7a06b6e2fced88469f93",
+    "quality_range_minmax_checks.py": "2d2a23f017e76a67552260d7e15dcfe1e2b53be727ac92543ab99b32978eb390",
+    "quality_range_runtime_contract.py": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+    "quality_range_runtime_cpp_generator.py": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+    "quality_rule_checks.py": "79928bb8b273843ea6c4dd575c11ea4aa8fe377741e5091d027193852eee236e",
+    "quality_rule_cpp_generator.py": "e732ca4705744697e0ff597ed930d6aa21403a9f3aa47f6dcede5f2d56ec2cca",
+    "quality_scheduler_cpp_checks.py": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7",
+    "quality_scheduler_semantic_checks.py": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+    "quality_source_settings_checks.py": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba",
+    "quality_statistics_checks.py": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4",
+    "quality_statistics_cpp_contract.py": "7522d964569b2af5b9336a1003196d7efb633cdd705b5205ff059363300fe44d",
+    "quality_statistics_cpp_generator.py": "89cd11f199a6d6dd91c95687759f7464b7db6a2046a5a34427e6ea0c1f72d044",
+    "quality_statistics_cpp_profiles.json": "36da9cc19f80a1a377b7a9bcf3a65ac05aa284e6d772b26ab596e4e9765c83ae",
+    "quality_sum_checks.py": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+    "quality_union_checks.py": "a83b641614853848cfd3091d8d7f40422b5f5f8f7cf5b53c12850a21e2b88b4b",
+    "quality_union_cpp_contract.py": "3b7bd8de5d199f08519718b34d27fe73e96db3b626209011e763d37f7920a8fb",
+    "quality_union_cpp_generator.py": "8eb0b44ba1be62a92875b84c5cc8dbfd35d5388397fac53593c29cb33d04d5ce",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+    "verify_series.py": "cc07fc271efde3ed8f8377ef86f9560b484591503d7c0198d89e7ca7488d6265"
+  },
+  "source_state": {
+    "api_after_images_match_live": true,
+    "api_repairs_already_applied": {
+      "Q14": {
+        "path": "proposed-quality-amendments/Q14-direct-generator-API-repair-20261028.patch",
+        "sha256": "0759f720551f9b51a5e69247911ea6721ea2aee7888d402c48f14db4bd8a063b"
+      },
+      "Q20": {
+        "path": "proposed-quality-amendments/Q20-direct-generator-API-repair-20261028.patch",
+        "sha256": "702fad08d74bc1986baaad1fdd7fca09abe67ba6389188b391d10b77de488e9d"
+      },
+      "Q28": {
+        "path": "proposed-quality-amendments/Q28-direct-generator-API-repair-20261028.patch",
+        "sha256": "20c61c07c53e2ac88b030ff6437f80b4183350b65f3e423b9a791267121497c6"
+      }
+    },
+    "applied_records": [
+      {
+        "path": "verification/idle-C31-lexical-observation-applied39-20261028.json",
+        "sha256": "edb3a85327d1ad92708e50916d717298852554f212167907654f1161015da778",
+        "total_applied_helper_patches": 39
+      },
+      {
+        "path": "verification/idle-Q-CPP-API-repairs-applied42-20261028.json",
+        "sha256": "54757633cd8953e8164792e0742a287420cface44d3a1e9b1446f053dc20d3a8",
+        "total_applied_helper_patches": 42
+      },
+      {
+        "path": "verification/idle-C31-wide-observation-applied44-20261028.json",
+        "sha256": "ead293ee49337213f7cdc07873e4c3d4262aa277440e6cef100ae0d12fc01ed9",
+        "total_applied_helper_patches": 44
+      }
+    ],
+    "dormant_reviewed_patches": [
+      {
+        "application_status": "not_applied_at_plan_snapshot",
+        "path": "proposed-quality-amendments/Q01-shared-window-setup-controls-20261028.patch",
+        "review": "verification/Q01-shared-window-setup-controls-independent-review-20261028.json",
+        "review_sha256": "740c6d56674494e600b9b2892488c5655a74494be1ecd2954d17ec943db0e313",
+        "scope": "Q01 raw measurement only",
+        "sha256": "a8527c634ad50e9066bf019f8d32af1aec805e9a9ad1eebebf907631ea93a93e"
+      },
+      {
+        "application_status": "not_applied_at_plan_snapshot",
+        "path": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+        "review": "verification/Q28-sdk-compilation-pilot-independent-review-20261028.json",
+        "review_sha256": "667a6dfa69bc7134b1d825348521180e1ab27b22b8488e1f3a69cbc81abbd25a",
+        "scope": "Q28 pilot chain1/4",
+        "sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483"
+      },
+      {
+        "application_status": "not_applied_at_plan_snapshot",
+        "path": "proposed-quality-amendments/Q28-sdk-compilation-runtime-identity-20261028.patch",
+        "review": "verification/Q28-sdk-runtime-identity-independent-root-review-20261028.json",
+        "review_sha256": "3ff0725264ae464f7a20b7898a8e78fddb52772f7040d0531d6e839455c02f93",
+        "scope": "Q28 pilot chain2/4",
+        "sha256": "8712ec3993b04acf34b404818f48714588628fd6418315adcaeb57a54168a9e8"
+      },
+      {
+        "application_status": "not_applied_at_plan_snapshot",
+        "path": "proposed-quality-amendments/Q28-sdk-compilation-version-replay-20261028.patch",
+        "review": "verification/Q28-sdk-version-replay-independent-review-20261028.json",
+        "review_sha256": "9094adc418ef4caf2800b7764c7cfefa2c80040edab0839037d915fe449887db",
+        "scope": "Q28 pilot chain3/4",
+        "sha256": "4aabcde2409f4feb9d82c7b2908e7ffec334fd29ae9677402a104e366986a49f"
+      },
+      {
+        "application_status": "not_applied_at_plan_snapshot",
+        "path": "proposed-quality-amendments/Q28-sdk-compilation-readonly-executable-20261028.patch",
+        "review": "verification/Q28-sdk-readonly-executable-independent-review-20261028.json",
+        "review_sha256": "6974b3ad41c8cae5df0d1c193627bc794de4c3ff78faf5ebec91e1f9f94822b6",
+        "scope": "Q28 pilot chain4/4",
+        "sha256": "9c782adc11186b7a4c1712a666a3b39030de2df675e6b23bb01c8ec8b8e6494a"
+      }
+    ],
+    "latest_applied_count": 44,
+    "stale_state_warning": "work-state pending notes and reviewed28 plan are historical planning entries. Use current applied records and actual file hashes; do not reapply already installed API repairs. The phase remains correctness verification until root releases it."
+  },
+  "special_cases": {
+    "Q01": {
+      "call_template": {
+        "bugs": [
+          "Q01"
+        ],
+        "modules": [
+          "quality_q01_scaling_checks"
+        ],
+        "phase": "{baseline_or_fixed}",
+        "q01_sample": {
+          "case": "{one_scaling_or_setup_case}",
+          "index": 0,
+          "kind": "pilot",
+          "rows": "{same_N}",
+          "run_id": "{32_lower_hex_run_id}"
+        },
+        "repetitions": 1,
+        "revision": "{exact_phase_revision}",
+        "rows": "{N}",
+        "worktree": "{phase_worktree}"
+      },
+      "canonical_cases": 652,
+      "direct_fixed_cases": 42,
+      "entrypoint": "verify_series.invoke_native only while caller holds existing serial lease; no standalone unguarded native_verify command",
+      "future_matrix_reference": "verification/Q01-native-measurement-execution-manifest-20261028.json",
+      "limits": "31 main/constituent profiles plus warmups/repetitions is old planning arithmetic only. Six suffix/fallback resource profiles, actual allocation/peak evidence, signal-selected frozen ladder, full scheduler and closed accepting validator remain missing. Setup_scan is now source-prepared but dormant. Do not execute a purported acceptance matrix until those preconditions are resolved. Existing proposed tolerances are not an implemented validator.",
+      "measurement_module": "quality_q01_scaling_checks",
+      "metric_scope": "Only sole kqprun child is timed: Python generation/oracle and separate legacy preflight excluded; startup/schema/fixture/compilation/target included. CPU and maxRSS are whole-child observations. Same outer guard; no nested systemd scope, startup-RSS subtraction or operator-only claim.",
+      "next_available_step": "After dormant named-window/setup patch, matched baseline/fixed frontend and path pilot at N2048/W16 for five families plus same-N setup_scan. Exact ordered oracle is required; shared mixed-window dataflow needs actual witness, not callable counts.",
+      "quality_acceptance_enabled": false
+    },
+    "Q14": {
+      "pair_observer": "quality_join_shuffle_checks.pair_observations",
+      "required_cases": 6,
+      "scope": "Exact identified join-side incoming edges, source sets/key permutations and enabled/disabled controls; global shuffle counts alone are insufficient. Owner supplies current installed generator/profile hashes and requires all six. Separate12 direct CBO contracts required; no full quality promotion."
+    },
+    "Q25": {
+      "full_quality_acceptance_enabled": false,
+      "independent_control_finding": "C15",
+      "records_per_phase": 11,
+      "required_semantic_cases": 8,
+      "rule_path_proved": false
+    },
+    "Q28": {
+      "direct_cases": 26,
+      "direct_scope": "Three reviewed rules in two stages plus exact conservative excluded controls; no all-rule scheduling claim.",
+      "full_pilot_coverage": false,
+      "pilot_executable_cases": 7,
+      "quality_acceptance_enabled": false,
+      "sdk_pilot_commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+            "measure-compilation",
+            "--worktree",
+            "{baseline_worktree}",
+            "--bug",
+            "Q28",
+            "--phase",
+            "baseline",
+            "--receipt",
+            "{baseline_rbo_receipt}",
+            "--sample-index",
+            "0"
+          ],
+          "phase": "baseline",
+          "precondition": "After all four pilot patches and exact whole-runtime environment/affinity attestation; select clean corresponding revision and revalidate closure before use.",
+          "scope": "One fresh runner per each of7 executable cases, shared_spilling_control unexecuted; raw pilot only."
+        },
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+            "measure-compilation",
+            "--worktree",
+            "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+            "--bug",
+            "Q28",
+            "--phase",
+            "fixed",
+            "--receipt",
+            "{fixed_closure_Q28}",
+            "--sample-index",
+            "0"
+          ],
+          "phase": "fixed",
+          "precondition": "After all four pilot patches and exact whole-runtime environment/affinity attestation; select clean corresponding revision and revalidate closure before use.",
+          "scope": "One fresh runner per each of7 executable cases, shared_spilling_control unexecuted; raw pilot only."
+        }
+      ],
+      "semantic_cases": 8,
+      "shared_spilling_control": "unexecuted_pending_setup_and_privacy_validation",
+      "structural_query_scaling_measured": false,
+      "timing_scope": "SDK server reported compilation wall/CPU with actual IsFromCache=false and matching environment/affinity. Some prior parse/cache lookup/queue work is outside those counters. Not pure RBO, per-stage, execution CPU or runner startup time."
+    }
+  },
+  "spill_setup_inventory": {
+    "affected_cases": 82,
+    "affected_findings": [
+      "Q01",
+      "Q03",
+      "Q04",
+      "Q06",
+      "Q07",
+      "Q10",
+      "Q14",
+      "Q15",
+      "Q17",
+      "Q21",
+      "Q23",
+      "Q24",
+      "Q28",
+      "Q29"
+    ],
+    "blocked_canonical_except_Q01_cases_per_phase": 97,
+    "blocked_canonical_except_Q01_findings": [
+      "Q03",
+      "Q04",
+      "Q06",
+      "Q07",
+      "Q10",
+      "Q15",
+      "Q17",
+      "Q21",
+      "Q23",
+      "Q24",
+      "Q28",
+      "Q29"
+    ],
+    "not_an_admission_or_helper_change": true,
+    "other_lanes": "Q14 extra6 and canonical Q01 entire652 are also contingent; Q25 extra8/11 and no-spill raw Q01 measurement pilot stay separate. Q28 SDK7 explicitly disables local file spilling; its eighth shared control stays pending.",
+    "preserve_entire_lane": true,
+    "scope": "Planning prerequisite only; no actual spilling or filesystem persistence is asserted. Small row counts do not prove absence of payload writes.",
+    "source_audit_reference": "verification/C31-observation-spill-persistence-source-audit-20261028.json",
+    "source_audit_sha256": "4ea76db95ef70273c05acd131a327c79ed02ef60c84b995d48a620d92089b8ea",
+    "unblocked_canonical_cases_per_phase": 87,
+    "unblocked_canonical_findings": [
+      "Q02",
+      "Q05",
+      "Q08",
+      "Q09",
+      "Q11",
+      "Q12",
+      "Q13",
+      "Q20",
+      "Q22",
+      "Q26"
+    ]
+  },
+  "status": "source_only_commands_not_executed",
+  "supersedes_plan_sha256": "1c1c72b69147c467bfefe1b44de68ed6b1e4643393dfdc04fdcf30c2617f44d2",
+  "validation": {
+    "actual_native_runs": 0,
+    "all29_independent_main_parents_checked": true,
+    "build_or_toolchain_runs": 0,
+    "live_edits": 0,
+    "metadata_spilling_inventory_checked": true,
+    "profiles_resolved_in_RAM_only": true,
+    "threshold_changes": 0
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "reviewed_idle_helper_application_v1",
+  "before_count": 56,
+  "total_applied_helper_patches": 57,
+  "previous": "verification/idle-integration-helpers-applied56-20261028.json",
+  "ordered_patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-pipeline-const-pointer-repair-20261028.patch",
+      "sha256": "00675a69a891f6c1e818dda65b47850fb281e3ab2a1cd9696ea5b25e73bd63af"
+    }
+  ],
+  "before_sha256": {
+    "c31_combined_cpp_generator.py": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+    "c31_shared_pipeline_cpp_generator.py": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+    "correctness_cpp_profiles.json": "102d95f24ee88e8b38d0e1e0ee005423d7c61fa4d4293325ac6ee3988eb0f08d"
+  },
+  "combined_after_sha256": {
+    "c31_combined_cpp_generator.py": "7d56fc9bcc877762fc09238f46fa39983e0634e0f89fca9a183860b3fe57455e",
+    "c31_shared_pipeline_cpp_generator.py": "7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6",
+    "correctness_cpp_profiles.json": "3d988379b86534a2f5fe5269d7b6dd957e7427ff5ea55c7a37f3a1b12112b679"
+  },
+  "independent_review": "verification/C31-pipeline-const-pointer-independent-review-20261028.json",
+  "native_pending": true,
+  "production_sources_changed": false,
+  "applied_unix_time": 1793156356.6780248
+}

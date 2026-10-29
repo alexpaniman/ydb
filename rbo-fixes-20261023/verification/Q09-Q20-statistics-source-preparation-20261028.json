@@ -1,0 +1,67 @@
+{
+  "after_files": {
+    "anonymous_cpp_verify.py": "fce1a48f08006a3ab7d3872bd4d8bb47f87be918e3d02b53b9cc75a52f11c20b",
+    "quality_pairing.py": "60ac3900a19b20524a52580a918467398c51a842f077439ac5b05c8f904c4a9d",
+    "quality_statistics_cpp_contract.py": "7522d964569b2af5b9336a1003196d7efb633cdd705b5205ff059363300fe44d",
+    "quality_statistics_cpp_generator.py": "e26a52777a3b20789ecb1f892713d3f7883f111be9cc7334146d76c3378f9693",
+    "quality_statistics_cpp_profiles.json": "9e2598a2879ac3626fb852cc6dc105c2614d95d195adee7838cb9c7890e6b273",
+    "verify_series.py": "e2f8efe3383f129ccbbce6ee8047d57af2f6a1129f20126530d8a159fab1a508"
+  },
+  "after_idle_plan": "verification/idle-artifact-application-plan-20261028.json",
+  "after_idle_plan_sha256": "6fbe364cabd3a4df4598b204864c3b9739e792af771d8dd881ceba1b53d611c1",
+  "findings": {
+    "Q09": {
+      "case_count": 38,
+      "commit": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e",
+      "controls": 12,
+      "expected_assertion_total": 292,
+      "source_bytes": 68856,
+      "source_sha256": "f566d5a7737293fe50973e5796d5a73fb5ccbba6d058b2f92f7913d2dab1c2d5"
+    },
+    "Q20": {
+      "case_count": 72,
+      "commit": "49b33e196eefd41df663417e7392f7ca0e1504cd",
+      "controls": 24,
+      "expected_assertion_total": 848,
+      "source_bytes": 205615,
+      "source_sha256": "6a2ae105775952fb6832dbccf18371007efabd2f14c60f14cc6bfd659908e4ea"
+    }
+  },
+  "oracle_design": [
+    "Q09 asserts exact scalar cardinality/finite positive width and retained cost, preserved input statistics, public consumer conversion, Intermediate/dedup/grouped controls and missing-prerequisite guards. Zero metadata column counts are local boundary robustness fixtures, not claims of fully typed physical plans.",
+    "Q20 uses independent named alias/spec expectations and direct expected numeric input modifications; the existing production CBO estimator is the cost-model oracle. No private alias helper or statistics-method implementation is copied or extracted.",
+    "Q20 checks metadata output aliases separately from both-input hint aliases. Semi/anti matching includes the hidden input while output metadata excludes it. Self-join suffixing retains existing source policy.",
+    "Multiplicative hints exercise side routing and repeated-computation idempotence. Composite Applied flags and unmatched flags are observed; side ApplyRowsHints/ApplyBytesHints copy hints, so persistent Applied is not claimed as a side-consumption counter.",
+    "Existing OA06 receipt binding covers baseline/fixed source and exact ordered vectors. Passing records require reviewed assertion counts. Baseline controls must pass before paired local improvement is accepted.",
+    "The SQL quality gate always requires fixed direct evidence for Q09/Q20. Local admission never proves query semantics or full optimization quality."
+  ],
+  "patch": "proposed-quality-amendments/Q09-Q20-direct-statistics-admission-20261028.patch",
+  "patch_sha256": "ff881e9c99b2a6630020b2bea6cd0e12154f2b3cd2a5b9852d99d30cc880c619",
+  "production_calls": [
+    "TOpAggregate::ComputeStatistics",
+    "BuildOptimizerStatistics",
+    "TOpJoin::ComputeMetadata",
+    "TOpJoin::ComputeStatistics",
+    "TKqpProviderContext::ComputeJoinStatsV2",
+    "TColumnLineage::GetAliases",
+    "MakeCBOColumn"
+  ],
+  "remaining": [
+    "Independent API/oracle/generator and integration review",
+    "Compile/link and actual guarded baseline/fixed local execution",
+    "Separate SQL semantics/plan-quality evidence remains mandatory"
+  ],
+  "schema_version": "q09_q20_statistics_source_preparation_v1",
+  "status": "dormant_requires_independent_review_and_native_execution",
+  "validation": {
+    "builds": 0,
+    "generators_rendered_only_in_memory": true,
+    "graph_runs": 0,
+    "native_admission": false,
+    "native_runs": 0,
+    "production_or_live_helper_edits": false,
+    "python_syntax": true,
+    "sequential_patch_application_to_17_stack": true,
+    "toolchain_runs": 0
+  }
+}

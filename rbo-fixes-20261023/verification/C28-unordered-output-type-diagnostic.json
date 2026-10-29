@@ -1,0 +1,188 @@
+{
+  "purpose": "C28 unordered result type diagnostic",
+  "revision": "18e12ec833db741848ac2bcf5a88b80f4cfdb6d3",
+  "memory_guard": {
+    "elapsed_seconds": 13.537,
+    "peak_scope_usage_bytes": 568201216,
+    "peak_group_rss_bytes": 568201216,
+    "minimum_host_available_bytes": 113202130944,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_collection_after_completion": false,
+    "scope_membership_accounting_available": true,
+    "exit_code": 0,
+    "stdout_sha256": "e1d243db4ce80403921b8e3dd1176d16dc2915c227b24999ba164165ae25c1b8",
+    "stdout_bytes": 5901,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic_bytes": 0
+  },
+  "records": [
+    {
+      "mode": "new",
+      "record": {
+        "case": "c28_projection_hidden_partition_rows",
+        "mode": "new",
+        "generator_module": "window_distinct_projection_checks",
+        "node_count": 1,
+        "query_syntax": "yql",
+        "quality_evidence_required": false,
+        "correctness_physical_ast_required": false,
+        "verification_contract_version": "strict_results_and_request_boundaries_v1",
+        "generator_version": "c28_window_result_projection_v1",
+        "generator_sha256": "437809c251fdb190110f656a78144f2160a28818daaf7a4695eb3d9f8f5d7bf4",
+        "generator_hash_source": "loaded_source_snapshot",
+        "settings_sha256": "aa95919c9910add153ecf5ec5ca35bd55ecaa3019b0ab736d98dbbe17837368c",
+        "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+        "fixture_sha256": [
+          "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+          "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+          "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+        ],
+        "query_sha256": "730f5015dc8e83af9eb80e174bdd53d339ae8b200b0d809b388ca5fe04c81db2",
+        "validation_sha256": [],
+        "setup_request_count": 3,
+        "target_request_count": 1,
+        "validation_request_count": 0,
+        "target_results_checked": true,
+        "expected_rejection_configured": false,
+        "table_service_overrides": {
+          "EnableNewRBO": true,
+          "EnableFallbackToYqlOptimizer": false,
+          "DqHashOperatorsUseBlocks": false,
+          "EnableNewRBOPhysicalStagePeephole": false
+        },
+        "optimizer_mode_configuration": {
+          "version": "requested_optimizer_configuration_v1",
+          "requested_mode": "new",
+          "query_syntax": "yql",
+          "enable_new_rbo": true,
+          "enable_fallback": false,
+          "fallback_requested": false,
+          "yql_select": "force",
+          "settings_sha256": "aa95919c9910add153ecf5ec5ca35bd55ecaa3019b0ab736d98dbbe17837368c"
+        },
+        "optimizer_mode_config_verified": true,
+        "exit_code": 1,
+        "row_count": 0,
+        "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "failure_category": "type mismatch",
+        "diagnostic_source_locations": [
+          "ydb/tests/tools/kqprun/kqprun.cpp:327",
+          "yql/essentials/core/yql_expr_type_annotation.cpp:7761"
+        ],
+        "failure_stage": "target",
+        "semantic_oracle_pass": false
+      },
+      "provenance": {
+        "binary_provenance_version": "successful_runner_build_v1",
+        "binary_provenance_verified": true,
+        "binary_provenance": {
+          "size_bytes": 11294474600,
+          "mtime_ns": 1792732537427839010,
+          "ctime_ns": 1792732543161031877,
+          "inode": 6819357,
+          "device": 64769,
+          "resolved_path": "/home/alexpaniman/.ya/build/symres/0cae44c0983066f73803d3295c3bbe18/kqprun",
+          "sha256": "4e553f17356220d3f7115e1ad527a30ae7bc90b7073ef791601964bc1483709c"
+        },
+        "build_receipt_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/18e12ec833db741848ac2bcf5a88b80f4cfdb6d3-48c4f1872521cccc.json",
+        "build_receipt_sha256": "98696961516b393e2b54a6f2b1df13916454740b0d338cd878152c2d7848ebc5"
+      },
+      "type_diagnostics": [
+        {
+          "expected": {
+            "type_tokens": [
+              "List",
+              "Struct",
+              "Uint64"
+            ],
+            "fingerprint": "501c96764be50061237173025687865341799f38ae7435af3663b81b8f424ec1"
+          },
+          "actual": {
+            "type_tokens": [
+              "List",
+              "Struct",
+              "Uint64",
+              "Uint64"
+            ],
+            "fingerprint": "b3e0a73473c2f13557f9b23f8107ca05ce84a30f6a83392cc847e18068ed87db"
+          },
+          "node": "KqpOpRoot"
+        }
+      ]
+    },
+    {
+      "mode": "legacy",
+      "record": {
+        "case": "c28_projection_hidden_partition_rows",
+        "mode": "legacy",
+        "generator_module": "window_distinct_projection_checks",
+        "node_count": 1,
+        "query_syntax": "yql",
+        "quality_evidence_required": false,
+        "correctness_physical_ast_required": false,
+        "verification_contract_version": "strict_results_and_request_boundaries_v1",
+        "generator_version": "c28_window_result_projection_v1",
+        "generator_sha256": "437809c251fdb190110f656a78144f2160a28818daaf7a4695eb3d9f8f5d7bf4",
+        "generator_hash_source": "loaded_source_snapshot",
+        "settings_sha256": "1c61cc3d691f8589072bb90b9ddde852c0209b1251d02ca454b39688a000e733",
+        "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+        "fixture_sha256": [
+          "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+          "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+          "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+        ],
+        "query_sha256": "2c19e9da0154389599300b39ae3aa085a5cf28200e595037ed20b1550984720e",
+        "validation_sha256": [],
+        "setup_request_count": 3,
+        "target_request_count": 1,
+        "validation_request_count": 0,
+        "target_results_checked": true,
+        "expected_rejection_configured": false,
+        "table_service_overrides": {
+          "EnableNewRBO": false,
+          "EnableFallbackToYqlOptimizer": false,
+          "DqHashOperatorsUseBlocks": false,
+          "EnableNewRBOPhysicalStagePeephole": false
+        },
+        "optimizer_mode_configuration": {
+          "version": "requested_optimizer_configuration_v1",
+          "requested_mode": "legacy",
+          "query_syntax": "yql",
+          "enable_new_rbo": false,
+          "enable_fallback": false,
+          "fallback_requested": false,
+          "yql_select": "disable",
+          "settings_sha256": "1c61cc3d691f8589072bb90b9ddde852c0209b1251d02ca454b39688a000e733"
+        },
+        "optimizer_mode_config_verified": true,
+        "exit_code": 0,
+        "row_count": 4,
+        "result_sha256": "72bac50e0e9a1805138cb3072394e173523a694259054c264a68c59062efcdca",
+        "result_set_count": 1,
+        "result_set_boundaries_known": true,
+        "unordered_result_sha256": "cd57efc8bfa87a1841bea5b8b9772346e60f1c990b7f95ab975dbfd05150fdea",
+        "semantic_oracle_pass": true
+      },
+      "provenance": {
+        "binary_provenance_version": "successful_runner_build_v1",
+        "binary_provenance_verified": true,
+        "binary_provenance": {
+          "size_bytes": 11294474600,
+          "mtime_ns": 1792732537427839010,
+          "ctime_ns": 1792732543161031877,
+          "inode": 6819357,
+          "device": 64769,
+          "resolved_path": "/home/alexpaniman/.ya/build/symres/0cae44c0983066f73803d3295c3bbe18/kqprun",
+          "sha256": "4e553f17356220d3f7115e1ad527a30ae7bc90b7073ef791601964bc1483709c"
+        },
+        "build_receipt_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/18e12ec833db741848ac2bcf5a88b80f4cfdb6d3-48c4f1872521cccc.json",
+        "build_receipt_sha256": "98696961516b393e2b54a6f2b1df13916454740b0d338cd878152c2d7848ebc5"
+      },
+      "type_diagnostics": []
+    }
+  ]
+}

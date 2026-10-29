@@ -1,0 +1,39 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp
+@@ -7,6 +7,8 @@
+ #include <ydb/core/kqp/opt/rbo/kqp_rbo_utils.h>
+ 
+ #include <yql/essentials/utils/log/log.h>
++
++#include <cmath>
+ 
+ namespace NKikimr::NKqp {
+ 
+@@ -579,7 +581,26 @@
+     Props.Cost = GetInput()->Props.Cost;
+ 
+     const auto inputColumnsCount = GetInput()->Props.Metadata->ColumnsCount;
+-    if (Props.Metadata->ColumnsCount != inputColumnsCount) {
++    const auto phase = GetAggregationPhase();
++    if (GetKeyColumns().Items().empty() && !IsDeduplication() &&
++        (phase == EOpPhase::Undefined || phase == EOpPhase::Final)) {
++        const auto outputColumnsCount = std::max<ui32>(1, Props.Metadata->ColumnsCount);
++        // Retain the existing average-width estimate when it is available;
++        // an empty input still produces a finite scalar aggregate row.
++        double outputBytes = sizeof(ui64) * outputColumnsCount;
++        if (Props.Statistics->ERows > 0 && inputColumnsCount > 0) {
++            const double estimatedBytes = Props.Statistics->EBytes / Props.Statistics->ERows *
++                outputColumnsCount / inputColumnsCount;
++            if (std::isfinite(estimatedBytes) && estimatedBytes > 0) {
++                outputBytes = estimatedBytes;
++            }
++        }
++        Props.Statistics->ERows = 1;
++        Props.Statistics->EBytes = outputBytes;
++        Props.Statistics->Selectivity = 1.0;
++        return;
++    }
++    if (inputColumnsCount > 0 && Props.Metadata->ColumnsCount != inputColumnsCount) {
+         double inputDataSize = Props.Statistics->EBytes;
+         Props.Statistics->EBytes = inputDataSize * Props.Metadata->ColumnsCount / (double)inputColumnsCount;
+     }

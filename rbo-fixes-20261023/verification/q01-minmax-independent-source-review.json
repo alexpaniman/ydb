@@ -1,0 +1,39 @@
+{
+  "reviewer": "/root/quality_review",
+  "artifact": "proposed-quality-amendments/Q01-row-minmax.patch",
+  "reviewed_patch_sha256": "17f7f859cd0ea7192c5c34e6a368f01997bcec7afb22017d28361cc8510e5719",
+  "source_review_result": "no_blocker_found_for_bounded_rows_whitelist",
+  "compiled": false,
+  "native_verified": false,
+  "production_edited": false,
+  "contracts": [
+    "Chain1Map state is a tuple of output row and private stack state; update reads the second element and final OrderedMap returns only the row.",
+    "The queue receives ordinary prefix output plus a partition-local ordinal, not persistent stack states. Public OutputLayout excludes the ordinal.",
+    "For finite fixed ROWS bounds, the first nonempty frame is scanned once and the right endpoint subsequently advances by at most one. Nonempty frames form a contiguous run; empty leading frames preserve the initialization sentinel and empty trailing frames cannot restart it.",
+    "Trimming a nonempty front cannot leave expired rear entries: all rear entries are later than all front entries. Transfer reverses the rear while recomputing chronological suffix extrema, after which expiry removes old entries.",
+    "Optional absent values are identities for the same AggrMin/AggrMax operations already used by the builder. Required inputs get exactly one optional wrapper; result unwrapping uses the existing output-type contract.",
+    "All admitted EDataSlot enumerators exist. Integral, Bool, ordinary datetime and Interval selectors compare scalar layouts; Decimal AggrMin/AggrMax compare raw signed Int128 encodings including special values. The implementation does not regroup floating arithmetic or admit timezone/composite values.",
+    "Fold eagerly consumes its list and updates state before returning. Frame views are consumed inside the collector row dependency and are not retained in stack entries; entries contain copied ordinals and scalar values only.",
+    "HolderFactory Prepend copies the direct representation by transferring Normal growth capability. Capacity grows geometrically. Direct-list Head/iterator reads do not copy that representation. SkipListImpl makes constant-time slices; no frozen front slice is later prepended.",
+    "OptimizeInsert only replaces statically empty or literal-list cases; runtime list arguments remain Prepend. OptimizeSkip swaps through explicit maps but does not materialize these stack tuples. Fold's empty-state simplification does not match the list accumulator.",
+    "Multiple MIN/MAX functions have independent stack state; mixed COUNT/integer SUM use their existing prefix paths and unsupported aggregate functions remain in Fold1. The generator explicitly accepts transfer Fold while requiring eligible-only Fold1 removal."
+  ],
+  "source_references": [
+    "yql/essentials/minikql/comp_nodes/mkql_fold.cpp:TFoldWrapper::DoCalculate",
+    "yql/essentials/minikql/computation/mkql_computation_node_list.h:TListRepresentation",
+    "yql/essentials/minikql/computation/mkql_computation_node_holders.cpp:TDirectListHolder,THolderFactory::Prepend",
+    "yql/essentials/core/common_opt/yql_co_simple1.cpp:OptimizeInsert,Fold optimizer",
+    "yql/essentials/core/peephole_opt/yql_opt_peephole_physical.cpp:OptimizeSkip",
+    "yql/essentials/minikql/invoke_builtins/mkql_builtins_min.cpp:TDecimalAggrMin,TMin",
+    "yql/essentials/minikql/invoke_builtins/mkql_builtins_max.cpp:TDecimalAggrMax,TMax",
+    "yql/essentials/public/udf/udf_data_type.h:EDataSlot"
+  ],
+  "acceptance_generator": "quality_minmax_checks.py",
+  "artifact_check_evidence": "verification/q01-minmax-artifact-contracts.json",
+  "remaining_limits": [
+    "RANGE, unbounded ROWS and excluded value families retain existing paths; Q01 remains partial.",
+    "The native query builders have not yet been parsed or run against the proposed source. Full type annotation and execution remain required.",
+    "Post-peephole operation/allocation scaling and live-memory measurements remain required before claiming amortized native performance.",
+    "Native special Decimal encodings are not in the finite-value generator alphabet; their selector proof is source-level only."
+  ]
+}

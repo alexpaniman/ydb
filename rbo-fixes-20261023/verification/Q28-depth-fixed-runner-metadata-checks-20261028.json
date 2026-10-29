@@ -1,0 +1,765 @@
+{
+  "actual_native_verification_pending": true,
+  "checks": [
+    "exact_source:memory_safe_build",
+    "exact_source:anonymous_cpp_guard",
+    "exact_source:anonymous_cpp_metadata",
+    "exact_source:anonymous_cpp_verify",
+    "exact_source:production_version_object",
+    "exact_source:quality_scheduler_cpp_checks",
+    "exact_source:quality_scheduler_depth_checks",
+    "exact_four_vector",
+    "assertion_vector_from_two_measurements_and_six_checks",
+    "source_derived_assertion_total",
+    "complete_four_records_admitted",
+    "failed_case_preserved_at_zero_checks",
+    "parser_rejects:missing",
+    "parser_rejects:duplicate",
+    "parser_rejects:order",
+    "parser_rejects:extra_field",
+    "parser_rejects:bool_count",
+    "parser_rejects:bool_counter",
+    "parser_rejects:short_count",
+    "parser_rejects:wrong_delta",
+    "parser_rejects:zero_work",
+    "parser_rejects:overflow_counter",
+    "parser_rejects:wrong_exit",
+    "parser_rejects:empty",
+    "parser_rejects:oversize",
+    "parser_rejects:duplicate_key",
+    "original26_route_not_overridden",
+    "same_serial_lock_and_exclusive_new_evidence",
+    "existing_link_native_memory_limits",
+    "sealed_handoff_before_native",
+    "fixed_single_purpose_CLI_without_overrides",
+    "exact_seven_loaded_snapshots",
+    "all_helpers_loaded_from_checked_bytes",
+    "loaded_original26_registration_unchanged",
+    "dependency_drift_rejected:memory_safe_build",
+    "dependency_drift_rejected:anonymous_cpp_guard",
+    "dependency_drift_rejected:anonymous_cpp_metadata",
+    "dependency_drift_rejected:anonymous_cpp_verify",
+    "dependency_drift_rejected:production_version_object",
+    "dependency_drift_rejected:quality_scheduler_cpp_checks",
+    "dependency_drift_rejected:quality_scheduler_depth_checks",
+    "no_descriptor_leak:None",
+    "scope_not_promoted:None",
+    "failure_disposition:None",
+    "admission:None",
+    "completed_verdict_retained:None",
+    "no_descriptor_leak:initial_receipt",
+    "scope_not_promoted:initial_receipt",
+    "failure_disposition:initial_receipt",
+    "admission:initial_receipt",
+    "no_descriptor_leak:unaccepted_pair",
+    "scope_not_promoted:unaccepted_pair",
+    "failure_disposition:unaccepted_pair",
+    "admission:unaccepted_pair",
+    "no_descriptor_leak:compile_exit",
+    "scope_not_promoted:compile_exit",
+    "failure_disposition:compile_exit",
+    "admission:compile_exit",
+    "no_descriptor_leak:compile_cleanup",
+    "scope_not_promoted:compile_cleanup",
+    "failure_disposition:compile_cleanup",
+    "admission:compile_cleanup",
+    "no_descriptor_leak:compile_watchdog",
+    "scope_not_promoted:compile_watchdog",
+    "failure_disposition:compile_watchdog",
+    "admission:compile_watchdog",
+    "no_descriptor_leak:compile_overflow",
+    "scope_not_promoted:compile_overflow",
+    "failure_disposition:compile_overflow",
+    "admission:compile_overflow",
+    "no_descriptor_leak:compile_environment",
+    "scope_not_promoted:compile_environment",
+    "failure_disposition:compile_environment",
+    "admission:compile_environment",
+    "no_descriptor_leak:compile_empty",
+    "scope_not_promoted:compile_empty",
+    "failure_disposition:compile_empty",
+    "admission:compile_empty",
+    "no_descriptor_leak:prepare",
+    "scope_not_promoted:prepare",
+    "failure_disposition:prepare",
+    "admission:prepare",
+    "no_descriptor_leak:prepare_metadata_error",
+    "scope_not_promoted:prepare_metadata_error",
+    "failure_disposition:prepare_metadata_error",
+    "admission:prepare_metadata_error",
+    "version_failure_retained",
+    "no_descriptor_leak:link_exit",
+    "scope_not_promoted:link_exit",
+    "failure_disposition:link_exit",
+    "admission:link_exit",
+    "no_descriptor_leak:link_cleanup",
+    "scope_not_promoted:link_cleanup",
+    "failure_disposition:link_cleanup",
+    "admission:link_cleanup",
+    "no_descriptor_leak:link_watchdog",
+    "scope_not_promoted:link_watchdog",
+    "failure_disposition:link_watchdog",
+    "admission:link_watchdog",
+    "no_descriptor_leak:link_overflow",
+    "scope_not_promoted:link_overflow",
+    "failure_disposition:link_overflow",
+    "admission:link_overflow",
+    "no_descriptor_leak:link_environment",
+    "scope_not_promoted:link_environment",
+    "failure_disposition:link_environment",
+    "admission:link_environment",
+    "no_descriptor_leak:link_empty",
+    "scope_not_promoted:link_empty",
+    "failure_disposition:link_empty",
+    "admission:link_empty",
+    "no_descriptor_leak:archive_changed",
+    "scope_not_promoted:archive_changed",
+    "failure_disposition:archive_changed",
+    "admission:archive_changed",
+    "no_descriptor_leak:version_verify_1",
+    "scope_not_promoted:version_verify_1",
+    "failure_disposition:version_verify_1",
+    "admission:version_verify_1",
+    "no_descriptor_leak:seal",
+    "scope_not_promoted:seal",
+    "failure_disposition:seal",
+    "admission:seal",
+    "no_descriptor_leak:native_exit",
+    "scope_not_promoted:native_exit",
+    "failure_disposition:native_exit",
+    "admission:native_exit",
+    "no_descriptor_leak:native_cleanup",
+    "scope_not_promoted:native_cleanup",
+    "failure_disposition:native_cleanup",
+    "admission:native_cleanup",
+    "no_descriptor_leak:native_watchdog",
+    "scope_not_promoted:native_watchdog",
+    "failure_disposition:native_watchdog",
+    "admission:native_watchdog",
+    "no_descriptor_leak:native_overflow",
+    "scope_not_promoted:native_overflow",
+    "failure_disposition:native_overflow",
+    "admission:native_overflow",
+    "no_descriptor_leak:case_failure",
+    "scope_not_promoted:case_failure",
+    "failure_disposition:case_failure",
+    "admission:case_failure",
+    "completed_verdict_retained:case_failure",
+    "no_descriptor_leak:case_count_drift",
+    "scope_not_promoted:case_count_drift",
+    "failure_disposition:case_count_drift",
+    "admission:case_count_drift",
+    "no_descriptor_leak:malformed_verdict",
+    "scope_not_promoted:malformed_verdict",
+    "failure_disposition:malformed_verdict",
+    "admission:malformed_verdict",
+    "no_descriptor_leak:version_verify_2",
+    "scope_not_promoted:version_verify_2",
+    "failure_disposition:version_verify_2",
+    "admission:version_verify_2",
+    "no_descriptor_leak:final_receipt",
+    "scope_not_promoted:final_receipt",
+    "failure_disposition:final_receipt",
+    "admission:final_receipt",
+    "completed_verdict_retained:final_receipt",
+    "no_descriptor_leak:source_descriptor_changed",
+    "scope_not_promoted:source_descriptor_changed",
+    "failure_disposition:source_descriptor_changed",
+    "admission:source_descriptor_changed",
+    "completed_verdict_retained:source_descriptor_changed",
+    "no_descriptor_leak:object_descriptor_changed",
+    "scope_not_promoted:object_descriptor_changed",
+    "failure_disposition:object_descriptor_changed",
+    "admission:object_descriptor_changed",
+    "completed_verdict_retained:object_descriptor_changed",
+    "no_descriptor_leak:native_executable_changed",
+    "scope_not_promoted:native_executable_changed",
+    "failure_disposition:native_executable_changed",
+    "admission:native_executable_changed",
+    "completed_verdict_retained:native_executable_changed",
+    "no_descriptor_leak:helper_changed",
+    "scope_not_promoted:helper_changed",
+    "failure_disposition:helper_changed",
+    "admission:helper_changed",
+    "completed_verdict_retained:helper_changed",
+    "no_descriptor_leak:case_file_changed",
+    "scope_not_promoted:case_file_changed",
+    "failure_disposition:case_file_changed",
+    "admission:case_file_changed",
+    "completed_verdict_retained:case_file_changed",
+    "no_descriptor_leak:receipt_file_changed",
+    "scope_not_promoted:receipt_file_changed",
+    "failure_disposition:receipt_file_changed",
+    "admission:receipt_file_changed",
+    "completed_verdict_retained:receipt_file_changed",
+    "no_descriptor_leak:original_file_changed",
+    "scope_not_promoted:original_file_changed",
+    "failure_disposition:original_file_changed",
+    "admission:original_file_changed",
+    "completed_verdict_retained:original_file_changed",
+    "no_descriptor_leak:driver_file_changed",
+    "scope_not_promoted:driver_file_changed",
+    "failure_disposition:driver_file_changed",
+    "admission:driver_file_changed",
+    "completed_verdict_retained:driver_file_changed",
+    "no_descriptor_leak:compile_cancel",
+    "scope_not_promoted:compile_cancel",
+    "failure_disposition:compile_cancel",
+    "admission:compile_cancel",
+    "no_descriptor_leak:prepare_cancel",
+    "scope_not_promoted:prepare_cancel",
+    "failure_disposition:prepare_cancel",
+    "admission:prepare_cancel",
+    "no_descriptor_leak:link_cancel",
+    "scope_not_promoted:link_cancel",
+    "failure_disposition:link_cancel",
+    "admission:link_cancel",
+    "no_descriptor_leak:seal_cancel",
+    "scope_not_promoted:seal_cancel",
+    "failure_disposition:seal_cancel",
+    "admission:seal_cancel",
+    "no_descriptor_leak:after_seal_cancel",
+    "scope_not_promoted:after_seal_cancel",
+    "failure_disposition:after_seal_cancel",
+    "admission:after_seal_cancel",
+    "no_descriptor_leak:native_cancel",
+    "scope_not_promoted:native_cancel",
+    "failure_disposition:native_cancel",
+    "admission:native_cancel",
+    "no_descriptor_leak:version_verify_2_cancel",
+    "scope_not_promoted:version_verify_2_cancel",
+    "failure_disposition:version_verify_2_cancel",
+    "admission:version_verify_2_cancel",
+    "no_descriptor_leak:final_receipt_cancel",
+    "scope_not_promoted:final_receipt_cancel",
+    "failure_disposition:final_receipt_cancel",
+    "admission:final_receipt_cancel",
+    "completed_verdict_retained:final_receipt_cancel",
+    "allocation_interruption_cleanup:1",
+    "allocation_interruption_cleanup:2",
+    "allocation_interruption_cleanup:3",
+    "allocation_interruption_cleanup:4",
+    "allocation_interruption_cleanup:5",
+    "allocation_interruption_cleanup:6",
+    "allocation_interruption_cleanup:7",
+    "exact_fixed_revision_tree_and_sources",
+    "revision_rejected:e8700d37",
+    "revision_rejected:567d22ff",
+    "revision_rejected:bad",
+    "revision_rejected:AAAAAAAA",
+    "production_source_drift_rejected",
+    "extra_production_change_rejected",
+    "live_source_unchanged:memory_safe_build",
+    "live_source_unchanged:anonymous_cpp_guard",
+    "live_source_unchanged:anonymous_cpp_metadata",
+    "live_source_unchanged:anonymous_cpp_verify",
+    "live_source_unchanged:production_version_object",
+    "live_source_unchanged:quality_scheduler_cpp_checks",
+    "live_source_unchanged:quality_scheduler_depth_checks"
+  ],
+  "checks_passed": 255,
+  "generated_CPP_or_query_payloads_persisted": false,
+  "native_build_toolchain_runs": 0,
+  "scenario_count": 52,
+  "scenarios": [
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 0,
+      "scenario": "None",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 0,
+      "exit_code": 1,
+      "scenario": "initial_receipt",
+      "stages": []
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 0,
+      "exit_code": 1,
+      "scenario": "unaccepted_pair",
+      "stages": []
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 3,
+      "exit_code": 1,
+      "scenario": "compile_exit",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 3,
+      "exit_code": 1,
+      "scenario": "compile_cleanup",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 3,
+      "exit_code": 1,
+      "scenario": "compile_watchdog",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 3,
+      "exit_code": 1,
+      "scenario": "compile_overflow",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 3,
+      "exit_code": 1,
+      "scenario": "compile_environment",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 3,
+      "exit_code": 1,
+      "scenario": "compile_empty",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 4,
+      "exit_code": 1,
+      "scenario": "prepare",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 4,
+      "exit_code": 1,
+      "scenario": "prepare_metadata_error",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "link_exit",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "link_cleanup",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "link_watchdog",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "link_overflow",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "link_environment",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "link_empty",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "archive_changed",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "version_verify_1",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "seal",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "native_exit",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "native_cleanup",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "native_watchdog",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "native_overflow",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 2,
+      "scenario": "case_failure",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "case_count_drift",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "malformed_verdict",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "version_verify_2",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "final_receipt",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "source_descriptor_changed",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "object_descriptor_changed",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "native_executable_changed",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "helper_changed",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "case_file_changed",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "receipt_file_changed",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "original_file_changed",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 1,
+      "scenario": "driver_file_changed",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 3,
+      "exit_code": 130,
+      "scenario": "compile_cancel",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 4,
+      "exit_code": 130,
+      "scenario": "prepare_cancel",
+      "stages": [
+        "compile"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 130,
+      "scenario": "link_cancel",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 130,
+      "scenario": "seal_cancel",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 130,
+      "scenario": "after_seal_cancel",
+      "stages": [
+        "compile",
+        "link"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 130,
+      "scenario": "native_cancel",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 130,
+      "scenario": "version_verify_2_cancel",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 7,
+      "exit_code": 130,
+      "scenario": "final_receipt_cancel",
+      "stages": [
+        "compile",
+        "link",
+        "native"
+      ]
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 0,
+      "exit_code": 1,
+      "scenario": "allocation_1"
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 1,
+      "exit_code": 1,
+      "scenario": "allocation_2"
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 2,
+      "exit_code": 1,
+      "scenario": "allocation_3"
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 3,
+      "exit_code": 1,
+      "scenario": "allocation_4"
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 4,
+      "exit_code": 1,
+      "scenario": "allocation_5"
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 5,
+      "exit_code": 1,
+      "scenario": "allocation_6"
+    },
+    {
+      "checks_passed": true,
+      "descriptors_closed": 6,
+      "exit_code": 1,
+      "scenario": "allocation_7"
+    }
+  ],
+  "schema": "q28_depth_fixed_runner_mock_checks_v1",
+  "source_sha256": "77b151edb0de8cfa0c73ea44f0e230513bfcc802d3d14ecaf51a512aafc06d96"
+}

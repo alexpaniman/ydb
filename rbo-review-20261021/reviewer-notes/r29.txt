@@ -1,0 +1,31 @@
+R29: Two-pass review of CBO invocation, result import, and late join-filter lowering
+Scope: rules/apply_cbo.cpp; rules/inline_cbo_tree.cpp; rules/inline_join_filters.cpp; kqp_rbo_cbo.cpp; supporting conversion, solver, stage-assignment and lookup-rewrite code.
+Validation level: source-path verification only. No builds, repository edits, query artifacts, or child agents.
+
+CORRECTNESS
+
+1. CBO may select lookup for native null-safe join keys, then physical lowering rejects the query.
+Evidence: kqp_rbo_cbo.cpp:109-133 and :218-225 inspect right column lineage and lookup prefixes without rejecting EqualNulls. rewrite_join_to_index_lookup_join.cpp:154-156 declines such joins but leaves JoinAlgo=LookupJoin. rules/assign_stages.cpp:40-44 disables block implementation for that enum. physical_conversion/kqp_rbo_physical_join_builder.cpp:554 rejects EqualNulls with block disabled, before the fallback at :565-568 changes the algorithm to GraceJoin. Native EqualNulls keys enter through nullable-correlation decorrelation (dependent_join_pushdown.cpp:242-269). Thus conditional on CBO selecting lookup, the failure is deterministic. r28 independently corroborates; parent owns native verification.
+Fix: unify applicability with the actual lookup rewrite, including EqualNulls and other rejection reasons; normalize rejected lookup choices before selecting stage/block implementation. SQL-level reachability was not executed by this reviewer.
+
+2. Late residual join expansion rejects valid left-family joins without nonnullable unique identity columns.
+Evidence: inline_join_filters.cpp:110-116 requires a nonempty metadata key list and nonnullable key types, then joins two Replicate outputs on that list at :119-129. The entry conditions allow a valid Left, LeftSemi, or LeftOnly residual join when block is disabled, no equijoin condition exists, or inlining is forced. Inputs such as nullable-key reads and derived relations without keys hit explicit failures. This restriction precedes C31's spilling failure and persists when spilling is enabled.
+Fix: provide a stable per-row identity or a residual-capable physical fallback. Moving replication expansion alone does not resolve this. Parent requested grouping with C31, with this distinct fix requirement.
+
+3. ReverseBlockJoin shuffle directives disappear at RBO import.
+Evidence: CBO ConvertFromInternal generates ShuffleLeftSideBy/ShuffleRightSideBy for GraceJoin and ReverseBlockJoin (cbo/solver/kqp_opt_join_tree_node.cpp:58-76); rules/kqp_cbo_trees.cpp:455-458 imports them only for GraceJoin. Stage assignment consequently derives the reverse join's shuffle keys from TJoinIUs, which sorts numeric IU pairs, rather than CBO's ordered directives. CBO parent joins may still carry shuffle elimination assumptions about the reverse child's CBO-selected ordering. The dropped properties are source-confirmed. Wrong-result routing through a parent that trusts the lost distribution is a candidate requiring native multi-partition verification, not a demonstrated wrong-result finding.
+Fix: import ReverseBlockJoin shuffle properties as for GraceJoin and maintain consistent output distribution metadata. Preserve CBO-selected order even if logical join keys are stored as a set.
+
+OPTIMIZATION QUALITY (SEPARATE)
+
+A. ReverseBlockJoin unnecessarily reshuffles inputs because its CBO shuffle-elimination directives are dropped. This is definite from the import and stage code, independently of candidate correctness escalation above.
+B. CBO applicability and physical lookup eligibility diverge for several other reasons: query kind / feature gating, residual filters, repeated target keys, and key types. Some paths choose a cheap lookup plan but later execute hash joins; the type mismatch path explicitly switches to MapJoin without re-costing. This can yield poor join orders or oversized broadcast choices. kqp_rbo_cbo.cpp:97-171 versus rules/rewrite_join_to_index_lookup_join.cpp:136-167 and :217-231. Share the same eligibility contract and choose a costed fallback.
+
+DISMISSED / VERIFIED INVARIANTS
+
+- Packed CBO trees contain no residual filters: both initial creation and expansion reject joins with JoinFilters. ConvertJoinTree therefore does not silently drop supported residual predicates.
+- EqualNulls flags are copied both ways, including paired-side agreement checking; ordinary null-semantics loss during conversion was not found.
+- Left-family joins are not commuted by the generic solver; CBO does not reintroduce right-family forms via the ordinary commutative path.
+- Soft/hard timeout fallback returns the original CBO tree with Undefined algorithm still unset. RBO import leaves JoinAlgo optional, so it does not mistake empty shuffle vectors for shuffle elimination on this fallback.
+- InlineCBOTree simply restores the stored tree root when CBO is skipped; no additional mutation or predicate loss found.
+- Shared input eligibility excludes a Replicate port on lookup's left. A port on the right does not match the read/filter matcher. No new direct shared-producer lookup bug confirmed.

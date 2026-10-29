@@ -1,0 +1,370 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -447,8 +447,16 @@
+         evidence['generated_object'] = _fd_digest(fds['object'])
+         if evidence['generated_object']['size_bytes'] == 0:
+             raise MetadataError('successful_compile_produced_no_object')
+-        link_argv = receipt['metadata']['link_argv'] + ([] if symbols is None else
+-                    ['-Wl,--wrap=' + value for value in symbols.values()])
++        verification_stage = 'production_version_infrastructure'
++        from production_version_object import prepare_object, verify_object
++        try:
++            link_argv, version_evidence = prepare_object(receipt, args.receipt, args.worktree, fds,
++                timeout=args.compile_timeout)
++        except MetadataError as error:
++            evidence['production_version_infrastructure'] = getattr(error, 'production_version_evidence', {})
++            raise
++        evidence['production_version_infrastructure'] = version_evidence
++        link_argv += [] if symbols is None else ['-Wl,--wrap=' + value for value in symbols.values()]
+         verification_stage = 'link'
+         link_argv, output_transport = _stdout_link_arguments(link_argv)
+         evidence['link_output_transport'] = output_transport
+@@ -472,6 +480,7 @@
+         if link_record['exit_code']:
+             evidence['status'] = 'anonymous_link_failed'
+             return evidence, 1
++        verify_object(evidence['production_version_infrastructure'], fds)
+         evidence['generated_executable'] = _fd_digest(fds['executable'])
+         if evidence['generated_executable']['size_bytes'] == 0:
+             raise MetadataError('successful_link_produced_no_executable')
+@@ -488,6 +497,7 @@
+                               else 'direct_local_contracts_failed')
+         # Recheck hashes as well as source revision after compilation/execution.
+         verification_stage = 'final_receipt'
++        verify_object(evidence['production_version_infrastructure'], fds)
+         verify_receipt(receipt, args.worktree, revision)
+         verification_stage = 'final_generator'
+         if digest_file(importlib.import_module(GENERATORS[args.bug]).__file__)['sha256'] != generator_hash:
+@@ -505,7 +515,8 @@
+         # Preserve sanitized process/hash evidence; rejected case verdicts are omitted.
+         exc.stage_evidence = {key: evidence[key] for key in
+                               ('compile', 'link', 'native', 'generated_object', 'generated_executable',
+-                               'link_archive_responses', 'link_output_transport', 'link_debug_info')
++                               'link_archive_responses', 'link_output_transport', 'link_debug_info',
++                               'production_version_infrastructure')
+                               if key in evidence}
+         raise
+     finally:
+--- a/rbo-fixes-20261023/correctness_cpp_contract.py
++++ b/rbo-fixes-20261023/correctness_cpp_contract.py
+@@ -125,6 +125,9 @@
+             or receipt.get('metadata', {}).get('profile') != 'rbo'
+             or not isinstance(receipt.get('files'), dict) or not receipt['files']):
+             return False
++        from production_version_object import validate_evidence as validate_version_evidence
++        if not validate_version_evidence(evidence.get('production_version_infrastructure', {}), receipt, raw_receipt):
++            return False
+         for key in ('generated_object', 'generated_executable'):
+             item = evidence.get(key, {})
+             if not _digest(item.get('sha256')) or type(item.get('size_bytes')) is not int or item['size_bytes'] <= 0:
+--- /dev/null
++++ b/rbo-fixes-20261023/production_version_object.py
+@@ -0,0 +1,308 @@
++"""Replay graph-bound production version infrastructure, without replacement APIs.
++
++All metadata, generated C and object bytes stay in sealed memfds. Ancillary VCS
++strings are preserved verbatim and never establish the worktree revision.
++"""
++import base64
++import fcntl
++import hashlib
++import io
++import json
++import os
++from pathlib import Path
++import types
++
++import anonymous_cpp_metadata as metadata
++
++VERSION = 'graph_bound_production_version_object_v1'
++OBJECT = 'production_version_object'
++SEALS = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
++
++
++def _hash(data):
++    return hashlib.sha256(data).hexdigest()
++
++
++def _json_hash(value):
++    return _hash(json.dumps(value, sort_keys=True, separators=(',', ':')).encode())
++
++
++def _unique(pairs):
++    value = {}
++    for key, item in pairs:
++        if key in value:
++            raise metadata.MetadataError('duplicate_production_version_metadata')
++        value[key] = item
++    return value
++
++
++def expected_source_identity(payload, script, template):
++    """Reuse the production formatter in RAM; reject its missing-input fallback."""
++    module = types.ModuleType('_production_version_expected')
++    module.__file__ = str(script)
++    exec(compile(Path(script).read_bytes(), str(script), 'exec'), module.__dict__)
++    def reject_fallback():
++        raise metadata.MetadataError('production_version_metadata_fallback_rejected')
++    def memory_input(path, *unused, **ignored):
++        if path != 'bound-vcs-metadata':
++            raise metadata.MetadataError('production_version_expected_input_changed')
++        return io.StringIO(payload.decode('utf-8'))
++    module.get_default_json = reject_fallback
++    module.open = memory_input
++    normalized = module.get_json('bound-vcs-metadata')
++    value = ('\n'.join(module._Formatting.escaped_define(key, item) for key, item in normalized.items())
++             + '\n' + Path(template).read_text(encoding='utf-8')).encode('utf-8')
++    if not 0 < len(value) <= 2 * 1024 * 1024:
++        raise metadata.MetadataError('production_version_expected_source_too_large')
++    return {'sha256': _hash(value), 'size_bytes': len(value)}
++
++
++def selected_graph_data(graph_path, node_uid):
++    """Bounded reader of the existing pretty-printed production graph format."""
++    prefix, node, started = [], [], False
++    prefix_bytes = node_bytes = 0
++    with Path(graph_path).open('r', encoding='utf-8') as stream:
++        for line in stream:
++            if line == '    "graph": [\n':
++                break
++            prefix.append(line)
++            prefix_bytes += len(line.encode())
++            if prefix_bytes > 1024 * 1024:
++                raise metadata.MetadataError('production_version_graph_header_too_large')
++        else:
++            raise metadata.MetadataError('production_version_graph_layout_unrecognized')
++        conf = json.loads(''.join(prefix) + '"graph": []}', object_pairs_hook=_unique)['conf']
++        for line in stream:
++            if not started:
++                if line == '        {\n':
++                    started, node, node_bytes = True, [line], len(line)
++                elif line.strip():
++                    raise metadata.MetadataError('production_version_link_node_missing')
++                continue
++            node.append('        }\n' if line == '        },\n' else line)
++            node_bytes += len(line.encode())
++            if node_bytes > 8 * 1024 * 1024:
++                raise metadata.MetadataError('production_version_graph_node_too_large')
++            if line in ('        },\n', '        }\n'):
++                value = json.loads(''.join(node), object_pairs_hook=_unique)
++                if value.get('uid') == node_uid:
++                    return conf, value
++                started = False
++    raise metadata.MetadataError('production_version_link_node_missing')
++
++
++def prepare_plan(receipt, worktree):
++    """No tools are executed and no generated source is produced by this step."""
++    info = receipt['metadata']
++    target = info['target']
++    relative = target.rstrip('/') + '/__vcs_version__.c.o'
++    if info['removed_test_inputs'].count(relative) != 1:
++        raise metadata.MetadataError('production_version_removed_input_unrecognized')
++    conf, node = selected_graph_data(receipt['graph']['resolved_path'], info['link_node_uid'])
++    commands = node.get('cmds', [])
++    generators = [item for item in commands if any(str(arg).endswith('/build/scripts/vcs_info.py')
++                  for arg in item.get('cmd_args', []))]
++    compilers = [item for item in commands if '$(BUILD_ROOT)/' + relative in item.get('cmd_args', [])
++                 and '-c' in item.get('cmd_args', [])]
++    links = [item for item in commands if any(str(arg).endswith('/build/scripts/link_exe.py')
++             for arg in item.get('cmd_args', []))]
++    if len(generators) != 1 or len(compilers) != 1 or len(links) != 1:
++        raise metadata.MetadataError('production_version_steps_ambiguous')
++    generator, compiler, linker = generators[0], compilers[0], links[0]
++    if not commands.index(generator) < commands.index(compiler) < commands.index(linker):
++        raise metadata.MetadataError('production_version_step_order_changed')
++    raw_generate = generator['cmd_args']
++    generated_c = '$(BUILD_ROOT)/' + target.rstrip('/') + '/__vcs_version__.c'
++    if (len(raw_generate) != 5 or not raw_generate[0].endswith('/bin/python3')
++        or not raw_generate[0].startswith('$(YMAKE_PYTHON3-')
++        or raw_generate[1:] != ['$(SOURCE_ROOT)/build/scripts/vcs_info.py', '$(VCS)/vcs.json',
++                                generated_c, '$(SOURCE_ROOT)/build/scripts/c_templates/svn_interface.c']
++        or generator.get('env') != {'ARCADIA_ROOT_DISTBUILD': '$(SOURCE_ROOT)'}
++        or generator.get('cwd') not in (None, '$(BUILD_ROOT)')):
++        raise metadata.MetadataError('production_version_generator_requires_audit')
++    resources = [item for item in conf.get('resources', []) if item.get('pattern') == 'VCS']
++    if len(resources) != 1 or not resources[0].get('resource', '').startswith('base64:vcs.json:'):
++        raise metadata.MetadataError('production_version_resource_unrecognized')
++    resource = resources[0]['resource']
++    if len(resource) > 1024 * 1024:
++        raise metadata.MetadataError('production_version_resource_too_large')
++    try:
++        payload = base64.b64decode(resource.split(':', 2)[2], validate=True)
++        parsed = json.loads(payload, object_pairs_hook=_unique)
++    except (ValueError, UnicodeError):
++        raise metadata.MetadataError('invalid_production_version_resource') from None
++    if not isinstance(parsed, dict) or not parsed or any(not isinstance(key, str) for key in parsed):
++        raise metadata.MetadataError('invalid_production_version_resource')
++    substitutions = dict(info['resources'], SOURCE_ROOT=str(Path(worktree).resolve()), BUILD_ROOT=info['link_cwd'])
++    generate = [metadata._replace(arg, substitutions) for arg in
++                (raw_generate[0], raw_generate[1], raw_generate[4])]
++    generate = [generate[0], '-B', generate[1], '@FD:production_version_metadata@',
++                '@FD:production_version_source@', generate[2]]
++    generate_env = {'ARCADIA_ROOT_DISTBUILD': str(Path(worktree).resolve())}
++    raw_compile = compiler['cmd_args']
++    metadata.require_non_input_tool_root(raw_compile, compiler.get('cwd'), compiler.get('env'))
++    compile_env = metadata.audited_command_environment(compiler.get('env'), substitutions, conf.get('platform'))
++    if compile_env != info['compile_environment']:
++        raise metadata.MetadataError('production_version_compile_environment_differs')
++    compile_argv = [metadata._replace(arg, substitutions) for arg in raw_compile]
++    metadata._no_disk_emission(compile_argv)
++    compile_argv, output = metadata._remove_output(compile_argv)
++    actual_c = metadata._replace(generated_c, substitutions)
++    if (output != metadata._replace('$(BUILD_ROOT)/' + relative, substitutions)
++        or compile_argv.count(actual_c) != 1 or compile_argv.count('-c') != 1
++        or Path(compile_argv[0]).parent.resolve() != Path(info['compile_argv'][0]).parent.resolve()
++        or Path(compile_argv[0]).name != 'clang'
++        or compiler.get('cwd') not in (None, '$(BUILD_ROOT)')):
++        raise metadata.MetadataError('production_version_compile_requires_audit')
++    at = compile_argv.index(actual_c)
++    compile_argv[at:at + 1] = ['-x', 'c', '@FD:production_version_source@']
++    compile_argv += ['-g0', '-fno-crash-diagnostics', '-fintegrated-as', '-o', '-']
++    raw_link = linker['cmd_args']
++    metadata.require_non_input_tool_root(raw_link, linker.get('cwd'), linker.get('env'))
++    if metadata.audited_command_environment(linker.get('env'), substitutions, conf.get('platform')) != info['link_environment']:
++        raise metadata.MetadataError('production_version_link_environment_differs')
++    original_link = metadata._normalize_paths(metadata._unwrap(
++        [metadata._replace(arg, substitutions) for arg in raw_link], worktree, info['link_cwd'], True), info['link_cwd'])
++    existing, removed = metadata.link_template(original_link, target, info['link_cwd'])
++    if existing != info['link_argv'] or sorted(removed) != info['removed_test_inputs']:
++        raise metadata.MetadataError('production_version_original_link_receipt_mismatch')
++    no_output, _ = metadata._remove_output(original_link)
++    version_path = str(Path(info['link_cwd']) / relative)
++    if no_output.count(version_path) != 1:
++        raise metadata.MetadataError('production_version_link_position_ambiguous')
++    removed_paths = {str(Path(info['link_cwd']) / name) for name in removed}
++    insertion = sum(arg not in removed_paths for arg in no_output[:no_output.index(version_path)])
++    link_argv = existing[:insertion] + ['@FD:' + OBJECT + '@'] + existing[insertion:]
++    python_root = Path(info['resources'][raw_generate[0].split(')', 1)[0][2:]]).resolve()
++    files = [Path(generate[0]), Path(generate[2]), Path(generate[-1]),
++             Path(worktree) / 'build/scripts/c_templates/svnversion.h', Path(compile_argv[0]), Path(__file__)]
++    # Include the actual packaged Python runtime and the production link-wrapper dependencies.
++    files += [item for item in python_root.rglob('*') if item.is_file()]
++    files += [Path(worktree) / 'build/scripts' / name for name in
++              ('link_exe.py', 'process_command_files.py', 'thinlto_cache.py', 'process_whole_archive_option.py')]
++    return dict(payload=payload, generate_argv=generate, generate_environment=generate_env,
++                compile_argv=compile_argv, compile_environment=compile_env, link_argv=link_argv,
++                cwd=info['link_cwd'], files=sorted(set(str(item.resolve()) for item in files)),
++                identity=dict(schema_version=VERSION, graph_sha256=receipt['graph']['sha256'],
++                    link_node_uid=info['link_node_uid'], original_steps_sha256=_json_hash([generator, compiler, linker]),
++                    vcs_resource_sha256=_hash(payload), vcs_resource_bytes=len(payload),
++                    generate_argv_sha256=_json_hash(generate), compile_argv_sha256=_json_hash(compile_argv),
++                    restored_link_argv_sha256=_json_hash(link_argv), restored_input_position=insertion,
++                    expected_production_source=expected_source_identity(payload, generate[2], generate[-1]),
++                    metadata_strings_used_as_source_provenance=False, target_resource_objects_changed=False))
++
++
++def _memfd(name, value=b''):
++    fd = os.memfd_create(name, os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
++    try:
++        with os.fdopen(os.dup(fd), 'wb') as stream:
++            stream.write(value)
++        os.lseek(fd, 0, os.SEEK_SET)
++        return fd
++    except BaseException:
++        os.close(fd)
++        raise
++
++
++def _seal(fd):
++    fcntl.fcntl(fd, fcntl.F_ADD_SEALS, SEALS)
++    if fcntl.fcntl(fd, fcntl.F_GET_SEALS) != SEALS:
++        raise metadata.MetadataError('production_version_memory_not_sealed')
++
++
++def _files(paths):
++    return {path: metadata.digest_file(path) for path in paths}
++
++
++def prepare_object(receipt, receipt_path, worktree, fds, *, timeout):
++    """Must be called within anonymous_cpp_verify.serial_slot, never standalone."""
++    import anonymous_cpp_verify as direct
++    revision = receipt['revision']
++    receipt_bytes = Path(receipt_path).read_bytes()
++    if json.loads(receipt_bytes, object_pairs_hook=_unique) != receipt:
++        raise metadata.MetadataError('production_version_receipt_bytes_mismatch')
++    metadata.verify_receipt(receipt, worktree, revision)
++    plan = prepare_plan(receipt, worktree)
++    identities = _files(plan['files'])
++    evidence = dict(plan['identity'], bound_files=identities, receipt_sha256=_hash(receipt_bytes),
++                    anonymous_outputs=True, sealed_inputs_and_object=False)
++    created = []
++    try:
++        for name, value in (('production_version_metadata', plan['payload']),
++                            ('production_version_source', b''), (OBJECT, b'')):
++            if name in fds:
++                raise metadata.MetadataError('production_version_descriptor_collision')
++            fds[name] = _memfd(name, value)
++            created.append(name)
++        _seal(fds['production_version_metadata'])
++        for stage, argv, environment, output in (
++            ('generate', plan['generate_argv'], plan['generate_environment'], None),
++            ('compile', plan['compile_argv'], plan['compile_environment'], OBJECT),
++        ):
++            record, _ = direct.run_anonymous(argv, plan['cwd'], {name: fds[name] for name in created},
++                stdout_fd=output, timeout=timeout, max_scope_gib=12, retain_stdout=0, environment=environment)
++            evidence[stage] = record
++            if (record.get('exit_code') != 0 or record.get('cleanup_complete') is not True
++                or record.get('watchdog_stopped') is not False or record.get('stdout_overflow') is not False
++                or record.get('environment_sha256') != _json_hash(environment)):
++                error = metadata.MetadataError('production_version_' + stage + '_failed')
++                error.production_version_evidence = evidence
++                raise error
++            name = 'production_version_source' if stage == 'generate' else OBJECT
++            identity = direct._fd_digest(fds[name])
++            if not 0 < identity['size_bytes'] <= (2 * 1024 * 1024 if stage == 'generate' else 16 * 1024 * 1024):
++                raise metadata.MetadataError('production_version_output_size_rejected')
++            if stage == 'generate' and identity != plan['identity']['expected_production_source']:
++                raise metadata.MetadataError('production_version_generated_source_differs')
++            _seal(fds[name])
++            evidence[name] = identity
++        if _files(plan['files']) != identities or Path(receipt_path).read_bytes() != receipt_bytes:
++            raise metadata.MetadataError('production_version_inputs_changed')
++        metadata.verify_receipt(receipt, worktree, revision)
++        evidence['sealed_inputs_and_object'] = True
++        return plan['link_argv'], evidence
++    finally:
++        for name in created:
++            if name != OBJECT:
++                os.close(fds.pop(name))
++
++
++def verify_object(evidence, fds):
++    import anonymous_cpp_verify as direct
++    if (evidence.get('schema_version') != VERSION or evidence.get('sealed_inputs_and_object') is not True
++        or fcntl.fcntl(fds[OBJECT], fcntl.F_GET_SEALS) != SEALS
++        or direct._fd_digest(fds[OBJECT]) != evidence[OBJECT]
++        or _files(evidence['bound_files']) != evidence['bound_files']):
++        raise metadata.MetadataError('production_version_object_or_inputs_changed')
++
++
++def validate_evidence(evidence, receipt, receipt_bytes):
++    """Require the replay as well as the original closure for fixed admission."""
++    try:
++        plan = prepare_plan(receipt, receipt['worktree'])
++        if (any(evidence.get(key) != value for key, value in plan['identity'].items())
++            or evidence.get('receipt_sha256') != _hash(receipt_bytes)
++            or evidence.get('anonymous_outputs') is not True
++            or evidence.get('sealed_inputs_and_object') is not True
++            or set(evidence.get('bound_files', {})) != set(plan['files'])
++            or _files(plan['files']) != evidence['bound_files']):
++            return False
++        for stage, environment in (('generate', plan['generate_environment']), ('compile', plan['compile_environment'])):
++            record = evidence.get(stage, {})
++            if (type(record.get('exit_code')) is not int or record['exit_code'] != 0
++                or record.get('cleanup_complete') is not True or record.get('watchdog_stopped') is not False
++                or record.get('stdout_overflow') is not False
++                or record.get('environment_sha256') != _json_hash(environment)
++                or record.get('max_scope_gib') != 12 or record.get('min_host_available_gib') != 36):
++                return False
++        for name, limit in (('production_version_source', 2 * 1024 * 1024), (OBJECT, 16 * 1024 * 1024)):
++            value = evidence.get(name, {})
++            if (type(value.get('sha256')) is not str or len(value['sha256']) != 64
++                or any(char not in '0123456789abcdef' for char in value['sha256'])
++                or type(value.get('size_bytes')) is not int or not 0 < value['size_bytes'] <= limit):
++                return False
++        if evidence['production_version_source'] != plan['identity']['expected_production_source']:
++            return False
++        return True
++    except (OSError, ValueError, KeyError, TypeError, AttributeError, metadata.MetadataError):
++        return False

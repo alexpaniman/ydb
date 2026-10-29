@@ -1,0 +1,33 @@
+{
+  "reviewer": "cpp_metadata_recovery",
+  "kind": "independent_source_review",
+  "finding": "C31",
+  "verdict": "narrow_export_change_preserves_fail_closed_acceptance",
+  "source_sha256": {
+    "anonymous_cpp_metadata.py": "140c361798d737c8608efbc0a8bcc9d29257196cc98c985eb37ebc9a8c847ee6",
+    "anonymous_cpp_verify.py": "63d3c5ae9590e45b180d3ac7e34712c780e36a1326c84e88f2a5377ee567121f"
+  },
+  "reviewed_behavior": [
+    "production_build_arguments keeps export_objects=True by default.",
+    "Only prepare for bug C31 passes export_objects=False; Q19 and all other bugs retain broad object export.",
+    "The suffix filter removes exactly .o and retains archive, generated include/source, shared-library, linker auxiliary and plugin result suffixes.",
+    "All-outputs-to-result, no-src-links, export root and graph options remain intact.",
+    "build.json records broad_object_export explicitly.",
+    "Selected absolute object/archive/shared-library/linker inputs still reject if missing.",
+    "Explicit linker auxiliary inputs still require existing files.",
+    "Capture still requires unique selected compiler/linker commands, exact successful source revision, installed linker, and file identities.",
+    "Compiler/link/native failures still prevent direct local acceptance; this change does not assert archives-only linkage."
+  ],
+  "limits": [
+    "Actual C31 closure capture, anonymous compile and link remain pending.",
+    "Some standalone object inputs may still be required; capture rejection must be resolved explicitly rather than weakened.",
+    "Q19 ABI-suffixed object-name recognition remains a separately noted, unchanged issue."
+  ],
+  "execution": {
+    "builds": 0,
+    "native_runs": 0,
+    "mock_suites": 0,
+    "active_helper_edits": false,
+    "production_edits": false
+  }
+}

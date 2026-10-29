@@ -1,0 +1,217 @@
+[
+  {
+    "reviewer": "r01_join_filter",
+    "scope": "Filter-into-join and simple join-filter rules",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r02_map_filter",
+    "scope": "Filter-through-map/aggregate and filter fusion",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r03_join_eliminate",
+    "scope": "Left elimination, right-join rewrite, join-expression extraction",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r04_conjuncts_predicate",
+    "scope": "Conjunct extraction, peephole predicates, constant folding",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r05_grouping_sets",
+    "scope": "Grouping sets and DISTINCT expansion",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r06_windows_logical",
+    "scope": "Whole-partition expansion and physical windows",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r07_scalar_subplans",
+    "scope": "Scalar subplan inlining",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r08_in_exists",
+    "scope": "Simple and generic IN/EXISTS",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r09_decorrelation_filter_map",
+    "scope": "Domain elimination and filter/map decorrelation",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r10_decorrelation_aggregate",
+    "scope": "Aggregate decorrelation",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r11_decorrelation_join_union",
+    "scope": "Join and union decorrelation",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r12_decorrelation_replicate_limit",
+    "scope": "Shared-plan, sort, and limit decorrelation",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r13_liveness",
+    "scope": "Local/global liveness and demand",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r14_global_pruning",
+    "scope": "Global pruning and normalization",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r15_global_inlining",
+    "scope": "Inlining and coordinated renaming",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r16_copy_replicate",
+    "scope": "Logical copying, replicate expansion, map movement",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r17_info_units",
+    "scope": "IU collections and adaptive bitsets",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r18_framework_pipeline",
+    "scope": "Rewrite runtime, caches, convergence, pipeline order",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r19_type_annotation",
+    "scope": "Operator and subplan type contracts",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r20_rewrite_sources",
+    "scope": "Sources, joins, set operations and writes import",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r21_rewrite_expressions",
+    "scope": "Aggregate/window/expression translation",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r22_assign_stages",
+    "scope": "Physical stage assignment",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r23_stage_graph_hash",
+    "scope": "Stage graph and hash propagation",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r24_limit_sort",
+    "scope": "Limits and sort/top-N propagation and lowering",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r25_aggregate_stages",
+    "scope": "Aggregate stage propagation and physical aggregation",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r26_ranges_indexes",
+    "scope": "Range extraction and index selection",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r27_olap_pushdown",
+    "scope": "OLAP predicates, projections, and block limits",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r28_cbo_build",
+    "scope": "CBO tree formation and graph boundaries",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r29_cbo_execution",
+    "scope": "CBO invocation, import, and residual filters",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r30_metadata_statistics",
+    "scope": "Metadata proofs and cost/statistics",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r31_lookup_rule",
+    "scope": "Lookup applicability and logical rewrite",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r32_lookup_lowering",
+    "scope": "Lookup physical builder and runtime worker",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r33_physical_join",
+    "scope": "Physical joins and key normalization",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r34_physical_sources",
+    "scope": "Physical reads, sources, block/storage layout",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r35_map_union_filters",
+    "scope": "Physical maps, filters, unions, union merging",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r36_query_effects",
+    "scope": "Physical queries, effects, multiple results and index maintenance",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r37_compatibility_async",
+    "scope": "Compatibility lowering, async statistics, fallback and lifecycle",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r38_state_invariants",
+    "scope": "Plan/expression ownership, rebinding, caches and parent graphs",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r39_correctness_challenge",
+    "scope": "Independent challenge of correctness claims and semantic oracles",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r40_quality_synthesis",
+    "scope": "Independent optimization quality synthesis and challenge",
+    "status": "two passes complete"
+  },
+  {
+    "reviewer": "r41_final_rule_sweep",
+    "scope": "Final logical-rule interaction and field-resolution sweep",
+    "status": "three passes complete; final narrow pass no new distinct actionable issue"
+  },
+  {
+    "reviewer": "r42_final_physical_sweep",
+    "scope": "Final physical-stage and metadata interaction sweep",
+    "status": "three passes complete; new partial-key finding native-confirmed; final narrow pass no further distinct source-complete issue"
+  },
+  {
+    "reviewer": "r43_evidence_audit",
+    "scope": "Independent native-evidence and artifact audit",
+    "status": "two passes complete"
+  }
+]

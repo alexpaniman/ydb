@@ -1,0 +1,90 @@
+Aggregate/window correctness work and separate optimization scope
+Prepared 2026-10-23; pinned independent base e8700d379b3b9c4fbaf68f36424e6bcf08314fd2.
+This artifact contains designs and contracts, never generated query inputs.
+
+CORRECTNESS: PREPARED, NOT YET COMPILED OR NATIVELY VERIFIED
+
+C35 ordinary interval AVG
+Commit 461e53cf080ab7c2f213adcab4aee779b5c2ba0c, fix/new-rbo/c35-interval-average.
+Use an AVG-specific Decimal(35,0) accumulator, converting raw interval input through
+Int64. Preserve the (sum,count) tuple through Intermediate/Final states, then
+DecimalDiv and convert through Int64 to the original Interval or Interval64.
+Keep optional init/update/final states and empty-input result typing coherent.
+DISTINCT padding must carry the same Decimal tuple. Final tuple-state metadata
+must recover the original input/result family; Decimal(35,0) alone cannot tell
+an interval average from a decimal average. Restrict that recovery to AVG traits
+so unrelated aggregate columns in the same operator are not rewritten.
+The shared numeric accumulator used by variance is left unchanged.
+Existing OLAP AVG eligibility excludes interval slots, avoiding a second incompatible
+column-shard state producer. General tuple-valued empty aggregation is C34 and is
+not included here. No changes to yql/essentials.
+
+C24 multi-DISTINCT interval SUM
+Commit 037848a02d0d400ab3d90c29d329b83b9f03456c, fix/new-rbo/c24-distinct-interval-state.
+Compute the partial state type from the aggregate function and original input.
+Use that same type to decide whether a real branch needs Just and whether a
+padding branch needs an Optional wrapper. Optionalization must be idempotent.
+SUM(Interval) is already optional even for nonoptional input because overflow is
+nullable; both branches must retain precisely that state type.
+Derive final Unwrap from the original aggregate result type, not input nullability.
+COUNT still turns its nonoptional partial state into optional union input and
+retains the existing final count handling. AVG tuple state retains input absence.
+Integration overlap: combine C35's interval AVG branch using unwrapped valueType;
+combine C26's variance state type while retaining its outer optional layer.
+
+C28 DISTINCT over window results
+Commit cf3d1399f717ebeef9dd6d2c6280f2a4c9f7effe, fix/new-rbo/c28-distinct-after-window.
+Defer the existing result deduplication until BuildWindowOperators has also
+materialized expressions containing window calls. Keep grouping and HAVING before
+windows, original input multiplicity during window evaluation, and result ORDER BY
+after deduplication. Keep DISTINCT trait construction available by const reference.
+The independent C04 hidden grouping-key issue remains for that dedicated fix;
+this commit changes stage order only. The separate C03 grouping-set support guard
+also remains. Native controls must include ROW_NUMBER (detect premature input
+collapse), tied ordered rank, multiple windows, and window-result expressions.
+
+C27 HAVING without aggregate calls
+Commit fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c, fix/new-rbo/c27-having-without-aggregate.
+When aggregate extraction contributes no predicate, preserve the original lambda
+and replace grouping references with their grouped output members. The existing
+post-aggregation filter then handles ordinary and constant predicates. This is a
+seven-line fallback; the aggregate-containing path remains unchanged.
+
+Verification artifacts
+aggregate_window_checks.py exposes 37 recipe labels, settings, expected-row models,
+semantic_oracle/check_rows, schema_and_seeds and paired_controls. Python syntax and
+280 positive/negative model checks passed across four generated sizes. These are
+model checks, not engine tests. Whole-partition window AVG controls are C35 tests:
+WindowFunctionsV2 rewrites them to ordinary aggregates. Physical-window C21 tests
+remain explicitly non-whole frames in window_checks.py.
+
+OPTIMIZATION QUALITY: DESIGN ONLY, NO PERFORMANCE CHANGES IMPLEMENTED
+
+Q02 unused window outputs: a small complete direction is available.
+- Add TOpWindow::PruneOutputs to retain only live WindowFuncs and invalidate its
+  output-IU cache through SetWindowFuncs.
+- Update TOpWindow::PropagateLiveness to request argument IUs only for definitions
+  retained by ILivenessContext::NeedsDefinition. Request partition/order keys only
+  when at least one window definition remains. Preserve needed passthrough inputs.
+- Existing IsEmptyPassthrough/BypassEmptyOperators already remove an empty Window.
+  Early global pruning already precedes whole-partition expansion, block-mode
+  disabling, and physical-stage assignment. No new bypass stage is required.
+Expected scope: operator declaration, global_pruning.cpp and logical_liveness.cpp.
+Check subset-function pruning, all-dead windows, required hidden sort/partition
+inputs, cardinality and empty input. Validate the resulting plan has no dead window
+stage/sort/shuffle and does not disable blocks solely because of a removed window.
+Use current expression-liveness/effect contracts, without inventing new purity rules.
+
+Q01 general ROWS/RANGE frame folds: a narrow partial improvement is available.
+BuildFrameFold uses Fold1 over each frame. Its WinFrame list is implemented by
+TQueueRange, whose GetListLength is end-minus-begin and HasFastListLength is true.
+For COUNT with a statically nonoptional argument, use frame list length, avoiding
+per-row frame traversal. If all aggregate window functions are such counts, avoid
+building Fold1 entirely; native ranking outputs can still use the existing path.
+This is a targeted improvement, not a complete fix for Q01. Nullable COUNT still
+needs null-sensitive work; SUM/AVG/MIN/MAX need separate incremental structures or
+proven-safe prefix methods. Floating-point reassociation, overflow/null propagation,
+and range peer groups prevent assuming subtraction is equivalent. Existing queue
+memory behavior and partition latency remain unchanged.
+Validate empty/clipped frames, ROWS and RANGE, mixed native outputs, count-all and
+nonnullable count arguments; use increasing data/frame sizes to confirm scaling.

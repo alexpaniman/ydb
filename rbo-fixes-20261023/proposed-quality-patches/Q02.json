@@ -1,0 +1,23 @@
+{
+  "id": "Q02",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_patch_not_applied",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+    "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp"
+  ],
+  "scope": "Prune undemanded window definitions and their input dependencies; existing empty-window bypass removes all-dead windows.",
+  "validation_required": [
+    "Existing RBO liveness/copy/window tests",
+    "Native empty and nonempty all-dead and partially-live window semantics",
+    "Plan window/function/sort/shuffle counts and retained hidden input columns",
+    "Check global/local and protected-definition scopes"
+  ],
+  "apply_check_passed": true,
+  "production_edited": false,
+  "compiled": false,
+  "native_verified": false,
+  "independent_source_review": "No additional source blocker after review; native/build and stated topology checks remain required.",
+  "independently_reviewed_patch_sha256": "348ce403fadbd308472915423de834214f5047c2a48a2f59ff91d2869ee8268a"
+}

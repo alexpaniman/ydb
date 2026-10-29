@@ -1,0 +1,66 @@
+{
+  "reviewer": "harness_provenance",
+  "recorded_unix_ns": 1792720147665016983,
+  "scope": "Independent source review of proposed artifact patches only; no build or native query execution",
+  "production_edited": false,
+  "reviews": [
+    {
+      "id": "Q11",
+      "status": "source_review_pass_after_doccomment_cleanup",
+      "patch_sha256": "7f8386d00e932b6a30941a86fb5d1536c589140cfdc8528462efa062b65398c2",
+      "checks": [
+        "Public partially-pushed flag and union IU mapping APIs exist on pinned main",
+        "Exact source/output annotation checks prevent unadapted optional widening",
+        "Predicate whitelist excludes unknown callables, volatile calls, UDFs and row-error arithmetic",
+        "Unresolved subplans are declined",
+        "Fresh replacement operators preserve canonical Replicate ownership",
+        "Separate UnionAll and aggregate doccomments restored"
+      ],
+      "remaining": [
+        "Compile",
+        "Semantic row bag and ordered-union checks",
+        "Plan proof of branch-level pushdown",
+        "Shared-producer and negative predicate controls"
+      ]
+    },
+    {
+      "id": "Q28",
+      "status": "source_review_pass_after_scheduler_completeness_repair",
+      "patch_sha256": "eed2226f8e448a47b95e0e5ad0d1bb733411036718768757ef0f0b83a47a5439",
+      "finding": "A completed deduplicated-node snapshot does not prove all independent owning slots were rewritten; an old right join could remain reachable through another raw DAG edge.",
+      "repair": "Always run a fresh conservative pass after the postorder batch; canonical ownership pays one final no-op traversal while independent aliases receive their missing rewrites.",
+      "checks": [
+        "Snapshot holds owners and current nodes alive",
+        "Rules require zero properties plus explicit immutable replacement opt-in",
+        "Right join replacement uses no parent metadata, preserves output IDs/types and subplans, creates no new right join candidate",
+        "Replicate inputs resolve to shared owner slots",
+        "Rule trace and match cap retained",
+        "git apply --check --whitespace=error-all passes on baseline"
+      ],
+      "remaining": [
+        "Compile",
+        "Nested/right-join semantic coverage",
+        "Shared-slot and independent-owner scheduler coverage",
+        "Traversal-cost measurement"
+      ]
+    },
+    {
+      "id": "Q15",
+      "status": "source_proof_valid_with_configuration_guard_required",
+      "finding": "Direct adjacent window with identical ordered nonempty partition IUs can preserve task partitioning through Map, but the proposed patch ignores the existing shuffle-elimination setting.",
+      "required_repair": "Respect OptShuffleElimination with GetDefaultEnableShuffleElimination fallback before selecting Map. Assigned to quality_review.",
+      "checks": [
+        "Immediate predecessor must itself be a Window",
+        "Exact ordered partition IU equality implies unchanged key identity and types",
+        "No stale inherited C37 metadata is consulted",
+        "Map connection uses existing DqCnMap task-preservation contract"
+      ],
+      "remaining": [
+        "Guard repair and on/off controls",
+        "Compile",
+        "Four-node semantic and shuffle-plan validation",
+        "Broader downstream checks when combined with C37"
+      ]
+    }
+  ]
+}

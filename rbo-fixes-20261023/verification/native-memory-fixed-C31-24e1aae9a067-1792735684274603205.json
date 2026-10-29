@@ -1,0 +1,21 @@
+{
+  "cancelled": true,
+  "cleanup_complete": true,
+  "diagnostic_bytes": 0,
+  "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "elapsed_seconds": 94.051,
+  "exit_code": 75,
+  "guard_exception_type": "InterruptedError",
+  "max_scope_gib": 24,
+  "min_host_available_gib": 36,
+  "minimum_host_available_bytes": 113545199616,
+  "peak_group_rss_bytes": 573853696,
+  "peak_scope_usage_bytes": 573853696,
+  "scope_collection_after_completion": false,
+  "scope_membership_accounting_available": true,
+  "stdout_bytes": 99280,
+  "stdout_overflow": false,
+  "stdout_sha256": "7d9c5f34e89800538efcca530f746531372e08607b0daaf57112f074fc4819b0",
+  "stop_reason": "guard_cancelled",
+  "watchdog_stopped": true
+}

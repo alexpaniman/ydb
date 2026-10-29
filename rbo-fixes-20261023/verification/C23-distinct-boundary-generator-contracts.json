@@ -1,0 +1,9 @@
+{
+  "generator": "null_distinct_boundary_checks",
+  "cases": 16,
+  "builder_oracle_contracts": 192,
+  "sha256": "c11f08c432b0bc62f4f696813e5073cc00bb3db0d96ec14fb4f3852a692ce609",
+  "native_verified": false,
+  "generated_payloads_saved": false,
+  "original_alias_failures_preserved": true
+}

@@ -1,0 +1,51 @@
+{
+  "actions": {
+    "actual_measurements": 0,
+    "builds": 0,
+    "fake_os_metadata_assertions": 79,
+    "graph_runs": 0,
+    "live_helper_edits": false,
+    "native_workloads": 0,
+    "production_edits": false,
+    "real_child_processes_launched": 0,
+    "toolchain_runs": 0
+  },
+  "candidate": {
+    "path": "proposed-quality-amendments/Q01-child-measurement-files/anonymous_child_measurement.py",
+    "sha256": "99c8c9d0233475daf052aaeb1d4ad3d202906e058978dbf428d2088a92858cc1"
+  },
+  "independent_fix_requests": [],
+  "integration_obligations": [
+    "Run guarded normal/nonzero/signal/failed-exec/cancellation/timeout/memory/output-overflow cases before using this wrapper for accepted measurements. The metadata tests use fake OS/process calls only.",
+    "Verify actual descriptor transport and source/report exclusion, stdout/stdin behavior, sealing and process cleanup under the existing guard.",
+    "Keep exact production executable/receipt, generator, frozen matrix/cell/revision, metric configuration and guard evidence bindings in the future caller and independent resource validator.",
+    "Keep MiniKQL allocation/peak instrumentation and operator-consumption timing separate. This wrapper alone does not fulfill Q01 resource acceptance."
+  ],
+  "metadata_checks": {
+    "assertions_passed": 79,
+    "path": "verification/Q01-child-measurement-independent-metadata-checks-20261028.json",
+    "sha256": "b02c86161ad174f688ea014091a078db5b403d3fb57c1d3517337d4496473743"
+  },
+  "metric_limits": [
+    "CPU and Linux ru_maxrss describe the waited child lifetime including fork/exec/startup/setup and kernel-attributed waited descendants. They are not operator-only interval measurements.",
+    "Linux ru_maxrss is a kernel high-water measurement, not summed concurrent scope RSS. Descendants that are not included by kernel wait accounting cannot be inferred from it.",
+    "Python wrapper-parent CPU is excluded, but pre-exec/startup floors may dominate small target measurements. Future paired admission must require sufficient measured signal.",
+    "Loaded-helper/source identity relies on the existing source-freeze discipline, while the child wrapper itself executes the exact sealed source snapshot."
+  ],
+  "patch": {
+    "path": "proposed-quality-amendments/Q01-dedicated-child-measurement.patch",
+    "sha256": "f4191c68677a6ae2451344b51a9f09f424930851bea8e261dab7fc941d8f4537"
+  },
+  "reviewed_contracts": [
+    "Positive-PID wait4 selects the exact launched child; subprocess.returncode is set from that same terminal wait status. No cumulative RUSAGE_CHILDREN subtraction is used.",
+    "Target process gets only original payload descriptors; measurement source and report descriptors are excluded by close_fds/pass_fds. Cwd, environment, session and rlimits are inherited from the existing guarded worker.",
+    "Existing run_anonymous receives guard options unchanged; wrapper and child remain in its scope, and the caller must retain the serial lease.",
+    "Normal and nonzero exits preserve their codes. A naturally signaled child yields a sealed report, then the wrapper restores/unblocks and re-raises the same signal so the existing guard retains 128+signal mapping.",
+    "A Python interruption kills and reaps the exact child before propagating. Default fatal signals bypass that local handler, but the existing outer guard still owns scope-wide cleanup and rejects stopped/incomplete runs.",
+    "A fresh bounded sealed memfd contains numeric metadata only. Parent requires exact report keys, nonce, terminal raw status and consistent exit/signal fields. Missing/malformed report, guard stop, overflow, incomplete cleanup or changed file bindings cannot produce raw_observation status.",
+    "All semantic/resource-scaling/optimization acceptance flags are hard false. Raw observations can retain natural nonzero exits and are not acceptance evidence."
+  ],
+  "schema_version": "q01_child_measurement_independent_source_review_v1",
+  "source_findings": [],
+  "status": "source_approved_for_future_guarded_integration_only"
+}

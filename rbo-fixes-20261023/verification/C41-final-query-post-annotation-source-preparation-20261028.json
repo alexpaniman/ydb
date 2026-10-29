@@ -1,0 +1,82 @@
+{
+  "limits": {
+    "essentials_files_changed": false,
+    "existing_tests_changed": false,
+    "full_constraint_reannotation_restored": false,
+    "native_execution_pending": true,
+    "production_or_live_helpers_changed": false,
+    "raw_workloads_or_diagnostics_saved": false
+  },
+  "observations": {
+    "crashes": 87,
+    "deleted_lambda_guard": 28,
+    "invalid_scope_lookup": 59,
+    "json_serializer_stack_matches": 0,
+    "six_assertions": "Independent reviewer traced five atom-quote setting mismatches and one equivalent range-bound alias mismatch to omitted CSEE; review artifact pending."
+  },
+  "patch": {
+    "after_sha256": "429479d060ca8197be45e672dd3034834f3c842d8f5cde29a0c14dae00f2ed8b",
+    "before_sha256": "0a08d5f365e53b04330e5cd719efb5e8924051ccbedd0fa096d9ff057481ecbd",
+    "path": "proposed-correctness-amendments/C41-final-physical-query-post-annotation-20261028.patch",
+    "sha256": "aada5ea5509698ec017972b021547584759e855921e0a5a82d400efc4f0e6987",
+    "target": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  },
+  "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+  "schema": "c41_final_query_completion_and_canonicalization_v1",
+  "scope": [
+    "Refresh final closed physical-query lambda dependency links before MiniKQL memoization.",
+    "Run existing common-expression canonicalization after scope refresh, preserving expected atom flags and repeated-expression sharing.",
+    "Use forSubGraph=false for a final closed query, matching outer host default; inner optimizer subgraph pipeline uses true. The flag only governs permitted root replacement assertion, not traversal selection.",
+    "Keep all existing test assertions, original12 targeted semantic contracts, result/effect ownership, transaction order, and plan-statistics behavior unchanged."
+  ],
+  "source_bindings": {
+    "ydb/core/kqp/host/kqp_host.cpp": "349f0976fec6a945e8e1ef645bc78ed649c9267a17fa648c2123c3779da09f2c",
+    "ydb/core/kqp/host/kqp_runner.cpp": "e3db6bf5c0f7c8cc3744a636cd71c8262423c0756d0559e0f711f7dc6ff0b577",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "0a08d5f365e53b04330e5cd719efb5e8924051ccbedd0fa096d9ff057481ecbd",
+    "ydb/core/kqp/provider/yql_kikimr_provider_streaming_ut.cpp": "59a3e7927b620935cdd5a40e885554336b05a81c18cbbd4d233c5014141e1624",
+    "yql/essentials/ast/yql_expr.cpp": "e33b2bf21861a4509b9fba3a0f1a12de56dcab76d1a4b3d2ac6471e24fbd41f9",
+    "yql/essentials/ast/yql_expr.h": "d86cf4b845a8071a419ee144d691818562330200ce79ea036079a7e30c132bc4",
+    "yql/essentials/core/services/yql_transform_pipeline.cpp": "48ed726441df8fb1414290276d7ff83f92ffa7eaf313d12c0b7956f99db173fc",
+    "yql/essentials/core/services/yql_transform_pipeline.h": "8e35f2f21fa7d70dab1f3a21bef039ffb76e092bd5ce35baffb322fa0cb303f2",
+    "yql/essentials/core/yql_expr_csee.cpp": "5e14327572f32cd7b3036d186136929a3117ddb6e049c5642a847a564729d2cc",
+    "yql/essentials/core/yql_expr_csee.h": "b2675300a2bd9d3770ee8a032a08c96a59c2cdfaf8085a38acd065f7242f0e74",
+    "yql/essentials/core/yql_expr_optimize.cpp": "bdb98e62a1e264244ea81b737b4547cbe8ec98d53a677b1b487053c1164cf443",
+    "yql/essentials/core/yql_expr_optimize.h": "f32dbb3a0cf39dc008234f91d2d45a2681c5ae8e31456ada3a54978832ee6fc0",
+    "yql/essentials/core/yql_graph_transformer.cpp": "35e62fa937560ce53e4c860782072819856a60008b9348d0f72085239e3a897a"
+  },
+  "source_checks": [
+    "single_export_boundary",
+    "only_include_and_final_boundary_changed",
+    "remap_default_restarts",
+    "changed_remap_returns_restart",
+    "composite_restart_propagation",
+    "inner_subgraph_pipeline_true",
+    "outer_query_pipeline_default",
+    "outer_default_false",
+    "existing_pass_order",
+    "completion_preserves_root_and_refreshes_scope",
+    "lambda_argument_scope_reset",
+    "node_scope_recomputed",
+    "closed_query_root_replacement_guard",
+    "csee_atom_flag_canonicalization",
+    "equivalent_atoms_normalize_quote_flags",
+    "existing_alias_safe_api_usage",
+    "new_completion_before_csee",
+    "completion_status_preserved",
+    "later_cleanup_selects_without_rewrite",
+    "disposable_exact_apply"
+  ],
+  "source_checks_passed": 20,
+  "status": "dormant_source_checked_independent_review_and_native_pending",
+  "supersedes_without_rewriting": {
+    "crash_diagnosis": "verification/C41-fullsuite-dependency-scope-source-diagnosis-20261028.json",
+    "crash_diagnosis_sha256": "6dab68cf1176db1eeb6f63f90964a8df515decc56768d57096c31204e1cc8743",
+    "crash_only_patch": "proposed-correctness-amendments/C41-final-physical-query-dependency-scopes-20261028.patch",
+    "crash_only_patch_sha256": "172152968e6d2f39e7b52a64bd5dfd3be0fcccbb61e474b8d2f106d309c4f933"
+  },
+  "verification_required": [
+    "Independent source review of pass ordering and closed-query flag.",
+    "Rerun all existing RBO tests on amended C41 revision.",
+    "Rerun original12 C41 semantic controls under their existing provenance and memory guards."
+  ]
+}

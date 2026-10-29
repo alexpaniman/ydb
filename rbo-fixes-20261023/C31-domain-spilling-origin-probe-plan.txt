@@ -1,0 +1,28 @@
+C31 domain-spilling shared-producer origin: anonymous probe plan
+
+Status: prepared, unexecuted, scope limited. No native acceptance may be granted by this probe.
+
+Purpose
+The existing presence-only Switch check can be satisfied by sharing inside the UNION producer. The extra probe follows stage connections and program-argument dependencies from the actual Inner and Left reconstruction joins. It looks for distinct output ports of one terminal Switch whose branches are bijective Member projections of the same source fields, and checks that the Left join's right input depends on the Inner join's stage. Raw plan graphs and field names remain in memory. Only the plan hash, Booleans and counts are returned.
+
+Small initial execution
+Run only the existing float-domain spilling LEFT profile and its integer-domain spilling LEFT control, sequentially, with the current C31 exact executable receipt and the normal memory guard. Wrap their existing physical-AST callback in memory: retain its verdict, then add check_shared_origin(case, ast) from c31_shared_origin_probe.py. Bind the generator hash, probe hash, revision, query hash, configuration evidence and physical AST hash to the sanitized record. Save no AST, rows, query, diagnostic payload or generated C++ object. Do not import this probe into the active acceptance path before independent review.
+
+What this probe establishes
+It can distinguish candidate reconstruction stage/port topology from a multi-output Switch elsewhere. It validates actual TDqOutput references, stage argument/input arity, reachable join kinds, equal direct-Member projection field sets across ports, and the Inner-to-Left dependency. Unsupported or ambiguous shapes fail closed. A false topology result may mean the final physical representation uses an unhandled valid form; it is not evidence that C31 is broken.
+
+Remaining proof
+Stage dependencies do not prove which aggregate output supplies an identity field. The probe therefore always reports exact_shared_producer_origin_proved=false, aggregation_value_to_identity_binding_proved=false and full_shared_producer_contract_pass=false. In particular, it must not turn generic aggregation ancestry or a stage-wide Double/AggrAdd token combination into value-lineage proof.
+
+To close the remaining claim, inspect the same anonymous AST and trace the reconstruction key columns through ExpandMap/Map and StablePickle back to each shared-port Member projection. Then trace those source fields through the UNION arm projection, MIN/CAST result and the preceding SUM finish/state lambdas, using exact expression references and column positions. Both compared identities must reach the same already-evaluated shared source field. A separately reviewed hash-bound Boolean proof must identify the selected generator/revision/AST and record complete key-field coverage. If any transform or column position cannot be resolved safely, retain the scope limitation.
+
+Relevant source contracts
+- dq_expr_nodes.json: DqPhyStage Inputs child0, Program child1; TDqOutput Stage child0, Index child1; connection Output child0.
+- kqp_stage_graph.cpp: each connection builds TDqOutput with its recorded stage and OutputIndex.
+- kqp_rbo_physical_query_builder.cpp: ordered input connections correspond to stage program arguments.
+- kqp_rbo_physical_convertion_utils.cpp:57-102: a Replicate creates a terminal Switch; all selectors read input0; branches rename live columns from the same row stream.
+- kqp_rbo_physical_union_all_builder.cpp: UNION output uses per-arm rename maps and Extend/OrderedExtend.
+- inline_join_filters.cpp: shared original producer supplies the outer-left stream and the deduplicated-domain inner-left stream before reconstruction.
+
+Separate artifact observation
+aggregate_copy_stability_checks.py currently matches DqOutput, whereas the exact source expression-node schema emits TDqOutput. That unassigned candidate's port detector may miss real sharing. No live correction was made by this task; the candidate remains unconfirmed.

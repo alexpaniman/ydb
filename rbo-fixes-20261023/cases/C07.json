@@ -1,0 +1,87 @@
+{
+  "id": "C07",
+  "branch": "fix/new-rbo/c07-retain-correlation-equality",
+  "commit": "2e4843e6be7a7b49fab191bc0d454653e0aca41e",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp"
+  ],
+  "rationale": "Keep equality predicates after domain bindings so nonreflexive values and NULL retain their original predicate semantics.",
+  "checks": [
+    "git diff --check passed",
+    "Read-only trace of fallback dependent Filter -> AddDependencies -> Cross(domain, inner), preserving original predicate; no native execution or build"
+  ],
+  "generators": [
+    "rbo-review-20261021/correlation_oracle_generator.py:build(case, seed)"
+  ],
+  "generator_cases": [
+    "nan_domain_equality",
+    "nan_finite_control"
+  ],
+  "expected_oracle": "Independent generated semantic oracle must pass and controls must preserve result multisets.",
+  "controls": [
+    "Finite Float/Double",
+    "Optional NULL",
+    "Decimal NaN and compound equality controls",
+    "Ordinary reflexive equality remains eligible"
+  ],
+  "concerns": [
+    "C05/C06/C07 are independent mechanisms; a single patch does not claim to repair the others."
+  ],
+  "build_verification": {
+    "bug": "C07",
+    "revision": "2e4843e6be7a7b49fab191bc0d454653e0aca41e",
+    "exit_code": 0,
+    "elapsed_seconds": 98.2,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4587520,
+      "peak_scope_usage_bytes": 43246710784,
+      "minimum_host_available_bytes": 88203821056,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 97.9
+    },
+    "diagnostic_sha256": "7a43688061d8002d17e439a4a60fe55f4e10cc85a946e15d80f03ec94c95395c",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/2e4843e6be7a7b49fab191bc0d454653e0aca41e-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 5,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C07-2e4843e6be7a-1793151273702693860.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Baseline and fixed native verification pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ],
+  "status_before_verification": "verified",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "fe1b80131d8407c3d64b93834540d067178aee18620c10c78ed92b6307a0c5df"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C07-1793151297025408542.json",
+    "coverage_evidence_sha256": "92066b31f39b7f7b631e1ae1e6c8bee1ebe9dcabb722b5680064806593f9698e",
+    "remaining_qualifications": [
+      "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract."
+    ]
+  }
+}

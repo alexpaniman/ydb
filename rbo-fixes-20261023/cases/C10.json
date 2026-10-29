@@ -1,0 +1,70 @@
+{
+  "id": "C10",
+  "branch": "fix/new-rbo/c10-test-in-lookup-presence",
+  "commit": "8c96cdf3c1ef0a971b7d736facd8d2610a5335d9",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp"
+  ],
+  "rationale": "Use HasNull rather than self-equality to detect an absent IN lookup; a present NaN is not NULL. Existing focused HasNull lowering supports recursively optional scalar values.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed focused scalar HasNull lowering and ANSI nonempty gating",
+    "Parent is the required main base",
+    "No build or native execution",
+    "Compositional generator syntax and oracle helpers checked at three fixture sizes; no native execution"
+  ],
+  "generator_module": "rbo-fixes-20261023/expression_checks.py",
+  "generator_cases": [
+    "c10_nan_in",
+    "c10_value_in",
+    "c10_null_in",
+    "c10_nan_empty"
+  ],
+  "expected_oracle_controls": [
+    "Present optional NaN is a nonmatch rather than unknown",
+    "Actual NULL retains ANSI nonempty/empty distinction",
+    "Ordinary present values retain existing membership semantics"
+  ],
+  "concerns": [
+    "Explicit ANSI isolates this fix from C09; fallback-sensitive contexts additionally need C11"
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C10",
+    "revision": "8c96cdf3c1ef0a971b7d736facd8d2610a5335d9",
+    "exit_code": 0,
+    "elapsed_seconds": 247.6,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4538368,
+      "peak_scope_usage_bytes": 43403051008,
+      "minimum_host_available_bytes": 105328476160,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 247.4
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/8c96cdf3c1ef0a971b7d736facd8d2610a5335d9-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 4,
+    "checks_passed": true,
+    "evidence": "verification/fixed-C10-8c96cdf3c1ef.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Build/native verification pending coordination",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

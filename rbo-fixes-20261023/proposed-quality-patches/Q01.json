@@ -1,0 +1,27 @@
+{
+  "id": "Q01",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_patch_not_applied",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h"
+  ],
+  "scope": "Constant-time frame COUNT from queued cumulative counts, including optional/Null arguments; other aggregates retain ordered Fold1.",
+  "validation_required": [
+    "Build and existing window suites",
+    "Independent ROWS/RANGE empty/clipped/nullable/peer/ascending/descending counts",
+    "Native ranking beside counts and mixed aggregate windows",
+    "Graph: count-only general frames have no reachable Fold1; Head and single-element WinFrame are constant-time",
+    "Measure fixed rows versus frame width and fixed width versus row count"
+  ],
+  "apply_check_passed": true,
+  "production_edited": false,
+  "compiled": false,
+  "native_verified": false,
+  "scope_note": "Bounded COUNT-family fix only. Q01 remains open for SUM/AVG/MIN/MAX general-frame algorithms.",
+  "integration_overlap": [
+    "C21 physical window accumulator change is elsewhere; preserve it on integration"
+  ],
+  "independent_source_review": "No additional source blocker after review; native/build and stated topology checks remain required.",
+  "independently_reviewed_patch_sha256": "7ebed1a419fc4867e9b4a97e01860fd381417b639b4c3e658dd41cf51e6b956d"
+}

@@ -1,0 +1,116 @@
+{
+  "build_runs": 0,
+  "copy_generator_api_review": {
+    "exact_single_assertion_expression_repair": true,
+    "generated_CPP_persisted": false,
+    "generated_after_sha256": "e610ac774afe761407c33e1565ea9a74d93d5d6a7429e2fc0572dda8326a9d4c",
+    "generated_suite_changes_only_corrected_API_expression": true,
+    "ordered_container_API": "Items().size()",
+    "original_case_count_preserved": 19,
+    "patch_sha256": "e0e65ce613aadb1c659800a4d289492273ccd81f92752c6206e613450b6cf206",
+    "status": "approved_source_only"
+  },
+  "correctness_assessment": [
+    {
+      "assessment": "RequireLiveness uses local demand, whose AddLiveInput unions demand from consumers; dead retained definitions still retain dependencies. Exactly one lookup parent is required. Only live fetched IDs are kept and empty demand declines.",
+      "invariant": "Liveness and single-owner replacement",
+      "sources": [
+        "analysis/logical_liveness.cpp:49",
+        "analysis/logical_liveness.cpp:227",
+        "kqp_rbo.cpp:105"
+      ]
+    },
+    {
+      "assessment": "Replacement creates a distinct TOpRead using existing fetched definitions. The input Read and its private key IDs are never mutated, so other consumers retain their original read. CopyImpl creates fresh fetched/read IDs before this stage and preserves physical column labels.",
+      "invariant": "Fresh read and shared input ownership",
+      "sources": [
+        "copy_logical_subtree.cpp:77",
+        "copy_logical_subtree.cpp:275",
+        "copy_logical_subtree.cpp:283",
+        "kqp_info_unit.h:86"
+      ]
+    },
+    {
+      "assessment": "Plain TableLookup and Read both obtain per-column types through GetReadTableRowType, which uses loaded GetColumnType directly. Requiring IsSameAnnotation for each retained storage column preserves the resulting IU type, including optionality; IU aliases do not determine storage type.",
+      "invariant": "Actual output types",
+      "sources": [
+        "kqp_rbo_type_ann.cpp:68",
+        "kqp_rbo_type_ann.cpp:615",
+        "provider/yql_kikimr_type_ann.cpp:3668"
+      ]
+    },
+    {
+      "assessment": "Implementation metadata slots are explicitly index-aligned. Matching the implementation path to a ready ordinary synchronous index of the lookup main table plus complete ordered PK storage-name mapping supports one corresponding fetched row per index row. Async, specialized, unrelated, incomplete and reordered forms decline.",
+      "invariant": "Metadata association and full primary keys",
+      "sources": [
+        "provider/yql_kikimr_gateway.h:1054",
+        "provider/yql_kikimr_gateway.h:1135",
+        "provider/yql_kikimr_gateway.h:1237"
+      ]
+    },
+    {
+      "assessment": "TableCallable, Limit, entire RangeInfo, SortDir and ReadSettings are retained. RangeInfo is copied by value while its expression pointers retain existing capture IDs; no new definitions or renaming is performed. OLAP and original predicate programs must be absent.",
+      "invariant": "Read restrictions and capture identity",
+      "sources": [
+        "kqp_operator.cpp:325",
+        "kqp_plan_conversion_utils.cpp:363",
+        "copy_logical_subtree.cpp:275"
+      ]
+    },
+    {
+      "assessment": "The sole registration is after pruning/copy/inlining and before CBO and stage assignment. Imported and copied Read/Lookup nodes start with empty physical properties. No earlier rule assigns Algorithm/OrderEnforcer, CBO join/shuffle choices occur later, and StageId is assigned later. Fresh empty physical properties are safe at this registered stage; they would require re-review if the rule is moved after physical decisions.",
+      "invariant": "Physical obligations and stage order",
+      "sources": [
+        "kqp_rbo_transformer.cpp:697",
+        "kqp_rbo_transformer.cpp:717",
+        "kqp_rbo_transformer.cpp:758",
+        "kqp_plan_conversion_utils.cpp:380",
+        "copy_logical_subtree.cpp:279",
+        "rules/kqp_cbo_trees.cpp:452"
+      ]
+    },
+    {
+      "assessment": "Successful rule application resets computed-property flags and restarts traversal. Required output IDs and parents are recomputed, liveness resets and propagates again, metadata/statistics are recalculated when requested. The new read carries no stale analysis/type metadata.",
+      "invariant": "Property recomputation",
+      "sources": [
+        "kqp_rbo.cpp:144",
+        "kqp_rbo.cpp:175",
+        "kqp_operator.cpp:1790",
+        "kqp_rbo_compute_statistics.cpp:838"
+      ]
+    },
+    {
+      "assessment": "Queries with EnableQueryServiceSpilling enabled decline. This is conservative when effective channel spilling is disabled by another setting; it affects optimization reach only and does not weaken shared ownership guards.",
+      "invariant": "No-spilling qualification",
+      "sources": [
+        "kqp_rbo_transformer.cpp:609",
+        "kqp_rbo_transformer.cpp:701"
+      ]
+    }
+  ],
+  "correctness_findings": [],
+  "generated_CPP_persisted": false,
+  "live_source_edits": false,
+  "native_runs": 0,
+  "optimization_assessment": {
+    "elimination_of_observed_two_lookups_verified": false,
+    "existing_failed_covering_assertion_preserved": true,
+    "mechanism_supported_by_source": true,
+    "note": "Twelve pre-amendment SQL semantic checks passed, but the new rule still needs exact amended compilation/direct controls and unchanged SQL/physical checks.",
+    "quality_improvement_verified": false
+  },
+  "patch": "proposed-correctness-amendments/C47-covering-import-after-pruning-20261028.patch",
+  "patch_sha256": "39736f6f917dcb09a5edc726eb7618bd14228f0c93c39ab5324bfeef33a0702d",
+  "pending": [
+    "Actual compiled direct-rule guards, output/type and state identity controls.",
+    "Fresh guarded amended build and all twelve unchanged SQL/physical assertions.",
+    "Existing nineteen direct copy cases after the separate API repair."
+  ],
+  "queries_or_plans_persisted": false,
+  "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+  "schema_version": "c47_covering_import_independent_source_review_v1",
+  "source_checks_passed": 76,
+  "source_report_sha256": "17da170a0b0ca8cf42f9ebe4cd0373fc98e4864dd63c284f98d450b874ab4583",
+  "status": "source_approved_native_rule_and_end_to_end_verification_pending",
+  "toolchain_runs": 0
+}

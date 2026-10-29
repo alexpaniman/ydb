@@ -1,0 +1,14 @@
+{
+  "bug": "C04",
+  "native_coverage": "Bool and Optional Bool controls only",
+  "excluded_cases": [
+    "c04_pg_false_guard",
+    "c04_pg_null_guard"
+  ],
+  "reason": "Pinned main rejects Pg syntax before optimizer entry; raw Pg-valued YQL WHERE independently fails filter type validation in both optimizers.",
+  "source_locations": [
+    "ydb/core/kqp/host/kqp_translate.cpp:305",
+    "ydb/core/kqp/host/kqp_translate.cpp:344"
+  ],
+  "claim": "No native Pg-filter coverage is claimed; deferred compositional probes retained outside the active suite."
+}

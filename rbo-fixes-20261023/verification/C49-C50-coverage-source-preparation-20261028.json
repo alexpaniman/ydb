@@ -1,0 +1,85 @@
+{
+  "status": "source_prepared_independent_review_and_idle_application_required",
+  "reviewer": "remaining_correctness_review",
+  "date": "2026-10-28",
+  "patches": [
+    {
+      "path": "proposed-correctness-amendments/C49-extra-identity-controls.patch",
+      "sha256": "a6ec3056be33b7ee13d843992c999ac06b56fac137992eb1b9927f9d8e5c1667"
+    },
+    {
+      "path": "proposed-correctness-amendments/C50-gather-observation-install.patch",
+      "sha256": "00ea9bdeec6458f56b97bb74f547d14207ba1e953c864988e4436a48300e83d4"
+    },
+    {
+      "path": "proposed-correctness-amendments/C50-correctness-query-plan-admission.patch",
+      "sha256": "82801eb71b02c55a209c2e2346857a96c007d9415ae8460886ceeeb1af5e0e32"
+    }
+  ],
+  "before_sha256": {
+    "native_verify.py": "ada91caca657beb641dca120172f6c9a894db4b5f3d843c8a0abc510420609f5",
+    "verification_contract.py": "50dd2432dc492f7a59fbd92281bcbb3fc42c033241597aab25904721546bc151"
+  },
+  "after_sha256": {
+    "c49_identity_controls.py": "ebe6b959d96c8da6bfa1c7545df73c8da7dcfd4444e15a9b4029a8422d2962e0",
+    "c50_gather_observation.py": "63011af833d51da03e10e12fac39c341c5dd8e95cafe49ad2a59b6d6bb6d57e1",
+    "native_verify.py": "cc467403ba5aca0dfc16ad56d92a47a46c5817ae86bc42ea633bb78aff0717c5",
+    "verification_contract.py": "73a7608c2a8ea37395bd2336def4801a3aa77e607324376816fac996242cd952"
+  },
+  "temporary_sequential_application_passed": true,
+  "syntax_passed": true,
+  "metadata_contracts": {
+    "script": "proposed-correctness-amendments/C49-C50-coverage-metadata-contracts.py",
+    "sha256": "6111df2a9fa29581ded5b22e4ae78eeb4e62cb8c458e8ee1fe8eba3e02c9c0d9",
+    "assertions_passed": 72,
+    "additional_admission_assertions_passed": 18,
+    "product_queries_rendered": false,
+    "production_plans_used": false
+  },
+  "C49": {
+    "new_controls": 7,
+    "contracts": [
+      "Three-part primary key with two missing components and complete-key control.",
+      "No-residual control.",
+      "Partial/complete-key EXISTS and NOT EXISTS semantic routes; no claim about frontend-rejected explicit syntax.",
+      "Full selected output is checked, including retained keys."
+    ],
+    "limitations": [
+      "Native execution pending.",
+      "Noncovering-index choice is not physically observed by this generator.",
+      "EXISTS/NOT EXISTS does not guarantee a particular physical join kind."
+    ]
+  },
+  "C50": {
+    "new_observations": 3,
+    "contracts": [
+      "Separate direct row join, grouped join with shuffle elimination, and chained join with shuffle elimination.",
+      "Identify exactly one inner join by intended equality fields and distinct source tables from its actual input branches.",
+      "Require both incoming edges be nonparallel UnionAll and runtime Stats.Tasks exactly integer one.",
+      "Composed labels require the expected consuming aggregate or subsequent join on that exact join ancestry.",
+      "Count downstream shuffles only on the chosen join path; actual keyed edge required for keyed-shuffle observation.",
+      "Correctness query-plan evidence requires hash, parse success, and structural gate separately from quality evidence."
+    ],
+    "limitations": [
+      "Original type annotations and ShuffledByColumns are not exposed by public JSON; proof flags remain false.",
+      "Shared producer backpressure is not covered and remains false.",
+      "Unknown aliases, missing stats, unresolved CTEs, duplicate stage IDs/JSON keys, unexpected connections or unidentifiable intended join reject the observation.",
+      "No actual native C50 plan inspected; compatibility is source-reviewed only."
+    ],
+    "source_refs": [
+      "ydb/core/kqp/opt/rbo/kqp_operator.cpp:66",
+      "ydb/core/kqp/opt/rbo/kqp_operator.cpp:385",
+      "ydb/core/kqp/opt/rbo/kqp_operator.cpp:822",
+      "ydb/core/kqp/opt/rbo/kqp_plan_to_json.cpp:393",
+      "ydb/core/kqp/opt/rbo/kqp_stage_graph.cpp:88",
+      "ydb/core/kqp/opt/kqp_query_plan.cpp:3500"
+    ]
+  },
+  "builds": 0,
+  "native_runs": 0,
+  "graph_exports": 0,
+  "production_source_edits": false,
+  "live_helper_edits": false,
+  "raw_reproductions_persisted": false,
+  "not_added_to_idle_plan_automatically": true
+}

@@ -1,0 +1,7 @@
+{
+  "bug": "C31",
+  "command": "capture",
+  "no_runtime_verdict_accepted": true,
+  "reason": "selected_command_environment_requires_audit",
+  "status": "direct_harness_failed"
+}

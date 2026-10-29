@@ -1,0 +1,12 @@
+{
+  "schema": "C41_fullsuite_success_summary_v1",
+  "revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+  "counts": {
+    "good": 348
+  },
+  "trace_sha256": "a56f162927f583d854fc9ae387e88fd9e6662d1c3198fc9d50b4d38e3929788b",
+  "build_evidence": "verification/C41-fullsuite-pass-c6a5904e-20261028.json",
+  "build_evidence_sha256": "930d4333bb36f5a50f8718d4f8a76d4b84b2cdd84060115e91447ec9d54a2816",
+  "watchdog_stopped": false,
+  "raw_diagnostics_persisted": false
+}

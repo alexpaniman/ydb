@@ -1,0 +1,29 @@
+{
+  "schema": "quality_spill_cap_metadata_contracts_v1",
+  "patch_sha256": "9e70be28e44f600870ceb0db59bf4b990b1ddc5a22cd11a6af51dfdee1952e93",
+  "checks_passed": 3030,
+  "reviewed_cells_modified": 82,
+  "other_SQL_cells_unchanged": 768,
+  "node_count_histogram": {
+    "1": 70,
+    "4": 12
+  },
+  "required_UseBlockHashJoin_true_cells": [
+    "q14_reverse_chain_on",
+    "q14_reverse_chain_off",
+    "q14_grace_chain_on",
+    "q14_grace_chain_off",
+    "q14_reverse_single_on_control",
+    "q14_reverse_single_off_control"
+  ],
+  "required_DqHashOperatorsUseBlocks_true_cells": [
+    "q07_null_safe",
+    "q07_residual_filter"
+  ],
+  "case_source_dependencies_checked": 28,
+  "negative_admission_checks": "row/mode/owner source/dependency/metadata/unknown spill masks",
+  "config_parser_scope": "Existing text renderer and exact nested-message string; full native protobuf parsing pending",
+  "native_build_toolchain_runs": 0,
+  "rendered_workload_payloads_persisted": false,
+  "live_edits": false
+}

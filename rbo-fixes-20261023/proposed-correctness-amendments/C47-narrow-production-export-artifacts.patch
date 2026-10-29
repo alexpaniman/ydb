@@ -1,0 +1,31 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -96,7 +96,7 @@
+     directory.mkdir(parents=True, exist_ok=False)
+     export_root, graph_path = directory / 'outputs', directory / 'production-graph.json'
+     arguments = production_build_arguments(profile, export_root, graph_path,
+-                                          export_objects=args.bug != 'C31')
++                                          export_objects=args.bug not in ('C31', 'C47'))
+     if any(any(char.isspace() for char in arg) for arg in arguments):
+         raise MetadataError('build_guard_argument_transport_rejects_whitespace_paths')
+     start = time.monotonic()
+@@ -106,7 +106,7 @@
+               'target': arguments[0], 'elapsed_seconds': round(time.monotonic() - start, 3),
+               'diagnostic_sha256': hashlib.sha256((build.stdout + build.stderr).encode()).hexdigest(),
+               'memory': memory, 'explicit_build_workers': workers,
+-              'broad_object_export': args.bug != 'C31'}
++              'broad_object_export': args.bug not in ('C31', 'C47')}
+     _write_json(directory / 'build.json', record)
+     if build.returncode:
+         return {'status': 'production_closure_build_failed', 'build_record': str(directory / 'build.json')}, 1
+--- a/rbo-fixes-20261023/anonymous_cpp_metadata.py
++++ b/rbo-fixes-20261023/anonymous_cpp_metadata.py
+@@ -55,7 +55,7 @@
+         raise MetadataError('unknown_production_closure_profile')
+     # Output paths must be new invocation-specific directories; --output exports
+     # dependency results while retaining their original relative build paths.
+-    # C31 links production archives and drops the unit-test target's objects.
++    # C31/C47 link production archives and drop the unit-test target's objects.
+     # Missing standalone inputs still reject during metadata capture.
+     suffixes = [suffix for suffix in EXPORT_SUFFIXES if export_objects or suffix != '.o']
+     return [PROFILES[profile]['target'], '--no-src-links', '--output=' + str(export_root),

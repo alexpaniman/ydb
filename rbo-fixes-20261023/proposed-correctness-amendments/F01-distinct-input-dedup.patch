@@ -1,0 +1,28 @@
+diff --git a/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp b/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
+--- a/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
+@@ -1127,7 +1127,23 @@
+             } else {
+                 auto member = TCoMember(body);
+                 originalColName = TInfoUnit(member.Name().StringValue());
+-                expressionsMapPreAgg.emplace_back(originalColName.GetFullName(), lambda.Ptr(), false);
++                // DISTINCT result aliases may read the same input column. Its
++                // pre-aggregate definition is shared; result traits stay separate.
++                const bool alreadyAdded = member.Struct().Ptr() == lambda.Args().Arg(0).Ptr()
++                    && std::any_of(expressionsMapPreAgg.begin(), expressionsMapPreAgg.end(),
++                        [&](const auto& entry) {
++                            const auto& [name, expression, forceOptional] = entry;
++                            if (forceOptional || name.GetFullName() != originalColName.GetFullName()) {
++                                return false;
++                            }
++                            const auto previous = TCoLambda(expression);
++                            const auto access = previous.Body().Maybe<TCoMember>();
++                            return access && access.Cast().Struct().Ptr() == previous.Args().Arg(0).Ptr()
++                                && access.Cast().Name().Value() == member.Name().Value();
++                        });
++                if (!alreadyAdded) {
++                    expressionsMapPreAgg.emplace_back(originalColName.GetFullName(), lambda.Ptr(), false);
++                }
+             }
+         }
+ 

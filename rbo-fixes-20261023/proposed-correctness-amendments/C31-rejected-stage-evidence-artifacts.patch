@@ -1,0 +1,81 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -275,7 +275,11 @@
+     receipt_path = args.receipt.resolve()
+     raw_receipt = receipt_path.read_bytes()
+     receipt = json.loads(raw_receipt)
+-    verify_receipt(receipt, args.worktree, revision)
++    try:
++        verify_receipt(receipt, args.worktree, revision)
++    except MetadataError as exc:
++        exc.verification_stage = 'initial_receipt'
++        raise
+     expected_profile = _closure_profile(args.bug)
+     if receipt['metadata']['profile'] != expected_profile:
+         raise MetadataError('wrong_production_closure_for_generator')
+@@ -294,6 +298,7 @@
+                 'proof_scope': ('linked_production_runtime_lifecycle_contracts' if args.bug == 'Q01' else
+                                 'source_extracted_helper' if args.bug == 'Q27' else 'linked_production_local_contracts')}
+     del source
++    verification_stage = 'compile'
+     try:
+         if args.bug in ('C31', 'C47'):
+             from correctness_cpp_contract import profile_digest
+@@ -312,6 +317,7 @@
+             raise MetadataError('successful_compile_produced_no_object')
+         link_argv = receipt['metadata']['link_argv'] + ([] if symbols is None else
+                     ['-Wl,--wrap=' + value for value in symbols.values()])
++        verification_stage = 'link'
+         link_record, _ = run_anonymous(link_argv, receipt['metadata']['link_cwd'], fds, timeout=args.link_timeout,
+                                        max_scope_gib=36, environment=receipt['metadata']['link_environment'])
+         evidence['link'] = link_record
+@@ -324,6 +330,7 @@
+         if evidence['generated_executable']['size_bytes'] == 0:
+             raise MetadataError('successful_link_produced_no_executable')
+         os.fchmod(fds['executable'], 0o700)
++        verification_stage = 'native'
+         native, stdout = run_anonymous(['@FD:executable@'], args.worktree, fds,
+                                        timeout=args.native_timeout, max_scope_gib=12)
+         evidence['native'] = native
+@@ -334,15 +341,26 @@
+         evidence['status'] = ('direct_local_contracts_passed' if all(value['passed'] for value in evidence['cases'])
+                               else 'direct_local_contracts_failed')
+         # Recheck hashes as well as source revision after compilation/execution.
++        verification_stage = 'final_receipt'
+         verify_receipt(receipt, args.worktree, revision)
++        verification_stage = 'final_generator'
+         if digest_file(importlib.import_module(GENERATORS[args.bug]).__file__)['sha256'] != generator_hash:
+             raise MetadataError('generator_changed_during_direct_verification')
++        verification_stage = 'final_receipt_file'
+         if args.receipt.read_bytes() != raw_receipt:
+             raise MetadataError('production_closure_receipt_changed_during_verification')
++        verification_stage = 'fixed_admission'
+         if args.bug in ('C31', 'C47') and evidence['status'] == 'direct_local_contracts_passed':
+             if not validate_fixed_admission(evidence, args.bug, revision):
+                 raise MetadataError('incomplete_fixed_correctness_cpp_admission')
+         return evidence, 0 if evidence['status'] == 'direct_local_contracts_passed' else 2
++    except MetadataError as exc:
++        exc.verification_stage = verification_stage
++        # Preserve sanitized process/hash evidence; rejected case verdicts are omitted.
++        exc.stage_evidence = {key: evidence[key] for key in
++                              ('compile', 'link', 'native', 'generated_object', 'generated_executable')
++                              if key in evidence}
++        raise
+     finally:
+         for fd in fds.values():
+             os.close(fd)
+@@ -523,8 +541,12 @@
+     except (MetadataError, OSError, ValueError, subprocess.SubprocessError) as exc:
+         reason = str(exc) if isinstance(exc, MetadataError) else type(exc).__name__
+         path = HERE / 'verification' / ('direct-harness-failure-' + args.bug + '-' + stamp + '.json')
+-        _write_json(path, {'status': 'direct_harness_failed', 'reason': reason,
+-                          'command': args.command, 'bug': args.bug, 'no_runtime_verdict_accepted': True})
++        failure = {'status': 'direct_harness_failed', 'reason': reason,
++                   'command': args.command, 'bug': args.bug, 'no_runtime_verdict_accepted': True}
++        if isinstance(exc, MetadataError) and hasattr(exc, 'verification_stage'):
++            failure['verification_stage'] = exc.verification_stage
++            failure['stage_evidence'] = getattr(exc, 'stage_evidence', {})
++        _write_json(path, failure)
+         print(json.dumps({'status': 'direct_harness_failed', 'reason': reason, 'evidence': str(path)}))
+         return 1
+ 

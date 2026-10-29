@@ -1,0 +1,61 @@
+{
+  "id": "Q18",
+  "title": "Fetched statistics are discarded when any table statistics already exist.",
+  "branch": "fix/new-rbo/q18-fetched-statistics-are-discarded-when-any-table-statistics-already-exist",
+  "commit": "f27cc1474705c540c5a64c2700f19eb4df749f54",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/kqp_column_statistics_utils.cpp",
+    "ydb/core/kqp/opt/kqp_column_statistics_utils.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  ],
+  "proposal_sha256": "f396a0c579afad0946df74d1391f148fbcfb93b933094773f42b869e99994810",
+  "proposal": "proposed-quality-amendments/Q18-qualified-statistics-map.patch",
+  "proposal_metadata": {
+    "id": "Q18",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_unbuilt_unverified",
+    "files": [
+      "ydb/core/kqp/opt/kqp_column_statistics_utils.h",
+      "ydb/core/kqp/opt/kqp_column_statistics_utils.cpp",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+    ],
+    "summary": "Merge newly fetched statistics fields into an existing cached table entry while preserving its identity and unrelated fields.",
+    "review": [
+      "Independent patch generated directly from pinned base; production worktrees unchanged.",
+      "No yql/essentials edits."
+    ],
+    "validation_plan": [
+      "Direct helper checks for cached sketch plus fetched histogram, another column, partial tuple statistics, absent incoming fields and duplicate responses.",
+      "Check optional zero values are retained and no incoming absence erases cached data.",
+      "Assert existing intrusive map pointer remains identical and an initially absent entry is installed.",
+      "Build KQP opt and RBO statistics suites."
+    ],
+    "limits": [
+      "Independent Q18 patch retains the existing Issues gate; Q19 separately allows partial successful responses with diagnostics.",
+      "Request-to-request merging is intentionally unchanged to keep this patch limited to cache application."
+    ],
+    "apply_check_exit_code": 0,
+    "patch_sha256": "7894f834d88021e5b68560ac6fd92fe78d57f9fde9fd53c957ae81adaa556829"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes",
+    "Definition and declaration now both use NYql::TOptimizerStatistics::TColumnStatMap; branch amended using isolated Git index without modifying checked-out sources"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required.",
+  "superseded_commits": [
+    {
+      "commit": "6a76df72ad2d9d0af37ebc034fed5bca12de33f4",
+      "reason": "Qualified shared-cache statistics map type to match header declaration"
+    }
+  ],
+  "source_amendment": {
+    "independent_review": "verification/Q18-merge-type-independent-review.json",
+    "two_parameter_qualification_only": true,
+    "build_native_pending": true
+  }
+}

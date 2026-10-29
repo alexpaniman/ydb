@@ -1,0 +1,71 @@
+{
+  "id": "C27",
+  "branch": "fix/new-rbo/c27-having-without-aggregate",
+  "commit": "fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "rationale": "When aggregate extraction produces no HAVING expression, retain the original predicate and resolve its grouping references against grouped output. The existing filter remains after aggregation, preserving grouped and constant predicate semantics.",
+  "checks": [
+    "Traced ProcessAggregations empty-output behavior and existing ReplaceGroupRefs helper.",
+    "Seven-line fallback; existing aggregate-containing predicate path unchanged.",
+    "git diff --check HEAD^ HEAD passed; clean worktree; parent is pinned main.",
+    "No native runs/builds; coordinated verification pending."
+  ],
+  "generator_labels": [
+    "c27_group_key",
+    "c27_constant_true",
+    "c27_constant_false",
+    "c27_nested_group_expression",
+    "c27_aggregate_control"
+  ],
+  "expected_oracle": "The HAVING predicate filters grouped rows whether or not it contains an aggregate call; false eliminates all groups and true preserves them.",
+  "controls": [
+    "Direct and nested grouping-key predicates.",
+    "Constant true and false.",
+    "Existing aggregate-containing HAVING.",
+    "Empty input."
+  ],
+  "concerns": [
+    "This does not change independent DISTINCT-with-HAVING support guards or aggregate-containing expression lowering."
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C27",
+    "revision": "fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c",
+    "exit_code": 0,
+    "elapsed_seconds": 99.9,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4567040,
+      "peak_scope_usage_bytes": 43275997184,
+      "minimum_host_available_bytes": 109569998848,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 99.5
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 6,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C27-fb3c38f6837a-1792731615186623276.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Compilation and native validation pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

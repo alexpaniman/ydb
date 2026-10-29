@@ -1,0 +1,26 @@
+{
+  "reviewer": "c41_review",
+  "kind": "source_only_oracle_amendment_review",
+  "patch": "proposed-correctness-amendments/C26-exact-result-fields-oracle.patch",
+  "patch_sha256": "0dbea1b8c13a30e621cc00d0c5486ad865cda351de8be528ca7dbf09001e1b23",
+  "current_source_sha256": "dce4b13ca0adf238cb78ae5d6caf1ec12e7899ac969a33de4717c7bde4c92973",
+  "verdict": "No blocker found; standard git apply --check passes.",
+  "contracts": [
+    "Every C26 case requires exactly one row and exactly its selected field names.",
+    "The varying-value profiles require COUNT except the variance-only control, whose projection has only s.",
+    "The grouped profile requires its selected key and checks that key equals the fixed fixture key.",
+    "Mixed AVG requires a and validates its value; other profiles cannot silently accept an extraneous a.",
+    "Variance formula, degrees-of-freedom choice, square root, isclose tolerances, count formulas, empty/null handling and singleton NaN policy are unchanged.",
+    "C34 exact-field checks are untouched.",
+    "Generator version changes from aggregate_oracle_v3 to aggregate_oracle_v4."
+  ],
+  "source_references": [
+    "aggregate_checks.py:38-61",
+    "aggregate_checks.py:93-109",
+    "rbo-review-20261021/generate_and_verify.py:105"
+  ],
+  "tests_or_model_suites_run": 0,
+  "native_or_build_runs": 0,
+  "active_helpers_edited": false,
+  "generated_reproductions_persisted": false
+}

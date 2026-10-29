@@ -1,0 +1,189 @@
+{
+  "reason": "Selected qualified column names are exported unchanged in C38. Corrected expected dictionaries use those export names; workloads and original evidence remain unchanged. C37 expected formulas are unchanged.",
+  "checks": [
+    {
+      "bug": "C37",
+      "case": "c37_window_distribution",
+      "mode": "new",
+      "original_record_sha256": "001bd85f73cd2d71d90e754ff0d39488c6f1093995dc04f968748b415c8efb5f",
+      "corrected_expected_sha256": "bb8dfb791a3d98a9d4842edd595dedf5e4ccd1579e71646f9df18ea867d599ba",
+      "semantic_oracle_pass": false
+    },
+    {
+      "bug": "C37",
+      "case": "c37_window_distribution",
+      "mode": "legacy",
+      "original_record_sha256": "b390159e7a6ffc7d269bfabcbe0c46cb9922b8ca8ad16eb6586575d8cffc392d",
+      "corrected_expected_sha256": "bb8dfb791a3d98a9d4842edd595dedf5e4ccd1579e71646f9df18ea867d599ba",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C37",
+      "case": "c37_shuffle_disabled_control",
+      "mode": "new",
+      "original_record_sha256": "d3c5bf55e4c75a982718269d1f398e9b87fe4651c0f72f9caca755b64f544bec",
+      "corrected_expected_sha256": "bb8dfb791a3d98a9d4842edd595dedf5e4ccd1579e71646f9df18ea867d599ba",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C37",
+      "case": "c37_shuffle_disabled_control",
+      "mode": "legacy",
+      "original_record_sha256": "3c6e73c329f18d5cdb761be4f1b0d57103e648c21dcb082051091fe3327de556",
+      "corrected_expected_sha256": "bb8dfb791a3d98a9d4842edd595dedf5e4ccd1579e71646f9df18ea867d599ba",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C37",
+      "case": "c37_aligned_partition_control",
+      "mode": "new",
+      "original_record_sha256": "a88d4c06123dcb1abd8cda6fa3ad8e0c0596333d91443e63fa848c00d34cc0c4",
+      "corrected_expected_sha256": "4b41348f34793a4b573b51c75d3bc8fad8c885a2514b7cf8eeba5d02a73fcb23",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C37",
+      "case": "c37_aligned_partition_control",
+      "mode": "legacy",
+      "original_record_sha256": "413578a4d26d71484f2b48717ea08b9e3967b8ab194ea1715642d8674044ae1e",
+      "corrected_expected_sha256": "4b41348f34793a4b573b51c75d3bc8fad8c885a2514b7cf8eeba5d02a73fcb23",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C37",
+      "case": "c37_keyless_window_control",
+      "mode": "new",
+      "original_record_sha256": "2af74dbb2484624ec3a2ab07c36a03cccb7276e7adca549be6045dfd6eac8134",
+      "corrected_expected_sha256": "4b41348f34793a4b573b51c75d3bc8fad8c885a2514b7cf8eeba5d02a73fcb23",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C37",
+      "case": "c37_keyless_window_control",
+      "mode": "legacy",
+      "original_record_sha256": "6271b7d2186038dc74e3e68b0c62cde272f622104c2fae2c4f956ef100d98857",
+      "corrected_expected_sha256": "4b41348f34793a4b573b51c75d3bc8fad8c885a2514b7cf8eeba5d02a73fcb23",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C37",
+      "case": "c37_consecutive_windows",
+      "mode": "new",
+      "original_record_sha256": "7a6ea7228866e0975017b1ff0be7652dfc2c9a6e4e8000bbdd8ab1d6245b8bb8",
+      "corrected_expected_sha256": "21df61a4f4837d7a901dfff9691092d164686c0f07445f5c6fe6e72d92ddc915",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C37",
+      "case": "c37_consecutive_windows",
+      "mode": "legacy",
+      "original_record_sha256": "876b2111b69d83cc6e0a83a9ddfed62e54847c5a65ed73f334894fd0b5d9928e",
+      "corrected_expected_sha256": "21df61a4f4837d7a901dfff9691092d164686c0f07445f5c6fe6e72d92ddc915",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_full_distribution",
+      "mode": "new",
+      "original_record_sha256": "41c24b3f327d9a378b1bcc3b8efe0a44faf80ab6506ef389ce8b1df2be12b734",
+      "corrected_expected_sha256": "3c3a2a179e2384b9905debb63d1a03c445f45a9560e4324b134b29caae86f61a",
+      "semantic_oracle_pass": false
+    },
+    {
+      "bug": "C38",
+      "case": "c38_full_distribution",
+      "mode": "legacy",
+      "original_record_sha256": "94f43cb3afaba7be1cad76a86a6e429f80e81b9f3677251ac2f5bfe6e259df20",
+      "corrected_expected_sha256": "3c3a2a179e2384b9905debb63d1a03c445f45a9560e4324b134b29caae86f61a",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_shuffle_disabled_control",
+      "mode": "new",
+      "original_record_sha256": "81a25da8eafe8f9ab08f304674a8d1d21c6451f79adf05372d6844fd2d47838b",
+      "corrected_expected_sha256": "3c3a2a179e2384b9905debb63d1a03c445f45a9560e4324b134b29caae86f61a",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_shuffle_disabled_control",
+      "mode": "legacy",
+      "original_record_sha256": "fcdca4a911fa2ef13be25a36b18e68bd5dd2e302e634d210c2703806b8395252",
+      "corrected_expected_sha256": "3c3a2a179e2384b9905debb63d1a03c445f45a9560e4324b134b29caae86f61a",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_exclusion_distribution",
+      "mode": "legacy",
+      "original_record_sha256": "95c00399718a3bc3012a31ac64bc214e97a2bb0dd45bf1e4355f3c52f6816b54",
+      "corrected_expected_sha256": "8505c6439be1cc1d23981c1ae43adeb62d7555e32dac1eea916a951a7adda721",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_left_distribution",
+      "mode": "new",
+      "original_record_sha256": "4f53e702120a9385be52492bc519536bc3cac748adef565cd90a0890ae5f510d",
+      "corrected_expected_sha256": "33a8373bfbfccf9c52fe039660add8fd9598dfb2d62843e2dfe975f62c3b36a5",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_left_distribution",
+      "mode": "legacy",
+      "original_record_sha256": "50ee1d45ac575efabe97fe74eeb4fc180212e3e99265b1b28bc511905e5205f5",
+      "corrected_expected_sha256": "33a8373bfbfccf9c52fe039660add8fd9598dfb2d62843e2dfe975f62c3b36a5",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_inner_distribution",
+      "mode": "new",
+      "original_record_sha256": "0bc7b440127893562d200dd1df411722b5d85fdc4a64055e992002cfdb0ca29f",
+      "corrected_expected_sha256": "33a8373bfbfccf9c52fe039660add8fd9598dfb2d62843e2dfe975f62c3b36a5",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_inner_distribution",
+      "mode": "legacy",
+      "original_record_sha256": "6ab6de92d529baee6c6e82cd055c2205a157cdeb883ed380fc9ff5b2d162c631",
+      "corrected_expected_sha256": "33a8373bfbfccf9c52fe039660add8fd9598dfb2d62843e2dfe975f62c3b36a5",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_right_distribution",
+      "mode": "new",
+      "original_record_sha256": "8f1e2e590713d42f04774bbecb399c3d6c339f300c3b45db563b825b971e894e",
+      "corrected_expected_sha256": "3c3a2a179e2384b9905debb63d1a03c445f45a9560e4324b134b29caae86f61a",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_right_distribution",
+      "mode": "legacy",
+      "original_record_sha256": "2afe32db06ae600c7712ff5b8acd21b8f26b9678c5e9a9c0c556df571a19e2c7",
+      "corrected_expected_sha256": "3c3a2a179e2384b9905debb63d1a03c445f45a9560e4324b134b29caae86f61a",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_right_key_distribution",
+      "mode": "new",
+      "original_record_sha256": "96ce45a754fc279c8d7027c2fd0e3ec4ba961a996fe9aa1e70e8145f88ea99aa",
+      "corrected_expected_sha256": "5d6a4d0c363ee43ec405b23a7db8698a82b8884704e1b1c104bc7703628c5197",
+      "semantic_oracle_pass": true
+    },
+    {
+      "bug": "C38",
+      "case": "c38_right_key_distribution",
+      "mode": "legacy",
+      "original_record_sha256": "9be8392d810798f9dbe47de6fde75de980d36b0fe7b5b8335d4fc5b439f74777",
+      "corrected_expected_sha256": "5d6a4d0c363ee43ec405b23a7db8698a82b8884704e1b1c104bc7703628c5197",
+      "semantic_oracle_pass": true
+    }
+  ]
+}

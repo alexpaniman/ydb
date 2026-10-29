@@ -1,0 +1,28 @@
+{
+  "reviewer": "root",
+  "status": "approved_source_only",
+  "patch": "proposed-quality-amendments/optimization-admission-guards.patch",
+  "patch_sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70",
+  "after": {
+    "quality_pairing.py": "d5bdd69e61be6928f08862f945422321c1cf32495ce892e501c82a000a194955",
+    "verify_series.py": "2375b60d1f842e1a06f4516fe6270ca36eaac3ff143dbda1fd194943ca7c17ce",
+    "quality_pairing_contracts.py": "a4e1a0780338b56ea6e0c17d66a66dd22bff74b011d17e5399342777f27bc1f9"
+  },
+  "checks": [
+    "Driver derives mandatory modules, exact case ownership and profile fingerprints independently of user-selected subset profiles.",
+    "Pairing fails closed when required ownership or fingerprint is missing or mismatched; successful local subsets cannot become whole-finding acceptance.",
+    "Q11 always requires direct admission; current unsupported validator keeps it pending.",
+    "Q11 fallible and Q29 arithmetic/guard/no-range controls compare baseline counters before fixed assertions are accepted.",
+    "Existing baseline workload, source-revision, executable provenance and semantic-oracle gates remain intact.",
+    "Q15 broken-assertion regression now supplies valid coverage, avoiding a vacuous failure.",
+    "Temporary patch application and Python syntax parsing passed."
+  ],
+  "limits": [
+    "Metadata-only regression checks are prepared but unexecuted during the active build.",
+    "This does not implement remaining Q01/Q02/Q22 physical checks, Q01 scaling measurements or the Q11 direct adapter.",
+    "No production optimization or native semantic acceptance is granted."
+  ],
+  "live_helper_edits": false,
+  "native_runs": 0,
+  "builds": 0
+}

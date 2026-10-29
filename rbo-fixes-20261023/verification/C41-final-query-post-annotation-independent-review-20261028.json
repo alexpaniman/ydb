@@ -1,0 +1,75 @@
+{
+  "author_report": {
+    "path": "verification/C41-final-query-post-annotation-source-preparation-20261028.json",
+    "sha256": "e9ff817fd33f0f9426894ba1c5bf77b201d397a2294541589a1a845f66bf4bd3"
+  },
+  "check_count": 34,
+  "checks": [
+    "frozen_patch_hash",
+    "frozen_author_report_hash",
+    "frozen_six_assertion_assessment",
+    "source_binding:ydb/core/kqp/host/kqp_host.cpp",
+    "source_binding:ydb/core/kqp/host/kqp_runner.cpp",
+    "source_binding:ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "source_binding:ydb/core/kqp/provider/yql_kikimr_provider_streaming_ut.cpp",
+    "source_binding:yql/essentials/ast/yql_expr.cpp",
+    "source_binding:yql/essentials/ast/yql_expr.h",
+    "source_binding:yql/essentials/core/services/yql_transform_pipeline.cpp",
+    "source_binding:yql/essentials/core/services/yql_transform_pipeline.h",
+    "source_binding:yql/essentials/core/yql_expr_csee.cpp",
+    "source_binding:yql/essentials/core/yql_expr_csee.h",
+    "source_binding:yql/essentials/core/yql_expr_optimize.cpp",
+    "source_binding:yql/essentials/core/yql_expr_optimize.h",
+    "source_binding:yql/essentials/core/yql_graph_transformer.cpp",
+    "single_boundary_replacement",
+    "patch_exactly_include_and_boundary",
+    "before_image",
+    "after_image",
+    "actual_existing_apis_declared",
+    "actual_column_store_initialized",
+    "final_query_typed_before_return",
+    "same_completion_then_csee_order",
+    "apis_accept_input_output_alias",
+    "closed_root_flag_only_profile_and_assertion",
+    "fresh_lambda_argument_scopes",
+    "csee_world_links_repaired",
+    "csee_dead_and_unreachable_candidates_rejected",
+    "csee_type_constraint_column_order_sensitive",
+    "csee_safe_node_gate_kept",
+    "atom_flag_normalization",
+    "all_six_tests_unchanged",
+    "five_result_oracles_passed_range_pending"
+  ],
+  "limits": [
+    "No native, build, compiler, generated workload or production/live-helper edit was performed.",
+    "Source review supports the proposed crash and assertion mechanisms; it does not establish amended runtime success.",
+    "Full constraint reannotation from the old restarted pipeline is not reinstated, and full host-pipeline equivalence is not claimed.",
+    "Rerun the unchanged full RBO suite and the original 12 C41 semantic controls against the amended exact revision."
+  ],
+  "native_build_runs": 0,
+  "no_essentials_edits": true,
+  "patch": {
+    "after_sha256": "429479d060ca8197be45e672dd3034834f3c842d8f5cde29a0c14dae00f2ed8b",
+    "before_sha256": "0a08d5f365e53b04330e5cd719efb5e8924051ccbedd0fa096d9ff057481ecbd",
+    "path": "proposed-correctness-amendments/C41-final-physical-query-post-annotation-20261028.patch",
+    "sha256": "aada5ea5509698ec017972b021547584759e855921e0a5a82d400efc4f0e6987",
+    "target": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  },
+  "raw_payloads_persisted": false,
+  "review_findings": [
+    "The final query is type annotated before this boundary. The new calls use the existing context and initialized column-order store.",
+    "Completion refresh precedes CSEE, matching the former post-type pass order and refreshing lambda scopes before equality/hash access.",
+    "Both functions permit the same smart pointer as input and output. Non-Ok completion status is retained; CSEE status is returned.",
+    "The closed-query flag retains the root replacement assertion. It does not reduce traversal scope.",
+    "Existing CSEE guards preserve typed and constraint-sensitive equality, scoped lambda identity, world links, and exclusions for unsafe flow or stream sharing.",
+    "The patch changes one include and the final return boundary only. Existing tests, transaction/result ownership construction, and serialized-plan code are untouched.",
+    "The six assertions are canonicalization differences. The amendment restores the omitted production pass rather than weakening those assertions."
+  ],
+  "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+  "schema": "c41_final_query_post_annotation_independent_source_review_v1",
+  "six_assertion_assessment": {
+    "path": "verification/C41-six-assertion-canonicalization-source-assessment-20261028.json",
+    "sha256": "19834cecad234187dd27bef2eff3fe6bae19c5e805dfcd3675fdf765534c1132"
+  },
+  "status": "approved_source_only_native_verification_required"
+}

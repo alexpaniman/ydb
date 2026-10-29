@@ -1,0 +1,31 @@
+{
+  "id": "Q12",
+  "title": "Early peephole expansion prevents native JSON filter pushdown.",
+  "branch": "fix/new-rbo/q12-early-peephole-expansion-prevents-native-json-filter-pushdown",
+  "commit": "a92df58f248c54a46f82586f50fc58ae5b207e8e",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp"
+  ],
+  "proposal_sha256": "5f89c24870408420e49f9e42f3bc6310411009bb072ba139581cd1b7e0d927a9",
+  "proposal": "proposed-quality-patches/Q12.patch",
+  "proposal_metadata": {
+    "id": "Q12",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_not_applied",
+    "files": [
+      "ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp"
+    ],
+    "rationale": "Match the established legacy native-predicate collection order; retain generic residual lowering.",
+    "validation": "Native JSON operator versus generic Apply plan counts; JSON NULL/missing/conjunction result oracles; pushdown-disabled controls.",
+    "review_limit": "Check optional predicates retain NULL-as-false storage filtering semantics in native runs."
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

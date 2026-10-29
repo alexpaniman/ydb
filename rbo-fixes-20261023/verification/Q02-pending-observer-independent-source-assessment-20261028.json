@@ -1,0 +1,193 @@
+{
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "evidence": {
+    "baseline": {
+      "case_count": 4,
+      "path": "verification/guarded-baseline-Q02-e8700d379b3b-1793161786378385707.jsonl",
+      "sha256": "7681f6222d20bf7e996b5f576a148cb8e8e8158c52189ed4c2ddb7b39535a1b4"
+    },
+    "fixed": {
+      "case_count": 4,
+      "path": "verification/guarded-fixed-Q02-1b50d28716f7-1793162330132081306.jsonl",
+      "sha256": "e0e0d55b426e361f7deae8b27904d5cc627537d54218cd8c378090984d017416"
+    },
+    "paired": {
+      "case_count": 4,
+      "path": "verification/quality-paired-Q02-1b50d28716f7-1793162352080187176.jsonl",
+      "sha256": "c9e5477acdb1f1ca2c380909f5d33d6e088ef228b33ae89520c56ebb9a3794e9"
+    }
+  },
+  "findings": [
+    {
+      "description": "The observer requires AsStruct fold initialization/update bodies. The standard optimizer explicitly converts a one-field struct Fold1 state to a scalar when the input is single-use. This is a valid lowering shape that the current observer cannot recognize. The exact actual rejection point was not retained in the saved evidence.",
+      "kind": "partial_observer_unstable_post_peephole_shape",
+      "source_references": [
+        {
+          "line": 841,
+          "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+          "symbol": "BuildFoldLambda"
+        },
+        {
+          "line": 1416,
+          "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+          "symbol": "BuildFrameFold"
+        },
+        {
+          "line": 625,
+          "path": "yql/essentials/core/common_opt/yql_co_flow1.cpp",
+          "symbol": "ExtractOneItemStructFromFold1"
+        },
+        {
+          "line": 1756,
+          "path": "yql/essentials/core/common_opt/yql_co_flow1.cpp",
+          "symbol": "RegisterCoFlowCallables1 Fold1 optimizer"
+        },
+        {
+          "line": 5434,
+          "path": "yql/essentials/core/common_opt/yql_co_simple1.cpp",
+          "symbol": "Member optimizer"
+        }
+      ]
+    },
+    {
+      "description": "The paired width metric requires exactly one Fold1 in both phases. Actual sanitized evidence contains three baseline folds and one fixed fold. Total callable reduction alone does not prove optional-count state identity or ownership.",
+      "kind": "partial_pair_metric_topology_mismatch",
+      "source_references": [
+        {
+          "line": 157,
+          "path": "rbo-fixes-20261023/quality_pairing.py",
+          "symbol": "_partial_window_state_width"
+        }
+      ]
+    },
+    {
+      "description": "The empty case removes all four window pipelines but has no explicit unused-frame structural assertion; the generic empty-control fallback expects unchanged physical counts. RowsJson emitted no result-set boundary witness, so zero rows cannot establish exactly one empty result set.",
+      "kind": "empty_control_contract_and_transport_mismatch",
+      "source_references": [
+        {
+          "line": 511,
+          "path": "rbo-fixes-20261023/quality_window_checks.py",
+          "symbol": "check_physical_ast"
+        },
+        {
+          "line": 247,
+          "path": "rbo-fixes-20261023/quality_pairing.py",
+          "symbol": "_fixed_acceptance"
+        }
+      ]
+    }
+  ],
+  "fixed": "1b50d28716f74eb02571e7490181132b14c37bff",
+  "helper_source_bindings": {
+    "native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "quality_pairing.py": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "live_helper_or_production_edits": false,
+  "native_build_toolchain_runs": 0,
+  "production_regression_established": false,
+  "raw_plans_diagnostics_or_rendered_workloads_persisted_or_shown": false,
+  "safe_correction_requirements": [
+    "Preserve the exact four workloads, schema, fixtures, ordered case vector and result oracles.",
+    "Keep partial quality pending until a bounded diagnostic identifies the actual normalized init/update and source shape, or a narrowly recognized proof establishes exact frame/collector identity and lambda state/input ownership.",
+    "Any scalar optional-count recognition must bind AggrCountInit/Update input to the correct item argument and update state to its own state argument; aggregate callable counts are insufficient.",
+    "Support the intended empty all-dead physical contract explicitly, while requiring exactly one witnessed zero-row result set. Existing nonempty structural assertions precede the generic empty-control shape fallback, so a generic pairing relaxation is unnecessary.",
+    "Scope full-result metadata transport to the reviewed empty case and validate target-result boundaries separately from setup/validation output.",
+    "Require fresh native evidence against changed helper/profile hashes; historical Q02 records must remain unchanged."
+  ],
+  "sanitized_observations": {
+    "q02_all_dead": {
+      "after_counts": {
+        "Fold1": 0,
+        "QueueCreate": 0,
+        "WinFrame": 0,
+        "WinFramesCollector": 0
+      },
+      "before_counts": {
+        "Fold1": 3,
+        "QueueCreate": 4,
+        "WinFrame": 4,
+        "WinFramesCollector": 4
+      },
+      "boundary_known_after": true,
+      "boundary_known_before": true,
+      "paired_quality_acceptance": true,
+      "result_sets_after": 1,
+      "result_sets_before": 1,
+      "semantic_oracle_pass_both": true
+    },
+    "q02_all_live_control": {
+      "after_counts": {
+        "Fold1": 3,
+        "QueueCreate": 4,
+        "WinFrame": 4,
+        "WinFramesCollector": 4
+      },
+      "before_counts": {
+        "Fold1": 3,
+        "QueueCreate": 4,
+        "WinFrame": 4,
+        "WinFramesCollector": 4
+      },
+      "boundary_known_after": true,
+      "boundary_known_before": true,
+      "paired_quality_acceptance": true,
+      "result_sets_after": 1,
+      "result_sets_before": 1,
+      "semantic_oracle_pass_both": true
+    },
+    "q02_empty": {
+      "after_counts": {
+        "Fold1": 0,
+        "QueueCreate": 0,
+        "WinFrame": 0,
+        "WinFramesCollector": 0
+      },
+      "before_counts": {
+        "Fold1": 3,
+        "QueueCreate": 4,
+        "WinFrame": 4,
+        "WinFramesCollector": 4
+      },
+      "boundary_known_after": false,
+      "boundary_known_before": false,
+      "paired_quality_acceptance": false,
+      "result_sets_after": 0,
+      "result_sets_before": 0,
+      "semantic_oracle_pass_both": true
+    },
+    "q02_partial": {
+      "after_counts": {
+        "Fold1": 1,
+        "QueueCreate": 1,
+        "WinFrame": 1,
+        "WinFramesCollector": 1
+      },
+      "after_state_complete": false,
+      "before_counts": {
+        "Fold1": 3,
+        "QueueCreate": 4,
+        "WinFrame": 4,
+        "WinFramesCollector": 4
+      },
+      "before_state_complete": false,
+      "boundary_known_after": true,
+      "boundary_known_before": true,
+      "paired_quality_acceptance": false,
+      "rejection_class_after": "ValueError",
+      "rejection_class_before": "ValueError",
+      "result_sets_after": 1,
+      "result_sets_before": 1,
+      "semantic_oracle_pass_both": true
+    }
+  },
+  "schema": "Q02_pending_observer_independent_source_assessment_v1",
+  "source_only_correction_or_native_acceptance": false,
+  "status": "verification_contract_mismatches_confirmed_actual_partial_shape_pending",
+  "unchanged_lowering_source_bindings": {
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp": "475c6688bca99a6a84da780e1ddff8461d1937dda25cf249515e28abe86dd8df",
+    "yql/essentials/core/common_opt/yql_co_flow1.cpp": "eef39cc9c86c933b8b5297de7715a4ab21d7b1c407a3503c046bd8e0db76c21d",
+    "yql/essentials/core/common_opt/yql_co_simple1.cpp": "c2351f4c8d42b5046f8d805dd5aaa5b3b3c26ccad7be572e4fd2a60ae199a9f0",
+    "yql/essentials/core/common_opt/yql_co_transformer.cpp": "a922d66a3e721e0061b7cace3f4b33c150d9cfea03529fc8fd966f5953bd92f4"
+  }
+}

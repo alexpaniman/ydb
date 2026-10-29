@@ -1,0 +1,22 @@
+{
+  "status": "approved_source_only",
+  "reviewer": "root",
+  "patch_sha256": "5af59db821a70dee6de37537498c20d9cc6c5cb4200c70114dfb175744b26402",
+  "source_before_sha256": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+  "source_after_sha256": "119173e63877f216b520313051eb3bc74ce73aaf5dfc9f6d2ef07f2b79ed9acb",
+  "checks": [
+    "Exactly one normalized -o executable placeholder is required; all other arguments remain unchanged.",
+    "Output adapter hashes compose with archive adapter hashes to bind both changes to the receipt recipe.",
+    "Existing guard redirects stdout to a registered inherited memfd; no output path or temporary directory becomes writable.",
+    "Bundled LLVM FileOutputBuffer supports stdout as an in-memory output buffer and commits through stdout.",
+    "Executable content is still independently hashed, checked nonempty, and executed only after a clean successful link.",
+    "Descriptor cleanup, environment transport, production-input rechecks and acceptance gates remain unchanged.",
+    "Temporary copy apply and syntax checks passed."
+  ],
+  "limits": [
+    "The early LLD output-probe mechanism is supported by author-cited official LLVM20 source, not an independently captured raw diagnostic path.",
+    "Actual linking and execution remain required; this review grants no native acceptance."
+  ],
+  "native_runs": 0,
+  "live_changes": false
+}

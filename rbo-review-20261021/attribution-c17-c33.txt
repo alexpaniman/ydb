@@ -1,0 +1,176 @@
+C17-C33 source-history attribution
+
+Repository history is complete (git rev-parse --is-shallow-repository: false). Current failures were already verified by the main review; attribution below uses git blame, candidate/parent source comparison, and move/refactor tracing. Historical revisions were not built or executed. Commit authors identify recorded change authorship, not personal fault or whether AI was involved. No test SQL or reproduction inputs are included.
+
+C17: Shared-plan pruning leaves references to removed columns
+Authors of relevant changes: alexpaniman
+Attribution: source-traced introduction (high source confidence).
+  026a4acc33c26deef68af9c271412cc5ff1095f8 — alexpaniman — [NEW RBO] Migrate RBO to ID-based SSA columns (#54404) [primary source change]
+  Evidence: The commit adds TOpReplicate::TryCollapse, which enumerates cached producer GetOutputIUs when constructing copies for a secondary singleton port (current kqp_operator.cpp:168-176).
+  Evidence: The same commit adds global pruning and FinishLogicalRewrite with BypassEmptyOperators before InvalidateProperties (current1761-1763). Its parent lacks this new collapse/pruning sequence.
+  Evidence: The candidate diff and its parent were inspected; this is the logic that allows stale output schemas to be consumed after pruning.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C18: Pruning leaves an invalid operator under an empty grouping-set wrapper
+Authors of relevant changes: alexpaniman, Denis Khalikov
+Attribution: source-traced interaction introduced by pruning rewrite (high source confidence).
+  026a4acc33c26deef68af9c271412cc5ff1095f8 — alexpaniman — [NEW RBO] Migrate RBO to ID-based SSA columns (#54404) [primary source change]
+  9589d9b27518163f55722b2c5c8ba98dadd02594 — Denis Khalikov — [Optimizer] Expand rollup in rbo rule (#52313) [pre-existing grouping-set Aggregate-child invariant]
+  Evidence: 026a4acc adds IsResultlessScalarAggregate and replacement with TOpEmptySource during BypassEmptyOperators, before grouping-set expansion.
+  Evidence: Its parent prunes aggregate traits but retains the Aggregate operator in rules/map/prune_dead_outputs.cpp; it lacks the new resultless replacement.
+  Evidence: 9589d9 introduced the grouping-set wrapper and type annotation that casts its child to Aggregate;026a4acc changes that child contract without normalizing the wrapper.
+  Caveat: Source history inspection only; no historical runtime bisection. The native failure is verified; exact runtime attribution to the invalid cast is less direct than the source-contract violation.
+
+C19: Unordered rank functions construct an invalid expression
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced introduction (high source confidence).
+  11ebdccf532442bc91e1c664403a677d55b2fd2b — Denis Khalikov — [Optimizer] Add initial support for window functions. (#52620) [primary source change]
+  026a4acc33c26deef68af9c271412cc5ff1095f8 — alexpaniman — [NEW RBO] Migrate RBO to ID-based SSA columns (#54404) [later refactor; not introduction]
+  Evidence: Initial window builder already sets NeedsPeerKey false when ordering is empty, leaves sortKeyChanged unset, and consumes it in rank/dense-rank update expressions.
+  Evidence: The initial commit adds the physical window builder; its parent has no such builder.
+  Evidence: Current guard blame points at026a4acc, but comparison with its parent and original11ebdcc shows it merely translates names to ID collections.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C20: Window ranking loses the nullable-key compatibility setting
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced introduction (high source confidence).
+  11ebdccf532442bc91e1c664403a677d55b2fd2b — Denis Khalikov — [Optimizer] Add initial support for window functions. (#52620) [primary source change]
+  Evidence: Initial window translation defines TWindowFuncTraits with function/kind/arguments/result only and ProcessWindowCalls skips window settings when copying the call.
+  Evidence: The corresponding initial physical rank accumulation implements the unconditional Uint64/ANSI-style result with no compatibility setting.
+  Evidence: The parent lacks this window import/lowering path; later accumulator extraction did not introduce the omitted setting.
+  Caveat: Source history inspection only; no historical runtime bisection. Attribution identifies the omitted option in initial feature implementation, not a historically bisected regression.
+
+C21: Window AVG uses the wrong physical type for intervals
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced introduction (high source confidence).
+  e15a17493ed7698fd09c3816171d85c32770b79c — Denis Khalikov — [Optimizer] Add support for avg for window (#52863) [primary source change]
+  026a4acc33c26deef68af9c271412cc5ff1095f8 — alexpaniman — [NEW RBO] Migrate RBO to ID-based SSA columns (#54404) [later refactor; not introduction]
+  Evidence: The commit introducing window AVG adds BuildAvgAccumulatorDataType: every nondecimal input selects Double.
+  Evidence: Its parent has no AVG accumulator helper or AVG accumulation branch; the new branch calls that helper for state construction.
+  Evidence: 026a4acc only converts the helper argument from TInfoUnit to TInfoUnitId.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C22: Repeated window keys produce an invalid physical sort
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced introduction (high source confidence).
+  11ebdccf532442bc91e1c664403a677d55b2fd2b — Denis Khalikov — [Optimizer] Add initial support for window functions. (#52620) [primary source change]
+  026a4acc33c26deef68af9c271412cc5ff1095f8 — alexpaniman — [NEW RBO] Migrate RBO to ID-based SSA columns (#54404) [later refactor; not introduction]
+  Evidence: Initial BuildSortKeys appends every partition key, then every order key, directly into physical index specifications without deduplication.
+  Evidence: The initial commit introduces the window builder; the parent lacks this code.
+  Evidence: The current Items-based loops are a mechanical SSA migration of the same append sequence.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C23: Grouping sets mishandle a bare NULL key type
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced introduction followed through code move (high source confidence).
+  6962e896755e1f166f02647883d70575df8f206d — Denis Khalikov — [Optimizer] Add support for rollup. (#41770) [primary source change]
+  9589d9b27518163f55722b2c5c8ba98dadd02594 — Denis Khalikov — [Optimizer] Expand rollup in rbo rule (#52313) [moves the same unsafe Null/Optional assumption from frontend into an RBO rule]
+  Evidence: Initial frontend rollup implementation introduced IsOptionalOrNull followed by Cast<TOptionalExprType> for omitted grouping keys.
+  Evidence: The6962e896 candidate diff adds this branch; its parent has no rollup implementation.
+  Evidence: 9589d9 parent still contains the same cast in kqp_rewrite_select.cpp;9589d9 copies it into BuildNullColumn in rules/expand_grouping_sets.cpp. Therefore9589d9 is not the earliest introduction.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C24: DISTINCT expansion creates a nested optional for interval SUM
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced introduction (high source confidence).
+  0cffeb781b1ffc02c076c2eec50871970423606c — Denis Khalikov — [Optimizer] Add initial multiple distinct support. (#43492) [primary source change]
+  84f51d19457d15b671fad2edfaac96ecd9686c4f — alexpaniman — [NEW RBO] Fix Map key and shuffle column rename propagation (#43630) [later refactor; not introduction]
+  026a4acc33c26deef68af9c271412cc5ff1095f8 — alexpaniman — [NEW RBO] Migrate RBO to ID-based SSA columns (#54404) [later refactor; not introduction]
+  Evidence: Initial multi-DISTINCT padding computes fieldType from the original input column and wraps the real aggregate output in Just whenever that input is nonoptional.
+  Evidence: This ignores that an aggregate such as interval SUM may already have an Optional result; the missing-branch type is also derived from GetSumResultType plus an Optional wrapper.
+  Evidence: 84f51d19457d only changes the same condition into an early continue; parent inspection shows the original-input-nullability decision already existed.026a4acc changes bindings, not this decision.
+  Caveat: Source history inspection only; no historical runtime bisection. Earlier versions may have additional failures masking this interval case; no claim that all neighboring multi-DISTINCT inputs previously worked.
+
+C25: Correlated multi-aggregate DISTINCT fails between stages
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced interaction introduced by decorrelation support (high source confidence).
+  7ee9137a38b158fb733613e21e2d160003a7c324 — Denis Khalikov — [Optimizer] Add initial support for decorrelation based Neumann work. (#51876) [primary source change]
+  0cffeb781b1ffc02c076c2eec50871970423606c — Denis Khalikov — [Optimizer] Add initial multiple distinct support. (#43492) [pre-existing multi-DISTINCT producer of Intermediate/Final phases]
+  Evidence: 7ee913 introduces dependent aggregate pushdown with a hard Undefined-phase assertion.
+  Evidence: At that commit, Expand aggregation already precedes Decorrelation in InitializeRBOOptimizationStages.
+  Evidence: The earlier multi-DISTINCT implementation from0cffeb emits Intermediate and Final aggregates. The phase-incompatible consumer is newly added by7ee913; its parent lacks the new dependent-join decorrelation engine.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C26: DISTINCT combined with sample standard deviation is rejected
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced introduction of the current explicit rejection (high source confidence).
+  4f73c60b323ad32961179d4413509bdfa422d5e8 — Denis Khalikov — [Optimizer] Add support for more cases with multiple distinct. (#43624) [primary source change]
+  0cffeb781b1ffc02c076c2eec50871970423606c — Denis Khalikov — [Optimizer] Add initial multiple distinct support. (#43492) [earlier multi-DISTINCT implementation with a different variance type attempt]
+  Evidence: The candidate diff replaces the variance branch GetAvgResultType call with an unconditional Y_ENSURE(false) in multiple-DISTINCT padding.
+  Evidence: That explicit variance rejection survives in current rules/expand_distinct_aggregation.cpp:78.
+  Evidence: Its parent attempted a variance result type; this is not merely a rename or moved line.
+  Caveat: Source history inspection only; no historical runtime bisection. The parent implementation was not executed and may also have failed for this combination. This attributes the explicit rejection, not proof of a working predecessor.
+
+C27: HAVING without an aggregate call fails translation
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced introduction (high source confidence).
+  b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6 — Denis Khalikov — [NEW RBO] Add support for HAVING. (#33329) [primary source change]
+  Evidence: Initial HAVING support adds ProcessAggregationsInHaving and requires exactly one expression in havingFilterHolder.
+  Evidence: The same new ProcessAggregations populates that holder only when aggregate calls are present, or on the DISTINCT path forbidden for HAVING.
+  Evidence: The candidate diff and its parent establish that the plain-HAVING omission is part of the feature introduction; later signature changes preserve it.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C28: DISTINCT over window results references columns before definition
+Authors of relevant changes: Denis Khalikov
+Attribution: source-traced interaction introduced by window support (high source confidence).
+  11ebdccf532442bc91e1c664403a677d55b2fd2b — Denis Khalikov — [Optimizer] Add initial support for window functions. (#52620) [primary source change]
+  b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6 — Denis Khalikov — [NEW RBO] Add support for HAVING. (#33329) [pre-existing DISTINCT-at-end-of-aggregate-pipeline behavior]
+  Evidence: 11ebdcc moves window-result expressions out of the postaggregate map and adds BuildWindowOperators only after BuildAggregationPipeline.
+  Evidence: The earlier aggregate pipeline already constructs the final DISTINCT aggregate inside itself; no stage reorder accompanies the window introduction.
+  Evidence: Candidate/parent diff shows window values become unavailable to that pre-window DISTINCT at the point initial window support is introduced.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C29: Mixed set-operation precedence is lowered without a real operand stack
+Authors of relevant changes: Pavel Velikhov
+Attribution: source-traced feature interaction; earlier structural limitation retained (high source confidence).
+  8c3d6d2ac4e605acc0fc6caa265be3795973633d — Pavel Velikhov — [NEW OPTIMIZER] Added support for set operations (#42928) [primary source change]
+  2805cf0cdbc875f908fabe74217de93cc490a5ad — Pavel Velikhov — [NEW RBO] Add YqlSelect support (#28901) [origin of single-accumulator postfix interpreter]
+  Evidence: 2805cf0 introduced set-op traversal with one opResult and an opsInputCount counter rather than a stack; it initially accepted only union_all.
+  Evidence: 8c3d6d2 removes the union_all-only assertion and creates generic SetOp nodes without changing this operand traversal.
+  Evidence: The specific mixed-precedence defect therefore combines the original parser structure with later generalized set-operation support. Both candidate diffs and parents were inspected.
+  Caveat: Source history inspection only; no historical runtime bisection. The structural limitation dates to2805cf0;8c3d6d2 is the source-traced enabling change for mixed set operations. Historical successful/failed queries were not bisected.
+
+C30: INSERT OR REVERT loses its conflict policy
+Authors of relevant changes: Pavel Velikhov
+Attribution: source-traced introduction (high source confidence).
+  b7945c07c68c68df76db3d787246eb3f895200f6 — Pavel Velikhov — [NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243) [primary source change]
+  344f8fd79c22a14511219b7c22a7aa7f15a56d30 — Pavel Velikhov — [NEW OPTIMIZER] Fix issues with Insert/Updates (#54028) [later refactor; not introduction]
+  Evidence: Initial DML-from-SELECT support imports Options.OnConflict but TOpTableEffect::BuildSettings chooses mode solely from EffectType and never consumes OnConflict.
+  Evidence: The candidate diff introduces both the imported conflict policy and its omission from sink construction; its parent lacks this effect lowering.
+  Evidence: The later switch conversion in344f8fd79c22 retains mode=insert and does not introduce the omission.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+
+C31: Late join-filter inlining recreates unsupported sharing
+Authors of relevant changes: alexpaniman, Pavel Velikhov
+Attribution: multi-commit interaction; unique first failing commit not established (medium source confidence).
+  dc773f93aec8fa5d56c1653bf43aef64165d8e0c — alexpaniman — [NEW RBO] Duplicate shared subtrees when spilling is disabled (#54743) [primary source change]
+  026a4acc33c26deef68af9c271412cc5ff1095f8 — alexpaniman — [NEW RBO] Migrate RBO to ID-based SSA columns (#54404) [introduces explicit Replicate sharing in join-filter inlining]
+  7fb688ddeee2b43220828fdbf0c5b19985cab7e1 — Pavel Velikhov — [NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008) [makes join-filter inlining unconditionally run after CBO]
+  Evidence: 026a4acc replaces implicit left-input reuse with an explicit two-output Replicate in inline_join_filters.cpp.
+  Evidence: 7fb688 moves/enables the join-filter inlining stage unconditionally after CBO; its parent could choose early versus late placement by configuration.
+  Evidence: dc773 introduces no-spilling duplication before CBO and an assignment-time shared-stage rejection, leaving later-created Replicates outside the duplication pass.
+  Evidence: All three diffs and parents were inspected. The current reported stage-order failure is the interaction, not evidence that the later defensive assertion alone caused it.
+  Caveat: Source history inspection only; no historical runtime bisection. Shared stages may already have been rejected later by the compiler without spilling. No unique first-bad historical runtime commit is claimed.
+
+C32: Forced Map mode selects an unsupported algorithm for FULL JOIN
+Authors of relevant changes: Pavel Velikhov, Denis Khalikov
+Attribution: source-traced feature interaction (high source confidence).
+  2c0f2db37dc5368f03d9d747176c3c47ca43dc78 — Pavel Velikhov — [NEW OPTIMIZER] Added support for full outer join (#43141) [primary source change]
+  595f56f1b155dced92b9587866da1f5d9abc45a1 — Denis Khalikov — [NEW RBO] Add support for map join. (#36605) [origin of unconditional Map-mode fallback]
+  4382787158e5fcddd09e0de7cf6a153c7ca0329f — alexpaniman — [NEW RBO] Show BlockHashJoin in explain (#46362) [later refactor; not introduction]
+  Evidence: 595f56 adds HashJoinMode Map selection without checking JoinKind, while the physical builder at that revision accepts only inner/left-family joins.
+  Evidence: 2c0f2db adds Full to the physical builder accepted kinds but leaves the Map-selection fallback unchanged.
+  Evidence: 438278 only refactors MaybeSetJoinAlgo into FinalizeJoinPhysicalProps and preserves unconditional Map choice; it is not the introduction.
+  Evidence: The unsupported Full+Map combination becomes part of the advertised Full-join feature at2c0f2db, using the earlier unsafe generic fallback.
+  Caveat: Source history inspection only; no historical runtime bisection. 2c0f2db is the enabling Full-support change;595f56 owns the earlier selection assumption. No historical runtime bisection.
+
+C33: Set-operation output column order follows the final arm
+Authors of relevant changes: Pavel Velikhov
+Attribution: source-traced introduction (high source confidence).
+  2805cf0cdbc875f908fabe74217de93cc490a5ad — Pavel Velikhov — [NEW RBO] Add YqlSelect support (#28901) [primary source change]
+  2d0a53c77711078980683c860b9cbf6af84e803c — Denis Khalikov — [NEW RBO] Add more tests (#31384) [later refactor; not introduction]
+  Evidence: Initial YqlSelect importer clears and repopulates finalColumnOrder inside each set-item loop.
+  Evidence: After the loop, the same commit builds the root ColumnOrder from that last-written vector.
+  Evidence: 2d0a53c only changes the final iteration variable/reference style; inspection of2805cf0 source and parent shows the final-arm selection dates to initial import support.
+  Caveat: Source history inspection only; no historical runtime bisection. 
+

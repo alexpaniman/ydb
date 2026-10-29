@@ -1,0 +1,130 @@
+{
+  "reviewer": "c41_review",
+  "status": "source_review_pass_no_compile_or_native_claim",
+  "base_commit": "c4a3cd163ec32e76c2557469378f89f22da3b5fc",
+  "patch_sha256": "8bdc88f6222ac1764cceabc3cad32433ef48803a74bdf07482b5fe9ac0da92b6",
+  "generator_sha256": "0432d71492a19bf83dd40d81d49534dcb328dce491ac70ef4776233600dbc130",
+  "scope": "KQP-owned RANGE MIN/MAX runtime, compiler and type annotation integration; finite lower bound and finite or UNBOUNDED FOLLOWING upper bound. Also reviewed the matching small ROWS suffix eligibility extension.",
+  "source_contracts": [
+    {
+      "contract": "Public APIs and constructor types",
+      "evidence": [
+        "mkql_computation_node_holders.h:5 imports the computation-node implementation; TMutableComputationNode inherits the mutables constructor with default Any representation at mkql_computation_node_impl.h:220-250.",
+        "The collector factory type is obtained from public CreateFactory, with no reference to its private precomputed type. Its signature matches mkql_queue.cpp:613-638.",
+        "Compiler callback captures TKqpBuildContext separately from its TMkqlBuildContext argument; builder returns the unchanged input stream type. Existing runtime PEERDIR dependencies provide the public collector deserializer."
+      ]
+    },
+    {
+      "contract": "Actual input and result types",
+      "evidence": [
+        "BuildChainOutputs uses BuildResultFromAccumulator, whose optionality follows Window.GetIUType; BuildOutputRowType uses the same declarations. Mapping admission strips at most one optional and requires the same data annotation, including Decimal parameters.",
+        "The runtime repeats exact MiniKQL type equality and shared scalar-slot admission. Float, Double, timezone and composite aggregate inputs remain excluded. Present primitive optional values use the same unboxed representation; empty values are skipped and only optional outputs may be empty.",
+        "The existing cumulative-chain MIN/MAX placeholders remain linear work; the custom node overwrites fresh result fields while preserving original argument and sort fields."
+      ]
+    },
+    {
+      "contract": "Collector and factory lifetime",
+      "evidence": [
+        "CreateFactory owns precomputed bounds in its closure, and collector references point into that node-owned closure. The node owner remains alive under the same computation graph lifetime contract used by WinFramesCollector/TAggregateWindowValue in mkql_queue.cpp:440-535.",
+        "Buffer and Bounds members precede Collector; constructor does not consume input. Candidate values and copied output members own their references, so later buffer eviction cannot invalidate outputs."
+      ]
+    },
+    {
+      "contract": "Fetch, yield and row ordinals",
+      "evidence": [
+        "Fetched increments only after successful input Fetch and successful reservation, matching the collector consumer successful-row count. A Yield can occur after several buffered fetches; the collector retains them and retries without advancing the current output row.",
+        "The collector removes a contiguous prefix only; absolute base is Fetched minus Buffer.Size. Public frame indices are rebased by the collector, and generation changes caused by PushBack/PopFront are owned by its Next cycle. Reserve preserves logical order without mutating generation.",
+        "All candidate indices are absolute; expiry precedes additions. SeenEnd covers both forward frame edges, including empty gaps. No range view or borrowed row pointer is retained across Next."
+      ]
+    },
+    {
+      "contract": "Memory charge and exception cleanup",
+      "evidence": [
+        "Candidate deques and their outer vector use TMKQLAllocator. The public buffer uses std::vector, so the wrapper charges new storage before Reserve and releases the old charge afterward, accounting for peak overlapping allocations.",
+        "OffloadAlloc limit/callback exceptions precede its counter changes (aligned_page_pool.cpp:113-141), so a pre-reserve rejection needs no undo. A Reserve exception releases only the new charge; destruction clears the buffer and releases the old charge. No failed query is resumed after a reserve exception.",
+        "Finish cleans candidates, clears buffer storage and zeroes BufferBytes. Subsequent Fetch returns Finish before touching the cleared collector; destruction therefore cannot double-release the buffer charge."
+      ]
+    },
+    {
+      "contract": "Unbounded following extension",
+      "evidence": [
+        "Runtime accepts an infinite upper bound only in Following direction and still requires finite lower. Existing ShouldAddElement makes the public collector drain the partition once; the absolute right edge then remains fixed. Expiry continues against the finite moving lower edge.",
+        "For ROWS, the first nonempty frame scans its suffix once; subsequent rows have the same last ordinal and append nothing, using existing two-stack expiry. The existing current-row suffix special path is selected earlier and is unchanged."
+      ]
+    },
+    {
+      "contract": "Integration and eligibility",
+      "evidence": [
+        "KqpRangeMinMax is registered in the KQP base compute factory, compiler and type transformer, with runtime source in ya.make. No essentials file is changed.",
+        "MIN/MAX-only frames bypass the second collector. Mixed frames retain it, and final result assembly reads the custom MIN/MAX columns while existing aggregate paths use original input/cumulative columns."
+      ]
+    }
+  ],
+  "correctness_blockers_found": [],
+  "limitations": [
+    "Source inspection is not compiler, native, allocator-failure-injection or distributed-placement evidence.",
+    "Mixed frames retain a second buffer and extra lookahead; benchmark memory and latency separately from correctness.",
+    "The finite-lower window scope and admitted scalar value families do not close every possible Q01 frame/type.",
+    "The callable validates the internal emitted mapping contract; malformed hand-built callable combinations are not a supported query input path."
+  ],
+  "files": [
+    {
+      "path": "ydb/core/kqp/common/kqp_window_minmax.h",
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_sha256": "fb6afed0d9aa7bd92aa804b7a2fbf261abe7040054cf91e2ef1d2b906db8a71b"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/kqp_range_minmax.h",
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_sha256": "7fffd91eb0ec372014a0fcf2741203b70916055355db0b4067d93064f5986f40"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/kqp_range_minmax.cpp",
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_sha256": "4b1478cb1d08f006897cffbf352d070ec1c509f5e34eccc00326dfd481ce6eeb"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/ya.make",
+      "before_sha256": "9b0f053c5c85173b930f2fd65003146319ab7ffbf7c583bacfbf313673f635a3",
+      "after_sha256": "ae2a80922e4dcddb02d57bb80bc6dc466aadd7023d28f2bf09f466f2be8a7ffe"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/kqp_compute.cpp",
+      "before_sha256": "d85bb153a10bf36474b7df7c1a34b139b9538121df7c48fb30a27c798398c453",
+      "after_sha256": "09704aa385a1177aa1db9e15dff91ee23cba8b6bf00168d34ffd0d9487e4bb5f"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/common/kqp_program_builder.h",
+      "before_sha256": "f4cb2df045564c74f9d4d6dabfbb53fbeb6de036df1baf5e74ceea017f000ab6",
+      "after_sha256": "18f73ee487f813e052e6647c9bf52e0f19dbaf491c39be8e78a28b0b7f27211c"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/common/kqp_program_builder.cpp",
+      "before_sha256": "5dc8218f2473b7146c3bc20f8f84567124391199670373666f9e9c9a683d7f55",
+      "after_sha256": "e2dbed50ad9fcde09b8b3f74244d58ed8ece12c2bf00e46c5fdd69d75a8bba22"
+    },
+    {
+      "path": "ydb/core/kqp/query_compiler/kqp_mkql_compiler.cpp",
+      "before_sha256": "838d2a5e7b511b8264593e7d5b75197403a5162660da066302bd98e00543264f",
+      "after_sha256": "98085ddb082f86f5360c8ebd640e1b92cb11d95c7be01a1789edf17eb6838711"
+    },
+    {
+      "path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+      "before_sha256": "4f2ac8d903510cbff1981d25d9718e95cff602767fd5d8bc2a45371aa5438592",
+      "after_sha256": "34504c48158ddef8896ca43ccde11c22ec93d6d1cc39fb633f7190e51c6e9d68"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "before_sha256": "f3194821e3717c13251d4daa3f7d8d9de0a34cd9e22d6b2a897e2e710c24c079",
+      "after_sha256": "f272aab6c4cbbd90db7bf151899477bfab66b79a2abb8ef583030433f1fb5a95"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h",
+      "before_sha256": "3a7dbfef62e6bfe1da2aaecf1d506815485f5a20f3a78aebefe32de85f88b55f",
+      "after_sha256": "9cb28799b37963d3fdc29fcafbfa560e465c4f66ababd8975005f91c14e0c28d"
+    }
+  ],
+  "production_files_changed": false,
+  "native_or_build_executions": 0,
+  "exact_reproductions_persisted": false
+}

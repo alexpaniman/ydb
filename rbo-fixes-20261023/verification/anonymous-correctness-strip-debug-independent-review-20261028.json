@@ -1,0 +1,17 @@
+{
+  "status": "independent_source_review_pass_native_pending",
+  "reviewed_unix_time": 1793135030.0473847,
+  "patch": "proposed-correctness-amendments/anonymous-correctness-strip-debug-20261028.patch",
+  "patch_sha256": "a0e0b7c9ac16546ca592cb9884df2b608f47453df897fcac5c32f1f70753ee2e",
+  "after_full_16_patch_plan_sha256": "04b51e28f961aae1e66956d710427bb63197da88e997cda5fe46f92739b2461e",
+  "stacked_application_passed": true,
+  "syntax_passed": true,
+  "metadata_branch_assertions_passed": 12,
+  "after_verifier_sha256": "65120ce941bd99d5b2f60f6b897e7a95ad797e9780247cecf0c3a56e2405afcf",
+  "scope": "Only anonymous C31/C47 links omit nonallocated debug sections; actual memory gain and native contracts remain unmeasured.",
+  "live_helper_edits": false,
+  "production_edits": false,
+  "native_runs": 0,
+  "build_runs": 0,
+  "rendered_workloads": 0
+}

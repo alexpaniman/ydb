@@ -1,0 +1,12 @@
+{
+  "case": "c26_single",
+  "mode": "legacy",
+  "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "evidence": "verification/baseline-C26-e8700d379b3b.jsonl",
+  "old_oracle_pass": false,
+  "corrected_oracle_pass": true,
+  "reason": "Singleton sample standard deviation has NaN result in the established engine contract.",
+  "source": "yql/essentials/mount/lib/yql/aggregate.yqls:178",
+  "unordered_result_sha256": "307829953ab5bba91b5915f4881ed5d6129954889f8314713fe0abb85e7e5557",
+  "rendered_inputs_or_rows_persisted": false
+}

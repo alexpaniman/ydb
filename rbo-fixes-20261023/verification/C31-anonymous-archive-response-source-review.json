@@ -1,0 +1,51 @@
+{
+  "status": "dormant_source_only_anonymous_archive_response_adapter",
+  "patch_sha256": "dfae58e3f34b3886656300f336ad3ef519996c8644314f47265689327158bc2d",
+  "before_sha256": "48515b54d5c8d96a38ce8755fdc732ec9817b2b8f5e58d7941b306c4d1e4d6f4",
+  "after_sha256": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+  "syntax_parse_passed": true,
+  "actual_receipt_observation": {
+    "original_argument_count": 1947,
+    "original_argument_bytes": 384530,
+    "adapted_template_argument_count": 32,
+    "adapted_template_argument_bytes": 627,
+    "contiguous_archive_runs": [
+      {
+        "argument_start": 2,
+        "archive_count": 131,
+        "all_inputs_in_receipt": true
+      },
+      {
+        "argument_start": 138,
+        "archive_count": 1786,
+        "all_inputs_in_receipt": true
+      }
+    ]
+  },
+  "actual_diagnostic_evidence": "verification/C31-link-driver-empty-input-diagnostic.json",
+  "source_references": [
+    "worktrees/aggregate/contrib/libs/llvm18/lib/Support/Unix/Program.inc:556",
+    "worktrees/aggregate/contrib/libs/llvm18/lib/Support/CommandLine.cpp:805",
+    "anonymous_cpp_guard.py:47"
+  ],
+  "contracts": [
+    "Only consecutive absolute .a arguments are replaced; each run stays at its original position with exact internal order.",
+    "Whole-archive, group, driver, target, sysroot, search, generated-object and output arguments remain unchanged.",
+    "Every response archive path must be a bound receipt input.",
+    "Response data exists only in memfds and is double-quoted with LLVM GNU response escaping.",
+    "Actual response contents are hashed after allocation and rechecked after link; original and adapted argument templates and archive sequences are separately hashed.",
+    "The shared descriptor map carries response memfds through existing guard reopening/pass_fds and closes them in existing execute finally.",
+    "Existing no-temp environment and no-mmap output flag remain unchanged.",
+    "Sanitized rejection evidence includes response hashes and counts without response bytes or command text."
+  ],
+  "verification": {
+    "native_runs": 0,
+    "compiler_runs": 0,
+    "mock_suites": 0,
+    "live_helper_edits": false,
+    "production_edits": false
+  },
+  "remaining": [
+    "Independent source review and actual anonymous link/run are required."
+  ]
+}

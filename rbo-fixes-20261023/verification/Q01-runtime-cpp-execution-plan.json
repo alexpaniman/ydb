@@ -1,0 +1,49 @@
+{
+  "status": "ready_for_later_guarded_compilation_not_executed",
+  "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+  "generator_module": "quality_range_runtime_cpp_generator",
+  "generator_sha256": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+  "case_count": 42,
+  "source_api": "render_cpp_suite() -> str; cases() -> ordered numeric-case names; specs() -> ordered closed case specifications; execution_manifest() -> sanitized requirements",
+  "required_profile": {
+    "name": "kqp_runtime",
+    "target": "ydb/core/kqp/runtime/streaming/ut",
+    "sample": "ydb/core/kqp/runtime/streaming/kqp_streaming_aggregation_ut.cpp"
+  },
+  "closure_reason": "Existing streaming-runtime tests already use TSetup<false>, KQP runtime/common, comp_nodes/llvm16 and the required builtins/computation libraries. The generator passes a custom factory and does not need the test-only GetTestFactory definition.",
+  "production_binding": [
+    "Compile against the exact clean current Q01 revision and require its successful production closure receipt.",
+    "Resolve WrapKqpRangeMinMax from the receipt-bound production runtime object/library; do not extract or copy its implementation into the generated source.",
+    "If reusing the RBO closure, first establish that its actual link closure contains the current runtime object and required builtins; otherwise use the explicit kqp_runtime profile.",
+    "TSetup disables LLVM execution in the generated program, but the existing production link closure may still include LLVM dependencies."
+  ],
+  "driver_adapters_required": [
+    "Register a dormant fixed-only Q01 runtime module and kqp_runtime metadata profile. Reject baseline phase because pinned main has no KqpRangeMinMax callable.",
+    "Use render_cpp_suite with len(cases()), stream returned bytes into the existing source memfd and keep object/executable/diagnostics anonymous.",
+    "Extend the closed Q01 JSONL parser with exactly execution_manifest.verdict_numeric_fields; require nonnegative int values, reject bool/extra/missing fields and require contiguous unique case_index values.",
+    "Require all42 case verdicts to pass, positive executed checks, matching exit status, operator_instances=1, cleanup_live_rows=0, exact lifecycle limit_rejections/cycles and matching generator digest.",
+    "Keep these runtime contracts separate from paired SQL semantics and physical-plan evidence. They cannot by themselves mark Q01 optimization quality fully verified.",
+    "Run compile/link/native sequentially under existing watchdog, host-headroom and cleanup safeguards; inherited memfd preservation and compiler environment scrubbing remain required."
+  ],
+  "actual_runtime_observations": [
+    "Production MIN/MAX output rows checked against an independent full-scan Int64 frame oracle.",
+    "Mixed composition executes the production outer collector, WinFrame and Length, while preserving the precomputed MIN/MAX fields.",
+    "Input fetch/yield and output/yield counts; unique live input-row witnesses and cleanup.",
+    "MiniKQL allocation/offload counts, cumulative offloaded bytes, lifetime peak growth and current-usage samples.",
+    "Real allocator-limit exceptions at first/later queue-growth charges, unchanged failed offload count, and released charge after graph invalidation.",
+    "Four successive graph invalidations/restarts against the same compiled graph."
+  ],
+  "limitations": [
+    "Int64 payloads only; SQL typed coverage is separate.",
+    "Source fetch/allocation counters are measured, internal deque comparisons are not instrumented.",
+    "Allocator-limit rejection covers reserve accounting before allocation; std::vector allocation-failure injection is not included.",
+    "Public allocator metrics are process-local MiniKQL accounting, not RSS.",
+    "Peak deltas measure growth above the allocator prior high-water mark; sampled_used_delta measures observed runtime usage above its prepared-graph baseline. Neither is a query RSS bound.",
+    "Mixed mode uses the real collector and frame length; full RBO lowering and other native functions remain SQL acceptance responsibilities.",
+    "GetUsed modulo-page cleanup check assumes no unrelated offloaded allocations enter the fixture; native validation is still required."
+  ],
+  "sql_inputs_saved": false,
+  "generated_cpp_saved": false,
+  "builds_started": 0,
+  "native_runs": 0
+}

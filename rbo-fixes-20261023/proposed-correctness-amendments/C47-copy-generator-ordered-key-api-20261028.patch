@@ -1,0 +1,11 @@
+--- a/rbo-fixes-20261023/c47_lookup_copy_contract_generator.py
++++ b/rbo-fixes-20261023/c47_lookup_copy_contract_generator.py
+@@ -86,7 +86,7 @@
+     body += _check('copied.Table.Get() == lookup->Table.Get()')
+     body += _check('copied.AllowNullKeys == lookup->AllowNullKeys && !copied.IsJoin()')
+     body += _check('copied.GetInput().Get() != input.Get()')
+-    body += _check('copied.LookupKeys.Size() == keys.Size()')
++    body += _check('copied.LookupKeys.Items().size() == keys.Items().size()')
+     body += _check('copied.GetColumns().Size() == fetchedColumns.Size()')
+     body += _check('!copied.GetColumns().HasAny(fetchedColumns)')
+     body += _check('!copied.GetColumns().HasAny(copied.GetInput()->GetOutputIUs())')

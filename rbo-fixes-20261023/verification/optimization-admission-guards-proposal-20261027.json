@@ -1,0 +1,43 @@
+{
+  "status": "dormant_source_patch_not_applied_or_executed",
+  "recorded_unix_ns": 1793132038330080627,
+  "files": [
+    "quality_pairing.py",
+    "verify_series.py",
+    "quality_pairing_contracts.py"
+  ],
+  "patch": "proposed-quality-amendments/optimization-admission-guards.patch",
+  "patch_sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70",
+  "source_before_sha256": {
+    "quality_pairing.py": "25fe7d594c031073b05a4ad42b3482b3ebb87d656869bd7150bb79771e5c9886",
+    "verify_series.py": "ac16a3e9049127e845c8103f1673a4520b23a2e81e0f1d56e35098635b556249",
+    "quality_pairing_contracts.py": "e9de55728d8879a3f9c4b2173bed924806e0ea08e44603b2edf40d5d160efc72"
+  },
+  "source_after_sha256": {
+    "quality_pairing.py": "d5bdd69e61be6928f08862f945422321c1cf32495ce892e501c82a000a194955",
+    "verify_series.py": "2375b60d1f842e1a06f4516fe6270ca36eaac3ff143dbda1fd194943ca7c17ce",
+    "quality_pairing_contracts.py": "a4e1a0780338b56ea6e0c17d66a66dd22bff74b011d17e5399342777f27bc1f9"
+  },
+  "python_ast_parse_passed": true,
+  "regression_contracts_executed": false,
+  "builds": 0,
+  "native_runs": 0,
+  "live_edits": false,
+  "rendered_product_inputs": false,
+  "covered_findings": [
+    "mandatory canonical profile fingerprint and exact case ownership",
+    "Q11 fixed IR admission required even without optional record flag",
+    "Q11 fallible and Q29 unsafe/guard paired counter preservation"
+  ],
+  "scope_limits": [
+    "No missing positive physical contract is weakened",
+    "Q01 scaling admission remains unresolved",
+    "Other previously documented direct/negative-control obligations remain unresolved"
+  ],
+  "pairing_version": "canonical_profile_and_effect_controls_v2",
+  "version_consumers_checked": "All depth<=2 Python/JSON artifacts; no comparison against old version found",
+  "review_amendments": [
+    "Broken Q15 assertion contract supplies valid required coverage, isolating the assertion under test",
+    "Bumped pairing version for mandatory-coverage semantics"
+  ]
+}

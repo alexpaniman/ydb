@@ -1,0 +1,30 @@
+{
+  "id": "Q01",
+  "patch_sha256": "63c95477c635d5b9b88866d8d7513f7ce2c4b775404de25a658652f884c3618b",
+  "reviewer": "harness_provenance",
+  "status": "independent_source_review_no_new_blocker_native_pending",
+  "apply_check_passed": true,
+  "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "production_source_modified": false,
+  "builds": 0,
+  "native_runs": 0,
+  "checks": [
+    "Eligibility admits only signed/unsigned machine integers, with at most one Optional wrapper; floating, Decimal, Interval and Null-only types remain on the ordered-fold path.",
+    "GetSumResultType widens eligible signed inputs to Int64 and unsigned inputs to Uint64, making the first value SafeCast exact.",
+    "AggrAdd and ordinary + share TAdd/SafeAdd; ordinary subtraction uses SafeSub. Interpreted integer arithmetic uses unsigned modulo operations and codegen uses add/sub without signed-overflow flags.",
+    "Inclusive endpoint prefix subtraction plus the first contribution agrees with a direct ordered fold in the 64-bit modular ring.",
+    "Private cumulative non-NULL counts distinguish all-NULL frames from numeric zero; optional prefix values are coalesced only for cancellation and the frame count restores NULL output.",
+    "BuildOutputRowType and BuildChainLambda use the same framePrefixSums/CanUsePrefixSum/optional-input guard. Auxiliary names use the existing collision-free temporary-name suffix.",
+    "BuildExpandFromStructs emits only OutputLayout fields, excluding auxiliary count fields from the public result.",
+    "WinFrame single-element mode returns frame.Max()-1 or Nothing, while normal queue range supports a fresh iterator for Head; both depend on the current frame row.",
+    "Whole/running/suffix paths retain default false flags and original fold behavior; mixed aggregate frames retain folded non-prefix aggregate state."
+  ],
+  "algebra_contract_report": "verification/Q01-integer-prefix-algebra-contracts.json",
+  "remaining_validation": [
+    "Compile and type-annotate generated optional/required/narrow-input ASTs.",
+    "Run baseline/fixed semantics across ROWS/RANGE, empty/all-null frames, ordering directions, peer groups and mixed aggregate expressions.",
+    "Observe no reachable Fold/Fold1 for COUNT/integer-SUM-only general frames and measure frame-width scaling.",
+    "Validate interpreted and LLVM execution agree at signed/unsigned wrap boundaries."
+  ],
+  "scope_limit": "This amendment covers COUNT and machine-integer SUM only. The original general-frame optimization finding remains partially open for floating/Decimal/Interval SUM, AVG, MIN and MAX."
+}

@@ -1,0 +1,7 @@
+{
+  "patch_sha256": "dfae58e3f34b3886656300f336ad3ef519996c8644314f47265689327158bc2d",
+  "review_sha256": "285f8f35b1bba0531a57911181c2711e48c13e1b056a5299cfe4f4b46d1ef2eb",
+  "before": "48515b54d5c8d96a38ce8755fdc732ec9817b2b8f5e58d7941b306c4d1e4d6f4",
+  "after": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+  "actual_link_native_pending": true
+}

@@ -1,0 +1,117 @@
+{
+  "all_intended_cases": [
+    "q28_right_nullable_bag",
+    "q28_nested_right_bag",
+    "q28_right_map_dependencies",
+    "q28_map_filter_sort_limit_control",
+    "q28_conditional_guard_control",
+    "q28_full_outer_nullable_control",
+    "q28_shared_spilling_control",
+    "q28_shared_copied_control"
+  ],
+  "apply_after_patch": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+  "apply_after_patch_sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483",
+  "builds": 0,
+  "direct_admission_changed": false,
+  "direct_q28_case_count": 26,
+  "executable_cases": [
+    "q28_right_nullable_bag",
+    "q28_nested_right_bag",
+    "q28_right_map_dependencies",
+    "q28_map_filter_sort_limit_control",
+    "q28_conditional_guard_control",
+    "q28_full_outer_nullable_control",
+    "q28_shared_copied_control"
+  ],
+  "generated_cpp_bytes": 6876,
+  "generated_cpp_sha256": "d8237e5c10705e5c0e69e1b8fc3f76c5f5906d9e01c5871b10dc5a73cb2485ec",
+  "limits": [
+    "Actual C++ compilation, SDK execution, and systemd environment equality remain unverified. Any extra or changed environment entry rejects the sample.",
+    "Affinity attestation covers the adapter main thread before/after the target, not every actor worker thread or transient mid-query changes.",
+    "The spilling-dependent shape is intentionally unexecuted; disabling the local service changes shared-channel eligibility. RAM-only service/file behavior must be validated before restoring it.",
+    "The seven measurements are a partial transport pilot, not full Q28 quality admission, structural scaling, pure optimizer time, or separate semantic verification.",
+    "TKikimrRunner port-lock metadata and sockets remain ordinary test infrastructure. No claim of a filesystem sandbox or absence of every runner side effect is made."
+  ],
+  "live_helper_edits": false,
+  "metadata_checks_passed": 379,
+  "mocked_orchestration": [
+    {
+      "mock_native_calls": 7,
+      "runtime_change_at_snapshot": null
+    },
+    {
+      "mock_native_calls": 0,
+      "runtime_change_at_snapshot": 2
+    },
+    {
+      "mock_native_calls": 1,
+      "runtime_change_at_snapshot": 3
+    },
+    {
+      "mock_native_calls": 1,
+      "runtime_change_at_snapshot": 4
+    },
+    {
+      "mock_native_calls": 7,
+      "runtime_change_at_snapshot": 16
+    }
+  ],
+  "module_after_sha256": "4e29a04b473601f61ba63a156c9c1068f8790325f7937b8e7cba722289713de7",
+  "module_before_sha256": "22c807e6780ef984ba7114b917c1d3d3e5f4914bdbd278817961e394472a75ee",
+  "native_runs": 0,
+  "patch": "proposed-quality-amendments/Q28-sdk-compilation-runtime-identity-20261028.patch",
+  "patch_sha256": "8712ec3993b04acf34b404818f48714588628fd6418315adcaeb57a54168a9e8",
+  "pending_cases": [
+    {
+      "case": "q28_shared_spilling_control",
+      "executed": false,
+      "reason": "local_file_service_changes_shared_channel_eligibility_RAM_only_service_unverified"
+    }
+  ],
+  "pinned_source_evidence": {
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "files": [
+      {
+        "line": 97,
+        "meaning": "Local file spilling defaults enabled.",
+        "path": "ydb/core/protos/table_service_config.proto",
+        "sha256": "ad647255a24df1060dd1fa039ef600ee0a022a1dca4ba120bba969eff456dc4e"
+      },
+      {
+        "line": 148,
+        "meaning": "Runner adds _KqpEnableSpilling when the local service is enabled.",
+        "path": "ydb/core/kqp/ut/common/kqp_ut_common.cpp",
+        "sha256": "92589cf8a3a3a6b3a7dab33f55127cfecff3b7f815a46d63d78f60ae7179af99"
+      },
+      {
+        "line": 239,
+        "meaning": "SpillingEnabled resolves that internal flag.",
+        "path": "ydb/core/kqp/provider/yql_kikimr_settings.cpp",
+        "sha256": "59c460367dc0d317cd1dd9f12e21faf5b3a48a3ec47aeaf18e960e91f7143f41"
+      },
+      {
+        "line": 609,
+        "meaning": "Shared-channel eligibility also requires the internal spilling flag.",
+        "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+        "sha256": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896"
+      }
+    ],
+    "files_identical_at_base_and_fixed": true,
+    "fixed": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1"
+  },
+  "real_memfds": 0,
+  "real_process_launches": 0,
+  "rendered_SQL_CPP_plans_results_or_environment_persisted": false,
+  "runtime_contract": [
+    "Full caller environment bytes and main-thread affinity are snapshotted in RAM; only hashes and CPU count are recorded.",
+    "Caller identity is checked before every native sample, immediately after each normal return, and at final provenance.",
+    "Native C++ compares its actual environ bytes and sched_getaffinity result with memfd snapshots before runner startup and after the cold compilation statistics check.",
+    "The native comparison attests exact bytes against parent-bound hashes. It does not assume systemd preserves the environment and does not rely on the guard override hash.",
+    "Test redirection and loader/profile-output override names are rejected before any compilation or native launch.",
+    "All seven executable configurations explicitly disable the local file spilling service; adapter checks explicit false before TKikimrRunner creation."
+  ],
+  "schema_version": "q28_runtime_identity_source_preparation_v1",
+  "shared_guard_changed": false,
+  "source_checks_sha256": "bb8ba886ff54ef9557347edc8e2b64d11af9641f77406372cec60438eaa0ab03",
+  "status": "dormant_source_prepared_independent_and_native_review_pending"
+}

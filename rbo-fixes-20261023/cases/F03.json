@@ -1,0 +1,54 @@
+{
+  "id": "F03",
+  "title": "Physical-window interval SUM uses an unsuitable accumulator",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/f03-normalize-window-interval-sums",
+  "commit": "2a99d200829f2dd090ef70ce69b491c12227c5d5",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp"
+  ],
+  "rationale": "Use exact Decimal state in the physical window SUM accumulator, restoring the original interval type only when each frame result is finalized.",
+  "generator_modules": [
+    "interval_window_checks"
+  ],
+  "checks": [
+    "Independent source/API review and abstract arithmetic contracts passed. Actual compilation and runtime validation remain pending."
+  ],
+  "verification_limitation": "All68 physical-window interval SUM profiles pass on this independent branch, including Interval/Interval64, nullable and empty frames, cancellation and final overflow, running/finite/suffix and peer paths. Whole-partition windows rewritten as logical aggregates use separate F02.",
+  "source_attribution_limitation": "Introducing source diffs reviewed; historical native bisection has not been performed.",
+  "baseline_diagnostic_evidence": [
+    "verification/F03-main-source-native-confirmation.json",
+    "verification/F03-legacy-control-confirmation.json"
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "F03",
+    "revision": "2a99d200829f2dd090ef70ce69b491c12227c5d5",
+    "exit_code": 0,
+    "elapsed_seconds": 80.0,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4530176,
+      "peak_scope_usage_bytes": 41202581504,
+      "minimum_host_available_bytes": 109395542016,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 80.0
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/2a99d200829f2dd090ef70ce69b491c12227c5d5-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 68,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-F03-2a99d200829f-1792731219274033424.jsonl"
+  }
+}

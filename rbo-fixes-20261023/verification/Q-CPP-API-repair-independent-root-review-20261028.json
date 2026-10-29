@@ -1,0 +1,84 @@
+{
+  "status": "independently_source_approved_native_pending",
+  "independent_checks": 31,
+  "checks": [
+    "patch_Q14",
+    "patch_Q20",
+    "patch_Q28",
+    "candidate_quality_rule_cpp_generator.py",
+    "candidate_quality_scheduler_cpp_checks.py",
+    "candidate_quality_statistics_cpp_generator.py",
+    "candidate_quality_statistics_cpp_profiles.json",
+    "only_required_API_spelling_changes_Q14",
+    "unchanged_check_calls_Q14",
+    "unchanged_case_vector_Q14",
+    "only_required_API_spelling_changes_Q16",
+    "unchanged_check_calls_Q16",
+    "unchanged_case_vector_Q16",
+    "only_required_API_spelling_changes_Q09",
+    "unchanged_check_calls_Q09",
+    "unchanged_specifications_Q09",
+    "only_required_API_spelling_changes_Q20",
+    "unchanged_check_calls_Q20",
+    "unchanged_specifications_Q20",
+    "only_required_API_spelling_changes_Q28",
+    "unchanged_check_calls_Q28",
+    "unchanged_specifications_Q28",
+    "profile_generator_Q09",
+    "profile_rendered_hash_Q09",
+    "profile_rendered_bytes_Q09",
+    "profile_generator_Q20",
+    "profile_rendered_hash_Q20",
+    "profile_rendered_bytes_Q20",
+    "actual_RBO_API_Q14",
+    "actual_RBO_API_Q20",
+    "actual_RBO_API_Q28"
+  ],
+  "patches": {
+    "Q14": {
+      "path": "proposed-quality-amendments/Q14-direct-generator-API-repair-20261028.patch",
+      "sha256": "0759f720551f9b51a5e69247911ea6721ea2aee7888d402c48f14db4bd8a063b"
+    },
+    "Q20": {
+      "path": "proposed-quality-amendments/Q20-direct-generator-API-repair-20261028.patch",
+      "sha256": "702fad08d74bc1986baaad1fdd7fca09abe67ba6389188b391d10b77de488e9d"
+    },
+    "Q28": {
+      "path": "proposed-quality-amendments/Q28-direct-generator-API-repair-20261028.patch",
+      "sha256": "20c61c07c53e2ac88b030ff6437f80b4183350b65f3e423b9a791267121497c6"
+    }
+  },
+  "source_refs": {
+    "Q14": {
+      "ydb/core/kqp/opt/rbo/kqp_info_unit.h": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81",
+      "ydb/core/kqp/opt/rbo/kqp_operator.h": "d5ef4e7aa7921d4dcab120f4d9d503d44442d1f5d068445eb6f3b0d27a5771af",
+      "ydb/core/kqp/opt/cbo/cbo_optimizer_new.h": "a8dacdb8ac09f92a6b0e39e9a54c3d8ea566ddb4352d991f6dc0e63608685f55",
+      "ydb/core/kqp/opt/cbo/kqp_statistics.h": "2eb554635662341097a49f8da1be06a08d0c1499513bb7083aa998e41fc02492",
+      "yql/essentials/core/yql_cost_function.h": "19c6af86e620d4b7667bb0539a1e1a925e7ffbe1a6cb13d15e0807c71450b1e4",
+      "yql/essentials/core/yql_statistics.h": "b40618cd9fc3c03bcdc8ecdbccadeb06451408e891b57ef439a4321c85350407"
+    },
+    "Q20": {
+      "ydb/core/kqp/opt/rbo/kqp_info_unit.h": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81",
+      "ydb/core/kqp/opt/rbo/kqp_operator.h": "d5ef4e7aa7921d4dcab120f4d9d503d44442d1f5d068445eb6f3b0d27a5771af",
+      "ydb/core/kqp/opt/cbo/cbo_optimizer_new.h": "a8dacdb8ac09f92a6b0e39e9a54c3d8ea566ddb4352d991f6dc0e63608685f55",
+      "ydb/core/kqp/opt/cbo/kqp_statistics.h": "2eb554635662341097a49f8da1be06a08d0c1499513bb7083aa998e41fc02492",
+      "yql/essentials/core/yql_cost_function.h": "19c6af86e620d4b7667bb0539a1e1a925e7ffbe1a6cb13d15e0807c71450b1e4",
+      "yql/essentials/core/yql_statistics.h": "b40618cd9fc3c03bcdc8ecdbccadeb06451408e891b57ef439a4321c85350407"
+    },
+    "Q28": {
+      "ydb/core/kqp/opt/rbo/kqp_info_unit.h": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81",
+      "ydb/core/kqp/opt/rbo/kqp_operator.h": "810ec6495a0f2571af8aaed157d947d69ec9798affa2a72f10f2e423c574290a",
+      "ydb/core/kqp/opt/cbo/cbo_optimizer_new.h": "a8dacdb8ac09f92a6b0e39e9a54c3d8ea566ddb4352d991f6dc0e63608685f55",
+      "ydb/core/kqp/opt/cbo/kqp_statistics.h": "2eb554635662341097a49f8da1be06a08d0c1499513bb7083aa998e41fc02492",
+      "yql/essentials/core/yql_cost_function.h": "19c6af86e620d4b7667bb0539a1e1a925e7ffbe1a6cb13d15e0807c71450b1e4",
+      "yql/essentials/core/yql_statistics.h": "b40618cd9fc3c03bcdc8ecdbccadeb06451408e891b57ef439a4321c85350407"
+    }
+  },
+  "rendered_source_persisted": false,
+  "live_edits": false,
+  "native_or_toolchain_runs": 0,
+  "limits": [
+    "Actual compilation/linking and native assertions remain pending.",
+    "These are verification-generator repairs, not additional production bugs."
+  ]
+}

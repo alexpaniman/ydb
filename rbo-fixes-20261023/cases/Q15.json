@@ -1,0 +1,58 @@
+{
+  "id": "Q15",
+  "title": "Every window repartitions even when input partitioning is sufficient.",
+  "branch": "fix/new-rbo/q15-every-window-repartitions-even-when-input-partitioning-is-sufficient",
+  "commit": "4e6d9217ef22bdcced5cd1879d3639508717e8e0",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_utils.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_utils.h",
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+  ],
+  "proposal_sha256": "e186058b626f1fb113fbc340617eb02be5d7939dbfabbda04a457bb49043c31e",
+  "proposal": "proposed-quality-amendments/Q15-subset-contract.patch",
+  "proposal_metadata": {
+    "id": "Q15",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "applied_build_and_native_pending",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_rbo_utils.h",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_utils.cpp",
+      "ydb/core/kqp/opt/rbo/kqp_operator.h",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+      "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+    ],
+    "patch_sha256": "e186058b626f1fb113fbc340617eb02be5d7939dbfabbda04a457bb49043c31e",
+    "apply_check_passed": true,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "scope": "Shared metadata/stage partition-subset proof for prior Windows and column sources through direct Map aliases and Filter.",
+    "source_review_pending": false,
+    "compiled": false,
+    "native_verified": false,
+    "production_edited": false,
+    "remaining_limits": [
+      "Join and Aggregate producers are conservatively unproved.",
+      "Replicate, Sort, Limit, streaming lookup and union distributions are conservatively unproved.",
+      "Only direct row-member aliases preserve key type/value; computed keys may supplement but cannot replace required hash keys.",
+      "Metadata override overlaps C37 and must use this shared final body when combining branches."
+    ],
+    "independent_source_review": "verification/Q15-subset-independent-source-review.json"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes",
+    "Independent source review confirms shared metadata/stage partition-subset contract; no compile or native verdict yet"
+  ],
+  "verification_limitation": "Native correctness, distributed placement and eliminated-shuffle evidence remain pending. Reuse supports a proven partition subset through direct aliases and filters from Window or column storage; unproved producers retain repartitioning.",
+  "superseded_commits": [
+    "c117f50129b649140196ce70a29c9b5f39f780b8",
+    "3ca6d9b548fe7865bf535c0d1a646bbfa788a3c1"
+  ],
+  "implementation_scope_complete": true,
+  "source_review": "verification/Q15-subset-independent-source-review.json"
+}

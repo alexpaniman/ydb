@@ -1,0 +1,390 @@
+{
+  "actions": {
+    "acceptance_policy_changed": false,
+    "native_build_graph_or_toolchain_runs": 0,
+    "production_or_live_helper_edits": 0,
+    "rendered_workloads_or_plans_persisted": false
+  },
+  "artifact_bindings": {
+    "verification/Q01-native-measurement-execution-manifest-20261028.json": "314b8eec3a608b89e3931330bfb48d8ebc6295cab9763cb52597423cc40c386f",
+    "verification/Q01-range-minmax-independent-api-lifecycle-review.json": "a8a50312659e03b3d0bf4f8bb493f787dbb7bb75fa58f40dd6eefa0a8f357b53",
+    "verification/Q01-resource-scaling-admission-plan-20261027.json": "4f5cf34f70cf9a651b579017dee36afbfe907e0903530f9624300c2cfab4e596",
+    "verification/Q01-runtime-cpp-independent-source-review.json": "9fcc529cfc2fdbe18db0c060bcbc491e0d7573e97011a3a569f7edcbe5e8478b",
+    "verification/Q01-shared-window-setup-controls-independent-review-20261028.json": "740c6d56674494e600b9b2892488c5655a74494be1ecd2954d17ec943db0e313",
+    "verification/Q01-shared-window-setup-controls-source-preparation-20261028.json": "39d0a334b06e784e666e96c15e2f073ae8fc0e586a5abe20be66b06a76a09ca6",
+    "verification/q01-minmax-independent-source-review.json": "350ee7df55abd7b731f07320904f55a6153ee44b41dc3372143cd1d3a9c0b747",
+    "verification/quality-all29-serial-execution-plan-idle53-20261028.json": "2be673f8ba306a10250c523525cdd4ca2dfc4083e909072e0849447a89ac6565"
+  },
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "bug": "Q01",
+  "concrete_gaps": [
+    {
+      "finding": "The canonical MIN/MAX mixed and fallback recipes contain separate inline window specifications. The frontend gives those separate identities and RBO groups by identity. Their callable totals can establish individual operations but not the intended same-window RANGE prepass followed by the retained collector. The reviewed named-window scaling amendment fixes recipe identity for supported mixtures; actual dataflow still needs observation.",
+      "id": "path_identity",
+      "references": [
+        "quality_minmax_checks.py:130",
+        "quality_range_minmax_checks.py:68",
+        "quality_q01_scaling_checks.py:142",
+        "yql/essentials/sql/v1/translation/sql_call_expr.cpp:447",
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:1226"
+      ]
+    },
+    {
+      "finding": "Suffix/fallback semantics are already represented: ROWS has12 new general-suffix specifications plus the old specialized suffix control; RANGE has86 suffix specifications and14 fallback controls. These counts are source inventory, not native passes. Their additional large-N resource and same-window coverage is what remains missing.",
+      "id": "existing_suffix_coverage"
+    },
+    {
+      "finding": "The actual production RANGE wrapper and outer WinFramesCollector are exercised by direct42, including10 suffix cases,21 mixed cases, yields/cancellation/resets/limits. Mixed mode adds COUNT by WinFrame Length; it does not establish the production prefix-COUNT/SUM lowering or the SQL frontend path. Input fetch counts cannot measure internal deque comparisons or frame rescans.",
+      "id": "direct42_scope"
+    },
+    {
+      "finding": "Direct42 reports allocation/offload deltas and current-use samples, but its peak fields subtract lifetime high-water marks. A zero delta cannot establish zero execution memory. Whole-kqprun CPU/RSS covers startup/schema/fixture/compilation/output and cannot fill the MiniKQL allocation gap. The new explicit allocator accounting lives in the RANGE wrapper; COUNT/SUM and ROWS reuse existing allocated primitives.",
+      "id": "allocation_scope"
+    },
+    {
+      "finding": "quality_pairing.py:395-404 intentionally forces every Q01 full-quality result false. The resource-design validator is not implemented. This assessment changes neither that gate nor any semantic, lifecycle, structural or provenance oracle.",
+      "id": "current_gate"
+    }
+  ],
+  "fixed": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+  "important_policy_boundary": "The recommendation narrows an unimplemented experimental proposal to the original concrete optimization claim. It does not waive the user scope or alter any current oracle. If full measured resource-scaling claims are retained, their additional matrix and accepting validator remain required; otherwise use a separately reviewed concrete-fix acceptance definition and keep stronger scaling flags false.",
+  "main_conclusion": "Finish the existing42 lifecycle and652 semantic/structural contracts, then close a small set of actual path and new-buffer resource obligations. The unimplemented31-profile scaling proposal and its numerical tolerances are broader experimental design, not an established oracle that must be expanded indefinitely. No source-only observation currently unlocks Q01.",
+  "minimal_bounded_measurement_proposal": {
+    "boundary_profiles": {
+      "retained_same_window_fallback": 2,
+      "suffix": 3
+    },
+    "bounded_exit": "After the frozen supported ladder is exhausted, stop the experiment and report the precise measured/inconclusive scope. Do not add endlessly larger runs or silently label inconclusive timing as verified scaling.",
+    "comparison": "Report every paired raw sample and conservative observed comparison. A quantitative gain claim requires evidence distinguishable from observed variation under the frozen protocol; overlapping or setup-dominated measurements remain inconclusive. Never invent a minimum percentage gain, allocation ratio, or universal non-regression rule for fallback.",
+    "constituent_and_setup_profiles": 2,
+    "core_profiles": {
+      "algorithm_paths": 4,
+      "paired_profiles": 8,
+      "widths": "existing narrow and broad endpoints",
+      "widths_per_path": 2
+    },
+    "freeze": "Choose one N from the already bounded generator ladder in a separate labeled signal pilot, then freeze it and all required profiles before collecting accepted observations. Do not tune a performance threshold or omit a failed profile.",
+    "frontend_pilot": "Existing five supported families plus same-N setup scan at the already prepared smallest N/width; label all as pilot. Reject an unexpected physical shape before interpreting timing.",
+    "no_claims": [
+      "asymptotic native complexity proved by finite timings",
+      "allocation counts derived from RSS",
+      "target-only CPU obtained by subtracting setup",
+      "same memory as baseline for the intentional two-collector path",
+      "whole-query linearity when unsupported fallback still scans frames"
+    ],
+    "numeric_thresholds_added": false,
+    "repetitions": "The already proposed one visible warmup and five alternating measured attempts per revision/profile may be retained. This is180 children before separately labeled pilots/preflights, not a mandatory arbitrary performance-ratio policy.",
+    "status": "source_scope_proposal_not_executable_or_accepted_contract",
+    "total_distinct_profiles": 15
+  },
+  "new_production_defects_found": [],
+  "optional_beyond_concrete_fix": [
+    "The full three-N/seven-width-position matrix, all three increasing ladder levels and a separate allocation comparison for every admitted scalar type.",
+    "The proposed0.80 paired-gain,2.75 row-growth,1.5 width-growth,3x allocation and1.25 mixed-budget tolerances. They are unimplemented design choices, not thresholds derived from this implementation or approved measurements.",
+    "Paired MiniKQL allocation improvements for COUNT/SUM and ROWS. Actual built-in representation and finite performance/path evidence remain necessary, but the concrete fix does not promise fewer allocations for every existing primitive.",
+    "Whole-query speedup or linearity for unsupported AVG/floating/Decimal/Interval SUM fallback, and unchanged RSS for the intentional mixed two-collector implementation.",
+    "Operator-only timing, universal workload distributions, latency percentiles, cross-machine benchmarking and a general-purpose performance framework."
+  ],
+  "original_finding": {
+    "contract": "Remove repeated whole-frame aggregation for admitted general ROWS/RANGE aggregates; preserve valid fallback and measure broad versus narrow frames. It does not promise universal speedup, one-buffer mixed memory, or optimization of excluded functions/types.",
+    "lines": [
+      9,
+      10,
+      11,
+      12
+    ],
+    "path": "rbo-review-20261021/optimization-quality.txt",
+    "sha256": "9d2f3d207949b1740b8e43f2b4502100c6be8851d4f7b453334c25ae0c9c1dad"
+  },
+  "required_for_this_fix": [
+    {
+      "reason": "The complete intended semantics and actual runtime lifecycle are still unverified.",
+      "step": 1,
+      "work": "Execute all42 existing direct lifecycle cases and all652 canonical baseline/fixed SQL cases with their exact current owners, repetitions, receipts and structural oracles. Preserve every failure. Do this before designing additional large benchmarks."
+    },
+    {
+      "reason": "Global callable totals cannot prove mixed composition; legitimate ROWS transfer Fold must not be rejected.",
+      "step": 2,
+      "work": "Use the reviewed shared named-window recipes for a bounded actual frontend/path pilot. Identify the exact producer, collector input edge and result-field mapping in the returned DAG, reusing the existing return-root/Let resolver. For eligible RANGE-only output require the bypass; for the mixed named window require KqpRangeMinMax feeding the same retained WinFramesCollector and exact output ownership. For COUNT/SUM identify prefix endpoint reads; for ROWS identify entering-row and transfer folds separately from a fresh aggregate Fold1 over every frame."
+    },
+    {
+      "reason": "These are five distinct branch/resource obligations. A separate RANGE-minmax-plus-fallback profile and RANGE-mixed-plus-fallback profile need not duplicate the same retained-collector branch if one combined profile checks all outputs. The existing CURRENT ROW ROWS suffix specialization is not a witness for the new general-suffix path.",
+      "step": 3,
+      "work": "Close boundary coverage with three distinct suffix paths: general ROWS finite lower bound plus unbounded following, RANGE-only suffix, and same-window mixed RANGE suffix. Add two same-window retained-fallback controls: ROWS with supported and unsupported outputs; RANGE with supported MIN/MAX/collectors and unsupported output. Reuse the existing independent row-oracle discipline; retain exact unsupported output checks."
+    },
+    {
+      "reason": "ReserveOne charges old plus new capacity before allocation, and mixed/suffix paths can retain two buffers. Actual limit enforcement and complete release are correctness obligations; the amount of the legitimate extra buffer is a disclosed optimization tradeoff.",
+      "step": 4,
+      "work": "Record absolute allocator current/peak values before and after actual production consumption and after release for the existing RANGE-only/mixed lifecycle and suffix cases, using fresh allocator instances and preserving all existing limit/cancellation checks. Bind sizes/capacities and observed row retention to the actual linked wrapper. Derive any accounting bound from buffer capacity, sizeof values and allocator container policy, not a selected speedup/RSS multiplier."
+    },
+    {
+      "reason": "This satisfies the original request to measure broad and narrow frames while source-bound control-flow invariants explain the removed work. It does not establish a universal scaling or speedup claim.",
+      "step": 5,
+      "work": "Measure broad and narrow frames for each of the four admitted algorithm paths with exact matched baseline/fixed workloads after the path witness. Add the RANGE collector-only constituent and matched setup scan. Use the existing sole-child wrapper and frozen sample ordering. Preserve all samples and report finite observed CPU/RSS with their inclusive scope."
+    },
+    {
+      "reason": "A finite, explicit evidence contract replaces the unfinished placeholder. All existing semantic/structural/lifecycle oracles stay required.",
+      "step": 6,
+      "work": "Before full-quality promotion, independently review a closed acceptance definition and validator for the concrete evidence above, including complete canonical coverage and actual measured resource/path records. An unimplemented proposed benchmark ratio is not an existing passing oracle; no metric-shaped flags or source review alone may unlock the current gate."
+    }
+  ],
+  "schema": "q01_minimal_defensible_acceptance_source_assessment_v1",
+  "source_bindings": [
+    {
+      "anchors": {
+        "BuildFrameFold(": [
+          1508,
+          1524,
+          1645
+        ],
+        "BuildRowMinMaxOutputs(": [
+          1528,
+          1672
+        ],
+        "CanUsePrefixSum(": [
+          280,
+          296,
+          781,
+          966,
+          1728
+        ],
+        "CanUseRangeMinMax(": [
+          358,
+          966,
+          1652,
+          1723
+        ],
+        "CanUseRowMinMax(": [
+          330,
+          370,
+          966,
+          1576,
+          1723
+        ],
+        "collected = Ctx.ChangeChild": [
+          1669
+        ],
+        "if (RowSuffix)": [
+          1820
+        ],
+        "if (onlyRangeMinMax)": [
+          1666
+        ]
+      },
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "f272aab6c4cbbd90db7bf151899477bfab66b79a2abb8ef583030433f1fb5a95"
+    },
+    {
+      "anchors": {
+        "Alloc->OffloadFree(BufferBytes)": [
+          57,
+          79,
+          110
+        ],
+        "EConsumeStatus Consume(": [
+          83
+        ],
+        "NUdf::EFetchStatus Fetch(": [
+          99
+        ],
+        "SeenEnd =": [
+          165,
+          178
+        ],
+        "const ui64 entering": [
+          128
+        ],
+        "for (ui64 ordinal": [
+          145
+        ],
+        "void ReserveOne()": [
+          61
+        ]
+      },
+      "path": "ydb/core/kqp/runtime/kqp_range_minmax.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "4b1478cb1d08f006897cffbf352d070ec1c509f5e34eccc00326dfd481ce6eeb"
+    },
+    {
+      "anchors": {
+        "IsIncrementalWindowMinMaxSlot": [
+          9
+        ]
+      },
+      "path": "ydb/core/kqp/common/kqp_window_minmax.h",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "fb6afed0d9aa7bd92aa804b7a2fbf261abe7040054cf91e2ef1d2b906db8a71b"
+    },
+    {
+      "anchors": {
+        "TListRepresentation(T&& element, const TSelf& that)": [
+          297
+        ],
+        "TListRepresentation(const TSelf& other)": [
+          220
+        ],
+        "TSelf Prepend": [
+          351
+        ]
+      },
+      "path": "yql/essentials/minikql/computation/mkql_computation_node_list.h",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "8bbadc3d3b984f67f3013022fd03b6db493ee7d050bed47dd7c1373476e9d2c1"
+    },
+    {
+      "anchors": {
+        "SkipListImpl": [
+          192,
+          394,
+          536,
+          2705,
+          2815,
+          2816,
+          3240
+        ],
+        "THolderFactory::Prepend": [
+          3325
+        ]
+      },
+      "path": "yql/essentials/minikql/computation/mkql_computation_node_holders.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "7c05ff17deb766ae0b8f30209a464c9ff307df981466823a4c4e986cfe7c110e"
+    },
+    {
+      "anchors": {
+        "GetAllocCount": [
+          146
+        ],
+        "GetOffloadedBytes": [
+          170
+        ],
+        "GetPeakAllocated": [
+          138
+        ]
+      },
+      "path": "yql/essentials/minikql/aligned_page_pool.h",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "7bbcd59955657db13f6954af3b978cc5dc5510629debbaf49e18d4f68c5e99af"
+    },
+    {
+      "anchors": {
+        "OffloadAlloc": [
+          113,
+          221
+        ]
+      },
+      "path": "yql/essentials/minikql/aligned_page_pool.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "95a68af2e485c5166371f76bae176b6000f6c9f4675d3dddae4b90a34e38205f"
+    },
+    {
+      "anchors": {
+        "TExprNode::TPtr BuildWindowOperators": [
+          1349
+        ],
+        "void ProcessWindowCalls": [
+          1226
+        ]
+      },
+      "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "026f5d5afe7750add360e5c127242ac268b309455ab8ac47840e0c0d6abf33cd"
+    },
+    {
+      "anchors": {
+        "_yql_anonymous_window": [
+          447
+        ]
+      },
+      "path": "yql/essentials/sql/v1/translation/sql_call_expr.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "dfb8454dc6a4305a5e1308f293ec1692c47f9bcc502ad7cba47e4aec3f53567c"
+    }
+  ],
+  "source_work_and_memory_invariants": [
+    "COUNT and machine-integer SUM use cumulative endpoints, with an additional non-null count for optional SUM; no per-output eligible aggregate Fold1 is needed. The public output excludes auxiliary queue fields.",
+    "ROWS MIN/MAX initializes the first nonempty frame once; a finite fixed right endpoint adds at most one row per result, and an unbounded-following endpoint stops adding after the initial drain. Each entry enters the rear once, transfers to the front at most once and is expired once. List growth/slicing behavior is separately source-bound; actual final lowering must retain that representation.",
+    "RANGE SeenEnd and both absolute frame endpoints move forward. Every admitted non-null value is appended once per output aggregate and removed at most once from each monotonic deque side. Candidate comparisons therefore have a source-level amortized bound, not a timing-derived proof.",
+    "For a nonempty RANGE buffer high-water demand H, geometric capacity is at most2H slots; the old-plus-new reserve overlap is less than3H slots at a growth event. These are buffer-storage facts only; candidate deques, output holders, allocator granularity and the retained outer collector must be accounted separately.",
+    "RANGE width in key units does not bound row occupancy in the presence of dense peers. Suffixes can require a full partition before first output; mixed paths may retain nearly two partition buffers. This expected behavior must be disclosed and tested, not rejected by an invented constant-frame-memory promise."
+  ],
+  "status": "recommendation_only_existing_oracles_and_gate_unchanged",
+  "verified_inventory": {
+    "direct42": {
+      "cases": 42,
+      "lifecycles": {
+        "cancel_output": 8,
+        "cancel_yield": 2,
+        "complete": 14,
+        "limit": 6,
+        "reset": 2,
+        "yield": 10
+      },
+      "mixed_cases": 21,
+      "row_counts": [
+        0,
+        65,
+        257,
+        1025
+      ],
+      "source_sha256": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+      "suffix_cases": 10
+    },
+    "quality_minmax_checks": {
+      "cases": 161,
+      "controls": {
+        "empty": 1,
+        "fallback": 1,
+        "filter": 1,
+        "general_suffix": 12,
+        "mixed": 1,
+        "native": 1,
+        "ordinary": 140,
+        "range": 1,
+        "running": 1,
+        "suffix": 1,
+        "whole": 1
+      },
+      "fallback_name_count": 1,
+      "mixed_name_count": 1,
+      "source_sha256": "42d8fbf1f983b739448dc1c6e19432ac464ea9f4a4bf6343e0a10e573f4d74d4",
+      "suffix_name_count": 13,
+      "unbounded_following_specs": 13
+    },
+    "quality_range_minmax_checks": {
+      "cases": 282,
+      "controls": {
+        "empty": 2,
+        "fallback": 14,
+        "filter": 2,
+        "float_value": 2,
+        "mixed": 14,
+        "native": 14,
+        "ordinary": 228,
+        "running": 2,
+        "suffix": 2,
+        "whole": 2
+      },
+      "fallback_name_count": 14,
+      "mixed_name_count": 14,
+      "source_sha256": "2d2a23f017e76a67552260d7e15dcfe1e2b53be727ac92543ab99b32978eb390",
+      "suffix_name_count": 86,
+      "unbounded_following_specs": 86
+    },
+    "quality_sum_checks": {
+      "cases": 197,
+      "fallback_name_count": 0,
+      "mixed_name_count": 0,
+      "source_sha256": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+      "suffix_name_count": 1
+    },
+    "quality_window_checks": {
+      "cases": 12,
+      "fallback_name_count": 0,
+      "mixed_name_count": 1,
+      "source_sha256": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+      "suffix_name_count": 0
+    }
+  }
+}

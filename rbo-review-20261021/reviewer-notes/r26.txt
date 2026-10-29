@@ -1,0 +1,38 @@
+R26 — range extraction and index selection: two-pass read-only review
+
+Correctness
+
+[P1, source-confirmed; native execution pending] Ordinary filtered reads can fail merely because the table has a ready vector or fulltext index.
+The index candidate filter admits specialized vector and fulltext index kinds. Their implementation tables have synthetic key fields absent from the base-table schema. The range rule resolves every candidate implementation key against a map built exclusively from base-table fields before checking whether the predicate can use that index. The checked map access therefore fails. The query does not have to request the specialized index. A full primary-key point predicate or disabled automatic index selection avoids this path, so test both the ordinary partial/non-key-filter path and those controls.
+Primary fix location: ydb/core/kqp/opt/rbo/rules/push_ranges.cpp:409-416,604. ResolveExposedKeyColumns at 215-221 uses names.at. A positive allowlist of ordinary synchronous and synchronous-unique secondary indexes should protect this path; audit the analogous lookup helper filter too.
+Evidence chain:
+- provider/yql_kikimr_gateway.h:113-127 enumerates vector plus four fulltext kinds, none rejected by IsSelectableIndex.
+- provider/yql_kikimr_datasource.cpp:361-376 registers all specialized implementation tables, so FindTable is not a protective barrier.
+- base/table_index.cpp:62-89 defines first implementation-table ordering.
+- tx/schemeshard/index/index_utils.cpp:858-859 gives the vector level table synthetic parent/id keys; fulltext synthetic token keys appear at 504,658,738.
+- push_ranges.cpp:588-605 enumerates every admitted index and resolves those keys unconditionally before BuildComputeNode.
+The analogous negative-list filter in kqp_rbo_lookup_join.cpp:11-18 also admits specialized indexes; its separate physical-key matching should be audited by the lookup-join owner. Do not claim a wrong-results lookup case until that path is independently verified.
+Validation performed: traced the actual enum, selection branch, registered metadata, implementation schema builders, and checked-access failure chain in the current tree. No native test was run by this agent. Parent coordinates native tests; no repository edits or builds performed.
+
+Optimization quality, separate from correctness
+
+[P2, source-confirmed] Sort-only top-N reads never consider a matching secondary index.
+The only generic read-index enumeration is in push_ranges.cpp, whose QuickMatch at 500-503 requires Filter(Source). The frontend emits no filter without a where clause (kqp_rewrite_select.cpp:2066-2086). The later TopSort propagation checks only the current read table key (propagate_topsort_through_stage.cpp:196-215) and does not select indexes. A covering secondary index matching requested order therefore cannot be used for an otherwise unfiltered bounded sort, resulting in scanning/sorting the base table. Legacy kqp_opt_log_ranges_predext.cpp:135-220 has a dedicated TopSort index-selection path. Test plan/row-read comparisons, not result differences.
+
+[P2, source-confirmed] A selective secondary index is discarded whenever a residual predicate needs a non-index column.
+At push_ranges.cpp:621-624 the non-covering candidate must contain every column of the full original predicate. The implementation applies the residual on the index before the table lookup (682-698), so it cannot exploit the normal plan of selective index scan, base-row lookup, then uncovered residual filtering. Inputs with an indexed selective predicate plus a residual on an uncovered field can be forced into a full table scan. Fix by splitting executable index residuals from base-row residuals and retaining the latter after the lookup. Runtime cost was not measured.
+
+[P3, source-confirmed optimization retention] Fully range-enforced predicate columns stay in the physical read projection.
+The original predicate is retained for possible later lookup-join conversion, and TOpRead::GetRequiredColumns (kqp_operator.cpp:344-350) keeps all its read columns during pruning. No later cleanup clears this provenance for reads that are not rewritten to lookup joins. This retains predicate-only key columns after extraction, with particular extra projection/transfer work in column storage. Lower priority than the scan-selection gaps; native plan check pending.
+
+The DESC/null-order rejection overlaps R24; do not double-count it.
+
+Second-pass falsification/coverage
+- Literal-range bounds retain inclusive/exclusive bits, reject mismatched key base types, reject computed bounds, and fold only Utf8-to-String literal text-preserving conversion. Optional range hints are guarded in the shared extractor. No new bound correctness defect was established.
+- Non-covering index reads preserve remaining predicates before fetching base rows and deduplicate primary-key/filter storage-column projections. Failure to defer uncovered residuals is currently an optimization limitation, not a demonstrated dropped predicate.
+- Range construction uses the complete table schema and distinguishes extractor-only physical names from logical IDs. Duplicate physical fields have aliases typed; selecting one alias as the extractable key is conservative and may miss a range, but does not justify a wrong-results claim.
+- Composite non-point prefix tails retain residuals in extract_predicate_impl.cpp:1935-1952; no incorrect tail-pruning claim.
+- Single-point prefix count and covering checks constrain sort matching. Input sort direction checking is the R24 optimization issue, not a newly demonstrated result-order bug here.
+- Constants, parameter type mismatch, optional bounds, empty/full predicates, and range-compute materialization were traced. No additional confirmed correctness defect found on pass two; dynamic/volatile cases remain subject to native verification rather than speculative findings.
+
+No exact query repros or generated test inputs were written or included in these notes.

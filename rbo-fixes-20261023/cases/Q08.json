@@ -1,0 +1,93 @@
+{
+  "id": "Q08",
+  "title": "Filters apply earlier selectivity again to already-reduced estimates.",
+  "branch": "fix/new-rbo/q08-filters-apply-earlier-selectivity-again-to-already-reduced-estimates",
+  "commit": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified_quality",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp"
+  ],
+  "proposal_sha256": "4012fdb157ddd9b1d5a566c491d4ee5a50b8c6ac0e76696d37283099682dab08",
+  "proposal": "proposed-quality-patches/Q08.patch",
+  "proposal_metadata": {
+    "id": "Q08",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_unbuilt_unverified",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp"
+    ],
+    "summary": "Apply only the new filter selectivity to already-filtered row/byte estimates; retain accumulated selectivity separately.",
+    "review": [
+      "Independent patch generated directly from pinned base; production worktrees unchanged.",
+      "No yql/essentials edits."
+    ],
+    "validation_plan": [
+      "Operator-level statistics assertions for two retained filters, nonunit input selectivity, identity predicate, empty input and partially-pushed-down control.",
+      "Build and run relevant RBO/CBO suites after applying; verify selected plan estimates before claiming a plan benefit."
+    ],
+    "limits": [
+      "Read predicate costing is unchanged.",
+      "No runtime benchmark or speedup claim; accumulated filter boundaries must survive optimization in any SQL-level check."
+    ],
+    "apply_check_exit_code": 0,
+    "patch_sha256": "4012fdb157ddd9b1d5a566c491d4ee5a50b8c6ac0e76696d37283099682dab08"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Bounded paired SQL/plan contract passed; this does not establish a general runtime speedup.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "Q08",
+    "revision": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+    "exit_code": 0,
+    "elapsed_seconds": 173.5,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4575232,
+      "peak_scope_usage_bytes": 43206701056,
+      "minimum_host_available_bytes": 90717306880,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 173.3
+    },
+    "diagnostic_sha256": "b465f80f05b7a970781bdf9b3c3a916ea6c131c802a0bfb0a792e144732c58f2",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/799af8215d791f4f3c4bdd3da9c087c56177117a-0270cdce795d4724.json"
+  },
+  "quality_verification": {
+    "generator_modules": [
+      "quality_statistics_checks"
+    ],
+    "profile_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+    "required_generator_modules": [
+      "quality_statistics_checks"
+    ],
+    "required_profile_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+    "required_profile_case_count": 2,
+    "finding_profile_coverage_complete": true,
+    "paired_evidence": "verification/quality-paired-Q08-799af8215d79-1793162006710038031.jsonl",
+    "baseline_revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "baseline_evidence": "verification/quality-baseline-profile-1793161806501921035.jsonl",
+    "baseline_evidence_sha256": "ec6c45393ac38292da493ea2ab6ed2071ac3cbc9be0c3974b3b269d3c54aac13",
+    "paired_checks": 2,
+    "optimization_contract_passed": true,
+    "helper_ledger_at_execution": 59
+  },
+  "native_verification": {
+    "checks": 2,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-Q08-799af8215d79-1793161990196853299.jsonl",
+    "semantic_checks_passed": true
+  }
+}

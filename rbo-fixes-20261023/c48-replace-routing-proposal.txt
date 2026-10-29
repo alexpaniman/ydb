@@ -1,0 +1,55 @@
+C48 routing amendment: source proposal, no production edit
+
+Replace is unsupported independently of EnableIndexStreamWrite. The prepared
+branch routes it only when streaming index maintenance is disabled. A native
+single-request partial Replace, with a separate setup and verification request,
+fails in the new optimizer at kqp_rewrite_select.cpp:1678; legacy succeeds with
+the independent expected table and index contents. This is separate from the
+multi-statement indexed-write ordering observation below.
+
+Keep the existing host-level routing, but make its condition mode-specific:
+
+  bool HasUnsupportedUpsertOrReplace(const TExprNode::TPtr& root,
+                                    bool enableIndexStreamWrite)
+  {
+      return FindNode(root, [enableIndexStreamWrite](const TExprNode::TPtr& node) {
+          // Preserve the existing TCoWrite/Kikimr sink/5-child/settings checks.
+          const auto mode = GetSetting(*node->Child(4), "mode");
+          return mode && mode->ChildrenSize() == 2 &&
+              (mode->Child(1)->IsAtom("replace") ||
+               (!enableIndexStreamWrite && mode->Child(1)->IsAtom("upsert")));
+      }) != nullptr;
+  }
+
+  if (SessionCtx->Config().GetEnableNewRBO() &&
+      HasUnsupportedUpsertOrReplace(queryExpr,
+          SessionCtx->Config().GetEnableIndexStreamWrite()))
+
+The existing body sets EnableNewRBO=false and IgnoreExpandPg=false, so the
+already-selected AST is expanded by the legacy pipeline without reparsing.
+Upsert keeps its current !EnableIndexStreamWrite gate. Replace is routed for
+both flag values. This remains one helper and one pre-optimization gate in
+host/kqp_host.cpp; no yql/essentials changes and no blanket DML fallback.
+
+Source basis:
+- opt/kqp_opt_kql.cpp:68-151 creates the missing-column/null/default mapping
+  used by Replace; BuildReplaceTable and BuildReplaceTableWithIndex at 625-665
+  carry Mode=replace into Upsert effect forms.
+- opt/rbo/kqp_rewrite_select.cpp:1617-1678 accepts only a root or one direct Map
+  over that root as the effect input; the failing replacement shape is rejected.
+- opt/rbo/kqp_operator.cpp:1618-1678 also reconstructs sink mode from effect kind
+  rather than preserving the Replace mode, so importing more wrappers alone is
+  not a complete Replace implementation.
+
+Required validation after amendment: all existing C48 checks plus streaming
+partial Replace; separate full/partial/non-key Upsert and fresh streaming-write
+controls must continue to execute successfully. Generator: write_checks.py,
+separate_write_validation_v3. No exact statement, fixture or result is saved.
+
+Supplemental ordering observation (assigned to C41 investigation): two indexed
+Upserts in one request can leave old index entries in new RBO, while the same
+operations issued in separate requests pass in both engines. The old failing
+v2 records remain in baseline-C48 evidence. This is not waived or claimed fixed
+by the C48 routing amendment. TOpTableEffect's hardcoded StreamWrite=false is
+not established as the cause: sink index planning is separately controlled by
+EnableIndexStreamWrite in query_compiler/kqp_query_compiler.cpp:2572-2574.

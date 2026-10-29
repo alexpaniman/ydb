@@ -1,0 +1,685 @@
+{
+  "after_images": {
+    "rbo-fixes-20261023/anonymous_cpp_verify.py": "836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136",
+    "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py": "f8a5b3919d3f3eec715f29efebbc69ca8e0f593418eb16458643190f0252dd3e",
+    "rbo-fixes-20261023/c06_c50_integration_runner.py": "af935fa5acaf2da230304b6ba7da9bf2e484f44ffacb79af8e5c6f585fc7ae03",
+    "rbo-fixes-20261023/native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": "68770018668692cfd5686f07cff44a6084e32e3ebf2a2b7975fd84ae3c127e57",
+    "rbo-fixes-20261023/q28_depth_verify.py": "a5cdd984048f249ea8c616f17b799b4ee0eb09bc44cd3fe00c4e8314db02ce6b",
+    "rbo-fixes-20261023/quality_join_shuffle_checks.py": "2d817f9ba3fc4af3c0306910ce65a3b3640d5ecbe7ae3b14db7fdff6a10190cc",
+    "rbo-fixes-20261023/quality_q01_concrete_contract.py": "c3819e1f0b79d15964702ccde5dde8bb6c83289c359446403fb44fe56535169a",
+    "rbo-fixes-20261023/quality_q01_path_checks.py": "cee5ade7668919233ffa7c6aa4939a70c69e26356ca23aa1855e8bca3a53c2a2",
+    "rbo-fixes-20261023/quality_q01_scaling_checks.py": "7d6559580a8dc4571f2ea113094f26c8db566392c2a98c85fd330815489d06e6",
+    "rbo-fixes-20261023/quality_range_runtime_contract.py": "f980ebb5397d8f4b8067a73b96a460fc754f7ade276e607c5215cd1f35cf7d6d",
+    "rbo-fixes-20261023/quality_range_runtime_cpp_generator.py": "a1b35a293147dca72d7b009845fbbe53ed8eaf490da5f43ab65d3db196b9fd75",
+    "rbo-fixes-20261023/quality_scheduler_depth_checks.py": "ffd071b611343437c26b5179fa9d4c8db926270cfe1095d60b1bdb737e996203",
+    "rbo-fixes-20261023/quality_spill_bounds.py": "6bd8b204c5846a274109f152998a08d73497c4b232c0a2cf4730ae746b51daf6"
+  },
+  "after_images_directory": "proposed-quality-amendments/quality-idle60-composition-20261028/after-images",
+  "before_images": {
+    "rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+    "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py": "6f40673cc6e1a8169185302d7895c46a40f45cb46f13dc4dad2afbb7104d60fd",
+    "rbo-fixes-20261023/c06_c50_integration_runner.py": "b2b939a9eee061e745b59be8307619a1fbf5e2e4a1bef619e14d0d349083f406",
+    "rbo-fixes-20261023/native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+    "rbo-fixes-20261023/q28_depth_verify.py": null,
+    "rbo-fixes-20261023/quality_join_shuffle_checks.py": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+    "rbo-fixes-20261023/quality_q01_concrete_contract.py": null,
+    "rbo-fixes-20261023/quality_q01_path_checks.py": null,
+    "rbo-fixes-20261023/quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+    "rbo-fixes-20261023/quality_range_runtime_contract.py": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+    "rbo-fixes-20261023/quality_range_runtime_cpp_generator.py": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+    "rbo-fixes-20261023/quality_scheduler_depth_checks.py": null,
+    "rbo-fixes-20261023/quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+  },
+  "coverage_and_admission": {
+    "Q01": {
+      "StageA_optimization_admission": false,
+      "canonical_SQL": 652,
+      "new_allocator_fields_require_fresh_runtime_evidence": true,
+      "original42_specifications_and_existing_native_checks_preserved": true,
+      "path_pilot": 30,
+      "raw_resource": 180,
+      "runtime": 42
+    },
+    "Q14": {
+      "SQL_nodes": 4,
+      "SQL_pair_cases": 6,
+      "direct": 12,
+      "full_quality_admission_from_source": false
+    },
+    "Q28": {
+      "SDK_pilot_covered": 7,
+      "SDK_pure_optimizer_timing": false,
+      "SDK_shared_spilling_pending": 1,
+      "amendment_expected_checks": [
+        136,
+        472,
+        238,
+        862
+      ],
+      "amendment_expected_checks_total": 1708,
+      "canonical_SQL": 8,
+      "full_quality_admission_from_source": false,
+      "required_original_paired_direct": 26,
+      "separate_fixed_amendment": 4
+    },
+    "integration": {
+      "new_empty_result_witness_and_original_failures_preserved": true,
+      "strict_records": 16
+    },
+    "preserved_guards": [
+      "Existing serial slots, memory limits and timeout/cleanup requirements.",
+      "Fresh build receipt, exact production/source/generator/executable identity and case vectors.",
+      "Strict failure retention and no source-only acceptance promotion."
+    ],
+    "spill": {
+      "cells": 82,
+      "nodes_and_payload_cap_policy_unchanged": true
+    }
+  },
+  "exact_function_behavior": "Each functional component equals its reviewed after-image; final reconciliation changes only existing dependency hashes and the Q28 revision literal.",
+  "generated_SQL_CPP_fixtures_rows_plans_AST_persisted": false,
+  "historical_reports_modified": false,
+  "live_helper_edits": false,
+  "native59_sha256": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+  "native_build_toolchain_or_Git_mutation_performed": false,
+  "native_merge": "No Q01 Stage A native hunk exists. Installed ledger59 Q01 child measurement and integration empty-result dispatch are preserved byte-for-byte.",
+  "new_Q28_revision": {
+    "audited_spill_sources": {
+      "util/ysaveload.h": "1274e6043f22a0504fbf66f5e7e476718d6dcf515a9f83ee6ebe0db32227bf64",
+      "ydb/core/kqp/compute_actor/kqp_compute_actor_factory.cpp": "773ce794635c757808a0b67c00b7d5f21655c9d5b4ac888ff082ef663da0a4f1",
+      "ydb/core/kqp/compute_actor/kqp_compute_actor_impl.h": "89c4993237e176e7c9681c523d654e856d5bd7e2ce02702cf3926552f3f63b35",
+      "ydb/core/kqp/executer_actor/kqp_tasks_graph.cpp": "d93d2f3b9c5bbf9a66d4233c1d2b0c9d879be07dadae8e1751a2ea39471aecaf",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp": "fdb9b801ed168150a67bbb69ec53a83d969a8231cff4a0af52e37983d9c09f15",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h": "4a4b70640d1f203eed139e0e83b53bfd2ae89df655f9fc50803dd22587d4e9b9",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp": "f11a39d6425b3dcb7888a427f46cd443f35d802db9046b4f1c0e14dba21f7e6a",
+      "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85",
+      "ydb/core/kqp/provider/yql_kikimr_settings.cpp": "59c460367dc0d317cd1dd9f12e21faf5b3a48a3ec47aeaf18e960e91f7143f41",
+      "ydb/core/kqp/proxy_service/kqp_proxy_service.cpp": "badb84347dd230a1d75d1c2165b020504427dd8cfc4436b8288b54699d1e8665",
+      "ydb/core/kqp/query_compiler/kqp_mkql_compiler.cpp": "838d2a5e7b511b8264593e7d5b75197403a5162660da066302bd98e00543264f",
+      "ydb/core/kqp/query_compiler/kqp_query_compiler.cpp": "4f115788047e06f8737e5bb6d4883ba4501f9b441195405a1e969d94ed66cdc4",
+      "ydb/core/protos/table_service_config.proto": "ad647255a24df1060dd1fa039ef600ee0a022a1dca4ba120bba969eff456dc4e",
+      "ydb/core/testlib/test_client.cpp": "38213a9ae7c964f512fd4880dd079dbcb216a0b1ff76f337b31afc686a42726d",
+      "ydb/library/yql/dq/actors/compute/dq_sync_compute_actor_base.h": "d9b79c29f83a286f82454578f8ff7c4ef2cae0149787ac3fb7ab4a9d330768a3",
+      "ydb/library/yql/dq/actors/compute/dq_task_runner_exec_ctx.cpp": "a7935c8e902745db0e2296f518c690494988049fcf25cddce5e449deea9900c0",
+      "ydb/library/yql/dq/actors/spilling/channel_storage.cpp": "0aabd1c6d1931f745d488f8e8da83e9af3aeffea76f483c6233bc52d82c51056",
+      "ydb/library/yql/dq/actors/spilling/channel_storage_actor.cpp": "d8e693511a5ba7d5c11aea24a906223558bf125b49282a70ad4ab7416dca0f06",
+      "ydb/library/yql/dq/actors/spilling/compute_storage.cpp": "c6974de42bcf10a6b09da7771b39adad8502af3209a112633e4ff438418a074d",
+      "ydb/library/yql/dq/actors/spilling/compute_storage_actor.cpp": "799813ca9201ba4dc40f09d7ff0b1f84208d6ebc28facdcb8ac33a783cccf369",
+      "ydb/library/yql/dq/actors/spilling/spiller_factory.h": "e180cbaa27fba1128f2ba19b1cc40e96e53796231b55e67f448854f0379893da",
+      "ydb/library/yql/dq/actors/spilling/spilling_file.cpp": "c5c93a2ae25128ea054ef52f243665339cb450a509bf95c3ee9410b8f8ac753d",
+      "ydb/library/yql/dq/actors/spilling/spilling_file.h": "6718a3d880047cc67c6bbb91ff56b33b996c4e16649996af300b1a66e82db5d7",
+      "ydb/library/yql/dq/common/dq_common.h": "dd3ac7b3326e953fcf18e9624ee8091e7fa56a7bad2b2bb639377035e4fbd7e8",
+      "ydb/library/yql/dq/common/dq_serialized_batch.cpp": "28997bbd711770079ca704efe846217988603c04b23d09916c45506a126b6edb",
+      "ydb/library/yql/dq/comp_nodes/dq_block_hash_join.cpp": "c317a9e05d218d1597c62c20e8ba091ac2d1ab20c8f278347c96fab3255bcfd8",
+      "ydb/library/yql/dq/comp_nodes/dq_hash_combine.cpp": "f42b895e345cbdcb8e49f81a61d03a3a45fe9f42c6e060cf84c8010a037eb06f",
+      "ydb/library/yql/dq/comp_nodes/dq_hash_operator_serdes.cpp": "a35426438a3e1f39aaeee93e56e2408c4694998645326eb5058bab6a5b09d82b",
+      "ydb/library/yql/dq/comp_nodes/dq_join_common.h": "895201de7d2d09b5f90bca8aeab68c9809169b61df2acdd27b513969e4d9c701",
+      "ydb/library/yql/dq/comp_nodes/dq_program_builder.cpp": "c689dd9e097fed3f5e54c786f62367b427f7a9e671c98406a560c87a3e504c55",
+      "ydb/library/yql/dq/comp_nodes/dq_scalar_hash_join.cpp": "dd91d6e85af60a142fdbe1c14459a5708f059b7e3d38c79b651c72446f292cbf",
+      "ydb/library/yql/dq/comp_nodes/hash_join_utils/layout_converter_common.h": "2f03295a6956f73619fd7cb35f0fedae8dad1c279838f4c5ae06b1b922143f85",
+      "ydb/library/yql/dq/comp_nodes/hash_join_utils/mkql_bitmap.h": "7c3154135393b5c2c9e2c6b8e75f7f76e67a29413ee397813b0fa20000f99b29",
+      "ydb/library/yql/dq/comp_nodes/hash_join_utils/spilled_storage.cpp": "8bd34f5a7db0a0764dcd92dbf700d4ff33c3b3e14af31547a82a79d01ac8a0b3",
+      "ydb/library/yql/dq/comp_nodes/hash_join_utils/spilled_storage.h": "36a6dd830d82dced74464a9fcec938fda7646524c05a6a3c853a6578b5f56122",
+      "ydb/library/yql/dq/runtime/dq_channel_service.cpp": "e34cf9a2949bcc92451be28f2598d0a8e0a4ccc5f8f360a60d43d9f79372e69d",
+      "ydb/library/yql/dq/runtime/dq_channel_service.h": "04f1ef44c16c82b251c6163ea44f47fc4bad1515ef0ec3babb526ebd61e7866e",
+      "ydb/library/yql/dq/runtime/dq_output_channel.cpp": "0d14558cec46c368e3f30477e5e57d51a413b77c3d42fb6fee4ad6fd2927ceea",
+      "ydb/library/yql/dq/runtime/dq_tasks_runner.cpp": "73785822d7d8ec6c6cd91f88a48cc52bb20de4e33c768c48901c3814ca69ca2f",
+      "ydb/library/yql/dq/tasks/dq_connection_builder.h": "c8f552854d390ac96b25afd81e2cc1113e628fd0daf783abb165764872bdc02e",
+      "ydb/library/yql/dq/tasks/dq_task_program.cpp": "54b602ac00873ca0dd6372c45ab4853ec06d94aa5f3db9bccc436b100417b57f",
+      "ydb/tests/tools/kqprun/kqprun.cpp": "c706050a14132739899130cd5a97fdb0ed0445790d8dc7cd9859fb2b2d4a8cce",
+      "ydb/tests/tools/kqprun/runlib/kikimr_setup.cpp": "fb7869dadd778802c8310d49b20ccf7bc804f6f9f3959539f3b17b760105c31d",
+      "ydb/tests/tools/kqprun/src/ydb_setup.cpp": "b9e908d29b8743ef617e178b727e1bffd766aaf2afc46b26ace1c155be9aefbb",
+      "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp": "5c4ce7925f8701818b97bff40d6e8c12eda32a09a7bb1f30782b8420173f19c8",
+      "yql/essentials/minikql/computation/mkql_spiller_adapter.h": "f290dd3a7d19d103731885669f13fe67a1aedef5b29ab1dbb34e6c7b1f62334c",
+      "yql/essentials/minikql/pack_num.h": "eec7c0a65e3bbd7d23e3d34e3bd8f058a75892702e45595134da8d708be2a818"
+    },
+    "case_and_manifest_changed_by_this_composition": false,
+    "case_sha256": "72f1d0ba7be403f2995b2d08ac8e9a102d492d995ae390dc2d3e2bf8a784b4ed",
+    "header_sha256": "73e36b5ccdbf430b4e5e7feaddc8cc7cd14547c44d6e3fbbb32d80ae4896d27c",
+    "manifest_sha256_at_preparation": "4955786029433c58a6554cefca6ace037599bfd8c17b0ead685d16fb0dc76778",
+    "old_revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+    "only_changed_path_from_old": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "revision": "8089888107b179ca5c08f145f70564bd4637daa6",
+    "spill_source_proof_path": "verification/Q-SQL-spill-cap-production-source-bindings-20261028.json",
+    "spill_source_proof_sha256": "d1764cfe1a58b5f8a581722da87f1c682cb35b09f04f4c344364dc80cf7954a9",
+    "status": "prepared_unverified"
+  },
+  "ordered_patches": [
+    {
+      "after_images": {
+        "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": "68770018668692cfd5686f07cff44a6084e32e3ebf2a2b7975fd84ae3c127e57",
+        "rbo-fixes-20261023/quality_q01_concrete_contract.py": "c3819e1f0b79d15964702ccde5dde8bb6c83289c359446403fb44fe56535169a",
+        "rbo-fixes-20261023/quality_q01_path_checks.py": "cee5ade7668919233ffa7c6aa4939a70c69e26356ca23aa1855e8bca3a53c2a2",
+        "rbo-fixes-20261023/quality_q01_scaling_checks.py": "7d6559580a8dc4571f2ea113094f26c8db566392c2a98c85fd330815489d06e6",
+        "rbo-fixes-20261023/quality_range_runtime_contract.py": "f980ebb5397d8f4b8067a73b96a460fc754f7ade276e607c5215cd1f35cf7d6d",
+        "rbo-fixes-20261023/quality_range_runtime_cpp_generator.py": "a1b35a293147dca72d7b009845fbbe53ed8eaf490da5f43ab65d3db196b9fd75",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "e080fe7ea96de0dd29366c05116e91ff31ec8ff5ea6458a6248365eab3c3c952"
+      },
+      "before_images": {
+        "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+        "rbo-fixes-20261023/quality_q01_concrete_contract.py": null,
+        "rbo-fixes-20261023/quality_q01_path_checks.py": null,
+        "rbo-fixes-20261023/quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+        "rbo-fixes-20261023/quality_range_runtime_contract.py": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+        "rbo-fixes-20261023/quality_range_runtime_cpp_generator.py": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+      },
+      "ordinal": 1,
+      "path": "proposed-quality-amendments/Q01-concrete-stage-A-acceptance-20261028.patch",
+      "sha256": "46a0940c71f2281569b5e9dc01be21b3693152ea828d331c5178c8bf1f40c2b1",
+      "working_directory_relative_to_project": "."
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/quality_join_shuffle_checks.py": "2d817f9ba3fc4af3c0306910ce65a3b3640d5ecbe7ae3b14db7fdff6a10190cc",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "fc2ff0442348e670621bdb6021b8631985383ca5219d34845081af5db29ced8d"
+      },
+      "before_images": {
+        "rbo-fixes-20261023/quality_join_shuffle_checks.py": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "e080fe7ea96de0dd29366c05116e91ff31ec8ff5ea6458a6248365eab3c3c952"
+      },
+      "ordinal": 2,
+      "path": "proposed-quality-amendments/Q14-bounded-pair-configuration-20261028.patch",
+      "sha256": "7969cd26b2f1caa3a036b34f9ed650a3e701624ad2e1dcea25741599f724670e",
+      "working_directory_relative_to_project": "rbo-fixes-20261023"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/quality_scheduler_depth_checks.py": "ffd071b611343437c26b5179fa9d4c8db926270cfe1095d60b1bdb737e996203"
+      },
+      "before_images": {
+        "rbo-fixes-20261023/quality_scheduler_depth_checks.py": null
+      },
+      "ordinal": 3,
+      "path": "proposed-quality-amendments/Q28-map-fusion-refresh-depth-controls-20261028.patch",
+      "sha256": "05c568415beb0c5e0155e1dc1067135cdb5f2e539609f219585ef86c2ca129f7",
+      "working_directory_relative_to_project": "."
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/q28_depth_verify.py": "77b151edb0de8cfa0c73ea44f0e230513bfcc802d3d14ecaf51a512aafc06d96"
+      },
+      "before_images": {
+        "rbo-fixes-20261023/q28_depth_verify.py": null
+      },
+      "ordinal": 4,
+      "path": "proposed-quality-amendments/Q28-depth-fixed-runner-20261028.patch",
+      "sha256": "1985cf94a04fa93bbf97e7e2eae414ea086d8cbbb71bd14d8d053febc452f178",
+      "working_directory_relative_to_project": "."
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/anonymous_cpp_verify.py": "836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136"
+      },
+      "before_images": {
+        "rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d"
+      },
+      "ordinal": 5,
+      "path": "proposed-quality-amendments/Q28-anonymous-memfd-initialization-cleanup-20261028.patch",
+      "sha256": "758296f19b13896c8421e31420879168dc1b93b030646183cee4c533803bb10d",
+      "working_directory_relative_to_project": "."
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/q28_depth_verify.py": "a6e1536cc3466f6b15a601a1c40c295dc4924e04b8c1d028c4e291cc925b89a1"
+      },
+      "before_images": {
+        "rbo-fixes-20261023/q28_depth_verify.py": "77b151edb0de8cfa0c73ea44f0e230513bfcc802d3d14ecaf51a512aafc06d96"
+      },
+      "ordinal": 6,
+      "path": "proposed-quality-amendments/Q28-depth-serial-release-admission-20261028.patch",
+      "sha256": "bb9a860ae89d5ff646ea9e05e4d8c067665f0f475fceaf1dd7740db91204072d",
+      "working_directory_relative_to_project": "."
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py": "6e5e44019061e4fa9c1fa744094c9b0ab139a2e6f424aaaeee5236a9b08dc4ac",
+        "rbo-fixes-20261023/c06_c50_integration_runner.py": "f9caa75f35c31f021aed8fc3fe2c01f5f00cf7ac224e0679eb069002d973e63e",
+        "rbo-fixes-20261023/q28_depth_verify.py": "a5cdd984048f249ea8c616f17b799b4ee0eb09bc44cd3fe00c4e8314db02ce6b",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "bac0f149b1872fb8f6ded0ed2ec6f3c11f80f4291570ceef6c1dcbaa6cef68f8"
+      },
+      "before_images": {
+        "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py": "6f40673cc6e1a8169185302d7895c46a40f45cb46f13dc4dad2afbb7104d60fd",
+        "rbo-fixes-20261023/c06_c50_integration_runner.py": "b2b939a9eee061e745b59be8307619a1fbf5e2e4a1bef619e14d0d349083f406",
+        "rbo-fixes-20261023/q28_depth_verify.py": "a6e1536cc3466f6b15a601a1c40c295dc4924e04b8c1d028c4e291cc925b89a1",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "fc2ff0442348e670621bdb6021b8631985383ca5219d34845081af5db29ced8d"
+      },
+      "ordinal": 7,
+      "path": "proposed-quality-amendments/Q28-cleanup-ledger59-binding-refresh-20261028.patch",
+      "sha256": "5edec2db83095cc2f39860978ea2d4e6939ef1511c902c275b6aa25bb84f1193",
+      "working_directory_relative_to_project": "."
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py": "f8a5b3919d3f3eec715f29efebbc69ca8e0f593418eb16458643190f0252dd3e",
+        "rbo-fixes-20261023/c06_c50_integration_runner.py": "af935fa5acaf2da230304b6ba7da9bf2e484f44ffacb79af8e5c6f585fc7ae03",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "6bd8b204c5846a274109f152998a08d73497c4b232c0a2cf4730ae746b51daf6"
+      },
+      "before_images": {
+        "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py": "6e5e44019061e4fa9c1fa744094c9b0ab139a2e6f424aaaeee5236a9b08dc4ac",
+        "rbo-fixes-20261023/c06_c50_integration_runner.py": "f9caa75f35c31f021aed8fc3fe2c01f5f00cf7ac224e0679eb069002d973e63e",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "bac0f149b1872fb8f6ded0ed2ec6f3c11f80f4291570ceef6c1dcbaa6cef68f8"
+      },
+      "ordinal": 8,
+      "path": "proposed-quality-amendments/quality-idle60-final-revision-binding-refresh-20261028.patch",
+      "sha256": "a95621721ce34a5e53d0b6a85ceb2ca3472cc276a441863fbe7461e6e642fc76",
+      "working_directory_relative_to_project": "."
+    }
+  ],
+  "profiles": {
+    "Q01": {
+      "after_sha256": "c2faac5f1b76b669712a0a6cbd1f400a1e9117cf13a6c505dc25166625392fb3",
+      "ledger59_before_sha256": "48ce5cde2fbbf05473199b494809e8650e84d9f2ae90b01f66a302f4b71825cd",
+      "modules": [
+        "quality_window_checks",
+        "quality_sum_checks",
+        "quality_minmax_checks",
+        "quality_range_minmax_checks"
+      ]
+    },
+    "Q01_concrete_stage_A": {
+      "after_sha256": "0069314648c6030e832e4baaec7f10dbc74c694a2757208d5d5c1a58e8406ab0",
+      "ledger59_before_sha256": null,
+      "modules": [
+        "quality_q01_scaling_checks",
+        "quality_q01_concrete_contract"
+      ]
+    },
+    "Q01_resource_pilot": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_q01_scaling_checks"
+      ]
+    },
+    "Q02": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_window_checks"
+      ]
+    },
+    "Q03": {
+      "after_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "ledger59_before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q04": {
+      "after_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "ledger59_before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q05": {
+      "after_sha256": "c48a4a9001ecca824d1f4608b8b4bcba37308fc51d5f76a302789e16646e08fe",
+      "ledger59_before_sha256": "3a6e0bacf61f7ecff02489e26a846edc36e1023b45bc4301fa06c78c3c15aa14",
+      "modules": [
+        "quality_rule_checks"
+      ]
+    },
+    "Q06": {
+      "after_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "ledger59_before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q07": {
+      "after_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "ledger59_before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q08": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_statistics_checks"
+      ]
+    },
+    "Q09": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_statistics_checks"
+      ]
+    },
+    "Q10": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_window_checks"
+      ]
+    },
+    "Q11": {
+      "after_sha256": "05cc433913cbca983fd92f511fc9ec5513e79323eed0cd0f9f94166e7cbcf5c1",
+      "ledger59_before_sha256": "31c928e95e0c8b76cbbce2a5f312da1cf72ad048d1e661a6f2af895f8de86c0d",
+      "modules": [
+        "quality_union_checks"
+      ]
+    },
+    "Q12": {
+      "after_sha256": "c48a4a9001ecca824d1f4608b8b4bcba37308fc51d5f76a302789e16646e08fe",
+      "ledger59_before_sha256": "3a6e0bacf61f7ecff02489e26a846edc36e1023b45bc4301fa06c78c3c15aa14",
+      "modules": [
+        "quality_rule_checks"
+      ]
+    },
+    "Q13": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_window_checks"
+      ]
+    },
+    "Q14": {
+      "after_sha256": "45090751aac7f13280c06a21458cbcc2e3db0adc05a4618181f71a69f21a0607",
+      "ledger59_before_sha256": "dfde074f46425801439637cb5679fd0c012a724bc44d2f6099c4baf1606839d9",
+      "modules": [
+        "quality_join_shuffle_checks"
+      ]
+    },
+    "Q15": {
+      "after_sha256": "0396d2c5c8d9095f679870ff30fb69192088ecf580897e2894200ccd3604990c",
+      "ledger59_before_sha256": "d24c8b733883c6294bf7270712ab73d7b98990a1e01a831254a3c56ad23a769a",
+      "modules": [
+        "quality_partition_subset_checks"
+      ]
+    },
+    "Q17": {
+      "after_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "ledger59_before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q20": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_statistics_checks"
+      ]
+    },
+    "Q21": {
+      "after_sha256": "c48a4a9001ecca824d1f4608b8b4bcba37308fc51d5f76a302789e16646e08fe",
+      "ledger59_before_sha256": "3a6e0bacf61f7ecff02489e26a846edc36e1023b45bc4301fa06c78c3c15aa14",
+      "modules": [
+        "quality_rule_checks"
+      ]
+    },
+    "Q22": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_window_checks"
+      ]
+    },
+    "Q23": {
+      "after_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "ledger59_before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q24": {
+      "after_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "ledger59_before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q25": {
+      "after_sha256": "6dc6ce5e490af341b7692b45f6aff02a82e425a0c7967d00e0f86e9a35fdb587",
+      "ledger59_before_sha256": "1a5e7db6515ea8482584b9a5decb0fbd3c51a4252ad1f80bb663c70d9dca6a65",
+      "modules": [
+        "quality_partition_checks"
+      ]
+    },
+    "Q26": {
+      "after_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "ledger59_before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "modules": [
+        "quality_source_settings_checks"
+      ]
+    },
+    "Q28": {
+      "after_sha256": "11e793799409b40e5b3008ea1c5a527733b996c89a6c303ad9fe99c57d3ca1ab",
+      "ledger59_before_sha256": "e17aa71b9e27bc6a9cf0c02050e37b7f0b473dd62bb5ed06c3745ca5e63175ca",
+      "modules": [
+        "quality_scheduler_semantic_checks"
+      ]
+    },
+    "Q28_SDK_pilot": {
+      "after_sha256": "11e793799409b40e5b3008ea1c5a527733b996c89a6c303ad9fe99c57d3ca1ab",
+      "ledger59_before_sha256": "e17aa71b9e27bc6a9cf0c02050e37b7f0b473dd62bb5ed06c3745ca5e63175ca",
+      "modules": [
+        "q28_compilation_measurement",
+        "quality_scheduler_semantic_checks"
+      ]
+    },
+    "Q29": {
+      "after_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "ledger59_before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    }
+  },
+  "required_live_helper_ledger": 59,
+  "schema": "quality_idle60_ordered_source_composition_v1",
+  "source_checks": [
+    "exact_live_native59",
+    "new_Q28_is_independent_main_child",
+    "new_Q28_diff_has_exact_one_production_path",
+    "exact_reviewed_Q28_header",
+    "exact_reviewed_one_line_depth_amendment",
+    "new_Q28_audited_spill_source:ydb/tests/tools/kqprun/kqprun.cpp",
+    "new_Q28_audited_spill_source:ydb/tests/tools/kqprun/src/ydb_setup.cpp",
+    "new_Q28_audited_spill_source:ydb/tests/tools/kqprun/runlib/kikimr_setup.cpp",
+    "new_Q28_audited_spill_source:ydb/core/protos/table_service_config.proto",
+    "new_Q28_audited_spill_source:ydb/core/kqp/proxy_service/kqp_proxy_service.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/spilling/spilling_file.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/spilling/spilling_file.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/spilling/channel_storage.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/spilling/channel_storage_actor.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/spilling/compute_storage.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/spilling/compute_storage_actor.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/runtime/dq_channel_service.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/runtime/dq_channel_service.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/runtime/dq_output_channel.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/common/dq_serialized_batch.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/provider/yql_kikimr_settings.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/query_compiler/kqp_query_compiler.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/query_compiler/kqp_mkql_compiler.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/dq_program_builder.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/dq_hash_combine.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/common/dq_common.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/tasks/dq_task_program.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/compute/dq_sync_compute_actor_base.h",
+    "new_Q28_audited_spill_source:ydb/core/kqp/compute_actor/kqp_compute_actor_factory.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/compute_actor/kqp_compute_actor_impl.h",
+    "new_Q28_audited_spill_source:yql/essentials/minikql/computation/mkql_spiller_adapter.h",
+    "new_Q28_audited_spill_source:yql/essentials/minikql/computation/mkql_computation_node_pack.cpp",
+    "new_Q28_audited_spill_source:yql/essentials/minikql/pack_num.h",
+    "new_Q28_audited_spill_source:ydb/core/kqp/executer_actor/kqp_tasks_graph.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/dq_hash_operator_serdes.cpp",
+    "new_Q28_audited_spill_source:ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/runtime/dq_tasks_runner.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/spilling/spiller_factory.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/tasks/dq_connection_builder.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/actors/compute/dq_task_runner_exec_ctx.cpp",
+    "new_Q28_audited_spill_source:ydb/core/testlib/test_client.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/dq_block_hash_join.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/dq_scalar_hash_join.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/dq_join_common.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/hash_join_utils/spilled_storage.cpp",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/hash_join_utils/spilled_storage.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/hash_join_utils/layout_converter_common.h",
+    "new_Q28_audited_spill_source:ydb/library/yql/dq/comp_nodes/hash_join_utils/mkql_bitmap.h",
+    "new_Q28_audited_spill_source:util/ysaveload.h",
+    "unchanged_48_source_spill_scope",
+    "root_already_bound_case_and_manifest_without_native_admission",
+    "exact_reviewed_patch:Q01-concrete-stage-A-acceptance-20261028.patch",
+    "unique_patch_targets:Q01-concrete-stage-A-acceptance-20261028.patch",
+    "exact_reviewed_patch:Q14-bounded-pair-configuration-20261028.patch",
+    "unique_patch_targets:Q14-bounded-pair-configuration-20261028.patch",
+    "exact_reviewed_patch:Q28-map-fusion-refresh-depth-controls-20261028.patch",
+    "unique_patch_targets:Q28-map-fusion-refresh-depth-controls-20261028.patch",
+    "exact_reviewed_patch:Q28-depth-fixed-runner-20261028.patch",
+    "unique_patch_targets:Q28-depth-fixed-runner-20261028.patch",
+    "exact_reviewed_patch:Q28-anonymous-memfd-initialization-cleanup-20261028.patch",
+    "unique_patch_targets:Q28-anonymous-memfd-initialization-cleanup-20261028.patch",
+    "exact_reviewed_patch:Q28-depth-serial-release-admission-20261028.patch",
+    "unique_patch_targets:Q28-depth-serial-release-admission-20261028.patch",
+    "exact_reviewed_patch:Q28-cleanup-ledger59-binding-refresh-20261028.patch",
+    "unique_patch_targets:Q28-cleanup-ledger59-binding-refresh-20261028.patch",
+    "final_refresh_preserves_all_functions:rbo-fixes-20261023/quality_spill_bounds.py",
+    "final_refresh_preserves_all_functions:rbo-fixes-20261023/c06_c50_bounded_integration_checks.py",
+    "final_refresh_preserves_all_functions:rbo-fixes-20261023/c06_c50_integration_runner.py",
+    "exact_complete_disposable_stack",
+    "native59_Q01_dispatch_and_integration_empty_witness_byte_identical",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/anonymous_cpp_guard.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/anonymous_cpp_metadata.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/anonymous_cpp_verify.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/correctness_cpp_contract.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/memory_safe_build.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/optimizer_mode_contract.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/production_version_object.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_join_shuffle_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_lookup_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_minmax_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_pairing.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_partition_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_partition_subset_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_range_minmax_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_range_runtime_contract.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_range_runtime_cpp_generator.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_rule_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_scheduler_semantic_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_source_settings_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_statistics_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_statistics_cpp_contract.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_sum_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_union_cpp_contract.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_window_checks.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-fixes-20261023/verification_contract.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-review-20261021/generate_and_verify.py",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-review-20261021/legacy.conf",
+    "exact_final_dependency:quality_spill_bounds.py:rbo-review-20261021/new.conf",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/join_key_checks.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/window_checks.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-review-20261021/generate_and_verify.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-review-20261021/new.conf",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/native_verify.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/binary_provenance.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/optimizer_mode_contract.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification_contract.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/anonymous_cpp_guard.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verify_series.py",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification/C06-C50-integration-source-preparation-20261028.json",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification/C06-C50-integration-independent-source-review-20261028.json",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification/C06-C50-bounded-spill-production-source-comparison-20261028.json",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification/guarded-fixed-C50-946575513d23-1793145911575205063.jsonl",
+    "exact_final_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/quality_spill_bounds.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/anonymous_cpp_guard.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/anonymous_cpp_metadata.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/anonymous_cpp_verify.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/binary_provenance.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/c06_c50_bounded_integration_checks.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/join_key_checks.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/memory_safe_build.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/native_verify.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/optimizer_mode_contract.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/quality_spill_bounds.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification/C06-C50-bounded-spill-production-source-comparison-20261028.json",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification/C06-C50-integration-independent-source-review-20261028.json",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification/C06-C50-integration-source-preparation-20261028.json",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification/guarded-fixed-C50-946575513d23-1793145911575205063.jsonl",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification_contract.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verify_series.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/window_checks.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-review-20261021/correlation_oracle_generator.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-review-20261021/generate_and_verify.py",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-review-20261021/new.conf",
+    "exact_final_dependency:c06_c50_integration_runner.py:rbo-review-20261021/partial_lookup_key_generator.py",
+    "exact_final_dependency:q28_depth_verify.py:memory_safe_build",
+    "exact_final_dependency:q28_depth_verify.py:anonymous_cpp_guard",
+    "exact_final_dependency:q28_depth_verify.py:anonymous_cpp_metadata",
+    "exact_final_dependency:q28_depth_verify.py:anonymous_cpp_verify",
+    "exact_final_dependency:q28_depth_verify.py:production_version_object",
+    "exact_final_dependency:q28_depth_verify.py:quality_scheduler_cpp_checks",
+    "exact_final_dependency:q28_depth_verify.py:quality_scheduler_depth_checks",
+    "all82_spill_cells_byte_equivalent",
+    "exact82_spill_cells",
+    "spill_policy_functions_unchanged",
+    "only_Q28_fixed_revision_changed",
+    "new_Q28_revision_token_exact",
+    "unchanged_spill_constant:LOCAL_SERVICE",
+    "unchanged_spill_constant:VERSION",
+    "unchanged_spill_constant:_BASE_REVISION",
+    "exact_reviewed_component_after:q01_scaling_recipe_metadata_contracts.py",
+    "exact_reviewed_component_after:quality_q01_concrete_contract.py",
+    "exact_reviewed_component_after:quality_q01_path_checks.py",
+    "exact_reviewed_component_after:quality_q01_scaling_checks.py",
+    "exact_reviewed_component_after:quality_range_runtime_contract.py",
+    "exact_reviewed_component_after:quality_range_runtime_cpp_generator.py",
+    "exact_reviewed_component_after:quality_join_shuffle_checks.py",
+    "exact_reviewed_cleanup_after:anonymous_cpp_verify.py",
+    "exact_reviewed_cleanup_after:q28_depth_verify.py",
+    "Q28_extra4_actual_production_binding:ydb/core/kqp/opt/rbo/kqp_info_unit.h",
+    "Q28_extra4_actual_production_binding:ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+    "Q28_extra4_actual_production_binding:ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "Q28_extra4_actual_production_binding:ydb/core/kqp/opt/rbo/kqp_rbo.cpp",
+    "Q28_extra4_actual_production_binding:ydb/core/kqp/opt/rbo/kqp_rbo.h",
+    "Q28_extra4_actual_production_binding:ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "Q28_extra4_actual_production_binding:ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp",
+    "Q28_extra4_actual_production_binding:ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h",
+    "extra4_exact_assertion_vector1708",
+    "original_Q28_direct26_generator_unchanged",
+    "SDK_partial7_adapter_unchanged",
+    "live_source_unchanged:rbo-fixes-20261023/anonymous_cpp_verify.py",
+    "live_source_unchanged:rbo-fixes-20261023/c06_c50_bounded_integration_checks.py",
+    "live_source_unchanged:rbo-fixes-20261023/c06_c50_integration_runner.py",
+    "live_source_unchanged:rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py",
+    "live_source_unchanged:rbo-fixes-20261023/q28_depth_verify.py",
+    "live_source_unchanged:rbo-fixes-20261023/quality_join_shuffle_checks.py",
+    "live_source_unchanged:rbo-fixes-20261023/quality_q01_concrete_contract.py",
+    "live_source_unchanged:rbo-fixes-20261023/quality_q01_path_checks.py",
+    "live_source_unchanged:rbo-fixes-20261023/quality_q01_scaling_checks.py",
+    "live_source_unchanged:rbo-fixes-20261023/quality_range_runtime_contract.py",
+    "live_source_unchanged:rbo-fixes-20261023/quality_range_runtime_cpp_generator.py",
+    "live_source_unchanged:rbo-fixes-20261023/quality_scheduler_depth_checks.py",
+    "live_source_unchanged:rbo-fixes-20261023/quality_spill_bounds.py",
+    "live_source_unchanged:rbo-fixes-20261023/native_verify.py"
+  ],
+  "source_checks_passed": 187,
+  "status": "dormant_source_checked_independent_review_and_native_pending",
+  "untouched_source_bindings": {
+    "anonymous_cpp_guard.py": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+    "anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf",
+    "correctness_cpp_contract.py": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+    "production_version_object.py": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+    "q01_native_child_measurement.py": "e2d724fba399450f1de945b8a62529b1f304f029e5ae3a39d35d8d2614ec62d4",
+    "q28_compilation_measurement.py": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c",
+    "quality_minmax_checks.py": "42d8fbf1f983b739448dc1c6e19432ac464ea9f4a4bf6343e0a10e573f4d74d4",
+    "quality_pairing.py": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+    "quality_range_minmax_checks.py": "2d2a23f017e76a67552260d7e15dcfe1e2b53be727ac92543ab99b32978eb390",
+    "quality_rule_cpp_generator.py": "e732ca4705744697e0ff597ed930d6aa21403a9f3aa47f6dcede5f2d56ec2cca",
+    "quality_scheduler_cpp_checks.py": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7",
+    "quality_scheduler_semantic_checks.py": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+    "quality_sum_checks.py": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  }
+}

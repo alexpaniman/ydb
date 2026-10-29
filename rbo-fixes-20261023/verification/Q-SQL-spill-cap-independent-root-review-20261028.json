@@ -1,0 +1,38 @@
+{
+  "schema": "quality_spill_cap_independent_root_review_v1",
+  "status": "source_and_metadata_passed_revision_pin_followup_required_before_runtime",
+  "patch": "proposed-quality-amendments/Q-SQL-reviewed-spill-payload-cap-20261028.patch",
+  "patch_sha256": "9e70be28e44f600870ceb0db59bf4b990b1ddc5a22cd11a6af51dfdee1952e93",
+  "source_scope": {
+    "base_and_fixed_revisions": 15,
+    "exact_changed_cells": 82,
+    "rows": 24,
+    "new_optimizer_only": true,
+    "all850_original_vectors_preserved": true,
+    "source_images_independently_verified": 720,
+    "source_binding_assertions": 735,
+    "metadata_assertions": 1895,
+    "negative_rejections": 742
+  },
+  "independent_source_findings": [
+    "Each local service starts with zero total and rejects each reviewed nonempty blob before accounting, filename assignment, queueing, create or append;1byte nonzero cap avoids unlimited semantics.",
+    "Scalar and block hybrid joins use the same typed Spill serializer: packed pages always carry an i64 tuple count and probe bitmaps always carry the vector size prefix; lower bounds8 and4bytes respectively. Both survive nullable/empty payload fields.",
+    "All static nodes receive the supplied app/table-service config through per-node proxy setup, and each proxy copies MaxTotalSize to its local service.",
+    "Previously reviewed channel and scalar-aggregation bounds are source-identical where reused; channel outer envelopes and nonempty scalar batch metadata remain larger than cap.",
+    "New RBO contains no compute-spill-mask read at the15 exact audited revisions. Required block/shuffle flags and query/shared-channel eligibility are preserved. Late runtime spill-to-disk behavior is outside this scoped evidence."
+  ],
+  "required_followups": [
+    "Add fail-closed binding from the receipt-verified runtime revision to the15 audited production revisions; current helper only pins source generators and metadata.",
+    "Refreeze exact28dependency hashes after any reviewed C31/Q28 helper composition; no acceptance of drift.",
+    "Native configuration parse, complete semantic/physical vectors and paired baseline/fixed optimization evidence remain mandatory."
+  ],
+  "references": {
+    "verification/Q-SQL-spill-cap-independent-metadata-review-20261028.json": "844717167a0ab235109c82eaef398fa558e36a33859bb5782182fb8682c54ebe",
+    "verification/Q-SQL-spill-cap-independent-source-bindings-20261028.json": "55b2e8c1a2553eef1668e627eba2389e393d40756349f9300e431abf6424ad6f",
+    "verification/C31-observation-spill-cap-independent-review-20261028.json": "abede05371c0cebecfc9b0b741a72d8965053d6e9058f5b8c199e305db14d595"
+  },
+  "actual_native_runs": 0,
+  "live_changes": false,
+  "new_quality_admission": false,
+  "raw_workload_persistence": false
+}

@@ -1,0 +1,19 @@
+{
+  "status": "independent_source_and_metadata_review_pass_native_pending",
+  "reviewed_unix_time": 1793136006.7007594,
+  "patch": "proposed-quality-amendments/Q25-map-semantic-controls-20261028.patch",
+  "patch_sha256": "f13402de720ac174b6343192b40b3fca80d6161c70931cffe98c370e068d7ade",
+  "generator_sha256": "f4bb620657c063e98b0a136d6866243f96ee0c6a2d03fdb99a7dfd058e572d66",
+  "independent_metadata_assertions_passed": 72,
+  "scope": [
+    "Demanded scalar failure is admitted only by existing exact category and target-request boundary checks.",
+    "Duplicate outer-join result rows and unmatched sides checked by exact bags.",
+    "Volatile values checked only within one execution and across repeated producer identities; no invocation-count or cross-execution claim.",
+    "Known C15 overlap remains a separate failed control if reproduced; no Q25 promotion follows from these source checks."
+  ],
+  "production_runs": 0,
+  "builds": 0,
+  "live_edits": false,
+  "queries_rendered": false,
+  "data_or_plans_persisted": false
+}

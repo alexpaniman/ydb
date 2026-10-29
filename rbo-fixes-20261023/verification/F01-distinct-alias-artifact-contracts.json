@@ -1,0 +1,20 @@
+{
+  "id": "F01",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "fb94b6af312ca7ba296d11bce35df75e6e9a471d26471d55497cf0646049295d",
+  "source_contracts": 8,
+  "identity_gate_combinations": 32,
+  "name_only_reuse_counterexamples": 15,
+  "alias_layout_cases": 4,
+  "importer_changed": false,
+  "production_edited": false,
+  "compiled": false,
+  "native_verified": false,
+  "generated_payloads_saved": false,
+  "diagnosis": "Direct-column DISTINCT aliases append duplicate same-name input definitions before a projecting Map; result traits are separate and must remain separate.",
+  "not_claimed": [
+    "General non-projecting Map shadowing semantics.",
+    "Conflicting distinct expressions that accidentally choose the same generated name.",
+    "Bare-Null physical hash support on the standalone F01 branch."
+  ]
+}

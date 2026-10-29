@@ -1,0 +1,21 @@
+{
+  "id": "Q28",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_not_applied",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.cpp"
+  ],
+  "rationale": "Batch the standalone right-join normalization stage using an owning postorder snapshot and explicit strict locality contract. Remove unused parent recomputation.",
+  "limits": "Only zero-property stages whose every rule opts into pure edge replacement. All other stages retain conservative restart/invalidation. Trace serialization costs are unchanged. Does not close optimizer-wide incremental invalidation work.",
+  "validation": "Generated graph equivalence to restart scheduler, including shared Replicate producers, subplans, nested/unmatched joins, count ceiling; exact output binding and type/parent checks; native existing join suite; actual visits/property-computation counters.",
+  "independent_source_review": {
+    "status": "reviewed_pending_compile_and_native",
+    "reviewer": "harness_provenance",
+    "production_edited": false,
+    "notes": "Owning snapshots keep nodes/parents alive, and right-join replacement satisfies the opt-in restrictions. Added a final fresh conservative pass because traversal deduplicates nodes rather than independent owning slots. Replicate shared slots remain supported. Requires native and scheduler-cost checks."
+  },
+  "final_conservative_pass": true,
+  "patch_sha256": "eed2226f8e448a47b95e0e5ad0d1bb733411036718768757ef0f0b83a47a5439"
+}

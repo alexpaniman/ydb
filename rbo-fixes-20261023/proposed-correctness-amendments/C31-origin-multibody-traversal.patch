@@ -1,0 +1,65 @@
+--- a/rbo-fixes-20261023/c31_shared_origin_probe.py
++++ b/rbo-fixes-20261023/c31_shared_origin_probe.py
+@@ -8,7 +8,7 @@
+ 
+ import quality_window_checks as windows
+ 
+-VERSION = 'c31_shared_stage_origin_v1'
++VERSION = 'c31_shared_stage_origin_v2'
+ _JOINS = {'MapJoinCore': 3, 'GraceJoinCore': 3, 'BlockHashJoinCore': 3}
+ _CONNECTIONS = frozenset(('DqCnMap', 'DqCnHashShuffle', 'DqCnBroadcast',
+                          'DqCnUnionAll', 'DqCnParallelUnionAll', 'DqCnMerge'))
+@@ -27,16 +27,23 @@
+     return json.loads(node) if node.startswith('"') else node
+ 
+ 
+-def _lambda(node, resolve):
+-    node = resolve(node)
+-    if _head(node) != 'lambda' or len(node) != 3:
+-        raise ValueError('Expected single-body lambda')
++def _lambda_bodies(node, resolve):
++    node = resolve(node)
++    if _head(node) != 'lambda' or len(node) < 2:
++        raise ValueError('Expected lambda')
+     args = resolve(node[1])
+     if not isinstance(args, list) or any(not isinstance(arg, str) for arg in args):
+         raise ValueError('Expected lambda arguments')
+     if len(set(args)) != len(args):
+         raise ValueError('Duplicate lambda argument')
+-    return args, node[2]
++    return args, node[2:]
++
++
++def _lambda(node, resolve):
++    args, bodies = _lambda_bodies(node, resolve)
++    if len(bodies) != 1:
++        raise ValueError('Expected single-body lambda')
++    return args, bodies[0]
+ 
+ 
+ def _dependencies(node, env, resolve):
+@@ -48,8 +55,9 @@
+     if _head(node) == 'DqPhyStage':
+         raise ValueError('Nested stage in program')
+     if _head(node) == 'lambda':
+-        args, body = _lambda(node, resolve)
+-        return _dependencies(body, dict(env, **{arg: frozenset() for arg in args}), resolve)
++        args, bodies = _lambda_bodies(node, resolve)
++        nested = dict(env, **{arg: frozenset() for arg in args})
++        return frozenset().union(*(_dependencies(body, nested, resolve) for body in bodies))
+     children = node[1:] if _head(node) and not _head(node).startswith(("'", '"', '$')) else node
+     return frozenset().union(*(_dependencies(child, env, resolve) for child in children))
+ 
+@@ -66,9 +74,10 @@
+     dependencies = frozenset().union(*(_dependencies(child, env, resolve) for child in inputs))
+     for child in children:
+         if _head(resolve(child)) == 'lambda':
+-            args, body = _lambda(child, resolve)
++            args, bodies = _lambda_bodies(child, resolve)
+             nested = dict(env, **{arg: dependencies for arg in args})
+-            yield from _program_nodes(body, nested, resolve)
++            for body in bodies:
++                yield from _program_nodes(body, nested, resolve)
+         else:
+             yield from _program_nodes(child, env, resolve)
+ 

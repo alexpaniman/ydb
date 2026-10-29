@@ -1,0 +1,66 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -268,6 +268,38 @@
+             return {'sha256': h.hexdigest(), 'size_bytes': offset}
+         h.update(data)
+         offset += len(data)
++
++
++def _archive_response_arguments(arguments, fds, closure_files):
++    """Keep archive order and group boundaries while avoiding driver temp files."""
++    adapted, responses = [], []
++    index = 0
++    while index < len(arguments):
++        if not (arguments[index].startswith('/') and arguments[index].endswith('.a')):
++            adapted.append(arguments[index])
++            index += 1
++            continue
++        start = index
++        while index < len(arguments) and arguments[index].startswith('/') and arguments[index].endswith('.a'):
++            index += 1
++        archives = arguments[start:index]
++        if any(path not in closure_files or '\0' in path for path in archives):
++            raise MetadataError('anonymous_archive_response_has_unbound_input')
++        # LLVM's GNU response tokenizer recognizes double quotes and backslash escapes.
++        data = ''.join('"' + path.replace('\\', '\\\\').replace('"', '\\"') + '"\n'
++                       for path in archives).encode()
++        name = 'link_archives_' + str(len(responses))
++        if name in fds:
++            raise MetadataError('anonymous_archive_response_descriptor_collision')
++        fds[name] = _memfd('rbo-link-archives', data)
++        content = _fd_digest(fds[name])
++        if content != {'sha256': hashlib.sha256(data).hexdigest(), 'size_bytes': len(data)}:
++            raise MetadataError('anonymous_archive_response_content_mismatch')
++        responses.append({'descriptor': name, 'argument_start': start, 'archive_count': len(archives),
++                          'archive_sequence_sha256': _json_digest(archives), 'content': content})
++        adapted.append('-Wl,@@FD:' + name + '@')
++    return adapted, {'original_argv_sha256': _json_digest(arguments),
++                     'adapted_argv_template_sha256': _json_digest(adapted), 'responses': responses}
+ 
+ 
+ def execute(args):
+@@ -318,9 +350,14 @@
+         link_argv = receipt['metadata']['link_argv'] + ([] if symbols is None else
+                     ['-Wl,--wrap=' + value for value in symbols.values()])
+         verification_stage = 'link'
++        link_argv, archive_responses = _archive_response_arguments(link_argv, fds, receipt['files'])
++        evidence['link_archive_responses'] = archive_responses
+         link_record, _ = run_anonymous(link_argv, receipt['metadata']['link_cwd'], fds, timeout=args.link_timeout,
+                                        max_scope_gib=36, environment=receipt['metadata']['link_environment'])
+         evidence['link'] = link_record
++        for response in archive_responses['responses']:
++            if _fd_digest(fds[response['descriptor']]) != response['content']:
++                raise MetadataError('anonymous_archive_response_changed_during_link')
+         if link_record.get('environment_sha256') != _json_digest(receipt['metadata']['link_environment']):
+             raise MetadataError('linker_environment_transport_mismatch')
+         if link_record['exit_code']:
+@@ -358,7 +395,8 @@
+         exc.verification_stage = verification_stage
+         # Preserve sanitized process/hash evidence; rejected case verdicts are omitted.
+         exc.stage_evidence = {key: evidence[key] for key in
+-                              ('compile', 'link', 'native', 'generated_object', 'generated_executable')
++                              ('compile', 'link', 'native', 'generated_object', 'generated_executable',
++                               'link_archive_responses')
+                               if key in evidence}
+         raise
+     finally:

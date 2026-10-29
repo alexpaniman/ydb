@@ -1,0 +1,112 @@
+{
+  "schema_version": "bounded_elf_section_metadata_v1",
+  "recorded_unix_ns": 1793134494671296243,
+  "executable_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/outputs/ydb/core/kqp/ut/rbo/ydb-core-kqp-ut-rbo",
+  "receipt_path": "verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+  "receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "file_size_bytes": 11352415696,
+  "bounded_read_bytes": 3795,
+  "section_count": 50,
+  "debug_section_bytes": 9185386118,
+  "gdb_index_bytes": 988722675,
+  "debug_fraction": 0.809113,
+  "debug_plus_gdb_fraction": 0.896207,
+  "file_metadata_stable": true,
+  "headers_sha256": "5f2a6886e34171c71399f9bdbbf0171d2a02787c4a6acaffcb6b11b069b9a94b",
+  "sections": [
+    {
+      "section": ".dynsym",
+      "bytes": 30477744,
+      "alloc": true,
+      "type": 11
+    },
+    {
+      "section": ".dynstr",
+      "bytes": 191033574,
+      "alloc": true,
+      "type": 3
+    },
+    {
+      "section": ".eh_frame_hdr",
+      "bytes": 9594884,
+      "alloc": true,
+      "type": 1
+    },
+    {
+      "section": ".eh_frame",
+      "bytes": 52150148,
+      "alloc": true,
+      "type": 1
+    },
+    {
+      "section": ".text",
+      "bytes": 435101471,
+      "alloc": true,
+      "type": 1
+    },
+    {
+      "section": ".debug_abbrev",
+      "bytes": 39267666,
+      "alloc": false,
+      "type": 1
+    },
+    {
+      "section": ".debug_info",
+      "bytes": 4277667022,
+      "alloc": false,
+      "type": 1
+    },
+    {
+      "section": ".debug_str",
+      "bytes": 1342529538,
+      "alloc": false,
+      "type": 1
+    },
+    {
+      "section": ".debug_line",
+      "bytes": 651926865,
+      "alloc": false,
+      "type": 1
+    },
+    {
+      "section": ".debug_loc",
+      "bytes": 2349878451,
+      "alloc": false,
+      "type": 1
+    },
+    {
+      "section": ".debug_ranges",
+      "bytes": 524114256,
+      "alloc": false,
+      "type": 1
+    },
+    {
+      "section": ".debug_aranges",
+      "bytes": 2320,
+      "alloc": false,
+      "type": 1
+    },
+    {
+      "section": ".gdb_index",
+      "bytes": 988722675,
+      "alloc": false,
+      "type": 1
+    },
+    {
+      "section": ".symtab",
+      "bytes": 49199280,
+      "alloc": false,
+      "type": 2
+    },
+    {
+      "section": ".strtab",
+      "bytes": 257118322,
+      "alloc": false,
+      "type": 3
+    }
+  ],
+  "full_binary_hashed": false,
+  "binary_executed": false,
+  "toolchain_tools_invoked": false,
+  "generated_workloads_read_or_saved": false
+}

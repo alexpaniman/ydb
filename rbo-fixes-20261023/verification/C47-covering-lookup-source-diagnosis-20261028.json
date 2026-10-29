@@ -1,0 +1,239 @@
+{
+  "status": "dormant_C47_optimization_amendment_independent_review_and_native_verification_required",
+  "classification": {
+    "correctness": "All 12 existing exact-executable SQL semantic checks passed; no new semantic bug is claimed. C47 direct local copy contracts remain separately pending.",
+    "optimization": "The shared covering target retains two reachable stream lookup nodes even though every requested field is present in the ordinary index. The covering physical assertion remains failed.",
+    "oracle_scope": "The target generator has one explicit-index producer and two consumers, no join or unrelated target read. Native helper captures only target AST; setup ASTs go to /dev/null. Parser counts unique reachable DAG nodes from returns, not unreferenced bindings. Existing evidence retained only callable counts/hash, not per-lookup table identity; exact node-to-table attribution has not been separately observed."
+  },
+  "evidence": {
+    "path": "verification/guarded-fixed-C47-ebbd0e0aef61-1793144641136640364.jsonl",
+    "sha256": "2ec9b561bbb8c9402d20f193cbafce8e9e49447f3f6bf85d24e7e80cec9fb8ca",
+    "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+    "semantic_checks_passed": 12,
+    "failed_case": "c47_shared_covering",
+    "target_physical_ast_sha256": "12ec67d8dae4be69a8a94d074547b2450e36f7d83eea6c961fb64db6b29c3e92",
+    "stream_lookup_count": 2,
+    "no_shared_stage_replicate": true,
+    "covering_assertion": false
+  },
+  "source_cause": [
+    "Explicit index lowering runs inside RewriteSelect before the RBO global pruning stages. The storage read may still carry the full source schema, including the unused nonindexed payload.",
+    "Legacy KqpRewriteIndexRead checks the current read column list against actual implementation metadata; for a full schema it correctly chooses index-PK scan plus base lookup.",
+    "PlanConverter commits that choice to a TOpTableLookup with a PK-only implementation read; later pruning has no TableLookup output-pruning override or coverage reconsideration.",
+    "The no-spilling sharing lifecycle creates private copies, explaining two required-by-plan lookups in the failing target versus one in the existing shared noncovering spilling control.",
+    "Exact import-time column contents were not retained by the native evidence. The mechanism is source-supported and matches the observed plan shape; a fresh guarded native run must verify the repair rather than promote source reasoning alone."
+  ],
+  "catalog_overlap": {
+    "Q17": "Different path and cause: automatic lookup-join candidate selection excludes implicit PK fields by checking declared keys/data. C47 explicit-index import already checks implementation metadata. The target has no join and does not use Q17 selection.",
+    "Q23": "Only removes unnecessary carried left keys after lookup; explicitly does not add fetched-right output pruning or covering-read reconsideration.",
+    "Q03": "Selective noncovering residual-index selection; retains necessary lookup for uncovered predicates. Not this covering explicit-import issue.",
+    "new_catalog_bug_promoted": false
+  },
+  "candidate": {
+    "base_revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+    "patch": "proposed-correctness-amendments/C47-covering-import-after-pruning-20261028.patch",
+    "patch_sha256": "39736f6f917dcb09a5edc726eb7618bd14228f0c93c39ab5324bfeef33a0702d",
+    "files": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+        "before_sha256": "e8678e1ab8b62e2021cee5cd7d7acd1c9f22d9c848062ce096735456b8b298eb",
+        "after_sha256": "42c7398c1cbca4beb3491a05ae19b9375a20f4cfbef4ad09b6040618ae9c6fb1"
+      },
+      {
+        "path": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+        "before_sha256": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf",
+        "after_sha256": "dfd4424f21550df0ccf51f1b1a424b21061dc0cf8c5656c9d7c3f4fb87d4b1c2"
+      },
+      {
+        "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+        "before_sha256": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896",
+        "after_sha256": "6b57e3432ef09dc3b98a8e78f923a535b67fa66c6b174ec66207070eea025cf1"
+      }
+    ],
+    "production_file_count": 3,
+    "new_stage": false,
+    "essentials_edits": false,
+    "oracle_relaxation": false,
+    "live_sources_changed": false
+  },
+  "scope_and_invariants": [
+    "Existing index-selection stage, after global Pruning I and no-spilling subtree duplication/inlining; before ordinary range selection and CBO.",
+    "Spilling-enabled queries decline. Lookup must have exactly one parent edge, plain LookupRows semantics, nullable-key preservation, complete ordered main-PK mapping, and no filter, prefix, chained-lookup, residual join keys, or SourceRead rewrite state.",
+    "Input must be the retained-settings row-storage Read with no OLAP row program or original predicate. It remains untouched even if shared by other operators.",
+    "Match the actual implementation-table path to a ready GlobalSync/GlobalSyncUnique index of the lookup main table. Async, specialized, unrelated and missing metadata decline.",
+    "Use computed live output IDs intersected with fetched definitions; empty or uncovered demand declines. No early SQL projection guess and no new IDs or renaming.",
+    "GetColumnType from loaded main and implementation descriptions must agree through IsSameAnnotation, including optionality. This is the same type source used by normal Read/TableLookup type annotation.",
+    "Fresh TOpRead preserves Alias, TableCallable, storage kind, Limit, SortDir, entire RangeInfo, ReadSettings and the already copy-renamed demanded output IDs. Null OLAP/original-predicate states are required rather than dropped. Expression pointers/settings are carried unchanged, so existing copied captures are not rebound.",
+    "Fresh physical properties are empty. Standard successful-rule flow invalidates computed properties, then recomputes output IDs, parent edges, liveness, types, metadata and statistics when requested. Read key metadata uses complete-key resolution.",
+    "Shared lookup ownership and spilling controls remain unchanged. Declining the optimization is not a semantic failure."
+  ],
+  "validation": {
+    "assertions_passed": 36,
+    "assertions": [
+      "patch_applies_to_exact_C47_base",
+      "exact_candidate_after_image_ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+      "exact_candidate_after_image_ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "exact_candidate_after_image_ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "only_three_RBO_files",
+      "private_lookup_required",
+      "spilling_queries_decline",
+      "join_prefix_filter_chained_shapes_decline",
+      "nullable_lookup_semantics_required",
+      "raw_import_read_shape_required",
+      "complete_physical_PK_order_required",
+      "key_IDs_verified_against_source_storage_names",
+      "actual_implementation_path_required",
+      "ready_ordinary_synchronous_indexes_only",
+      "demand_comes_from_computed_liveness",
+      "missing_empty_uncovered_demand_declines",
+      "actual_loaded_type_identity_checked",
+      "fresh_read_preserves_state",
+      "existing_read_not_mutated",
+      "no_registry_renaming_or_new_ID_allocation",
+      "parents_and_liveness_requested",
+      "after_pruning_and_no_spill_copy",
+      "before_index_selection_range_push",
+      "no_new_stage",
+      "existing_stage_invalidates_properties",
+      "lookup_has_no_prune_override",
+      "legacy_coverage_already_uses_impl_metadata",
+      "existing_copy_preserves_ReadSettings",
+      "all_live_production_files_unchanged",
+      "generator_covering_projection_is_covered",
+      "noncovering_control_requires_unindexed_column",
+      "all_twelve_native_semantic_results_pass",
+      "existing_covering_assertion_remains_failed",
+      "no_shared_replicate_native_assertion_passes",
+      "oracle_generator_is_exact_recorded_source",
+      "native_target_only_AST_capture"
+    ],
+    "scope": "pinned-source/API/generator-AST and existing evidence checks, not compiled-rule behavior",
+    "native_processes_started": false,
+    "workloads_rendered": false,
+    "live_sources_changed": false
+  },
+  "native_validation_pending": [
+    "Compile the exact amended C47 revision under the existing serial memory guard and fresh receipt. No compile was performed here.",
+    "Re-run all 12 existing SQL checks without changing their assertions; require the shared covering target to reach zero KqpCnStreamLookup, both noncovering controls to retain lookup, and no-spilling copies to retain no Replicate.",
+    "Run the existing 19 C47 direct copy contracts against the amended binary/object closure.",
+    "Add direct rule controls for demanded implicit PK and index-key fields, demanded missing payload, type/optional mismatch, incomplete/reordered PK, nullable-key rejection, shared parent edges/shared input Read ownership, metadata readiness/async/specialized kinds, absent metadata, and retained range/order/limit/settings identities. No new native control was run or generated here."
+  ],
+  "source_bindings": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "e8678e1ab8b62e2021cee5cd7d7acd1c9f22d9c848062ce096735456b8b298eb"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "03a710e90476a21a18a12e8428887662daad9583bed21437abcfccb9d4c2757c"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "ac8b7740917cc141953f07fef2a71d34511c93a1c81901a8e1f568634c822d05"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "df253e54767b6adb18efdfb5bacceb68f0b55307fc255166b4bd1afdea634d2d"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_operator.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "5207796ab13bfdc56bf98715c340b509db2b36b0bed21a41d11835b4c7612910"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "329b129a4b4c58fa71a6e649c8e44786998c7982806e1a380b411ef72a2f05a2"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "82cf05266e44fb8670009510dc46179faa2995e939a4a5333ebb63e63d62dcf5"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "448c03b663bb752dd81acbbb3aca35b0f6978a13f5ed82c7c5b839e3d3daad7a"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "dfaff3c1478f6eb4fd3bd39fa88cc05edd4f176142ce3b04b6199dded055e773"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "e8552b5a9db77da6cc6f2f3e74cb281f877763be4696c6abe44a639a138fc944"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "96232358da8fdb29f53beb23adc770ef0fb0d4568e16af24cb7439f29f41b6b5"
+    },
+    {
+      "path": "ydb/core/kqp/opt/logical/kqp_opt_log_indexes.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "64572d6dd4b4d14da83baee310986e6034c6567d4940126c872cd51936eb21b3"
+    },
+    {
+      "path": "ydb/core/kqp/opt/kqp_opt_kql.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "e335e76ce438692e207627b57b789fb39e002e4864b6a8e4e817509a0605b252"
+    },
+    {
+      "path": "ydb/core/kqp/provider/yql_kikimr_expr_nodes.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "bcef7ad8dc58c985ab865c2206bdee5428b11b3b65f45dae5dcc53f62446b8d6"
+    },
+    {
+      "path": "ydb/core/kqp/provider/yql_kikimr_provider.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "ae6a203b40cb577997aca4f70b497acebf423f5d67af4e417581b4c81c5d0505"
+    },
+    {
+      "path": "ydb/core/kqp/provider/yql_kikimr_provider.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "ee2fc4a03d21d09aab950aa0d6994d6891444fd2c080bd03d1b022e5faab7472"
+    },
+    {
+      "path": "ydb/core/kqp/host/kqp_runner.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "e3db6bf5c0f7c8cc3744a636cd71c8262423c0756d0559e0f711f7dc6ff0b577"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_info_unit.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_stage_graph.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "f0664a13885b2fea185ef64c6c41df594353f8b031aa0b1e9d15bf7637768702"
+    }
+  ],
+  "source_locations": {
+    "early_lowering": "kqp_rewrite_select.cpp:1863-1891",
+    "concrete_import": "kqp_plan_conversion_utils.cpp:363-403",
+    "coverage_predicate": "logical/kqp_opt_log_indexes.cpp:476-489",
+    "lookup_created": "logical/kqp_opt_log_indexes.cpp:507-559",
+    "global_pruning": "global_pruning.cpp:5-43,61-70",
+    "lookup_live_input": "analysis/logical_liveness.cpp:312-329",
+    "lookup_and_read_typing": "kqp_rbo_type_ann.cpp:68-102,615-646",
+    "existing_stage_invalidation": "kqp_rbo.cpp:145-183",
+    "Q17_candidate_path": "kqp_rbo_lookup_join.cpp:12-75"
+  }
+}

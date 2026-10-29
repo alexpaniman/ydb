@@ -1,0 +1,69 @@
+{
+  "id": "C12",
+  "branch": "fix/new-rbo/c12-distinct-selected-group-values",
+  "commit": "68356618882bee6b367ac24f5536883c2cb14609",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "rationale": "Keep post-aggregate DISTINCT keys limited to selected expressions already registered by ProcessAggregations; do not append every hidden GROUP BY key.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed selected direct-key and materialized-aggregate DISTINCT registration",
+    "Parent is the required main base",
+    "No build or native execution",
+    "Compositional generator syntax and oracle helpers checked at three fixture sizes; no native execution"
+  ],
+  "generator_module": "rbo-fixes-20261023/expression_checks.py",
+  "generator_cases": [
+    "c12_hidden_group_key",
+    "c12_visible_group_key",
+    "c12_no_distinct"
+  ],
+  "expected_oracle_controls": [
+    "Groups with equal visible results collapse under DISTINCT",
+    "Selected grouping keys still distinguish results",
+    "Ordinary grouped results retain all groups"
+  ],
+  "concerns": [
+    "Compound selected group expressions additionally exercise separate C13"
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C12",
+    "revision": "68356618882bee6b367ac24f5536883c2cb14609",
+    "exit_code": 0,
+    "elapsed_seconds": 154.0,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4526080,
+      "peak_scope_usage_bytes": 43259899904,
+      "minimum_host_available_bytes": 98749841408,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 153.5
+    },
+    "diagnostic_sha256": "ddd3b2fa3a0b5843b8da56d08787c08e33a2e58030772a503b59d12677ae4699",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/68356618882bee6b367ac24f5536883c2cb14609-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 3,
+    "checks_passed": true,
+    "evidence": "verification/fixed-C12-68356618882b.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Build/native verification pending coordination",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

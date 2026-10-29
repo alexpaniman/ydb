@@ -1,0 +1,18 @@
+{
+  "cleanup_complete": true,
+  "diagnostic_bytes": 0,
+  "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "elapsed_seconds": 135.851,
+  "exit_code": 0,
+  "max_scope_gib": 24,
+  "min_host_available_gib": 36,
+  "minimum_host_available_bytes": 113766932480,
+  "peak_group_rss_bytes": 604835840,
+  "peak_scope_usage_bytes": 604835840,
+  "scope_collection_after_completion": false,
+  "scope_membership_accounting_available": true,
+  "stdout_bytes": 179257,
+  "stdout_overflow": false,
+  "stdout_sha256": "c3c4e0d02dfeeb233ed0e5e2fac4624e529a044ef6dc712a2cc65a81332e2947",
+  "watchdog_stopped": false
+}

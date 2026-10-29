@@ -1,0 +1,14 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
+@@ -1876,9 +1876,9 @@
+                         for (const auto& key : table.Metadata->KeyColumnNames) {
+                             keyColumns.push_back(ctx.NewAtom(read.Pos(), key));
+                         }
+-                        const auto keys = ctx.ChangeChild(lookup.Cast().LookupKeys().Ref(), TKqlReadTableRanges::idx_Columns,
++                        auto keys = ctx.ChangeChild(lookup.Cast().LookupKeys().Ref(), TKqlReadTableRanges::idx_Columns,
+                             ctx.NewList(read.Pos(), std::move(keyColumns)));
+-                        lowered = TExprBase(ctx.ChangeChild(lookup.Cast().Ref(), TKqlStreamLookupTable::idx_LookupKeys, keys));
++                        lowered = TExprBase(ctx.ChangeChild(lookup.Cast().Ref(), TKqlStreamLookupTable::idx_LookupKeys, std::move(keys)));
+                     }
+                     fromExpr = Build<TKqpOpRead>(ctx, node->Pos())
+                         .Table(read.Table())

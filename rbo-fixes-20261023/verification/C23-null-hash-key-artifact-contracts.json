@@ -1,0 +1,22 @@
+{
+  "id": "C23",
+  "patch_sha256": "ecb795e8698263c0c2bf14f30bf910c70f77a7f979f1641cde37bb0924d1c282",
+  "source_contracts": 10,
+  "grouping_model_cases": 624,
+  "mutation_classes_rejected": 3,
+  "native_generator_cases": 44,
+  "generator_contracts": 528,
+  "compiled": false,
+  "native_verified": false,
+  "production_edited": false,
+  "generated_payloads_saved": false,
+  "source_diagnosis": {
+    "file": "ydb/library/yql/dq/comp_nodes/dq_hash_operator_serdes.cpp",
+    "line": 116,
+    "row_and_block_share_key_type_constraint": true
+  },
+  "pending": [
+    "Native compilation and both row/block engine runs.",
+    "Distributed shuffle and both aggregate phases on the amended branch."
+  ]
+}

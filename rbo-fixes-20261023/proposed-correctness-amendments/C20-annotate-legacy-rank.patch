@@ -1,0 +1,18 @@
+--- a/ydb/core/kqp/opt/kqp_type_ann.cpp
++++ b/ydb/core/kqp/opt/kqp_type_ann.cpp
+@@ -3461,6 +3461,15 @@
+ 
+         if (TString(func.Kind()) == "Native") {
+             resultType = ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
++            const bool ansiRank = !func.AnsiRank() || func.AnsiRank().Cast().Value() == "true";
++            const auto sortExpressions = opWindow.SortExpressions();
++            if (!ansiRank && (function == "rank" || function == "denserank") && sortExpressions.Size() == 1) {
++                const auto keyType = sortExpressions.Item(0).Ref().GetTypeAnn();
++                Y_ENSURE(keyType, "Unknown window ranking key");
++                if (keyType->GetKind() == ETypeAnnotationKind::Optional) {
++                    resultType = ctx.MakeType<TOptionalExprType>(resultType);
++                }
++            }
+         } else {
+             Y_ENSURE(func.Arguments().Size() == 1, "Window aggregate expects a single argument");
+             const auto* argType = structType->FindItemType(TString(func.Arguments().Item(0)));

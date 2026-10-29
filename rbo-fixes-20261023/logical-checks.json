@@ -1,0 +1,376 @@
+{
+  "status": "prepared_unverified",
+  "recommended_n": 32,
+  "minimum_n": 8,
+  "input_policy": "Generate and consume in memory; do not persist or print rendered SQL.",
+  "runner_contract": {
+    "queries": "recipes(n)",
+    "fixtures": "schema_and_seeds(n, case)",
+    "requirements": "metadata(case, n)",
+    "semantic_check": "check_rows(case, parsed_rows, n)"
+  },
+  "verification": "Python syntax and oracle-helper checks only. No native executions or builds.",
+  "cases": {
+    "c01_mixed_where_left": {
+      "bug": "C01",
+      "purpose": "mixed key types, left WHERE predicate",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "plan_assertions": []
+    },
+    "c01_mixed_where_right": {
+      "bug": "C01",
+      "purpose": "mixed key types, right WHERE predicate",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "plan_assertions": []
+    },
+    "c01_mixed_on_left": {
+      "bug": "C01",
+      "purpose": "mixed key types, left ON predicate",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "plan_assertions": []
+    },
+    "c01_mixed_on_right": {
+      "bug": "C01",
+      "purpose": "mixed key types, right ON predicate",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "plan_assertions": []
+    },
+    "c01_same_where": {
+      "bug": "C01",
+      "purpose": "same-type WHERE propagation control",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "plan_assertions": [
+        "Equal-type key predicate can still propagate to opposite input"
+      ]
+    },
+    "c01_same_on": {
+      "bug": "C01",
+      "purpose": "same-type ON propagation control",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "plan_assertions": [
+        "Equal-type key predicate can still propagate to opposite input"
+      ]
+    },
+    "c02_volatile_group": {
+      "bug": "C02",
+      "purpose": "nonrepeatable filter after grouping",
+      "deterministic": false,
+      "compare_legacy_hash": false,
+      "repetitions": 8,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Every emitted group retains all input rows in its aggregate",
+        "Do not compare random row selections across executions",
+        "At least one repetition should emit a group to avoid vacuous coverage"
+      ],
+      "plan_assertions": [
+        "Nonrepeatable predicate remains above aggregation"
+      ]
+    },
+    "c02_volatile_mixed": {
+      "bug": "C02",
+      "purpose": "mixed deterministic and nonrepeatable conjuncts",
+      "deterministic": false,
+      "compare_legacy_hash": false,
+      "repetitions": 8,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Every emitted group retains all input rows in its aggregate",
+        "Do not compare random row selections across executions",
+        "At least one repetition should emit a group to avoid vacuous coverage"
+      ],
+      "plan_assertions": [
+        "Nonrepeatable predicate remains above aggregation"
+      ]
+    },
+    "c02_deterministic_group": {
+      "bug": "C02",
+      "purpose": "deterministic grouping-key pushdown control",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "plan_assertions": [
+        "Grouping-key predicate remains eligible for pushdown"
+      ]
+    },
+    "c02_unfiltered_group": {
+      "bug": "C02",
+      "purpose": "full-group aggregate control",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass"
+      ],
+      "plan_assertions": []
+    },
+    "c04_false_guard": {
+      "bug": "C04",
+      "purpose": "rejected false inner predicate guards fallible outer predicate",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Inner-filter rejection prevents fallible outer evaluation"
+      ],
+      "plan_assertions": [
+        "Adjacent filters fuse with a lazy rejection boundary"
+      ]
+    },
+    "c04_null_guard": {
+      "bug": "C04",
+      "purpose": "rejected NULL inner predicate guards fallible outer predicate",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Inner-filter rejection prevents fallible outer evaluation"
+      ],
+      "plan_assertions": [
+        "Adjacent filters fuse with a lazy rejection boundary"
+      ]
+    },
+    "c04_nonthrowing": {
+      "bug": "C04",
+      "purpose": "ordinary filter fusion control",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Inner-filter rejection prevents fallible outer evaluation"
+      ],
+      "plan_assertions": [
+        "Adjacent filters fuse with a lazy rejection boundary"
+      ]
+    },
+    "c04_three_levels": {
+      "bug": "C04",
+      "purpose": "three-filter fusion and fixed-point reporting",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {},
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Inner-filter rejection prevents fallible outer evaluation"
+      ],
+      "plan_assertions": [
+        "Adjacent filters fuse with a lazy rejection boundary"
+      ]
+    },
+    "c16_scalar_subplan": {
+      "bug": "C16",
+      "purpose": "unresolved scalar result above block cross join",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {
+        "UseBlockHashJoin": true,
+        "UseBlockHashJoinForCross": true,
+        "EnableInlineJoinFiltersAfterCBO": false
+      },
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Unavailable subplan bindings do not enter join-filter annotation"
+      ],
+      "plan_assertions": []
+    },
+    "c16_membership_subplan": {
+      "bug": "C16",
+      "purpose": "unresolved membership result above block cross join",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {
+        "UseBlockHashJoin": true,
+        "UseBlockHashJoinForCross": true,
+        "EnableInlineJoinFiltersAfterCBO": false
+      },
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Unavailable subplan bindings do not enter join-filter annotation"
+      ],
+      "plan_assertions": []
+    },
+    "c16_mixed_predicates": {
+      "bug": "C16",
+      "purpose": "independent conjuncts alongside unresolved scalar result",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {
+        "UseBlockHashJoin": true,
+        "UseBlockHashJoinForCross": true,
+        "EnableInlineJoinFiltersAfterCBO": false
+      },
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Unavailable subplan bindings do not enter join-filter annotation"
+      ],
+      "plan_assertions": [
+        "Independent conjuncts retain pushdown eligibility"
+      ]
+    },
+    "c16_resolved_control": {
+      "bug": "C16",
+      "purpose": "resolved non-equality block cross-join predicate",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {
+        "UseBlockHashJoin": true,
+        "UseBlockHashJoinForCross": true,
+        "EnableInlineJoinFiltersAfterCBO": false
+      },
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Unavailable subplan bindings do not enter join-filter annotation"
+      ],
+      "plan_assertions": [
+        "Resolved non-equality predicates remain eligible for block join filters"
+      ]
+    },
+    "c16_force_inline_control": {
+      "bug": "C16",
+      "purpose": "forced late-inlining bypass control",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {
+        "UseBlockHashJoin": true,
+        "UseBlockHashJoinForCross": true,
+        "EnableInlineJoinFiltersAfterCBO": true
+      },
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Unavailable subplan bindings do not enter join-filter annotation"
+      ],
+      "plan_assertions": []
+    },
+    "c16_nonblock_control": {
+      "bug": "C16",
+      "purpose": "nonblock cross-join bypass control",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {
+        "UseBlockHashJoin": true,
+        "UseBlockHashJoinForCross": false,
+        "EnableInlineJoinFiltersAfterCBO": false
+      },
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Unavailable subplan bindings do not enter join-filter annotation"
+      ],
+      "plan_assertions": []
+    },
+    "c16_equi_control": {
+      "bug": "C16",
+      "purpose": "equality join bypass control",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "table_service_overrides": {
+        "UseBlockHashJoin": true,
+        "UseBlockHashJoinForCross": true,
+        "EnableInlineJoinFiltersAfterCBO": false
+      },
+      "pragmas": [],
+      "assertions": [
+        "Successful execution",
+        "check_rows returns semantic_oracle_pass",
+        "Unavailable subplan bindings do not enter join-filter annotation"
+      ],
+      "plan_assertions": []
+    }
+  }
+}

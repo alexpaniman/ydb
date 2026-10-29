@@ -1,0 +1,10 @@
+{
+  "id": "F01",
+  "generator": "distinct_alias_checks",
+  "cases": 32,
+  "builder_oracle_contracts": 384,
+  "sha256": "7bf3d73a35e8e1303690ffee990dcaa943793341d645b8f26c715d7d3cb3090d",
+  "compiled": false,
+  "native_verified": false,
+  "generated_payloads_saved": false
+}

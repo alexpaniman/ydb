@@ -1,0 +1,23 @@
+{
+  "after": {
+    "c06_c50_bounded_integration_checks.py": "7fb679c0e6b7e4206074584f84db9e749442067cf00902b12dec16e4e0d9d012",
+    "c06_c50_integration_runner.py": "b9920ef82134389944ba2d9582357baa262bd4a8844f09891ce7975b95ef53d0",
+    "native_verify.py": "e8be177e9e07cb6b6e987be6d65456dcdf5e687056c4b174f022b2bb34140a80",
+    "quality_pairing.py": "0ddb4fabbbc5c3ccb033cda334e7593f4efed6053eb44dc98c269e9b17a8dafe",
+    "quality_spill_bounds.py": "f6a303c5aee942311ebac20ff8a01b4dfee809440eccdd5d46265360a399b219",
+    "quality_window_checks.py": "88824cdba8fd02c4e60439cb55db1a47836ba4cb88984b11dcb7f7d05e44a2f2"
+  },
+  "base_helper_composition": 60,
+  "before": {
+    "c06_c50_bounded_integration_checks.py": "f8a5b3919d3f3eec715f29efebbc69ca8e0f593418eb16458643190f0252dd3e",
+    "c06_c50_integration_runner.py": "af935fa5acaf2da230304b6ba7da9bf2e484f44ffacb79af8e5c6f585fc7ae03",
+    "native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "quality_pairing.py": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+    "quality_spill_bounds.py": "6bd8b204c5846a274109f152998a08d73497c4b232c0a2cf4730ae746b51daf6",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "partial_acceptance_changed": false,
+  "patch": "proposed-quality-amendments/Q02-empty-result-and-partial-shape-observation-20261028.patch",
+  "patch_sha256": "c6e373732d2609b91b880e7d8df9563ac5c364e63d63768157904e5dcec1f9f1",
+  "production_amendment": false
+}

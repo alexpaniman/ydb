@@ -1,0 +1,89 @@
+{
+  "after": {
+    "c31_combined_cpp_generator.py": "7d56fc9bcc877762fc09238f46fa39983e0634e0f89fca9a183860b3fe57455e",
+    "c31_shared_pipeline_cpp_generator.py": "7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6",
+    "correctness_cpp_profiles.json": "3d988379b86534a2f5fe5269d7b6dd957e7427ff5ea55c7a37f3a1b12112b679"
+  },
+  "before": {
+    "c31_combined_cpp_generator.py": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+    "c31_shared_pipeline_cpp_generator.py": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+    "correctness_cpp_profiles.json": "102d95f24ee88e8b38d0e1e0ee005423d7c61fa4d4293325ac6ee3988eb0f08d"
+  },
+  "check_count": 40,
+  "checks": [
+    "frozen_patch",
+    "frozen_source_report",
+    "live53_before:c31_combined_cpp_generator.py",
+    "live53_before:c31_shared_pipeline_cpp_generator.py",
+    "live53_before:correctness_cpp_profiles.json",
+    "identity_generator_exact",
+    "disposable_patch_check",
+    "disposable_patch_apply",
+    "exact_after:c31_combined_cpp_generator.py",
+    "exact_after:c31_shared_pipeline_cpp_generator.py",
+    "exact_after:correctness_cpp_profiles.json",
+    "component_one_declaration_delta",
+    "component_vector_unchanged",
+    "component_specs_unchanged",
+    "component_exact_counts",
+    "full_suite_one_declaration_delta",
+    "full_suite_hash_and_size",
+    "original33_template_byte_identity",
+    "original33_render_hash",
+    "combined_identity_namespace_byte_identity",
+    "combined_case_names_exact",
+    "combined_case_specs_exact",
+    "37_cases_1442_assertions",
+    "33_original_1416_assertions",
+    "four_pipeline_26_assertions",
+    "profile_exact_vector",
+    "profile_render_bound",
+    "profile_generator_bound",
+    "profile_component_manifest_bound",
+    "only_profile_hashes_bytes_manifest_changed",
+    "identity_binding_unchanged",
+    "only_pipeline_bind_hashes_changed",
+    "combined_logic_unchanged",
+    "generator_file_one_declaration_delta",
+    "production_source_api_binding:ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h",
+    "production_source_api_binding:yql/essentials/ast/yql_expr.h",
+    "Child_mutable_return_on_const_node",
+    "Unary_const_observer_return",
+    "block_path_kept",
+    "no_const_cast_added"
+  ],
+  "conclusion": "Only the local read-only observer pointer declaration changes. The const-returning unwrapping helper can now be assigned without discarding const qualification; all production calls and predicates remain identical.",
+  "contract": {
+    "assertion_count": 1442,
+    "case_assertions_unchanged": true,
+    "case_count": 37,
+    "generated_source_bytes": 186818,
+    "generated_source_sha256": "027dc4aa73c47c39238d59faa571dcf24e54bc1f8ff476fd74a9351d08f1d09c",
+    "original33_byte_identical": true,
+    "original_assertion_count": 1416,
+    "original_case_count": 33,
+    "pipeline_counts": [
+      8,
+      8,
+      8,
+      2
+    ],
+    "profile_semantics_unchanged": true
+  },
+  "limits": [
+    "No native, build, compiler, generated C++ persistence, live helper edit or production edit.",
+    "The two other sanitized diagnostic hashes were not attributed by this repair; successful compilation and execution are not claimed.",
+    "Run the guarded combined 37-case suite before accepting the new four pipeline contracts."
+  ],
+  "patch": {
+    "path": "proposed-correctness-amendments/C31-pipeline-const-pointer-repair-20261028.patch",
+    "sha256": "00675a69a891f6c1e818dda65b47850fb281e3ab2a1cd9696ea5b25e73bd63af"
+  },
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "schema": "c31_const_pointer_repair_independent_source_review_v1",
+  "source_report": {
+    "path": "verification/C31-pipeline-const-pointer-repair-source-preparation-20261028.json",
+    "sha256": "797b8096eefd3904b4c3edfb4149037eefb4aa3616102e6ed496df4a565f9c90"
+  },
+  "status": "approved_source_only_guarded_recompile_required"
+}

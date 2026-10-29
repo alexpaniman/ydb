@@ -1,0 +1,35 @@
+C18 multiplicity contract audit, 2026-10-23
+
+The legacy translator explicitly collapses repeated empty grouping sets in
+sql_group_by.cpp:298-305. The new select translator preserves every supplied
+set in select_yql.cpp:783-789. Local grouping-set documentation does not specify
+whether that legacy/new difference is intentional compatibility policy.
+
+A nonduplicate SQL target cannot reach this precise cleanup failure through
+the present lowering: HasRollup requires more than one set, while the invalid
+resultless-scalar replacement requires an aggregate with no grouping keys.
+Any keyed set keeps a nonempty template key list. Multiple keyless sets repeat
+the empty set. One empty set is lowered as a regular scalar aggregate.
+
+The fix can nevertheless be tested with an exact pruning invariant, without
+deciding the separate language-compatibility question. New retained-output
+controls use the identical grouping template and keep SUM observable. Their
+independent model validates the exact aggregate value on empty/nonempty input.
+The pruned-output counterpart must have the exact same projected marker bag.
+Each record includes a pair name, role and canonical projected-result digest.
+Verification must require successful retained and pruned records and equal
+digests for both empty/nonempty pairs.
+
+Pinned-base native observations:
+- Both retained-output controls succeed under the new parser, match the exact
+  aggregate-value model, and have the same two-row marker-bag digest.
+- Both legacy controls succeed with the documented implementation's one-row
+  marker bag. They intentionally fail the NEW-parser multiplicity oracle.
+- Existing pruned-output targets fail on the base at the invalid aggregate
+  template contract. A fixed-only success is insufficient without the retained
+  controls and matching projected bags.
+
+This establishes correctness of removing an unneeded result under the same
+new parser. It does not resolve or hide the broader legacy duplicate-set
+compatibility difference. Report that distinction in C18's verified scope.
+Rendered query text, fixtures, diagnostics and result rows are not retained.

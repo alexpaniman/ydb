@@ -1,0 +1,42 @@
+F01 — Repeated DISTINCT aliases produce duplicate input definitions
+
+Correctness: selecting one input column under multiple DISTINCT result aliases
+can fail during new-RBO import with “Duplicate Map output”. This also affects
+ordinary integer inputs, so it is independent of C23's bare-Null hash-key bug.
+The legacy planner passes the isolated control. Failed C23 alias records remain
+preserved; they were not reclassified as passing C23 tests.
+
+Cause: ProcessAggregations adds a direct input definition once per DISTINCT
+result alias. BuildAggregationPipeline emits those definitions into a projecting
+Map with repeated names. The importer correctly rejects duplicate definitions
+within that Map. This failure is not evidence that inherited Map bindings must
+be overwritten, and the fix does not weaken importer collision checks.
+
+Proposed narrow fix: share an existing identical direct-row input definition
+while retaining every DISTINCT result trait and alias. Computed expressions,
+nested member access and changed optionality are not merged merely because
+their names coincide. The patch has its own pinned-main base, separate from C23.
+
+Authorship / introducing history:
+- Denis Khalikov, b0246ec9d6335eb66f4a8e085b77f67f6b5550c9,
+  2026-06-24, “[Optimizer] Split distinct aggregation on early/final” (#44408):
+  added the unconditional direct-member pre-aggregate definition that duplicates
+  the same source column for repeated result aliases.
+- alexpaniman, 026a4acc33c26deef68af9c271412cc5ff1095f8,
+  2026-09-29, “[NEW RBO] Migrate RBO to ID-based SSA columns” (#54404):
+  introduced the importer binding-uniqueness check that now rejects the malformed
+  generated Map. The check itself remains necessary and is preserved.
+These are verified source-history attributions. The first failing historical
+commit has not been established by native bisection, and Git metadata does not
+identify whether an author used an agent.
+
+Evidence: verification/C23-distinct-alias-import-isolation.json, preserved C23
+native records, proposed-correctness-amendments/F01-distinct-input-dedup.patch,
+and the compositional distinct_alias_checks.py generator. F01 fixed-branch
+compilation and native verification are pending. Bare-Null physical DISTINCT on
+F01's independent main-based branch still needs the separate C23 correction.
+
+Prepared independent branch: fix/new-rbo/f01-deduplicate-distinct-inputs (cb7a4189eea1f56dfdc7bbbb012c96403c090636).
+Native verification remains pending.
+
+F01 verification update: 32 checks passed under the repaired memory guard against branch fix/new-rbo/f01-deduplicate-distinct-inputs (cb7a4189eea1f56dfdc7bbbb012c96403c090636). The earlier guard-error batch remains preserved.

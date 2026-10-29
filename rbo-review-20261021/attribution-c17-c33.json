@@ -1,0 +1,670 @@
+[
+  {
+    "id": "C17",
+    "title": "Shared-plan pruning leaves references to removed columns",
+    "authors": [
+      "alexpaniman"
+    ],
+    "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+    "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+    "commits": [
+      {
+        "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+        "author": "alexpaniman",
+        "date": "2026-09-29",
+        "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+        "parents": [
+          "638fdc98f94f9f66a554ca8006790f20e23f23d0"
+        ],
+        "role": "primary source change"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "The commit adds TOpReplicate::TryCollapse, which enumerates cached producer GetOutputIUs when constructing copies for a secondary singleton port (current kqp_operator.cpp:168-176).",
+      "The same commit adds global pruning and FinishLogicalRewrite with BypassEmptyOperators before InvalidateProperties (current1761-1763). Its parent lacks this new collapse/pruning sequence.",
+      "The candidate diff and its parent were inspected; this is the logic that allows stale output schemas to be consumed after pruning."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C18",
+    "title": "Pruning leaves an invalid operator under an empty grouping-set wrapper",
+    "authors": [
+      "alexpaniman",
+      "Denis Khalikov"
+    ],
+    "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+    "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+    "commits": [
+      {
+        "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+        "author": "alexpaniman",
+        "date": "2026-09-29",
+        "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+        "parents": [
+          "638fdc98f94f9f66a554ca8006790f20e23f23d0"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "9589d9b27518163f55722b2c5c8ba98dadd02594",
+        "author": "Denis Khalikov",
+        "date": "2026-09-06",
+        "subject": "[Optimizer] Expand rollup in rbo rule (#52313)",
+        "parents": [
+          "c7f267731bdc243b2c274f0d226c656d1695b899"
+        ],
+        "role": "pre-existing grouping-set Aggregate-child invariant"
+      }
+    ],
+    "attribution_type": "source-traced interaction introduced by pruning rewrite",
+    "confidence": "high",
+    "source_evidence": [
+      "026a4acc adds IsResultlessScalarAggregate and replacement with TOpEmptySource during BypassEmptyOperators, before grouping-set expansion.",
+      "Its parent prunes aggregate traits but retains the Aggregate operator in rules/map/prune_dead_outputs.cpp; it lacks the new resultless replacement.",
+      "9589d9 introduced the grouping-set wrapper and type annotation that casts its child to Aggregate;026a4acc changes that child contract without normalizing the wrapper."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. The native failure is verified; exact runtime attribution to the invalid cast is less direct than the source-contract violation."
+  },
+  {
+    "id": "C19",
+    "title": "Unordered rank functions construct an invalid expression",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+    "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+    "commits": [
+      {
+        "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+        "author": "Denis Khalikov",
+        "date": "2026-09-10",
+        "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+        "parents": [
+          "dcf2dd48c75eda3873dbe9810438de2e5de3b494"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+        "author": "alexpaniman",
+        "date": "2026-09-29",
+        "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+        "parents": [
+          "638fdc98f94f9f66a554ca8006790f20e23f23d0"
+        ],
+        "role": "later refactor; not introduction"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "Initial window builder already sets NeedsPeerKey false when ordering is empty, leaves sortKeyChanged unset, and consumes it in rank/dense-rank update expressions.",
+      "The initial commit adds the physical window builder; its parent has no such builder.",
+      "Current guard blame points at026a4acc, but comparison with its parent and original11ebdcc shows it merely translates names to ID collections."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C20",
+    "title": "Window ranking loses the nullable-key compatibility setting",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+    "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+    "commits": [
+      {
+        "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+        "author": "Denis Khalikov",
+        "date": "2026-09-10",
+        "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+        "parents": [
+          "dcf2dd48c75eda3873dbe9810438de2e5de3b494"
+        ],
+        "role": "primary source change"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "Initial window translation defines TWindowFuncTraits with function/kind/arguments/result only and ProcessWindowCalls skips window settings when copying the call.",
+      "The corresponding initial physical rank accumulation implements the unconditional Uint64/ANSI-style result with no compatibility setting.",
+      "The parent lacks this window import/lowering path; later accumulator extraction did not introduce the omitted setting."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. Attribution identifies the omitted option in initial feature implementation, not a historically bisected regression."
+  },
+  {
+    "id": "C21",
+    "title": "Window AVG uses the wrong physical type for intervals",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "e15a17493ed7698fd09c3816171d85c32770b79c",
+    "subject": "[Optimizer] Add support for avg for window (#52863)",
+    "commits": [
+      {
+        "hash": "e15a17493ed7698fd09c3816171d85c32770b79c",
+        "author": "Denis Khalikov",
+        "date": "2026-09-12",
+        "subject": "[Optimizer] Add support for avg for window (#52863)",
+        "parents": [
+          "1deaad0c228df031dcdad476d1fdf9b8e6569145"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+        "author": "alexpaniman",
+        "date": "2026-09-29",
+        "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+        "parents": [
+          "638fdc98f94f9f66a554ca8006790f20e23f23d0"
+        ],
+        "role": "later refactor; not introduction"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "The commit introducing window AVG adds BuildAvgAccumulatorDataType: every nondecimal input selects Double.",
+      "Its parent has no AVG accumulator helper or AVG accumulation branch; the new branch calls that helper for state construction.",
+      "026a4acc only converts the helper argument from TInfoUnit to TInfoUnitId."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C22",
+    "title": "Repeated window keys produce an invalid physical sort",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+    "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+    "commits": [
+      {
+        "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+        "author": "Denis Khalikov",
+        "date": "2026-09-10",
+        "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+        "parents": [
+          "dcf2dd48c75eda3873dbe9810438de2e5de3b494"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+        "author": "alexpaniman",
+        "date": "2026-09-29",
+        "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+        "parents": [
+          "638fdc98f94f9f66a554ca8006790f20e23f23d0"
+        ],
+        "role": "later refactor; not introduction"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "Initial BuildSortKeys appends every partition key, then every order key, directly into physical index specifications without deduplication.",
+      "The initial commit introduces the window builder; the parent lacks this code.",
+      "The current Items-based loops are a mechanical SSA migration of the same append sequence."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C23",
+    "title": "Grouping sets mishandle a bare NULL key type",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "6962e896755e1f166f02647883d70575df8f206d",
+    "subject": "[Optimizer] Add support for rollup. (#41770)",
+    "commits": [
+      {
+        "hash": "6962e896755e1f166f02647883d70575df8f206d",
+        "author": "Denis Khalikov",
+        "date": "2026-05-29",
+        "subject": "[Optimizer] Add support for rollup. (#41770)",
+        "parents": [
+          "810f8dd56a14bbd858ebfa24ca559ad29053e684"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "9589d9b27518163f55722b2c5c8ba98dadd02594",
+        "author": "Denis Khalikov",
+        "date": "2026-09-06",
+        "subject": "[Optimizer] Expand rollup in rbo rule (#52313)",
+        "parents": [
+          "c7f267731bdc243b2c274f0d226c656d1695b899"
+        ],
+        "role": "moves the same unsafe Null/Optional assumption from frontend into an RBO rule"
+      }
+    ],
+    "attribution_type": "source-traced introduction followed through code move",
+    "confidence": "high",
+    "source_evidence": [
+      "Initial frontend rollup implementation introduced IsOptionalOrNull followed by Cast<TOptionalExprType> for omitted grouping keys.",
+      "The6962e896 candidate diff adds this branch; its parent has no rollup implementation.",
+      "9589d9 parent still contains the same cast in kqp_rewrite_select.cpp;9589d9 copies it into BuildNullColumn in rules/expand_grouping_sets.cpp. Therefore9589d9 is not the earliest introduction."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C24",
+    "title": "DISTINCT expansion creates a nested optional for interval SUM",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "0cffeb781b1ffc02c076c2eec50871970423606c",
+    "subject": "[Optimizer] Add initial multiple distinct support. (#43492)",
+    "commits": [
+      {
+        "hash": "0cffeb781b1ffc02c076c2eec50871970423606c",
+        "author": "Denis Khalikov",
+        "date": "2026-06-16",
+        "subject": "[Optimizer] Add initial multiple distinct support. (#43492)",
+        "parents": [
+          "b38a2c7b6c316f66b562d98c67982cd4f24d09f6"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "84f51d19457d15b671fad2edfaac96ecd9686c4f",
+        "author": "alexpaniman",
+        "date": "2026-06-20",
+        "subject": "[NEW RBO] Fix Map key and shuffle column rename propagation (#43630)",
+        "parents": [
+          "bd06dfd2c89d9f2ac56ec6d7a76ff7691f40fd12"
+        ],
+        "role": "later refactor; not introduction"
+      },
+      {
+        "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+        "author": "alexpaniman",
+        "date": "2026-09-29",
+        "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+        "parents": [
+          "638fdc98f94f9f66a554ca8006790f20e23f23d0"
+        ],
+        "role": "later refactor; not introduction"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "Initial multi-DISTINCT padding computes fieldType from the original input column and wraps the real aggregate output in Just whenever that input is nonoptional.",
+      "This ignores that an aggregate such as interval SUM may already have an Optional result; the missing-branch type is also derived from GetSumResultType plus an Optional wrapper.",
+      "84f51d19457d only changes the same condition into an early continue; parent inspection shows the original-input-nullability decision already existed.026a4acc changes bindings, not this decision."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. Earlier versions may have additional failures masking this interval case; no claim that all neighboring multi-DISTINCT inputs previously worked."
+  },
+  {
+    "id": "C25",
+    "title": "Correlated multi-aggregate DISTINCT fails between stages",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+    "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+    "commits": [
+      {
+        "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+        "author": "Denis Khalikov",
+        "date": "2026-09-02",
+        "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+        "parents": [
+          "21104b655157b506ba1289928dfa06c7898bc0a5"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "0cffeb781b1ffc02c076c2eec50871970423606c",
+        "author": "Denis Khalikov",
+        "date": "2026-06-16",
+        "subject": "[Optimizer] Add initial multiple distinct support. (#43492)",
+        "parents": [
+          "b38a2c7b6c316f66b562d98c67982cd4f24d09f6"
+        ],
+        "role": "pre-existing multi-DISTINCT producer of Intermediate/Final phases"
+      }
+    ],
+    "attribution_type": "source-traced interaction introduced by decorrelation support",
+    "confidence": "high",
+    "source_evidence": [
+      "7ee913 introduces dependent aggregate pushdown with a hard Undefined-phase assertion.",
+      "At that commit, Expand aggregation already precedes Decorrelation in InitializeRBOOptimizationStages.",
+      "The earlier multi-DISTINCT implementation from0cffeb emits Intermediate and Final aggregates. The phase-incompatible consumer is newly added by7ee913; its parent lacks the new dependent-join decorrelation engine."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C26",
+    "title": "DISTINCT combined with sample standard deviation is rejected",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "4f73c60b323ad32961179d4413509bdfa422d5e8",
+    "subject": "[Optimizer] Add support for more cases with multiple distinct. (#43624)",
+    "commits": [
+      {
+        "hash": "4f73c60b323ad32961179d4413509bdfa422d5e8",
+        "author": "Denis Khalikov",
+        "date": "2026-06-17",
+        "subject": "[Optimizer] Add support for more cases with multiple distinct. (#43624)",
+        "parents": [
+          "4a599d31e6e8f739137465946f49e1221f492fe2"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "0cffeb781b1ffc02c076c2eec50871970423606c",
+        "author": "Denis Khalikov",
+        "date": "2026-06-16",
+        "subject": "[Optimizer] Add initial multiple distinct support. (#43492)",
+        "parents": [
+          "b38a2c7b6c316f66b562d98c67982cd4f24d09f6"
+        ],
+        "role": "earlier multi-DISTINCT implementation with a different variance type attempt"
+      }
+    ],
+    "attribution_type": "source-traced introduction of the current explicit rejection",
+    "confidence": "high",
+    "source_evidence": [
+      "The candidate diff replaces the variance branch GetAvgResultType call with an unconditional Y_ENSURE(false) in multiple-DISTINCT padding.",
+      "That explicit variance rejection survives in current rules/expand_distinct_aggregation.cpp:78.",
+      "Its parent attempted a variance result type; this is not merely a rename or moved line."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. The parent implementation was not executed and may also have failed for this combination. This attributes the explicit rejection, not proof of a working predecessor."
+  },
+  {
+    "id": "C27",
+    "title": "HAVING without an aggregate call fails translation",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6",
+    "subject": "[NEW RBO] Add support for HAVING. (#33329)",
+    "commits": [
+      {
+        "hash": "b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6",
+        "author": "Denis Khalikov",
+        "date": "2026-02-03",
+        "subject": "[NEW RBO] Add support for HAVING. (#33329)",
+        "parents": [
+          "b8504da74dd1b910929e927f258d699730009b8b"
+        ],
+        "role": "primary source change"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "Initial HAVING support adds ProcessAggregationsInHaving and requires exactly one expression in havingFilterHolder.",
+      "The same new ProcessAggregations populates that holder only when aggregate calls are present, or on the DISTINCT path forbidden for HAVING.",
+      "The candidate diff and its parent establish that the plain-HAVING omission is part of the feature introduction; later signature changes preserve it."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C28",
+    "title": "DISTINCT over window results references columns before definition",
+    "authors": [
+      "Denis Khalikov"
+    ],
+    "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+    "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+    "commits": [
+      {
+        "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+        "author": "Denis Khalikov",
+        "date": "2026-09-10",
+        "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+        "parents": [
+          "dcf2dd48c75eda3873dbe9810438de2e5de3b494"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6",
+        "author": "Denis Khalikov",
+        "date": "2026-02-03",
+        "subject": "[NEW RBO] Add support for HAVING. (#33329)",
+        "parents": [
+          "b8504da74dd1b910929e927f258d699730009b8b"
+        ],
+        "role": "pre-existing DISTINCT-at-end-of-aggregate-pipeline behavior"
+      }
+    ],
+    "attribution_type": "source-traced interaction introduced by window support",
+    "confidence": "high",
+    "source_evidence": [
+      "11ebdcc moves window-result expressions out of the postaggregate map and adds BuildWindowOperators only after BuildAggregationPipeline.",
+      "The earlier aggregate pipeline already constructs the final DISTINCT aggregate inside itself; no stage reorder accompanies the window introduction.",
+      "Candidate/parent diff shows window values become unavailable to that pre-window DISTINCT at the point initial window support is introduced."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C29",
+    "title": "Mixed set-operation precedence is lowered without a real operand stack",
+    "authors": [
+      "Pavel Velikhov"
+    ],
+    "hash": "8c3d6d2ac4e605acc0fc6caa265be3795973633d",
+    "subject": "[NEW OPTIMIZER] Added support for set operations (#42928)",
+    "commits": [
+      {
+        "hash": "8c3d6d2ac4e605acc0fc6caa265be3795973633d",
+        "author": "Pavel Velikhov",
+        "date": "2026-06-09",
+        "subject": "[NEW OPTIMIZER] Added support for set operations (#42928)",
+        "parents": [
+          "c623106777bb33aa57b8ef51d90b067f52d555f6"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "2805cf0cdbc875f908fabe74217de93cc490a5ad",
+        "author": "Pavel Velikhov",
+        "date": "2025-11-20",
+        "subject": "[NEW RBO] Add YqlSelect support (#28901)",
+        "parents": [
+          "a007eea9c7908637e6a560863e1a9963c83a8acf"
+        ],
+        "role": "origin of single-accumulator postfix interpreter"
+      }
+    ],
+    "attribution_type": "source-traced feature interaction; earlier structural limitation retained",
+    "confidence": "high",
+    "source_evidence": [
+      "2805cf0 introduced set-op traversal with one opResult and an opsInputCount counter rather than a stack; it initially accepted only union_all.",
+      "8c3d6d2 removes the union_all-only assertion and creates generic SetOp nodes without changing this operand traversal.",
+      "The specific mixed-precedence defect therefore combines the original parser structure with later generalized set-operation support. Both candidate diffs and parents were inspected."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. The structural limitation dates to2805cf0;8c3d6d2 is the source-traced enabling change for mixed set operations. Historical successful/failed queries were not bisected."
+  },
+  {
+    "id": "C30",
+    "title": "INSERT OR REVERT loses its conflict policy",
+    "authors": [
+      "Pavel Velikhov"
+    ],
+    "hash": "b7945c07c68c68df76db3d787246eb3f895200f6",
+    "subject": "[NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)",
+    "commits": [
+      {
+        "hash": "b7945c07c68c68df76db3d787246eb3f895200f6",
+        "author": "Pavel Velikhov",
+        "date": "2026-09-07",
+        "subject": "[NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)",
+        "parents": [
+          "fc46b1da6f4012686647a62df97b9271b50f806c"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "344f8fd79c22a14511219b7c22a7aa7f15a56d30",
+        "author": "Pavel Velikhov",
+        "date": "2026-09-24",
+        "subject": "[NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)",
+        "parents": [
+          "5c8a15ee655d546703fd52d152048370369bf568"
+        ],
+        "role": "later refactor; not introduction"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "Initial DML-from-SELECT support imports Options.OnConflict but TOpTableEffect::BuildSettings chooses mode solely from EffectType and never consumes OnConflict.",
+      "The candidate diff introduces both the imported conflict policy and its omission from sink construction; its parent lacks this effect lowering.",
+      "The later switch conversion in344f8fd79c22 retains mode=insert and does not introduce the omission."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  },
+  {
+    "id": "C31",
+    "title": "Late join-filter inlining recreates unsupported sharing",
+    "authors": [
+      "alexpaniman",
+      "Pavel Velikhov"
+    ],
+    "hash": "dc773f93aec8fa5d56c1653bf43aef64165d8e0c",
+    "subject": "[NEW RBO] Duplicate shared subtrees when spilling is disabled (#54743)",
+    "commits": [
+      {
+        "hash": "dc773f93aec8fa5d56c1653bf43aef64165d8e0c",
+        "author": "alexpaniman",
+        "date": "2026-10-05",
+        "subject": "[NEW RBO] Duplicate shared subtrees when spilling is disabled (#54743)",
+        "parents": [
+          "8ee86af73b5dee7ce66a624942cdd2e5fd860a66"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+        "author": "alexpaniman",
+        "date": "2026-09-29",
+        "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+        "parents": [
+          "638fdc98f94f9f66a554ca8006790f20e23f23d0"
+        ],
+        "role": "introduces explicit Replicate sharing in join-filter inlining"
+      },
+      {
+        "hash": "7fb688ddeee2b43220828fdbf0c5b19985cab7e1",
+        "author": "Pavel Velikhov",
+        "date": "2026-10-04",
+        "subject": "[NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)",
+        "parents": [
+          "7ed394a856a48eaf499550175c469efdacd70610"
+        ],
+        "role": "makes join-filter inlining unconditionally run after CBO"
+      }
+    ],
+    "attribution_type": "multi-commit interaction; unique first failing commit not established",
+    "confidence": "medium",
+    "source_evidence": [
+      "026a4acc replaces implicit left-input reuse with an explicit two-output Replicate in inline_join_filters.cpp.",
+      "7fb688 moves/enables the join-filter inlining stage unconditionally after CBO; its parent could choose early versus late placement by configuration.",
+      "dc773 introduces no-spilling duplication before CBO and an assignment-time shared-stage rejection, leaving later-created Replicates outside the duplication pass.",
+      "All three diffs and parents were inspected. The current reported stage-order failure is the interaction, not evidence that the later defensive assertion alone caused it."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. Shared stages may already have been rejected later by the compiler without spilling. No unique first-bad historical runtime commit is claimed."
+  },
+  {
+    "id": "C32",
+    "title": "Forced Map mode selects an unsupported algorithm for FULL JOIN",
+    "authors": [
+      "Pavel Velikhov",
+      "Denis Khalikov"
+    ],
+    "hash": "2c0f2db37dc5368f03d9d747176c3c47ca43dc78",
+    "subject": "[NEW OPTIMIZER] Added support for full outer join (#43141)",
+    "commits": [
+      {
+        "hash": "2c0f2db37dc5368f03d9d747176c3c47ca43dc78",
+        "author": "Pavel Velikhov",
+        "date": "2026-06-10",
+        "subject": "[NEW OPTIMIZER] Added support for full outer join (#43141)",
+        "parents": [
+          "b0940ab87a7b6f277e18f6397e44e924b8273e7c"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "595f56f1b155dced92b9587866da1f5d9abc45a1",
+        "author": "Denis Khalikov",
+        "date": "2026-03-25",
+        "subject": "[NEW RBO] Add support for map join. (#36605)",
+        "parents": [
+          "c454a2c2cb7d02734c103448fada7cf348b9d392"
+        ],
+        "role": "origin of unconditional Map-mode fallback"
+      },
+      {
+        "hash": "4382787158e5fcddd09e0de7cf6a153c7ca0329f",
+        "author": "alexpaniman",
+        "date": "2026-07-15",
+        "subject": "[NEW RBO] Show BlockHashJoin in explain (#46362)",
+        "parents": [
+          "2cb8291ec8707daeb126ce715c95cb185a1d2517"
+        ],
+        "role": "later refactor; not introduction"
+      }
+    ],
+    "attribution_type": "source-traced feature interaction",
+    "confidence": "high",
+    "source_evidence": [
+      "595f56 adds HashJoinMode Map selection without checking JoinKind, while the physical builder at that revision accepts only inner/left-family joins.",
+      "2c0f2db adds Full to the physical builder accepted kinds but leaves the Map-selection fallback unchanged.",
+      "438278 only refactors MaybeSetJoinAlgo into FinalizeJoinPhysicalProps and preserves unconditional Map choice; it is not the introduction.",
+      "The unsupported Full+Map combination becomes part of the advertised Full-join feature at2c0f2db, using the earlier unsafe generic fallback."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. 2c0f2db is the enabling Full-support change;595f56 owns the earlier selection assumption. No historical runtime bisection."
+  },
+  {
+    "id": "C33",
+    "title": "Set-operation output column order follows the final arm",
+    "authors": [
+      "Pavel Velikhov"
+    ],
+    "hash": "2805cf0cdbc875f908fabe74217de93cc490a5ad",
+    "subject": "[NEW RBO] Add YqlSelect support (#28901)",
+    "commits": [
+      {
+        "hash": "2805cf0cdbc875f908fabe74217de93cc490a5ad",
+        "author": "Pavel Velikhov",
+        "date": "2025-11-20",
+        "subject": "[NEW RBO] Add YqlSelect support (#28901)",
+        "parents": [
+          "a007eea9c7908637e6a560863e1a9963c83a8acf"
+        ],
+        "role": "primary source change"
+      },
+      {
+        "hash": "2d0a53c77711078980683c860b9cbf6af84e803c",
+        "author": "Denis Khalikov",
+        "date": "2025-12-26",
+        "subject": "[NEW RBO] Add more tests (#31384)",
+        "parents": [
+          "130f00b8c75426754ee5009766ca57e0569c7185"
+        ],
+        "role": "later refactor; not introduction"
+      }
+    ],
+    "attribution_type": "source-traced introduction",
+    "confidence": "high",
+    "source_evidence": [
+      "Initial YqlSelect importer clears and repopulates finalColumnOrder inside each set-item loop.",
+      "After the loop, the same commit builds the root ColumnOrder from that last-written vector.",
+      "2d0a53c only changes the final iteration variable/reference style; inspection of2805cf0 source and parent shows the final-arm selection dates to initial import support."
+    ],
+    "caveat": "Source history inspection only; no historical runtime bisection. "
+  }
+]

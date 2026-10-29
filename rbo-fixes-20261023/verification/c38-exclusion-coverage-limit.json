@@ -1,0 +1,9 @@
+{
+  "case": "c38_exclusion_distribution",
+  "status": "not_reachable_through_new_sql_parser",
+  "source": "yql/essentials/sql/v1/translation/sql_select_yql.cpp:1012",
+  "observation": "New syntax translation explicitly rejects EXCLUSION; native baseline exits before optimizer import. Legacy executes the independent semantic control successfully.",
+  "coverage": "C38 Full-join metadata path is exercised with four nodes, both output sides and shuffle controls. The Exclusion metadata guard remains source-reviewed only.",
+  "builder": "distribution_checks.py:unavailable_recipes",
+  "raw_evidence": "Original sanitized baseline record retained; no generated statement, fixture, result, or diagnostic text stored."
+}

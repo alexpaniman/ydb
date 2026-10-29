@@ -1,0 +1,11 @@
+{
+  "patch_sha256": "f4429ba40909208e0d17b19deb5c9f462579ceaba3a50f07bb39f54c97cb0567",
+  "applied_at_idle_boundary": true,
+  "syntax_passed": true,
+  "files": {
+    "anonymous_cpp_metadata.py": "c22714482e7ba4f46285b0e0d2d9a9d669e6c2cbf98375641c12ca8246997d23",
+    "anonymous_cpp_verify.py": "c325983afe2f30f31c3dc20ca7d8e7c90334acd398a21f61182bf0bfe5d77739"
+  },
+  "tool_root_observed_from_actual_installed_compiler_prefix_maps": "/home/alexpaniman/.ya/tools/v4",
+  "native_acceptance": false
+}

@@ -1,0 +1,165 @@
+New RBO: optimization-quality fix list
+
+This list is separate from query correctness. The correctness list is bugs.txt. Priorities below rank plausible work amplification and resource impact; they are not measured speedups or runtime severity assignments. Every item below is supported by current-source control flow or generated-plan construction. No performance benchmark or native plan comparison was run for this synthesis. Two source-review passes checked the proposed mechanisms and their guards. Findings shared with legacy code are identified explicitly.
+
+Paths are relative to the repository root. Most locations are under ydb/core/kqp/opt/rbo/.
+
+Highest-priority performance work to validate after correctness repairs
+
+Q01. General window frames repeatedly aggregate the whole frame.
+The general ROWS/RANGE path constructs a fresh Fold1 over WinFrame for each output row. For broad overlapping frames this requires work proportional to the sum of frame sizes and can become quadratic in partition size. Running-prefix paths have separate incremental implementations and are not included in this claim.
+Fix: use incremental add/remove state where valid, and specialized data structures for MIN/MAX; retain the general path for functions that need it. Measure broad and narrow frames separately.
+Location: physical_conversion/kqp_rbo_physical_window_builder.cpp:1416-1478.
+
+Q02. Unused window results retain their complete execution pipeline.
+Window has no output-pruning implementation. Its liveness routine explicitly keeps every function, partition key and sort key even when no window output is consumed. The surviving operator still creates a shuffle/gather and sort. With WindowFunctionsV2 enabled it also disables the query-wide block engine, so unused window work can degrade unrelated live operators.
+Fix: prune unused functions and bypass a result-less window before block-mode selection and stage assignment, preserving expression-effect semantics.
+Locations: global_pruning.cpp:5; analysis/logical_liveness.cpp:365-373; rules/assign_stages.cpp:258-271; rules/disable_blocks_on_columns_limit.cpp:25-29.
+
+Q03. An uncovered residual predicate prevents a selective index access path.
+A non-covering index is rejected unless it contains every column referenced by the original predicate. The optimizer therefore cannot choose selective index ranges followed by base-table lookup and then an uncovered residual. A small indexed candidate set can become a base-table scan.
+Fix: split index-executable residuals from base-row residuals and apply the latter after lookup.
+Location: rules/push_ranges.cpp:617-624,682-698.
+
+Q04. An unfiltered bounded sort does not consider a matching secondary index.
+Read-index enumeration only matches Filter(Source). TopSort propagation examines the already selected table key and does not enumerate indexes. A covering secondary index with suitable ordering is therefore missed when no filter exists; the legacy range optimizer has a separate TopSort index-selection path.
+Fix: expose order/limit requirements to access-path enumeration even without a predicate.
+Locations: rules/push_ranges.cpp:500-503; rules/propagate_topsort_through_stage.cpp:196-215; legacy ../logical/kqp_opt_log_ranges_predext.cpp:135-220.
+
+Q05. Descending primary-key top-N loses row-store ordered-read pushdown.
+The SQL YqlSort translator supplies the placeholder null ordering 'first' for either direction. The row-read pushdown guard requires NullsFirst to equal Ascending, so descending order fails even for nonnullable primary keys where NULL placement is irrelevant. The supported descending storage read is then missed.
+Fix: derive actual null ordering and ignore that restriction when keys are nonnullable; preserve correct nullable-key semantics.
+Locations: rules/propagate_topsort_through_stage.cpp:183-187; yql/essentials/sql/v1/translation/select_yql.cpp:255.
+
+Q06. Lookup selection can choose a broad secondary-index prefix over a complete primary-key probe.
+The no-range fast path returns a covering index before considering the base-table candidate. It ranks indexes by prefix length, without considering whether the base primary key is already fully bound. This can enlarge fetched candidate sets unnecessarily.
+Fix: compare base table and indexes in one scorer; complete unique probes and estimated fan-out should outweigh raw prefix length.
+Location: kqp_rbo_lookup_join.cpp:32-64,203-205.
+
+Q07. Lookup costing and actual lookup eligibility disagree.
+The CBO omits several restrictions later applied by the lookup rewrite, including query/feature gates and key-type compatibility. A chosen cheap lookup can become a hash join; the key-type path explicitly changes to MapJoin without recosting. The join order and broadcast decision can therefore be based on an algorithm that will not execute. Null-safe valid-query failures from the same mismatch belong in correctness, not this count.
+Fix: share a complete eligibility contract and cost a fallback before committing the join order.
+Locations: kqp_rbo_cbo.cpp:97-209; rules/rewrite_join_to_index_lookup_join.cpp:136-167,217-231; physical_conversion/kqp_rbo_physical_join_builder.cpp:565-568.
+
+Q08. Filters apply earlier selectivity again to already-reduced estimates.
+Filter copies input ERows/EBytes, then multiplies them by both its own selectivity and the input's accumulated Selectivity. Surviving filter boundaries therefore count earlier reductions more than once, biasing downstream join and broadcast costs.
+Fix: multiply current row/byte estimates by only the new local factor; track cumulative Selectivity separately.
+Location: kqp_rbo_compute_statistics.cpp:394-408.
+
+Q09. Scalar aggregate cardinality is estimated as its input cardinality.
+Aggregate copies input ERows and cost, adjusting only byte width. A single-row scalar aggregate over a large input can therefore remain a large relation in subsequent CBO decisions. Grouped aggregate distinct-count estimation is also unimplemented, but the scalar case has an exact answer.
+Fix: set scalar output cardinality to one, handle empty/grouped semantics explicitly, then estimate grouped cardinality from available statistics.
+Location: kqp_rbo_compute_statistics.cpp:570-589.
+
+Q10. Multiple DISTINCT aggregates duplicate deduplication of the same argument.
+Multi-DISTINCT expansion creates one Replicate branch and distinct operation per aggregate result, even when several functions share the same input/grouping columns. When channel spilling is disabled, later Replicate expansion can additionally duplicate the common input reads and joins. The existing input sharing reduces repeated execution in other configurations but does not share those deduplication stages.
+Fix: group compatible DISTINCT aggregates by their deduplication key and aggregate them together; retain one shared producer where feasible.
+Locations: rules/expand_distinct_aggregation.cpp:198-239,244-263; rules/expand_replicate.cpp:10-20,57-67; kqp_rbo_transformer.cpp:704-709.
+
+Q11. Filters above UnionAll miss branch-local access-path optimization.
+Registered filter rules handle maps, joins and aggregates, but no union distribution. A selective outer filter can remain above all branches, preventing branch-local range, index and OLAP predicate pushdown. Physical union lowers branches into separate connections, so later local scalar peephole is not equivalent to those logical optimizations.
+Fix: distribute effect-safe predicates through branch bindings with correct type/nullability mappings.
+Locations: kqp_rbo_transformer.cpp:675-695; rules/assign_stages.cpp:226-239.
+
+Q12. Early peephole expansion prevents native JSON filter pushdown.
+The new OLAP filter rule lowers its predicate before native predicate collection. JSON_VALUE/JSON_EXISTS are expanded in common peephole rules. Native JSON operations can consequently become generic Json2 UDF evaluation over full values, or stay outside the shard when generic Apply is unavailable. The legacy path collects native expressions first.
+Fix: collect native candidates before full lowering, or preserve them as external Apply arguments.
+Locations: rules/push_olap_filter.cpp:123-135; ../physical/kqp_opt_phy_olap_filter.cpp:1368-1387; yql/essentials/core/peephole_opt/yql_opt_peephole_physical.cpp:9316-9317.
+
+Q13. Bulk OLAP writes cannot retain parallel streaming sinks.
+Every table effect gets a UnionAll sink connection, and settings force StreamWrite=false and InconsistentWrite=false. The legacy OLAP streaming/inconsistent-write path can retain partition-parallel sinks. This comparison does not assert a general transactional OLTP regression: legacy OLTP intentionally also uses one sink.
+Fix: preserve the authorized OLAP streaming/inconsistent-write modes and their parallel connection layout.
+Locations: rules/assign_stages.cpp:324-333; kqp_operator.cpp:1660-1664; ../kqp_opt_effects.cpp:463-483.
+
+Other actionable runtime and plan-quality defects
+
+Q14. ReverseBlockJoin loses the CBO's shuffle directives.
+Conversion copies selected shuffle columns and skipped-side directives only for GraceJoin. ReverseBlockJoin then gets default stage shuffles rather than the costed distribution. This establishes lost shuffle elimination; any separate correctness consequence requires its own evidence.
+Fix: preserve directives for every algorithm that consumes the shuffle contract.
+Location: rules/kqp_cbo_trees.cpp:455-458; rules/assign_stages.cpp join connection selection.
+
+Q15. Every window repartitions even when input partitioning is sufficient.
+Stage assignment always builds a new Shuffle connection for nonempty partition keys, without testing valid input distribution. Adjacent windows with compatible partitions can incur repeated network work. Existing incorrect distribution metadata must be fixed before adding this optimization.
+Fix: reuse input partitioning under a proven partition-subset contract; preserve hash function/type compatibility.
+Location: rules/assign_stages.cpp:258-271.
+
+Q16. A wide row-store LIMIT disables the query-wide block engine.
+The guard named for OLAP checks width and Limit kind but does not require a column-table source. Its result changes global BlockEngineMode, affecting unrelated operators. The legacy guard requires an OLAP read.
+Fix: restore storage applicability and consider live physical width when evaluating the threshold.
+Location: rules/disable_blocks_on_columns_limit.cpp:10-14,39-40; ../physical/kqp_opt_phy_limit.cpp:59-65.
+
+Q17. Covering lookup indexes are rejected when outputs use implicit primary-key columns.
+The no-range index check considers declared index keys and data columns, omitting base primary-key columns automatically stored by ordinary secondary indexes. Those columns can make an index covering even when absent from its declared data list.
+Fix: use the selected implementation-table column metadata after validating index kind.
+Location: kqp_rbo_lookup_join.cpp:21-29,40-41.
+
+Q18. Fetched statistics are discarded when any table statistics already exist.
+Requests intentionally fetch missing kinds/columns, but ApplyColumnStatistics inserts at table level instead of merging into an existing entry. A partially cached table therefore ignores the newly fetched evidence while still paying for the request. The same pattern exists in the legacy requester.
+Fix: merge Data and MultiData fields into the existing table entry.
+Locations: kqp_rbo_transformer.cpp:404-413,541-543; ../kqp_column_statistics_utils.cpp:142-183.
+
+Q19. A failure in the first statistics request discards later successful statistics.
+Request merge preserves Issues from only the first response. ApplyColumnStatistics rejects all merged data if those Issues are nonempty, even when later histogram requests succeeded; later failures are also omitted from diagnostics. Legacy has the analogous two-request problem.
+Fix: aggregate diagnostics separately and apply successful fields independently.
+Location: kqp_rbo_transformer.cpp:408-413,427-469,534-544.
+
+Q20. Join statistics omit right-side aliases when applying hints.
+ComputeAlisesForJoin deliberately clears right aliases and uses only left aliases for the joined relation. Right/composite hints can be missed, and a left-only hint can be applied to the larger join result.
+Fix: collect both sides' relation identities and use their union for result hints.
+Location: kqp_rbo_compute_statistics.cpp:25-31,716-735.
+
+Q21. Positive LIMIT inside a correlated EXISTS becomes unnecessary window work.
+Dependent LIMIT lowering constructs row numbering per domain even when an EXISTS consumer only needs nonemptiness and a positive, offset-free bound does not change it. The created window adds partitioning/sorting work.
+Fix: simplify proven positive, offset-free limits under existence-only consumers before decorrelation; do not discard zero, unknown, or offset bounds.
+Locations: rules/inline_simple_in_exists_subplan.cpp:103-142; rules/decorrelation/dependent_join_pushdown.cpp:204-225,710-734.
+
+Q22. Focused scalar IN lowering expands large explicit collections linearly.
+With the full physical-stage peephole disabled, every nonempty explicit scalar tuple/list that reaches focused lowering becomes a comparison OR chain regardless of size. Full peephole limits this path to small collections and uses dictionary lookup otherwise. Large invariant collections surviving earlier folding can incur rows-times-list-size work.
+Fix: use a typed dictionary above a small threshold while preserving ANSI/legacy NULL semantics.
+Location: physical_conversion/kqp_rbo_compatibility.cpp:233-247; yql/essentials/core/peephole_opt/yql_opt_peephole_physical.cpp:2255-2260.
+
+Q23. Original lookup keys stay in payloads after their last semantic use.
+IndexLookupJoin liveness keeps all original left and right join keys. Prefix keys have already been consumed while building probes; only residual comparisons and fetched-row filters need later keys. Unused wide left keys can be carried through lookup fan-out and pruned only at the end.
+Fix: compute postlookup dependencies from actual residual/filter use and downstream outputs; keep original keys as metadata without making them live data.
+Locations: analysis/logical_liveness.cpp:332-336; physical_conversion/kqp_rbo_physical_lookup_join_builder.cpp:79-82,397-399.
+
+Q24. Range-enforced predicate columns remain projected for provenance alone.
+TOpRead keeps all OriginalPredicate dependencies alive even after extraction proves the relevant conditions through storage ranges. OriginalPredicate remains useful until lookup rewrites finish, but is not cleared afterward for ordinary reads. This increases storage projection and transfer, particularly for wide key-only filter fields.
+Fix: separate semantic dependencies from rewrite provenance and prune provenance-only fields after the final consumer of that provenance.
+Location: kqp_operator.cpp:344-350; rules/push_ranges.cpp read construction.
+
+Q25. Map fusion drops the request to continue pushing definitions.
+When a NeedToPush map merges into a lower map, moved definitions are added without propagating the flag. If the lower map had NeedToPush=false, subsequent through-input pushdown does not run on the merged definitions.
+Fix: preserve per-definition push intent, or conservatively combine map flags and re-run eligibility checks.
+Location: rules/push_map_elements_through_input.cpp:78-104,108-109.
+
+Q26. Configured sequential-read concurrency is not forwarded.
+The new row source builds fresh settings containing sort and limit but omits MaxSequentialReadsInFlight. The legacy source forwards it. Explicit resource/latency tuning therefore ceases to affect these reads; a universal slowdown is not claimed.
+Fix: pass applicable read settings/configuration to the source builder.
+Location: physical_conversion/kqp_rbo_physical_source_builder.cpp:50-56,71-79; ../physical/kqp_opt_phy_source.cpp:314-316.
+
+Compilation cost and lower-priority cleanup
+
+Q27. Shared nonterminal AST nodes are revisited during top-level SELECT collection.
+The collector checks a visited set on every node but inserts only terminal SELECT/root nodes. Compact DAGs with shared nonterminal ancestors can therefore trigger exponentially many recursive visits. An earlier reviewer checked the traversal recurrence in an abstract model; native compilation latency and normal SQL reachability were not measured.
+Fix: mark every node visited on entry before descending.
+Location: kqp_rbo_transformer.cpp:61-79.
+
+Q28. Every successful rule restarts traversal and recomputes global properties.
+The rule loop restarts from the root after each match and invalidates all computed-property flags. Logical rewrite boundaries clear every operator's cached analyses/types. Many independent local rewrites can therefore cause repeated whole-plan work, with roughly matches-times-plan-size work before analysis-specific costs. This is a design cost, not a measured latency regression.
+Fix: profile large plans, then use a worklist and dependency-aware invalidation while preserving existing correctness contracts. The fixed rewrite-count rejection is a separate robustness concern.
+Locations: kqp_rbo.cpp:125-185; kqp_operator.cpp:1746-1764.
+
+Q29. Lookup filters can duplicate deterministic residual evaluation.
+BuildFetchedRowFilter appends both the full OriginalPredicate and the residual already derived from it. Repeated deterministic conjuncts may therefore be rebuilt. Later scalar optimization may remove some duplicates, so this is a lower-priority construction issue rather than an established runtime multiplier.
+Fix: track predicate provenance and deduplicate equivalent deterministic conjuncts when combining them.
+Location: rules/rewrite_join_to_index_lookup_join.cpp:11-37.
+
+Challenge-pass exclusions and next verification work
+
+- Ordinary two-stage aggregate splitting was not counted as a defect: intermediate aggregation can bound memory even when stage pushdown is limited.
+- Necessary scalar-subquery cardinality wrappers were not labeled redundant without an exact-cardinality proof.
+- Non-covering index rejection is a missed access path, not predicate loss.
+- Generic IN domain materialization and conservative null-safe domain encoding were left out of the ranked list: safer alternatives require a more precise semantic/cost proof.
+- Exact speedups, production prevalence, and resource thresholds are unknown. Verify resulting plan shape first, then compare rows read, bytes shuffled, task count, peak memory, and compile/run time using generated fixtures. Keep generated inputs ephemeral and retain only generators and aggregate measurements.
+- The second pass found two compounded effects worth tracking with existing items: dead windows can disable the block engine (Q02), and duplicated DISTINCT branches can duplicate their common producer when sharing is expanded (Q10). These are consequences of the listed root causes, not additional bug counts.

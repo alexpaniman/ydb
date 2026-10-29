@@ -1,0 +1,104 @@
+{
+  "id": "Q01",
+  "title": "General window frames repeatedly aggregate the whole frame.",
+  "branch": "fix/new-rbo/q01-general-window-frames-repeatedly-aggregate-the-whole-frame",
+  "commit": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/common/kqp_window_minmax.h",
+    "ydb/core/kqp/opt/kqp_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h",
+    "ydb/core/kqp/query_compiler/kqp_mkql_compiler.cpp",
+    "ydb/core/kqp/runtime/common/kqp_program_builder.cpp",
+    "ydb/core/kqp/runtime/common/kqp_program_builder.h",
+    "ydb/core/kqp/runtime/kqp_compute.cpp",
+    "ydb/core/kqp/runtime/kqp_range_minmax.cpp",
+    "ydb/core/kqp/runtime/kqp_range_minmax.h",
+    "ydb/core/kqp/runtime/ya.make"
+  ],
+  "proposal_sha256": "17f7f859cd0ea7192c5c34e6a368f01997bcec7afb22017d28361cc8510e5719",
+  "proposal": "proposed-quality-amendments/Q01-row-minmax.patch",
+  "proposal_metadata": {
+    "id": "Q01",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "source_count_branch": "ec5c4cdf9df226bab6e13b21da2bb25946a8966b",
+    "status": "applied_build_and_native_pending",
+    "scope": "COUNT, machine-integer SUM, and bounded ROWS MIN/MAX for admitted scalar types.",
+    "files": [
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h"
+    ],
+    "patch_sha256": "17f7f859cd0ea7192c5c34e6a368f01997bcec7afb22017d28361cc8510e5719",
+    "apply_check_passed": true,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "compiled": false,
+    "native_verified": false,
+    "production_edited": false,
+    "validation_required": [
+      "Native ROWS/RANGE boundaries, empty and all-null frames, both directions and peer values.",
+      "Signed/unsigned accumulator wrap with required, optional and narrow integral inputs.",
+      "Queue-row type agrees with private count output and public output layout excludes auxiliaries.",
+      "Fallback SUM/AVG/MIN/MAX and whole/running/suffix frame paths retain ordered behavior.",
+      "COUNT/integer-SUM-only general frames have no reachable Fold/Fold1 and scale independently of frame width."
+    ],
+    "retained_fallbacks": [
+      "Floating, Decimal and Interval SUM; AVG",
+      "MIN/MAX on excluded value families"
+    ]
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes",
+    "Bounded ROWS MIN/MAX two-stack amendment independently source-reviewed; model evidence is not native verification"
+  ],
+  "verification_limitation": "Source and model checks only. The scoped implementation covers COUNT, machine-integer SUM and admitted total-order scalar MIN/MAX across general ROWS/RANGE frames, including suffixes. Compilation, native semantics, cancellation and actual memory/work scaling remain pending. Unsupported types/functions keep their original fold. Mixed RANGE windows use two collectors and require explicit memory/latency acceptance.",
+  "superseded_commits": [
+    "ec5c4cdf9df226bab6e13b21da2bb25946a8966b",
+    "fcf071da437b3602ae63869477e74da02a166f92"
+  ],
+  "amendments": [
+    {
+      "patch": "proposed-quality-amendments/Q01-row-minmax.patch",
+      "sha256": "17f7f859cd0ea7192c5c34e6a368f01997bcec7afb22017d28361cc8510e5719",
+      "source_commit": "fcf071da437b3602ae63869477e74da02a166f92",
+      "commit": "c4a3cd163ec32e76c2557469378f89f22da3b5fc",
+      "checked_out_sources_edited": false
+    },
+    {
+      "patch": "proposed-quality-amendments/Q01-range-minmax.patch",
+      "sha256": "8bdc88f6222ac1764cceabc3cad32433ef48803a74bdf07482b5fe9ac0da92b6",
+      "source_commit": "c4a3cd163ec32e76c2557469378f89f22da3b5fc",
+      "commit": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "checked_out_sources_edited": false
+    }
+  ],
+  "implementation_scope_complete": true,
+  "source_review": "verification/q01-minmax-independent-source-review.json",
+  "range_source_reviews": [
+    "verification/q01-range-minmax-independent-source-review.json",
+    "verification/Q01-range-minmax-independent-api-lifecycle-review.json"
+  ],
+  "range_model_evidence": "verification/Q01-range-minmax-abstract-contracts.json",
+  "scope_rationale": "Original Q01 permits general fallback where incremental evaluation is not admitted; ROWS/RANGE frame-shape gaps are closed for the explicitly supported scalar MIN/MAX family. Broader type coverage is not claimed.",
+  "resolved_implementation_scope": [
+    {
+      "previous": [
+        "General RANGE MIN/MAX and unbounded general-frame MIN/MAX where not handled by existing specialized paths"
+      ],
+      "resolved_by": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "scope": "The explicitly admitted scalar MIN/MAX family; conservative type/function fallback retained."
+    }
+  ],
+  "runtime_acceptance_artifacts": {
+    "generator": "quality_range_runtime_cpp_generator",
+    "cases": 42,
+    "profile": "kqp_runtime",
+    "execution_plan": "verification/Q01-runtime-cpp-execution-plan.json",
+    "integration_applied": "verification/Q01-runtime-verifier-artifacts-applied.json",
+    "actual_compilation_and_runtime_pending": true
+  }
+}

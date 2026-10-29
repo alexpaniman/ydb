@@ -1,0 +1,90 @@
+--- a/rbo-fixes-20261023/quality_cpp_contract_generator.py
++++ b/rbo-fixes-20261023/quality_cpp_contract_generator.py
+@@ -33,6 +33,7 @@
+         'ydb/core/kqp/opt/cbo/solver/kqp_opt_predicate_selectivity.h',
+         'ydb/library/actors/core/actorsystem_fwd.h',
+         'yql/essentials/ast/yql_expr.h', 'yql/essentials/core/yql_graph_transformer.h',
++        'yql/essentials/core/histogram/eq_height_histogram_reader.h',
+         'iostream', 'stdexcept', 'vector', 'exception']
+     text = ''.join('#include <' + include + '>\n' for include in includes)
+     # Dependency headers are included first: the access adapter changes only
+@@ -64,10 +65,28 @@
+         for statement in (prefix + '.NumUniqueVals = 17.0', prefix + '.Type = "Int64"',
+                           added + '.NumUniqueVals = 0.0', added + '.HyperLogLog = 0.0'):
+             body += _statement(statement)
++    # Real statistics objects: identity/replacement/preservation, without
++    # interpreting histogram estimates or invoking a model of the merger.
++    body += _statement('auto oldSketch = std::shared_ptr<NKikimr::TCountMinSketch>(NKikimr::TCountMinSketch::Create(16, 2))')
++    body += _statement('auto newSketch = std::shared_ptr<NKikimr::TCountMinSketch>(NKikimr::TCountMinSketch::Create(16, 2))')
++    body += _statement('auto oldWidth = std::make_shared<NKikimr::TEqWidthHistogramEstimator>(std::make_shared<NKikimr::TEqWidthHistogram>())')
++    body += _statement('auto newWidth = std::make_shared<NKikimr::TEqWidthHistogramEstimator>(std::make_shared<NKikimr::TEqWidthHistogram>())')
++    body += _statement('auto oldHeight = std::make_shared<NKikimr::TEqHeightHistogram>(NKikimr::TEqHeightHistogramResult{})')
++    body += _statement('auto newHeight = std::make_shared<NKikimr::TEqHeightHistogram>(NKikimr::TEqHeightHistogramResult{})')
++    for index in range(count):
++        key = json.dumps('field_' + str(index))
++        body += _statement('cached->Data[' + key + '].CountMinSketch = oldSketch')
++        body += _statement('cached->Data[' + key + '].EqWidthHistogramEstimator = oldWidth')
++        body += _statement('incoming.Data[' + key + '].CountMinSketch = newSketch')
++        body += _statement('incoming.Data[' + key + '].EqWidthHistogramEstimator = newWidth')
++    body += _statement('cached->MultiData["tuple"].CountMinSketch = oldSketch')
++    body += _statement('cached->MultiData["tuple"].EqHeightHistogram = oldHeight')
+     body += _statement('cached->Data["unrelated"].NumUniqueVals = 31.0')
+     body += _statement('cached->MultiData["tuple"].Columns = {"left", "right"}')
+     body += _statement('cached->MultiData["tuple"].Types = {"Int64", "Int64"}')
+     body += _statement('incoming.MultiData["tuple"] = NYql::TMultiColumnStatistics{}')
++    body += _statement('incoming.MultiData["tuple"].CountMinSketch = newSketch')
++    body += _statement('incoming.MultiData["tuple"].EqHeightHistogram = newHeight')
+     body += _statement('f.TypeCtx.ColumnStatisticsByTableName["/Root/contract"] = cached')
+     body += _statement('transformer.SharedState = std::make_shared<TColumnStatisticsSharedState>()')
+     body += _statement('transformer.SharedState->Response.emplace()')
+@@ -82,15 +101,43 @@
+         body += _check(prefix + '.NumUniqueVals.has_value() && *' + prefix + '.NumUniqueVals == 0.0')
+         body += _check(prefix + '.HyperLogLog.has_value() && *' + prefix + '.HyperLogLog == 0.0')
+         body += _check(prefix + '.Type == "Int64"')
++        body += _check(prefix + '.CountMinSketch == newSketch')
++        body += _check(prefix + '.EqWidthHistogramEstimator == newWidth')
+     body += _check('*cached->Data.at("unrelated").NumUniqueVals == 31.0')
+     body += _check('cached->MultiData.at("tuple").Columns.size() == 2')
+     body += _check('cached->MultiData.at("tuple").Types.size() == 2')
++    body += _check('cached->MultiData.at("tuple").CountMinSketch == newSketch')
++    body += _check('cached->MultiData.at("tuple").EqHeightHistogram == newHeight')
++    body += _statement('TStatsMap replacement')
++    for index in range(count):
++        body += _statement('replacement.Data[' + json.dumps('field_' + str(index)) + '].Type = "Uint64"')
++    body += _statement('replacement.MultiData["tuple"].Columns = {"changed"}')
++    body += _statement('replacement.MultiData["tuple"].Types = {"Uint64"}')
++    body += _statement('transformer.SharedState->Response->ColumnStatisticsByTableName["/Root/contract"] = replacement')
++    body += _statement('transformer.ApplyColumnStatistics()')
++    for index in range(count):
++        prefix = 'cached->Data.at(' + json.dumps('field_' + str(index)) + ')'
++        body += _check(prefix + '.Type == "Uint64"')
++        body += _check(prefix + '.CountMinSketch == newSketch && ' + prefix + '.EqWidthHistogramEstimator == newWidth')
++        body += _check(prefix + '.NumUniqueVals.has_value() && *' + prefix + '.NumUniqueVals == 0.0')
++        body += _check(prefix + '.HyperLogLog.has_value() && *' + prefix + '.HyperLogLog == 0.0')
++    body += _check('cached->MultiData.at("tuple").Columns == TVector<TString>{"changed"}')
++    body += _check('cached->MultiData.at("tuple").Types == TVector<TString>{"Uint64"}')
++    body += _check('cached->MultiData.at("tuple").CountMinSketch == newSketch && cached->MultiData.at("tuple").EqHeightHistogram == newHeight')
+     body += _statement('TStatsMap absent')
+     body += _statement('transformer.SharedState->Response->ColumnStatisticsByTableName["/Root/contract"] = absent')
+     body += _statement('transformer.ApplyColumnStatistics()')
+     body += _statement('transformer.SharedState->Response->ColumnStatisticsByTableName["/Root/contract"] = incoming')
+     body += _statement('transformer.ApplyColumnStatistics()')
+     body += _check('cached->Data.size() == ' + str(count + 1))
++    body += _check('f.TypeCtx.ColumnStatisticsByTableName.at("/Root/contract").Get() == cached.Get()')
++    for index in range(count):
++        prefix = 'cached->Data.at(' + json.dumps('field_' + str(index)) + ')'
++        body += _check(prefix + '.Type == "Uint64"')
++        body += _check(prefix + '.CountMinSketch == newSketch && ' + prefix + '.EqWidthHistogramEstimator == newWidth')
++    body += _check('cached->MultiData.at("tuple").Columns == TVector<TString>{"changed"}')
++    body += _check('cached->MultiData.at("tuple").Types == TVector<TString>{"Uint64"}')
++    body += _check('cached->MultiData.at("tuple").CountMinSketch == newSketch && cached->MultiData.at("tuple").EqHeightHistogram == newHeight')
+     return body
+ 
+ 
+@@ -201,5 +248,5 @@
+         'q19_wrap_scope': 'Only external request dispatch is substituted. Production RequestColumnStatistics callback, issues accumulation, cache application and future exception propagation execute from the selected branch.',
+         'pre_execution_checks': ['same branch binary/library provenance', 'both wrapped symbols actually referenced', 'NextRequest exactly three', 'future remains pending before scripted responses', 'sanitized JSON parsed and positive check count'],
+         'existing_smoke_coverage': ['KqpRbo ColumnStatistics row/column twins use successful real statistics service; they do not establish partial-response behavior', 'KqpRboGlobalIUs existing Map movement controls cover surrounding invariants, not every per-definition flag edge'],
+-        'remaining': ['Compile generated adapters against actual production headers before accepting signatures', 'Resolve linker object closure and symbols safely', 'Execute Q18 cache application and Q19 async matrix', 'Sketch/histogram object identity extension; current Q18 matrix covers optional zero, type and tuple-field preservation', 'Q14/Q16 adapters are separate in quality_rule_cpp_generator; Q25 adapter is in quality_map_contract_generator; none are compiled proof'],
++        'remaining': ['Compile generated adapters against actual production headers before accepting signatures', 'Resolve linker object closure and symbols safely', 'Execute Q18 cache application and Q19 async matrix', 'Q18 sketch/histogram identity, optional zero, type/vector replacement and absent-field preservation extension is prepared; compilation and native execution remain pending', 'Q14/Q16 adapters are separate in quality_rule_cpp_generator; Q25 adapter is in quality_map_contract_generator; none are compiled proof'],
+         'artifact_policy': 'Keep generator source, binary/build hashes, numeric verdicts and sanitized counters only; never persist rendered C++ workloads or raw compiler diagnostics that quote generated lines.'}

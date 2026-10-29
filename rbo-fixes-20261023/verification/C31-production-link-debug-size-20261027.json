@@ -1,0 +1,19 @@
+{
+  "purpose": "read_only_production_ELF_section_inventory",
+  "production_executable": "rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/outputs/ydb/core/kqp/ut/rbo/ydb-core-kqp-ut-rbo",
+  "file_bytes": 11352415696,
+  "debug_section_bytes": 9185386118,
+  "debug_fraction": 0.80911,
+  "debug_section_sizes": {
+    ".debug_abbrev": 39267666,
+    ".debug_info": 4277667022,
+    ".debug_str": 1342529538,
+    ".debug_line": 651926865,
+    ".debug_loc": 2349878451,
+    ".debug_ranges": 524114256,
+    ".debug_aranges": 2320
+  },
+  "binary_executed": false,
+  "generated_workload": false,
+  "source_changes": false
+}

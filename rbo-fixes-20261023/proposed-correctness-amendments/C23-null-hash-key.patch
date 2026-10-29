@@ -1,0 +1,76 @@
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp
+@@ -887,11 +887,17 @@
+         lambdaArgsMap.insert({inputColumns[i], i});
+     }
+ 
++    const auto nullKeys = GetNullKeyFields();
+     TVector<TExprNode::TPtr> lambdaResults;
+     for (ui32 i = 0; i < keyFields.size(); ++i) {
+         auto it = lambdaArgsMap.find(keyFields[i]);
+         Y_ENSURE(it != lambdaArgsMap.end());
+-        lambdaResults.push_back(lambdaArgs[it->second]);
++        // The hash runtime accepts Data or Optional<Data> keys. Bare Null has
++        // one value, so encode it as one constant without removing the key:
++        // grouped empty input must still produce no rows.
++        lambdaResults.push_back(nullKeys.contains(keyFields[i])
++            ? Ctx.NewCallable(Pos, "Uint8", {Ctx.NewAtom(Pos, "0")})
++            : lambdaArgs[it->second]);
+     }
+ 
+     // Create a wide lambda - lambda with multiple outputs.
+@@ -1047,15 +1053,23 @@
+         }
+     };
+ 
++    const auto nullKeys = GetNullKeyFields();
++    const auto finishKey = [&](const TString& name) {
++        // Restore the logical type before either aggregation phase emits its
++        // result. Aggregate input fields retain their original types throughout.
++        return nullKeys.contains(name) ? Ctx.NewCallable(Pos, "Null", {})
++            : lambdaArgs.at(lambdaArgsMap.at(name));
++    };
++
+     if (isDistinct) {
+         // Several result IDs may refer to one grouping key after copy
+         // elimination. Emit results by their explicit mapping, not by position.
+         for (const auto& traits : aggTraitsList) {
+-            addResult(lambdaArgs.at(lambdaArgsMap.at(traits.OriginalColName)), traits.ResultColName);
++            addResult(finishKey(traits.OriginalColName), traits.ResultColName);
+         }
+     } else {
+         for (const auto& key : keyFields) {
+-            addResult(lambdaArgs.at(lambdaArgsMap.at(key)), key);
++            addResult(finishKey(key), key);
+         }
+     }
+ 
+@@ -1285,6 +1299,18 @@
+             inputFields.push_back(inputField);
+         }
+     }
++}
++
++THashSet<TString> TPhysicalAggregationBuilder::GetNullKeyFields() const {
++    THashSet<TString> result;
++    for (const auto key : Aggregate.GetKeyColumns().Items()) {
++        const auto* type = Aggregate.GetInput()->GetIUType(key, Ctx);
++        Y_ENSURE(type, "No type for aggregation key " << key);
++        if (type->GetKind() == ETypeAnnotationKind::Null) {
++            result.insert(Names.Get(key));
++        }
++    }
++    return result;
+ }
+ 
+ TVector<TString> TPhysicalAggregationBuilder::GetKeyFields() const {
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h
+@@ -114,6 +114,7 @@
+                                         TVector<TPhysicalAggregationTraits>& phyAggTraitsList, THashMap<TString, TString>& projectionMap);
+     bool NeedToWrapWithCoalesce(const TPhysicalAggregationTraits& traits, EOpPhase aggregationPhase) const;
+     TVector<TString> GetKeyFields() const;
++    THashSet<TString> GetNullKeyFields() const;
+     const TTypeAnnotationNode* GetAggregateInputType() const;
+     THashMap<TString, const TTypeAnnotationNode*> GetIntermediateAggregationInputType() const;
+ 

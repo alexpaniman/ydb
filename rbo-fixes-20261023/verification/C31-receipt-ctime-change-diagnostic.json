@@ -1,0 +1,45 @@
+{
+  "status": "metadata_only_receipt_changes_observed",
+  "receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "changed_inputs": [
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/outputs/contrib/libs/llvm16/include/llvm/IR/Attributes.inc",
+      "link_count": 190,
+      "sha256_unchanged": true,
+      "resolved_path_unchanged": true,
+      "mtime_unchanged": true,
+      "inode_unchanged": true,
+      "size_unchanged": true,
+      "device_unchanged": true,
+      "old_ctime_ns": 1792738075014954990,
+      "current_ctime_ns": 1792738507454567744
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/outputs/yql/essentials/minikql/invoke_builtins/llvm16/mkql_builtins.h",
+      "link_count": 26,
+      "sha256_unchanged": true,
+      "resolved_path_unchanged": true,
+      "mtime_unchanged": true,
+      "inode_unchanged": true,
+      "size_unchanged": true,
+      "device_unchanged": true,
+      "old_ctime_ns": 1792738247831793565,
+      "current_ctime_ns": 1792738507454567744
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/outputs/yql/essentials/public/types/yql_types.pb.h",
+      "link_count": 363,
+      "sha256_unchanged": true,
+      "resolved_path_unchanged": true,
+      "mtime_unchanged": true,
+      "inode_unchanged": true,
+      "size_unchanged": true,
+      "device_unchanged": true,
+      "old_ctime_ns": 1792738247839793835,
+      "current_ctime_ns": 1792738507457567846
+    }
+  ],
+  "changed_input_count": 3,
+  "compile_link_native_verdict_accepted": false,
+  "hardlink_activity_inference_only": true
+}

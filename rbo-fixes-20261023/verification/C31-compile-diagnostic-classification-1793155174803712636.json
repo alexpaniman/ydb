@@ -1,0 +1,50 @@
+{
+  "schema": "C31_guarded_compile_diagnostic_classification_v1",
+  "status": "anonymous_compile_failed",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "case_count": 37,
+  "compile": {
+    "elapsed_seconds": 24.875,
+    "peak_scope_usage_bytes": 2060353536,
+    "peak_group_rss_bytes": 2060087296,
+    "minimum_host_available_bytes": 108518309888,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_collection_after_completion": false,
+    "environment_sha256": "cd64c3bec61e31898ad530ad9ca7b66444cbfb16c0784903b937a7c640ec27f5",
+    "scope_membership_accounting_available": true,
+    "exit_code": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_bytes": 0,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "cfc3b1ccbf42c287d297d75296e150fb74b9293c5627d0d20b2fed4c922ae180",
+    "diagnostic_bytes": 2006
+  },
+  "diagnostic_capture_complete": true,
+  "diagnostic_hash_matches": true,
+  "error_classifications": [
+    {
+      "category": "unclassified_compile_error",
+      "identifiers": [
+        "TExprNode *",
+        "const TExprNode *"
+      ],
+      "diagnostic_line_sha256": "24727b60fd420033c9ffc0e312e183aa2201511fee20a38510f63972be85f354"
+    },
+    {
+      "category": "unclassified_compile_error",
+      "identifiers": [],
+      "diagnostic_line_sha256": "fefd6bda4c7c3276f24d3ef1f33732b55703c471949f00f02c26da45a76cce2f"
+    },
+    {
+      "category": "unclassified_compile_error",
+      "identifiers": [],
+      "diagnostic_line_sha256": "7ada374f6cc8368f4ec97d0577973457485e89840a66defce742b93573ea41b3"
+    }
+  ],
+  "later_stages_started": false,
+  "raw_diagnostics_persisted": false,
+  "live_helpers_changed": false
+}

@@ -1,0 +1,9 @@
+{
+  "bug": "C31",
+  "command": "run",
+  "no_runtime_verdict_accepted": true,
+  "reason": "production_input_changed_during_fingerprint",
+  "stage_evidence": {},
+  "status": "direct_harness_failed",
+  "verification_stage": "initial_receipt"
+}

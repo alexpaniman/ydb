@@ -1,0 +1,77 @@
+{
+  "status": "stacked_metadata_contracts_passed_native_unverified",
+  "patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-stdout-link-output-artifacts.patch",
+      "sha256": "5af59db821a70dee6de37537498c20d9cc6c5cb4200c70114dfb175744b26402"
+    },
+    {
+      "path": "proposed-correctness-amendments/C47-narrow-production-export-artifacts.patch",
+      "sha256": "9ec963255f6b6629903e8538b5032f0bde5d86aeff2c25ff0285d6269ee9ac14"
+    },
+    {
+      "path": "proposed-correctness-amendments/C47-production-graph-lifecycle-artifacts.patch",
+      "sha256": "43d9c5ff1100e8675515dd139e930ae8d353a5ccfd63cd196959b7bfad0cc6e4"
+    },
+    {
+      "path": "proposed-quality-amendments/Q19-abi-stable-inspection-objects.patch",
+      "sha256": "22e712e96321166b8e713288a4d07cbe7a2f8b9d04d01b5b91358bcd8b9ef9f1"
+    },
+    {
+      "path": "proposed-quality-amendments/Q11-direct-union-admission-artifacts.patch",
+      "sha256": "5b00b05d4c9ffd61f0bb3a01af55eb7ce02fbeac61d5b98453ed20a8b8c8fa12"
+    },
+    {
+      "path": "proposed-quality-amendments/OA06-saved-direct-pair-admission.patch",
+      "sha256": "ac3e6528dce87fed5cdc0667410914233f829fb6c52ef720f936d9d3f86c742a"
+    },
+    {
+      "path": "proposed-quality-amendments/optimization-admission-guards.patch",
+      "sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70"
+    },
+    {
+      "path": "proposed-quality-amendments/quality-baseline-evidence-binding.patch",
+      "sha256": "0fd89fe863d1512e436ba820ad537ea250713216708256eb78691a9985588d30"
+    },
+    {
+      "path": "proposed-quality-amendments/optimization-window-physical-contracts.patch",
+      "sha256": "fc97df50c74b413b7ec58ddac1b4bb788c850ab548265983b7751203ae8aac14"
+    },
+    {
+      "path": "proposed-quality-amendments/optimization-physical-pairing-contracts.patch",
+      "sha256": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8"
+    },
+    {
+      "path": "proposed-quality-amendments/Q01-resource-scaling-admission-gate.patch",
+      "sha256": "c1a800815db08f4bcb2dbb86fccf39c1ec44ffb2763e14b5991a1d3590c27368"
+    }
+  ],
+  "helpers": {
+    "anonymous_cpp_verify.py": "024b3b8bed93890aa5b85612db3b5106896de86c89bc61fc76a4d9b8b834cf39",
+    "anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf",
+    "quality_pairing.py": "900f69f107f1c6124c3da3e6395559670d165d2c60783f3767bc4166b13d47c9",
+    "quality_pairing_contracts.py": "198a6aaf828cf9d04a3d6b6461b5a173044a69b42350472da411bce12715ea34",
+    "verify_series.py": "4cd4d3bc248d382b0f345247fc4779aea272a7c5c905360376532a427b23a011",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "result": {
+    "status": "synthetic_contracts_passed_native_unverified",
+    "assertions": 97,
+    "real_builds": 0,
+    "real_process_launches": 0,
+    "native_runs": 0,
+    "coverage": [
+      "profile/config/workload fingerprint mismatch",
+      "baseline failure separate from fixed failure",
+      "fixed provenance rejection",
+      "duplicate/missing pairs",
+      "semantic-only pending",
+      "one baseline build per invocation",
+      "approved workers forwarded",
+      "correctness dual-mode command retained",
+      "guard limitations preserved"
+    ]
+  },
+  "live_helper_edits": false,
+  "generated_workloads_persisted": false
+}

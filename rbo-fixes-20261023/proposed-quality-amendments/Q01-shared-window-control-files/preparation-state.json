@@ -1,0 +1,56 @@
+{
+  "temporary_root": "/var/tmp/q01-shared-window-source-2aebsdj1",
+  "patch": "proposed-quality-amendments/Q01-shared-window-setup-controls-20261028.patch",
+  "patch_sha256": "a8527c634ad50e9066bf019f8d32af1aec805e9a9ad1eebebf907631ea93a93e",
+  "files": {
+    "q01_scaling_recipe_metadata_contracts.py": {
+      "before_sha256": null,
+      "after_sha256": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c"
+    },
+    "quality_q01_scaling_checks.py": {
+      "before_sha256": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3",
+      "after_sha256": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53"
+    }
+  },
+  "recipe_checks": {
+    "status": "source_recipe_contracts_passed_native_unverified",
+    "assertions": 1373,
+    "primary_profiles": 15,
+    "setup_control_profiles": 1,
+    "permitted_row_counts": 5,
+    "generator_sha256": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+    "native_runs": 0,
+    "real_process_launches": 0,
+    "rendered_inputs_or_results_persisted": false,
+    "actual_frontend_and_physical_path_verified": false,
+    "resource_scaling_verified": false
+  },
+  "integration_checks": {
+    "status": "metadata_mock_contracts_passed_native_unverified",
+    "assertions": 215,
+    "real_process_launches": 0,
+    "real_memfds": 0,
+    "native_runs": 0,
+    "rendered_inputs_persisted": false,
+    "acceptance_thresholds_implemented": false
+  },
+  "existing_checks": {
+    "status": "synthetic_contracts_passed_native_unverified",
+    "assertions": 98,
+    "real_builds": 0,
+    "real_process_launches": 0,
+    "native_runs": 0,
+    "coverage": [
+      "profile/config/workload fingerprint mismatch",
+      "baseline failure separate from fixed failure",
+      "fixed provenance rejection",
+      "duplicate/missing pairs",
+      "semantic-only pending",
+      "one baseline build per invocation",
+      "approved workers forwarded",
+      "correctness dual-mode command retained",
+      "guard limitations preserved"
+    ]
+  },
+  "unchanged_primary_result_oracles_checked": 15
+}

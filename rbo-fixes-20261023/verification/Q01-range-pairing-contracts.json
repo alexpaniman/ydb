@@ -1,0 +1,28 @@
+{
+  "status": "synthetic_contracts_passed_native_unverified",
+  "assertions": 74,
+  "real_builds": 0,
+  "real_process_launches": 0,
+  "native_runs": 0,
+  "coverage": [
+    "profile/config/workload fingerprint mismatch",
+    "baseline failure separate from fixed failure",
+    "fixed provenance rejection",
+    "duplicate/missing pairs",
+    "semantic-only pending",
+    "one baseline build per invocation",
+    "approved workers forwarded",
+    "correctness dual-mode command retained",
+    "guard limitations preserved"
+  ],
+  "patch_sha256": "bf60ce8508c23b867a49de043ccd04f500f8ba72d5e1588aead6c86a8ca078d6",
+  "files_before_sha256": {
+    "quality_pairing.py": "0552c1ed9b46474cbef643df6a08e00973b3114acc9b5b838efb5e37f87df9ab",
+    "quality_pairing_contracts.py": "1f65e42e1e7da58d43cd2da2b18aafad5727c5cf524a29d2dede6c1491eaabe2"
+  },
+  "files_after_sha256": {
+    "quality_pairing.py": "25fe7d594c031073b05a4ad42b3482b3ebb87d656869bd7150bb79771e5c9886",
+    "quality_pairing_contracts.py": "e9de55728d8879a3f9c4b2173bed924806e0ea08e44603b2edf40d5d160efc72"
+  },
+  "active_files_modified": false
+}

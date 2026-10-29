@@ -1,0 +1,77 @@
+{
+  "status": "dormant_source_proposal_not_applied",
+  "author": "c47_build_recovery",
+  "bug": "Q19",
+  "revision": "c261bd389b61872b7c78851a26bf46283b95b9cb",
+  "patch": "proposed-quality-amendments/Q19-abi-stable-inspection-objects.patch",
+  "patch_sha256": "22e712e96321166b8e713288a4d07cbe7a2f8b9d04d01b5b91358bcd8b9ef9f1",
+  "before": {
+    "anonymous_cpp_metadata.py": "e81ef3cf02488ab469ac2432106400b96955325d39e3255681f79c4c0a60d39b",
+    "anonymous_cpp_verify.py": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b"
+  },
+  "after": {
+    "anonymous_cpp_metadata.py": "53dd2e3a699489827aae1eb827bd6195280a0ae918231529d7337983d18c6cac",
+    "anonymous_cpp_verify.py": "f405dff4189f318c9e1f5a378a0de4c2b0e6d1997fe6230b3ba38f5c9dfce8ce"
+  },
+  "scope": [
+    "Recognize the exact additional .cpp.abi_stable.o suffix for both Q19 inspection object stems during metadata capture and receipt-only wrapper selection.",
+    "Keep .cpp.o and .cpp.pic.o support, with exactly one matching receipted path required per stem across all accepted suffixes.",
+    "Keep Q19 broad object export unchanged; no archive extraction, cache-directory fallback, unbound object path or first-match selection is added."
+  ],
+  "actual_filename_observations": [
+    {
+      "closure": "24e1aae9a067-1792734238452891205",
+      "objects": [
+        "outputs/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp.abi_stable.o",
+        "outputs/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp.abi_stable.o"
+      ]
+    },
+    {
+      "closure": "24e1aae9a067-1792734650324765793",
+      "objects": [
+        "outputs/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp.abi_stable.o",
+        "outputs/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp.abi_stable.o"
+      ]
+    }
+  ],
+  "observation_limit": "Existing C31 exported filenames only; these earlier failed closure attempts are not accepted Q19 input evidence and are not reused by this patch.",
+  "primary_source_sha256": {
+    "build/conf/project_specific/yql_udf.conf": "0aba0682e0f532af177e79c005a6aa95372284b95d21a37464c9e1b8a8f51e06",
+    "ydb/core/kqp/opt/kqp_column_statistics_utils.h": "a3b2c647d941d4df0ea2a970840aa4d05a33bddc404032abb2eb42418aaff9b2",
+    "ydb/core/kqp/opt/kqp_column_statistics_utils.cpp": "f037c074168d9cc144be01dfe1478468148fd3f4b4a88a91aec624ebeb917f70",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "053526b37972ea6365ca9aef19f94bb058da463aee2715c04ae9c6eafb9f4073"
+  },
+  "preserved_binding": [
+    "Metadata adds an inspection object only when it is a graph-declared output with the exact known basename and an existing exported file.",
+    "issue_receipt fingerprints every selected object; execute verifies the complete receipt before wrapper discovery and again after execution.",
+    "q19_wrapping selects only paths already present in receipt.files; zero or multiple supported variants remain errors.",
+    "Actual nm-defined mangled symbols for both AddStatRequest overloads and real caller relocations remain mandatory.",
+    "Inspection tool identities, object hashes, wrapper-symbol hashes and both-caller-relocations evidence remain unchanged.",
+    "Generated --wrap arguments, complete guarded compile/link/native records and baseline/fixed pairing are unchanged."
+  ],
+  "source_review": [
+    "Pinned Q19 build/conf/project_specific/yql_udf.conf:417-419 declares YQL_ABI_STABLE and OBJ_SUF=.abi_stable.",
+    "The two external AddStatRequest declarations match the existing single-column and tuple wrapper signatures.",
+    "RequestColumnStatistics still contains the three expected AddStatRequest calls; the suffix adapter does not change production requests or wrapper behavior.",
+    "Both current filename recognizers excluded the observed stable-ABI suffix, so changing only the wrapper matcher would still leave the required objects outside the receipt."
+  ],
+  "limits": [
+    "Independent review and actual Q19 prepare/capture/nm/relocation/link/native runs remain pending.",
+    "This is an exact suffix addition, not a wildcard acceptance of arbitrary ABI or optimization variants.",
+    "No actual Q19 symbol or relocation proof is claimed from filenames or source inspection."
+  ],
+  "checks": {
+    "temporary_apply_standalone": true,
+    "temporary_apply_after_c47_closure_artifacts": true,
+    "python_syntax_parse": true,
+    "builds": 0,
+    "graph_jobs": 0,
+    "toolchain_jobs": 0,
+    "native_runs": 0,
+    "generator_render_calls": 0,
+    "mock_runs": 0,
+    "live_helper_edits": false,
+    "production_edits": false,
+    "rendered_repros_saved": false
+  }
+}

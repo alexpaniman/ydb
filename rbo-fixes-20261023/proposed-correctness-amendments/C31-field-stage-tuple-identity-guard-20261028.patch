@@ -1,0 +1,21 @@
+--- a/rbo-fixes-20261023/c31_shared_field_probe.py
++++ b/rbo-fixes-20261023/c31_shared_field_probe.py
+@@ -430,6 +430,7 @@
+             if len(stage.children) < 2:
+                 raise _Reject('stage_shape')
+             pending, seen, local_joins = [stage.children[1]], set(), set()
++            seen_tuples = set()
+             while pending:
+                 value = pending.pop()
+                 if isinstance(value, _Node):
+@@ -440,6 +441,10 @@
+                         local_joins.add(value)
+                     pending.extend(value.children)
+                 elif isinstance(value, tuple):
++                    identity = id(value)
++                    if identity in seen_tuples:
++                        continue
++                    seen_tuples.add(identity)
+                     pending.extend(value)
+             if local_joins:
+                 self._stage(stage)

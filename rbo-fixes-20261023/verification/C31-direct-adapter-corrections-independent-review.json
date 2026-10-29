@@ -1,0 +1,15 @@
+{
+  "status": "source_rereview_passed_actual_compile_native_pending",
+  "generator": "c31_identity_cpp_generator.py",
+  "generator_sha256": "30735cfee2bdd897668f3e0c29386674e010dc88873a3cf227b71f6ee7aa1b6c",
+  "reviewed_corrections": [
+    "Each rejection fixture checks its intended admission precondition and accepts only the corresponding production guard category. Unrelated exceptions fail the final assertion.",
+    "Suite and single-case entrypoints now emit per-case numeric verdicts with actual per-case assertion counts."
+  ],
+  "production_guard_source": "proposed-correctness-amendments/C31-scalar-row-identity.patch",
+  "production_guard_source_sha256": "9ed0d81563d8dd825b28de0bbe71003d4b8263d92ce9ac1b8f90f3b8a7801f0b",
+  "compiler_runs": 0,
+  "native_runs": 0,
+  "generated_source_persisted": false,
+  "limitation": "Source inspection only; actual rule reachability, compilation and runtime observations remain pending."
+}

@@ -1,0 +1,626 @@
+{
+  "after_images": [
+    {
+      "after_sha256": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+      "before_sha256": null,
+      "path": "c31_shared_pipeline_cpp_generator.py"
+    },
+    {
+      "after_sha256": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+      "before_sha256": null,
+      "path": "c31_combined_cpp_generator.py"
+    },
+    {
+      "after_sha256": "0bfd351056ce85d0ead9b8c8d6d342d47f162569654a065d1ce021ce9379f33c",
+      "before_sha256": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873",
+      "path": "anonymous_cpp_verify.py"
+    },
+    {
+      "after_sha256": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+      "before_sha256": "49598993c191a5a9784cb57ccc5e8fc0b8719deb77071959dbab5b9da8572326",
+      "path": "correctness_cpp_contract.py"
+    },
+    {
+      "after_sha256": "102d95f24ee88e8b38d0e1e0ee005423d7c61fa4d4293325ac6ee3988eb0f08d",
+      "before_sha256": "53c415c3b19f43132f79dfe2490ea5d5a246f9371629b9aa0ee054cf8ea20ca1",
+      "path": "correctness_cpp_profiles.json"
+    }
+  ],
+  "checkpoint_definition": "Each new Checkpoint increments once before the production calls and internal Require predicates; it passes only if all of them succeed. These26 checkpoint groups are not claimed to be26 total boolean subconditions.",
+  "combined_profile": {
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "case_assertions": [
+      {
+        "assertion_count": 51,
+        "case": "c31_ir_zero__Left",
+        "case_index": 0,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 51,
+        "case": "c31_ir_zero__LeftSemi",
+        "case_index": 1,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 51,
+        "case": "c31_ir_zero__LeftOnly",
+        "case_index": 2,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 66,
+        "case": "c31_ir_domain_nullable__Left",
+        "case_index": 3,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 66,
+        "case": "c31_ir_domain_nullable__LeftSemi",
+        "case_index": 4,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 66,
+        "case": "c31_ir_domain_nullable__LeftOnly",
+        "case_index": 5,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 61,
+        "case": "c31_ir_unique_nullable__Left",
+        "case_index": 6,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 61,
+        "case": "c31_ir_unique_nullable__LeftSemi",
+        "case_index": 7,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 61,
+        "case": "c31_ir_unique_nullable__LeftOnly",
+        "case_index": 8,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 48,
+        "case": "c31_ir_unique_control__Left",
+        "case_index": 9,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 48,
+        "case": "c31_ir_unique_control__LeftSemi",
+        "case_index": 10,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 48,
+        "case": "c31_ir_unique_control__LeftOnly",
+        "case_index": 11,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 4,
+        "case": "c31_ir_reject_float__Left",
+        "case_index": 12,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 4,
+        "case": "c31_ir_reject_float__LeftSemi",
+        "case_index": 13,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 4,
+        "case": "c31_ir_reject_float__LeftOnly",
+        "case_index": 14,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 3,
+        "case": "c31_ir_reject_volatile__Left",
+        "case_index": 15,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 3,
+        "case": "c31_ir_reject_volatile__LeftSemi",
+        "case_index": 16,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 3,
+        "case": "c31_ir_reject_volatile__LeftOnly",
+        "case_index": 17,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 4,
+        "case": "c31_ir_reject_subplan__Left",
+        "case_index": 18,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 4,
+        "case": "c31_ir_reject_subplan__LeftSemi",
+        "case_index": 19,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 4,
+        "case": "c31_ir_reject_subplan__LeftOnly",
+        "case_index": 20,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 59,
+        "case": "c31_ir_producer_guard__Left",
+        "case_index": 21,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 59,
+        "case": "c31_ir_producer_guard__LeftSemi",
+        "case_index": 22,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 59,
+        "case": "c31_ir_producer_guard__LeftOnly",
+        "case_index": 23,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 55,
+        "case": "c31_ir_equi_keys__Left",
+        "case_index": 24,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 55,
+        "case": "c31_ir_equi_keys__LeftSemi",
+        "case_index": 25,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 55,
+        "case": "c31_ir_equi_keys__LeftOnly",
+        "case_index": 26,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 55,
+        "case": "c31_ir_left_residual__Left",
+        "case_index": 27,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 55,
+        "case": "c31_ir_left_residual__LeftSemi",
+        "case_index": 28,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 55,
+        "case": "c31_ir_left_residual__LeftOnly",
+        "case_index": 29,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 66,
+        "case": "c31_ir_subplan_capture__Left",
+        "case_index": 30,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 66,
+        "case": "c31_ir_subplan_capture__LeftSemi",
+        "case_index": 31,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 66,
+        "case": "c31_ir_subplan_capture__LeftOnly",
+        "case_index": 32,
+        "vector": "identity"
+      },
+      {
+        "assertion_count": 8,
+        "case": "c31_pipeline_shared_scalar_sum_count",
+        "case_index": 33,
+        "vector": "pipeline"
+      },
+      {
+        "assertion_count": 8,
+        "case": "c31_pipeline_shared_nullable_group_sum_count",
+        "case_index": 34,
+        "vector": "pipeline"
+      },
+      {
+        "assertion_count": 8,
+        "case": "c31_pipeline_shared_scalar_some_count",
+        "case_index": 35,
+        "vector": "pipeline"
+      },
+      {
+        "assertion_count": 2,
+        "case": "c31_pipeline_copied_scalar_some_rejected",
+        "case_index": 36,
+        "vector": "pipeline"
+      }
+    ],
+    "case_count": 37,
+    "generated_source_bytes": 186812,
+    "generated_source_sha256": "565e7046e8729c1c87ce9b831f06d7aed4bafd592d120acba894e913fe3a0095",
+    "generator_sha256": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+    "module": "c31_combined_cpp_generator",
+    "profile": "rbo",
+    "proof_scope": "linked_production_local_contracts",
+    "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+    "vectors": [
+      {
+        "case_count": 33,
+        "first_case_index": 0,
+        "generator_sha256": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9",
+        "module": "c31_identity_cpp_generator",
+        "rendered_source_sha256": "59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d",
+        "vector": "identity"
+      },
+      {
+        "case_count": 4,
+        "first_case_index": 33,
+        "generator_sha256": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+        "module": "c31_shared_pipeline_cpp_generator",
+        "rendered_source_sha256": "61393ab1ed47147c6ba026e29c27f77d3723867a2b71fe751b1b703ffd5ebf39",
+        "vector": "pipeline"
+      }
+    ]
+  },
+  "combined_reported_check_count": 1442,
+  "contracts": [
+    {
+      "case": "c31_pipeline_shared_scalar_sum_count",
+      "domain": true,
+      "expected": "admit; full two-value domain; nullable SUM identity encoded; COUNT identity direct",
+      "metadata": "empty key set computed by actual aggregate metadata",
+      "producer": "real keyless scalar aggregate with integral SUM and COUNT",
+      "sharing": true
+    },
+    {
+      "case": "c31_pipeline_shared_nullable_group_sum_count",
+      "domain": false,
+      "expected": "admit; no domain; nullable key encoded; both non-key aggregate values remain on primary bag branch",
+      "metadata": "nullable grouping key computed from loaded table/aggregate metadata",
+      "producer": "real grouped aggregate with nullable exact-scalar grouping key and integral SUM plus COUNT",
+      "sharing": true
+    },
+    {
+      "case": "c31_pipeline_shared_scalar_some_count",
+      "domain": true,
+      "expected": "admit; full two-value domain; exact original SOME result binds both branches",
+      "metadata": "empty key set computed by actual aggregate metadata",
+      "producer": "real keyless scalar aggregate with order-sensitive nullable integral SOME and COUNT",
+      "sharing": true
+    },
+    {
+      "case": "c31_pipeline_copied_scalar_some_rejected",
+      "domain": false,
+      "expected": "reject at stable-copied-reduction guard before creating a hub, allocating identity IUs or changing any owning plan slot",
+      "metadata": "same genuine keyless metadata",
+      "producer": "same SOME/COUNT producer and typed fixture as preceding case",
+      "sharing": false
+    }
+  ],
+  "count_enforcement": "C31 now uses the existing C47 exact-vector mechanism. Complete old33 and new4 are required; count/hash/vector mismatch fails closed. Existing33 actual per-case counts sum to1416.",
+  "evidence_count_correction": {
+    "correction": "The proposal phrase existing52 semantic cases is inaccurate; this report supersedes that count without rewriting the frozen proposal.",
+    "latest_bounded_observation_records": 2,
+    "observation_ids_already_in_ordinary_vector": 2,
+    "observation_runs_are_not_additional_semantic_cases": true,
+    "ordinary_distinct_case_ids": 50,
+    "ordinary_intended_guard_cases": 4,
+    "ordinary_records": 50,
+    "ordinary_successful_semantic_cases": 46,
+    "proposal_path": "verification/C31-shared-aggregate-pipeline-contract-proposal-20261028.json",
+    "proposal_sha256": "01d4843b4be5b79612fe79c8558335f20e1a647e51195d119b273d5389dbef53",
+    "union_distinct_case_ids": 50
+  },
+  "implementation_notes": [
+    "Original33 module and rendered function bodies stay byte-identical. Combined wrapper only gathers file-scope includes, namespaces component bodies and replaces standalone main functions.",
+    "Real builtin callable/type transformer, loaded table metadata, ComputeRequiredProps, pruning/inlining, stage assignment, aggregation propagation, global/local liveness and ID invariants are called.",
+    "Row-read producer partial aggregation cannot push into the source stage, so actual final/intermediate producer aggregates remain in one consumer stage. The physical construction uses both actual producer builders on its generated stage argument; source-to-producer StageGraph edge is checked.",
+    "Original producer pointer is checked before propagation. After real aggregate replacement, the one shared final producer and exact intermediate/result IU chain are checked instead of requiring the obsolete node pointer.",
+    "Both public aggregation-builder block flags are exercised inside each positive case; this does not claim two full runtime configuration executions.",
+    "Known-key grouped case has no domain. Keyless scalar cases require full result/count key-only domain; domain partial stays inside the exact secondary Switch branch, while primary lambda and producer expression stay pointer-identical.",
+    "Reconstruction input-stage positions, exact port output indexes and left/right shuffle key IUs are checked. Physical field mapping uses frozen TPhysicalNames and lambda argument identity.",
+    "Malformed direct-builder controls reject a foreign branch stream, a foreign domain input identity, and duplicate domain output fields. These are future native checks built only in RAM, not Python simulations or current execution evidence.",
+    "Copied-SOME rejection checks the exact intended error internally and verifies registry size, original plan owner/filter/producer pointers, traits, output IDs, metadata keys, types and absence of a new hub; diagnostics are not emitted.",
+    "Only verification files are patched. Existing guarded CLI, serial/memory policy, production version object replay, sealed read-only executable transport and provenance validation function bodies are unchanged."
+  ],
+  "new_case_checkpoint_counts": [
+    8,
+    8,
+    8,
+    2
+  ],
+  "new_component": {
+    "case_count": 4,
+    "first_case_index": 33,
+    "generator_sha256": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+    "module": "c31_shared_pipeline_cpp_generator",
+    "rendered_source_sha256": "61393ab1ed47147c6ba026e29c27f77d3723867a2b71fe751b1b703ffd5ebf39",
+    "vector": "pipeline"
+  },
+  "patch": {
+    "path": "proposed-correctness-amendments/C31-shared-aggregate-pipeline-contracts-20261028.patch",
+    "sha256": "73a8afb3e6914ad0ab944ab5585199322c3d2175aa664ce84be1d0d50a5e8f3b"
+  },
+  "pipeline_scope": [
+    {
+      "actual_api": "ComputeRequiredProps(root, inlineRule.Props, ctx, stageName)",
+      "must_check": "Actual input/result types and computed key metadata before rewrite; save aggregate result IDs, original input identity and output labels.",
+      "step": 1
+    },
+    {
+      "actual_api": "TInlineJoinFiltersRule via TRuleBasedStage",
+      "must_check": "Original aggregate producer is the one hub input; primary/secondary share that hub; exact complete keyless domain or no domain for known-key case; complete reconstruction binding including matching StablePickle operand identity.",
+      "step": 2
+    },
+    {
+      "actual_api": "TGlobalPruningStage then TGlobalInliningStage, followed by ComputeRequiredProps",
+      "must_check": "Real invalidation/retyping succeeds; unchanged original aggregate result ownership; all reconstruction and domain IUs retained; parent and SSA invariants valid; no synthetic restoration of Type or metadata.",
+      "step": 3
+    },
+    {
+      "actual_api": "TAssignStagesStage with its declared required properties",
+      "must_check": "Exact source/destination stage IDs and connection output indexes for each reachable hub port, matched against GetReplicateOutputIndex; required key/live field sets retained.",
+      "step": 4
+    },
+    {
+      "actual_api": "TRuleBasedStage containing TPropagateAggregateThroughStageRule",
+      "must_check": "Use the real mutable shared producer slot. Producer may become one Final/Intermediate pair; do not require the old aggregate object pointer after replacement. Final result IDs remain original, each maps to its actual new intermediate ID/input trait exactly once. Key-only domain splits retain full key set and empty traits; partial domain input remains the same secondary port and moves only into that branch.",
+      "step": 5
+    },
+    {
+      "actual_api": "ComputeRequiredProps plus global/local ComputePlanLiveness and AssertIdInvariants",
+      "must_check": "Shared final producer object is identical through both hub ports; primary bag keeps aggregate values; secondary demands and domain keys follow actual rebindings. No duplicated final aggregate definition owns the original output IUs.",
+      "step": 6
+    },
+    {
+      "actual_api": "TPhysicalAggregationBuilder + BuildSwitch + TransformStageOutput",
+      "must_check": "Build the actual shared producer output using production builders, then the real Switch and branch-local domain partial. Assert exact Switch input pointer and unchanged sibling lambda pointer; inspect only the known builder callsites/children, never a global callable counter or generic text parser.",
+      "step": 7
+    }
+  ],
+  "proof_boundary": {
+    "acceptance_changed": false,
+    "full_final_sql_lineage_proven": false,
+    "full_generic_peephole_lineage_checked": false,
+    "initial_lowering_construction_proof_only": true,
+    "native_required": true,
+    "quality_improvement_verified": false,
+    "query_semantics_verified": false
+  },
+  "remaining": [
+    "independent source/API and metadata review",
+    "actual compile/link/native37 through unchanged guarded C31 closure route after root releases idle slot",
+    "root acceptance assessment combining initial lowering contracts, source transfer audit, existing46 semantic cases and4 guards; final-plan observer flags remain false",
+    "refresh dormant Q28 pilot helper dependency hash bindings if root later applies this helper composition"
+  ],
+  "schema": "c31-shared-aggregate-pipeline-source-preparation-v1",
+  "source_bindings": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp",
+      "references": [
+        "176-229 shared-mode guard, exact identity admission, one common hub, full-domain keys",
+        "246-263 nullable encoding and reconstruction pairs"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "references": [
+        "227-239 key-only domain construction"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+      "references": [
+        "480-507 aggregate keys derive from real grouping/child metadata",
+        "775-786 unions naturally have no uniqueness keys"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "fce89a7e7f349a93b8784b2fcefd6b897fa4de9f13ea809028a3309d47337d55"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+      "references": [
+        "54-65 actual lambda transformer",
+        "256-298 maps require real expression annotation",
+        "813-857 ownership and type traversal"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "dfaff3c1478f6eb4fd3bd39fa88cc05edd4f176142ce3b04b6199dded055e773"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+      "references": [
+        "1761-1764 FinishLogicalRewrite invalidates cached types/metadata"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo.cpp",
+      "references": [
+        "77-116 required property computation",
+        "125-190 real rule stage and mutable shared producer slot"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "82cf05266e44fb8670009510dc46179faa2995e939a4a5333ebb63e63d62dcf5"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "references": [
+        "200 inline-filter prerequisites",
+        "500 stage assignment prerequisites",
+        "542-551 physical aggregate propagation prerequisites"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+      "references": [
+        "52-89 real liveness/pruning then invalidation"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "df253e54767b6adb18efdfb5bacceb68f0b55307fc255166b4bd1afdea634d2d"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/global_inlining.cpp",
+      "references": [
+        "85-90 copy elimination then invalidation"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "0949eba73647e64e39277111c28d523a83e589767a0b817461e055aa057da1ac"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+      "references": [
+        "actual sharing config guard and connections use real port output index"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/propagate_aggregate_through_stage.cpp",
+      "references": [
+        "65-90 final/intermediate result-ID mapping",
+        "108-136 preserved input and branch connection"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "aec3c828e7bf8cbabbff051b95436f0fe314e3ce92fd421e580161cffd10aae1"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp",
+      "references": [
+        "57-101 exact shared input and direct Member port mapping"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h",
+      "references": [
+        "35-48 exact output-branch rewrite, sibling identity preserved"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "2b6dc81d287acc05fbd6887edab8796cdbf36c07a138a71eeb64534ff877fa1d"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+      "references": [
+        "45-53 public builder supports pruneUnusedOutputs/useBlocks"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "4a4b70640d1f203eed139e0e83b53bfd2ae89df655f9fc50803dd22587d4e9b9"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+      "references": [
+        "881-901 direct argument key extractor",
+        "903-1024 state initializer/updater",
+        "1029-1130 finish mapping",
+        "1133-1195 exact narrow output field mapping",
+        "1486-1560 real row/block builder envelope"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "fdb9b801ed168150a67bbb69ec53a83d969a8231cff4a0af52e37983d9c09f15"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp",
+      "references": [
+        "86-110 builtReplicates binds each hub once",
+        "284-289 actual branch-local aggregation builder call"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "1f5a0fead4fd48d92ae7135c9f5898d8efa0ed6ca95589519003dd279f369d8e"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+      "references": [
+        "130-149 later compatibility/peephole boundary"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "aa418bdba1b88c9be06e885d9a2f0f5aa393ca688695d917d4928b7a7cac84bc"
+    },
+    {
+      "path": "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h",
+      "references": [
+        "17-105 TIdTestContext uses NullTransformer; do not use it to claim actual recomputation"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa"
+    },
+    {
+      "path": "ydb/core/kqp/ut/rbo/kqp_rbo_lowering_ut.cpp",
+      "references": [
+        "684-805 existing actual sharing, propagation, branch-builder test pattern"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "58b20da1fc6721b2d717891b86d12471d0040337f2735c21a1a91a29fb0383ba"
+    },
+    {
+      "path": "yql/essentials/core/type_ann/type_ann_expr.h",
+      "references": [
+        "20-22 public production type-transformer constructor; read only"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "14988cc6982b0b9a19add3cd295db1e0501abf84583ad59f6c89b8e9cb7b5a04"
+    },
+    {
+      "path": "yql/essentials/core/type_ann/type_ann_core.h",
+      "references": [
+        "16-17 public production builtin callable-transformer constructor; read only"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "8888157f3b145eadaccf36de2ab5978244ea7fe84e29ce2dd6203c5292f6edf9"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_context.h",
+      "references": [
+        "33-34 caller-supplied production type-transformer reference"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "aca67cab04235f39ef9a2416f09506dfe11e13b6ea5e0c64287f223081a770be"
+    }
+  ],
+  "status": "frozen_dormant_source_and_metadata_only_pending_independent_review_and_native",
+  "unchanged_old_generator": {
+    "cases": 33,
+    "path": "c31_identity_cpp_generator.py",
+    "recorded_actual_checks": 1416,
+    "rendered_function_bodies_preserved_byte_for_byte": true,
+    "sha256": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9"
+  },
+  "validation": {
+    "all_applied_after_images_byte_equal_candidates": true,
+    "builds": 0,
+    "compilations": 0,
+    "dormant_patch_applies_to_exact_live_before_images_in_disposable_directory": true,
+    "metadata_report": "verification/C31-shared-pipeline-metadata-contracts-20261028.json",
+    "metadata_sha256": "07fb2d58b0636863854d3112eae2016bc6c8a305f73273d67ed22a9eb65fa3ab",
+    "native_runs": 0,
+    "production_or_live_helper_edits": 0,
+    "python_source_metadata_checks": 185,
+    "rendered_cpp_or_sql_or_ast_persisted": 0
+  }
+}

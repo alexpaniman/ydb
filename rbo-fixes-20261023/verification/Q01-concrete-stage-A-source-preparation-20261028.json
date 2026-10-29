@@ -1,0 +1,556 @@
+{
+  "after_images": {
+    "q01_scaling_recipe_metadata_contracts.py": "68770018668692cfd5686f07cff44a6084e32e3ebf2a2b7975fd84ae3c127e57",
+    "quality_q01_concrete_contract.py": "c3819e1f0b79d15964702ccde5dde8bb6c83289c359446403fb44fe56535169a",
+    "quality_q01_path_checks.py": "cee5ade7668919233ffa7c6aa4939a70c69e26356ca23aa1855e8bca3a53c2a2",
+    "quality_q01_scaling_checks.py": "7d6559580a8dc4571f2ea113094f26c8db566392c2a98c85fd330815489d06e6",
+    "quality_range_runtime_contract.py": "f980ebb5397d8f4b8067a73b96a460fc754f7ade276e607c5215cd1f35cf7d6d",
+    "quality_range_runtime_cpp_generator.py": "a1b35a293147dca72d7b009845fbbe53ed8eaf490da5f43ab65d3db196b9fd75",
+    "quality_spill_bounds.py": "e080fe7ea96de0dd29366c05116e91ff31ec8ff5ea6458a6248365eab3c3c952"
+  },
+  "all_actual_path_allocator_resource_and_optimization_admissions": false,
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "before_images": {
+    "q01_scaling_recipe_metadata_contracts.py": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+    "quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+    "quality_range_runtime_contract.py": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+    "quality_range_runtime_cpp_generator.py": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+    "quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+  },
+  "changes": [
+    "Preserve every original16 raw scaling profile; add three general suffix and two exact same-window fallback controls. Select a closed15-profile resource proposal.",
+    "Keep named-window query generation and strict ordered typed row oracles; all original16 query/schema/fixture/oracle values are unchanged.",
+    "Observe actual return-root DAG local stream edges, bounds object identity, queue ownership, exact two RANGE mappings and output-member ownership; identify three prefix endpoint outputs and distinct ROWS entering/transfer folds.",
+    "Unknown or changed final peephole shapes fail closed; global callable totals cannot replace a local witness.",
+    "Append15 public allocator fields before consumption, after final-cycle consumption and after stream release/invalidation. Keep all42 specifications, old numeric fields and every existing native check.",
+    "Closed StageA validator requires exact30 path or180 raw records, identities, workloads, source/profile hashes, fresh guarded slices, receipts, strict types, request/result boundaries and complete raw protocol bindings.",
+    "Raw comparisons expose all five measured child CPU/RSS samples for each phase/profile and strict observed separation, with no accepting ratio, speedup threshold, setup subtraction or allocation-from-RSS claim.",
+    "Refresh exactly two of28 spill dependency hashes; no spill policy or execution/quality gate is modified.",
+    "Pilot records now require the same existing native run/sample/workload/source identity and complete child/outer-guard protocol as measured records, plus distinct one-cell scopes/reports; pilot success never sets raw measurement or optimization acceptance."
+  ],
+  "clean_disposable_apply_verified": true,
+  "finite_execution_order": [
+    {
+      "action": "Apply only after independent review and complete source freeze; verify exact idle53 predecessor and all7 after-images; regenerate affected profile fingerprints before reuse.",
+      "step": 1
+    },
+    {
+      "action": "Run existing exact fixed42 and canonical baseline/fixed652 with current driver/oracles/guards; preserve all failures. New allocator fields require fresh direct evidence.",
+      "step": 2
+    },
+    {
+      "action": "Generate fresh manifest(2048,run_id). Serial30 path-pilot cells in profile order, baseline then fixed, use existing invoke_native one-cell opt-in with kind=pilot,index=0,rows=2048,repetitions=1. Owner stamps quality_profile_sha256 only after stable before/after source checks.",
+      "step": 3
+    },
+    {
+      "action": "Validate exact pilot30. Unknown shape is a precise blocked witness, not count-based success; review actual non-persisted lowering before adapting any observer.",
+      "step": 4
+    },
+    {
+      "action": "Only after actual path approval freeze one supported N and a StageB contract digest at native dispatch. Reuse reviewed sole-child protocol; collect exactly schedule180, retain all samples and guard failures. Raw validator already implemented; it cannot grant optimization admission.",
+      "step": 5
+    },
+    {
+      "action": "Review finite measured scope and explicit source work/allocation invariants. Keep overlapping/setup-dominated timing inconclusive; no endlessly larger experiments beyond the existing bounded N ladder. Full promotion requires an independently reviewed StageB acceptance integration, not manual flags.",
+      "step": 6
+    }
+  ],
+  "fixed": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+  "live_helpers_edited": false,
+  "patch": {
+    "path": "proposed-quality-amendments/Q01-concrete-stage-A-acceptance-20261028.patch",
+    "sha256": "46a0940c71f2281569b5e9dc01be21b3693152ea828d331c5178c8bf1f40c2b1"
+  },
+  "pilot_binding_correction": {
+    "all30_pilots_require_existing_native_identity": true,
+    "child_protocol_and_cleanup_and_outer_guard_required": true,
+    "new_rejection_checks": 220,
+    "one_cell_scope_and_report_and_guard_path_distinct": true,
+    "pilot_metric_acceptance": false,
+    "required_index": 0,
+    "required_kind": "pilot",
+    "run_id_and_loaded_source_and_workload_bound": true
+  },
+  "production_edited": false,
+  "production_source_bindings": [
+    {
+      "anchors": {
+        "BuildFrameFold(": [
+          1508,
+          1524,
+          1645
+        ],
+        "BuildRowMinMaxOutputs(": [
+          1528,
+          1672
+        ],
+        "CanUsePrefixSum(": [
+          280,
+          296,
+          781,
+          966,
+          1728
+        ],
+        "CanUseRangeMinMax(": [
+          358,
+          966,
+          1652,
+          1723
+        ],
+        "CanUseRowMinMax(": [
+          330,
+          370,
+          966,
+          1576,
+          1723
+        ],
+        "collected = Ctx.ChangeChild": [
+          1669
+        ],
+        "if (RowSuffix)": [
+          1820
+        ],
+        "if (onlyRangeMinMax)": [
+          1666
+        ]
+      },
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "f272aab6c4cbbd90db7bf151899477bfab66b79a2abb8ef583030433f1fb5a95"
+    },
+    {
+      "anchors": {
+        "Alloc->OffloadFree(BufferBytes)": [
+          57,
+          79,
+          110
+        ],
+        "EConsumeStatus Consume(": [
+          83
+        ],
+        "NUdf::EFetchStatus Fetch(": [
+          99
+        ],
+        "SeenEnd =": [
+          165,
+          178
+        ],
+        "const ui64 entering": [
+          128
+        ],
+        "for (ui64 ordinal": [
+          145
+        ],
+        "void ReserveOne()": [
+          61
+        ]
+      },
+      "path": "ydb/core/kqp/runtime/kqp_range_minmax.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "4b1478cb1d08f006897cffbf352d070ec1c509f5e34eccc00326dfd481ce6eeb"
+    },
+    {
+      "anchors": {
+        "IsIncrementalWindowMinMaxSlot": [
+          9
+        ]
+      },
+      "path": "ydb/core/kqp/common/kqp_window_minmax.h",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "fb6afed0d9aa7bd92aa804b7a2fbf261abe7040054cf91e2ef1d2b906db8a71b"
+    },
+    {
+      "anchors": {
+        "TListRepresentation(T&& element, const TSelf& that)": [
+          297
+        ],
+        "TListRepresentation(const TSelf& other)": [
+          220
+        ],
+        "TSelf Prepend": [
+          351
+        ]
+      },
+      "path": "yql/essentials/minikql/computation/mkql_computation_node_list.h",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "8bbadc3d3b984f67f3013022fd03b6db493ee7d050bed47dd7c1373476e9d2c1"
+    },
+    {
+      "anchors": {
+        "SkipListImpl": [
+          192,
+          394,
+          536,
+          2705,
+          2815,
+          2816,
+          3240
+        ],
+        "THolderFactory::Prepend": [
+          3325
+        ]
+      },
+      "path": "yql/essentials/minikql/computation/mkql_computation_node_holders.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "7c05ff17deb766ae0b8f30209a464c9ff307df981466823a4c4e986cfe7c110e"
+    },
+    {
+      "anchors": {
+        "GetAllocCount": [
+          146
+        ],
+        "GetOffloadedBytes": [
+          170
+        ],
+        "GetPeakAllocated": [
+          138
+        ]
+      },
+      "path": "yql/essentials/minikql/aligned_page_pool.h",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "7bbcd59955657db13f6954af3b978cc5dc5510629debbaf49e18d4f68c5e99af"
+    },
+    {
+      "anchors": {
+        "OffloadAlloc": [
+          113,
+          221
+        ]
+      },
+      "path": "yql/essentials/minikql/aligned_page_pool.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "95a68af2e485c5166371f76bae176b6000f6c9f4675d3dddae4b90a34e38205f"
+    },
+    {
+      "anchors": {
+        "TExprNode::TPtr BuildWindowOperators": [
+          1349
+        ],
+        "void ProcessWindowCalls": [
+          1226
+        ]
+      },
+      "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "026f5d5afe7750add360e5c127242ac268b309455ab8ac47840e0c0d6abf33cd"
+    },
+    {
+      "anchors": {
+        "_yql_anonymous_window": [
+          447
+        ]
+      },
+      "path": "yql/essentials/sql/v1/translation/sql_call_expr.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "dfb8454dc6a4305a5e1308f293ec1692c47f9bcc502ad7cba47e4aec3f53567c"
+    }
+  ],
+  "proposal": {
+    "path": "verification/Q01-finite15-stage-A-source-proposal-20261028.json",
+    "sha256": "5ebf357ad11c34658fc90b52ed6e37baa74adfe05c4689347e09e5e0e80caa66"
+  },
+  "rendered_runtime_source_identity_only": {
+    "bytes": 21721,
+    "sha256": "43097b15ca565006cb3def2756b238c877fa224b58bb138a8cb587f53adaec49"
+  },
+  "required_predecessor": {
+    "compatibility": "Exact five patch before-images and all28 composed spill dependencies are required. Reviewed C31-only generator/profile repairs after idle53 do not change these inputs; no frozen dependency is rebased.",
+    "exact_after_images_required": false,
+    "exact_patch_before_images_required": true,
+    "path": "verification/quality-idle53-source-composition-20261028.json",
+    "sha256": "1bac7bb6118969b3d1b0c11fcd0215a3a1974ff66555250ffea4b4edda61544f",
+    "spill_dependency_count": 28
+  },
+  "required_stage_B_delta": [
+    "Bind the approved manifest/contract digest into the exact native-dispatch identity before and after each sample; the old resource proposal digest is currently honestly retained.",
+    "Require the existing complete canonical652 paired semantic/structural records and fresh fixed42 evidence alongside the approved actual local path vector.",
+    "Freeze measurable optimization acceptance against actual witnessed lowering and finite resource comparisons before any accepted measurement run; no arbitrary ratio or unreviewed relaxation of existing gates."
+  ],
+  "schema": "q01_concrete_stage_A_source_preparation_v1",
+  "scope_boundaries": {
+    "allocation": "Existing actual linked RANGE-only/mixed runtime42, fresh allocator snapshots and lifecycle checks. Outer collector uses frame length; full lowered prefix outputs are witnessed separately by SQL. No general ROWS allocation instrumentation.",
+    "optimization": "Always false in StageA; canonical652, actual42, pilot30, raw180 are separate obligations; no source/mock success or partial vector grants admission.",
+    "raw_measurement": "Only waited kqprun child CPU and Linux maxRSS, including startup, schema, fixture and compilation work. Python generation/oracle excluded. RSS is neither operator memory nor total cgroup peak.",
+    "semantic_path": "Local source-bound window topology plus exact result oracle; no general physical AST equivalence claim."
+  },
+  "source_scope_assessment": {
+    "path": "verification/Q01-minimal-acceptance-source-assessment-20261028.json",
+    "sha256": "6cf38483b893ad802042e17404c6b0e9390cf8f557b4416d5ff2a8f629c0634f"
+  },
+  "status": "frozen_for_independent_review_not_native_acceptance",
+  "superseded_freeze": {
+    "patch_sha256": "024ccd39e37e323b6bc2bc695cd247b17f90f0bd4367f9ad96a1be2108b387c1",
+    "reason": "Source-confirmed integral Double wire-token correction in only the two new fallback row oracles; queries/old16/oracles42/652 unchanged.",
+    "report_sha256": "b6e6df935e5483d3c7819cfa57fe907e8f372f712b17800456e59d5226df09a1"
+  },
+  "superseded_freezes": [
+    {
+      "patch_sha256": "024ccd39e37e323b6bc2bc695cd247b17f90f0bd4367f9ad96a1be2108b387c1",
+      "reason": "Source-confirmed integral Double wire-token correction in only the two new fallback row oracles; queries/old16/oracles42/652 unchanged.",
+      "report_sha256": "b6e6df935e5483d3c7819cfa57fe907e8f372f712b17800456e59d5226df09a1"
+    },
+    {
+      "patch_sha256": "c1d7c7e5de6218ea0dde8a3f5abebbb72a3a3f7016de4b108de4f34146b5b0cb",
+      "reason": "Independent review identified missing pilot native identity/protocol and one-cell scope validation; corrected without any optimization admission.",
+      "report_sha256": "af4122223da43b9d85d17c55d2b8abe2bbebe3dcb12924e952c07cf8a85bda13"
+    }
+  ],
+  "verification": {
+    "actual_native_or_compiler_runs": 0,
+    "actual_runtime_evidence_created": false,
+    "metadata_report": "verification/Q01-concrete-stage-A-metadata-contracts-20261028.json",
+    "metadata_report_sha256": "4bebe4c0340c6afdbe3d594baa4b44202d9dba37cc9ed983145b047c97e9f41f",
+    "metadata_script": "proposed-quality-amendments/Q01-concrete-acceptance-20261028/verify_metadata.py",
+    "metadata_script_sha256": "daed7ab1717871e4b4ba8b7a80d08d3d847b87069c3bfece91a107c087695d9c",
+    "new_source_mock_checks_passed": 1977,
+    "rendered_inputs_plans_or_CPP_persisted": false,
+    "retained_extended_recipe_checks_passed": 1818
+  },
+  "wire_encoding_source_bindings": [
+    {
+      "anchors": {
+        "FormatResultRowJson": [
+          249
+        ],
+        "PrintResultSet": [
+          241
+        ],
+        "RowsJson": [
+          243
+        ]
+      },
+      "path": "ydb/tests/tools/kqprun/runlib/utils.cpp",
+      "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "sha256": "f575648dba38ed2876a8d5a5bbe9d0e2dcc1f59ebfb30b2c593accac7ffd69b6"
+    },
+    {
+      "anchors": {
+        "EPrimitiveType::Double": [
+          318,
+          688
+        ],
+        "WriteDouble(Parser.GetDouble(), PREC_AUTO)": [
+          319
+        ]
+      },
+      "path": "ydb/public/lib/json_value/ydb_json_value.cpp",
+      "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "sha256": "c8caf26fe57983db648c573ef32cb02204984e881f52e0713e64ca0584d3ffc6"
+    },
+    {
+      "anchors": {
+        "FloatToString(f, buf": [
+          255,
+          262
+        ],
+        "WriteDouble": [
+          271,
+          393
+        ],
+        "WriteFloatImpl": [
+          251,
+          268,
+          272
+        ]
+      },
+      "path": "library/cpp/json/writer/json.cpp",
+      "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "sha256": "6acc53bdcd48fad6f2c888bd002b6a27b2604f4f6789bd4ec42142491b0db19e"
+    },
+    {
+      "anchors": {
+        "DoubleToStringConverter(EMIT_POSITIVE_EXPONENT_SIGN": [
+          660
+        ],
+        "ToShortest(t": [
+          767
+        ],
+        "ToStringConverterNoPad": [
+          657,
+          728,
+          748,
+          767,
+          772
+        ],
+        "size_t FloatToString(double": [
+          756
+        ]
+      },
+      "path": "util/string/cast.cpp",
+      "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "sha256": "9d995a3118a0614dfdab203436b253501db355cd981e7e9596daadb643403149"
+    },
+    {
+      "anchors": {
+        "EMIT_TRAILING_DECIMAL_POINT": [
+          78,
+          82,
+          90,
+          95,
+          102,
+          108,
+          141,
+          146,
+          147,
+          153,
+          155,
+          157,
+          187,
+          209,
+          277,
+          279,
+          352
+        ],
+        "EMIT_TRAILING_ZERO_AFTER_POINT": [
+          79,
+          83,
+          93,
+          100,
+          106,
+          138,
+          142,
+          146,
+          149,
+          158,
+          188,
+          277,
+          279,
+          349,
+          353,
+          355
+        ]
+      },
+      "path": "contrib/libs/double-conversion/double-conversion/double-to-string.h",
+      "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "sha256": "cb0b7ec6c4d8896a9d24e737ae4c33e1a341e2e5c61022a9adc1c67f4be0073b"
+    },
+    {
+      "anchors": {
+        "FormatResultRowJson": [
+          249
+        ],
+        "PrintResultSet": [
+          241
+        ],
+        "RowsJson": [
+          243
+        ]
+      },
+      "path": "ydb/tests/tools/kqprun/runlib/utils.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "f575648dba38ed2876a8d5a5bbe9d0e2dcc1f59ebfb30b2c593accac7ffd69b6"
+    },
+    {
+      "anchors": {
+        "EPrimitiveType::Double": [
+          318,
+          688
+        ],
+        "WriteDouble(Parser.GetDouble(), PREC_AUTO)": [
+          319
+        ]
+      },
+      "path": "ydb/public/lib/json_value/ydb_json_value.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "c8caf26fe57983db648c573ef32cb02204984e881f52e0713e64ca0584d3ffc6"
+    },
+    {
+      "anchors": {
+        "FloatToString(f, buf": [
+          255,
+          262
+        ],
+        "WriteDouble": [
+          271,
+          393
+        ],
+        "WriteFloatImpl": [
+          251,
+          268,
+          272
+        ]
+      },
+      "path": "library/cpp/json/writer/json.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "6acc53bdcd48fad6f2c888bd002b6a27b2604f4f6789bd4ec42142491b0db19e"
+    },
+    {
+      "anchors": {
+        "DoubleToStringConverter(EMIT_POSITIVE_EXPONENT_SIGN": [
+          660
+        ],
+        "ToShortest(t": [
+          767
+        ],
+        "ToStringConverterNoPad": [
+          657,
+          728,
+          748,
+          767,
+          772
+        ],
+        "size_t FloatToString(double": [
+          756
+        ]
+      },
+      "path": "util/string/cast.cpp",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "9d995a3118a0614dfdab203436b253501db355cd981e7e9596daadb643403149"
+    },
+    {
+      "anchors": {
+        "EMIT_TRAILING_DECIMAL_POINT": [
+          78,
+          82,
+          90,
+          95,
+          102,
+          108,
+          141,
+          146,
+          147,
+          153,
+          155,
+          157,
+          187,
+          209,
+          277,
+          279,
+          352
+        ],
+        "EMIT_TRAILING_ZERO_AFTER_POINT": [
+          79,
+          83,
+          93,
+          100,
+          106,
+          138,
+          142,
+          146,
+          149,
+          158,
+          188,
+          277,
+          279,
+          349,
+          353,
+          355
+        ]
+      },
+      "path": "contrib/libs/double-conversion/double-conversion/double-to-string.h",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "sha256": "cb0b7ec6c4d8896a9d24e737ae4c33e1a341e2e5c61022a9adc1c67f4be0073b"
+    }
+  ],
+  "wire_oracle_correction": {
+    "checked_value": "Exact independently computed extrema remain mandatory. Added rejection of wrong integer, fractional, boolean and string values; no indicator-only acceptance.",
+    "native_validation": false,
+    "only_cases": [
+      "q01_scaling_rows_fallback",
+      "q01_scaling_range_fallback"
+    ],
+    "original16_workload_or_oracle_changes": false,
+    "source_proof": "kqprun RowsJson routes Double to PREC_AUTO, then the converter with only EMIT_POSITIVE_EXPONENT_SIGN. Bounded integral extrema therefore emit integer JSON tokens; null stays null."
+  },
+  "yql_essentials_edited": false
+}

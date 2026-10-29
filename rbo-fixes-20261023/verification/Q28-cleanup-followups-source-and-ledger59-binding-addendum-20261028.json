@@ -1,0 +1,523 @@
+{
+  "binding_refresh": {
+    "images": {
+      "c06_c50_bounded_integration_checks.py": {
+        "after_sha256": "6e5e44019061e4fa9c1fa744094c9b0ab139a2e6f424aaaeee5236a9b08dc4ac",
+        "before_sha256": "6f40673cc6e1a8169185302d7895c46a40f45cb46f13dc4dad2afbb7104d60fd",
+        "refreshed_dependencies": {
+          "rbo-fixes-20261023/quality_spill_bounds.py": {
+            "after": "dface8b7323a5724760d2299cbae1c8276f83768b2b9692d0435998d0cc4360a",
+            "before": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+          }
+        }
+      },
+      "c06_c50_integration_runner.py": {
+        "after_sha256": "f9caa75f35c31f021aed8fc3fe2c01f5f00cf7ac224e0679eb069002d973e63e",
+        "before_sha256": "b2b939a9eee061e745b59be8307619a1fbf5e2e4a1bef619e14d0d349083f406",
+        "refreshed_dependencies": {
+          "rbo-fixes-20261023/anonymous_cpp_verify.py": {
+            "after": "836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136",
+            "before": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d"
+          },
+          "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py": {
+            "after": "6e5e44019061e4fa9c1fa744094c9b0ab139a2e6f424aaaeee5236a9b08dc4ac",
+            "before": "6f40673cc6e1a8169185302d7895c46a40f45cb46f13dc4dad2afbb7104d60fd"
+          },
+          "rbo-fixes-20261023/quality_spill_bounds.py": {
+            "after": "dface8b7323a5724760d2299cbae1c8276f83768b2b9692d0435998d0cc4360a",
+            "before": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+          }
+        }
+      },
+      "q28_depth_verify.py": {
+        "after_sha256": "a5cdd984048f249ea8c616f17b799b4ee0eb09bc44cd3fe00c4e8314db02ce6b",
+        "before_sha256": "a6e1536cc3466f6b15a601a1c40c295dc4924e04b8c1d028c4e291cc925b89a1",
+        "refreshed_dependencies": {
+          "anonymous_cpp_verify": {
+            "after": "836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136",
+            "before": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d"
+          }
+        }
+      },
+      "quality_spill_bounds.py": {
+        "after_sha256": "dface8b7323a5724760d2299cbae1c8276f83768b2b9692d0435998d0cc4360a",
+        "before_sha256": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89",
+        "refreshed_dependencies": {
+          "rbo-fixes-20261023/anonymous_cpp_verify.py": {
+            "after": "836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136",
+            "before": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d"
+          }
+        }
+      }
+    },
+    "native_sha256": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "path": "proposed-quality-amendments/Q28-cleanup-ledger59-binding-refresh-20261028.patch",
+    "requires_applied_helper_ledger": 59,
+    "sha256": "5edec2db83095cc2f39860978ea2d4e6939ef1511c902c275b6aa25bb84f1193"
+  },
+  "generated_workload_artifacts_persisted": false,
+  "installation_order": [
+    "Original Q28 four-control generator and frozen fixed-runner install remain prerequisites.",
+    "Apply the separate _memfd initialization repair and outer serial-release admission repair.",
+    "Apply this exact ledger59 binding refresh with those repairs at an idle boundary.",
+    "The independent Q28 production revision amendment and revision-binding plan remain separately required before native four-control admission."
+  ],
+  "memfd_scope": {
+    "changed_function_only": "_memfd",
+    "limits": [
+      "Does not repair unrelated callers that allocate several descriptors before entering cleanup.",
+      "Does not claim recovery from SIGKILL, process death, or arbitrary interruption after successful return and before caller assignment."
+    ],
+    "preserved": [
+      "Creation flags and executable sealing permission.",
+      "Complete byte payload and initial rewind.",
+      "Executable mode 0700 only when requested.",
+      "One caller-owned descriptor on success."
+    ],
+    "repair": "Own the descriptor across all post-create initialization and close it on BaseException; use partial-write-aware direct writes so no duplicate FD can escape fdopen ownership."
+  },
+  "metadata": {
+    "checks_passed": 313,
+    "prior_runner_checks_passed": 255,
+    "prior_runner_scenarios": 52,
+    "report": "verification/Q28-cleanup-followups-metadata-checks-20261028.json",
+    "report_sha256": "6d7a6956b67d55533e8a703fbb56fc664aa565e4c0d39290aa6ca9a06f098855",
+    "scenarios": 67
+  },
+  "native_build_toolchain_work_executed": false,
+  "patches": [
+    {
+      "after_sha256": "836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136",
+      "before_sha256": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+      "path": "proposed-quality-amendments/Q28-anonymous-memfd-initialization-cleanup-20261028.patch",
+      "sha256": "758296f19b13896c8421e31420879168dc1b93b030646183cee4c533803bb10d",
+      "target": "rbo-fixes-20261023/anonymous_cpp_verify.py"
+    },
+    {
+      "after_sha256": "a6e1536cc3466f6b15a601a1c40c295dc4924e04b8c1d028c4e291cc925b89a1",
+      "before_sha256": "77b151edb0de8cfa0c73ea44f0e230513bfcc802d3d14ecaf51a512aafc06d96",
+      "path": "proposed-quality-amendments/Q28-depth-serial-release-admission-20261028.patch",
+      "sha256": "bb9a860ae89d5ff646ea9e05e4d8c067665f0f475fceaf1dd7740db91204072d",
+      "target": "rbo-fixes-20261023/q28_depth_verify.py"
+    }
+  ],
+  "prior_changes_requested_review": {
+    "path": "verification/Q28-depth-fixed-runner-independent-review-20261028.json",
+    "sha256": "6c3305c6993df99da7c275e30c596d0f28fe33715697972e3b7c253d8c39c99c"
+  },
+  "production_rbo_finding": false,
+  "production_sources_changed": false,
+  "recursive_profile_addendum": {
+    "meaning": "New fingerprints only; no prior manifests or evidence edited and no semantic/admission success inferred.",
+    "pairing_source_sha256": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+    "profiles": {
+      "Q01": {
+        "after_sha256": "8c22f82b3c43835d12983397232eac10bd4d6dcd23cc8ea33399bb877e28551f",
+        "before_sha256": "48ce5cde2fbbf05473199b494809e8650e84d9f2ae90b01f66a302f4b71825cd",
+        "changed": true,
+        "modules": [
+          "quality_window_checks",
+          "quality_sum_checks",
+          "quality_minmax_checks",
+          "quality_range_minmax_checks"
+        ]
+      },
+      "Q02": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_window_checks"
+        ]
+      },
+      "Q03": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "Q04": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "Q05": {
+        "after_sha256": "ed43418edfdefe8b778dd739bcb887672ea6d126b56a6e80758ec3d415ccdeab",
+        "before_sha256": "3a6e0bacf61f7ecff02489e26a846edc36e1023b45bc4301fa06c78c3c15aa14",
+        "changed": true,
+        "modules": [
+          "quality_rule_checks"
+        ]
+      },
+      "Q06": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "Q07": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "Q08": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_statistics_checks"
+        ]
+      },
+      "Q09": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_statistics_checks"
+        ]
+      },
+      "Q10": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_window_checks"
+        ]
+      },
+      "Q11": {
+        "after_sha256": "3ae57bbd7ae762f7cc7536be90479b1096d08c39279c36dfdec1a92bc5b2f774",
+        "before_sha256": "31c928e95e0c8b76cbbce2a5f312da1cf72ad048d1e661a6f2af895f8de86c0d",
+        "changed": true,
+        "modules": [
+          "quality_union_checks"
+        ]
+      },
+      "Q12": {
+        "after_sha256": "ed43418edfdefe8b778dd739bcb887672ea6d126b56a6e80758ec3d415ccdeab",
+        "before_sha256": "3a6e0bacf61f7ecff02489e26a846edc36e1023b45bc4301fa06c78c3c15aa14",
+        "changed": true,
+        "modules": [
+          "quality_rule_checks"
+        ]
+      },
+      "Q13": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_window_checks"
+        ]
+      },
+      "Q15": {
+        "after_sha256": "9d8faab8891d4022d2bbbf97f194e39bc18625a20447f552db3692f5b1dc8686",
+        "before_sha256": "d24c8b733883c6294bf7270712ab73d7b98990a1e01a831254a3c56ad23a769a",
+        "changed": true,
+        "modules": [
+          "quality_partition_subset_checks"
+        ]
+      },
+      "Q17": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "Q20": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_statistics_checks"
+        ]
+      },
+      "Q21": {
+        "after_sha256": "ed43418edfdefe8b778dd739bcb887672ea6d126b56a6e80758ec3d415ccdeab",
+        "before_sha256": "3a6e0bacf61f7ecff02489e26a846edc36e1023b45bc4301fa06c78c3c15aa14",
+        "changed": true,
+        "modules": [
+          "quality_rule_checks"
+        ]
+      },
+      "Q22": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_window_checks"
+        ]
+      },
+      "Q23": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "Q24": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "Q26": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_source_settings_checks"
+        ]
+      },
+      "Q28": {
+        "after_sha256": "9bf8073e56acab46537f571b101f14162c9fd2df056e5d19d9212089c2e560e6",
+        "before_sha256": "e17aa71b9e27bc6a9cf0c02050e37b7f0b473dd62bb5ed06c3745ca5e63175ca",
+        "changed": true,
+        "modules": [
+          "quality_scheduler_semantic_checks"
+        ]
+      },
+      "Q28_SDK_partial7": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "q28_compilation_measurement"
+        ]
+      },
+      "Q29": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "named_lookup": {
+        "after_sha256": "b42199db82d7ac121feb19ecb9b48423b815816679abe63dbdb99221b15d109d",
+        "before_sha256": "3e1ae78d715bc8c4e3b21726239c3f74393313479ab22c595e94cc7b32ed1cf6",
+        "changed": true,
+        "modules": [
+          "quality_lookup_checks"
+        ]
+      },
+      "named_minmax": {
+        "after_sha256": "2a4870b42aab592b11b8e0e06a5e5fa120398a19d3763244da3c8e8dbb52a883",
+        "before_sha256": "e631eaf85227b37c40b7507542405ee2ac02c61cbe8b7858d11f79e2935c11b1",
+        "changed": true,
+        "modules": [
+          "quality_minmax_checks"
+        ]
+      },
+      "named_partition": {
+        "after_sha256": "9efd62e4cf5c48c636c28654235c7b4f2e6cbbd1de50a3607aa14e84cf6ec585",
+        "before_sha256": "1a5e7db6515ea8482584b9a5decb0fbd3c51a4252ad1f80bb663c70d9dca6a65",
+        "changed": true,
+        "modules": [
+          "quality_partition_checks"
+        ]
+      },
+      "named_partition_subset": {
+        "after_sha256": "9d8faab8891d4022d2bbbf97f194e39bc18625a20447f552db3692f5b1dc8686",
+        "before_sha256": "d24c8b733883c6294bf7270712ab73d7b98990a1e01a831254a3c56ad23a769a",
+        "changed": true,
+        "modules": [
+          "quality_partition_subset_checks"
+        ]
+      },
+      "named_range_minmax": {
+        "after_sha256": "aa58efea0d39af5973d0f8a5033b711d6aba48699a2e9ffd3b3e5f73a49ec84e",
+        "before_sha256": "bed952b9c9e87e17c33f7997685168d930435f85d8b762188ed455df465335e0",
+        "changed": true,
+        "modules": [
+          "quality_range_minmax_checks"
+        ]
+      },
+      "named_rules": {
+        "after_sha256": "ed43418edfdefe8b778dd739bcb887672ea6d126b56a6e80758ec3d415ccdeab",
+        "before_sha256": "3a6e0bacf61f7ecff02489e26a846edc36e1023b45bc4301fa06c78c3c15aa14",
+        "changed": true,
+        "modules": [
+          "quality_rule_checks"
+        ]
+      },
+      "named_scheduler_semantics": {
+        "after_sha256": "9bf8073e56acab46537f571b101f14162c9fd2df056e5d19d9212089c2e560e6",
+        "before_sha256": "e17aa71b9e27bc6a9cf0c02050e37b7f0b473dd62bb5ed06c3745ca5e63175ca",
+        "changed": true,
+        "modules": [
+          "quality_scheduler_semantic_checks"
+        ]
+      },
+      "named_source_settings": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_source_settings_checks"
+        ]
+      },
+      "named_statistics": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_statistics_checks"
+        ]
+      },
+      "named_sum": {
+        "after_sha256": "f43cbfa1ae42ae5edbf9037bec611e3d0c299015b74c8bd9b219f243df3a397e",
+        "before_sha256": "4b081637ee7f0cadb57acb62607f812248e5539c1ab44f18dd982fd7ce1971e1",
+        "changed": true,
+        "modules": [
+          "quality_sum_checks"
+        ]
+      },
+      "named_union": {
+        "after_sha256": "3ae57bbd7ae762f7cc7536be90479b1096d08c39279c36dfdec1a92bc5b2f774",
+        "before_sha256": "31c928e95e0c8b76cbbce2a5f312da1cf72ad048d1e661a6f2af895f8de86c0d",
+        "changed": true,
+        "modules": [
+          "quality_union_checks"
+        ]
+      },
+      "named_window": {
+        "after_sha256": "216659f5bb8af0f3e4db1b8e02427ebd2e9a66602af1d81df80c49bc6f526f74",
+        "before_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+        "changed": true,
+        "modules": [
+          "quality_window_checks"
+        ]
+      }
+    }
+  },
+  "runner_scope": {
+    "changed_function_only": "main",
+    "preserved": [
+      "Existing original26 paired evidence remains mandatory.",
+      "Exactly four source-bound amendment cases and 1708 expected checks.",
+      "All receipt/revision/source/descriptor/guard checks and serial execution.",
+      "SQL8 and SDK7 remain separate; all full-quality and query-semantic flags remain false."
+    ],
+    "repair": "Any outer source/serial-guard exception forces harness-failed status and local admission false, while retaining completed case/process evidence."
+  },
+  "schema": "q28_cleanup_followups_source_and_binding_addendum_v1",
+  "source_and_binding_checks": [
+    "exact_mocked_helper_after_image",
+    "exact_mocked_runner_cleanup_after_image",
+    "all_cleanup_regressions_passed",
+    "exact_applied_ledger59_native",
+    "exact_ledger59_before:quality_spill_bounds.py",
+    "exact_ledger59_before:c06_c50_bounded_integration_checks.py",
+    "exact_ledger59_before:c06_c50_integration_runner.py",
+    "binding_keys_unchanged:quality_spill_bounds.py",
+    "binding_dictionary_only_change:quality_spill_bounds.py",
+    "binding_keys_unchanged:c06_c50_bounded_integration_checks.py",
+    "binding_dictionary_only_change:c06_c50_bounded_integration_checks.py",
+    "binding_keys_unchanged:c06_c50_integration_runner.py",
+    "binding_dictionary_only_change:c06_c50_integration_runner.py",
+    "binding_keys_unchanged:q28_depth_verify.py",
+    "binding_dictionary_only_change:q28_depth_verify.py",
+    "exact_binding_patch_application:quality_spill_bounds.py",
+    "exact_binding_patch_application:c06_c50_bounded_integration_checks.py",
+    "exact_binding_patch_application:c06_c50_integration_runner.py",
+    "exact_binding_patch_application:q28_depth_verify.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/anonymous_cpp_guard.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/anonymous_cpp_metadata.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/anonymous_cpp_verify.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/correctness_cpp_contract.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/memory_safe_build.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/optimizer_mode_contract.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/production_version_object.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_join_shuffle_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_lookup_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_minmax_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_pairing.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_partition_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_partition_subset_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_range_minmax_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_range_runtime_contract.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_range_runtime_cpp_generator.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_rule_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_scheduler_semantic_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_source_settings_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_statistics_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_statistics_cpp_contract.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_sum_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_union_cpp_contract.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/quality_window_checks.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-fixes-20261023/verification_contract.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-review-20261021/generate_and_verify.py",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-review-20261021/legacy.conf",
+    "exact_composed_dependency:quality_spill_bounds.py:rbo-review-20261021/new.conf",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/join_key_checks.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/window_checks.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-review-20261021/generate_and_verify.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-review-20261021/new.conf",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/native_verify.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/binary_provenance.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/optimizer_mode_contract.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification_contract.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/anonymous_cpp_guard.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verify_series.py",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification/C06-C50-integration-source-preparation-20261028.json",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification/C06-C50-integration-independent-source-review-20261028.json",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification/C06-C50-bounded-spill-production-source-comparison-20261028.json",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/verification/guarded-fixed-C50-946575513d23-1793145911575205063.jsonl",
+    "exact_composed_dependency:c06_c50_bounded_integration_checks.py:rbo-fixes-20261023/quality_spill_bounds.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/anonymous_cpp_guard.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/anonymous_cpp_metadata.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/anonymous_cpp_verify.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/binary_provenance.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/c06_c50_bounded_integration_checks.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/join_key_checks.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/memory_safe_build.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/native_verify.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/optimizer_mode_contract.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/quality_spill_bounds.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification/C06-C50-bounded-spill-production-source-comparison-20261028.json",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification/C06-C50-integration-independent-source-review-20261028.json",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification/C06-C50-integration-source-preparation-20261028.json",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification/guarded-fixed-C50-946575513d23-1793145911575205063.jsonl",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verification_contract.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/verify_series.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-fixes-20261023/window_checks.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-review-20261021/correlation_oracle_generator.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-review-20261021/generate_and_verify.py",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-review-20261021/new.conf",
+    "exact_composed_dependency:c06_c50_integration_runner.py:rbo-review-20261021/partial_lookup_key_generator.py",
+    "exact_composed_dependency:q28_depth_verify.py:memory_safe_build",
+    "exact_composed_dependency:q28_depth_verify.py:anonymous_cpp_guard",
+    "exact_composed_dependency:q28_depth_verify.py:anonymous_cpp_metadata",
+    "exact_composed_dependency:q28_depth_verify.py:anonymous_cpp_verify",
+    "exact_composed_dependency:q28_depth_verify.py:production_version_object",
+    "exact_composed_dependency:q28_depth_verify.py:quality_scheduler_cpp_checks",
+    "exact_composed_dependency:q28_depth_verify.py:quality_scheduler_depth_checks",
+    "production_revision_plan_remains_separate_and_pending",
+    "recursive_Q28_SQL_and_SDK_hashes_refresh",
+    "live_helper_unchanged",
+    "live_bound_source_unchanged:quality_spill_bounds.py",
+    "live_bound_source_unchanged:c06_c50_bounded_integration_checks.py",
+    "live_bound_source_unchanged:c06_c50_integration_runner.py"
+  ],
+  "source_and_binding_checks_passed": 96,
+  "status": "dormant_source_mock_checked_independent_review_pending",
+  "unmodified_production_revision_plan": "verification/Q28-depth-amendment-binding-update-plan-20261028.json",
+  "untouched_original_runner": {
+    "path": "proposed-quality-amendments/Q28-depth-runner-20261028/q28_depth_verify.py",
+    "sha256": "77b151edb0de8cfa0c73ea44f0e230513bfcc802d3d14ecaf51a512aafc06d96"
+  }
+}

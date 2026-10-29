@@ -1,0 +1,16 @@
+{
+  "finding": "C31",
+  "broad_object_export_disabled_only_for_C31": true,
+  "argument_difference": [
+    "--add-result=.o"
+  ],
+  "all_other_exports_preserved": true,
+  "missing_actual_inputs_still_reject": true,
+  "Q19_unchanged": true,
+  "syntax_passed": true,
+  "actual_compile_or_link_pending": true,
+  "files": {
+    "anonymous_cpp_metadata.py": "140c361798d737c8608efbc0a8bcc9d29257196cc98c985eb37ebc9a8c847ee6",
+    "anonymous_cpp_verify.py": "63d3c5ae9590e45b180d3ac7e34712c780e36a1326c84e88f2a5377ee567121f"
+  }
+}

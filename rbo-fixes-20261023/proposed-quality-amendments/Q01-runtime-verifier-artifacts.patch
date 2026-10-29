@@ -1,0 +1,173 @@
+diff --git a/anonymous_cpp_metadata.py b/anonymous_cpp_metadata.py
+--- a/anonymous_cpp_metadata.py
++++ b/anonymous_cpp_metadata.py
+@@ -17,6 +17,7 @@
+ HERE = Path(__file__).resolve().parent
+ VERSION = 'production_cpp_closure_v1'
+ PROFILES = {
++    'kqp_runtime': {'target': 'ydb/core/kqp/runtime/streaming/ut', 'sample': 'ydb/core/kqp/runtime/streaming/kqp_streaming_aggregation_ut.cpp'},
+     'ast': {'target': 'yql/essentials/ast/ut', 'sample': 'yql/essentials/ast/ut/yql_expr_ut.cpp'},
+     'rbo': {'target': 'ydb/core/kqp/ut/rbo', 'sample': 'ydb/core/kqp/ut/rbo/kqp_rbo_global_ut.cpp'},
+ }
+diff --git a/anonymous_cpp_verify.py b/anonymous_cpp_verify.py
+--- a/anonymous_cpp_verify.py
++++ b/anonymous_cpp_verify.py
+@@ -23,7 +23,7 @@
+                                     production_build_arguments, source_revision, verify_receipt)
+ 
+ HERE = Path(__file__).resolve().parent
+-GENERATORS = {'Q14': 'quality_rule_cpp_generator', 'Q16': 'quality_rule_cpp_generator',
++GENERATORS = {'Q01': 'quality_range_runtime_cpp_generator', 'Q14': 'quality_rule_cpp_generator', 'Q16': 'quality_rule_cpp_generator',
+               'Q15': 'quality_partition_cpp_checks',
+               'Q18': 'quality_cpp_contract_generator', 'Q19': 'quality_cpp_contract_generator',
+               'Q25': 'quality_map_contract_generator', 'Q27': 'quality_ast_collection_generator',
+@@ -34,9 +34,13 @@
+     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+ 
+ 
++def _closure_profile(bug):
++    return 'kqp_runtime' if bug == 'Q01' else 'ast' if bug == 'Q27' else 'rbo'
++
++
+ def _expected_revision(bug, phase, worktree):
+-    if bug == 'Q15' and phase != 'fixed':
+-        raise MetadataError('q15_new_helper_requires_fixed_only_ir_admission')
++    if bug in ('Q01', 'Q15') and phase != 'fixed':
++        raise MetadataError('new_runtime_or_helper_requires_fixed_only_admission')
+     case = json.loads((HERE / 'cases' / (bug + '.json')).read_text())
+     parent = subprocess.check_output(['git', 'rev-parse', case['commit'] + '^'], cwd=worktree, text=True).strip()
+     if parent != case['base']:
+@@ -86,7 +90,7 @@
+     workers = state.get('authorized_build_workers')
+     if workers != 8:
+         raise MetadataError('approved_eight_worker_verification_setting_required')
+-    profile = 'ast' if args.bug == 'Q27' else 'rbo'
++    profile = _closure_profile(args.bug)
+     directory = HERE / 'verification' / 'cpp-closures' / (expected[:12] + '-' + str(time.time_ns()))
+     directory.mkdir(parents=True, exist_ok=False)
+     export_root, graph_path = directory / 'outputs', directory / 'production-graph.json'
+@@ -110,7 +114,7 @@
+     """Retry only metadata adaptation after a successful saved production build."""
+     expected = _expected_revision(args.bug, args.phase, args.worktree)
+     record = json.loads(Path(build_record_path).read_bytes())
+-    profile = 'ast' if args.bug == 'Q27' else 'rbo'
++    profile = _closure_profile(args.bug)
+     graph_path, export_root = Path(record['graph_path']), Path(record['export_root'])
+     resources = {}
+     for value in args.resource:
+@@ -182,7 +186,7 @@
+     if bug == 'Q27':
+         source = module.render_cpp_suite(worktree, revision)
+         count = len(module.specs())
+-    elif bug in ('Q15', 'Q25', 'Q28'):
++    elif bug in ('Q01', 'Q15', 'Q25', 'Q28'):
+         source = module.render_cpp_suite()
+         count = len(module.cases())
+     else:
+@@ -195,6 +199,9 @@
+ 
+ 
+ def parse_verdicts(stdout, count, exit_code, bug):
++    if bug == 'Q01':
++        from quality_range_runtime_contract import parse_verdicts as parse_runtime_verdicts
++        return parse_runtime_verdicts(stdout, count, exit_code)
+     if not stdout or len(stdout) > 1024 * 1024:
+         raise MetadataError('missing_or_oversized_direct_verdicts')
+     records = []
+@@ -260,7 +267,7 @@
+     raw_receipt = receipt_path.read_bytes()
+     receipt = json.loads(raw_receipt)
+     verify_receipt(receipt, args.worktree, revision)
+-    expected_profile = 'ast' if args.bug == 'Q27' else 'rbo'
++    expected_profile = _closure_profile(args.bug)
+     if receipt['metadata']['profile'] != expected_profile:
+         raise MetadataError('wrong_production_closure_for_generator')
+     symbols, wrap_evidence = q19_wrapping(receipt, args.worktree) if args.bug == 'Q19' else (None, None)
+@@ -275,7 +282,8 @@
+                 'closure_provenance_verified': True, 'wrapping': wrap_evidence,
+                 'generated_files_persisted': False, 'query_semantics_verified': False,
+                 'quality_improvement_verified': False,
+-                'proof_scope': 'source_extracted_helper' if args.bug == 'Q27' else 'linked_production_local_contracts'}
++                'proof_scope': ('linked_production_runtime_lifecycle_contracts' if args.bug == 'Q01' else
++                                'source_extracted_helper' if args.bug == 'Q27' else 'linked_production_local_contracts')}
+     del source
+     try:
+         compile_record, _ = run_anonymous(receipt['metadata']['compile_argv'], receipt['metadata']['compile_cwd'], fds,
+@@ -321,8 +329,8 @@
+ 
+ 
+ def pair_direct(bug, before, after, case):
+-    if bug == 'Q15':
+-        raise MetadataError('q15_uses_fixed_ir_admission_and_separately_paired_sql')
++    if bug in ('Q01', 'Q15'):
++        raise MetadataError('fixed_admission_requires_separately_paired_sql')
+     def valid_digest(value):
+         return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
+     for evidence, phase, revision in ((before, 'baseline', case['base']), (after, 'fixed', case['commit'])):
+@@ -399,6 +407,9 @@
+ 
+ def validate_fixed_admission(evidence, bug, revision):
+     """Accept only complete native fixed-only Q15 contracts for SQL admission."""
++    if bug == 'Q01':
++        from quality_range_runtime_contract import validate_fixed_runtime
++        return validate_fixed_runtime(evidence, revision)
+     if bug != 'Q15' or not isinstance(evidence, dict):
+         return False
+     try:
+diff --git a/verify_series.py b/verify_series.py
+--- a/verify_series.py
++++ b/verify_series.py
+@@ -166,12 +166,12 @@
+     for path in args.quality_ir_evidence:
+         record = json.loads(path.read_bytes())
+         bug = record.get('bug')
+-        if bug != 'Q15' or bug not in args.bugs or bug in ir_evidence:
+-            raise SystemExit('Expected one direct IR evidence record for requested Q15')
++        if bug not in ('Q01', 'Q15') or bug not in args.bugs or bug in ir_evidence:
++            raise SystemExit('Expected one fixed runtime/IR evidence record for each requested Q01 or Q15')
+         case = json.loads((HERE / 'cases' / (bug + '.json')).read_text())
+         from anonymous_cpp_verify import validate_fixed_admission
+         if not validate_fixed_admission(record, bug, case['commit']):
+-            raise SystemExit('Direct IR admission evidence does not match the complete fixed Q15 contract')
++            raise SystemExit('Direct admission evidence does not match the complete fixed runtime/IR contract')
+         ir_evidence[bug] = record
+     modules_by_bug = {bug: generator_modules(bug, args.quality_profile, args.generator_module)
+                       for bug in args.bugs if bug.startswith('Q')}
+diff --git a/quality_range_minmax_checks.py b/quality_range_minmax_checks.py
+--- a/quality_range_minmax_checks.py
++++ b/quality_range_minmax_checks.py
+@@ -108,6 +108,7 @@
+     return {'generator_version': GENERATOR_VERSION, 'table_service_overrides': settings,
+             'pragmas': [('ydb.WindowFunctionsV2', 'true')], 'node_count': 1, 'peak_native_concurrency': 1,
+             'quality_requires_separate_plan_evidence': True, 'optimization_acceptance_case': accepted,
++            'additional_ir_admission_required': accepted,
+             'acceptance_scope': 'Finite-lower RANGE MIN/MAX, bounded or unbounded upper endpoint, with separate runtime callable evidence',
+             'allocation_scaling_still_required': accepted, 'yield_and_early_release_native_checks_still_required': accepted}
+ 
+@@ -217,6 +218,7 @@
+             assertions['fallback_callable_shape_unchanged'] = counts == before['callables']
+     summary.update(structural_assertions=assertions, structural_oracle_pass=all(assertions.values()),
+                    optimization_acceptance_case=accepted, quality_improvement_verified=False,
++                   additional_ir_admission_required=accepted,
+                    allocation_scaling_verified=False)
+     return summary
+ 
+diff --git a/quality_minmax_checks.py b/quality_minmax_checks.py
+--- a/quality_minmax_checks.py
++++ b/quality_minmax_checks.py
+@@ -173,6 +173,7 @@
+             'pragmas': [('ydb.WindowFunctionsV2', 'true')], 'node_count': 1,
+             'peak_native_concurrency': 1, 'quality_requires_separate_plan_evidence': True,
+             'optimization_acceptance_case': acceptance,
++            'additional_ir_admission_required': control == 'range',
+             'acceptance_scope': 'General ROWS MIN/MAX plus a RANGE admission control; existing specialized paths remain controls',
+             'allocation_scaling_still_required': acceptance}
+ 
+@@ -271,6 +272,7 @@
+             assertions['fallback_callable_shape_unchanged'] = counts == before['callables']
+     summary.update(structural_assertions=assertions, structural_oracle_pass=all(assertions.values()),
+                    optimization_acceptance_case=acceptance, quality_improvement_verified=False,
++                   additional_ir_admission_required=spec.get('control') == 'range',
+                    allocation_scaling_verified=False)
+     return summary
+ 

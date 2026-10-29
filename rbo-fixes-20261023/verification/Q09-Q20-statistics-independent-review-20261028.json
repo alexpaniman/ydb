@@ -1,0 +1,153 @@
+{
+  "after_files": {
+    "anonymous_cpp_verify.py": "fce1a48f08006a3ab7d3872bd4d8bb47f87be918e3d02b53b9cc75a52f11c20b",
+    "quality_pairing.py": "60ac3900a19b20524a52580a918467398c51a842f077439ac5b05c8f904c4a9d",
+    "quality_statistics_cpp_contract.py": "7522d964569b2af5b9336a1003196d7efb633cdd705b5205ff059363300fe44d",
+    "quality_statistics_cpp_generator.py": "e26a52777a3b20789ecb1f892713d3f7883f111be9cc7334146d76c3378f9693",
+    "quality_statistics_cpp_profiles.json": "9e2598a2879ac3626fb852cc6dc105c2614d95d195adee7838cb9c7890e6b273",
+    "verify_series.py": "e2f8efe3383f129ccbbce6ee8047d57af2f6a1129f20126530d8a159fab1a508"
+  },
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "findings": [],
+  "harness_amendment": {
+    "after_sha256": "9995617c4242211e151e853506ca39f0e86e466bd57eb43f3ed7c0c9b904d4e1",
+    "before_sha256": "198a6aaf828cf9d04a3d6b6461b5a173044a69b42350472da411bce12715ea34",
+    "change": "Update only those dormant test expectations; preserve the unconditional direct evidence gate.",
+    "issue": "Existing metadata orchestration tests assumed Q09 SQL-only evidence could produce full quality acceptance. New direct gate correctly leaves it pending.",
+    "path": "proposed-quality-amendments/Q09-Q20-direct-statistics-harness-expectations-20261028.patch",
+    "required_after": "proposed-quality-amendments/Q09-Q20-direct-statistics-admission-20261028.patch",
+    "sha256": "721a2b79b34c7f52c0e9fc7137047d3c52a84735f05046bfe96c884947950763"
+  },
+  "limits": [
+    "Actual compilation/linking and guarded baseline/fixed native execution are still required.",
+    "Q09 zero metadata-column boundary cases are local robustness contracts, not fully typed physical plans.",
+    "Q20 direct numeric expectations verify routing against the existing KQP cost model; they do not independently validate all CBO mathematics.",
+    "Persistent Applied flags are only used for combined and unmatched hints; side hint application copies hint state.",
+    "Separate SQL semantic and paired physical/optimizer-quality evidence remains mandatory.",
+    "The narrow harness expectation patch requires root review before idle application."
+  ],
+  "patch": "proposed-quality-amendments/Q09-Q20-direct-statistics-admission-20261028.patch",
+  "patch_sha256": "ff881e9c99b2a6630020b2bea6cd0e12154f2b3cd2a5b9852d99d30cc880c619",
+  "production_commits": {
+    "Q09": {
+      "independently_main_based": true,
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "revision": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e",
+      "scope": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp"
+      ]
+    },
+    "Q20": {
+      "independently_main_based": true,
+      "parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "revision": "49b33e196eefd41df663417e7392f7ca0e1504cd",
+      "scope": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp"
+      ]
+    }
+  },
+  "schema_version": "q09_q20_independent_source_review_v1",
+  "source_identity_checks": {
+    "ydb/core/kqp/opt/cbo/cbo_optimizer_new.h": {
+      "pinned_base_sha256": "a8dacdb8ac09f92a6b0e39e9a54c3d8ea566ddb4352d991f6dc0e63608685f55",
+      "reviewed_checkout_matches_pinned_base": true
+    },
+    "ydb/core/kqp/opt/cbo/solver/kqp_opt_stat.cpp": {
+      "pinned_base_sha256": "4a3ba297095d9d16a35b41511d27a6a92df5e4737772eb89757651cad81fd047",
+      "reviewed_checkout_matches_pinned_base": true
+    },
+    "ydb/core/kqp/opt/kqp_opt.cpp": {
+      "pinned_base_sha256": "8391f760e4e1c992b1eff34ce2524015d2bcb244b28df07a1ca4f3c844a62722",
+      "reviewed_checkout_matches_pinned_base": true
+    },
+    "ydb/core/kqp/opt/logical/kqp_opt_cbo.cpp": {
+      "pinned_base_sha256": "1ead684df158f005bb7c0d688d3db7218d8fab835081b6f5094eac34041de182",
+      "reviewed_checkout_matches_pinned_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": {
+      "difference_reviewed": "Current checkout removes only the unrelated pushed-OLAP accessors/flag from TOpAggregate. Pinned-base aggregate construction, IsDeduplication and statistics APIs were read directly and match the generator. No current-checkout binary is used.",
+      "pinned_base_sha256": "d5ef4e7aa7921d4dcab120f4d9d503d44442d1f5d068445eb6f3b0d27a5771af",
+      "reviewed_checkout_matches_pinned_base": false
+    },
+    "ydb/core/kqp/opt/rbo/kqp_plan_props.cpp": {
+      "pinned_base_sha256": "13d527e0dc3ec936284114d85ba0d6712c97c5091e9c522baf8b65bc8de07440",
+      "reviewed_checkout_matches_pinned_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_plan_props.h": {
+      "pinned_base_sha256": "e843293f844ad93fbd88e3212d1777043f715405f74e023a195a7d71e68e7299",
+      "reviewed_checkout_matches_pinned_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp": {
+      "pinned_base_sha256": "fce89a7e7f349a93b8784b2fcefd6b897fa4de9f13ea809028a3309d47337d55",
+      "reviewed_checkout_matches_pinned_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rbo_statistics.cpp": {
+      "pinned_base_sha256": "e8ce745e7f8ecd2455a1646dcf2f70541f00a6a0a786216be9936aa838d20287",
+      "reviewed_checkout_matches_pinned_base": true
+    },
+    "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h": {
+      "pinned_base_sha256": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa",
+      "reviewed_checkout_matches_pinned_base": true
+    }
+  },
+  "source_preparation_report_sha256": "6140f52ff614e37d2f039a5f61a3fed541066611f9cee8b183e4df9af5da3e39",
+  "source_review": [
+    {
+      "assessment": "Direct contracts invoke the real aggregate statistics method and public statistics conversion. Undefined/Final scalar cases have independent exact cardinality and finite width expectations; grouped, distinct, grouping-only, Intermediate and missing-prerequisite controls retain baseline behavior. Input statistics and optional cost are checked.",
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:571",
+        "ydb/core/kqp/opt/rbo/kqp_operator.h:822",
+        "ydb/core/kqp/opt/rbo/kqp_operator.h:851",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_statistics.cpp:12",
+        "proposed-quality-amendments/Q09-Q20-direct-statistics-files/quality_statistics_cpp_generator.py:70"
+      ],
+      "topic": "Q09 scalar cardinality and width"
+    },
+    {
+      "assessment": "Named expectations independently select side and combined alias sets; single-side hints only affect singleton aliases, self-join alias policy is preserved, and combined row/byte hints use the existing KQP CBO estimator as numeric cost-model oracle. No private alias helper implementation is copied. Public context/configuration, aggregation/join construction, lineage and hint APIs match pinned source.",
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_props.cpp:95",
+        "ydb/core/kqp/opt/cbo/solver/kqp_opt_stat.cpp:241",
+        "ydb/core/kqp/opt/cbo/solver/kqp_opt_stat.cpp:269",
+        "ydb/core/kqp/opt/cbo/solver/kqp_opt_stat.cpp:297",
+        "ydb/core/kqp/opt/kqp_opt.cpp:80",
+        "ydb/core/kqp/opt/logical/kqp_opt_cbo.cpp:331",
+        "proposed-quality-amendments/Q09-Q20-direct-statistics-files/quality_statistics_cpp_generator.py:117"
+      ],
+      "topic": "Q20 actual APIs and independent hint routing"
+    },
+    {
+      "assessment": "The buggy helper affects hint alias selection, while output HintRelations already merge both children and filter by output IDs. Thus no-hint and unmatched-hint ordinary/self/nested/semi/anti metadata checks are genuine baseline controls, not known bug-affected expectations. Hidden semi/anti input aliases are included for hint matching but excluded from output metadata.",
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:592",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:637",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:693"
+      ],
+      "topic": "Q20 baseline controls and metadata visibility"
+    },
+    {
+      "assessment": "Reviewed generator/profile/specification/source identities and dynamic exact vectors bind local evidence. Passing cases require all assertions; baseline controls must pass; source receipts and process/environment guards are retained. Fixed direct admission is mandatory in Q09/Q20 SQL pairing and cannot establish query semantics or full optimization quality alone.",
+      "references": [
+        "proposed-quality-amendments/Q09-Q20-direct-statistics-files/quality_statistics_cpp_contract.py:18",
+        "proposed-quality-amendments/Q09-Q20-direct-statistics-files/quality_statistics_cpp_contract.py:48",
+        "proposed-quality-amendments/Q09-Q20-direct-statistics-files/quality_statistics_cpp_contract.py:61",
+        "proposed-quality-amendments/Q09-Q20-direct-statistics-files/anonymous_cpp_verify.py:518",
+        "proposed-quality-amendments/Q09-Q20-direct-statistics-files/anonymous_cpp_verify.py:639",
+        "proposed-quality-amendments/Q09-Q20-direct-statistics-files/quality_pairing.py:353"
+      ],
+      "topic": "Admission and source binding"
+    }
+  ],
+  "status": "approved_source_and_metadata_with_harness_expectation_amendment_native_pending",
+  "verification": {
+    "builds": 0,
+    "existing_quality_contract_checks": 98,
+    "graphs": 0,
+    "independent_checks": 751,
+    "live_or_production_edits": false,
+    "metadata_report": "verification/Q09-Q20-statistics-independent-metadata-checks-20261028.json",
+    "metadata_report_sha256": "fd286980becd65a8cc0d1851b9e848b147f9dbf618ec825dc04522a17e385e18",
+    "native_runs": 0,
+    "toolchain_runs": 0
+  }
+}

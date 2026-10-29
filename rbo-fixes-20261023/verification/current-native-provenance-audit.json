@@ -1,0 +1,138 @@
+{
+  "cases": [
+    {
+      "id": "C01",
+      "status": "verified",
+      "records": 6,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C02",
+      "status": "verified",
+      "records": 18,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C03",
+      "status": "verified",
+      "records": 1,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C04",
+      "status": "verified",
+      "records": 4,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C05",
+      "status": "verified",
+      "records": 4,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C06",
+      "status": "verified",
+      "records": 5,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C07",
+      "status": "verified",
+      "records": 5,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C08",
+      "status": "verified",
+      "records": 6,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C09",
+      "status": "verified",
+      "records": 5,
+      "strict_records": 5,
+      "receipt": true
+    },
+    {
+      "id": "C10",
+      "status": "verified",
+      "records": 4,
+      "strict_records": 4,
+      "receipt": true
+    },
+    {
+      "id": "C11",
+      "status": "verified",
+      "records": 4,
+      "strict_records": 4,
+      "receipt": true
+    },
+    {
+      "id": "C12",
+      "status": "verified",
+      "records": 3,
+      "strict_records": 3,
+      "receipt": true
+    },
+    {
+      "id": "C13",
+      "status": "verified",
+      "records": 4,
+      "strict_records": 4,
+      "receipt": true
+    },
+    {
+      "id": "C17",
+      "status": "verified",
+      "records": 8,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C18",
+      "status": "verified_new_parser_invariant",
+      "records": 14,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C26",
+      "status": "verified",
+      "records": 10,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C41",
+      "status": "verified",
+      "records": 12,
+      "strict_records": 12,
+      "receipt": true
+    },
+    {
+      "id": "C44",
+      "status": "verified_guard",
+      "records": 3,
+      "strict_records": 0,
+      "receipt": false
+    },
+    {
+      "id": "C48",
+      "status": "verified",
+      "records": 9,
+      "strict_records": 0,
+      "receipt": false
+    }
+  ],
+  "strict_matching_required_for_final_acceptance": true
+}

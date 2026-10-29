@@ -1,0 +1,52 @@
+{
+  "actions": {
+    "build_toolchain_graph_runs": 0,
+    "native_runs": 0,
+    "original_evidence_unchanged": true,
+    "rendered_workloads_or_results_persisted": false,
+    "worktree_branch_or_live_helper_edits": 0
+  },
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "changed_files_disjoint": true,
+  "checks": 216,
+  "composed_source_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": "2f0fff7fc230f92ef405ab7d96afa7b4875d15519ea58e9a0751aaf7707b15db",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp": "679c84a75bbae282599d1c8dadba537353cc098f34d42dcbeae6711221294254",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h": "10eeb5c4ebdff32cdb038622afbbda69ed7a1b05e59e962d38ad0aba179e819b",
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": "0871ccc05675193dfd37120a1245d4cc7a9012dc3f5a2e2732349da19b7f8bde",
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp": "7c14e1724de571d9bc141b950b80074430cf067ba9a8932d2c87921fe364c466"
+  },
+  "distinct_profiles": 8,
+  "fix_revisions": {
+    "C06": "446592a476b92437df5b2579e1027cfb313be1d9",
+    "C50": "946575513d233534e8f4fa4168f5dc9379ffc982"
+  },
+  "independent_main_parents_verified": true,
+  "integration_receipt_requirements": [
+    "Create only a separately identified integration revision; verify its tree contains exactly the two unchanged diffs and five combined file hashes. Preserve original standalone commits/case statuses/evidence.",
+    "Fresh guarded exact integration build and executable receipt, complete8profiles x2repetitions, four nodes, original independent duplicate-sensitive bag oracle. Never reuse standalone C50 executable evidence as integration proof.",
+    "Passing integrated semantics establishes this16-record compatibility case set only; no full physical distribution, shared backpressure or general typed-domain proof."
+  ],
+  "native_setup_blocker": {
+    "all_eight_profiles_enable_spilling": true,
+    "current_recipe_location": "join_key_checks.py:144-163",
+    "next_step": "Use a source-reviewed no-payload-persistence setup before execution. If that changes config, transparently record new settings hashes and retain all original query/schema/fixture fingerprints and original failed records; do not call all64 fingerprints unchanged after a settings amendment. No new generator/config/guard change is made by this review.",
+    "problem": "Query/channel spilling and All compute-node spills are enabled, with no established local payload-file bound in the unchanged settings. The16-record manifest preserves those settings exactly. Small inputs are not a proof of absent payload writes; this review does not claim any spill occurred."
+  },
+  "original_outcomes": {
+    "mixed_failures_preserved": 8,
+    "same_type_passes_preserved": 8
+  },
+  "query_schema_fixture_settings_comparisons": 64,
+  "references": {
+    "dependency_audit": "verification/C06-C50-correlated-control-integration-dependency-20261028.json",
+    "payload_storage_source_audit": "verification/C31-observation-spill-persistence-source-audit-20261028.json"
+  },
+  "regenerated_in_memory_against_current_generator": true,
+  "schema_version": "c06_c50_integration_independent_source_review_v1",
+  "semantic_scope": "C06 retains typed correlated domains when equality compared different annotations. Its fallback can expose a mixed-type join that independently requires C50 gather before key casts. Applying both unchanged fixes on an explicitly separate integration revision is causally appropriate. It does not repair either standalone branch by stacking changes or establish a new production bug.",
+  "source_preparation_path": "verification/C06-C50-integration-source-preparation-20261028.json",
+  "source_preparation_sha256": "17473d3cb4501754409d61c1ca225f147a8a1041f0ff0a55f752ba52832d0fa5",
+  "status": "source_composition_and_vector_approved_native_pending_reviewed_payload_storage_setup",
+  "workload_records": 16
+}

@@ -1,0 +1,12 @@
+{
+  "status": "actual_native_preparation_prefix_checked_in_memory",
+  "assertions": 1918,
+  "modern_case_count": 87,
+  "modern_record_count": 101,
+  "legacy_qualified_record_count": 8,
+  "manifest_sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58",
+  "script_sha256": "b67d84de337904fbfcb100c37a72342183277c29fe11ccc82dd198c6b602f790",
+  "native_calls": 0,
+  "rendered_payloads_persisted": false,
+  "method": "Execute only the preparation prefix extracted from frozen native_verify.run_generated in RAM, replacing its anonymous-memory transport with a discard-only placeholder. No query process or oracle is run."
+}

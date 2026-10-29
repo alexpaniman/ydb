@@ -1,0 +1,18 @@
+{
+  "id": "C31",
+  "base": "add2cf0b3d838963596676c952622e6995b9abf6",
+  "patch_sha256": "dd0d5369f0f0ae42655582be6e79424276cac7cea4d4da9e6bbbd7eb5a1d2801",
+  "apply_check_passed": true,
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp"
+  ],
+  "scope": "Local safety gate for C31-created copied producers and deduplicated called-subplan evaluation; global copy policy unchanged.",
+  "compiled": false,
+  "native_verified": false,
+  "production_edited": false,
+  "pending": [
+    "Independent source review.",
+    "Direct-IR and native safety/positive controls.",
+    "Broader identities and volatile occurrence semantics remain outstanding."
+  ]
+}

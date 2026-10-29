@@ -1,0 +1,84 @@
+{
+  "status": "link_driver_empty_input_diagnostic",
+  "generated_contracts_executed": false,
+  "linker_spawn_unconfirmed": true,
+  "metrics": {
+    "elapsed_seconds": 0.338,
+    "peak_scope_usage_bytes": 34250752,
+    "peak_group_rss_bytes": 18702336,
+    "minimum_host_available_bytes": 114746556416,
+    "max_scope_gib": 36,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_collection_after_completion": false,
+    "environment_sha256": "cd64c3bec61e31898ad530ad9ca7b66444cbfb16c0784903b937a7c640ec27f5",
+    "scope_membership_accounting_available": true,
+    "exit_code": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_bytes": 0,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "7a6680a192ef38d5fd79b984ea22909b1948b981d3ccca66eaa09cbe32c88317",
+    "diagnostic_bytes": 287
+  },
+  "errors": [
+    {
+      "vocabulary": [
+        "unable",
+        "to",
+        "make",
+        "temporary",
+        "file",
+        "no",
+        "such",
+        "file",
+        "or",
+        "directory"
+      ],
+      "options": [],
+      "message_sha256": "454370f24705a83fe539b20a67ea9136dedfa890eae485a047596d2a3a9a67ce"
+    },
+    {
+      "vocabulary": [
+        "unable",
+        "to",
+        "execute",
+        "command",
+        "no",
+        "such",
+        "file",
+        "or",
+        "directory"
+      ],
+      "options": [],
+      "message_sha256": "875bb9696c975c010d9b3adf310ac9ef32ed588788ab942321fb07a1cf97ba06"
+    },
+    {
+      "vocabulary": [
+        "unable",
+        "to",
+        "file",
+        "not"
+      ],
+      "options": [],
+      "message_sha256": "7e7cadb28784509a88a021fb1e154541f8fed8f05eba222c1abbd5885d5711bb"
+    },
+    {
+      "vocabulary": [
+        "linker",
+        "command",
+        "failed",
+        "with",
+        "exit",
+        "code",
+        "to"
+      ],
+      "options": [
+        "-v"
+      ],
+      "message_sha256": "b7a2babc5ac055347f20d1a8d978f52914d5ffdfb423c4b10785799a7ccd9c4d"
+    }
+  ],
+  "raw_diagnostics_persisted": false,
+  "rendered_test_source_used": false
+}

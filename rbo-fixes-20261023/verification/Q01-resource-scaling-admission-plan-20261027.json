@@ -1,0 +1,155 @@
+{
+  "schema_version": "q01_resource_admission_design_v1",
+  "recorded_unix_ns": 1793132930321570690,
+  "status": "proposed_measurement_contract_not_implemented_or_executed",
+  "bug": "Q01",
+  "baseline_revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "fixed_revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+  "purpose": "Measure bounded native work/resource scaling of the admitted optimization, separately from row semantics, physical shape and runtime lifecycle. This is a concrete next implementation plan, not accepted evidence or an asymptotic proof.",
+  "existing_instrumentation": [
+    {
+      "source": "quality_range_runtime_cpp_generator.py:11",
+      "available": [
+        "input/output/fetch/yield counts",
+        "peak_live_rows and cleanup_live_rows",
+        "allocator_allocations",
+        "allocator_offloads and cumulative allocator_offloaded_bytes",
+        "peak_used_delta, peak_allocated_delta, sampled_used_delta"
+      ],
+      "limits": "RANGE runtime only, fixed revision only, current size variants do not cross frame width and row count; no paired baseline. Fetch counts cannot detect repeated internal frame scans. Existing lifetime-high-water deltas can be zero despite substantial runtime memory."
+    },
+    {
+      "source": "yql/essentials/minikql/aligned_page_pool.h:138",
+      "available": [
+        "GetAllocCount",
+        "GetOffloadedAllocCount",
+        "GetOffloadedBytes",
+        "GetUsed",
+        "GetPeakUsed",
+        "GetPeakAllocated"
+      ],
+      "limits": "MiniKQL/accounted offload scope, not complete process RSS. Record absolute before/after counters plus current usage; do not infer an execution peak from a prior-high-water delta alone."
+    },
+    {
+      "source": "util/system/rusage.h:7",
+      "available": [
+        "TRusage::Get().Utime",
+        "TRusage::Get().Stime"
+      ],
+      "limits": "Process CPU consumed across its threads. For an anonymous direct adapter, bracket only production consumption; prepare the independent oracle before timing and compare outputs after timing. Do not include a quadratic reference oracle in the measured interval."
+    },
+    {
+      "source": "anonymous_cpp_guard.py:71",
+      "available": [
+        "Existing serial child subprocess boundary",
+        "Existing scope memory/RSS/watchdog/cleanup observations"
+      ],
+      "next_change": "A narrow worker measurement can take resource.getrusage(RUSAGE_CHILDREN) before/after its sole waited child and report nonnegative user/system CPU deltas. The current guard does not emit these CPU counters. Measuring the outer systemd launcher is insufficient; measure in the dedicated worker that actually waits for the executable. The same fresh one-child worker can record kernel ru_maxrss (normalize Linux KiB to bytes, as util/system/rusage.cpp:109 does). This provides a lifetime process peak including startup/setup; do not subtract it as if it were a target-interval peak. Retain it alongside the polled scope peak and MiniKQL counters."
+    },
+    {
+      "source": "ydb/tests/tools/kqprun/src/kqp_runner.cpp:522",
+      "available": [
+        "Anonymous target-only JSON plan output and existing workload/receipt bindings"
+      ],
+      "limits": "Current wrapper does not expose a verified target execution-CPU scalar. Whole-child CPU must be labeled inclusive of startup/setup/compilation. Pair identical setup and require sufficient target signal; do not mislabel it as operator CPU."
+    }
+  ],
+  "minimal_implementation_order": [
+    "Keep full Q01 quality admission pending now; preserve semantic, structural and direct-lifecycle evidence separately.",
+    "Extend the existing guarded worker with sole-child user/system CPU and kernel max-RSS observations and bound metric-source metadata; preserve all scope, timeout, anonymous-output and cleanup guards.",
+    "Add a small Q01 scaling recipe/spec layer selecting existing generator families and parameterizing row count and frame width. Render only in anonymous memory. Reuse the existing SQL row/physical oracles and paired exact-runner receipts.",
+    "For RANGE-only/mixed allocation observations, reuse the existing runtime adapter and actual linked operator with one fresh process/allocator per measured cell. Record absolute allocator counters and prepared-current usage, not only historical peak deltas. Independent expected results are prepared outside the measured consumption interval.",
+    "Run the predeclared small matrix against pinned baseline and fixed revision where the same production program exists. Since baseline lacks the new RANGE callable, baseline RANGE comparison must use the matched ordinary SQL/production-lowered frame path, not a copied reference implementation. Fixed-only RANGE direct counters remain a separate resource lane.",
+    "Implement and independently review a closed resource-admission validator against the frozen contract/matrix before enabling any accepted scaling verdict."
+  ],
+  "matrix": {
+    "families": [
+      "COUNT plus machine-integer SUM general frames",
+      "ROWS scalar MIN/MAX",
+      "RANGE scalar MIN/MAX only",
+      "RANGE scalar MIN/MAX plus supported collector work"
+    ],
+    "initial_rows": [
+      2048,
+      4096,
+      8192
+    ],
+    "frame_widths": [
+      16,
+      128,
+      512
+    ],
+    "required_cells": "At all three row counts run width16 and width512; at the largest row count also run width128. Seven cells per family, both revisions. Keep partition count, ordering, payload width, types, null distribution and input data identical within each paired cell.",
+    "suffix_and_fallback_controls": "Add one suffix cell and one mixed unsupported-fallback cell per MIN/MAX family at the largest row count; retained fallback has no linear-work promise and is checked only for semantics/resource non-regression.",
+    "mixed_constituents": "At the three row counts with width512, also measure the corresponding MIN/MAX-only and other-supported-collector-only pipelines under the same memory/CPU instrumentation.",
+    "pilot_rule": "A separate signal pilot may select one ladder level before the acceptance manifest is frozen: row counts can all scale together by2 up to32768. Never tune a threshold or omit an unsuccessful cell after collecting acceptance data. If signal/headroom is insufficient, remain pending.",
+    "execution": "Serial, one scoped child at a time. Respect the existing memory/host-headroom watchdog. Reuse exact built executables; no force rebuild.",
+    "repetitions": "One labeled warmup per revision/profile, then5 accepted-measurement attempts per cell, alternating baseline/fixed order. Warmups remain visible as excluded samples. No silent outlier deletion."
+  },
+  "proposed_tolerance_policy": {
+    "status": "Engineering policy proposed for independent review and freezing before execution; no metric has passed it.",
+    "statistics": "For each CPU cell report all5 raw numeric samples, median and median absolute deviation (MAD). Define conservative comparison envelopes median +/- (3*MAD + 2ms); this is an engineering noise bound, not a statistical confidence interval.",
+    "inconclusive": "Any watchdog stop, missing metric, failed semantics, incorrect plan reachability, unresolved provenance, medianCPU<50ms or MAD/median>0.10 keeps the affected family pending. Full acceptance needs every required cell.",
+    "row_growth": "At fixed width, fixed CPU upper envelope for doublingN must not exceed2.75 times the preceding lower envelope. Report measured finite-range behavior only.",
+    "width_growth": "At largestN, fixed CPU upper envelope for width512 must not exceed1.5 times the width16 lower envelope; baseline width512 must exceed2 times width16 after uncertainty. If baseline width sensitivity is not observable, this comparison is inconclusive.",
+    "paired_gain": "At the largest twoN values and width512, fixed CPU upper envelope must be <=0.80 times baseline lower envelope for every admitted family. This supports measured improvement over the tested range, not a universal speedup.",
+    "allocation_growth": "For fixed-only direct cells with identical payload shape, cumulative accounted bytes/allocation counts must show at most3x growth per doublingN after separately reporting fixed setup counters. Use absolute peaks/current usage and live-row witnesses as distinct observations; do not turn a zero delta into a pass.",
+    "mixed_memory_budget": "At each measuredN, the mixed accounted peak must stay within1.25 times the sum of the two separately measured constituent peaks plus64KiB. Record absolute mixed/base peaks as well. This explicitly budgets the two collectors rather than claiming one-buffer memory. The bound is proposed and must be frozen before the acceptance run.",
+    "mixed_cpu_budget": "For identical work and setup, mixed CPU upper envelope must stay within1.25 times the sum of constituent upper envelopes; retain the separate pinned-baseline gain requirement for supported work. Retained fallback controls require no claimed linear scaling or speedup.",
+    "memory_scope": "MiniKQL/accounted allocation bounds and process guard ceilings are separate. No process-RSS bound is inferred from MiniKQL metrics. Peak definition and setup inclusion must match across every comparison.",
+    "failure_policy": "Measured misses, unsupported counters and noisy samples produce pending/failed resource admission with their specific reason. They never become a passing structural substitute.",
+    "process_memory": "Record absolute sole-child max RSS for every SQL baseline/fixed cell and enforce the existing absolute guard. Report row-growth ratios with identical setup and separate setup controls; no target-only peak or allocation-count claim is derived from whole-process RSS."
+  },
+  "future_admission_interface": {
+    "call": "validate_q01_resource_admission(evidence, *, baseline_revision, fixed_revision, canonical_profile_sha256, paired_semantic_evidence_sha256) -> closed resource-admission result",
+    "status": "Interface design only; no accepting implementation or CLI override exists in the proposed temporary gate.",
+    "input_identity": [
+      "schema_version=q01_resource_scaling_v1",
+      "bug=Q01",
+      "exact baseline/fixed revisions",
+      "frozen measurement-contract digest",
+      "generator and complete case-matrix digests",
+      "canonical SQL profile digest",
+      "paired semantic/physical evidence digest",
+      "metric-source version and platform/engine configuration digests"
+    ],
+    "sample_identity": [
+      "phase and exact revision",
+      "family, row count, frame width, control kind, repetition and explicit warmup marker",
+      "exact executable and successful build-receipt digests",
+      "workload/schema/fixture/setting hashes or anonymous compiled-program hash",
+      "physical-plan or runtime-closure binding",
+      "guard record path/digest and successful cleanup/exit status",
+      "measurement interval/scope and required numeric user/system CPU, kernel max-RSS and applicable MiniKQL allocation observations"
+    ],
+    "validator_requirements": [
+      "Read and verify referenced receipt/evidence bytes rather than trusting booleans or digest-shaped strings.",
+      "Derive the complete expected matrix from the frozen contract; reject duplicate/missing cells, changed generators, mixed revisions or incompatible metric scopes.",
+      "Require semantic and physical admission for the same paired workload records.",
+      "Recompute comparison envelopes and all bounds from measured samples; reject self-attested scaling_passed flags.",
+      "No accepted claim if an entire mandatory family or mixed-composition check is absent."
+    ],
+    "output_scope": [
+      "resource_scaling_verified is derived only after actual measurements pass",
+      "measurement_contract_sha256 and admitted evidence digest",
+      "tested finite range and precise memory/CPU scope",
+      "asymptotic_complexity_proved=false",
+      "query_semantics_verified=false and quality_finding_fully_verified=false in the resource result itself; final pairing separately combines all obligations"
+    ]
+  },
+  "unresolved_before_full_acceptance": [
+    "Implement guarded CPU observations and independent resource admission.",
+    "Establish actual MiniKQL peak scope and paired production-lowered allocation evidence for COUNT/SUM and ROWS MIN/MAX; the existing RANGE-only adapter cannot cover these families.",
+    "Run the complete exact-executable matrix and retain all failed/inconclusive samples.",
+    "No current record establishes measured scaling, including existing lifecycle passes or allocation_scaling_verified flags."
+  ],
+  "actions": {
+    "live_edits": false,
+    "builds": 0,
+    "native_runs": 0,
+    "graph_runs": 0,
+    "toolchain_runs": 0,
+    "generated_workloads_or_translation_units": 0,
+    "accepted_measurements": 0
+  }
+}

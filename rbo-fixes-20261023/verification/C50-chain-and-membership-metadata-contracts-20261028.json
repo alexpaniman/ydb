@@ -1,0 +1,56 @@
+{
+  "kind": "metadata_only_source_contracts",
+  "assertions": 387,
+  "original_native_records": 62,
+  "original_native_passes": 50,
+  "original_native_failures": 12,
+  "new_membership_profiles": 8,
+  "new_native_samples": 0,
+  "native_execution": false,
+  "build_or_toolchain_execution": false,
+  "live_source_changes": false,
+  "rendered_payload_persistence": false,
+  "evidence_sha256": "98cf015df095e553e645a1bee991b839ed93f81fc7119e1e20e03e9dbce544f7",
+  "observations": [
+    {
+      "case": "c50_join_chain",
+      "records": 2,
+      "qualified_names_only_digest_match": true,
+      "native_rerun_still_required": true
+    },
+    {
+      "case": "c50_join_chain_se",
+      "records": 2,
+      "qualified_names_only_digest_match": true,
+      "native_rerun_still_required": true
+    },
+    {
+      "case": "c50_left_semi",
+      "records": 2,
+      "existing_C06_source_cause": true,
+      "predicted_failure_bag_digest_match": true,
+      "C06_plus_C50_native_integration_still_required": true
+    },
+    {
+      "case": "c50_left_anti",
+      "records": 2,
+      "existing_C06_source_cause": true,
+      "predicted_failure_bag_digest_match": true,
+      "C06_plus_C50_native_integration_still_required": true
+    },
+    {
+      "case": "c50_right_semi",
+      "records": 2,
+      "existing_C06_source_cause": true,
+      "predicted_failure_bag_digest_match": true,
+      "C06_plus_C50_native_integration_still_required": true
+    },
+    {
+      "case": "c50_right_anti",
+      "records": 2,
+      "existing_C06_source_cause": true,
+      "predicted_failure_bag_digest_match": true,
+      "C06_plus_C50_native_integration_still_required": true
+    }
+  ]
+}

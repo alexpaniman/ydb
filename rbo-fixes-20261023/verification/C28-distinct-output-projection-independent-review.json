@@ -1,0 +1,37 @@
+{
+  "finding": "C28",
+  "reviewer": "c41_review",
+  "base_revision": "18e12ec833db741848ac2bcf5a88b80f4cfdb6d3",
+  "patch_sha256": "fd641503ab9a202e53985970e51e4b0192d1bf4abd737a14c7320ff368afbe37",
+  "verdict": "no_source_annotation_binding_or_api_blocker_found_native_pending",
+  "source_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp": "9d042b2e2f524a6b6f277b848235c11d5463ee677bf8ffc5b71ce4ce3f812e30",
+    "ydb/core/kqp/opt/kqp_type_ann.cpp": "4f2ac8d903510cbff1981d25d9718e95cff602767fd5d8bc2a45371aa5438592",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp": "31a077f34dc8becaea25939b92ab76c2f95b219e3ab4060463ab4bb1adaeb37b"
+  },
+  "checked_contracts": [
+    "AnnotateOpAggregate emits both input grouping keys and same-named DISTINCT result traits; their names and types coincide for the final identity DISTINCT.",
+    "The standard projecting map helper omits inherited input fields in AnnotateOpMap and emits exactly one typed item per final selected name.",
+    "BuildExpressionsFromColumns emits direct Member identities; window functions and selected scalar expressions are not reevaluated.",
+    "The importer excludes grouping keys from DISTINCT output bindings, so each map RHS resolves to the actual fresh DISTINCT result IU.",
+    "Projecting Map starts from an empty visible binding map and assigns fresh output IUs, avoiding additive-map shadow collisions.",
+    "The projection preserves finalProjection order and field optionality and leaves DISTINCT row multiplicity unchanged.",
+    "Final ORDER BY still follows DISTINCT and this result projection; the existing final sorted projection remains valid.",
+    "The change only affects the new window-DISTINCT boundary; nonwindow DISTINCT and nondistinct windows remain untouched."
+  ],
+  "source_references": {
+    "aggregate_annotation": "ydb/core/kqp/opt/kqp_type_ann.cpp:3323",
+    "projecting_map_annotation": "ydb/core/kqp/opt/kqp_type_ann.cpp:3019",
+    "map_identity_helpers": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:347,369",
+    "aggregate_import_bindings": "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:758",
+    "projecting_map_import_bindings": "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:433"
+  },
+  "limitations": [
+    "Source-level schema and SSA reasoning only; original and supplemental native controls must be rerun on the amended executable.",
+    "This restores the standard result projection boundary and does not globally repair the older Aggregate annotation duplication."
+  ],
+  "compiled": false,
+  "native_executed": false,
+  "active_sources_edited": false,
+  "generated_reproductions_persisted": false
+}

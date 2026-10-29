@@ -1,0 +1,45 @@
+{
+  "blocking_source_findings": [],
+  "case_names": [
+    "q18_fields_1",
+    "q18_fields_3",
+    "q18_fields_7"
+  ],
+  "expected_assertion_counts": [
+    25,
+    47,
+    91
+  ],
+  "generated_source_sha256": "6d3fd78101234a4f5bcf9a062ba078df0afc40c748fe728fcbad8d70fdedbc0e",
+  "generator_sha256": "f7f85132057a0c6b42b7663a59faf5a8012ed325bd43b42cf532248165e8390f",
+  "patch": "proposed-quality-amendments/Q18-statistics-object-controls-20261028.patch",
+  "patch_sha256": "c63a66dd9ba1ec6ce27ed059ffacc76d5660069476e59e981eec5002c5077684",
+  "reviewed": [
+    "CountMinSketch::Create returns a heap allocation whose class operator delete calls free, so std::shared_ptr default destruction matches production ownership. Separate old/new objects remain live, making pointer replacement observable.",
+    "TEqWidthHistogram default constructor supplies one Int32 bucket, meeting constructor/estimator invariants. Shared estimator ownership retains the underlying histogram.",
+    "TEqHeightHistogram accepts an empty finalized protobuf by returning before bucket validation; two distinct owned reader objects are sufficient identity witnesses. No histogram estimate is requested.",
+    "All five single-column fields and all four multi-column fields are observed through the actual ApplyColumnStatistics/MergeColumnStatistics branch: replacement, absent-field preservation, optional zero payloads, vector/type updates and cache-map identity.",
+    "std::optional<double> truth checks in the production merger test presence, so incoming zero values must replace nonzero cached NDV and absent HLL; the checks distinguish absent from zero.",
+    "The ready promise is retained; ApplyColumnStatistics only requires readiness and does not clear SharedState, so repeated applications use the actual same cache and response owner. Replacing response maps exercises both omission and repeated payload semantics.",
+    "The patch changes only the dormant generator; its shared prelude adds a real public histogram header. Q19 generated-source identity will also change and is already subject to OA06 current-source binding."
+  ],
+  "schema_version": "q18_statistics_object_controls_independent_review_v1",
+  "scope_limits": [
+    "This extension checks existing cached entries. Initially absent table entries, new-only columns and issue-bearing responses are not added by this patch; retain the separate coverage requirements.",
+    "The fixture does not establish histogram selectivity accuracy, SQL semantics, full RBO optimization quality or actual compile/link success."
+  ],
+  "status": "source_approved_native_pending",
+  "superseded_patch_sha256_description_only": "fa1f77a11c1e1bbd81271a4fd8667f230e86c49fb2ba5f66a9a55262b8c3c913",
+  "validation": {
+    "actual_compiles": 0,
+    "execution_manifest_description_refreshed": true,
+    "generated_hash_matches_parent_report": true,
+    "generated_source_unchanged_after_description_refresh": true,
+    "live_helper_or_production_edits": false,
+    "native_runs": 0,
+    "patch_application_to_source_snapshot": true,
+    "python_syntax": true,
+    "rendered_sources_persisted": false,
+    "toolchain_runs": 0
+  }
+}

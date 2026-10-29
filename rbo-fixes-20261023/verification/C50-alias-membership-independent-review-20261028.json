@@ -1,0 +1,64 @@
+{
+  "kind": "independent_source_metadata_and_existing_digest_review",
+  "source_approved": true,
+  "native_execution": false,
+  "build_or_toolchain_execution": false,
+  "live_edits": false,
+  "rendered_payload_persistence": false,
+  "independent_assertions": 1357,
+  "author_assertions_rerun": 387,
+  "source_preparation_sha256": "cd41392a418109dcbdd5f7733495117cd63d8642ebfad67efd47c46b130e5d4e",
+  "patches": [
+    {
+      "path": "proposed-correctness-amendments/C50-chain-projection-aliases-20261028.patch",
+      "sha256": "515490fe8163bc3257873ea299dc4e36b228b7f13dbebc36ee64aaeaadb94570"
+    },
+    {
+      "path": "proposed-correctness-amendments/C50-uncorrelated-membership-controls-20261028.patch",
+      "sha256": "8e79fa969bcb352597f3ff3b81898a1122c2e61c94624acdf9fa99d07d91a875"
+    }
+  ],
+  "guarded_evidence_sha256": "ee458a3f9112bc998787db65e5a0816b265d1a979a7ff8fb5b0dd9448033316f",
+  "historical_baseline_sha256": "ee00ff73d170851d23ba2967515e5be161445ce948566bc1036ae21ffe855d5d",
+  "original_records_preserved": {
+    "total": 62,
+    "passing": 50,
+    "failing": 12
+  },
+  "findings": [
+    {
+      "classification": "existing_independent_C06_correctness_bug",
+      "records": 8,
+      "description": "Domain elimination substitutes a differently typed equality input for a capture; later typed domain serialization can lose matches.",
+      "evidence": "Eight exact no-domain-match bag digests; eight same-type controls pass; typed substitution and encoding path source-checked.",
+      "historical_support": "Four matching mixed failures and four same-type passes with identical generator/workload/result hashes.",
+      "historical_limit": "Historical baseline lacks binary provenance and recorded node count; it is not a qualified paired baseline.",
+      "remaining": "Independent C06 branch retained; C06 plus C50 integration remains pending."
+    },
+    {
+      "classification": "verification_generator_projection_names",
+      "records": 4,
+      "description": "Join-chain projections expose qualified names while the independent bag oracle expects stable aliases.",
+      "evidence": "Complete expected bag hashes match all four records after column-key qualification only; counts and values unchanged.",
+      "repair": "One-line explicit projection aliases; oracle, fixtures, duplicates, settings, and all other queries unchanged.",
+      "remaining": "Actual repaired-chain native rerun is required; original failures remain false."
+    }
+  ],
+  "new_controls": {
+    "count": 8,
+    "shape": "required uncorrelated membership in four semantic orientations with same-type partners",
+    "no_outer_capture_source_checked": true,
+    "actual_typed_gather_reachability_pending": true,
+    "physical_right_semi_node_claim": false,
+    "nullable_not_in_claim": false,
+    "row_path_claim": false,
+    "shuffle_elimination_claim": false
+  },
+  "qualification": {
+    "full_C50_acceptance": false,
+    "semantic_subset_evidence_only": true,
+    "physical_gather_witness_from_current_batch": false,
+    "do_not_stack_C06_into_standalone_C50": true,
+    "no_original_failure_relabeling": true
+  }
+}

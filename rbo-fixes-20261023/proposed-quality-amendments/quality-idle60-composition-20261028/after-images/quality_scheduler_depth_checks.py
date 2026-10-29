@@ -1,0 +1,143 @@
+"""Four amendment-specific Q28 controls; original26 remain separately required.
+
+Compare the actual IntoMap production rule with the same rule's old depth-two
+scheduler declaration. Rendered C++ and evaluated rows stay in RAM. This module
+alone never grants Q28 query-semantic or full optimization admission.
+"""
+import hashlib
+import json
+from pathlib import Path
+from types import ModuleType
+ROOT=Path(__file__).resolve().parent
+VERSION='q28_map_fusion_refresh_depth_controls_v1'
+REQUIRED_ORIGINAL_MODULE='quality_scheduler_cpp_checks'
+REQUIRED_ORIGINAL_SHA256='b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7'
+
+def _original():
+    path=ROOT/(REQUIRED_ORIGINAL_MODULE+'.py')
+    raw=path.read_bytes()
+    if hashlib.sha256(raw).hexdigest()!=REQUIRED_ORIGINAL_SHA256:
+        raise ValueError('Original Q28 contracts require renewed source review')
+    module=ModuleType(REQUIRED_ORIGINAL_MODULE);module.__file__=str(path)
+    exec(compile(raw,str(path),'exec'),module.__dict__)
+    if len(module.cases())!=26:
+        raise ValueError('Original Q28 case vector changed')
+    return module
+
+def specs():
+    return [{'case':'q28_fusion_depth_'+mode+'_'+str(width),'kept':mode=='kept','fanout':width}
+            for mode in ('removed','kept') for width in (8,32)]
+
+def cases():return [x['case'] for x in specs()]
+
+CONTRACT=r'''
+static ui64 UnionRefreshes = 0;
+struct TDepthMeasurement {
+    ui64 Reads, Unions, Attempts, Visits;
+};
+class TUnionRefreshProbe: public TOpUnionAll {
+public:
+    using TOpUnionAll::TOpUnionAll;
+protected:
+    void ComputeOutputIUs() override { ++UnionRefreshes; }
+};
+class TOldDepthIntoProbe: public TIntoProbe {
+public:
+    std::optional<ui32> LocalRewriteDepth() const override { return 2; }
+};
+static TDepthMeasurement MeasureDepth(ui32 fanout, bool kept, bool oldDepth) {
+    NTests::TIdTestContext f;
+    TVector<TIntrusivePtr<IOperator>> leaves;
+    TUnionInputRow row;
+    for (ui32 i = 0; i != fanout; ++i) {
+        const auto id = f.Id("source");
+        row.Inputs.push_back(id);
+        leaves.push_back(Read(f, id));
+    }
+    const auto merged = f.Id("merged");
+    TUnionAllIUs columns(TUnionInputPolicy{fanout});
+    columns.Add(merged, std::move(row));
+    auto merge = MakeIntrusive<TUnionRefreshProbe>(leaves, f.Pos, std::move(columns));
+    const auto lowerId = f.Id("lower"), movedId = f.Id("moved"), keptId = f.Id("kept");
+    TMapIUs lowerDefinitions;
+    lowerDefinitions.Add(lowerId, f.Column(merged));
+    auto lower = MakeIntrusive<TOpMap>(merge, f.Pos, std::move(lowerDefinitions));
+    TMapIUs upperDefinitions;
+    upperDefinitions.Add(movedId, f.Column(merged));
+    if (kept) upperDefinitions.Add(keptId, f.Column(lowerId));
+    auto upper = MakeIntrusive<TOpMap>(lower, f.Pos, std::move(upperDefinitions));
+    auto root = f.Root(upper, TOrderedIUs<TString>{{kept ? keptId : movedId, "value"}});
+    EvalProps = &root->PlanProps;
+    ComputeRequiredProps(*root, ERuleProperties::RequireOutputIUs, f.RboCtx, "depth fixture");
+    const auto expectedOutputs = root->GetInput()->GetOutputIUs();
+    const auto expectedValues = Values(merge, merged);
+    Check(expectedValues.size() == fanout);
+    TVector<std::unique_ptr<IRule>> rules;
+    rules.emplace_back(std::make_unique<TVisitProbe>());
+    if (oldDepth) rules.emplace_back(std::make_unique<TOldDepthIntoProbe>());
+    else rules.emplace_back(std::make_unique<TIntoProbe>());
+    TRuleBasedStage stage("fusion depth contract", std::move(rules));
+    ReadRefreshes = UnionRefreshes = Attempts = CandidateVisits = 0;
+    stage.RunStage(*root, f.RboCtx);
+    const TDepthMeasurement measured{ReadRefreshes, UnionRefreshes, Attempts, CandidateVisits};
+    // Publish counters only after independent values, IDs, mutation boundaries
+    // and a second stage call have passed.
+    Check(root->GetInput()->GetOutputIUs() == expectedOutputs);
+    Check(Values(root->GetInput(), movedId) == expectedValues);
+    Check(Values(root->GetInput(), lowerId) == expectedValues);
+    if (kept) Check(Values(root->GetInput(), keptId) == expectedValues);
+    Check(lower->GetInput() == merge);
+    Check(lower->GetMapElements().Keys() == TUnorderedIUs{lowerId, movedId});
+    if (kept) {
+        Check(root->GetInput() != upper && root->GetInput() != lower);
+        auto& retained = CastOperator<TOpMap>(*root->GetInput());
+        Check(retained.GetInput() == lower);
+        Check(retained.GetMapElements().Keys() == TUnorderedIUs{keptId});
+    } else {
+        Check(root->GetInput() == lower);
+    }
+    for (ui32 i = 0; i != fanout; ++i) Check(merge->GetChild(i) == leaves[i]);
+    NTests::AssertIdInvariants(*root, root->PlanProps);
+    const auto final = root->GetInput();
+    stage.RunStage(*root, f.RboCtx);
+    Check(root->GetInput() == final && root->GetInput()->GetOutputIUs() == expectedOutputs);
+    Check(Values(root->GetInput(), kept ? keptId : movedId) == expectedValues);
+    NTests::AssertIdInvariants(*root, root->PlanProps);
+    return measured;
+}
+static TDepthMeasurement CurrentDepth{}, OldDepth{};
+static void RunDepth(ui32 fanout, bool kept) {
+    const auto current = MeasureDepth(fanout, kept, false);
+    const auto old = MeasureDepth(fanout, kept, true);
+    CurrentDepth = current; OldDepth = old;
+    Check(TPushMapElementsIntoMapRule().LocalRewriteDepth() == std::optional<ui32>{1});
+    Check(current.Reads > 0 && current.Unions > 0 && current.Attempts > 0 && current.Visits > 0);
+    Check(old.Reads == current.Reads + (kept ? 0 : fanout));
+    Check(old.Unions == current.Unions + (kept ? 1 : 0));
+    Check(old.Visits == current.Visits + (kept ? 1 : fanout));
+    Check(old.Attempts == current.Attempts + (kept ? 1 : fanout));
+}
+'''
+
+def render_cpp_suite():
+    module=_original()
+    text=module.COMMON+CONTRACT+'int main() { unsigned failures = 0;\n'
+    for index,spec in enumerate(specs()):
+        text+='{ Checks=0; CurrentDepth={}; OldDepth={}; bool passed=true; try { RunDepth('+str(spec['fanout'])+','+('true' if spec['kept'] else 'false')+'); } catch (...) { passed=false; ++failures; }\n'
+        text+='std::cout << '+json.dumps('{"case_index":'+str(index)+',"checks_executed":')+' << Checks << '+json.dumps(',"passed":')+' << (passed ? "true" : "false")'
+        for prefix,name in (('current','CurrentDepth'),('old_depth','OldDepth')):
+            for label,field in (('source_refreshes','Reads'),('union_refreshes','Unions'),('rule_attempts','Attempts'),('candidate_visits','Visits')):
+                text+=' << '+json.dumps(',"'+prefix+'_'+label+'":')+' << '+name+'.'+field
+        text+=' << '+json.dumps('}\n')+'; }\n'
+    return text+'return failures ? 1 : 0; }\n'
+
+def metadata():
+    return {'schema':VERSION,'case_count':4,'case_vector':cases(),'specifications':specs(),
+            'required_original_module':REQUIRED_ORIGINAL_MODULE,'required_original_case_count':26,
+            'required_original_source_sha256':REQUIRED_ORIGINAL_SHA256,
+            'generated_source_sha256':hashlib.sha256(render_cpp_suite().encode()).hexdigest(),
+            'before_revision':'567d22ff15c8036cbc9741e0bb29daa6c140f0c1',
+            'before_revision_is_q28_implementation_not_pinned_main':True,
+            'baseline_expected_cost_assertion_failure_only_after_semantic_checks':True,
+            'native_execution_pending':True,'query_semantics_verified':False,
+            'full_q28_admission':False,'generated_source_persisted':False}

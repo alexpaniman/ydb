@@ -1,0 +1,8 @@
+{
+  "generated_contracts_compiled": false,
+  "input_count": 6274,
+  "receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+  "receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "status": "production_closure_prepared"
+}

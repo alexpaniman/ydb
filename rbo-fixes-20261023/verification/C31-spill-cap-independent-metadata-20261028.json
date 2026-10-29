@@ -1,0 +1,18 @@
+{
+  "actual_no_spill_observed": false,
+  "assertions": 122,
+  "audit_sha256": "4ea76db95ef70273c05acd131a327c79ed02ef60c84b995d48a620d92089b8ea",
+  "config_sha256": {
+    "c31_stability_float_domain__spilling__left": "6c4af8f2a676cca125b2a7c5b7ce1c41d8156870861ee06ef22b76ed58d50529",
+    "c31_stability_integer_domain__spilling__left": "6c4af8f2a676cca125b2a7c5b7ce1c41d8156870861ee06ef22b76ed58d50529"
+  },
+  "full_native_config_parse_verified": false,
+  "live_helper_edits": false,
+  "mocked_failed_native_records": 2,
+  "native_processes_started": 0,
+  "patch_sha256": "3ba620eaad5f60154a923653043371e4a0ca9595cf50ac284913e0cd50ab51bf",
+  "pinned_sources_checked": 39,
+  "rendered_queries_or_plans_persisted": false,
+  "status": "independent_source_metadata_checks_passed",
+  "toolchain_runs": 0
+}

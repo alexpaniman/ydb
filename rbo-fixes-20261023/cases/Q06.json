@@ -1,0 +1,40 @@
+{
+  "id": "Q06",
+  "title": "Lookup selection can choose a broad secondary-index prefix over a complete primary-key probe.",
+  "branch": "fix/new-rbo/q06-lookup-selection-can-choose-a-broad-secondary-index-prefix-over-a-complete",
+  "commit": "864bd56c1abb0c47f9f1ee669acf722819354dee",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp"
+  ],
+  "proposal_sha256": "8a4d8670b4b1b39890b1c0c071d07a0a5ad9e0f8f38fdf01b414fb263cb2c533",
+  "proposal": "proposed-quality-patches/Q06.patch",
+  "proposal_metadata": {
+    "id": "Q06",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_patch_only",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp"
+    ],
+    "scope": "Protect complete physical primary-key probes in the no-range index-selection path shared by CBO and execution. Other candidate ranking is unchanged.",
+    "validation_plan": [
+      "Both CBO and physical lookup keep complete base-PK target over incomplete secondary prefix",
+      "Partial-PK control remains eligible for covering secondary access",
+      "Composite and nullable physical keys; no-range eligibility; measure fan-out and selected target"
+    ],
+    "static_checks": [
+      "git apply --check against pinned baseline passed"
+    ],
+    "limits": [
+      "No compilation, native execution or plan-quality measurement yet"
+    ]
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

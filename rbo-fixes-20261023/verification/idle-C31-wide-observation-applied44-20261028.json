@@ -1,0 +1,62 @@
+{
+  "combined_after_sha256": {
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_scope_observation.py": "53936c074cbfd900616accec68caaf0308e8866c12db2d04b3fa91d6504df9a7",
+    "c31_shared_field_probe.py": "b6fe548ee0dc25e49e1d8011246e5a8971e0abad68e7247d4ea8e8e12b7980d4",
+    "c31_shared_origin_probe.py": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "c31_switch_shape_observation.py": "f7352e08ab1abdcd3aaa82bb2c4f4dc2fe89a6c733ccc48b4b504f7b0b266fc8",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "composed_observer_checks": 765,
+  "full_lineage_admission": false,
+  "guard_checks": 240,
+  "guard_report": {
+    "path": "verification/C31-field-stage-tuple-guard-source-preparation-20261028.json",
+    "sha256": "d7e74741b5c02078d0f6992aaba39f376758597d1ba7f5d649cd43c2faac729d"
+  },
+  "live_apply_performed": true,
+  "live_before_sha256": {
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_scope_observation.py": "5a3781ce5847e1f9670d9ae83363a20265992b1e73575d514480a5b2e091e73d",
+    "c31_shared_field_probe.py": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298",
+    "c31_shared_origin_probe.py": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "c31_switch_shape_observation.py": "5839cb9e13b6dfd0987db6d426e2449b9737ea4193df514eba7b1003af48fce1",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "metadata_report": {
+    "path": "verification/C31-stage-tuple-guard-combined-metadata-20261028.json",
+    "sha256": "dd4daa0aa1c51497eadfa5e4f201b259d8b1928f6790e23efebde3f4b88b3223"
+  },
+  "native_runs": 0,
+  "ordered_patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-field-stage-tuple-identity-guard-20261028.patch",
+      "sha256": "34089e31abcd8f58cd3ba5dd91d1bb2d89fd0386c3e21d6660bf880568b82e24"
+    },
+    {
+      "path": "proposed-correctness-amendments/C31-wide-switch-projection-observation-20261028.patch",
+      "sha256": "663071e6b09e6db24a991e2df0f706fd3ba33bd237c6da75fb45c11a6c94a5a8"
+    }
+  ],
+  "profiles": [
+    "c31_stability_float_domain__spilling__left",
+    "c31_stability_integer_domain__spilling__left"
+  ],
+  "rows": 24,
+  "schema_version": "c31_two_patch_temporary_composition_manifest_v1",
+  "status": "two_reviewed_observation_patches_applied_at_idle",
+  "wide_observer_report": {
+    "path": "verification/C31-wide-switch-projection-source-preparation-20261028.json",
+    "sha256": "f49b2c3dfe8d858011a65677abfc70c2e94f79ee0ae243ec4fe1a39ddffc9485"
+  },
+  "applied_unix_time": 1793149443.94985,
+  "changed_files": [
+    "c31_scope_observation.py",
+    "c31_shared_field_probe.py",
+    "c31_switch_shape_observation.py"
+  ],
+  "independent_review": "verification/C31-wide-stage-independent-review-20261028.json",
+  "independent_review_sha256": "74df869551f01465bb878b42c64f057a7b8ee1de65869efa8443f89d13fc73ca",
+  "total_applied_helper_patches": 44,
+  "previous_batch": "verification/idle-Q-CPP-API-repairs-applied42-20261028.json"
+}

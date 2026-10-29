@@ -1,0 +1,70 @@
+{
+  "Git_mutations": 0,
+  "author_mock_checks": 795,
+  "author_mock_scenarios": 40,
+  "binding_refresh_patch_sha256": "a3ff753f5e6c8824a2127389a7b5a6c7bb0a3b4564e7d20402c94758eab8ad06",
+  "executed_top_level_local_imports": {
+    "anonymous_cpp_guard": [
+      "rbo-fixes-20261023/memory_safe_build.py"
+    ],
+    "anonymous_cpp_metadata": [],
+    "anonymous_cpp_verify": [
+      "rbo-fixes-20261023/anonymous_cpp_guard.py",
+      "rbo-fixes-20261023/anonymous_cpp_metadata.py"
+    ],
+    "binary_provenance": [],
+    "correlation_oracle_generator": [
+      "rbo-review-20261021/generate_and_verify.py"
+    ],
+    "generate_and_verify": [],
+    "memory_safe_build": [],
+    "native_verify": [
+      "rbo-fixes-20261023/binary_provenance.py",
+      "rbo-fixes-20261023/optimizer_mode_contract.py",
+      "rbo-fixes-20261023/verification_contract.py",
+      "rbo-review-20261021/correlation_oracle_generator.py",
+      "rbo-review-20261021/generate_and_verify.py",
+      "rbo-review-20261021/partial_lookup_key_generator.py"
+    ],
+    "optimizer_mode_contract": [],
+    "partial_lookup_key_generator": [
+      "rbo-review-20261021/generate_and_verify.py"
+    ],
+    "quality_spill_bounds": [],
+    "verification_contract": [
+      "rbo-fixes-20261023/optimizer_mode_contract.py"
+    ]
+  },
+  "generator_after_sha256": "d7dff3b1f4a20e2a2a3306bc9f969dfa77e048c824e9db9f2f9114e2072c0ca2",
+  "independent_checks": 189,
+  "limits": [
+    "Source/mock approval is not native integration evidence.",
+    "Root must install exact idle53 plus original generator, binding refresh and revised runner, then supply the fresh exact integration build receipt.",
+    "Abrupt process death preserves only already emitted records.",
+    "Auxiliary UDF identity is checked, but a separate successful UDF build receipt is not claimed.",
+    "No final distribution proof, standalone finding admission, original-failure reclassification or unchanged-configuration claim."
+  ],
+  "live_source_edits": 0,
+  "native_admission": false,
+  "native_build_graph_runs": 0,
+  "original_generator_patch_sha256": "75ea46631d821354dde8ca87aee6d9845a612c09626fb6fefb52e62b24ae15a6",
+  "prior_generator_review": {
+    "path": "verification/C06-C50-bounded-generator-independent-source-checks-20261028.json",
+    "sha256": "d686d9252435d10036c09bbd3b9ca51bf0b8dad34ec6d6072688c7c1dd90e63a"
+  },
+  "rendered_workloads_or_results_persisted": false,
+  "reviewed_correction": "Completed native records are now sanitized and emitted before propagating a validation interruption.",
+  "reviewed_report_sha256": "a5faa69fae691c783368e8eaa8f3214c90fdb1cdfd50ed9210bd87aaa1d66492",
+  "runner_after_sha256": "1c18bbe841ccd90be8f7b5c8a3cfdc4dba56a1c5a3b6b59072ef4e79a3b007c9",
+  "runner_patch_sha256": "775047f8626cf6ee6b33f463f59d2f3e34f76ecea61814fd01568e44e00df149",
+  "schema_version": "c06_c50_independent_runner_review_v1",
+  "source_binding_count": 21,
+  "status": "approved_source_and_mock_scope_only",
+  "transport": [
+    "Fresh readonly sealed manifest binds nonce, exact source set, tree, revision, receipt and ordered vector.",
+    "The existing serial lease covers the guarded worker and finalization; only the worker invokes the database serially.",
+    "Current guard return and stdout hash/size bind fresh memory evidence; no caller-selected old guard document is accepted.",
+    "Valid completed-record prefixes persist before final executable/source validation; malformed or incomplete output cannot pass.",
+    "All records use exact8-case two-repeat vector, rows24, four nodes; original48 workload fingerprints and16 changed settings remain exact."
+  ]
+}

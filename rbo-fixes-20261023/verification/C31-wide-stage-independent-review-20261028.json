@@ -1,0 +1,67 @@
+{
+  "status": "independently_approved_source_and_metadata_scope_two_actual_observations_pending",
+  "composition": {
+    "path": "verification/C31-wide-observer-and-stage-tuple-composition-20261028.json",
+    "sha256": "60d440423f551d65a7e23918d695b02b8c59f866839bcdbd40cd0164c0585963"
+  },
+  "ordered_patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-field-stage-tuple-identity-guard-20261028.patch",
+      "sha256": "34089e31abcd8f58cd3ba5dd91d1bb2d89fd0386c3e21d6660bf880568b82e24"
+    },
+    {
+      "path": "proposed-correctness-amendments/C31-wide-switch-projection-observation-20261028.patch",
+      "sha256": "663071e6b09e6db24a991e2df0f706fd3ba33bd237c6da75fb45c11a6c94a5a8"
+    }
+  ],
+  "live_before_sha256": {
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_scope_observation.py": "5a3781ce5847e1f9670d9ae83363a20265992b1e73575d514480a5b2e091e73d",
+    "c31_shared_field_probe.py": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298",
+    "c31_shared_origin_probe.py": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "c31_switch_shape_observation.py": "5839cb9e13b6dfd0987db6d426e2449b9737ea4193df514eba7b1003af48fce1",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "combined_after_sha256": {
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_scope_observation.py": "53936c074cbfd900616accec68caaf0308e8866c12db2d04b3fa91d6504df9a7",
+    "c31_shared_field_probe.py": "b6fe548ee0dc25e49e1d8011246e5a8971e0abad68e7247d4ea8e8e12b7980d4",
+    "c31_shared_origin_probe.py": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "c31_switch_shape_observation.py": "f7352e08ab1abdcd3aaa82bb2c4f4dc2fe89a6c733ccc48b4b504f7b0b266fc8",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "source_conclusions": [
+    "The wide observer adds only the fixed WideFromBlocks/WideToBlocks labels and one-child inventory traversal; these are not treated as transparent lineage conversions.",
+    "Direct scalar ownership uses exact lambda-argument identity. Local NarrowMap bijections require one AsStruct body,1..128 own arguments, unique decoded output names and exact one-time use of every argument.",
+    "Local bijection and branch-input ownership remain independent counters: foreign inputs, unknown wrappers, malformed arity and depth limits can coexist with a locally bijective projection without granting proof.",
+    "All new output names are fixed/allowlisted categories and bounded counts; raw field names, symbols, constants and graph nodes stay in RAM. The old broad other_computation category remains intentionally overlapping for comparison and must not be interpreted as proof of computation.",
+    "The separate proof-stage guard creates a fresh tuple-identity set inside each stage traversal. It preserves callable-node deduplication, nested-stage boundaries, stage discovery and every proof predicate/result field.",
+    "Shared programs remain independently traversed for each stage. Graph ownership keeps reachable tuple identities stable while each set is used.",
+    "The wrapper changes only its version, retaining all functions, exact two24-row profiles, source snapshots, schema/fixture/row oracle delegation, enabled sharing, node spill mask and one-byte local storage cap.",
+    "The new observer keeps all four proof/admission flags false. Existing proof semantics and historical evidence remain unchanged; no new shared-producer or aggregate-value lineage acceptance is created.",
+    "All six pinned production API/source hashes were independently checked; observed unknown block wrapper identity remains a hypothesis until the new bounded observations."
+  ],
+  "verification": {
+    "author_stage_guard_checks_rerun": 240,
+    "author_composed_wide_observer_checks_rerun": 765,
+    "independent_checks": 354,
+    "independent_report": {
+      "path": "verification/C31-wide-stage-independent-contracts-20261028.json",
+      "sha256": "d44c6a4ae4a0dbd80bd31b6f9afd50e0958849097097fd72d5fd17aed22f7c8d"
+    },
+    "independent_script": {
+      "path": "proposed-correctness-amendments/C31-wide-stage-independent-contracts-20261028.py",
+      "sha256": "3663ceb892cb6b15c8dccaed862b0c93d242bdfda007669593f971dcc806f87c"
+    },
+    "clean_temporary_two_patch_composition": true,
+    "native_build_or_toolchain_runs": 0,
+    "live_helpers_changed": false,
+    "rendered_inputs_or_graphs_persisted": false
+  },
+  "limits": [
+    "The tuple change establishes a distinct-object bound for one discovery traversal; it does not claim every helper operation is globally linear.",
+    "Only the same two24-row cells are ready for root-coordinated guarded observations after idle application.",
+    "Native semantic/structural success and direct33 evidence stay separate from complete shared-field lineage, which remains pending.",
+    "Do not reinterpret old broad counters or source-supported wrapper hypotheses as runtime lineage proof."
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "purpose": "read_only_C31_runner_content_recheck",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "receipt": "verification/build-receipts/24e1aae9a0677e8ed12f257a7944c50516e9cba4-48c4f1872521cccc.json",
+  "receipt_sha256": "d91df7ee293b86784a202fed76147ec4fb36d3a01ce22f7959d8b4551791799a",
+  "binary_sha256_matches": true,
+  "different_identity_fields": [
+    "ctime_ns"
+  ],
+  "current_binary": {
+    "size_bytes": 11295129144,
+    "mtime_ns": 1792733595442724013,
+    "ctime_ns": 1792738145547337679,
+    "inode": 6820244,
+    "device": 64769,
+    "resolved_path": "/home/alexpaniman/.ya/build/symres/0cae44c0983066f73803d3295c3bbe18/kqprun",
+    "sha256": "24b118635a8a0555dc7a7d6a7cbe01f70e91c7708b856a58a679766b6e7bd5e7"
+  },
+  "recorded_ctime_ns": 1792733600861908596,
+  "elapsed_seconds": 17.405,
+  "current_source_revision_matches": true,
+  "native_execution_performed": false,
+  "receipt_rewritten": false,
+  "acceptance_changed": false
+}

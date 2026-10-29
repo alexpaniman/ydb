@@ -1,0 +1,33 @@
+{
+  "contract_version": "strict_results_and_request_boundaries_v1",
+  "checks": {
+    "single_set": true,
+    "ordered_sets": true,
+    "empty_boundary_unknown": true,
+    "nonconsecutive_headers_rejected": true,
+    "unheaded_prefix_rejected": true,
+    "nonrow_output_rejected": true,
+    "duplicate_keys_rejected": true,
+    "invalid_encoding_rejected": true,
+    "stage_setup": true,
+    "stage_target": true,
+    "stage_validation": true,
+    "stage_single_request": true,
+    "stage_ambiguous_rejected": true,
+    "stage_startup": true,
+    "stage_quoted_marker_ignored": true,
+    "guard_qualified": true,
+    "setup_guard_rejected": true,
+    "missing_pair_hashes_rejected": true,
+    "malformed_pair_hashes_rejected": true,
+    "matching_pair_hashes": true,
+    "failed_result_set_overrides_rows": true,
+    "hash_pair_without_semantic_oracle_rejected": true,
+    "metamorphic_pairs_qualified": true,
+    "metamorphic_missing_role_rejected": true,
+    "metamorphic_unequal_hash_rejected": true,
+    "execution_only_insufficient_for_c18": true
+  },
+  "total": 26,
+  "passed": 26
+}

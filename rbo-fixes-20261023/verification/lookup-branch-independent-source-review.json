@@ -1,0 +1,62 @@
+{
+  "status": "source_review_complete_native_pending",
+  "restored_context": "Separated from later generator audit that reused the earlier artifact filename.",
+  "production_source_edits": false,
+  "builds": false,
+  "native_runs": false,
+  "new_confirmed_blocker": false,
+  "cases": {
+    "Q03": {
+      "commit": "939173f5abcbcd596dd23ddfefed806df0d243ed",
+      "source_contracts": [
+        "Uncovered index residual is evaluated after fetching all base primary-key columns.",
+        "New path requires ordinary synchronous row index, useful extracted prefix and no imported limit.",
+        "Covered-index predicate execution is preserved; no conjunct splitting is introduced."
+      ]
+    },
+    "Q04": {
+      "commit": "a9df61306aa47badfbf1cec2fc043b3336addfd3",
+      "source_contracts": [
+        "Only direct bounded Sort(Read), literal limit, uniform direction and matching NULL order qualify.",
+        "Ready synchronous covering index must match the full requested sort-key prefix.",
+        "Imported-read settings C47 and nonnullable NULL-order Q05 need explicit integration."
+      ]
+    },
+    "Q06": {
+      "commit": "864bd56c1abb0c47f9f1ee669acf722819354dee",
+      "source_contracts": [
+        "No-range chooser prefers a covering complete physical primary key before partial secondary prefixes.",
+        "Range-aware scoring remains unchanged."
+      ]
+    },
+    "Q17": {
+      "commit": "a5a23189d946a8bd772e10279bc44e270648ec02",
+      "source_contracts": [
+        "Implementation-table metadata includes implicit base primary keys for physical coverage.",
+        "Ready synchronous ordinary index policy and missing-metadata guards remain enforced."
+      ]
+    },
+    "Q23": {
+      "commit": "183be021902ede0113798fcee8118c4479966713",
+      "source_contracts": [
+        "IndexLookupJoin liveness no longer retains original probe keys solely as payload.",
+        "Lookup construction consumes keys before stripping payload; residual-key fields remain live."
+      ]
+    },
+    "Q24": {
+      "commit": "734379d38b24d68712098d96cd57fe79d1c90253",
+      "source_contracts": [
+        "Row source columns and physical renames use identical live-output filtering.",
+        "Logical range provenance is retained; OLAP path is unchanged."
+      ]
+    },
+    "Q29": {
+      "commit": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+      "source_contracts": [
+        "Only alpha-equivalent total primitive comparison predicates are omitted from rebuilt fetched-row filters.",
+        "Unknown calls, guards, casts, arithmetic and volatile expressions retain original order and sites.",
+        "Q07 shares the fetched-row-filter helper and requires explicit integration."
+      ]
+    }
+  }
+}

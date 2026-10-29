@@ -1,0 +1,67 @@
+Independent source review, 2026-10-23. No builds, native runs, or exact inputs.
+
+C42: 6eeadd50b057ceec10173d3fb1104b4a81ddbafe
+No definite correctness blocker found in this patch.
+Removing the direct-Map producer restriction applies the existing edge-local Just
+conversion equally to a nested set-operation producer. Each side's bindings are
+copied before rewriting; fresh IUs and an additive Map avoid mutating a shared
+producer, and union rows resolve through the updated bindings. The final projection
+rebinds from original left bindings to output bindings, so it does not depend on the
+old widened input IU surviving. The same conversion precedes nullable StablePickle
+keys for INTERSECT/EXCEPT. Existing empty-definition handling avoids redundant maps.
+Scope caveat: this fixes missing outer optionalization; it does not implement general
+numeric or nested-container type coercion. Do not claim those unrelated conversions
+are fixed. Native acceptance should cover mixed nested/flat union trees, both input
+sides, repeated shared producers, nullable controls, column order, and INTERSECT/EXCEPT
+if supported. Current source analysis does not establish a new separate defect there.
+
+C43: fd7ba4678acdce0c5473cb765187abdde514a16e
+No definite correctness blocker found in this patch.
+If focused lowering stops with unsupported composite expressions, the existing full
+physical peephole expands the original prepared stage graph. Discarding partial
+focused rewrites is intentional and semantically reasonable: full expansion already
+handles those original callable families. PreparePhysicalStages has type-annotated
+that graph even when wide channels are disabled; the peephole accepts typed narrow
+stage arguments and only propagates wide blocks when stage settings permit it.
+The fallback does not bypass a required wide-channel conversion contract. It reuses
+the existing typed per-stage KqpProgram expansion, not a second query execution.
+Risks to validate: whole-graph fallback has a broader optimization footprint than
+focused lowering, and no-progress/error assertions inside focused rewrites still
+precede the fallback. The latter does not affect the source-confirmed unsupported
+composite no-op path, but malformed or erroneous rewrites will still fail explicitly.
+Use optional/nested tuple/list/struct membership, comparisons and HasNull, with plain
+scalar controls and both physical-peephole settings. Verify values/null behavior,
+not merely successful compilation. No claim that the fallback repairs logical RBO
+rewrites already performed before physical lowering.
+
+C50: gather-both fallback is source-supported and materially narrower than early casts
+Executor evidence:
+- kqp_tasks_graph.cpp CountComputeTasks starts partitionsCount at 1. Plain UnionAll
+  inputs do not increase it; only shuffle/map/parallel-union/etc. do.
+- dq_connection_builder.h BuildUnionAllChannels requires exactly one destination
+  task and sends one channel from every origin task to that task, for each input.
+- Two plain UnionAll connections therefore feed one join invocation with all rows
+  from both sides, retaining bags and avoiding broadcast duplication of outer rows.
+- Keep the join kind and existing physical key comparison/casts. Force the supported
+  Grace algorithm for gathered mixed-type joins; block eligibility stays with the
+  existing FinalizeJoinPhysicalProps decision. Do not force MapJoin for every kind.
+
+Implementation design:
+At AssignStages, classify remaining regular joins by complete key-pair type identity.
+If any pair differs, set an explicit GatherJoinInputs physical property. Exact type
+comparison deliberately catches optional/container differences too; this is a
+conservative correctness fallback with a documented performance cost.
+If any gather exists, clear LeftShuffleBy/RightShuffleBy on all regular joins in the
+query and clear cached ShuffledByColumns facts before assigning any connection.
+This avoids ancestor CBO proofs based on the pre-gather distribution. Gather both
+inputs with nonparallel TUnionAllConnection. Suppress hash-distribution claims in
+TOpJoin::ComputeMetadata whenever GatherJoinInputs is set, including future metadata
+recomputations after physical aggregate propagation. Copy the marker with physical
+properties. Homogeneous joins continue to use ordinary shuffle construction.
+
+This fallback preserves comparison behavior, null filtering, join kind, duplicates,
+and original output types; it changes placement. It does not repair shared legacy
+optimizer behavior. Gathering may increase network traffic and memory pressure and
+removes parallel join execution for mixed-type keys. Clearing query-wide hints may
+also add shuffles to other joins in that query. These optimization costs are explicit
+and acceptable for a narrow correctness-first fix pending proper normalization.

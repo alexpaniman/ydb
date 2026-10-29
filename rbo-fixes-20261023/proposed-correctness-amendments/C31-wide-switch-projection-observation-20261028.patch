@@ -1,0 +1,88 @@
+--- a/rbo-fixes-20261023/c31_switch_shape_observation.py
++++ b/rbo-fixes-20261023/c31_switch_shape_observation.py
+@@ -8,11 +8,14 @@
+ 
+ import c31_shared_field_probe as fields
+ 
+-VERSION = 'c31_switch_lexical_shape_inventory_v1'
++VERSION = 'c31_switch_lexical_shape_inventory_v2_wide_projection'
+ _FLOW = frozenset(('ToFlow', 'FromFlow', 'ToStream', 'Iterator', 'Collect'))
++# These are traversed for shape inventory only, never as lineage proof.
++_BLOCK = frozenset(('WideFromBlocks', 'WideToBlocks'))
++_UNARY = _FLOW | _BLOCK
+ _MAP = frozenset(('Map', 'OrderedMap', 'ExpandMap', 'NarrowMap', 'WideMap',
+                   'FlatMap', 'OrderedFlatMap', 'WideFlatMap'))
+-_INPUT = _MAP | _FLOW | frozenset(('ExtractMembers', 'SkipNullMembers', 'FilterNullMembers',
++_INPUT = _MAP | _UNARY | frozenset(('ExtractMembers', 'SkipNullMembers', 'FilterNullMembers',
+                                   'Filter', 'OrderedFilter', 'WideFilter'))
+ _HEADS = _INPUT | frozenset(('Switch', 'AsStruct', 'Member', 'Nth', 'Just', 'Unwrap',
+                             'StablePickle', 'IfPresent', 'Cast', 'SafeCast', 'DqPhyStage',
+@@ -76,7 +79,7 @@
+             counters['input_chain_terminal']['cycle'] += 1
+             return
+         seen.add(current)
+-        expected = 1 if head in _FLOW else 2
++        expected = 1 if head in _UNARY else 2
+         if len(current.children) != expected:
+             counters['input_chain_terminal']['unsupported_arity'] += 1
+             return
+@@ -93,16 +96,39 @@
+                     if isinstance(value, fields._Arg):
+                         counters['mapping_status']['own_argument' if value in rows else 'foreign_argument'] += 1
+                     if fields._head(value) == 'AsStruct':
++                        projection_args, projection_names = set(), set()
++                        plain_projection = head == 'NarrowMap' and 0 < len(rows) <= 128 and len(values) == 1
+                         for pair in value.children[:128]:
+                             if not isinstance(pair, tuple) or len(pair) != 2:
+                                 counters['struct_values']['invalid_pair'] += 1
++                                plain_projection = False
+                                 continue
+                             member = pair[1]
++                            counters['struct_value_heads'][_label(member)] += 1
++                            try:
++                                output_name = fields._atom(pair[0])
++                            except fields._Reject:
++                                plain_projection = False
++                            else:
++                                if output_name in projection_names:
++                                    plain_projection = False
++                                projection_names.add(output_name)
++                            if isinstance(member, fields._Arg):
++                                own = member in rows
++                                counters['struct_values']['own_scalar_argument' if own else 'foreign_scalar_argument'] += 1
++                                if not own or member in projection_args:
++                                    plain_projection = False
++                                projection_args.add(member)
++                            else:
++                                plain_projection = False
+                             if fields._head(member) == 'Member' and len(member.children) == 2:
+                                 counters['struct_values']['own_row_member' if len(rows) == 1 and member.children[0] is rows[0]
+                                                           else 'foreign_row_member'] += 1
+                             else:
+                                 counters['struct_values']['other_computation'] += 1
++                        if head == 'NarrowMap':
++                            bijective = plain_projection and len(value.children) == len(rows) and projection_args == set(rows)
++                            counters['narrow_projection_shape']['own_argument_bijection' if bijective else 'not_own_argument_bijection'] += 1
+                         if len(value.children) > 128:
+                             counters['struct_values']['truncated'] += 1
+                 if len(values) > 128:
+@@ -167,7 +193,7 @@
+         names = ('branch_status', 'branch_argument_counts', 'branch_body_counts', 'branch_root_heads',
+                  'input_chain_terminal', 'input_chain_depths', 'input_chain_heads',
+                  'mapping_status', 'mapping_argument_counts', 'mapping_body_counts', 'mapping_body_heads',
+-                 'struct_values', 'switch_status', 'switch_input_heads', 'switch_branch_counts',
++                 'struct_values', 'struct_value_heads', 'narrow_projection_shape', 'switch_status', 'switch_input_heads', 'switch_branch_counts',
+                  'join_callables', 'join_status', 'join_kinds', 'join_key_counts', 'stage_terminal_heads')
+         counters = {name: Counter() for name in names}
+         for stage in stages:
+--- a/rbo-fixes-20261023/c31_scope_observation.py
++++ b/rbo-fixes-20261023/c31_scope_observation.py
+@@ -30,7 +30,7 @@
+ _fields = _snapshot('c31_shared_field_probe')
+ _switches = _snapshot('c31_switch_shape_observation')
+ CASE_SPECIFIC_SCHEMA = True
+-GENERATOR_VERSION = 'c31_shared_scope_observation_v4_lexical_switch_inventory'
++GENERATOR_VERSION = 'c31_shared_scope_observation_v5_wide_projection_inventory'
+ CASES = ('c31_stability_float_domain__spilling__left',
+          'c31_stability_integer_domain__spilling__left')
+ _CALLABLES = frozenset(('DqPhyStage', 'TDqOutput', 'Switch', 'Map', 'OrderedMap',

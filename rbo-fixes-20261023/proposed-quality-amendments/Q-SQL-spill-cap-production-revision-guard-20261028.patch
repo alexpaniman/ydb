@@ -1,0 +1,147 @@
+--- a/rbo-fixes-20261023/quality_spill_bounds.py
++++ b/rbo-fixes-20261023/quality_spill_bounds.py
+@@ -7,10 +7,77 @@
+ import hashlib
+ import json
+ from pathlib import Path
++from typing import NamedTuple
+ 
+ _ROOT = Path(__file__).resolve().parent.parent
+ VERSION = 'quality_sql_payload_spill_cap_v1'
+ LOCAL_SERVICE = '{ LocalFileConfig { Enable: true MaxTotalSize: 1 } }'
++
++_BASE_REVISION = 'e8700d379b3b9c4fbaf68f36424e6bcf08314fd2'
++_FIXED_REVISIONS = {'Q01': '3e2a57e559557a716bba6f42eccff44bbc2ed8d7',
++ 'Q03': '939173f5abcbcd596dd23ddfefed806df0d243ed',
++ 'Q04': 'a9df61306aa47badfbf1cec2fc043b3336addfd3',
++ 'Q06': '864bd56c1abb0c47f9f1ee669acf722819354dee',
++ 'Q07': '18eb64e0a7e18ccf2f50340a75f98b3ced6ab646',
++ 'Q10': 'efeebb38e72fd7a7c84ab65121e49362f93e2d4b',
++ 'Q14': '0600104a1fba93917e7a4e11a4f1b2ad0198cdbd',
++ 'Q15': '4e6d9217ef22bdcced5cd1879d3639508717e8e0',
++ 'Q17': 'a5a23189d946a8bd772e10279bc44e270648ec02',
++ 'Q21': 'a15cf405bd258b86dedf171e6a9eaac9022dd644',
++ 'Q23': '183be021902ede0113798fcee8118c4479966713',
++ 'Q24': '734379d38b24d68712098d96cd57fe79d1c90253',
++ 'Q28': '567d22ff15c8036cbc9741e0bb29daa6c140f0c1',
++ 'Q29': '73620db7e22cbf67cb2e2262f227a9303492ed41'}
++
++class _ValidatedSpillScope(NamedTuple):
++    phase: str
++    revision: str
++    bugs: tuple
++    runner: str
++    receipt_sha256: str
++    runner_sha256: str
++
++
++def validated_quality_spill_scope(bugs, phase, revision, provenance):
++    """Bind an already verified runner receipt to the audited production scope."""
++    affected = tuple(bug for bug in bugs if bug in _FIXED_REVISIONS)
++    if not affected:
++        return None
++    if (phase not in ('baseline', 'fixed')
++            or any(revision != (_BASE_REVISION if phase == 'baseline' else _FIXED_REVISIONS[bug])
++                   for bug in affected)
++            or provenance.get('binary_provenance_verified') is not True
++            or provenance.get('binary_provenance_version') != 'successful_runner_build_v1'):
++        raise ValueError('Unaudited spilling production revision or runner provenance')
++    raw = Path(provenance['build_receipt_path']).read_bytes()
++    receipt_hash = hashlib.sha256(raw).hexdigest()
++    receipt = json.loads(raw)
++    binary = provenance.get('binary_provenance', {})
++    saved_binary = receipt.get('binary', {})
++    fields = {'resolved_path', 'sha256', 'size_bytes', 'mtime_ns', 'ctime_ns', 'inode', 'device'}
++    if (receipt_hash != provenance.get('build_receipt_sha256')
++            or receipt.get('schema_version') != 'successful_runner_build_v1'
++            or receipt.get('revision') != revision
++            or receipt.get('build', {}).get('exit_code') != 0
++            or 'ydb/tests/tools/kqprun' not in receipt.get('build', {}).get('target', '').split()
++            or set(binary) != fields or set(saved_binary) != fields
++            or any(type(binary[key]) is not int or binary[key] < 0
++                   for key in fields - {'resolved_path', 'sha256'})
++            or type(saved_binary['ctime_ns']) is not int or saved_binary['ctime_ns'] < 0
++            or binary['size_bytes'] <= 0
++            or not isinstance(binary['sha256'], str) or len(binary['sha256']) != 64
++            or any(c not in '0123456789abcdef' for c in binary['sha256'])
++            or any(binary[key] != saved_binary[key] for key in fields - {'ctime_ns'})
++            or not isinstance(binary['resolved_path'], str)
++            or not Path(binary['resolved_path']).is_absolute()
++            or not isinstance(receipt.get('worktree'), str)
++            or not Path(receipt['worktree']).is_absolute()
++            or (Path(receipt['worktree']) / 'ydb/tests/tools/kqprun/kqprun').resolve()
++               != Path(binary['resolved_path'])):
++        raise ValueError('Spilling runner receipt binding changed')
++    return _ValidatedSpillScope(phase, revision, affected, binary['resolved_path'],
++                                receipt_hash, binary['sha256'])
++
+ 
+ _SOURCE_BINDINGS = {'rbo-fixes-20261023/anonymous_cpp_guard.py': '58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819',
+  'rbo-fixes-20261023/anonymous_cpp_metadata.py': '83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf',
+@@ -293,7 +360,7 @@
+     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+ 
+ 
+-def bound_quality_spill_metadata(module, case, mode, rows, metadata):
++def bound_quality_spill_metadata(module, case, mode, rows, metadata, *, scope=None, runner=None):
+     settings = metadata.get('table_service_overrides', metadata.get('table_service_config', {}))
+     node_mask = settings.get('EnableSpillingNodes', 'None')
+     enabled = (settings.get('EnableQueryServiceSpilling')
+@@ -304,6 +371,12 @@
+         if case.startswith('q') and enabled:
+             raise ValueError('Unreviewed spilling quality profile')
+         return metadata
++    bug = case.split('_', 1)[0].upper()
++    if (not isinstance(scope, _ValidatedSpillScope) or bug not in scope.bugs
++            or scope.phase not in ('baseline', 'fixed')
++            or scope.revision != (_BASE_REVISION if scope.phase == 'baseline' else _FIXED_REVISIONS[bug])
++            or runner is None or Path(runner).resolve() != Path(scope.runner)):
++        raise ValueError('Spilling cell requires a validated audited runner scope')
+     if (mode != 'new' or type(rows) is not int or rows != 24
+             or module.__name__ != entry['module']
+             or _digest(metadata) != entry['metadata_sha256']
+@@ -327,6 +400,8 @@
+         'version': VERSION, 'local_service_enabled': True, 'cap_bytes': 1,
+         'compute_spill_mask': 'None', 'source_bindings_sha256': _digest(_SOURCE_BINDINGS),
+         'source_metadata_sha256': entry['metadata_sha256'],
++        'production_phase': scope.phase, 'production_revision': scope.revision,
++        'build_receipt_sha256': scope.receipt_sha256, 'runner_sha256': scope.runner_sha256,
+         'runtime_spill_occurrence_observed': False,
+         'cap_rejection_counts_as_success': False,
+     }
+--- a/rbo-fixes-20261023/native_verify.py
++++ b/rbo-fixes-20261023/native_verify.py
+@@ -66,10 +66,10 @@
+     return {}
+ 
+ 
+-def run_generated(module, case, mode, n, *, measurement_identity=None):
++def run_generated(module, case, mode, n, *, measurement_identity=None, spill_scope=None):
+     meta = module_metadata(module, case, mode, n)
+     from quality_spill_bounds import bound_quality_spill_metadata
+-    meta = bound_quality_spill_metadata(module, case, mode, n, meta)
++    meta = bound_quality_spill_metadata(module, case, mode, n, meta, scope=spill_scope, runner=g.BINARY)
+     if measurement_identity is not None:
+         if (module.__name__ != 'quality_q01_scaling_checks' or mode != 'new'
+                 or meta.get('q01_resource_scaling_cell') != module.cell(case, n)
+@@ -310,6 +310,9 @@
+         print(json.dumps(failure, sort_keys=True), flush=True)
+         raise SystemExit(3)
+ 
++    from quality_spill_bounds import validated_quality_spill_scope
++    spill_scope = validated_quality_spill_scope(args.bugs, args.phase, revision, provenance)
++
+     if measurement_identity is not None:
+         measurement_identity.update(phase=args.phase, revision=revision,
+             executable_sha256=provenance['binary_provenance']['sha256'],
+@@ -373,8 +376,8 @@
+             repeats = args.repetitions or module_metadata(module, case, 'new', args.rows).get('repetitions', 1)
+             for mode in args.modes:
+                 for repeat in range(repeats):
+-                    record = (run_generated(module, case, mode, args.rows, measurement_identity=measurement_identity)
+-                              if measurement_identity is not None else run_generated(module, case, mode, args.rows))
++                    record = run_generated(module, case, mode, args.rows,
++                                           measurement_identity=measurement_identity, spill_scope=spill_scope)
+                     record['repetition'] = repeat
+                     save(record)
+         if bug in ('C05', 'C06', 'C07', 'C08'):

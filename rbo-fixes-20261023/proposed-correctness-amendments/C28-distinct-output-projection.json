@@ -1,0 +1,22 @@
+{
+  "finding": "C28",
+  "base": "18e12ec833db741848ac2bcf5a88b80f4cfdb6d3",
+  "patch_sha256": "fd641503ab9a202e53985970e51e4b0192d1bf4abd737a14c7320ff368afbe37",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "apply_check_passed": true,
+  "source_diagnosis": "Aggregate annotation exposes both key and same-named DISTINCT result fields. A projecting result Map provides the unique selected row schema, as the ordinary DISTINCT and ordered result paths already do.",
+  "contracts": [
+    "The extra map is projecting by the existing helper default.",
+    "Each final distinct key becomes one identity definition; no scalar/window expression is reevaluated.",
+    "Importer resolves each identity against the original aggregate binding and assigns a fresh output IU.",
+    "Distinct traits and keys have identical value types, so member selection among their duplicated annotation names is type equivalent.",
+    "Both ordered and unordered outputs now retain the normal projection boundary.",
+    "Existing nonwindow and nondistinct paths are unchanged."
+  ],
+  "compiled": false,
+  "native_executed": false,
+  "production_sources_edited": false,
+  "generated_inputs_saved": false
+}

@@ -1,0 +1,29 @@
+--- a/rbo-fixes-20261023/c31_scope_observation.py
++++ b/rbo-fixes-20261023/c31_scope_observation.py
+@@ -27,8 +27,9 @@
+ _windows = _snapshot('quality_window_checks')
+ _base = _snapshot('c31_identity_checks')
+ _origin = _snapshot('c31_shared_origin_probe')
++_fields = _snapshot('c31_shared_field_probe')
+ CASE_SPECIFIC_SCHEMA = True
+-GENERATOR_VERSION = 'c31_shared_scope_observation_v1'
++GENERATOR_VERSION = 'c31_shared_scope_observation_v2'
+ CASES = ('c31_stability_float_domain__spilling__left',
+          'c31_stability_integer_domain__spilling__left')
+ _CALLABLES = frozenset(('DqPhyStage', 'TDqOutput', 'Switch', 'Map', 'OrderedMap',
+@@ -123,6 +124,15 @@
+                   'full_shared_producer_contract_pass'):
+         if observation[field] is not False:
+             raise ValueError('Observation cannot grant lineage admission')
++    field_observation = _fields.check_shared_fields(case, text)
++    if field_observation['physical_ast_sha256'] != result['physical_ast_sha256']:
++        raise ValueError('Field observation AST binding mismatch')
++    for field in ('exact_shared_producer_origin_proved',
++                  'aggregation_value_to_identity_binding_proved',
++                  'full_shared_producer_contract_pass'):
++        if field_observation[field] is not False:
++            raise ValueError('Field observation cannot grant lineage admission')
++    observation['constrained_field_observation'] = field_observation
+     observation.update(_inventory(text))
+     observation.update(source_snapshot_sha256=dict(_HASHES),
+                        observation_only=True,

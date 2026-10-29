@@ -1,0 +1,53 @@
+{
+  "schema": "quality_all29_execution_plan_independent_review_v1",
+  "reviewer": "/root/q01_measurement_review",
+  "reviewed_at_utc": "2026-10-28T01:17:35.539707+00:00",
+  "verdict": "source_plan_approved_with_explicit_spill_setup_holds_and_pending_only_pilots",
+  "plan_sha256": "43bf967ad02bfa9e10fecf08066c14514280c7a46805811366a2a3aee93c0ceb",
+  "text_sha256": "a496108d728924536ceacbe6740f4b6bc6acc559b00e1cc794fbda70dbb9c598",
+  "metadata_checks": {
+    "path": "verification/quality-all29-execution-plan-independent-metadata-20261028.json",
+    "sha256": "3ad0e443faae7f48e7df6efd278c956c4a5b9d7124d942dd8bd656e4a997a056",
+    "checks_passed": 470
+  },
+  "required_correction_resolved": {
+    "superseded_plan_sha256": "1c1c72b69147c467bfefe1b44de68ed6b1e4643393dfdc04fdcf30c2617f44d2",
+    "problem": "The original schedule qualified only the Q28 SDK shared cell but also scheduled ordinary SQL cells with local payload spilling enabled and no reviewed no-persistence setup.",
+    "independent_inventory": "82 explicit spilling cells in14 findings. The default new.conf disables spilling, so the remaining metadata routes do not inherit an unnoticed enabled default.",
+    "correction": "Retain every complete SQL vector, but mark every affected whole lane blocked pending reviewed bounded setup; no cell omission can count as full coverage. Unaffected canonical10 contain87 cases; affected canonical12 outside Q01 contain97. Q14 and Q01 full SQL lanes are held separately.",
+    "not_claimed": "No claim that a spill occurred, no new production bug, and no permission flow or runtime action."
+  },
+  "independently_checked": [
+    "All29 current branch revisions and case-file hashes; each exact commit parent is pinned main.",
+    "All28 per-module SQL vectors reconstructed from current recipes and metadata in RAM, including ordered case ownership, mode, rows24, repetitions, node counts, syntax and additional-IR flags.",
+    "All12 direct vectors and generator hashes; fixed-only Q01/Q11/Q15 are distinct from nine paired local findings. Q27 uses AST closure, Q01 uses kqp_runtime and other direct lanes use rbo.",
+    "51 CLI templates parsed using the actual argparse setup without dispatch. Four dormant Q28 patches compose in a temporary copy and their measure-compilation commands parse. No target processes ran.",
+    "Current source and reference hashes, existing applied44 state, and dormant patch hashes. API fixes already installed must not be reapplied.",
+    "Complete inventory remains850 SQL cases/853 records per phase; Q25 keeps four volatile repetitions and its independent C15 control.",
+    "Fixed Q09/Q11/Q20 and Q15 admission requirements,239 additional-IR Q01 cases, canonical Q15 partition_subset19 and Q26 source_settings18 match current gate source.",
+    "Baseline direct closure reuse is conditioned on live receipt verification at each use; each generator still has distinct baseline evidence. Saved pairing binds immutable evidence/receipt/source and permits a subsequently rotated checkout. SQL baseline is freshly built/run per invocation and has no reuse CLI.",
+    "Canonical ownership/profile matching remains required for verified_quality. Noncanonical Q14/Q25 and direct-only Q16/Q18/Q19/Q27 stay qualified. The plan cannot promote local pairs into full query semantics."
+  ],
+  "Q01_assessment": {
+    "measurement_boundary": "Sole kqprun child including startup/setup/compile/target; Python recipe/oracle and separate preflight excluded.",
+    "pilot": "Named-window plus matched same-N setup control is reviewed but dormant. Five families and setup scan are raw frontend/path/signal observations under exact phase receipts and existing serial guard.",
+    "later_matrix": "Alternating paired order is in the bound execution manifest;31-profile arithmetic excludes six missing suffix/fallback controls, allocation/absolute-peak evidence, frozen signal-selected ladder and a closed accepting validator.",
+    "limits": "Whole-child CPU/maxRSS is not operator-only work. Row growth does not isolate runtime; no startup-RSS subtraction, threshold adjustment or current resource acceptance."
+  },
+  "Q28_assessment": {
+    "direct": "26 local controls cover three rules/two stages and conservative exclusions, not every scheduler rule.",
+    "SQL": "All8 required cases preserved; whole lane now held until reviewed no-payload-spill setup.",
+    "SDK": "Seven executable cases after four dormant patches; shared-spilling control remains unexecuted. Server compilation wall/CPU counters omit some earlier work and are neither pure RBO timing nor runner startup timing.",
+    "admission": "No full pilot coverage, query-scaling proof or quality acceptance is claimed."
+  },
+  "execution": {
+    "source_metadata_only": true,
+    "native_runs": 0,
+    "build_toolchain_graph_runs": 0,
+    "live_helper_or_production_edits": false,
+    "case_status_or_gate_edits": false,
+    "rendered_payloads_persisted": false,
+    "new_thresholds": false
+  },
+  "followup": "Root separately requested a narrow source-only bounded spilling setup proposal to satisfy the documented holds; this approval does not remove them."
+}

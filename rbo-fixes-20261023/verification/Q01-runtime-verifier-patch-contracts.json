@@ -1,0 +1,35 @@
+{
+  "patch_sha256": "5dbe983da81fc60e24c7f1f6325ec71f85629d63458098e29edb4b39f36d991f",
+  "files": [
+    {
+      "name": "anonymous_cpp_metadata.py",
+      "before_sha256": "25347b8dcaa25c4b36ae3d69873e25c31dd4830317fd15b704e76f604b1befeb",
+      "after_sha256": "c9704027fa2b3b0205f9d141040a2edb0cfaf259c14a8b7e16055d38b3bd87cf"
+    },
+    {
+      "name": "anonymous_cpp_verify.py",
+      "before_sha256": "3dcd3fea2d0299d5694804f5abc319f915ba227b8c7347a07efab2c66c907c04",
+      "after_sha256": "ab5efbf9bed8d22900e822fa45b684e1ad2da3d3121f47abfedf68778b92aef2"
+    },
+    {
+      "name": "verify_series.py",
+      "before_sha256": "b3cdbba539e90b9d3a05c6a03c46018d3f1ea8442ad8127c7521bf44b7d25201",
+      "after_sha256": "41a63a26e2c8fb620407f1b996dc1f9d8114a2cf6e5c77cab879cd2307cb05fb"
+    },
+    {
+      "name": "quality_range_minmax_checks.py",
+      "before_sha256": "aa4606600f5ad0d4fc5eb8291f0b097fbbd488ab48af5ed5acd0956aaa2abab3",
+      "after_sha256": "2d2a23f017e76a67552260d7e15dcfe1e2b53be727ac92543ab99b32978eb390"
+    },
+    {
+      "name": "quality_minmax_checks.py",
+      "before_sha256": "b2e7c48da8ed33fa8960ecbe9d7aff65a812f7aedb1e11c2da959fe385b125ec",
+      "after_sha256": "42d8fbf1f983b739448dc1c6e19432ac464ea9f4a4bf6343e0a10e573f4d74d4"
+    }
+  ],
+  "syntax_parse_passed": true,
+  "active_helpers_edited": false,
+  "compiler_runs": 0,
+  "native_runs": 0,
+  "physical_summary_propagation_required": true
+}

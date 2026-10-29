@@ -1,0 +1,230 @@
+Window, aggregation and scalar-membership optimization plans
+Prepared 2026-10-23 during the global production freeze.
+Source baseline: e8700d379b3b9c4fbaf68f36424e6bcf08314fd2.
+Status: read-only design, not implementation or benchmark evidence.
+No generated queries or result values are recorded here.
+
+Scope and order
+
+Correctness fixes remain the prerequisite. In particular, integrate and verify
+C24/C26/C35 before assessing multi-DISTINCT state combinations, and C37/C38/C50
+before adding general distribution reuse. None of these plans changes
+yql/essentials; references there document existing contracts only.
+
+Suggested sequence: Q02 dead window pruning, Q10 shared DISTINCT arguments,
+the conservative Q15 adjacent-window case, Q22 homogeneous membership, then Q01
+frame algorithms. Q01's small count optimization and the narrow first versions
+of Q15/Q22 must not be reported as complete resolution of their broader items.
+
+Q01: general frames are folded again for each output row
+
+Evidence and mechanism
+- physical_conversion/kqp_rbo_physical_window_builder.cpp:1416 constructs a
+  WinFrame and then Fold1 for every output row. Specialized running/range paths
+  already exist and should be left intact.
+- The WinFrame list is TQueueRange. Its GetListLength returns the bounded index
+  difference, and HasFastListLength returns true
+  (yql/essentials/minikql/comp_nodes/mkql_queue.cpp:169-178).
+
+Small independent improvement
+- In BuildFrameFold, recognize aggregate COUNT whose actual argument IU type is
+  statically nonoptional/non-Null. COUNT(*) has already supplied its countable
+  argument; inspect the lowered type rather than spelling alone.
+- Build Length on the raw WinFrame list, retaining its row DependsOn. Do not rely
+  on the identity OrderedMap wrapper being eliminated to preserve fast length.
+- When every aggregate function is an eligible COUNT, connect no Fold1 into the
+  result graph. Native ranking outputs still pass through unchanged. Empty or
+  clipped frames naturally produce zero.
+- For a mixed window, substitute the eligible count result but keep the existing
+  fold for the other aggregates. Removing its unnecessary count state is a later
+  local refinement; it does not change the traversal complexity of that mix.
+- Do not remove upstream argument-expression evaluation merely because its
+  result became countable; use the established liveness/effect contracts.
+
+Acceptance
+- For count-only general ROWS/RANGE frames, the lowered graph has no frame Fold1
+  and contains frame Length; there is no per-frame row traversal for counting.
+- Independent count oracles cover empty/clipped frames, null-free arguments,
+  native functions beside counts, ascending/descending RANGE and peer groups.
+- Optional COUNT and mixtures containing SUM/AVG retain their prior behavior.
+- After separating sort/queue cost, measure two independent axes: fixed row
+  count with growing frame width, and fixed width with growing row count. The
+  count work should no longer grow with frame width. Record CPU/work counters
+  and peak memory; do not require fragile wall-clock thresholds.
+
+Remaining Q01 scope
+This does not close Q01 for nullable COUNT, SUM/AVG/MIN/MAX, nor reduce the queue's
+memory requirement. Nullable COUNT can use a carefully scoped prefix count or
+incremental count. General SUM/AVG need state-removal semantics that preserve
+overflow, nullable results and floating/decimal rounding; subtraction of prefix
+sums is not automatically equivalent. MIN/MAX need a monotone deque or another
+proven frame structure, including RANGE peer behavior. Those are independent
+algorithm changes, not a safe incidental extension of the count patch.
+
+Q02: dead window outputs keep work and can disable blocks
+
+Small complete direction
+- Add TOpWindow::PruneOutputs in kqp_operator.h/global_pruning.cpp. Retain only
+  live WindowFuncs, using SetWindowFuncs so the cached output IUs are reset.
+- Change TOpWindow::PropagateLiveness in analysis/logical_liveness.cpp:365 to use
+  ILivenessContext::NeedsDefinition for each window definition. This preserves
+  local analysis and scopes where definitions are deliberately not pruned.
+- Keep passthrough inputs that consumers need. Request each retained function's
+  argument IUs; request partition and sort IUs only if any definition survives.
+- Existing IsEmptyPassthrough and BypassEmptyOperators remove empty windows.
+  Early pruning runs before whole-partition expansion, block disabling and
+  stage assignment, so no new bypass stage is needed.
+- Reuse the current expression liveness/effect policy; do not create a second
+  interpretation of whether dropped argument expressions may have effects.
+
+Acceptance
+- All-dead window output: no Window, window sort, or window shuffle remains, and
+  block mode is not disabled solely by the removed window.
+- Partially dead output: only live functions and their required arguments remain;
+  shared arguments, hidden sort/partition keys and passthrough columns survive
+  exactly while required. The source projection drops truly dead wide fields.
+- Empty and nonempty inputs retain original cardinality. Check consumers in
+  nested projections and both global and local liveness modes.
+- Measure function/stage count, source bytes and block/row mode in the plan;
+  compare CPU for a consumed cheap function beside an unused expensive function.
+
+Q10: DISTINCT functions with the same input deduplicate separately
+
+Small complete direction for the reported duplicate work
+- In rules/expand_distinct_aggregation.cpp:ExpandMultiDistinct, group DISTINCT
+  output IDs by the exact original aggTraits.Input IU. The aggregate's grouping
+  keys are already common to all its traits. Do not merge merely similar-looking
+  expressions: distinct IUs may have different types/evaluation semantics.
+- Call the existing addPartialResult once per group with all its output IDs.
+  That lambda already accepts multiple outputs, deduplicates on the first
+  output's input plus grouping keys, constructs separate partial aggregate
+  states, and pads all other result columns for the final union.
+- Keep output-to-intermediate and final-result mappings separate for each
+  function. Keep the existing single non-DISTINCT branch. Add a source invariant
+  that every output in a DISTINCT group has the same input IU.
+- Group discovery should follow stable first occurrence in the existing trait
+  order so branch/ID order is deterministic; a hash lookup may find a group, but
+  should not define its emission order.
+- No Replicate changes are necessary. Fewer ports also reduce duplicated common
+  producers when later expansion cannot retain sharing. This does not promise
+  to eliminate the remaining cross-group duplication under those settings.
+- Keep the single-DISTINCT fast path. Avoid adding a separate one-group fast
+  path until the shared-branch version is verified: it is additional scope.
+
+State contracts and integration
+- COUNT and SUM over the same deduplicated input still need different partial
+  and final states; sharing a deduplication is not sharing their accumulators.
+- Preserve C24's idempotent state optionalization, C26's variance state and
+  C35's Decimal interval-AVG tuple. Keep AVG state provenance per output.
+- Empty scalar inputs, all-null values and grouped absent groups must retain
+  each function's independent result. C34 is a separate prerequisite where
+  tuple-valued empty states are involved.
+
+Acceptance
+- The logical expanded plan has one DISTINCT branch per unique DISTINCT input
+  IU, plus at most one non-DISTINCT branch, rather than one per result.
+- A shared input used by COUNT/SUM/AVG has one deduplication stage and separate
+  result states. Distinct input IUs retain separate branches, even for equal
+  displayed expressions. Mixed ordinary aggregates retain their original bags.
+- Use independent scalar/grouped, optional/all-null/empty and interval/decimal
+  result oracles. Check both channel-spilling settings and multiple nodes.
+- Measure distinct stages, Replicate ports, source-read instances, read bytes,
+  shuffled bytes and aggregate CPU. The deduplication count must fall with the
+  number of shared argument groups; producer sharing beyond that is optional.
+
+Q15: consecutive windows repeat a sufficient repartition
+
+Safest first implementation
+- In rules/assign_stages.cpp's Window branch, before creating a Shuffle, detect
+  a direct input Window with the same nonempty ordered partition-IU sequence.
+  Use TMapConnection for that edge. Do not cross a Map, Filter, Join, Union or
+  renamed/cast IU in this first patch.
+- The first window still shuffles; each repeated window preserves its actual
+  task distribution. Sort keys and frame/function definitions may differ,
+  since each window still performs its own required local sort/evaluation.
+- Require exact ordered sequence equality, including types through IU identity.
+  A set-equality test is insufficient for the advertised ordered hash contract.
+- Integrate C37: its output metadata describes those same partition keys, so
+  the narrow skip leaves the existing property true without a second metadata
+  contract. C38/C50 remain prerequisites for any later arbitrary-input reuse.
+- The existing hash-function propagation stage carries the producer hash across
+  Map connections (rules/propagate_hash_func_stage.cpp:11-46).
+- Do not add keyless gather elision in the same patch; proving a single input
+  task and representing that property is a separate check.
+
+Acceptance
+- A chain of compatible direct windows has one HashShuffle instead of one per
+  window. Its local window sort/processing remains. Distinct partition sequences,
+  intervening operators and unknown distribution retain the existing shuffle.
+- Four-node semantic oracles cover different sort directions, peer groups,
+  nullable partitions and downstream grouping/join consumers with shuffle
+  elimination enabled and disabled. One-node execution is only a control.
+- Measure HashShuffle connection count and bytes, not only stage count: the
+  windows still require separate stages under this design.
+
+Generalization needed to close all Q15 cases
+An input hashed on a subset of the window partition columns can be sufficient
+for co-location, but preserving that narrower hash distribution and claiming a
+hash over the entire window partition are different statements. General reuse
+must compute its selected distribution before downstream CBO proofs, preserve
+ordered hash columns/function/type identity, and have ComputeMetadata report
+the actual preserved subset. Merely replacing Shuffle with Map in assignment
+while C37 always reports all window partition keys is unsafe. A dedicated
+shared decision/property helper is appropriate for that extension.
+
+Q22: large explicit scalar membership becomes an OR chain
+
+Small first implementation
+- physical_conversion/kqp_rbo_compatibility.cpp:220-295 already has a typed
+  dictionary path for runtime scalar lists. Apply the shared peephole's small
+  collection threshold of five to explicit lists, letting larger lists use that
+  path instead of BuildSqlInComparisons.
+- For large homogeneous tuples, construct an AsList of their elements/Nth
+  accesses only when the element annotations are exactly identical, then use
+  the same dictionary path. Keep one shared original tuple expression node.
+- Keep empty collections and tiny lists on their existing branches. Preserve
+  ANSI/legacy result optionality, null lookup behavior and the dictionary's null
+  key test. Use the existing exact-key/failed-cast handling, with comparison
+  controls for mixed probe and collection types before accepting that scope.
+- Dictionary membership must share one dict expression between the successful
+  lookup and the ANSI null-key check. Do not produce an independent dictionary
+  for each check or each literal comparison.
+- No manual hoisting across row-dependent or effectful collection expressions.
+  MiniKQL's TSetWrapper is a TMutableComputationNode and records List/Key
+  dependencies; invariant inputs can use the existing cache, whereas truly
+  row-dependent collections must invalidate normally. Validate this property
+  in the lowered computation graph rather than assuming AsList is invariant.
+
+Acceptance
+- With full physical peephole disabled, large homogeneous explicit collections
+  contain one ToDict and Contains, with bounded null-handling branches and no
+  list-sized comparison OR. Tiny collections retain their compact comparison
+  path. Record plan nodes and compiled computation-node dependencies.
+- For invariant collections, dictionary construction is independent of the
+  row argument and is not repeated once per row. Measure list-size and row-count
+  axes separately: expected set construction plus lookup work replaces their
+  product. Include miss-heavy probes, which prevent short-circuit hits from
+  masking a remaining linear scan.
+- Compare both ANSI and legacy truth tables across matches/misses, null probes,
+  null elements, duplicate elements, empty/all-null collections, optional types,
+  integer/string/decimal/floating families and row-dependent collections.
+- Keep CPU, peak memory and compile/plan size separate: hash membership spends
+  memory to reduce comparisons. Check boundary sizes around the threshold.
+
+Remaining heterogeneous tuple scope
+The shared full peephole computes CommonType for tuple members and builds a
+typed dictionary (BuildDictOverTuple in yql_opt_peephole_physical.cpp:2215).
+The narrow homogeneous patch does not close Q22 for heterogeneous tuples.
+To close that scope, reuse that common-type/coercion contract in the RBO helper
+and type-annotate the resulting list/dictionary; do not silently cast all values
+to the first member's type. An alternative after C43 is to intentionally leave
+large heterogeneous SqlIn nodes for its existing full-stage fallback, whose
+shared lowering already chooses a dictionary. That is less local and must be
+reported as a fallback with extra compilation/optimization footprint, not as a
+standalone main-based Q22 fix. No yql/essentials edits are needed in either case.
+
+Verification discipline
+Use compositional generators and anonymous inputs/results. Save only recipe
+labels, config, source/branch identity, sanitized plan metrics, oracle decisions
+and timing/counter summaries. A reduced operator count is source/plan evidence;
+runtime benefit remains unverified until controlled measurements succeed.

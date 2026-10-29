@@ -1,0 +1,51 @@
+bug_id,title,classification,source_authors,interaction_authors,lineage_or_candidate_authors,exposure_authors,main_commits
+C01,Typed join predicates are copied across unequal key types,source_introduction,Pavel Velikhov,,,,7c422d3d0bfc3cf2970974c6e3667d3749dbaeff
+C02,Volatile filters change aggregate values,source_introduction,Denis Khalikov,,,,a4765c75f7555f86bf61a63d6214a4c1a6dd16dc
+C03,DISTINCT aggregates over grouping sets compute incorrect subtotals,source_introduction,Denis Khalikov,,,,9589d9b27518163f55722b2c5c8ba98dadd02594
+C04,Filter fusion evaluates expressions on rows already rejected,source_introduction,Pavel Velikhov,,,,fd5a7114c92b6facae8018f0dd09ac057a08520c
+C05,Scalar subquery validation runs for unrelated correlation keys,source_introduction,Denis Khalikov,,,,7ee9137a38b158fb733613e21e2d160003a7c324
+C06,Correlation can select the wrong row after a key type changes,source_introduction,Denis Khalikov,,,,7ee9137a38b158fb733613e21e2d160003a7c324
+C07,Domain elimination admits matches forbidden by NaN equality,source_introduction,Denis Khalikov,,,,7ee9137a38b158fb733613e21e2d160003a7c324
+C08,Empty correlated scalar aggregates skip their result expression,source_introduction,Denis Khalikov,,,,7ee9137a38b158fb733613e21e2d160003a7c324
+C09,IN subqueries ignore the requested NULL-semantics mode,source_introduction,Denis Khalikov; Pavel Velikhov,,,,7ee9137a38b158fb733613e21e2d160003a7c324
+C10,Nullable NaN is mistaken for NULL in IN handling,source_introduction,Denis Khalikov,,,,7ee9137a38b158fb733613e21e2d160003a7c324
+C11,IN typing removes a necessary COALESCE fallback,source_introduction,Pavel Velikhov; Denis Khalikov,,,,10b439a0132694280184769221ee276198980257
+C12,Hidden grouping columns prevent DISTINCT from removing duplicates,source_introduction,Denis Khalikov,,,,64e5e4146c6b27f5391eb19fbc9e4d8187893698
+C13,Grouped result expressions are replaced by a bare grouping key,source_introduction,Denis Khalikov,,,,fbe5541e63905ac791d36e2074c017745c0946eb
+C14,Aggregates on different nested fields share the wrong input,source_introduction,Denis Khalikov,,,,7cf095c620a4063f3134efa24ea49d876110852b
+C15,A scalar subquery is evaluated outside its conditional guard,lineage_or_candidate_only,,,Pavel Velikhov; Denis Khalikov,,a24651dc6c3bbe037a87ad8faf51438bc8f27a36
+C16,Unresolved subqueries enter block-cross join filters too early,source_introduction,Denis Khalikov,,,,e49db9c68f3d3438a6a257a02fecbb1360a85598
+C17,Shared-plan pruning leaves references to removed columns,source_introduction,alexpaniman,,,,026a4acc33c26deef68af9c271412cc5ff1095f8
+C18,Pruning leaves an invalid operator under an empty grouping-set wrapper,source_introduction,alexpaniman,,,,026a4acc33c26deef68af9c271412cc5ff1095f8
+C19,Unordered rank functions construct an invalid expression,source_introduction,Denis Khalikov,,,,11ebdccf532442bc91e1c664403a677d55b2fd2b
+C20,Window ranking loses the nullable-key compatibility setting,source_introduction,Denis Khalikov,,,,11ebdccf532442bc91e1c664403a677d55b2fd2b
+C21,Window AVG uses the wrong physical type for intervals,source_introduction,Denis Khalikov,,,,e15a17493ed7698fd09c3816171d85c32770b79c
+C22,Repeated window keys produce an invalid physical sort,source_introduction,Denis Khalikov,,,,11ebdccf532442bc91e1c664403a677d55b2fd2b
+C23,Grouping sets mishandle a bare NULL key type,source_introduction,Denis Khalikov,,,,6962e896755e1f166f02647883d70575df8f206d
+C24,DISTINCT expansion creates a nested optional for interval SUM,source_introduction,Denis Khalikov,,,,0cffeb781b1ffc02c076c2eec50871970423606c
+C25,Correlated multi-aggregate DISTINCT fails between stages,source_introduction,Denis Khalikov,,,,7ee9137a38b158fb733613e21e2d160003a7c324
+C26,DISTINCT combined with sample standard deviation is rejected,source_introduction,Denis Khalikov,,,,4f73c60b323ad32961179d4413509bdfa422d5e8
+C27,HAVING without an aggregate call fails translation,source_introduction,Denis Khalikov,,,,b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6
+C28,DISTINCT over window results references columns before definition,source_introduction,Denis Khalikov,,,,11ebdccf532442bc91e1c664403a677d55b2fd2b
+C29,Mixed set-operation precedence is lowered without a real operand stack,source_introduction,Pavel Velikhov,,,,8c3d6d2ac4e605acc0fc6caa265be3795973633d
+C30,INSERT OR REVERT loses its conflict policy,source_introduction,Pavel Velikhov,,,,b7945c07c68c68df76db3d787246eb3f895200f6
+C31,Late join-filter inlining recreates unsupported sharing,multi_commit_interaction,,alexpaniman; Pavel Velikhov,,,dc773f93aec8fa5d56c1653bf43aef64165d8e0c
+C32,Forced Map mode selects an unsupported algorithm for FULL JOIN,source_introduction,Pavel Velikhov; Denis Khalikov,,,,2c0f2db37dc5368f03d9d747176c3c47ca43dc78
+C33,Set-operation output column order follows the final arm,source_introduction,Pavel Velikhov,,,,2805cf0cdbc875f908fabe74217de93cc490a5ad
+C34,Scalar tuple-valued aggregates are mistaken for AVG state,source_introduction,Denis Khalikov,,,,229509a8de178c904cef7c88b2d804f1d3088405
+C35,Ordinary AVG uses an incompatible accumulator for intervals,lineage_or_candidate_only,,,Denis Khalikov,,7e555f7069e1f60ed69b301b6f9e862e14af99de
+C36,Repeated ordinary ORDER BY keys fail physical type checking,source_introduction,Denis Khalikov,,,,ae5c21bc792f474584493f0942be1341efda0294
+C37,Window repartitioning leaves stale distribution metadata and breaks later grouping,source_introduction,Denis Khalikov,,,alexpaniman,11ebdccf532442bc91e1c664403a677d55b2fd2b
+C38,Full outer joins advertise a false left-key distribution and break later grouping,source_introduction,alexpaniman,,,,9293cd7151999a6fcb3498c0540dd087d18b5bd4; 852eb1781df7c52e7430d28f940ea3ba196e3be0
+C39,Full joins silently discard residual ON predicates when block joins are enabled,source_introduction,Pavel Velikhov,,,,e687f7790e78179f93079bdbe2fcf42b3e5951b5
+C40,Multiple JSON projections from one column fail compilation,source_introduction,Denis Khalikov,,,,b3ff58ad07528b163a07711e7c151955c0113d2e
+C41,Mixed read and write statements lose result bindings and fail task construction,source_introduction,Pavel Velikhov,,,,6c5cba84ecf9ae08fd6b3c0c4d9eb3835f62cd04
+C42,Nested unions do not consistently widen branch types,lineage_or_candidate_only,,,Denis Khalikov,,dc0256d7f53f85ce480a1d458dd2ebe044877ef0; 3c09db7992df63b34399a027303c9dd20ff292bb
+C43,Focused physical lowering rejects supported composite expressions,source_introduction,alexpaniman,,,,d2b6c65e86707fad12e57b2a01de5073f56aaf43
+C44,Successful indexed INSERT can omit required index maintenance,source_introduction,Pavel Velikhov,,,,344f8fd79c22a14511219b7c22a7aa7f15a56d30
+C45,Window expressions lose nested-field receivers,source_introduction,Denis Khalikov,,,,11ebdccf532442bc91e1c664403a677d55b2fd2b
+C46,Conditional UPDATE is rejected by table-effect translation,lineage_or_candidate_only,,,Pavel Velikhov,,b7945c07c68c68df76db3d787246eb3f895200f6
+C47,Explicit secondary-index reads are not imported,lineage_or_candidate_only,,,Pavel Velikhov,,2805cf0cdbc875f908fabe74217de93cc490a5ad
+C48,Indexed UPSERT is rejected when sink index maintenance is disabled,lineage_or_candidate_only,,,Pavel Velikhov,,b7945c07c68c68df76db3d787246eb3f895200f6
+C49,Incomplete lookup keys make residual LEFT JOIN reconstruction mix different rows,source_introduction,Yesdaulet Izenov,,,Pavel Velikhov; alexpaniman,93ac68420d538bc9659cec81f915458e05c6ac0a; ace526f2d23b6c1a980cc3a01524467484aa4a3f; 2bef7dc5e9eba990c818bf9d40e9cf71ead97249
+C50,Mixed numeric join keys can be shuffled before type normalization and lose matches,lineage_or_candidate_only,,,Denis Khalikov; Filitov Mikhail,,1d58575fc39a3d375a5dabb06fa51605e0986932; 2fd81e982c1aca687358e605804ed873a28ff835

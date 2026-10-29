@@ -1,0 +1,22 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_metadata.py
++++ b/rbo-fixes-20261023/anonymous_cpp_metadata.py
+@@ -484,7 +484,7 @@
+     captured_generated = 0
+     for path in generated:
+         relevant = path.endswith(('.h', '.hpp', '.inc', '.ld', '.supp')) or any(
+-            Path(path).name in (stem + '.o', stem + '.pic.o')
++            Path(path).name in (stem + '.o', stem + '.pic.o', stem + '.abi_stable.o')
+             for stem in ('kqp_column_statistics_utils.cpp', 'kqp_rbo_transformer.cpp'))
+         if relevant and Path(path).is_file():
+             files.add(path)
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -152,7 +152,7 @@
+ def q19_wrapping(receipt, worktree):
+     files = receipt['files']
+     def object_path(stem):
+-        matches = [path for path in files if Path(path).name in (stem + '.o', stem + '.pic.o')]
++        matches = [path for path in files if Path(path).name in (stem + '.o', stem + '.pic.o', stem + '.abi_stable.o')]
+         if len(matches) != 1:
+             raise MetadataError('required_q19_production_object_is_ambiguous')
+         return matches[0]

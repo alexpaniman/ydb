@@ -1,0 +1,305 @@
+{
+  "schema": "qualified_quality_finite_acceptance_source_assessment_v1",
+  "status": "source_assessment_no_gate_or_status_change",
+  "purpose": "Finite bug-specific closure paths; preserve mandatory vectors and distinguish actual proof gaps from optional performance claims.",
+  "plan": {
+    "path": "verification/quality-all29-serial-execution-plan-idle53-20261028.json",
+    "sha256": "2be673f8ba306a10250c523525cdd4ca2dfc4083e909072e0849447a89ac6565"
+  },
+  "general_rules": [
+    "All actual acceptance still requires clean exact branch/receipt/guard/source bindings and no unexplained regression.",
+    "Existing generic quality flags stay false unless a separately reviewed owner decision combines the concrete evidence. This report changes no gate, threshold, vector or case status.",
+    "Unknown/missing evidence stays qualified; source reasoning is not mislabeled as native path evidence.",
+    "No new workloads, frameworks, native executions or live helper edits were made for this assessment."
+  ],
+  "findings": [
+    {
+      "bug": "Q14",
+      "revision_at_review": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd",
+      "original_scope": "Preserve CBO-selected shuffle directives when converting ReverseBlockJoin, including engaged-empty skipped-side directives.",
+      "mandatory_installed_vectors": {
+        "direct_cases_per_phase": 12,
+        "direct_module": "quality_rule_cpp_generator",
+        "direct_case_vector_sha256": "d72118356737b6e9de7ccb078f5a29332c2e2ab6b87538d36532436c5bffb014",
+        "sql_cases_per_phase": 6,
+        "sql_records_per_phase": 6,
+        "sql_modules": [
+          "quality_join_shuffle_checks"
+        ]
+      },
+      "bug_specific_evidence_and_gaps": [
+        "Paired actual ConvertOptimizedTree direct12; all six four-node SQL bags and exact identified join-side edge pairs.",
+        "Source-confirmed admission mismatch must be repaired first: pair_observations expects original All/no-cap settings, while native execution installs reviewed None/one-byte-cap settings. Keep exact source, receipt, revision and policy bindings."
+      ],
+      "finite_closure_path": [
+        "All direct12 and six owner-bound SQL pairs pass on their exact revisions, with the intended skipped join-side shuffle and unchanged controls.",
+        "Any independent C37/C38 failure remains a separate visible limitation, not an ignored bad row result."
+      ],
+      "optional_or_excluded_claims": [
+        "No requirement for a latency ratio, aggregate shuffle-count proxy, generic physical-field lineage framework, or measured network-byte reduction."
+      ]
+    },
+    {
+      "bug": "Q16",
+      "revision_at_review": "36000459cb44ccfe5e548a2622bfa21ffff591c7",
+      "original_scope": "Only a wide Limit containing an OLAP read may disable the query-wide block engine; preserve the existing WindowFunctionsV2 guard.",
+      "mandatory_installed_vectors": {
+        "direct_cases_per_phase": 76,
+        "direct_module": "quality_rule_cpp_generator",
+        "direct_case_vector_sha256": "cdcd862095d53d525dfe51129c67b985fdd1ceacb0ba153acc96c69cc33d09ca",
+        "sql_cases_per_phase": 0,
+        "sql_records_per_phase": 0,
+        "sql_modules": []
+      },
+      "bug_specific_evidence_and_gaps": [
+        "Paired direct76 must execute against actual rule methods and actual TypeCtx.BlockEngineMode. They cover storage applicability, shared traversal, thresholds, widths, modes and the separate window guard.",
+        "There is no installed SQL vector. That absence does not imply a missing result oracle for this configuration-eligibility defect: the changed public state is directly observed."
+      ],
+      "finite_closure_path": [
+        "Exact direct76 preserves OLAP/window controls and shows row-only Limit stops disabling the global mode.",
+        "The existing OLAP DisableBlocksOnColumnsLimit unit test is relevant integration coverage if included in the existing branch build/test run; do not invent a new benchmark to replace the direct contracts."
+      ],
+      "optional_or_excluded_claims": [
+        "No measured query speedup or universal block-engine enablement claim. Live-physical-width retuning was suggested consideration, not part of the concrete storage-applicability fix."
+      ]
+    },
+    {
+      "bug": "Q18",
+      "revision_at_review": "f27cc1474705c540c5a64c2700f19eb4df749f54",
+      "original_scope": "Merge newly fetched fields into an already cached table statistics object without erasing unrelated data or changing object identity.",
+      "mandatory_installed_vectors": {
+        "direct_cases_per_phase": 3,
+        "direct_module": "quality_cpp_contract_generator",
+        "direct_case_vector_sha256": "8fc1f6c6f09593296fec9b8320048c0149b6fda38d05d9e7af5f79e075109af8",
+        "sql_cases_per_phase": 0,
+        "sql_records_per_phase": 0,
+        "sql_modules": []
+      },
+      "bug_specific_evidence_and_gaps": [
+        "Paired direct3 exercises actual ApplyColumnStatistics, real sketch/histogram object identity, optional zero values, replacements, absent fields and repeated application.",
+        "Two original validation obligations are not directly exercised by this installed vector: insertion of a new-only column/tuple into a cached entry, and installation of an initially absent table entry. The source uses map indexing/new-map installation, but this is not a native coverage claim.",
+        "Existing successful ColumnStatistics service tests are candidates for the absent-entry obligation only after their actual path is established; do not silently count them as new-column coverage."
+      ],
+      "finite_closure_path": [
+        "Execute exact direct3, retain their existing-cache scope, and explicitly discharge or retain the two named branch-coverage qualifications.",
+        "Issue-bearing responses stay with Q19; standalone Q18 deliberately retains the existing Issues gate."
+      ],
+      "optional_or_excluded_claims": [
+        "No need to prove histogram estimation accuracy, optimizer hint quality, service latency or a faster SQL plan to establish the cache merge bug."
+      ]
+    },
+    {
+      "bug": "Q19",
+      "revision_at_review": "c261bd389b61872b7c78851a26bf46283b95b9cb",
+      "original_scope": "Retain all response diagnostics while applying available successful statistics independently of request ordering.",
+      "mandatory_installed_vectors": {
+        "direct_cases_per_phase": 6,
+        "direct_module": "quality_cpp_contract_generator",
+        "direct_case_vector_sha256": "e51dc4a4247a5792f281c03984d16be47f2613963aafe77c9923a9ca12f6fdcb",
+        "sql_cases_per_phase": 0,
+        "sql_records_per_phase": 0,
+        "sql_modules": []
+      },
+      "bug_specific_evidence_and_gaps": [
+        "Paired direct6 runs the actual production request callback, merge and cache application; only external request dispatch is wrapped.",
+        "Exact receipt-bound definition/caller objects and both existing request-call relocations must be verified before execution. Preserve pending-future, three-request and fatal-exception controls."
+      ],
+      "finite_closure_path": [
+        "All six order/warning/error/exception controls pass fixed, expected baseline affected cases fail, and unchanged controls remain sound.",
+        "Fresh-cache scope is intentional; existing-cache behavior is Q18 and need not be stacked into this independent branch."
+      ],
+      "optional_or_excluded_claims": [
+        "A live remote-service failure injector, histogram accuracy study or SQL speed threshold is not required for the callback/diagnostic defect."
+      ]
+    },
+    {
+      "bug": "Q25",
+      "revision_at_review": "1300a777c320158fe82cd9416b355165dbe73ecd",
+      "original_scope": "Preserve per-definition Map push intent through fusion, copies, rebinding and reconstruction without moving unmarked definitions.",
+      "mandatory_installed_vectors": {
+        "direct_cases_per_phase": 48,
+        "direct_module": "quality_map_contract_generator",
+        "direct_case_vector_sha256": "a93f46b1f8bd3685e6e43e789fb1e388cd36e201e62a58363ab5757fb0585699",
+        "sql_cases_per_phase": 8,
+        "sql_records_per_phase": 11,
+        "sql_modules": [
+          "quality_map_semantic_checks"
+        ]
+      },
+      "bug_specific_evidence_and_gaps": [
+        "Paired direct48 is the changed-rule path evidence; SQL8 produces eleven records per phase, including four volatile-control repetitions. Keep every case and repetition.",
+        "SQL bags do not establish that the fused Map path fired or count evaluations. This does not invalidate actual direct-rule evidence.",
+        "The unused multirow scalar control overlaps independent C15. Any reproduced failure must remain visible and receive separate causal attribution, never be normalized into a pass."
+      ],
+      "finite_closure_path": [
+        "Exact direct48 demonstrates recovered marked-definition movement with unmarked demand boundaries preserved; the original SQL vector supplies separate semantic safety evidence.",
+        "A supported per-definition-state fix can be reported separately from the unresolved C15 control and unobserved final-SQL rule reachability. Blanket all-controls-passed wording remains unavailable if that control fails."
+      ],
+      "optional_or_excluded_claims": [
+        "No measured runtime multiplier, exact volatile invocation count, arbitrary speed ratio or broad SQL lineage parser is needed for the original flag-loss defect."
+      ]
+    },
+    {
+      "bug": "Q27",
+      "revision_at_review": "72e17774d130a022ed4649c26c3db7656d83d971",
+      "original_scope": "Mark every visited AST node on entry so shared nonterminal DAG paths are not recursively revisited, preserving terminal boundaries and selected roots.",
+      "mandatory_installed_vectors": {
+        "direct_cases_per_phase": 20,
+        "direct_module": "quality_ast_collection_generator",
+        "direct_case_vector_sha256": "3a9b553d8601057a0a430e7321d9cb39787b78bfe9d0c13535b6b9cb3140c101",
+        "sql_cases_per_phase": 0,
+        "sql_records_per_phase": 0,
+        "sql_modules": []
+      },
+      "bug_specific_evidence_and_gaps": [
+        "Paired direct20 executes a source-extracted exact collector body on real expression nodes with only an entry counter added. It covers shared/empty/terminal/mixed/unshared shapes and four depths.",
+        "The fixed branch must satisfy exact root identities and the edge-count bound; baseline/fixed counters and unshared controls remain required. This is not a linked full-transformer test."
+      ],
+      "finite_closure_path": [
+        "Execute all20 and retain the source/function/closure bindings. Confirm the changed production transformer still compiles and preserve existing SELECT integration coverage in the ordinary branch build/tests.",
+        "Close the collector traversal defect at that scope; retain normal-SQL shared-DAG reachability and SQL latency as unmeasured."
+      ],
+      "optional_or_excluded_claims": [
+        "The original finding explicitly did not establish normal SQL reachability or compilation latency. A new SQL benchmark or universal optimizer complexity proof is not necessary."
+      ]
+    },
+    {
+      "bug": "Q28",
+      "revision_at_review": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+      "original_scope": "Use an owning effect-aware local worklist and bounded output invalidation in two reviewed stages, with conservative fallback and a final fixed-point pass.",
+      "mandatory_installed_vectors": {
+        "direct_cases_per_phase": 26,
+        "direct_module": "quality_scheduler_cpp_checks",
+        "direct_case_vector_sha256": "cfa4be6e9898d1cde4570bbcf9d928cd1d104a2f595c363db58ae4f792981ea3",
+        "sql_cases_per_phase": 8,
+        "sql_records_per_phase": 8,
+        "sql_modules": [
+          "quality_scheduler_semantic_checks"
+        ]
+      },
+      "bug_specific_evidence_and_gaps": [
+        "Preserve exact direct26 and SQL8. The installed direct26 invokes the two Map rules and exclusion/ownership scenarios; it does not invoke the right-join rewrite. Do not label its counters proof for all three opted-in rules.",
+        "SQL8 supplies right/nested join and Map-boundary bags plus final-plan/CBO observations; it does not prove a specific rule fired or expose stage timing. The old acceptance text refers to a separate right-join profile which was not located.",
+        "If the reviewed IntoMap depth amendment is applied, preserve original26 and the four additional amendment-specific controls, and refresh the exact revision/source/SQL-spill/SDK bindings before use.",
+        "The seven-cell SDK pilot provides only bounded cold whole-compilation CPU/wall observations with environment/affinity identity. Its shared-spilling eighth cell stays unexecuted; ordinary bounded SQL8 remains separately mandatory."
+      ],
+      "finite_closure_path": [
+        "Execute the immutable direct and SQL vectors; use actual candidate/attempt/output-refresh counts and same-build conservative controls, including excluded cases and fixed points.",
+        "Review representative final plans and available dedicated compilation counters for regressions. No stage-time value can be inferred from execution CPU or whole-runner time.",
+        "Either establish the right-join rule-specific obligation explicitly or report native work-counter verification as Map-stage only. The implementation may cover two stages while its measured claim remains narrower; do not silently replace the existing acceptance definition."
+      ],
+      "optional_or_excluded_claims": [
+        "No optimizer-wide incremental types/metadata/statistics/parents/liveness, all-rule linearity, trace-cost removal or production-latency gain is promised. Additional rule opt-ins and a full structural timing study are broader optimization work, not prerequisites for the bounded worklist mechanism."
+      ]
+    }
+  ],
+  "source_bindings": [
+    {
+      "path": "quality_pairing.py",
+      "sha256": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5"
+    },
+    {
+      "path": "anonymous_cpp_verify.py",
+      "sha256": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d"
+    },
+    {
+      "path": "quality_rule_cpp_generator.py",
+      "sha256": "e732ca4705744697e0ff597ed930d6aa21403a9f3aa47f6dcede5f2d56ec2cca"
+    },
+    {
+      "path": "quality_cpp_contract_generator.py",
+      "sha256": "f7f85132057a0c6b42b7663a59faf5a8012ed325bd43b42cf532248165e8390f"
+    },
+    {
+      "path": "quality_map_contract_generator.py",
+      "sha256": "36616ebce47c0bdaed66e0f0baf7a452cb61670a01d889d4b40ffc124043eed8"
+    },
+    {
+      "path": "quality_map_semantic_checks.py",
+      "sha256": "f4bb620657c063e98b0a136d6866243f96ee0c6a2d03fdb99a7dfd058e572d66"
+    },
+    {
+      "path": "quality_ast_collection_generator.py",
+      "sha256": "7e7f04b3c85bcd59c225ed44a970c8453ef5a4a4adfc79ffe0e600229ce4093e"
+    },
+    {
+      "path": "quality_scheduler_cpp_checks.py",
+      "sha256": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7"
+    },
+    {
+      "path": "quality_scheduler_semantic_checks.py",
+      "sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7"
+    },
+    {
+      "path": "quality_join_shuffle_checks.py",
+      "sha256": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc"
+    },
+    {
+      "path": "quality_spill_bounds.py",
+      "sha256": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+    },
+    {
+      "path": "native_verify.py",
+      "sha256": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b"
+    },
+    {
+      "path": "q28_compilation_measurement.py",
+      "sha256": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c"
+    },
+    {
+      "path": "q28-acceptance-definition.txt",
+      "sha256": "392dab08b180825cc31b92b9f60353a4f95a87372ef67239f1b69ea356e0f91c"
+    },
+    {
+      "path": "quality-root-plans.txt",
+      "sha256": "e4d2bf765bedff16f558054d87d4dd614c531af000115e18357b1c92e958b98a"
+    },
+    {
+      "path": "verification/Q18-statistics-object-controls-independent-review-20261028.json",
+      "sha256": "5a3edf94825ae856f74f5d3d51cbbedb2f92e06fc6d31db60a12d325245a3f16"
+    },
+    {
+      "path": "verification/Q14-join-bound-stage-observer-independent-review-20261028.json",
+      "sha256": "3724621b59262fea5b0fe6e3b4b665cd3866bd15e39595a7990fd7e3b137be8e"
+    },
+    {
+      "path": "verification/Q28-depth-amendment-binding-update-plan-20261028.json",
+      "sha256": "32fb5bebf4f61c3d3c0e17f6cd2cf52c111a0c82d5c379bc4c3b5d82ffd0a1c6"
+    },
+    {
+      "path": "verification/Q28-map-fusion-refresh-depth-independent-review-20261028.json",
+      "sha256": "27906959c51166a492ffdff7037d18c95a5b92b317a3a69cc7197ebb332400cc"
+    },
+    {
+      "path": "../rbo-review-20261021/optimization-quality.txt",
+      "sha256": "9d2f3d207949b1740b8e43f2b4502100c6be8851d4f7b453334c25ae0c9c1dad"
+    }
+  ],
+  "source_confirmed_helper_blocker": {
+    "bug": "Q14",
+    "observer_lines": [
+      411,
+      435,
+      436
+    ],
+    "adapter_lines": [
+      396,
+      399
+    ],
+    "description": "Expected original settings differ from mandatory bounded runtime settings; narrow dormant alignment authorized by root and pending."
+  },
+  "source_scope_correction": {
+    "bug": "Q28",
+    "direct_rule_invocations": [
+      "TPushMapElementsThroughInputRule",
+      "TPushMapElementsIntoMapRule"
+    ],
+    "right_join_direct_invocation_present": false,
+    "all_three_rule_counter_claim_supported": false
+  },
+  "actual_native_runs": 0,
+  "new_workloads": 0,
+  "new_frameworks": 0,
+  "gate_changes": false,
+  "status_changes": false
+}

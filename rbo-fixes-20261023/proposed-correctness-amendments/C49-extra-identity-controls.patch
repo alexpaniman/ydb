@@ -1,0 +1,137 @@
+--- /dev/null
++++ b/rbo-fixes-20261023/c49_identity_controls.py
+@@ -0,0 +1,134 @@
++"""Additional C49 contracts; rendered inputs remain anonymous.
++
++EXISTS controls use the admitted SQL route. They do not claim coverage of the
++frontend-rejected explicit SEMI/ONLY syntax or force a physical join family.
++"""
++import json
++
++import generate_and_verify as g
++import partial_lookup_key_generator as original
++
++CASE_SPECIFIC_SCHEMA = True
++_SPECS = {
++    'c49_extra_multiple_missing': (3, False, 'left', True),
++    'c49_extra_complete_three_part': (3, True, 'left', True),
++    'c49_extra_no_residual': (2, False, 'left', False),
++    'c49_extra_exists_partial': (2, False, 'exists', True),
++    'c49_extra_exists_complete': (2, True, 'exists', True),
++    'c49_extra_not_exists_partial': (2, False, 'not_exists', True),
++    'c49_extra_not_exists_complete': (2, True, 'not_exists', True),
++}
++
++
++def _spec(case):
++    if case not in _SPECS:
++        raise ValueError('Unknown C49 control')
++    return _SPECS[case]
++
++
++def _rows(n, parts):
++    if type(n) is not int or n < 4:
++        raise ValueError('C49 controls require at least four rows')
++    rows = []
++    for prefix, count in ((1, n), (2, n * 4)):
++        for value in range(1, count + 1):
++            suffixes = [value] if parts == 2 else [value % 2, value // 2]
++            rows.append(tuple([prefix] + suffixes + [prefix, value]))
++    return rows, [(1, 1, n // 2 + 1)]
++
++
++def _columns(parts):
++    keys = ['prefix', 'suffix'] + (['suffix2'] if parts == 3 else [])
++    left = [(name, 'Int32 NOT NULL') for name in keys + ['selector', 'payload']]
++    right = [(name, 'Int32 NOT NULL') for name in ('id', 'join_key', 'cutoff')]
++    return keys, left, right
++
++
++def schema_and_seeds(n, case):
++    parts, _, _, _ = _spec(case)
++    keys, left_columns, right_columns = _columns(parts)
++    left, right = _rows(n, parts)
++    schema = '; '.join([
++        original.table('identity_rows', left_columns, keys, ('by_selector', ['selector'])),
++        original.table('matching_rows', right_columns, ['id'])]) + ';'
++    return schema, [original.insert('identity_rows', left_columns, left),
++                    original.insert('matching_rows', right_columns, right)]
++
++
++def _recipe(case):
++    parts, full, kind, residual = _spec(case)
++    keys, _, _ = _columns(parts)
++    selected = ['prefix', 'payload'] + (keys[1:] if full else [])
++    source = g.derived(g.select(selected, 'identity_rows',
++                               where=g.op('selector', '=', g.typed('Int32', 1))), 'l')
++    predicate = g.op('l.prefix', '=', 'r.join_key')
++    if residual:
++        predicate = g.op(predicate, 'AND', g.op('l.payload', '<', 'r.cutoff'))
++    fields = [g.alias('l.payload', 'v')]
++    if full:
++        fields += [g.alias('l.' + key, 'preserved_' + key) for key in keys[1:]]
++    if kind == 'left':
++        fields.append(g.alias('r.id', 'rid'))
++        return g.select(fields, g.join(source, 'matching_rows AS r', predicate, 'LEFT'))
++    inner = g.select([g.typed('Int32', 1)], 'matching_rows AS r', where=predicate)
++    condition = g.call('EXISTS', inner)
++    if kind == 'not_exists':
++        condition = 'NOT ' + condition
++    return g.select(fields, source, where=condition)
++
++
++def recipes(n):
++    if type(n) is not int or n < 4:
++        raise ValueError('C49 controls require at least four rows')
++    return {case: _recipe(case) for case in _SPECS}
++
++
++def requirements(case, mode='new'):
++    _spec(case)
++    if mode not in ('new', 'legacy'):
++        raise ValueError('Unknown optimizer')
++    return {'generator_version': 'c49_additional_identity_controls_v1', 'node_count': 1,
++            'pragmas': [('YqlSelect', 'force' if mode == 'new' else 'disable'),
++                        ('kikimr.CostBasedOptimizationLevel', '0'),
++                        ('kikimr.HashJoinMode', 'grace'),
++                        ('ydb.OptDisableAutoIndexSelection', 'false')],
++            'table_service_config': {'EnableNewRBO': mode == 'new',
++                                     'EnableFallbackToYqlOptimizer': False,
++                                     'UseBlockHashJoin': False,
++                                     'EnableQueryServiceSpilling': True,
++                                     'EnableSpillingInHashJoinShuffleConnections': True,
++                                     'EnableSpillingNodes': 'All',
++                                     'EnableInlineJoinFiltersAfterCBO': True,
++                                     'EnablePruneKeyColumns': True}}
++
++
++def expected_rows(case, n):
++    parts, full, kind, residual = _spec(case)
++    keys, _, _ = _columns(parts)
++    left, right = _rows(n, parts)
++    result = []
++    for row in left:
++        prefix, selector, payload = row[0], row[-2], row[-1]
++        if selector != 1:
++            continue
++        matched = [rid for rid, key, cutoff in right
++                   if prefix == key and (not residual or payload < cutoff)]
++        selected = {'v': payload}
++        if full:
++            selected.update({'preserved_' + key: row[index]
++                             for index, key in enumerate(keys[1:], 1)})
++        if kind == 'left':
++            result += [dict(selected, rid=rid) for rid in matched or [None]]
++        elif bool(matched) == (kind == 'exists'):
++            result.append(selected)
++    return result
++
++
++def check_rows(case, rows, n):
++    canonical = lambda values: sorted(json.dumps(value, sort_keys=True, separators=(',', ':'))
++                                      for value in values)
++    return {'semantic_oracle_pass': canonical(rows) == canonical(expected_rows(case, n)),
++            'independent_multiset_oracle': True,
++            'complete_projection_checked': True,
++            'explicit_semi_only_syntax_covered': False,
++            'noncovering_index_selection_observed': False}

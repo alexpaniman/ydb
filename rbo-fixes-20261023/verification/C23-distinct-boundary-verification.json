@@ -1,0 +1,89 @@
+{
+  "bug": "C23",
+  "purpose": "physical_distinct_boundary_and_separate_alias_import_isolation",
+  "evidence": "verification/guarded-fixed-C23-030ea24b8e68-1792729254225571601.jsonl",
+  "checks": 20,
+  "passing_checks": 12,
+  "failures": [
+    {
+      "case": "c23_distinct_boundary_alias_ordinary_control_rows_scalar",
+      "exit_code": 1,
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "semantic_oracle_pass": false
+    },
+    {
+      "case": "c23_distinct_boundary_alias_ordinary_control_rows_blocks",
+      "exit_code": 1,
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "semantic_oracle_pass": false
+    },
+    {
+      "case": "c23_distinct_boundary_alias_ordinary_control_empty_scalar",
+      "exit_code": 1,
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "semantic_oracle_pass": false
+    },
+    {
+      "case": "c23_distinct_boundary_alias_ordinary_control_empty_blocks",
+      "exit_code": 1,
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "semantic_oracle_pass": false
+    },
+    {
+      "case": "c23_distinct_boundary_alias_optional_control_rows_scalar",
+      "exit_code": 1,
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "semantic_oracle_pass": false
+    },
+    {
+      "case": "c23_distinct_boundary_alias_optional_control_rows_blocks",
+      "exit_code": 1,
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "semantic_oracle_pass": false
+    },
+    {
+      "case": "c23_distinct_boundary_alias_optional_control_empty_scalar",
+      "exit_code": 1,
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "semantic_oracle_pass": false
+    },
+    {
+      "case": "c23_distinct_boundary_alias_optional_control_empty_blocks",
+      "exit_code": 1,
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "semantic_oracle_pass": false
+    }
+  ]
+}

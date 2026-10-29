@@ -1,0 +1,23 @@
+{
+  "status": "targeted_mode_reassessment_only",
+  "evidence": [
+    {
+      "path": "F03-legacy-probe-metadata-failure.json",
+      "sha256": "74ade78b9c6a1fca7ec4e13b1f6826fe22a4dc874ac97b585b5f9ca82d3ac66b",
+      "assessment": "diagnostic_only_no_verified_legacy_comparison"
+    },
+    {
+      "path": "F03-legacy-control-confirmation.json",
+      "sha256": "987c0cf5406255ca666e4c301c59871200fbf9bd822729e39fc12e1c37444921",
+      "assessment": "corrected_explicit_legacy_configuration_summary"
+    }
+  ],
+  "original_evidence_preserved": true,
+  "conclusions": [
+    "The failed initial probe contains no verified query-output record and must not count as a legacy optimizer comparison.",
+    "The corrected three controls explicitly record EnableNewRBO=false, matching the stated metadata correction; their summary omits the full settings hash and does not replace formal receipt-bound per-record verification.",
+    "This finding does not invalidate new-only verification records."
+  ],
+  "native_runs": 0,
+  "compiler_runs": 0
+}

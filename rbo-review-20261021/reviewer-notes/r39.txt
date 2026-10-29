@@ -1,0 +1,45 @@
+R39: independent correctness challenge, two passes
+Revision: f746f5a75ca7846d2bcc422142d9329ec0064f94
+
+Scope and outcome
+Pass one traced C01-C15 from matching conditions through replacement construction and compared retained execution metadata. Pass two challenged preconditions, alternative explanations, overlap, and the metadata/physical implementation boundary for C37-C39. Also checked the unchecked cast underlying C18. No source edits, builds, or native executions were performed by this reviewer. No reproduction inputs or result values were rendered or saved.
+
+No reviewed P1 mechanism was disproved. These are separate actionable issues, not merely a list of suspicious lines. The evidence and wording corrections below should accompany the final list.
+
+Required precision changes
+1. C05 is not demonstrated as a legacy-optimizer regression by the retained differential execution: both paths failed, with different categories. The new path's scalar-cardinality failure agrees with the source mechanism, but expected relational semantics is the appropriate oracle.
+2. C06-C08 retain native-result hashes, but the earlier semantic judgments cannot be independently reconstructed from those hashes alone. Retain expected-semantics verdicts from fresh generated controls, rather than presenting the hashes themselves as proof. A new compositional generator for these checks is available as correlation_oracle_generator.py. It additionally covers C05 and has no persisted inputs.
+3. C13 is narrower than a general inability to evaluate grouped arithmetic. The replacement branch at kqp_rewrite_select.cpp:2278 applies to a materialized expression with an aggregate, DISTINCT, a window call, or a direct group reference. An ordinary expression containing a nested group reference has a separate supported ReplaceGroupRefs path at 2294. Suggested title: Materialized grouped result expressions can be replaced by a bare grouping key.
+4. C37 and C38 require shuffle elimination to be enabled and a genuinely partitioned execution. State this prerequisite explicitly. Their retained native row counts differ, so result ordering cannot explain the observed discrepancy.
+5. C39 requires global block joins enabled, forced residual-filter inlining disabled, an equi-join condition, and final selection of the nonblock Grace path for Full. With forced inlining, unsupported Full residual filters are rejected earlier. The source chain is definite; retained oracle booleans would improve the independent native-evidence record. The legacy path rejecting this shape is not evidence against the relational wrong-result bug.
+6. C18 has an actual unchecked static downcast after the child can be replaced with EmptySource. This is a source-proven invalid operator-kind assumption. The saved native failure is consistent with that diagnosis, but without a traced stack it should not be described as independently observed memory corruption.
+
+Source verification and confidence
+C01: high. Both predicate-propagation rules rename the only referenced IU onto an opposite-side join key without checking equal types. MaybeConstantCondition accepts a comparison over an expression, rather than only direct member access. The signed/unsigned bare-join control succeeds, isolating this from the separate mixed-type physical hash problem.
+C02: high. Filter/aggregate movement checks only resolved dependencies and grouping keys, not repeatability or effects. Partial aggregate counts are a valid semantic oracle; mere cross-run random-value differences would not be.
+C03: high. DISTINCT expansion includes all original grouping keys in the deduplication input, then GroupingSets expands the outer aggregate using that input. Original-key-dependent deduplication is not valid for coarser sets. The issue is most accurately called incorrect subtotals, since aggregate-specific direction need not always be an overcount.
+C04: high. Fusion builds the top predicate before the bottom predicate. Restoring textual predicate order alone is insufficient if nullable conjunction semantics still evaluate a failing second predicate where a sequential Filter would reject the row. Preserve evaluation semantics or restrict fusion to safe expressions.
+C05: high source confidence, semantic-oracle native recheck advisable. Removing the entire demanded-domain relation permits validation of extra inner groups before the final outer join discards them.
+C06: high source confidence, semantic-oracle native recheck advisable. Capture binding uses the inner member directly, changing type. Null-safe domain serialization assumes the original type is unchanged; signed packing uses zigzag and unsigned packing does not. Equality of logical values does not justify replacement of their encodings.
+C07: high source confidence, semantic-oracle native recheck advisable. Equality is removed and only optional-presence rejection is restored. Present nonreflexive values are not covered by that presence check.
+C08: high source confidence, semantic-oracle native recheck advisable. RestoreEmptyGroupCounts is skipped when no COUNT result survives. The lost group prevents the scalar result projection from evaluating its empty-input transformation.
+C09: high. Mode information is not represented in the rewritten subplan, while generic inlining hardcodes its nullable IN computation. Explicit compatibility-mode native differences support the finding.
+C10: high. Nullable lookup nullness is inferred from negated coalesced self-equality. A present NaN is classified as unknown. The relevant native result-count difference is not an ordering artifact.
+C11: high. Both earlier sublink typing and RBO subplan context type IN as nonnullable Bool. The fallback can be removed before the later generic rewrite constructs optional truth values. Fixing only the final rewrite is insufficient.
+C12: high. All grouping keys are inserted into post-aggregate DISTINCT, including hidden keys. The retained difference in output multiplicity directly corroborates this.
+C13: high with the narrowed materialized-expression prerequisite above.
+C14: high. Pure-member aggregate inputs are deduplicated by final member name; the receiver expression is omitted. One-row result differences cannot be due to output row order.
+C15: high. Scalar validation is introduced as a relational input below the enclosing unary operator; conditional demand inside its expression is lost. Retained legacy success and new scalar-cardinality error corroborate the path.
+C37: high. Window has no ComputeMetadata override and inherits input partitioning, but assignment always introduces a window partition shuffle. A later aggregate can trust the old keys and bypass a necessary shuffle.
+C38: high. Grace metadata takes left keys for Full, although unmatched right rows produce NULL left keys and can occupy different partitions. Retained multi-node group-count discrepancy is decisive.
+C39: high. Residual inlining skips based on the global block flag, assignment explicitly excludes Full from block support, and BuildGraceJoin does not consume JoinFilters. There is no blanket residual-filter invariant assertion for Grace, unlike the separate Map check.
+
+Distinctness and correction guidance
+C01 and C06 share a type-preservation principle but require fixes in different rewrite systems. C07 and C10 each mishandle NaN but for different reasons. C05 and C15 both over-evaluate scalar validation, but demanded-domain filtering and conditional expression demand are independent boundaries. C37 and C38 need separate metadata implementations. These entries should remain separate.
+
+C37 should derive distribution from the actual Window partition keys during metadata computation, or invalidate and recompute downstream metadata when physical choices change. Updating only the Window record after assignment may leave intervening unary metadata with the stale property.
+
+Safe verification generator
+correlation_oracle_generator.py composes fixture tables, seeds and checks in anonymous memory files. It exposes demand_extra_domains/requested-only control, typed_capture_collision/same-type control, nan_domain_equality/finite control, and empty_scalar_projection/count-restoration control. It writes only case names, mode, exit status, count, payload hash, failure category and semantic verdict booleans. It was syntax checked but not run by this reviewer.
+
+No new distinct issue is proposed by this challenge pass. The remaining work is evidence strengthening and the precision changes listed above.

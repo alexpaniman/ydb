@@ -1,0 +1,59 @@
+Additional review candidates — excluded from the 50 native-verified findings
+
+These items need further native isolation or a proven reachable frontend shape. A source-contract violation or an abstract counterexample is not labeled an observed query-engine bug here. The main fix list remains bugs.txt.
+
+S01. Specialized index tables admitted as ordinary row-preserving indexes.
+Lookup and range selectors use permissive blacklists admitting vector/fulltext families. Fulltext postings can have different multiplicity/completeness from base rows; vector layouts have unrelated synthetic keys. Source paths are detailed in reviewer-notes/r26.txt and r31.txt. Native fulltext lookup lost rows, but index maintenance C44 confounded that test. A separately initialized-index attempt did not reach the target. Compact-index control passed. Do not claim independently isolated native posting-multiplicity loss.
+Locations: kqp_rbo_lookup_join.cpp:11; rules/push_ranges.cpp:409.
+
+S02. Outer joins advertise uniqueness of null-extended columns.
+A preserved-side unique key can cause a nullable-side key to be advertised as unique despite repeated unmatched NULL rows. A subsequent null-equal join elimination can alter multiplicity. Source/relational-model proof exists; native reachability remains pending. Independent of C49's now-confirmed partial composite-key producer.
+Locations: kqp_rbo_compute_statistics.cpp:49; rules/eliminate_left_join.cpp:37. See r30.txt.
+
+S03. CBO lookup eligibility and null-safe lookup lowering disagree.
+CBO can select lookup for null-safe equality while logical lookup lowering refuses the same case without a supported fallback. Physical join construction can then reject the unlowered algorithm. Two reviewers traced the contract; a native decorrelation-generated-key path is still needed. Repeated right-side key names expose another source variant of this admission/lowering mismatch.
+Locations: kqp_rbo_cbo.cpp:97; rules/rewrite_join_to_index_lookup_join.cpp:136; physical_conversion/kqp_rbo_physical_join_builder.cpp:565. See r28.txt, r29.txt, r31.txt.
+
+S04. OLAP JSON projection may overwrite a still-used source within the same expression.
+The collector can accept one extraction embedded in an expression that also reads the original source, while the exclusion scan only handles rejected expressions. Two generated frontend variants passed with matching results, so a surviving problematic expression shape has not been established. Keep this as a repair invariant, separate from native-confirmed multiple-projection C40.
+Location: rules/push_olap_projection.cpp:75. See r27.txt.
+
+S05. Shared OLAP Boolean pushdown can lose grouping when execution levels are split.
+The helper divides conjunction terms between execution levels, then combines the levels incorrectly under OR/XOR/NOT. Abstract truth-table checks found counterexamples, but the tested native frontend expression did not expose a difference. Source helper is shared with legacy. Native reachability and whether residual evaluation masks particular variants still require isolation.
+Location: ydb/core/kqp/opt/physical/kqp_opt_phy_olap_filter.cpp:855. See r27.txt.
+
+S06. Structural null-safe join normalization has incomplete nullability proofs.
+Recursive DryType handling and top-level optional checks can collapse nested optional/structural distinctions. Mixed-width null-safe casts currently depend on already-confirmed typed domain substitution C06. No independent native structural case was confirmed. Structural StrictCast lowering with physical peephole disabled is another source-supported limitation; C43 covers the separately native-confirmed comparison lowering gap.
+Location: physical_conversion/kqp_rbo_physical_join_builder.cpp:247. See r33.txt.
+
+S07. Dependent-join parameter rebinding may leave domain bindings inconsistent.
+Reviewers found a rebinding contract that appears to update parameter references without consistently renaming matching domain columns. A currently reachable failing rewrite sequence was not established.
+Locations and precise conditions: reviewer-notes/r38.txt.
+
+S08. Constant folding does not handle evaluator Error/Async before consuming results.
+The stage loops only on Repeat, then indexes the evaluated result as though it were complete. Recursive constant extraction also drops the configured UDF-folding setting. These source issues need a native evaluator status/callability case before promotion.
+Location: rules/constant_folding_stage.cpp:39,140.
+
+S09. Effectful expression movement lacks a complete evaluation-boundary contract.
+Several map/CBO movement paths inspect dependencies but not volatility or failure behavior. Native shared-volatile-value and guarded-computation probes did not expose a failure. C02, C04 and C15 remain independently confirmed evaluation-boundary bugs; do not generalize their observations to every move rule.
+See r28.txt and r41.txt.
+
+S10. Rewrite-count limit can reject a terminating large rewrite sequence.
+The framework has a fixed 1000-application limit, including a boundary where the final successful application may already have completed useful work. Source concern only; no native large-plan case retained. This is not proof of a rewrite cycle.
+Location: kqp_rbo.cpp. Original scope: r18_framework_pipeline.
+
+S11. Type-annotation retries may discard a replaced root.
+One physical query helper retries the original input while storing transformer output separately. The contract permits a replacement on Repeat, but a reachable failing root replacement was not established.
+Location: physical_conversion/kqp_rbo_physical_query_builder.cpp:1044. See r36.txt.
+
+D01. Simplified explain text drops Boolean parentheses.
+The diagnostic formatter can print a mixed Boolean tree without parentheses needed to preserve its meaning. Source-confirmed display defect, not an executed-query result bug and not included in the 50.
+Location: kqp_expression.cpp:281. See r38.txt.
+
+Rejected or not promoted after native checks
+- Canonical NaN partitioning in whole-partition window expansion matched the semantic oracle.
+- Guarded computed join keys and the tested CBO volatile map preserved the checked behavior.
+- JSON-source reuse probes and the basic OLAP Boolean probe matched canonical result hashes.
+- Early fulltext/index-maintenance experiments failed in setup or explicit-VIEW validation. Independent controls later isolated C44, C47 and C48; the earlier failures were not counted as separate defects.
+- LEFT SEMI/LEFT ONLY variants of C49 were rejected before a wrong-result comparison; only LEFT JOIN is native-confirmed.
+- Explicit common numeric types repair C50; both new and legacy fail the mixed-type shuffle case, so no new-regression claim is made.

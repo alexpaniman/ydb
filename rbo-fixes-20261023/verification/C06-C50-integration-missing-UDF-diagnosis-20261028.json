@@ -1,0 +1,11 @@
+{
+  "schema": "C06_C50_integration_initialization_diagnosis_v1",
+  "failed_summary": "verification/integration-C06-C50-2bc207a991cc-69987038ca294160be184f9cde3373da-summary.json",
+  "initialization_failure_type": "FileNotFoundError",
+  "exact_emitted_diagnostic_digest_matched": true,
+  "missing_dependency": "yql/essentials/udfs/common/math/libmath_udf.so",
+  "queries_executed": 0,
+  "production_bug_claim": false,
+  "repair": "Build existing Math UDF target in integration checkout; no tracked source edits.",
+  "watchdog_stopped": false
+}

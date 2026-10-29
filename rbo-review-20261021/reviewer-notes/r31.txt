@@ -1,0 +1,36 @@
+r31: two-pass review of lookup join rewrite and target selection
+Scope: rules/rewrite_join_to_index_lookup_join.cpp; kqp_rbo_lookup_join.cpp/h; adjacent physical builder, liveness/type propagation, lookup runtime, index metadata and schema/update producers.
+No repository changes, builds, runnable query reproductions, concrete input data, or child agents.
+
+CORRECTNESS -- high confidence source-path verification
+
+P1: Specialized fulltext indexes are accepted as ordinary secondary indexes, changing row multiplicity.
+Locations: kqp_rbo_lookup_join.cpp:11-18, :39-60, :203-205; same index-kind blacklist in rules/push_ranges.cpp:409-416.
+The blacklist rejects async/JSON/local indexes but admits vector and all fulltext families. A prefixed plain fulltext index retains ordinary user prefix columns and covered payload, so lookup selection can treat its posting table as a covering lookup source. Matching the user prefix succeeds and lookup execution emits index postings. One base row can have multiple postings or no postings; ordinary inner/left joins therefore gain duplicates or lose/misclassify matches, and existence joins can misclassify rows with no postings. This is independent of the previously reported null-safe-join eligibility bug.
+Evidence: index/index_utils.cpp:597-670 constructs physical keys as prefix columns, token, document identity; opt/physical/effects/kqp_opt_phy_fulltext_index.cpp:135-210 creates an output row per token and carries prefix/payload into each posting. The lookup rewrite at :310-312 emits every matching physical row with no base-row identity deduplication or completeness reconstruction. The same blacklist in range selection permits the analogous substitution for covered prefix-filtered reads.
+Additional consequence of same defect: vector metadata returns its first implementation table, the centroid level table; its physical keys/columns differ from the declared embedding/index columns. CBO accepts the candidate while MatchKeyPrefix rejects it, leaving LookupJoin to the generic physical builder, whose switch rejects that algorithm. Fulltext without a usable user prefix can similarly fail physicalization.
+Fix: share a positive allowlist restricted to ordinary synchronous and synchronous unique global indexes for these generic row-preserving substitutions. Specialized indexes require their dedicated lowering and cannot be made safe merely by checking metadata column coverage.
+Validation: complete source trace across selector, metadata layout, mutation lowering, lookup rewrite and runtime. Four executable source-contract checks passed: all five unsupported specialized families pass the lookup blacklist; they also pass the range blacklist; fulltext keys expose ordinary prefixes; update lowering creates postings per token. No end-to-end database test was run (assignment prohibited builds/runs beyond read-only review); report that limitation.
+
+P2 candidate: Repeated right physical join column can strand CBO-selected LookupJoin.
+Locations: kqp_rbo_cbo.cpp:110-130 inserts right physical names into a set; rules/rewrite_join_to_index_lookup_join.cpp:66-71 rejects any repeated right name; :224-225 returns without changing JoinAlgo; physical_conversion/kqp_rbo_physical_join_builder.cpp:686-703 rejects unlowered LookupJoin.
+Multiple left equality keys can legally refer to one right column; the paired-IU container deduplicates pairs, not individual right IDs. CBO admission loses this multiplicity and later rewrite rejects it. This is structurally proven at the interfaces, but end-to-end reachability still needs validation because equality closure might simplify a particular generated query. Include as an additional variant of the shared admission/lowering contract defect rather than claiming independently runtime-confirmed.
+Fix: either preserve extra equality conditions as residuals or reject the candidate consistently and guarantee a supported fallback on every failed lowering path.
+
+OPTIMIZATION QUALITY -- separate from correctness
+
+Q1: The no-range fast path unconditionally prefers a covering secondary index over the main table (kqp_rbo_lookup_join.cpp:203-205), bypassing the common candidate scorer. It can choose a broad prefix probe although the main-table key supplies a complete point probe. Apply common candidate comparison to the base table and all eligible indexes; complete unique keys and estimated fanout should dominate raw prefix length. Related existing ReviewLookupJoinIndexVsPrimaryKey coverage may already overlap earlier review findings.
+
+Q2: IsCoveringIndex at :21-29 uses declared index keys/data only, omitting primary-key columns automatically stored by ordinary secondary indexes. Consequently an otherwise covering lookup is rejected whenever read outputs include one of those implicit columns. Use implementation metadata Columns (after the safe index-kind allowlist), as the range-aware branch already does.
+
+Q3 (minor): BuildFetchedRowFilter includes both the entire OriginalPredicate and the residual filter produced from it (:11-37). Deterministic residual conditions may be evaluated redundantly. Nondeterministic semantics were considered but not promoted to a correctness finding because lowering can parameterize/fold some volatile expressions. Track predicate provenance and avoid duplicating retained original conjuncts if worthwhile.
+
+SECOND PASS / NEGATIVE RESULTS
+- Prefix equalities are checked on left input before probing; residual key equalities are applied to fetched rows before join materialization.
+- Optional key types are stripped for compatibility and storage null-key suppression preserves ordinary equality semantics.
+- Multi-point prefixes are restricted to inner joins; outer/semi/anti prefixes have an explicit at-most-one bound.
+- Nullable primary-key fallback drops unmatched index rows before allowing null keys for main-table lookup; the non-null path safely carries cookies through the direct lookup chain.
+- SEMI_JOIN currently uses the same full-result TKqpJoinRows worker as JOIN, so there is no first-fetched-row filtering false-negative from that strategy alone.
+- Claimed read-limit loss was not promoted: rowstore limits are pushed only after lookup rewriting in the current stage order.
+- SourceRead rematching preserves the original predicate; original predicate columns are retained through read required-column handling.
+- No further confirmed independent correctness issue found in the second targeted pass.

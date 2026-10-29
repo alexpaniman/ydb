@@ -1,0 +1,151 @@
+{
+  "classification": "optimization-quality over-refresh only; no correctness defect established",
+  "controls": {
+    "baseline_expected_cost_assertion_failure_only_after_semantic_checks": true,
+    "before_revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+    "before_revision_is_q28_implementation_not_pinned_main": true,
+    "case_count": 4,
+    "case_vector": [
+      "q28_fusion_depth_removed_8",
+      "q28_fusion_depth_removed_32",
+      "q28_fusion_depth_kept_8",
+      "q28_fusion_depth_kept_32"
+    ],
+    "full_q28_admission": false,
+    "generated_source_persisted": false,
+    "generated_source_sha256": "a33b908be2ad18993b390c8cc970040f29709c4dc62d6f2c360417b48953788a",
+    "native_execution_pending": true,
+    "query_semantics_verified": false,
+    "required_original_case_count": 26,
+    "required_original_module": "quality_scheduler_cpp_checks",
+    "required_original_source_sha256": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7",
+    "schema": "q28_map_fusion_refresh_depth_controls_v1",
+    "specifications": [
+      {
+        "case": "q28_fusion_depth_removed_8",
+        "fanout": 8,
+        "kept": false
+      },
+      {
+        "case": "q28_fusion_depth_removed_32",
+        "fanout": 32,
+        "kept": false
+      },
+      {
+        "case": "q28_fusion_depth_kept_8",
+        "fanout": 8,
+        "kept": true
+      },
+      {
+        "case": "q28_fusion_depth_kept_32",
+        "fanout": 32,
+        "kept": true
+      }
+    ]
+  },
+  "existing26": {
+    "rendered_sha256": "cf9105de708101ba9972f78b3bc9ba22d06eca7e581e28bf2470a7e1eca31bf7",
+    "required_separately": true,
+    "source_changed": false,
+    "source_sha256": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7"
+  },
+  "expected_counter_delta_scope": {
+    "inference_not_native_measurement": true,
+    "kept_upper": "Depth2 minus depth1: one union refresh, candidate visit and IntoMap QuickMatch attempt; source refresh count equal.",
+    "removed_upper": "Depth2 minus depth1: fanout source refreshes, candidate visits and IntoMap QuickMatch attempts; union refresh count equal."
+  },
+  "generated_CPP_queries_rows_plans_persisted": false,
+  "generator_patch": {
+    "after_sha256": "ffd071b611343437c26b5179fa9d4c8db926270cfe1095d60b1bdb737e996203",
+    "path": "proposed-quality-amendments/Q28-map-fusion-refresh-depth-controls-20261028.patch",
+    "sha256": "05c568415beb0c5e0155e1dc1067135cdb5f2e539609f219585ef86c2ca129f7",
+    "target": "rbo-fixes-20261023/quality_scheduler_depth_checks.py"
+  },
+  "limitations": [
+    "Candidate C++ has not compiled or executed; exact counter deltas require native validation.",
+    "Four probes isolate IntoMap; original26 still verify both Map-push rules and excluded effects.",
+    "No right-join normalization coverage or complete-Q28 acceptance claim is added.",
+    "This does not remove conservative traversal in unreviewed stages, global logical-boundary invalidation, output-set costs or trace serialization.",
+    "No optimizer-wide linearity or latency improvement is claimed."
+  ],
+  "production_live_helpers_Git_objects_modified": false,
+  "production_patch": {
+    "after_sha256": "73e36b5ccdbf430b4e5e7feaddc8cc7cd14547c44d6e3fbbb32d80ae4896d27c",
+    "before_sha256": "116a02534acc129da6ce770fcc33d836e83ce6afdf5707ea7db5f367e041092c",
+    "path": "proposed-quality-amendments/Q28-map-fusion-refresh-depth-20261028.patch",
+    "semantic_rule_body_changed": false,
+    "sha256": "b56ee3ef5a6976cf981f010ef5bee957e1e86ff75e7fb43e0b14463bc77518b5",
+    "target": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h"
+  },
+  "proof": [
+    "IntoMap changes only the lower Map definitions and its output cache. It never mutates the lower input or descendant nodes.",
+    "If the upper Map disappears, the changed lower Map is replacement depth0. If the upper Map remains, a fresh upper Map is depth0 and changed lower Map depth1.",
+    "Depth1 therefore covers all changes and their child-first output refresh. Root output equality, owning worklist, exclusions, and mandatory conservative final pass remain unchanged.",
+    "Current depth2 safely over-approximates those mutations, but when the upper Map disappears it reaches every child of a wide unchanged UnionAll below the lower Map. These unchanged sources are refreshed and requeued unnecessarily.",
+    "When the upper Map remains, depth2 additionally refreshes/requeues the unchanged lower input. The amendment omits that work.",
+    "ThroughInput retains depth2: its kept upper Map, modified input, and new child Maps can occupy replacement depths0,1,2."
+  ],
+  "revision_before_amendment": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+  "schema": "q28_map_fusion_depth_source_assessment_v1",
+  "source_bindings": {
+    "ydb/core/kqp/opt/rbo/kqp_info_unit.h": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": "810ec6495a0f2571af8aaed157d947d69ec9798affa2a72f10f2e423c574290a",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.cpp": "ee672230519afa55b720f92bc37ba130e343d2911e131c8d66b5d53b4000ee7b",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.h": "fb1e560c105f97d21a5a4a8eceac7f69c83b8b9b294b916be9247c7eafda091c",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h": "116a02534acc129da6ce770fcc33d836e83ce6afdf5707ea7db5f367e041092c",
+    "ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp": "28e83a69b1e394ffe7d1cee1f184488217876421db3503f58f7ca9ca3bd649f5",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa"
+  },
+  "source_checks": [
+    "single_IntoMap_depth_declaration",
+    "production_change_only_depth_two_to_one",
+    "ThroughInput_depth_two_unchanged",
+    "only_lower_Map_definition_mutation",
+    "removed_upper_returns_lower_Map_at_depth_zero",
+    "kept_upper_new_root_lower_Map_at_depth_one",
+    "lower_Map_input_edges_unchanged",
+    "only_read_unchanged_input_outputs",
+    "mutated_Map_invalidates_own_output_cache",
+    "Map_output_depends_on_child_output_and_own_definitions",
+    "scheduler_refreshes_all_children_within_declared_depth",
+    "local_refresh_uses_actual_virtual_producer",
+    "same_region_requeued",
+    "matched_root_output_identity_guard_preserved",
+    "conservative_final_pass_unchanged",
+    "real_variadic_UnionAll_constructor",
+    "UnionAll_output_mapping_does_not_require_child_cache_refresh",
+    "real_union_input_row_api",
+    "original26_exact_source_dependency",
+    "original26_case_count",
+    "existing_source_probe_and_independent_evaluator_unchanged",
+    "exact_four_additional_cells",
+    "exact_kept_removed_fanout_vector",
+    "production_rewrite_implementation_not_copied",
+    "same_actual_rule_for_old_depth_control",
+    "same_build_depth_two_override",
+    "union_probe_counts_virtual_refresh",
+    "semantic_and_ID_checks_before_measurement_publish",
+    "both_controls_complete_before_publish",
+    "baseline_cost_failure_preserves_completed_semantic_counters",
+    "exact_source_derived_delta_5ab0b463909c",
+    "exact_source_derived_delta_226fcc814d2a",
+    "exact_source_derived_delta_0b154d77a5cf",
+    "exact_source_derived_delta_5a3cab4638cc",
+    "no_admission_inflation",
+    "original26_still_required",
+    "amendment_pair_distinct_from_pinned_main26",
+    "original26_render_and_source_unchanged",
+    "dependency_drift_rejected",
+    "production_disposable_application",
+    "generator_disposable_application"
+  ],
+  "source_checks_passed": 41,
+  "status": "dormant_source_checked_native_and_driver_integration_pending",
+  "verification_route": {
+    "current_direct26_CLI_changed": false,
+    "needed_next": "Bind four amendment-specific records to exact current-Q28 and amended-Q28 production closures via a separately reviewed narrow adapter; keep pinned-main26 pairing required. No broad baseline compatibility shim or admission substitution.",
+    "new_module_registered": false,
+    "no_native_execution_done": true
+  }
+}

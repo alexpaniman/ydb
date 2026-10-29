@@ -1,0 +1,26 @@
+{
+  "schema": "reviewed_idle_helper_application_v1",
+  "before_count": 57,
+  "total_applied_helper_patches": 58,
+  "previous": "verification/idle-C31-const-repair-applied57-20261028.json",
+  "ordered_patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-pipeline-changechild-owner-repair-20261028.patch",
+      "sha256": "1848e21ffe4b7692d3c88eb08c70cf29a0c111e33cd9d6d693b19171a19485bb"
+    }
+  ],
+  "before_sha256": {
+    "c31_combined_cpp_generator.py": "7d56fc9bcc877762fc09238f46fa39983e0634e0f89fca9a183860b3fe57455e",
+    "c31_shared_pipeline_cpp_generator.py": "7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6",
+    "correctness_cpp_profiles.json": "3d988379b86534a2f5fe5269d7b6dd957e7427ff5ea55c7a37f3a1b12112b679"
+  },
+  "combined_after_sha256": {
+    "c31_combined_cpp_generator.py": "6d2dfad9a4cb6e570fb39b5a4c605f223e07ccc85ee59cde0a87cdd2d36c1bb2",
+    "c31_shared_pipeline_cpp_generator.py": "3cf515d213120fda6fa70da7029895d93e74940fa908f70e038d839b3185caa4",
+    "correctness_cpp_profiles.json": "ca3e92a5de2e925bb624598534127a2572201b0bda1bf974ccb3fa8f51dd5974"
+  },
+  "independent_review": "verification/C31-pipeline-changechild-owner-independent-review-20261028.json",
+  "native_pending": true,
+  "production_sources_changed": false,
+  "applied_unix_time": 1793157881.0649242
+}

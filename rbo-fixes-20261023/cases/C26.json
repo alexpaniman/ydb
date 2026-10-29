@@ -1,0 +1,67 @@
+{
+  "id": "C26",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c26-distinct-variance-state",
+  "commit": "d40b5b11a3c485d1b504c128931d120d94487324",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp"
+  ],
+  "rationale": "Represent partial variance as its existing three-Double accumulator tuple in padding and phase annotations.",
+  "checks": [
+    "git diff --check passed",
+    "Independent source challenge: support variance tuple3 in physical decimal detection; constrain empty-input AVG decoding."
+  ],
+  "generator_cases": [
+    "distinct_variance"
+  ],
+  "verification_plan": "Mixed DISTINCT and variance oracle plus optional, grouped, empty-input and ordinary variance controls; check final type and exact variance values.",
+  "build_verification": {
+    "bug": "C26",
+    "revision": "d40b5b11a3c485d1b504c128931d120d94487324",
+    "exit_code": 0,
+    "elapsed_seconds": 239.7,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4456448,
+      "peak_scope_usage_bytes": 43135987712,
+      "minimum_host_available_bytes": 67264462848,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": false,
+      "elapsed_seconds": 239.7
+    },
+    "diagnostic_sha256": "d9d965f23fe952b37569dfd881d17de227d3b307619344b27752b914d2a7478e",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/d40b5b11a3c485d1b504c128931d120d94487324-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 10,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C26-d40b5b11a3c4-1793151931978021668.jsonl"
+  },
+  "status_before_verification": "verified",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "1e7f0a353538e549d44cfdbff6489b65f00b4f9814fd0fdbe8a6ef6376ed2271"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C26-1793151964265569601.json",
+    "coverage_evidence_sha256": "2de9b3bc2af0a51fdfcc57e1ecd416db6735c9d4d4921bd80b5bf4a04950bda4",
+    "remaining_qualifications": []
+  }
+}

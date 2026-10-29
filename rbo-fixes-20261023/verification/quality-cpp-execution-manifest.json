@@ -1,0 +1,40 @@
+{
+  "status": "generator_only_not_compiled_or_executed",
+  "cases": [
+    "q18_fields_1",
+    "q18_fields_3",
+    "q18_fields_7",
+    "q19_success_error",
+    "q19_error_success",
+    "q19_success_warning",
+    "q19_all_success",
+    "q19_all_error",
+    "q19_future_exception"
+  ],
+  "production_sources_modified": false,
+  "includes_existing_fixture": "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h",
+  "source_transport": "os.memfd_create; compiler reads inherited /proc/self/fd descriptor; no rendered source file",
+  "batch_interface": "render_cpp_suite(Q18 or Q19, wrapper_symbols); one translation unit per selected branch with numeric JSONL case verdicts",
+  "build_integration": "Reuse the selected branch existing RBO unit-test compile/link dependency closure. One compile/link at a time under the same memory guard. Resolve resource/compiler flags from build metadata; no guessed ABI or mixed-revision objects.",
+  "q19_link_boundary": "AddStatRequest has two externally linked non-inline definitions in kqp_column_statistics_utils.cpp; transformer callsites are in a separate translation unit. Discover exact defined mangled symbols with nm and pass --wrap for both. Confirm relocations before execution; LTO/inlining can invalidate wrapping.",
+  "q19_wrap_scope": "Only external request dispatch is substituted. Production RequestColumnStatistics callback, issues accumulation, cache application and future exception propagation execute from the selected branch.",
+  "pre_execution_checks": [
+    "same branch binary/library provenance",
+    "both wrapped symbols actually referenced",
+    "NextRequest exactly three",
+    "future remains pending before scripted responses",
+    "sanitized JSON parsed and positive check count"
+  ],
+  "existing_smoke_coverage": [
+    "KqpRbo ColumnStatistics row/column twins use successful real statistics service; they do not establish partial-response behavior",
+    "KqpRboGlobalIUs existing Map movement controls cover surrounding invariants, not every per-definition flag edge"
+  ],
+  "remaining": [
+    "Compile generated adapters against actual production headers before accepting signatures",
+    "Resolve linker object closure and symbols safely",
+    "Execute Q18 cache application and Q19 async matrix",
+    "Sketch/histogram object identity extension; current Q18 matrix covers optional zero, type and tuple-field preservation",
+    "Q14/Q16 adapters are separate in quality_rule_cpp_generator; Q25 adapter is in quality_map_contract_generator; none are compiled proof"
+  ],
+  "artifact_policy": "Keep generator source, binary/build hashes, numeric verdicts and sanitized counters only; never persist rendered C++ workloads or raw compiler diagnostics that quote generated lines."
+}

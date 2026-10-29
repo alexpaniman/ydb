@@ -1,0 +1,69 @@
+{
+  "id": "C49",
+  "branch": "fix/new-rbo/c49-preserve-lookup-identity",
+  "commit": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp"
+  ],
+  "rationale": "Require every primary-key component before advertising lookup uniqueness. Noncovering index rewrites now fetch fresh hidden output bindings for missing primary-key fields, so late residual LEFT JOIN reconstruction retains a real row identity and stays executable instead of only losing the false key claim.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed candidate c9070777079e05ca707791af77d6cc2b03f691b2, supplemented its metadata guard with complete identity retention",
+    "Traced lookup output typing, liveness, intermediate Map-only pruning, and late residual identity consumption; no build/native execution"
+  ],
+  "generators": [
+    "partial_lookup_key_generator.py"
+  ],
+  "expected_oracle": "Partial-key generated LEFT JOIN case succeeds and satisfies the semantic oracle; its complete-key control continues passing.",
+  "controls": [
+    "Complete primary key requested",
+    "Composite key with several omitted components",
+    "LEFT SEMI and LEFT ONLY variants",
+    "No residual predicate",
+    "Different rows sharing all retained key components"
+  ],
+  "concerns": [
+    "Existing residual-reconstruction restriction on nullable identity columns is separate; confirmed C49 uses nonnullable composite primary keys.",
+    "Hidden primary-key fields add fetched columns to noncovering lookups; final result projection remains unchanged.",
+    "Native verification must confirm hidden identities survive CBO and the intermediate cleanup stages."
+  ],
+  "status_before_verification": "verified",
+  "build_verification": {
+    "bug": "C49",
+    "revision": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+    "exit_code": 0,
+    "elapsed_seconds": 16.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4476928,
+      "peak_scope_usage_bytes": 1275940864,
+      "minimum_host_available_bytes": 81022705664,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 16.1
+    },
+    "diagnostic_sha256": "d9d965f23fe952b37569dfd881d17de227d3b307619344b27752b914d2a7478e",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/a2abaec9a49a3ad176a135a55278426de0b01dad-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 9,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C49-a2abaec9a49a-1793149037191200943.jsonl"
+  },
+  "additional_identity_controls": {
+    "checks": 7,
+    "passed": true,
+    "evidence": "verification/guarded-fixed-C49-a2abaec9a49a-1793149037191200943.jsonl"
+  },
+  "verification_limitation": "All9 targeted checks pass against the exact branch executable, including7 supplemental composite-identity and EXISTS/NOT EXISTS controls. Unsupported raw SEMI/ONLY frontend syntax remains outside the SQL coverage; the extra identity checks do not prove non-covering-index selection."
+}

@@ -1,0 +1,43 @@
+{
+  "status": "independent_source_review_pass_native_pending",
+  "recorded_unix_time": 1793135582.3193665,
+  "source_report_sha256": "92101c6b82e8baf4f69d95f1c2b87127bf77fc7f35f5f7e639a10c849467e089",
+  "patches": [
+    {
+      "path": "proposed-correctness-amendments/C49-extra-identity-controls.patch",
+      "sha256": "a6ec3056be33b7ee13d843992c999ac06b56fac137992eb1b9927f9d8e5c1667"
+    },
+    {
+      "path": "proposed-correctness-amendments/C50-gather-observation-install.patch",
+      "sha256": "00ea9bdeec6458f56b97bb74f547d14207ba1e953c864988e4436a48300e83d4"
+    },
+    {
+      "path": "proposed-correctness-amendments/C50-correctness-query-plan-admission.patch",
+      "sha256": "82801eb71b02c55a209c2e2346857a96c007d9415ae8460886ceeeb1af5e0e32"
+    }
+  ],
+  "stacked_application_passed": true,
+  "syntax_passed": true,
+  "metadata_and_oracle_assertions_passed": 72,
+  "admission_assertions_passed": 19,
+  "source_confirmations": [
+    "kqprun defaults to PROFILE statistics, yielding per-stage actual Tasks.",
+    "TOpJoin JSON exposes condition and exact join-kind/algorithm; TOpRead JSON strips table path to table name.",
+    "Ordinary UnionAll omits Parallel field; parallel variant serializes it.",
+    "C49 independent bag oracle preserves retained-key fields and rejects duplicate/lost rows.",
+    "C50 requires the intended join edges, distinct fixture sources and actual Tasks=1; unavailable internal metadata proofs remain false."
+  ],
+  "native_observations": 0,
+  "builds": 0,
+  "live_helper_edits": false,
+  "production_edits": false,
+  "limitations": [
+    "Native execution pending.",
+    "Noncovering-index choice is not physically observed by this generator.",
+    "EXISTS/NOT EXISTS does not guarantee a particular physical join kind.",
+    "Original type annotations and ShuffledByColumns are not exposed by public JSON; proof flags remain false.",
+    "Shared producer backpressure is not covered and remains false.",
+    "Unknown aliases, missing stats, unresolved CTEs, duplicate stage IDs/JSON keys, unexpected connections or unidentifiable intended join reject the observation.",
+    "No actual native C50 plan inspected; compatibility is source-reviewed only."
+  ]
+}

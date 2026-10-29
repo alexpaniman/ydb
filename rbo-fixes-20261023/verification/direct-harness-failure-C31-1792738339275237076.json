@@ -1,0 +1,7 @@
+{
+  "bug": "C31",
+  "command": "run",
+  "no_runtime_verdict_accepted": true,
+  "reason": "production_closure_input_changed",
+  "status": "direct_harness_failed"
+}

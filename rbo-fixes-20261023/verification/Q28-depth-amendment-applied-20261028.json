@@ -1,0 +1,16 @@
+{
+  "schema": "Q28_depth_amendment_applied_v1",
+  "old_revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+  "revision": "8089888107b179ca5c08f145f70564bd4637daa6",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/q28-every-successful-rule-restarts-traversal-and-recomputes-global-properties",
+  "patch": "proposed-quality-amendments/Q28-map-fusion-refresh-depth-20261028.patch",
+  "patch_sha256": "b56ee3ef5a6976cf981f010ef5bee957e1e86ff75e7fb43e0b14463bc77518b5",
+  "target": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+  "after_sha256": "73e36b5ccdbf430b4e5e7feaddc8cc7cd14547c44d6e3fbbb32d80ae4896d27c",
+  "worktree_restored_to": "c6a5904e300b925032913f51e6a19518ceb842c2",
+  "no_essentials_edits": true,
+  "native_pending": true,
+  "binding_refresh_pending": true,
+  "applied_unix_time": 1793161545.2386482
+}

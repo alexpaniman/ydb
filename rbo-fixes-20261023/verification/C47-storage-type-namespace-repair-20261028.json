@@ -1,0 +1,17 @@
+{
+  "old_revision": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+  "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c47-import-explicit-index-reads",
+  "source_file": "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+  "change": "Qualify the constructor argument as NYql::EStorageType::RowStorage; no cast or behavior change.",
+  "cause": "Enclosing NKikimr::NKqp has a distinct EStorageType; TOpRead requires NYql::EStorageType.",
+  "source_sha256": "ac8b7740917cc141953f07fef2a71d34511c93a1c81901a8e1f568634c822d05",
+  "independent_reviewer": "anonymous_link_memory_review",
+  "source_review_passed": true,
+  "direct_contract_count": 19,
+  "direct_generator_sha256": "74e378d5b40ec2aea8289b4b1e7c83b3324a6b3499944dc592d419a0e8a66224",
+  "direct_generated_source_sha256": "bda579bc80fb588b7dfc80d6f167c293e95642b4d18425363aa9f5cd5243c838",
+  "generated_source_persisted": false,
+  "fresh_native_acceptance": false
+}

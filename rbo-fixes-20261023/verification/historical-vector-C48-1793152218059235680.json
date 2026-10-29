@@ -1,0 +1,18 @@
+{
+  "C03_expanded_control_vector_present": false,
+  "C41_fullsuite_build_bound": false,
+  "automatic_full_finding_promotion": false,
+  "bug": "C48",
+  "build_receipt_sha256": "a550fb4660d38a5f3fa1308187cb12297007d8329714bc2a3a5b1c272d02feed",
+  "checked_records": 9,
+  "exact_vector_passed": true,
+  "fullsuite_build_evidence": null,
+  "guard_sha256": "6c64d75432eb8ce2d4d8d47f814233722d384cc6613d21aeb86a162ea0e17be8",
+  "qualified_legacy_adapter_records": 0,
+  "qualified_status": "verified",
+  "remaining_qualifications": [
+    "This covers intended legacy optimizer routing for unsupported writes, not native new-RBO effect support."
+  ],
+  "revision": "35bc8b6938f42a11e92747063bfafc1dec0b9b5c",
+  "slice_sha256": "9c7f1807c3309387e7aa227fd709fa75d62279170855ef15fc29e6ea8cde5a04"
+}

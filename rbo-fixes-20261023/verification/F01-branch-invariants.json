@@ -1,0 +1,9 @@
+{
+  "id": "F01",
+  "commit": "cb7a4189eea1f56dfdc7bbbb012c96403c090636",
+  "main_based": true,
+  "branch_matches": true,
+  "expected_files_only": true,
+  "essentials_untouched": true,
+  "diff_check": true
+}

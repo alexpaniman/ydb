@@ -1,0 +1,18 @@
+{
+  "C03_expanded_control_vector_present": false,
+  "C41_fullsuite_build_bound": false,
+  "automatic_full_finding_promotion": false,
+  "bug": "C44",
+  "build_receipt_sha256": "31e445e53e232ce091d5e38fbab27cee9982e76da0fbe9dbf2aa8bb72e9b32cd",
+  "checked_records": 3,
+  "exact_vector_passed": true,
+  "fullsuite_build_evidence": null,
+  "guard_sha256": "a9644761126b21059eb4299b669ca8d3e25a2536f0cb0c9d8484a6cc0a25a918",
+  "qualified_legacy_adapter_records": 0,
+  "qualified_status": "verified_guard",
+  "remaining_qualifications": [
+    "This is guard/routing coverage. Forced no-fallback must reject at target; enabled fallback is legacy execution, not unsupported new-RBO effect support."
+  ],
+  "revision": "329c771f34f97af659cf4d78af1e6c54226deb3e",
+  "slice_sha256": "de4cd8ed97e6c5bc5a14650271cfee9836d5785073f6aa1c1a02d67aa7a3b15d"
+}

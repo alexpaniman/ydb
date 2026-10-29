@@ -1,0 +1,586 @@
+diff --git a/rbo-fixes-20261023/correctness_cpp_contract.py b/rbo-fixes-20261023/correctness_cpp_contract.py
+--- a/rbo-fixes-20261023/correctness_cpp_contract.py
++++ b/rbo-fixes-20261023/correctness_cpp_contract.py
+@@ -12,7 +12,7 @@
+ from anonymous_cpp_metadata import VERSION as CLOSURE_VERSION, MetadataError
+ 
+ ROOT = Path(__file__).resolve().parent
+-MODULES = {'C31': 'c31_identity_cpp_generator', 'C47': 'c47_lookup_copy_contract_generator'}
++MODULES = {'C31': 'c31_identity_cpp_generator', 'C47': 'c47_combined_cpp_generator'}
+ PROFILE_VERSION = 'reviewed_correctness_cpp_profiles_v1'
+ PROFILE_KEYS = {'module', 'revision', 'base', 'profile', 'generator_sha256', 'generated_source_sha256',
+                 'generated_source_bytes', 'case_count', 'proof_scope'}
+@@ -26,7 +26,7 @@
+     document = json.loads((ROOT/'correctness_cpp_profiles.json').read_bytes())
+     value = document.get('profiles', {}).get(bug)
+     if (document.get('schema_version') != PROFILE_VERSION or bug not in MODULES
+-        or not isinstance(value, dict) or set(value) != PROFILE_KEYS
++        or not isinstance(value, dict) or set(value) != (PROFILE_KEYS | ({'case_assertions', 'vectors'} if bug == 'C47' else set()))
+         or value.get('module') != MODULES[bug] or value.get('revision') != revision
+         or not isinstance(revision, str) or not re.fullmatch('[0-9a-f]{40}', revision)
+         or value.get('profile') != 'rbo' or value.get('proof_scope') != 'linked_production_local_contracts'
+@@ -34,6 +34,18 @@
+         or type(value.get('generated_source_bytes')) is not int or value['generated_source_bytes'] <= 0
+         or not _digest(value.get('generator_sha256')) or not _digest(value.get('generated_source_sha256'))):
+         raise MetadataError('unreviewed_correctness_cpp_profile')
++    if bug == 'C47':
++        rows = value['case_assertions']
++        if (not isinstance(rows, list) or len(rows) != value['case_count']
++            or not isinstance(value['vectors'], list) or len(value['vectors']) != 2):
++            raise MetadataError('invalid_correctness_cpp_case_vector')
++        for index, row in enumerate(rows):
++            if (not isinstance(row, dict) or set(row) != {'case_index', 'vector', 'case', 'assertion_count'}
++                or type(row['case_index']) is not int or row['case_index'] != index
++                or row['vector'] not in ('copy', 'covering')
++                or not isinstance(row['case'], str) or not row['case']
++                or type(row['assertion_count']) is not int or row['assertion_count'] <= 0):
++                raise MetadataError('invalid_correctness_cpp_case_vector')
+     case = json.loads((ROOT/'cases'/(bug+'.json')).read_bytes())
+     if case.get('commit') != revision or case.get('base') != value.get('base'):
+         raise MetadataError('correctness_cpp_profile_case_revision_changed')
+@@ -54,11 +66,23 @@
+     module = ModuleType(expected['module'])
+     module.__file__ = str(path)
+     exec(compile(raw, str(path), 'exec'), module.__dict__)
++    if bug == 'C47' and (module.specs() != expected['case_assertions']
++                         or module.vector_manifest() != expected['vectors']):
++        raise MetadataError('correctness_cpp_component_vector_changed')
+     source = module.render_cpp_suite().encode()
+     if (len(module.cases()) != expected['case_count'] or len(source) != expected['generated_source_bytes']
+         or hashlib.sha256(source).hexdigest() != expected['generated_source_sha256']):
+         raise MetadataError('correctness_cpp_rendered_contract_changed')
+     return source, expected['case_count'], expected['generator_sha256']
++
++
++def vector_evidence(bug, revision):
++    expected = profile(bug, revision)
++    if bug != 'C47':
++        return {}
++    return {'direct_case_vector_sha256': hashlib.sha256(json.dumps(
++                expected['case_assertions'], sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
++            'direct_contract_vectors': expected['vectors']}
+ 
+ 
+ def _unique_object(pairs):
+@@ -70,9 +94,15 @@
+     return value
+ 
+ 
+-def parse_verdicts(stdout, count, exit_code):
++def parse_verdicts(stdout, count, exit_code, bug=None):
+     if type(count) is not int or count <= 0 or not stdout or len(stdout) > 1024*1024:
+         raise MetadataError('invalid_correctness_cpp_verdict_size')
++    expected_rows = None
++    if bug == 'C47':
++        revision = json.loads((ROOT/'cases'/'C47.json').read_bytes())['commit']
++        expected_rows = profile(bug, revision)['case_assertions']
++        if len(expected_rows) != count:
++            raise MetadataError('incorrect_correctness_cpp_case_count')
+     records = []
+     for line in stdout.splitlines():
+         value = json.loads(line, object_pairs_hook=_unique_object)
+@@ -81,6 +111,11 @@
+             or type(value.get('checks_executed')) is not int or value['checks_executed'] <= 0
+             or type(value.get('passed')) is not bool):
+             raise MetadataError('invalid_correctness_cpp_case_verdict')
++        if expected_rows is not None:
++            expected_count = expected_rows[value['case_index']]['assertion_count']
++            if (value['checks_executed'] > expected_count
++                or (value['passed'] and value['checks_executed'] != expected_count)):
++                raise MetadataError('incorrect_correctness_cpp_assertion_count')
+         records.append(value)
+     if len(records) != count or sorted(value['case_index'] for value in records) != list(range(count)):
+         raise MetadataError('incomplete_correctness_cpp_case_verdicts')
+@@ -114,6 +149,8 @@
+             or evidence.get('query_semantics_verified') is not False
+             or evidence.get('quality_improvement_verified') is not False):
+             return False
++        if any(evidence.get(key) != value for key, value in vector_evidence(bug, revision).items()):
++            return False
+         raw_receipt = Path(evidence['closure_receipt_path']).read_bytes()
+         receipt = json.loads(raw_receipt)
+         if (hashlib.sha256(raw_receipt).hexdigest() != evidence.get('closure_receipt_sha256')
+@@ -138,7 +175,7 @@
+                 or process.get('cleanup_complete') is not True or process.get('watchdog_stopped') is not False
+                 or process.get('stdout_overflow') is not False):
+                 return False
+-        records = parse_verdicts(b'\n'.join(json.dumps(value).encode() for value in evidence['cases']), count, 0)
++        records = parse_verdicts(b'\n'.join(json.dumps(value).encode() for value in evidence['cases']), count, 0, bug=bug)
+         return all(value['passed'] for value in records)
+     except (OSError, ValueError, TypeError, KeyError, AttributeError, MetadataError):
+         return False
+diff --git a/rbo-fixes-20261023/anonymous_cpp_verify.py b/rbo-fixes-20261023/anonymous_cpp_verify.py
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -25,7 +25,7 @@
+                                     source_revision, verify_receipt)
+ 
+ HERE = Path(__file__).resolve().parent
+-GENERATORS = {'C31': 'c31_identity_cpp_generator', 'C47': 'c47_lookup_copy_contract_generator',
++GENERATORS = {'C31': 'c31_identity_cpp_generator', 'C47': 'c47_combined_cpp_generator',
+               'Q11': 'quality_union_cpp_generator',
+               'Q09': 'quality_statistics_cpp_generator', 'Q20': 'quality_statistics_cpp_generator',
+               'Q01': 'quality_range_runtime_cpp_generator', 'Q14': 'quality_rule_cpp_generator', 'Q16': 'quality_rule_cpp_generator',
+@@ -281,7 +281,7 @@
+         return parse_union_verdicts(stdout, count, exit_code)
+     if bug in ('C31', 'C47'):
+         from correctness_cpp_contract import parse_verdicts as parse_correctness_verdicts
+-        return parse_correctness_verdicts(stdout, count, exit_code)
++        return parse_correctness_verdicts(stdout, count, exit_code, bug=bug)
+     if bug == 'Q01':
+         from quality_range_runtime_contract import parse_verdicts as parse_runtime_verdicts
+         return parse_runtime_verdicts(stdout, count, exit_code)
+@@ -430,8 +430,9 @@
+                 raise MetadataError('direct_pair_generator_changed_before_compile')
+             evidence['direct_case_vector_sha256'] = _json_digest(vector)
+         if args.bug in ('C31', 'C47'):
+-            from correctness_cpp_contract import profile_digest
++            from correctness_cpp_contract import profile_digest, vector_evidence
+             evidence['direct_contract_profile_sha256'] = profile_digest(args.bug, revision)
++            evidence.update(vector_evidence(args.bug, revision))
+         if args.bug == 'Q11':
+             from quality_union_cpp_contract import profile_digest as union_profile_digest
+             evidence['direct_contract_profile_sha256'] = union_profile_digest(revision)
+diff --git a/rbo-fixes-20261023/correctness_cpp_profiles.json b/rbo-fixes-20261023/correctness_cpp_profiles.json
+--- a/rbo-fixes-20261023/correctness_cpp_profiles.json
++++ b/rbo-fixes-20261023/correctness_cpp_profiles.json
+@@ -13,15 +13,341 @@
+       "proof_scope": "linked_production_local_contracts"
+     },
+     "C47": {
+-      "module": "c47_lookup_copy_contract_generator",
+-      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
++      "module": "c47_combined_cpp_generator",
++      "revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+       "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+       "profile": "rbo",
+-      "generator_sha256": "74e378d5b40ec2aea8289b4b1e7c83b3324a6b3499944dc592d419a0e8a66224",
+-      "generated_source_sha256": "bda579bc80fb588b7dfc80d6f167c293e95642b4d18425363aa9f5cd5243c838",
+-      "generated_source_bytes": 36457,
+-      "case_count": 19,
+-      "proof_scope": "linked_production_local_contracts"
++      "generator_sha256": "1aeeec8491b4b054344cbf3704476044153e4c2409bd6a168d0ecfa7ce835fb2",
++      "generated_source_sha256": "4c48c9a652f654be9a9b8f7d9646b6678928fee2a9b59b9b7580634dbaab9416",
++      "generated_source_bytes": 160442,
++      "case_count": 51,
++      "proof_scope": "linked_production_local_contracts",
++      "case_assertions": [
++        {
++          "case_index": 0,
++          "vector": "copy",
++          "case": "plain_0_1_fresh",
++          "assertion_count": 17
++        },
++        {
++          "case_index": 1,
++          "vector": "copy",
++          "case": "plain_0_1_renamed",
++          "assertion_count": 18
++        },
++        {
++          "case_index": 2,
++          "vector": "copy",
++          "case": "plain_0_3_fresh",
++          "assertion_count": 25
++        },
++        {
++          "case_index": 3,
++          "vector": "copy",
++          "case": "plain_0_3_renamed",
++          "assertion_count": 26
++        },
++        {
++          "case_index": 4,
++          "vector": "copy",
++          "case": "plain_1_1_fresh",
++          "assertion_count": 17
++        },
++        {
++          "case_index": 5,
++          "vector": "copy",
++          "case": "plain_1_1_renamed",
++          "assertion_count": 18
++        },
++        {
++          "case_index": 6,
++          "vector": "copy",
++          "case": "plain_1_3_fresh",
++          "assertion_count": 25
++        },
++        {
++          "case_index": 7,
++          "vector": "copy",
++          "case": "plain_1_3_renamed",
++          "assertion_count": 26
++        },
++        {
++          "case_index": 8,
++          "vector": "copy",
++          "case": "plain_settings",
++          "assertion_count": 25
++        },
++        {
++          "case_index": 9,
++          "vector": "copy",
++          "case": "plain_ranges",
++          "assertion_count": 27
++        },
++        {
++          "case_index": 10,
++          "vector": "copy",
++          "case": "guard_join",
++          "assertion_count": 3
++        },
++        {
++          "case_index": 11,
++          "vector": "copy",
++          "case": "guard_fetched_filter",
++          "assertion_count": 3
++        },
++        {
++          "case_index": 12,
++          "vector": "copy",
++          "case": "guard_prefix",
++          "assertion_count": 3
++        },
++        {
++          "case_index": 13,
++          "vector": "copy",
++          "case": "guard_source_read",
++          "assertion_count": 3
++        },
++        {
++          "case_index": 14,
++          "vector": "copy",
++          "case": "guard_residual",
++          "assertion_count": 3
++        },
++        {
++          "case_index": 15,
++          "vector": "copy",
++          "case": "guard_chained",
++          "assertion_count": 3
++        },
++        {
++          "case_index": 16,
++          "vector": "copy",
++          "case": "guard_named_kind",
++          "assertion_count": 3
++        },
++        {
++          "case_index": 17,
++          "vector": "copy",
++          "case": "input_limit",
++          "assertion_count": 2
++        },
++        {
++          "case_index": 18,
++          "vector": "copy",
++          "case": "input_unrepeatable_settings",
++          "assertion_count": 2
++        },
++        {
++          "case_index": 19,
++          "vector": "covering",
++          "case": "covered",
++          "assertion_count": 28
++        },
++        {
++          "case_index": 20,
++          "vector": "covering",
++          "case": "after_global_pruning",
++          "assertion_count": 31
++        },
++        {
++          "case_index": 21,
++          "vector": "covering",
++          "case": "copied_definitions",
++          "assertion_count": 37
++        },
++        {
++          "case_index": 22,
++          "vector": "covering",
++          "case": "shared_input_ownership",
++          "assertion_count": 29
++        },
++        {
++          "case_index": 23,
++          "vector": "covering",
++          "case": "preserved_read_state",
++          "assertion_count": 55
++        },
++        {
++          "case_index": 24,
++          "vector": "covering",
++          "case": "unique_index",
++          "assertion_count": 28
++        },
++        {
++          "case_index": 25,
++          "vector": "covering",
++          "case": "extra_demand",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 26,
++          "vector": "covering",
++          "case": "shared_lookup_edges",
++          "assertion_count": 14
++        },
++        {
++          "case_index": 27,
++          "vector": "covering",
++          "case": "different_value_type",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 28,
++          "vector": "covering",
++          "case": "different_optionality",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 29,
++          "vector": "covering",
++          "case": "missing_main_types",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 30,
++          "vector": "covering",
++          "case": "missing_index_types",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 31,
++          "vector": "covering",
++          "case": "incomplete_pk",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 32,
++          "vector": "covering",
++          "case": "reordered_pk",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 33,
++          "vector": "covering",
++          "case": "wrong_key_source",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 34,
++          "vector": "covering",
++          "case": "reject_null_keys",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 35,
++          "vector": "covering",
++          "case": "async_index",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 36,
++          "vector": "covering",
++          "case": "specialized_index",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 37,
++          "vector": "covering",
++          "case": "not_ready_index",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 38,
++          "vector": "covering",
++          "case": "unrelated_implementation",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 39,
++          "vector": "covering",
++          "case": "missing_implementation",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 40,
++          "vector": "covering",
++          "case": "spilling_enabled",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 41,
++          "vector": "covering",
++          "case": "join_lookup",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 42,
++          "vector": "covering",
++          "case": "fetched_filter",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 43,
++          "vector": "covering",
++          "case": "point_prefix",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 44,
++          "vector": "covering",
++          "case": "source_read_state",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 45,
++          "vector": "covering",
++          "case": "chained_lookup",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 46,
++          "vector": "covering",
++          "case": "residual_keys",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 47,
++          "vector": "covering",
++          "case": "olap_program",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 48,
++          "vector": "covering",
++          "case": "original_predicate",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 49,
++          "vector": "covering",
++          "case": "missing_read_settings",
++          "assertion_count": 13
++        },
++        {
++          "case_index": 50,
++          "vector": "covering",
++          "case": "missing_main_metadata",
++          "assertion_count": 13
++        }
++      ],
++      "vectors": [
++        {
++          "vector": "copy",
++          "module": "c47_lookup_copy_contract_generator",
++          "generator_sha256": "7e717869cb10b65043ade9032a170c3dfec96e8e341847c774245637f35033df",
++          "rendered_source_sha256": "e610ac774afe761407c33e1565ea9a74d93d5d6a7429e2fc0572dda8326a9d4c",
++          "case_count": 19,
++          "first_case_index": 0
++        },
++        {
++          "vector": "covering",
++          "module": "c47_covering_import_contract_generator",
++          "generator_sha256": "d19a363c250f6f61702e29360b50b613dbc42bf0f0b19c0eab3f5a39c608cee6",
++          "rendered_source_sha256": "83fe696c750b874b7addcb51971cf5f3814c523bacfc115e2571d07173d78483",
++          "case_count": 32,
++          "first_case_index": 19
++        }
++      ]
+     }
+   }
+ }
+diff --git a/rbo-fixes-20261023/c47_combined_cpp_generator.py b/rbo-fixes-20261023/c47_combined_cpp_generator.py
+new file mode 100644
+--- /dev/null
++++ b/rbo-fixes-20261023/c47_combined_cpp_generator.py
+@@ -0,0 +1,86 @@
++"""Compose the reviewed C47 copy and covering vectors; render only in memory."""
++import hashlib
++import json
++from pathlib import Path
++from types import ModuleType
++
++ROOT = Path(__file__).resolve().parent
++VERSION = 'c47_combined_production_contracts_v1'
++BINDINGS = [{'vector': 'copy', 'module': 'c47_lookup_copy_contract_generator', 'generator_sha256': '7e717869cb10b65043ade9032a170c3dfec96e8e341847c774245637f35033df', 'rendered_source_sha256': 'e610ac774afe761407c33e1565ea9a74d93d5d6a7429e2fc0572dda8326a9d4c', 'case_count': 19}, {'vector': 'covering', 'module': 'c47_covering_import_contract_generator', 'generator_sha256': 'd19a363c250f6f61702e29360b50b613dbc42bf0f0b19c0eab3f5a39c608cee6', 'rendered_source_sha256': '83fe696c750b874b7addcb51971cf5f3814c523bacfc115e2571d07173d78483', 'case_count': 32}]
++COPY_ASSERTIONS = [17, 18, 25, 26, 17, 18, 25, 26, 25, 27, 3, 3, 3, 3, 3, 3, 3, 2, 2]
++
++
++def _load(binding):
++    path = ROOT / (binding['module'] + '.py')
++    raw = path.read_bytes()
++    if hashlib.sha256(raw).hexdigest() != binding['generator_sha256']:
++        raise ValueError('C47 component generator requires renewed review')
++    module = ModuleType(binding['module'])
++    module.__file__ = str(path)
++    exec(compile(raw, str(path), 'exec'), module.__dict__)
++    rendered = module.render_cpp_suite()
++    if (len(module.cases()) != binding['case_count']
++        or hashlib.sha256(rendered.encode()).hexdigest() != binding['rendered_source_sha256']):
++        raise ValueError('C47 component contract differs from reviewed source')
++    return module, rendered
++
++
++def _components():
++    return [(binding, *_load(binding)) for binding in BINDINGS]
++
++
++def cases():
++    return [binding['vector'] + '/' + case
++            for binding, module, _ in _components() for case in module.cases()]
++
++
++def specs():
++    result = []
++    for binding, module, _ in _components():
++        counts = (COPY_ASSERTIONS if binding['vector'] == 'copy'
++                  else [item['assertion_count'] for item in module.specs()])
++        if len(counts) != len(module.cases()):
++            raise ValueError('C47 case/assertion vector differs')
++        for case, count in zip(module.cases(), counts):
++            result.append({'case_index': len(result), 'vector': binding['vector'],
++                           'case': case, 'assertion_count': count})
++    return result
++
++
++def vector_manifest():
++    result, first = [], 0
++    for binding, _, _ in _components():
++        result.append(dict(binding, first_case_index=first))
++        first += binding['case_count']
++    return result
++
++
++def render_cpp_suite():
++    # The component functions and their helpers stay byte-identical. Only their
++    # file-scope includes and standalone mains are replaced by one driver.
++    includes, groups, calls = [], [], []
++    for binding, module, rendered in _components():
++        marker = 'int main() { unsigned failures = 0;\n'
++        if rendered.count(marker) != 1:
++            raise ValueError('C47 component main boundary changed')
++        prefix, _ = rendered.split(marker)
++        body = []
++        for line in prefix.splitlines(True):
++            if line.startswith('#include <') and line.endswith('>\n'):
++                if line not in includes:
++                    includes.append(line)
++            elif line.startswith('#'):
++                raise ValueError('C47 component preprocessing requires renewed review')
++            else:
++                body.append(line)
++        namespace = 'C47_' + binding['vector']
++        groups.append('namespace ' + namespace + ' {\n' + ''.join(body) + '}\n')
++        calls.extend((namespace, index) for index in range(len(module.cases())))
++    source = ''.join(includes + groups) + 'int main() { unsigned failures = 0;\n'
++    for index, (namespace, local_index) in enumerate(calls):
++        source += '{ const auto before = ' + namespace + '::Checks; bool passed = true; try { '
++        source += namespace + '::Case' + str(local_index) + '(); } catch (...) { passed = false; ++failures; }\n'
++        source += 'std::cout << ' + json.dumps('{"case_index":' + str(index) + ',"checks_executed":')
++        source += ' << (' + namespace + '::Checks-before) << ' + json.dumps(',"passed":')
++        source += ' << (passed ? "true" : "false") << ' + json.dumps('}\n') + '; }\n'
++    return source + 'return failures ? 1 : 0; }\n'

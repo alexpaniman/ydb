@@ -1,0 +1,55 @@
+source,primary_reviewers,scope
+ydb/core/kqp/opt/rbo/rules/apply_cbo.cpp,r29_cbo_execution,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/assign_stages.cpp,r22_assign_stages,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/build_initial_cbo_tree.cpp,r28_cbo_build,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/constant_folding_stage.cpp,r04_conjuncts_predicate,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/disable_blocks_on_columns_limit.cpp,r27_olap_pushdown,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/eliminate_left_join.cpp,r03_join_eliminate,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/expand_cbo_tree.cpp,r29_cbo_execution,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp,r05_grouping_sets,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp,r05_grouping_sets,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/expand_replicate.cpp,r16_copy_replicate,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/expand_whole_partition_window.cpp,r06_windows_logical,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/extract_common_conjuncts.cpp,r04_conjuncts_predicate,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/extract_join_expressions.cpp,r03_join_eliminate,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp,r02_map_filter,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/inline_cbo_tree.cpp,r28_cbo_build,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp,r08_in_exists,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp,r29_cbo_execution,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp,r07_scalar_subplans,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/inline_simple_in_exists_subplan.cpp,r08_in_exists,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/kqp_cbo_trees.cpp,r29_cbo_execution,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/merge_union_all.cpp,r35_map_union_filters,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/peephole_predicate.cpp,r04_conjuncts_predicate,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/propagate_aggregate_through_stage.cpp,r25_aggregate_stages,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/propagate_hash_func_stage.cpp,r23_stage_graph_hash,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/propagate_limit_through_stage.cpp,r24_limit_sort,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp,r24_limit_sort,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/pull_up_map_over_cbo.cpp,r28_cbo_build,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp,r01_join_filter,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp,r02_map_filter,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_filter_under_map.cpp,r02_map_filter,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_limit_into_sort.cpp,r24_limit_sort,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp,r16_copy_replicate,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp,r27_olap_pushdown,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp,r27_olap_pushdown,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_ranges.cpp,r26_ranges_indexes,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp,r01_join_filter,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp,r31_lookup_rule,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/rewrite_right_join.cpp,r03_join_eliminate,primary rule scope; follow-up sweeps r41/r42
+ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp,r09/r10/r11/r12,filter/map/domain; aggregates; joins/unions; replicate/limits
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.cpp,r37,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp,r36,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp,r25,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp,r23/r36,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_filter_builder.cpp,r35,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp,r33,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_lookup_join_builder.cpp,r32,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_map_builder.cpp,r35,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp,r36,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_sort_builder.cpp,r24,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp,r34,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_strict_cast.cpp,r33,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_table_effect_builder.cpp,r36,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_union_all_builder.cpp,r35,physical conversion; follow-up sweep r42
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp,r06/r42,physical conversion; follow-up sweep r42

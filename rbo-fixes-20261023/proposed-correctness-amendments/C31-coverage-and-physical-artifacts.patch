@@ -1,0 +1,222 @@
+diff --git a/rbo-fixes-20261023/sharing_lifecycle_checks.py b/rbo-fixes-20261023/sharing_lifecycle_checks.py
+--- a/rbo-fixes-20261023/sharing_lifecycle_checks.py
++++ b/rbo-fixes-20261023/sharing_lifecycle_checks.py
+@@ -55,7 +55,7 @@
+     return schema, seeds
+ 
+ 
+-def recipes(n):
++def _all_recipes(n):
+     result = {}
+     for case in CASES:
+         if case.startswith('c47_'):
+@@ -80,6 +80,19 @@
+     return result
+ 
+ 
++
++def recipes(n):
++    # Forced YqlSelect rejects explicit SEMI/ONLY syntax before RBO import.
++    # Preserve those builders separately; a parser failure is not a C31 test.
++    return {case: query for case, query in _all_recipes(n).items()
++            if not case.startswith('c31_') or case.endswith('_left')}
++
++
++def unavailable_recipes(n):
++    """Retain rejected frontend profiles without counting optimizer coverage."""
++    return {case: query for case, query in _all_recipes(n).items()
++            if not (not case.startswith('c31_') or case.endswith('_left'))}
++
+ def metadata(case, n):
+     _validate(case)
+     spilling = case.endswith('spilling_control')
+@@ -134,34 +147,63 @@
+     return canonical(rows) == canonical(_expected(case, n))
+ 
+ 
+-_CALLABLES = ('DqPhyStage', 'Replicate', 'DqBlockHashJoinCore', 'GraceJoinCore',
+-              'GraceSelfJoinCore', 'KqpIndexLookupJoin', 'KqpCnStreamLookup')
++_CALLABLES = ('DqPhyStage', 'Replicate', 'BlockHashJoinCore', 'GraceJoinCore',
++              'GraceSelfJoinCore', 'MapJoinCore', 'KqpIndexLookupJoin', 'KqpCnStreamLookup')
++
++
++def _join_kind_counts(resolve, nodes):
++    # Public expression-node indices, plus one for the callable head. Count
++    # actual callable names, not their C++ wrapper class names.
++    offsets = {'BlockHashJoinCore': 3, 'MapJoinCore': 3, 'GraceJoinCore': 3,
++               'GraceSelfJoinCore': 2, 'KqpIndexLookupJoin': 2}
++    kinds = {kind: 0 for kind in ('Inner', 'Left', 'Right', 'Full', 'LeftSemi',
++        'LeftOnly', 'RightSemi', 'RightOnly', 'Exclusion', 'Cross')}
++    for node in nodes:
++        if not node or not isinstance(node[0], str) or node[0] not in offsets:
++            continue
++        offset = offsets[node[0]]
++        if len(node) <= offset:
++            raise ValueError('Incomplete physical join shape')
++        kind = resolve(node[offset])
++        if not isinstance(kind, str):
++            raise ValueError('Non-atom physical join kind')
++        kind = kind.strip("\"'")
++        if kind not in kinds:
++            raise ValueError('Unrecognized physical join kind')
++        kinds[kind] += 1
++    return kinds
+ 
+ 
+ def check_physical_ast(case, text, baseline=None):
+     _validate(case)
+-    _, nodes = windows.parse_physical_graph(text)
++    resolve, nodes = windows.parse_physical_graph(text)
++    kinds = _join_kind_counts(resolve, nodes)
+     counts = {name: sum(bool(node) and node[0] == name for node in nodes)
+               for name in _CALLABLES}
+     assertions = {}
+     if not case.endswith('spilling_control'):
+         assertions['no_shared_stage_replicate'] = counts['Replicate'] == 0
+     if case.startswith('c31_block_'):
+-        assertions['retained_residual_uses_block_join'] = counts['DqBlockHashJoinCore'] >= 1
++        assertions['retained_residual_uses_block_join'] = counts['BlockHashJoinCore'] >= 1
+         assertions['lookup_hint_does_not_create_lookup_residual'] = counts['KqpIndexLookupJoin'] == 0
+     elif case.startswith('c31_row_'):
+-        assertions['row_reconstruction_uses_row_join'] = counts['GraceJoinCore'] + counts['GraceSelfJoinCore'] >= 1
++        assertions['row_reconstruction_uses_row_join'] = sum(counts[name] for name in
++            ('GraceJoinCore', 'GraceSelfJoinCore', 'MapJoinCore')) >= 2
+     elif case.startswith('c31_lookup_control_'):
+         assertions['lookup_control_reaches_lookup_join'] = counts['KqpIndexLookupJoin'] >= 1
+     elif case.startswith('c31_forced_'):
+         assertions['forced_reconstruction_has_join'] = sum(counts[name] for name in (
+-            'DqBlockHashJoinCore', 'GraceJoinCore', 'GraceSelfJoinCore', 'KqpIndexLookupJoin')) >= 1
++            'BlockHashJoinCore', 'GraceJoinCore', 'GraceSelfJoinCore', 'MapJoinCore', 'KqpIndexLookupJoin')) >= 2
+     elif case == 'c47_shared_covering':
+         assertions['covering_read_avoids_lookup'] = counts['KqpCnStreamLookup'] == 0
+     else:
+         assertions['noncovering_read_keeps_base_lookup'] = counts['KqpCnStreamLookup'] >= 1
++    if case.startswith(('c31_row_', 'c31_forced_')):
++        assertions['reconstruction_has_inner_and_left_kinds'] = kinds['Inner'] >= 1 and kinds['Left'] >= 1
++    elif case.startswith('c31_block_'):
++        assertions['retained_residual_has_left_kind'] = kinds['Left'] >= 1
+     return {'physical_ast_sha256': hashlib.sha256(text.encode()).hexdigest(),
+-            'physical_ast_parsed': True, 'callables': counts,
++            'physical_ast_parsed': True, 'callables': counts, 'join_kind_counts': kinds,
+             'structural_assertions': assertions,
+             'structural_oracle_pass': bool(assertions) and all(assertions.values())}
+ 
+diff --git a/rbo-fixes-20261023/c31_identity_checks.py b/rbo-fixes-20261023/c31_identity_checks.py
+--- a/rbo-fixes-20261023/c31_identity_checks.py
++++ b/rbo-fixes-20261023/c31_identity_checks.py
+@@ -123,7 +123,7 @@
+     return schema, seeds
+ 
+ 
+-def recipes(n):
++def _all_recipes(n):
+     result = {}
+     for case in CASES:
+         shape, _, kind = _parts(case)
+@@ -142,6 +142,19 @@
+         result[case] = g.select(outputs, g.join(left, 'r AS r', predicate, _KINDS[kind]))
+     return result
+ 
++
++
++def recipes(n):
++    # Forced YqlSelect rejects explicit SEMI/ONLY syntax before RBO import.
++    # Preserve those builders separately; a parser failure is not a C31 test.
++    return {case: query for case, query in _all_recipes(n).items()
++            if case.endswith('__left')}
++
++
++def unavailable_recipes(n):
++    """Retain rejected frontend profiles without counting optimizer coverage."""
++    return {case: query for case, query in _all_recipes(n).items()
++            if not (case.endswith('__left'))}
+ 
+ def metadata(case, n):
+     shape, mode, _ = _parts(case)
+@@ -212,14 +225,42 @@
+     return _bag(rows) == _bag(_expected(case, n))
+ 
+ 
++def _join_kind_counts(resolve, nodes):
++    # Public expression-node indices, plus one for the callable head. Count
++    # actual callable names, not their C++ wrapper class names.
++    offsets = {'BlockHashJoinCore': 3, 'MapJoinCore': 3, 'GraceJoinCore': 3,
++               'GraceSelfJoinCore': 2, 'KqpIndexLookupJoin': 2}
++    kinds = {kind: 0 for kind in ('Inner', 'Left', 'Right', 'Full', 'LeftSemi',
++        'LeftOnly', 'RightSemi', 'RightOnly', 'Exclusion', 'Cross')}
++    for node in nodes:
++        if not node or not isinstance(node[0], str) or node[0] not in offsets:
++            continue
++        offset = offsets[node[0]]
++        if len(node) <= offset:
++            raise ValueError('Incomplete physical join shape')
++        kind = resolve(node[offset])
++        if not isinstance(kind, str):
++            raise ValueError('Non-atom physical join kind')
++        kind = kind.strip("\"'")
++        if kind not in kinds:
++            raise ValueError('Unrecognized physical join kind')
++        kinds[kind] += 1
++    return kinds
++
++
+ def check_physical_ast(case, text, baseline=None):
+     shape, mode, _ = _parts(case)
+-    _, nodes = windows.parse_physical_graph(text)
+-    names = ('DqPhyStage', 'Replicate', 'Switch', 'DqBlockHashJoinCore', 'GraceJoinCore',
+-             'GraceSelfJoinCore', 'StablePickle', 'DqPhyHashCombine', 'DqHashCombine', 'DqHashFinalize',
++    resolve, nodes = windows.parse_physical_graph(text)
++    kinds = _join_kind_counts(resolve, nodes)
++    names = ('DqPhyStage', 'Replicate', 'Switch', 'BlockHashJoinCore', 'GraceJoinCore',
++             'GraceSelfJoinCore', 'MapJoinCore', 'StablePickle', 'DqPhyHashCombine', 'DqHashCombine', 'DqHashFinalize',
+              'WideCombiner', 'WideCombinerWithSpilling', 'WideLastCombiner')
+     counts = {name: sum(bool(node) and node[0] == name for node in nodes) for name in names}
+     assertions = {'has_physical_stage': counts['DqPhyStage'] > 0}
++    if mode == 'block_control':
++        assertions['retained_residual_has_left_kind'] = kinds['Left'] >= 1
++    else:
++        assertions['reconstruction_has_inner_and_left_kinds'] = kinds['Inner'] >= 1 and kinds['Left'] >= 1
+     if case in _STABILITY_CASES:
+         aggregations = sum(counts[name] for name in ('DqPhyHashCombine', 'DqHashCombine',
+             'DqHashFinalize', 'WideCombiner', 'WideCombinerWithSpilling', 'WideLastCombiner'))
+@@ -229,25 +270,25 @@
+                 node and node[0] == 'Switch' and len(node) >= 7 and (len(node) - 3) % 2 == 0
+                 for node in nodes)
+         if mode == 'block_control':
+-            assertions['retained_residual_has_block_join'] = counts['DqBlockHashJoinCore'] > 0
++            assertions['retained_residual_has_block_join'] = counts['BlockHashJoinCore'] > 0
+         else:
+             assertions['reconstruction_has_both_joins'] = sum(counts[name] for name in
+-                ('DqBlockHashJoinCore', 'GraceJoinCore', 'GraceSelfJoinCore')) >= 2
++                ('BlockHashJoinCore', 'GraceJoinCore', 'GraceSelfJoinCore', 'MapJoinCore')) >= 2
+         if mode in ('row', 'forced'):
+             assertions['copyable_producer_has_no_remaining_replicate'] = counts['Replicate'] == 0
+         return {'physical_ast_parsed': True,
+                 'physical_ast_sha256': hashlib.sha256(text.encode()).hexdigest(),
+-                'callables': counts, 'structural_assertions': assertions,
++                'callables': counts, 'join_kind_counts': kinds, 'structural_assertions': assertions,
+                 'structural_oracle_pass': all(assertions.values()),
+                 'native_reachability_requires_actual_ast': True,
+                 'shared_switch_exact_origin_requires_native_review': shape.endswith('_domain') and mode == 'spilling'}
+     if mode != 'spilling':
+         assertions['copyable_producer_has_no_remaining_replicate'] = counts['Replicate'] == 0
+     if mode == 'block_control':
+-        assertions['retained_residual_has_block_join'] = counts['DqBlockHashJoinCore'] > 0
++        assertions['retained_residual_has_block_join'] = counts['BlockHashJoinCore'] > 0
+     else:
+-        assertions['reconstruction_has_join'] = sum(counts[name] for name in
+-            ('DqBlockHashJoinCore', 'GraceJoinCore', 'GraceSelfJoinCore')) > 0
++        assertions['reconstruction_has_both_joins'] = sum(counts[name] for name in
++            ('BlockHashJoinCore', 'GraceJoinCore', 'GraceSelfJoinCore', 'MapJoinCore')) >= 2
+         if not shape.startswith('domain_empty_'):
+             assertions['nullable_identity_encoding_present'] = counts['StablePickle'] >= 2
+         if shape.startswith('domain_') and not shape.startswith('domain_empty_'):
+@@ -256,7 +297,7 @@
+                  'WideCombinerWithSpilling', 'WideLastCombiner')) > 0
+     return {'physical_ast_parsed': True,
+             'physical_ast_sha256': hashlib.sha256(text.encode()).hexdigest(),
+-            'callables': counts, 'structural_assertions': assertions,
++            'callables': counts, 'join_kind_counts': kinds, 'structural_assertions': assertions,
+             'structural_oracle_pass': bool(assertions) and all(assertions.values()),
+             'native_reachability_requires_actual_ast': True}
+ 

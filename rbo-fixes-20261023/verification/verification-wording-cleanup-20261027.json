@@ -1,0 +1,33 @@
+{
+  "audit_sha256": "e5aee0e541e008c74ae899f97b3f6aaf72048d105c46a8e07367057e0e5df13b",
+  "historical_notes_relocated": [
+    "C01",
+    "C02",
+    "C04",
+    "C05",
+    "C06",
+    "C07",
+    "C09",
+    "C10",
+    "C11",
+    "C12",
+    "C13",
+    "C14",
+    "C15",
+    "C16",
+    "C19",
+    "C20",
+    "C21",
+    "C22",
+    "C24",
+    "C27",
+    "C30",
+    "C36",
+    "C45",
+    "C46",
+    "C48"
+  ],
+  "C31_scope_wording_corrected": true,
+  "verification_status_or_acceptance_changed": false,
+  "native_or_production_changes": false
+}

@@ -1,0 +1,13 @@
+--- a/rbo-fixes-20261023/quality_spill_bounds.py
++++ b/rbo-fixes-20261023/quality_spill_bounds.py
+@@ -81,8 +81,8 @@
+ 
+ _SOURCE_BINDINGS = {'rbo-fixes-20261023/anonymous_cpp_guard.py': '58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819',
+  'rbo-fixes-20261023/anonymous_cpp_metadata.py': '83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf',
+- 'rbo-fixes-20261023/anonymous_cpp_verify.py': '4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873',
+- 'rbo-fixes-20261023/correctness_cpp_contract.py': '49598993c191a5a9784cb57ccc5e8fc0b8719deb77071959dbab5b9da8572326',
++ 'rbo-fixes-20261023/anonymous_cpp_verify.py': '0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d',
++ 'rbo-fixes-20261023/correctness_cpp_contract.py': 'bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a',
+  'rbo-fixes-20261023/memory_safe_build.py': 'ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd',
+  'rbo-fixes-20261023/optimizer_mode_contract.py': '50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad',
+  'rbo-fixes-20261023/production_version_object.py': '55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9',

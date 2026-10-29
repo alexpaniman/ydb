@@ -1,0 +1,110 @@
+{
+  "id": "C35",
+  "branch": "fix/new-rbo/c35-interval-average",
+  "commit": "545bae60730d260ed848ebbfde31b47a7d0fc21e",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+    "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp"
+  ],
+  "rationale": "Accumulate interval AVG integral microseconds in Decimal(35,0), preserve tuple/count merging, and finalize via Int64 into the original interval family. DISTINCT padding uses the same accumulator tuple. Recover original Decimal or interval result types only for AVG final states, retaining unrelated aggregate result types.",
+  "checks": [
+    "Read-only comparison with established aggregate traits and C21 interval conversions.",
+    "Traced optional initialization/update/finish, direct Final input, DISTINCT tuple-state recovery and empty-input result typing.",
+    "OLAP pushdown already restricts AVG to numeric slots and therefore excludes interval types.",
+    "git diff --check HEAD^ HEAD passed; clean worktree; parent is pinned base.",
+    "Oracle corrected from truncation to established DecimalDiv nearest/ties-to-even semantics; production implementation already uses DecimalDiv.",
+    "One-line NewLambda body move independently reviewed; no additional source defect confirmed.",
+    "Memory-guarded relwithdebinfo build passed with8 authorized workers.",
+    "All15 exact-executable native checks passed after the compiler repair."
+  ],
+  "generator_labels": [
+    "c35_interval_scalar",
+    "c35_interval_optional_grouped",
+    "c35_interval64_precise_scalar",
+    "c35_interval_empty",
+    "c35_interval_all_null",
+    "c35_interval_multi_distinct",
+    "c35_window_interval_whole_control",
+    "c35_window_interval64_whole_control"
+  ],
+  "expected_oracle": "Exact integer-microsecond mean rounds to nearest with ties to even, ignores null inputs, retains Interval/Interval64 type and returns NULL for an empty/all-null scalar aggregate; grouped rows match the grouping domain.",
+  "controls": [
+    "Nonnullable and nullable, scalar and grouped.",
+    "Empty and all-null.",
+    "Interval64 beyond exact Double precision.",
+    "Mixed AVG/count and multiple DISTINCT states.",
+    "Numeric and Decimal averages unchanged."
+  ],
+  "concerns": [
+    "C24 independently edits the DISTINCT padding helper; integration must preserve both state typing changes.",
+    "C34 independently fixes general tuple-valued aggregate empty-state handling; C35 only scopes original-type lookup to AVG and does not include C34.",
+    "The existing Decimal(35,0) precision limit is retained."
+  ],
+  "status_before_verification": "prepared_unverified",
+  "superseded_verification": [
+    {
+      "revision": "461e53cf080ab7c2f213adcab4aee779b5c2ba0c",
+      "status": "build_failed",
+      "build_verification": {
+        "bug": "C35",
+        "revision": "461e53cf080ab7c2f213adcab4aee779b5c2ba0c",
+        "exit_code": 1,
+        "elapsed_seconds": 53.2,
+        "target": "ydb/tests/tools/kqprun",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 4546560,
+          "peak_scope_usage_bytes": 6404481024,
+          "minimum_host_available_bytes": 108572688384,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": false,
+          "elapsed_seconds": 53.2
+        },
+        "diagnostic_sha256": "9514c5a16970c61b827dbd6b4f7cecd736cb3d5239a30e944a2a3eb0cbfb255b"
+      },
+      "reason": "Local lambda body must be moved into NewLambda scalar-body overload."
+    }
+  ],
+  "build_verification": {
+    "bug": "C35",
+    "revision": "545bae60730d260ed848ebbfde31b47a7d0fc21e",
+    "exit_code": 0,
+    "elapsed_seconds": 86.7,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4550656,
+      "peak_scope_usage_bytes": 43268460544,
+      "minimum_host_available_bytes": 108070682624,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 86.5
+    },
+    "diagnostic_sha256": "c87c1811d252ffbd774b784f01e09127d2091b9dd803bdffcd462408fc1173e3",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/545bae60730d260ed848ebbfde31b47a7d0fc21e-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 15,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C35-545bae60730d-1792738017297351671.jsonl"
+  },
+  "compile_repair_review": {
+    "evidence": "verification/C35-compile-repair-independent-review.json",
+    "sha256": "fbbaacf75baf0ca829d06f433f375feef39db950e0481ea73ee453d055d046de"
+  }
+}

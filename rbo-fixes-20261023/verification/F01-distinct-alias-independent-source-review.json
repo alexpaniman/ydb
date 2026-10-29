@@ -1,0 +1,78 @@
+{
+  "finding": "F01",
+  "reviewer": "c41_review",
+  "status": "independent_source_review_pass_native_fix_pending",
+  "base_commit": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "fb94b6af312ca7ba296d11bce35df75e6e9a471d26471d55497cf0646049295d",
+  "source_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+  "source_before_sha256": "026f5d5afe7750add360e5c127242ac268b309455ab8ac47840e0c0d6abf33cd",
+  "source_after_sha256": "8df1ecf54e4a705c87a89e0fe446644ef22a9a57c23b6ab541098dc193fc41bb",
+  "human_readable_bug": "DISTINCT selecting one input column under several result aliases generates duplicate pre-aggregate definitions, and the ID-based importer rejects the query before physical planning.",
+  "scope": "Separate follow-up F01. This is the producer/import binding failure, not C23 bare-Null hash-key conversion.",
+  "source_contracts": [
+    {
+      "claim": "Reuses only an identical direct row-member read",
+      "evidence": "The incoming Member must read its own lambda row argument. An existing definition must have identical full output spelling, forceOptional=false, a direct Member of its own row argument, and the same member name."
+    },
+    {
+      "claim": "Scope equality follows the shared pre-aggregate input",
+      "evidence": "ProcessAggregationsInResultItems collects all definitions for one set-item input, then BuildAggregationPipeline builds the single pre-aggregate Map. Distinct lambda-argument node identities do not denote different source rows."
+    },
+    {
+      "claim": "Preserves visible aliases and DISTINCT tuple layout",
+      "evidence": "BuildAggregationTraits and the appended result traits/key references below the changed branch remain unchanged. One shared input IU may feed multiple fresh aggregate result IUs; existing physical finish emits each explicit result mapping."
+    },
+    {
+      "claim": "Does not merge computations, nested members, or optional-forcing definitions",
+      "evidence": "The guard rejects all such candidate matches. Genuine collisions remain available to the unchanged Duplicate Map output check instead of becoming silent overwrites."
+    },
+    {
+      "claim": "No evaluation multiplicity change for observable expressions",
+      "evidence": "Only direct reads of the same already-produced row field are shared; the patch does not deduplicate its upstream expression or arbitrary calls."
+    },
+    {
+      "claim": "No new API/constructor/namespace blocker found",
+      "evidence": "TCoLambda, Maybe<TCoMember>, Struct/Args/Name Value access, tuple structured binding, and std::any_of are already supported and used in this translation unit. The vector element type matches the three destructured fields."
+    },
+    {
+      "claim": "Main-relative alias lowering does not require the C23 physical patch for admitted controls",
+      "evidence": "Pinned main already deduplicates physical GetKeyFields by IU and emits DISTINCT finish fields using each trait mapping. C23 changes bare-Null key encoding; F01 controls use required/optional data values instead."
+    },
+    {
+      "claim": "Empty input remains empty under DISTINCT",
+      "evidence": "The number of distinct result aliases and group-key references is not removed. Reusing a source definition does not turn keyed DISTINCT into scalar aggregation."
+    }
+  ],
+  "quality_observation": "The small guard scans existing pre-aggregate definitions for each direct DISTINCT member; many aliases can incur quadratic rewrite-time comparisons. This is a separate optimization observation, not a correctness blocker for the narrow fix.",
+  "attribution": [
+    {
+      "role": "producer behavior introduction",
+      "commit": "b0246ec9d6335eb66f4a8e085b77f67f6b5550c9",
+      "author": "Denis Khalikov",
+      "author_date": "2026-06-24",
+      "subject": "[Optimizer] Split distinct aggregation on early/final (#44408)",
+      "evidence": "The commit adds the unconditional direct-member expressionsMapPreAgg append, absent in its parent. Pinned-main blame assigns the affected append to this commit."
+    },
+    {
+      "role": "strict importer rejection introduction",
+      "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+      "author": "alexpaniman",
+      "author_date": "2026-09-29",
+      "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+      "evidence": "The commit adds output->emplace(...).second enforcement for Map names. Its parent importer constructs a vector of map elements without this explicit duplicate-name assertion."
+    }
+  ],
+  "attribution_limit": "This is source-history attribution of the producer and rejection changes, not a native historical bisection proving the first failing revision or an assertion about individual intent.",
+  "native_evidence_consumed": [
+    "verification/C23-distinct-alias-import-isolation.json: provenanced legacy bare-Null alias control passes; new-RBO required-integer alias control fails at kqp_plan_conversion_utils.cpp:466 before physical planning."
+  ],
+  "pending": [
+    "Compile and run fixed F01 branch against the32 separate required/optional alias profiles.",
+    "Verify legacy/new result bags for two/three aliases, mixed expressions, different inputs and empty input, with row and block aggregation settings.",
+    "Bare-Null alias acceptance requires composed F01+C23 evidence and must not be counted as passed on this independent branch alone."
+  ],
+  "correctness_blockers_found": [],
+  "new_native_or_build_executions": 0,
+  "production_or_branch_edits": false,
+  "exact_reproductions_persisted": false
+}

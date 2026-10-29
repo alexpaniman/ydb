@@ -1,0 +1,84 @@
+{
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "base_blob_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": "d5ef4e7aa7921d4dcab120f4d9d503d44442d1f5d068445eb6f3b0d27a5771af",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.cpp": "82cf05266e44fb8670009510dc46179faa2995e939a4a5333ebb63e63d62dcf5",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.h": "fd5f01b23804b1a191073c18ac78e73be221dae491d74b082ab068e3894f947c",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896",
+    "ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp": "28e83a69b1e394ffe7d1cee1f184488217876421db3503f58f7ca9ca3bd649f5",
+    "ydb/core/kqp/opt/rbo/rules/rewrite_right_join.cpp": "03c1fbdaa869991c6a955f8cbe7655e934ddfa49a78773e2487d8f76367b4613"
+  },
+  "branches_mutated_by_reviewer": false,
+  "compiled": false,
+  "corrected_review_finding": {
+    "resolution": "The regenerated artifact keeps the two-argument constructor with Props=0, preserving LogRule=true.",
+    "source": "kqp_rbo.h IRule and ISimplifiedRule constructor defaults; kqp_rbo_rules.h TRewriteRightJoinRule",
+    "summary": "Removing the unused parent-property requirement initially selected a constructor that also disabled per-rule plan logging."
+  },
+  "exact_reproductions_written": false,
+  "finding": "Q28",
+  "general_contract_clarification_incorporated": "Future opt-ins must not alter the outputs or internals of an existing shared producer through a Replicate consumer within the region. Matched-root output equality alone does not protect other consumers. The three actual admitted rules obey this stronger boundary.",
+  "model_reexecuted_by_reviewer": false,
+  "native_verified": false,
+  "optimization_quality_separate": {
+    "expected_mechanism": "One owning preflight/postorder snapshot plus bounded-region requeue and output refresh replaces repeated whole-graph restarts within these stages.",
+    "limits": [
+      "Preflight and the mandatory final conservative pass add linear fixed overhead.",
+      "Output-set union cost and trace serialization remain; depth-bounded regions are not necessarily constant size for arbitrary fanout.",
+      "Actual scheduler visits/property counters and native query preservation/scaling remain pending."
+    ],
+    "scope": "Right-join normalization and two Map-push rules only; broader optimizer-wide incremental invalidation remains partial."
+  },
+  "patch": "proposed-quality-amendments/Q28-local-worklist.patch",
+  "patch_sha256": "8a42b5698e16cbf3f4ef1824061657acf539f5416b995ac881d49ad050df192e",
+  "production_edited_by_reviewer": false,
+  "reviewed_patch_updates": [
+    "Preserved per-rule logging constructor behavior.",
+    "Explicitly prohibited rewriting through Replicate ports or changing shared producer outputs within a region."
+  ],
+  "reviewer": "c41_review",
+  "source_contracts": [
+    {
+      "conclusion": "The preflight compares owning-slot addresses, accepting the canonical shared slot and rejecting a node retained by distinct active slots. Root and referenced subplan slots are included. Owning Current/Parent handles prevent stale borrowed lifetimes.",
+      "evidence": "IOperator::MutableChild forwards to virtual GetChild; TOpReplicate::GetChild forwards every port to one TReplicate producer slot.",
+      "topic": "Owning slots and aliases"
+    },
+    {
+      "conclusion": "The initial LIFO work vector reproduces postorder. Successful rewrites immediately visit their replacement region child-first before pending ancestors. The three rules preserve all original descendants and create no new active sharing; previously processed descendants are the only old nodes they move. The slot-identity check exits to a fresh conservative traversal on mismatch.",
+      "evidence": "TOpRoot::begin is dependency-first postorder; TOpIterator emits referenced subplans before ordinary children and the current node.",
+      "topic": "Postorder and detached entries"
+    },
+    {
+      "conclusion": "The lower Map is at replacement depth zero or one. Existing descendants remain unchanged; all moved definitions retain their existing IDs. A depth-two region conservatively contains every cache that must refresh. No failed-path mutation occurs.",
+      "evidence": "TPushMapElementsIntoMapRule::SimpleMatchAndApply mutates the lower Map definitions and returns that lower Map or a fresh upper Map.",
+      "topic": "Map fusion mutation depth"
+    },
+    {
+      "conclusion": "The modified input is at replacement depth zero or one and every new child Map is at depth one or two. Old grandchildren are unchanged. The matched output set is preserved for legal typed inputs. Replicate is excluded by CanPushMapThroughInput.",
+      "evidence": "TPushMapElementsThroughInputRule changes only the matched Map input operator child slots, inserting fresh Maps; it may retain a fresh upper Map.",
+      "topic": "Map through-input mutation depth"
+    },
+    {
+      "conclusion": "Only the matched root changes, its output IDs are equal, no parent/context/subplan registry state is used, and depth zero is sufficient.",
+      "evidence": "TRewriteRightJoinRule constructs a new opposite-side join with swapped child slots and key pairs; children and filters are retained.",
+      "topic": "Right-join locality"
+    },
+    {
+      "conclusion": "Caches inside the declared region refresh child-first. The runtime equality check protects matched-root output identity, so untouched ancestor output sets remain valid for these rules. Canonical shared producer roots also preserve output IDs when directly rewritten.",
+      "evidence": "RecomputeLocalOutputIUs resets a local cache and invokes its virtual producer; region traversal is postorder. Map and Join producers read current child output sets. Forwarding operators expose child or owned IDs.",
+      "topic": "Output-cache correctness"
+    },
+    {
+      "conclusion": "Every referenced subplan is scheduled before its referring node; a subplan root replacement uses its registry owning slot. Region requeue need not rediscover the unchanged referenced set. Distinct slots aliasing a subplan body reject local scheduling.",
+      "evidence": "Initial traversal follows resolved subplan references; the admitted rules only move or copy the existing expressions, never change subplan bindings or bodies through expression links.",
+      "topic": "Subplans"
+    },
+    {
+      "conclusion": "Types, parents, liveness, metadata, statistics and unknown effects retain the old engine. A final fresh conservative loop always runs with computedProps reset; it also handles queued-slot mismatch.",
+      "evidence": "All rules must opt in with no property needs beyond OutputIUs; any CBO node, assigned StageId, or distinct-slot alias disables local scheduling.",
+      "topic": "Exclusions and final conservative pass"
+    }
+  ],
+  "status": "no_source_correctness_blocker_for_three_explicitly_admitted_rules"
+}

@@ -1,0 +1,72 @@
+{
+  "finding": "F03",
+  "reviewer": "c41_review",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "3d1b84a5e0d5010e2d548fbbd87a22d3788fbc7ab2d170f1f0258ff0a385c3d4",
+  "verdict": "No source correctness or API blocker found in the narrow physical-window SUM amendment.",
+  "source_contracts": [
+    {
+      "source": "yql/essentials/mount/lib/yql/aggregate.yqls:76",
+      "contract": "Input and output StrictCast chains exactly match established Interval/Interval64 SUM traits; read-only reference."
+    },
+    {
+      "source": "yql/essentials/minikql/invoke_builtins/mkql_builtins_add.cpp:445",
+      "contract": "Decimal AggrAdd is registered; interval accumulator calls are avoided for both interval families."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:322",
+      "contract": "MakeOptional adds one state-presence layer only for required input; exact StrictCast input conversion preserves input optionality."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:679",
+      "contract": "BuildChainLambda stores the Decimal accumulator as retained state before separately constructing output conversion; result conversion creates new nodes and cannot mutate the retained state."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:858",
+      "contract": "Fold state retains wide accumulators; reverse/suffix result construction at line910 applies final conversion only when producing output."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:1152",
+      "contract": "Peer/incremental paths share BuildResultFromAccumulator, preserving one common output conversion contract."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:1462",
+      "contract": "Finite-frame Fold1 uses FlatMap for nullable aggregate outputs; empty frames stay absent and present frames do not gain nested optionality."
+    },
+    {
+      "source": "yql/essentials/core/yql_expr_type_annotation.cpp:7120",
+      "contract": "GetSumResultType returns optional interval even for required input; IsNonOptionalAggregate therefore does not unwrap nullable range-check results."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/ya.make:3",
+      "contract": "The changed source is compiled individually; the local GetIntervalType helper introduces no joined-translation-unit name collision."
+    },
+    {
+      "source": "proposed-correctness-amendments/F03-interval-window-sum.patch",
+      "contract": "Admission strips one Optional and requires a Data interval slot. Numeric/Decimal and other aggregate paths retain existing conversions."
+    }
+  ],
+  "generator_review": {
+    "source": "interval_window_checks.py",
+    "status": "Coverage correction source-reviewed and model contracts rerun successfully.",
+    "issue": "Original partition/order moduli repeat the complete peer tuple only after105 rows, beyond tested sizes.",
+    "requested_fix": "Use case-specific order moduli2/4 with partition modulus3 and assert repeated peer groups at24 rows; workload content remains anonymous.",
+    "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+    "model_contracts": {
+      "builder_oracle_acceptances": 204,
+      "oracle_mutation_rejections": 204,
+      "duplicate_composite_peer_contracts": 2,
+      "optional_wide_state_laws": 18660,
+      "premature_overflow_mutations_rejected": 4
+    },
+    "issue_resolution": "The range_peers builder and independent row model now use order moduli2/4 with partition modulus3; coverage assertions confirm repeated full tuples and second-key refinement at24 rows."
+  },
+  "pending": [
+    "Actual compiler/API validation.",
+    "Provenanced baseline/fixed engine execution, including empty/null frames, overflow cancellation and descending/composite RANGE peers.",
+    "Logical whole-partition aggregate expansion remains separate F02."
+  ],
+  "build_or_native_executions": 0,
+  "production_sources_edited": false,
+  "raw_reproductions_or_diagnostics_persisted": false
+}

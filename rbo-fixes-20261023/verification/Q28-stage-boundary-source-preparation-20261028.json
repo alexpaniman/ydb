@@ -1,0 +1,188 @@
+{
+  "admission": {
+    "canonical_cases": [
+      "q28_right_nullable_bag",
+      "q28_nested_right_bag",
+      "q28_right_map_dependencies",
+      "q28_map_filter_sort_limit_control",
+      "q28_conditional_guard_control",
+      "q28_full_outer_nullable_control",
+      "q28_shared_spilling_control",
+      "q28_shared_copied_control"
+    ],
+    "canonical_profile": "scheduler_semantics",
+    "quality_acceptance": "The module always leaves optimization acceptance/improvement false. Generic pairing remains pending; direct26 results, query semantics, source provenance and any later compilation measurements require explicit combined review.",
+    "query_result_oracle": "Independent duplicate-sensitive optional-key relational bags; the observer never derives expected rows from plans or production optimizer output.",
+    "rule_path_reachability_verified": false,
+    "shared_producer_identity_verified": false
+  },
+  "after_plan": "verification/idle-artifact-application-plan-20261028-complete.json",
+  "after_plan_sha256": "379973d8b93b403b9a46fcddaaea09164ce6084ad4f81e013e3058d3b909183b",
+  "available_profile_evidence": [
+    {
+      "kind": "Final simplified operator shape",
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_to_json.cpp:84",
+        "ydb/core/kqp/opt/rbo/kqp_operator.cpp:384",
+        "ydb/core/kqp/opt/rbo/kqp_operator.cpp:822"
+      ],
+      "reported": "Whitelisted node categories, join-kind histogram, known source-role occurrences, depth, final right-join absence. These are final-plan occurrences, not rewrite attempts or unique shared IR nodes."
+    },
+    {
+      "kind": "Execution graph structure",
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_to_json.cpp:467",
+        "ydb/core/kqp/opt/rbo/kqp_plan_to_json.cpp:478"
+      ],
+      "reported": "Unique StageGuid definition count and resolved CTE reference count. This does not prove the named fixture producer identity or count optimizer stage runs."
+    },
+    {
+      "kind": "CBO counters",
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:29",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:565"
+      ],
+      "reported": "CBOTreesTotal and CBOTreesOptimized only; CBO is explicitly disabled in these semantic controls to isolate join-kind and Map behavior."
+    }
+  ],
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "bounds": {
+    "default_repetitions": 1,
+    "maximum_expected_result_rows": 1000,
+    "maximum_tables": 3,
+    "native_node_count": 1,
+    "peak_native_concurrency": 1,
+    "plan_depth_limit": 64,
+    "plan_node_limit": 4096,
+    "rows_per_table_maximum": 32,
+    "rows_per_table_minimum": 8
+  },
+  "candidate_module": "proposed-quality-amendments/quality_scheduler_semantic_checks_20261028.candidate.py",
+  "direct_suite_kept_separate": {
+    "acceptance_definition_sha256": "392dab08b180825cc31b92b9f60353a4f95a87372ef67239f1b69ea356e0f91c",
+    "case_count": 26,
+    "combined_acceptance_not_implemented": true,
+    "module": "quality_scheduler_cpp_checks.py",
+    "proof_scope": "Actual candidate visits, rule attempts and source output refreshes of the reviewed local production stage, with same-build forced-conservative and excluded-effect controls.",
+    "sha256": "e32719455f2ea13b6cbd0b19772243c7d61f2497cfb9310c896515ecf642a00d"
+  },
+  "finding": "Q28",
+  "installed_module": "quality_scheduler_semantic_checks.py",
+  "module_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+  "pairing_after_sha256": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+  "pairing_before_sha256": "f656c55013bdf6bc77c092ea6a40d0fc6a292b9aa15c43b417d8677b4461f286",
+  "patch": "proposed-quality-amendments/Q28-stage-boundary-semantic-profiles-20261028.patch",
+  "patch_sha256": "64d76c5b4dfbb817fdf1c221965aad78af44beffca655b7b040e018361347fd2",
+  "production_scope": [
+    {
+      "assessment": "Fixed worklist admits only known bounded effects with OutputIUs-only demands. Opaque CBO, physical stage IDs and distinct raw owning slots retain fallback; a conservative fixed-point traversal follows.",
+      "lines": [
+        125,
+        133,
+        155,
+        234,
+        297,
+        313
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo.cpp"
+    },
+    {
+      "assessment": "Only RewriteRightJoin, PushMapElementsThroughInput and PushMapElementsIntoMap opt in, with depths zero/two/two.",
+      "lines": [
+        210,
+        308,
+        320
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h"
+    },
+    {
+      "assessment": "Complete right-join and ordered Map-push stages run inside the full pipeline, with global pruning/inlining boundaries and later CBO/physical stages unchanged.",
+      "lines": [
+        622,
+        667,
+        670,
+        697,
+        737,
+        749
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+    },
+    {
+      "assessment": "FinishLogicalRewrite still bypasses empty operators and invalidates global properties; query controls exercise the full pipeline, but do not directly observe every boundary.",
+      "lines": [
+        1761
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_operator.cpp"
+    }
+  ],
+  "remaining": [
+    "Independent review of generator, bag oracle, plan observer and profile registration.",
+    "Run every selected control against pinned main and the exact main-based Q28 revision with matching build/source/generator receipts.",
+    "Frontend acceptance and exact local rule reachability remain unverified; do not reinterpret parser rejection or an unrelated branch bug as a scheduler success.",
+    "Explicit RIGHT SEMI/ONLY profiles are not claimed: the forced frontend has rejected SEMI/ONLY syntax in other reviewed profiles.",
+    "Physical sharing and exact Map movement are not established merely by a named subquery or final plan counts.",
+    "Actual direct26 counters and same-build conservative controls remain mandatory.",
+    "Investigating dominant RBO stage time needs additional instrumentation; the planned query-SDK compilation adapter can only measure its documented overall compilation scope.",
+    "No all-rules scheduler, universal linear complexity or production latency claim."
+  ],
+  "revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+  "schema_version": "q28_stage_boundary_source_preparation_v1",
+  "semantic_profiles": [
+    {
+      "case": "q28_right_nullable_bag",
+      "contract": "Nullable equality, unmatched preserved-side rows, and repeated projected rows after RIGHT-to-LEFT normalization."
+    },
+    {
+      "case": "q28_nested_right_bag",
+      "contract": "Two nested RIGHT joins, nullable rows, derived projection and subsequent map expression."
+    },
+    {
+      "case": "q28_right_map_dependencies",
+      "contract": "Independent and dependent Map definitions around a RIGHT join; null extension and output dependencies survive later global analyses."
+    },
+    {
+      "case": "q28_map_filter_sort_limit_control",
+      "contract": "Copy definitions above a Filter/Sort/Limit chain with deterministic limited row selection."
+    },
+    {
+      "case": "q28_conditional_guard_control",
+      "contract": "An Ensure expression executes only in its valid conditional branch; outer Map expression preserves the result."
+    },
+    {
+      "case": "q28_full_outer_nullable_control",
+      "contract": "Unsupported nullable-side computation movement must preserve both unmatched sides and duplicate multiplicity."
+    },
+    {
+      "case": "q28_shared_spilling_control",
+      "contract": "Two consumers of a named derived producer with channel spilling enabled; independent bags cover both consumers."
+    },
+    {
+      "case": "q28_shared_copied_control",
+      "contract": "Same producer/consumers with spilling disabled; result bag must remain identical while physical reuse is separately observed."
+    }
+  ],
+  "status": "dormant_source_and_metadata_prepared_independent_review_and_native_pending",
+  "timing_limits": {
+    "explanation": "New-RBO analyze serialization ignores queryStats. Legacy JSON compilation metrics are not available in this path. Runtime stage CpuTimeUs measures execution, and runner elapsed time includes startup/execution; neither is optimizer time. CoreDq stage markers lack dedicated stage timings and serialize plans when enabled.",
+    "new_rbo_json_omits_compilation": true,
+    "optimizer_compilation_timing_available_in_this_module": false,
+    "optimizer_stage_timing_available": false,
+    "references": [
+      "ydb/core/kqp/opt/rbo/kqp_plan_to_json.cpp:569",
+      "ydb/core/kqp/opt/kqp_query_plan.cpp:3915",
+      "ydb/tests/tools/kqprun/src/kqp_runner.cpp:523"
+    ],
+    "sdk_compilation_api_followup": "Sibling anonymous_link_memory_review independently identified a query-SDK GetStats()->GetCompilation route; it is separate from this module and still requires a source-bound adapter and native verification."
+  },
+  "validation": {
+    "assertions": 701,
+    "builds": 0,
+    "graphs": 0,
+    "metadata_report": "verification/Q28-stage-boundary-metadata-checks-20261028.json",
+    "metadata_report_sha256": "49acc61c63d6c1463d5a72b1173fec0c37e1241c13dd9dc4f2ae939ece1f9ce4",
+    "native_runs": 0,
+    "production_or_live_helper_edits": false,
+    "rendered_queries_or_plans_persisted": false,
+    "toolchain_runs": 0
+  }
+}

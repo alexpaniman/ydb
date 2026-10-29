@@ -1,0 +1,16 @@
+{
+  "C03_expanded_control_vector_present": true,
+  "C41_fullsuite_build_bound": false,
+  "automatic_full_finding_promotion": false,
+  "bug": "C03",
+  "build_receipt_sha256": "75edfa6830de63603e7515fd18b379fe1349d170d077ebb99e7e7c46c3db04f5",
+  "checked_records": 5,
+  "exact_vector_passed": true,
+  "fullsuite_build_evidence": null,
+  "guard_sha256": "b3fec58f226e135b900dd4a5395899b7010ceae0ad9b5b573dea56133188bb4a",
+  "qualified_legacy_adapter_records": 0,
+  "qualified_status": "verified",
+  "remaining_qualifications": [],
+  "revision": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e",
+  "slice_sha256": "bcec6d272703e9c6de3a43e2b719e96b8fdb448cf37670657bcb9926392e33ae"
+}

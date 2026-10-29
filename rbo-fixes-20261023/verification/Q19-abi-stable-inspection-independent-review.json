@@ -1,0 +1,24 @@
+{
+  "reviewer": "root",
+  "status": "approved_source_only",
+  "bug": "Q19",
+  "patch": "proposed-quality-amendments/Q19-abi-stable-inspection-objects.patch",
+  "patch_sha256": "22e712e96321166b8e713288a4d07cbe7a2f8b9d04d01b5b91358bcd8b9ef9f1",
+  "combined_after_prior_three_cpp_patches": {
+    "anonymous_cpp_verify.py": "6b8540085abb5a46e478c0ac2f77717ba6d65f1a19407c9e5e40ecaeac77f5de",
+    "anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf"
+  },
+  "checks": [
+    "Only the two known production inspection object stems gain the exact .abi_stable.o spelling in metadata capture and receipt lookup.",
+    "Graph-declared inputs, existing-file checks and full receipt hashing remain required.",
+    "Wrapper discovery still rejects zero or multiple receipted object variants and verifies both actual symbol definitions and caller relocations.",
+    "No broad export, generated workload, source rewrite, execution or acceptance change.",
+    "Temporary combined patch application and Python syntax parsing passed."
+  ],
+  "limits": [
+    "Actual Q19 closure preparation, symbol inspection and baseline/fixed native contracts remain pending."
+  ],
+  "live_helper_edits": false,
+  "builds": 0,
+  "native_runs": 0
+}

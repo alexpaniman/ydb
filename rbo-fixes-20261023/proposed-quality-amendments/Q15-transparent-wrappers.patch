@@ -1,0 +1,57 @@
+--- a/ydb/core/kqp/opt/rbo/rules/assign_stages.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/assign_stages.cpp
+@@ -75,6 +75,38 @@
+         return *index;
+     }
+     return graph.GetOutputIndex(*input.Props.StageId);
++}
++
++bool CanReuseWindowPartition(const TOpWindow& window) {
++    auto partitionKeys = window.GetPartitionKeys();
++    auto* input = window.GetInput().Get();
++    const auto stage = input->Props.StageId;
++    if (!stage || partitionKeys.Items().empty()) {
++        return false;
++    }
++    while (input->Kind == EOperator::Map || input->Kind == EOperator::Filter) {
++        const auto* child = input->GetChild(0).Get();
++        if (child->Props.StageId != stage) {
++            return false;
++        }
++        if (input->Kind == EOperator::Map) {
++            const auto& map = CastOperator<TOpMap>(*input);
++            for (size_t i = 0; i < partitionKeys.Items().size(); ++i) {
++                if (const auto* expression = map.GetMapElements().Find(partitionKeys.Items()[i])) {
++                    if (!expression->IsColumnAccess()) {
++                        return false;
++                    }
++                    partitionKeys.ReplaceAt(i, expression->GetColumnAccess());
++                }
++            }
++        }
++        input = input->GetChild(0).Get();
++    }
++    // The preceding window established the partition using these exact ordered
++    // keys. Same-stage maps/filters preserve task assignment; direct aliases
++    // only rename its keys. No logical distribution metadata is consulted.
++    return input->Kind == EOperator::Window && input->Props.StageId == stage
++        && CastOperator<TOpWindow>(*input).GetPartitionKeys().Items() == partitionKeys.Items();
+ }
+ 
+ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
+@@ -262,7 +294,14 @@
+ 
+         const auto newStageId = props.StageGraph.AddStage();
+         window->Props.StageId = newStageId;
+-        if (!window->GetPartitionKeys().Items().empty()) {
++        const bool enableShuffleElimination = ctx.KqpCtx.Config->OptShuffleElimination.Get()
++            .GetOrElse(ctx.KqpCtx.Config->GetDefaultEnableShuffleElimination());
++        const bool sameWindowPartition = enableShuffleElimination && CanReuseWindowPartition(*window);
++        if (sameWindowPartition) {
++            // The preceding window already established this exact
++            // ordered hash partition. Keep its tasks and their hash function.
++            props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TMapConnection>(outputIndex));
++        } else if (!window->GetPartitionKeys().Items().empty()) {
+             props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TShuffleConnection>(window->GetPartitionKeys(), outputIndex));
+         } else {
+             // Without partition by we assume the whole input is one partition, so do it in one task.

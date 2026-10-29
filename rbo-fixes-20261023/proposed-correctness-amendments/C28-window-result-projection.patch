@@ -1,0 +1,101 @@
+diff --git a/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp b/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
+--- a/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
+@@ -936,11 +936,10 @@
+ 
+ TExprNode::TPtr BuildAggregationPipeline(TExprNode::TPtr resultExpr, TVector<std::tuple<TInfoUnit, TExprNode::TPtr, bool>>&& expressionsMapPreAgg,
+                                          TVector<std::pair<TInfoUnit, TExprNode::TPtr>>&& groupByKeysExpressionsMap, TAggregationTraits&& aggTraits,
+-                                         const TAggregationTraits& distinctAggregationTraitsPostAggregate, TExprNode::TPtr& havingFilterLambda,
++                                         TAggregationTraits&& distinctAggregationTraitsPostAggregate, TExprNode::TPtr& havingFilterLambda,
+                                          TVector<std::tuple<TInfoUnit, TExprNode::TPtr, bool>>&& expressionsMapPostAgg,
+                                          const TVector<TVector<TInfoUnit>>& groupingSets, const TGroupingIndicators& groupingIndicators,
+-                                         TExprContext& ctx, TPositionHandle pos, bool additivePostAggMap = false,
+-                                         bool deferDistinct = false) {
++                                         TExprContext& ctx, TPositionHandle pos, bool additivePostAggMap = false) {
+     Y_ENSURE(groupingIndicators.empty() || (!groupingSets.empty() && aggTraits.NeedsAggregate()),
+              "GROUPING() is supported only for grouping sets over an aggregation");
+ 
+@@ -980,8 +979,8 @@
+         resultExpr = BuildAggregateExpressionMap(resultExpr, expressionsMapPostAgg, BuildExpressionsFromColumns(passThroughColumns, ctx, pos), ctx, pos,
+                                                  /*project=*/!additivePostAggMap);
+     }
+-    // Window results must be materialized before result deduplication.
+-    if (!deferDistinct && !distinctAggregationTraitsPostAggregate.AggTraitsList.empty()) {
++    // Build distinct aggregate post aggregate.
++    if (!distinctAggregationTraitsPostAggregate.AggTraitsList.empty()) {
+         resultExpr = BuildAggregate(resultExpr, distinctAggregationTraitsPostAggregate.AggTraitsList, distinctAggregationTraitsPostAggregate.KeyColumns,
+                                     /*distinct=*/true, ctx, pos);
+     }
+@@ -2214,9 +2213,12 @@
+         auto result = GetSetting(setItem->Tail(), "result");
+         Y_ENSURE(result || values, "New RBO expects either 'values' or 'result' at a set item");
+ 
+-        // Process all aggregations in result item.
++        // Result DISTINCT belongs after both window evaluation and the selected
++        // expressions. Preparing its inputs here would project away window keys.
++        const bool distinctAfterWindow = distinctAll && !CollectWindowCalls(result).empty();
+         ProcessAggregationsInResultItems(result, aggregationUniqueColNames, expressionsMapPreAgg, groupByKeysExpressionsMap, aggregationTraits,
+-                                         distinctAggregationTraitsPostAggregate, expressionsMapPostAgg, uniqueAggColumnId, distinctAll, ctx, node->Pos());
++                                         distinctAggregationTraitsPostAggregate, expressionsMapPostAgg, uniqueAggColumnId,
++                                         distinctAll && !distinctAfterWindow, ctx, node->Pos());
+ 
+         // A windowed query without an aggregate has no projection to pass columns through, so
+         // its post-aggregate map keeps the input columns instead of listing them.
+@@ -2236,7 +2238,7 @@
+ 
+         TVector<TVector<TInfoUnit>> groupingSets;
+         if (hasRollup) {
+-            Y_ENSURE(distinctAggregationTraitsPostAggregate.AggTraitsList.empty(), "Unsupported grouping sets with distinct all.");
++            Y_ENSURE(!distinctAll, "Unsupported grouping sets with distinct all.");
+             for (const auto& groupingSetIndexes : groupingSetComponents.front()) {
+                 THashSet<ui32> indexes(groupingSetIndexes.begin(), groupingSetIndexes.end());
+                 TVector<TInfoUnit> groupingSet;
+@@ -2252,20 +2254,15 @@
+             }
+         }
+ 
+-        const bool distinctAfterWindow = distinctAll && !usedWindowsInOrder.empty();
+         // Build an aggregation pipeline.
+         // We emit grouping sets op and will rewrite it in rbo.
+         resultExpr = BuildAggregationPipeline(resultExpr, std::move(expressionsMapPreAgg), std::move(groupByKeysExpressionsMap),
+-                                              std::move(aggregationTraits), distinctAggregationTraitsPostAggregate, havingFilterLambda,
++                                              std::move(aggregationTraits), std::move(distinctAggregationTraitsPostAggregate), havingFilterLambda,
+                                               std::move(expressionsMapPostAgg), groupingSets, groupingIndicators, ctx, node->Pos(),
+-                                              additivePostAggMap, distinctAfterWindow);
++                                              additivePostAggMap);
+ 
+         if (!usedWindowsInOrder.empty()) {
+             resultExpr = BuildWindowOperators(resultExpr, windows, usedWindowsInOrder, expressionsMapPostWindow, ctx, node->Pos());
+-        }
+-        if (distinctAfterWindow) {
+-            resultExpr = BuildAggregate(resultExpr, distinctAggregationTraitsPostAggregate.AggTraitsList,
+-                                        distinctAggregationTraitsPostAggregate.KeyColumns, /*distinct=*/true, ctx, node->Pos());
+         }
+ 
+         finalColumnOrder.clear();
+@@ -2281,7 +2278,7 @@
+             const bool hasWindowCall = !CollectWindowCalls(body).empty();
+             // Aggregations are materialized earlier. Keep any expression around a nested group reference.
+             auto aggColName = columnName;
+-            if (aggregation || distinctAll || hasWindowCall || isDirectGroupRef) {
++            if (aggregation || (distinctAll && !distinctAfterWindow) || hasWindowCall || isDirectGroupRef) {
+                 if (groupRef) {
+                     aggColName = GetColumnNameFromGroupRef(groupRef, groupByKeysExpressionsMap);
+                 }
+@@ -2417,6 +2414,16 @@
+         .Done().Ptr();
+         // clang-format on
+ 
++        if (distinctAfterWindow) {
++            TVector<TExprNode::TPtr> distinctTraits;
++            TVector<TInfoUnit> distinctKeys;
++            for (const auto& column : finalProjection) {
++                distinctTraits.push_back(BuildAggregationTraits(column, "distinct", column, ctx, node->Pos()));
++                distinctKeys.emplace_back(column);
++            }
++            setItemPtr = BuildAggregate(setItemPtr, distinctTraits, distinctKeys, /*distinct=*/true, ctx, node->Pos());
++        }
++
+         if (sort) {
+             setItemPtr = BuildSort(setItemPtr, sort, groupByKeysExpressionsMap, ctx);
+ 

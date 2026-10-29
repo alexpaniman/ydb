@@ -1,0 +1,81 @@
+{
+  "status": "source_assessment_no_refactor",
+  "patch_sha256": "8bdc88f6222ac1764cceabc3cad32433ef48803a74bdf07482b5fe9ac0da92b6",
+  "recommendation": "Retain the reviewed ROWS expression path and RANGE public-collector runtime for this fix. A later unified runtime should establish mixed-function memory and latency acceptance first.",
+  "feasibility": [
+    "TCoreWinFramesCollector::CreateFactory already accepts RowIntervals and RangeIntervals in the same public object.",
+    "TFrameBoundsIndices exposes GetIntervalInQueueByRow with the same queue-relative half-open bounds as GetIntervalInQueueByRange.",
+    "A frame-kind flag could select the interval without changing the absolute-index/deque algorithm; ROWS validation would accept a single row interval and permit absent sort order.",
+    "The existing deserialize and ConvertBoundsToComparators path handles ROWS and preserves current clipping/unbounded semantics."
+  ],
+  "estimated_footprint": {
+    "measured_removable_function_lines": {
+      "BuildRowMinMaxOutputs": 116,
+      "CanUseRowMinMax": 11,
+      "HasRowMinMax": 8,
+      "FrameOrdinalName": 3
+    },
+    "additional_removable_call_site_and_ordinal_lines": "approximately 12",
+    "new_frame_selection_validation_glue_lines": "approximately 20\u201335",
+    "estimated_net_reduction_lines": "approximately 115\u2013140, before implementing and reviewing the exact diff"
+  },
+  "memory": {
+    "current_rows": "One established WinFramesCollector row buffer plus aggregate-specific two-stack entries containing ordinal, value and cumulative extremum.",
+    "unified_minmax_only": "One caller-owned row buffer plus candidate deques, bypassing the second collector. This is plausibly smaller but has not been measured.",
+    "unified_mixed": "Adds a caller-owned row buffer before the existing collector and output row copies, while replacing stack entries with smaller/pruned candidate entries. The net change depends on row width, number of MIN/MAX fields and data order.",
+    "adverse_case": "Wide rows with few MIN/MAX fields and broad following windows can add nearly another full window/partition of retained row arrays. Candidate pruning cannot bound this row storage.",
+    "latency": "Following bounds would require future prepass output before the outer collector advances, potentially doubling finite following lookahead. Unbounded-following still requires a partition drain.",
+    "measurements": "None; all statements are source-derived storage obligations."
+  },
+  "alternatives": {
+    "runtime_only_for_minmax_only": "Avoids mixed ROWS extra buffering but keeps the ROWS stack implementation, losing most code reduction and adding another lowering choice.",
+    "share_existing_outer_queue": "WinFrame consumes its established private queue resource; reusing that representation violates the public-interface constraint. A new public frame/list bridge would broaden this change.",
+    "runtime_handles_all_functions": "Would move COUNT/SUM/AVG/native semantics into a new runtime implementation and exceeds the narrow MIN/MAX correction."
+  },
+  "source_references": [
+    {
+      "path": "yql/essentials/minikql/mkql_core_win_frames_collector.h",
+      "lines": [
+        76,
+        87,
+        158,
+        164,
+        171,
+        506,
+        522
+      ],
+      "symbols": [
+        "GetIntervalInQueueByRow",
+        "CreateFactory",
+        "UpdateAllRowsIntervals",
+        "ConvertRowValue"
+      ]
+    },
+    {
+      "path": "yql/essentials/minikql/comp_nodes/mkql_queue.cpp",
+      "symbols": [
+        "WinFrame",
+        "TQueueResource"
+      ],
+      "reason": "Existing expression path accesses its established private queue resource."
+    },
+    {
+      "artifact": "q01_range_minmax_patch_generator.py",
+      "symbols": [
+        "TRangeMinMaxWrapper",
+        "PREPASS"
+      ],
+      "reason": "The stream wrapper owns its queue; only all-admitted-MIN/MAX windows bypass the second collector."
+    },
+    {
+      "artifact": "q01_row_minmax_patch_generator.py",
+      "symbols": [
+        "BuildRowMinMaxOutputs"
+      ],
+      "reason": "Current ROWS aggregates consume the original collector frame and retain scalar stack entries."
+    }
+  ],
+  "compiled": false,
+  "native_executed": false,
+  "production_edited": false
+}

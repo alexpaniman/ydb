@@ -1,0 +1,53 @@
+{
+  "status": "compiler_diagnostic_classification",
+  "bug": "C31",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "generator_sha256": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+  "generated_source_sha256": "db908f12367b434770c9143a9e0698a0b7093f21cc291986bb884fbc1fce58a6",
+  "case_count": 33,
+  "compile": {
+    "elapsed_seconds": 25.964,
+    "peak_scope_usage_bytes": 2029355008,
+    "peak_group_rss_bytes": 2029101056,
+    "minimum_host_available_bytes": 110702592000,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_collection_after_completion": false,
+    "environment_sha256": "cd64c3bec61e31898ad530ad9ca7b66444cbfb16c0784903b937a7c640ec27f5",
+    "scope_membership_accounting_available": true,
+    "exit_code": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_bytes": 0,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "51864002f430b981d39cd4e569a2b5319db365c61e5248311006eed80166b68e",
+    "diagnostic_bytes": 1039
+  },
+  "errors": [
+    {
+      "category": "no_member",
+      "identifiers": [
+        "front"
+      ],
+      "message_sha256": "6f257b7f55a45070d64965a5a53d6fb59bd624917a1c615fd9d1c3911f7dbae8"
+    },
+    {
+      "category": "no_member",
+      "identifiers": [
+        "front"
+      ],
+      "message_sha256": "6f257b7f55a45070d64965a5a53d6fb59bd624917a1c615fd9d1c3911f7dbae8"
+    },
+    {
+      "category": "no_member",
+      "identifiers": [
+        "front"
+      ],
+      "message_sha256": "6f257b7f55a45070d64965a5a53d6fb59bd624917a1c615fd9d1c3911f7dbae8"
+    }
+  ],
+  "raw_diagnostics_retained": false,
+  "generated_artifacts_persisted": false,
+  "native_verdict_accepted": false
+}

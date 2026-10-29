@@ -1,0 +1,168 @@
+{
+  "api_review": [
+    {
+      "contract": "TIdTestContext supplies context, ID allocation, read operators and annotated List<Struct> types.",
+      "path": "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h"
+    },
+    {
+      "contract": "MakeBinaryPredicate, MakeUnaryCallable, MakeEnsure, MakeConjunction, TExpression constructor, BindPlanProps and lambda/member access signatures checked.",
+      "path": "ydb/core/kqp/opt/rbo/kqp_expression.h"
+    },
+    {
+      "contract": "Variadic TOpUnionAll constructor, Ordered, mapping getters, TOpFilter constructors, PartiallyPushedDown and expression getters checked.",
+      "path": "ydb/core/kqp/opt/rbo/kqp_operator.h"
+    },
+    {
+      "contract": "TUnionInputRow preserves ordered/repeated input IDs; comparison uses its Inputs vector and mapping Keys rather than assuming map equality.",
+      "path": "ydb/core/kqp/opt/rbo/kqp_info_unit.h"
+    },
+    {
+      "contract": "GetIUType dereferences Type; all fixtures maintain annotated List<Struct> operator types. Null Type is outside RequireTypes precondition and is not probed.",
+      "path": "ydb/core/kqp/opt/rbo/kqp_operator.cpp"
+    }
+  ],
+  "artifacts": [
+    {
+      "bytes": 23740,
+      "path": "proposed-quality-amendments/Q11-direct-union-admission-artifacts.patch",
+      "sha256": "5b00b05d4c9ffd61f0bb3a01af55eb7ce02fbeac61d5b98453ed20a8b8c8fa12"
+    },
+    {
+      "bytes": 6976,
+      "path": "proposed-quality-amendments/Q11-direct-adapter-files/quality_union_cpp_contract.py",
+      "sha256": "3b7bd8de5d199f08519718b34d27fe73e96db3b626209011e763d37f7920a8fb"
+    },
+    {
+      "bytes": 11132,
+      "path": "proposed-quality-amendments/Q11-direct-adapter-files/quality_union_cpp_generator.py",
+      "sha256": "8eb0b44ba1be62a92875b84c5cc8dbfd35d5388397fac53593c29cb33d04d5ce"
+    },
+    {
+      "bytes": 797,
+      "path": "proposed-quality-amendments/Q11-direct-adapter-files/quality_union_cpp_profile.json",
+      "sha256": "bb0664a231d0f29baea57af13e3a7fc1e659af982e0c9e89905cc03a55151717"
+    },
+    {
+      "bytes": 747,
+      "path": "verification/Q11-direct-adapter-offline-checks.json",
+      "sha256": "c1cca50880cb3aaa41ddc6478ab5d33b24297839e5f02c2111acd614f21335cc"
+    }
+  ],
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "bug": "Q11",
+  "contracts": {
+    "assertion_accounting": "Static per-case emitted Check calls plus four checks for each CheckMember invocation; not observed native counts",
+    "barrier_observations": [
+      "Returned filter pointer unchanged",
+      "Original predicate node identity and raw input IU set unchanged",
+      "Original union and child links/type/output/mapping/order unchanged",
+      "Nested volatile and Ensure nodes rejected below an otherwise whitelisted conjunction",
+      "Late optional/numeric mismatch leaves all original children unchanged",
+      "Unresolved subplan object preserved"
+    ],
+    "case_count": 19,
+    "expected_checks": [
+      62,
+      62,
+      83,
+      83,
+      62,
+      62,
+      62,
+      46,
+      22,
+      23,
+      22,
+      22,
+      22,
+      22,
+      22,
+      22,
+      22,
+      22,
+      22
+    ],
+    "negative_shapes": [
+      "partial",
+      "subplan",
+      "external",
+      "optional_late",
+      "primitive_late",
+      "volatile",
+      "fallible",
+      "unknown",
+      "arithmetic",
+      "nested_volatile",
+      "nested_fallible"
+    ],
+    "positive_observations": [
+      "Ordered preserved exactly for ordered and unordered variants",
+      "UnionAll child count, output IU set, mapping policy arity and every mapping row preserved",
+      "Each original branch retained by pointer under its own fresh filter, including repeated shared input",
+      "Both renamed Member nodes refer to the corresponding branch IU and the new predicate lambda row",
+      "Original union, filter predicate, input type/output sets and another consumer remain unchanged",
+      "Exact optional input types and no-IU constant predicate accepted"
+    ],
+    "positive_shapes": [
+      "plain",
+      "ordered",
+      "three",
+      "three_ordered",
+      "shared",
+      "shared_ordered",
+      "nullable",
+      "constant"
+    ]
+  },
+  "coordination": {
+    "admission_api": "anonymous_cpp_verify.validate_fixed_admission(evidence, 'Q11', revision)",
+    "agent": "/root/fix_series_evidence_audit",
+    "extra_pairing_fields_required": false,
+    "their_owned_files": [
+      "quality_pairing.py",
+      "verify_series.py"
+    ]
+  },
+  "limitations": [
+    "Local API/source review cannot establish compile/link compatibility; genuine guarded production closure execution is pending.",
+    "Structural unchanged-node checks establish the tested rule placement barrier; they do not measure runtime volatile call counts.",
+    "This adapter calls the rule directly, so stage reachability and branch access-path improvement still need paired SQL plan evidence.",
+    "No new rule implementation or copied algorithm is substituted for the production rule.",
+    "No live helper, production source, branch or worktree changes were made."
+  ],
+  "plan": [
+    "Use the actual new production rule under a valid annotated operator context; baseline direct invocation is unavailable because this rule is new.",
+    "Observe output union order flag, complete output-to-input mapping, exact branch Member identities, independent filter wrappers and preserved existing graph identity.",
+    "Check unchanged input/predicate identity for partial pushdown, subplan, out-of-scope, type-widening, effect, fallibility, arithmetic and unknown-call barriers.",
+    "Bind anonymous guarded compile/link/native evidence to the reviewed generator, source, numeric case/check vector, profile and production closure.",
+    "Keep end-to-end semantics and optimization improvement dependent on separate complete baseline/fixed SQL and physical-plan pairing."
+  ],
+  "production_source_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_expression.cpp": "fbb0d38212ca7476ca1897eeef5ff2733c02f2d053005eca3ce5ebff2d318f97",
+    "ydb/core/kqp/opt/rbo/kqp_expression.h": "14dee1559fc90aef3c9ee49d5edf21b4ce1a67fb44485a97241abfdf95af621f",
+    "ydb/core/kqp/opt/rbo/kqp_info_unit.h": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": "d5ef4e7aa7921d4dcab120f4d9d503d44442d1f5d068445eb6f3b0d27a5771af",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h": "423924187082d39c908bedc17b0bdee7db96fe1af5a073b56916378e56172edd",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "46c634480411541de12c97a766b78ce11930e6a85cd719613365b9dff9a113fa",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_utils.cpp": "dcdb8bab2fdfe8c5a8779c6d960c606d07e39edf6d134ee682aa65543379d6d5",
+    "ydb/core/kqp/opt/rbo/rules/push_filter_through_union_all.cpp": "26bb429ad0fc74be4498708be75ed98c06520b80e3d6b440e07acc3a0b4b1e85",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa"
+  },
+  "profile_sha256": "ed7dd79fc476909b2f25dddda29c0439d5011a4df24625f62d23cc2765f001a7",
+  "revision": "f9279dcfeac87c596f58ccc8e3add4722c66a960",
+  "schema_version": "q11_direct_union_source_review_v1",
+  "status": "dormant_source_reviewed_native_pending",
+  "validation": {
+    "compiled": false,
+    "generator_rendering": "RAM-only fingerprints; no translation unit saved or printed",
+    "linked": false,
+    "native_executed": false,
+    "negative_only_offline_checks": 13,
+    "python_syntax": "passed",
+    "quality_improvement_verified": false,
+    "query_semantics_verified": false,
+    "static_assertion_accounting": "passed for all 19 cases",
+    "temporary_patch_application": "standalone and after C47 narrow/lifecycle and Q19 suffix patches passed"
+  }
+}

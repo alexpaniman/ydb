@@ -1,0 +1,31 @@
+{
+  "schema": "quality_execution_plan_independent_metadata_checks_v1",
+  "plan_sha256": "43bf967ad02bfa9e10fecf08066c14514280c7a46805811366a2a3aee93c0ceb",
+  "checks_passed": 470,
+  "SQL_module_vectors_checked": 28,
+  "direct_vectors_checked": 12,
+  "CLI_templates_parsed_without_dispatch": 51,
+  "independent_main_parents_checked": 29,
+  "whole_SQL_cases": 850,
+  "whole_SQL_records_per_phase": 853,
+  "spill_enabled_cells": {
+    "Q01": 4,
+    "Q03": 5,
+    "Q04": 7,
+    "Q06": 4,
+    "Q07": 11,
+    "Q10": 10,
+    "Q14": 6,
+    "Q15": 1,
+    "Q17": 5,
+    "Q21": 13,
+    "Q23": 5,
+    "Q24": 5,
+    "Q28": 1,
+    "Q29": 5
+  },
+  "temporary_Q28_four_patch_composition_passed": true,
+  "native_build_toolchain_graph_runs": 0,
+  "rendered_payloads_persisted": false,
+  "live_edits": false
+}

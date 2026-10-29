@@ -1,0 +1,26 @@
+{
+  "status": "link_driver_plan_only",
+  "compile_link_native_executed": false,
+  "metrics": {
+    "elapsed_seconds": 1.033,
+    "peak_scope_usage_bytes": 38998016,
+    "peak_group_rss_bytes": 38998016,
+    "minimum_host_available_bytes": 114743754752,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_collection_after_completion": false,
+    "environment_sha256": "cd64c3bec61e31898ad530ad9ca7b66444cbfb16c0784903b937a7c640ec27f5",
+    "scope_membership_accounting_available": false,
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_bytes": 0,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "da82e5c4c6733599e78665449e24350e21347f7dea6326e2dc499c50d1c47094",
+    "diagnostic_bytes": 389228
+  },
+  "errors": [],
+  "raw_diagnostics_persisted": false,
+  "rendered_test_source_used": false
+}

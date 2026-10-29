@@ -1,0 +1,101 @@
+{
+  "kind": "dormant_anonymous_executable_transport_repair",
+  "production_source_changes": false,
+  "problem": "C31 compile and link succeeded, but native launch retained writable executable descriptors in both caller and scoped worker. Root neutral transport probe confirmed ETXTBSY. No C31 direct runtime verdict was obtained.",
+  "repair": [
+    "Executable memfds opt into sealing at allocation.",
+    "After successful guarded link cleanup, seal writes, growth, shrinking and further sealing; reopen exactly the same inode and size read-only. Replace caller-owned map entry and close its old writable descriptor.",
+    "Block SIGINT/SIGTERM only during small descriptor handoff and restore the prior mask in finally. Expensive digest and workload execution remain outside this section.",
+    "Parent native guard requires a read-only fully sealed executable; manifest records read-only descriptor roles. Scoped worker reopens those descriptors read-only and independently validates executable seals/access before launch.",
+    "Worker owns each newly opened descriptor before readlink validation so a failed validation closes it. Compiler/link outputs remain writable."
+  ],
+  "artifacts": [
+    {
+      "path": "proposed-correctness-amendments/C31-sealed-readonly-native-executable-20261028.patch",
+      "sha256": "ab0a639765b5b1f8fffa71b16c2b29e757c8ac8f7b57ec1ed130bbe86b31f1f7"
+    },
+    {
+      "path": "proposed-correctness-amendments/anonymous_cpp_guard_readonly_exec_20261028.candidate.py",
+      "sha256": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819"
+    },
+    {
+      "path": "proposed-correctness-amendments/anonymous_cpp_verify_readonly_exec_20261028.candidate.py",
+      "sha256": "ea33913dadbf261435d37b08321cdfa271b2232dce641fde8dcfede503935158"
+    },
+    {
+      "path": "proposed-correctness-amendments/C31-readonly-executable-metadata-contracts-20261028.py",
+      "sha256": "7948f994c96ee55dd27bbc00a6c6699c36d56616a8db607ca17084ec6af41e71"
+    }
+  ],
+  "source_after_images": [
+    {
+      "path": "anonymous_cpp_guard.py",
+      "before_sha256": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+      "after_sha256": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+      "changed_functions": [
+        "_worker",
+        "run_anonymous"
+      ],
+      "added_functions": [
+        "_native_executable_name",
+        "_check_native_executable"
+      ]
+    },
+    {
+      "path": "anonymous_cpp_verify.py",
+      "before_sha256": "87f389a070db81db77983ebe816dd6f1696a3382d718365d22e2c9b7231d72eb",
+      "after_sha256": "ea33913dadbf261435d37b08321cdfa271b2232dce641fde8dcfede503935158",
+      "changed_functions": [
+        "_memfd",
+        "execute"
+      ],
+      "added_functions": [
+        "_seal_native_executable"
+      ]
+    }
+  ],
+  "verification": {
+    "metadata_assertions": 183,
+    "descriptor_scenarios": 28,
+    "existing_mock_scope_cleanup_regressions": "passed",
+    "metadata_report": "verification/C31-readonly-executable-metadata-contracts-20261028.json",
+    "metadata_report_sha256": "435154b6740378d3213345794ac6c910d31e31f5355cea4af9913dcf90fb5fd8",
+    "clean_two_file_application": true,
+    "native_or_toolchain_or_build_execution_by_author": false,
+    "live_edits": false,
+    "query_fixture_AST_or_generated_source_persistence": false,
+    "actual_execute_to_guard_default_environment_boundary": true
+  },
+  "root_existing_evidence": [
+    {
+      "path": "verification/direct-harness-failure-C31-1793146364665476623.json",
+      "sha256": "33181ae1cbd0772345d7d1f4a5d0b2fcda22410e6157bd903a51a9a9e0f62363"
+    },
+    {
+      "path": "verification/C31-native-worker-transport-probe-1793146642893513879.json",
+      "sha256": "d112dd56806737c434723713ef80fb8287593880e1a01e0af697fa33ba0a73b0"
+    }
+  ],
+  "guards_preserved": [
+    "One existing scoped process, no nested scope.",
+    "Unchanged native12GiB, compile24GiB and link36GiB caps and host36GiB headroom.",
+    "Unchanged timeout/cancellation/scope cleanup, receipt verification, exact compiled object/executable digests and production version-object checks.",
+    "No stubs, code rebuilds, borrowed objects, or acceptance weakening.",
+    "Original failure remains immutable; successful neutral transport is not a C31 contract verdict.",
+    "Existing direct native compiler-style environment sanitization remains enabled; Q28 may independently retain its native runtime environment policy."
+  ],
+  "integration": {
+    "before_direct_sha256": "87f389a070db81db77983ebe816dd6f1696a3382d718365d22e2c9b7231d72eb",
+    "C47_combined_driver": "Separately reviewed candidate uses the same before-image; root must combine exact reviewed hunks and rebind final source hashes at idle.",
+    "Q28_pilot": "Its separate post-link path must explicitly call direct._seal_native_executable(fds) before digest and before borrowing executable for samples. Until that follow-up, the new guard correctly rejects its writable descriptor. Q28 native samples remain pending.",
+    "admission_changes": "None. New process transport category and direct transport evidence are recorded; no native correctness/quality claim is created by this source amendment."
+  },
+  "remaining": [
+    "Independent source and metadata review.",
+    "Root neutral existing-executable transport check under the unchanged guard.",
+    "Actual C31 direct retry requires compilation/link again because prior anonymous executable was discarded.",
+    "Q28 post-link integration follow-up must be independently reviewed before any pilot sample."
+  ],
+  "superseded_patch_sha256": "05fe84d358c45626ad08d6d6879e08c21994679cde0f5c3ef25c7e14245d4adb",
+  "independent_review_correction": "Initial native transport validation incorrectly rejected compiler_environment=True. The actual direct execute call intentionally retains that default sanitization policy. Both checks now validate descriptor mode/seals independently of environment policy; a mocked actual execute-to-guard boundary covers the unchanged default."
+}

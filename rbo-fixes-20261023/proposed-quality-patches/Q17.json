@@ -1,0 +1,21 @@
+{
+  "id": "Q17",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_patch_only",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp"
+  ],
+  "scope": "Use ready ordinary index implementation metadata for covering columns and physical key prefixes, including implicit base primary keys. Specialized/async indexes are excluded.",
+  "validation_plan": [
+    "Implicit composite PK output plus declared payload uses one covering lookup",
+    "Missing payload remains noncovering/ineligible in the no-range path",
+    "Overlapping index/PK columns, readiness, async and specialized families",
+    "Compare selected target and fetched column counts; semantic row controls"
+  ],
+  "static_checks": [
+    "git apply --check against pinned baseline passed"
+  ],
+  "limits": [
+    "No compilation, native execution or plan-quality measurement yet"
+  ]
+}

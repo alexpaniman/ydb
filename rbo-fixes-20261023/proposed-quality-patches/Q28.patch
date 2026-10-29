@@ -1,0 +1,89 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo.h
+@@ -38,6 +38,11 @@
+         return QuickMatch(input);
+     }
+     virtual bool MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) = 0;
++
++    // Opt in only for an owning-edge replacement that preserves output IDs/types
++    // and subplan references, never mutates existing nodes or global state, and
++    // creates no candidates for this stage. Matching must be ancestor-independent.
++    virtual bool SupportsPostorderBatch() const { return false; }
+ 
+     virtual ~IRule() = default;
+ 
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_rules.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_rules.h
+@@ -209,7 +209,8 @@
+  */
+ class TRewriteRightJoinRule : public ISimplifiedRule {
+   public:
+-    TRewriteRightJoinRule() : ISimplifiedRule("Rewrite right join", ERuleProperties::RequireParents ) {}
++    TRewriteRightJoinRule() : ISimplifiedRule("Rewrite right join") {}
++    bool SupportsPostorderBatch() const override { return true; }
+ 
+     virtual bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
+     virtual TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) override;
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo.cpp
+@@ -129,6 +129,60 @@
+     bool needToLog = NYql::NLog::YqlLogger().NeedToLog(NYql::NLog::EComponent::CoreDq, NYql::NLog::ELevel::TRACE);
+     ui32 computedProps = 0;
+ 
++    bool canBatch = !Rules.empty();
++    for (const auto& rule : Rules) {
++        canBatch &= rule->Props == 0 && rule->SupportsPostorderBatch();
++    }
++    if (canBatch) {
++        struct TOwnedEntry {
++            TIntrusivePtr<IOperator> Current;
++            TIntrusivePtr<IOperator> Parent;
++            size_t ChildIndex;
++            std::optional<TInfoUnitId> SubplanIU;
++        };
++        TVector<TOwnedEntry> entries;
++        // Finish traversal before any rewrite; retained owners keep every recorded
++        // edge alive. The opt-in contract makes postorder replacements independent.
++        for (const auto& item : root) {
++            entries.push_back({TIntrusivePtr<IOperator>(item.Current),
++                TIntrusivePtr<IOperator>(item.Parent), item.ChildIndex, item.SubplanIU});
++        }
++        for (const auto& entry : entries) {
++            auto& op = entry.Parent ? entry.Parent->MutableChild(entry.ChildIndex)
++                : entry.SubplanIU ? root.PlanProps.Subplans.MutablePlan(*entry.SubplanIU)
++                : root.MutableChild(0);
++            if (op.Get() != entry.Current.Get()) {
++                // An unanticipated edge change invalidates the snapshot. Resume
++                // the conservative scheduler with a fresh traversal below.
++                break;
++            }
++            for (const auto& rule : Rules) {
++                if (!rule->QuickMatch(op, root.PlanProps)) {
++                    continue;
++                }
++                TRuleTraceAttempt traceAttempt(ctx, rule->RuleName);
++                const bool applied = rule->MatchAndApply(op, ctx, root.PlanProps);
++                Y_ENSURE(op, "Rule left a null plan edge");
++                traceAttempt.CloseRule();
++                if (!applied) {
++                    traceAttempt.SubmitIfHasInfo(root, StageName);
++                    continue;
++                }
++                YQL_CLOG(TRACE, CoreDq) << "Applied rule:" << rule->RuleName;
++                if (needToLog && rule->LogRule) {
++                    YQL_CLOG(TRACE, CoreDq) << "Plan after applying rule:\n" << root.PlanToString(ctx.ExprCtx);
++                }
++                traceAttempt.SubmitApplied(root, StageName);
++                ++numMatches;
++                Y_ENSURE(numMatches < maxNumOfMatches);
++                break;
++            }
++        }
++        // The iterator deduplicates operators, not owning slots. A node can
++        // remain reachable through another raw DAG edge after its first slot
++        // was replaced. Finish with a fresh conservative pass to cover it.
++    }
++
+     while (fired && numMatches < maxNumOfMatches) {
+         fired = false;
+ 

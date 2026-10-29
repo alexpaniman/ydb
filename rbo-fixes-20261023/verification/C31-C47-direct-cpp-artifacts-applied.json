@@ -1,0 +1,11 @@
+{
+  "patch_sha256": "0873070e30ca7aec2b1846c9d5b2a2b73662c5d10c8f2e37745c92a4b4961e7f",
+  "independent_review": "C31-C47-direct-cpp-independent-source-review.json",
+  "applied_at_idle_boundary": true,
+  "syntax_passed": true,
+  "native_executed": false,
+  "before_sha256": "ab5efbf9bed8d22900e822fa45b684e1ad2da3d3121f47abfedf68778b92aef2",
+  "after_sha256": "1fc8186e29e8886878f7e67b59c9f202ad9b5d4f8f6c96987ae6299687e11068",
+  "initial_application_was_skipped_due_to_repository_subdirectory": true,
+  "actual_application_verified": true
+}

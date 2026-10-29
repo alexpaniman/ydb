@@ -1,0 +1,52 @@
+{
+  "binary_provenance_verified": true,
+  "exit_code": 1,
+  "type_consistency_failures": [
+    {
+      "expected_type_shape": {
+        "optional_markers": 3,
+        "optional_words": 0,
+        "types": [
+          "List",
+          "Struct",
+          "Uint64",
+          "Int64",
+          "Int64",
+          "Uint64",
+          "Int64"
+        ]
+      },
+      "actual_type_shape": {
+        "optional_markers": 1,
+        "optional_words": 0,
+        "types": [
+          "List",
+          "Struct",
+          "Uint64",
+          "Int64",
+          "Int64",
+          "Uint64",
+          "Int64"
+        ]
+      },
+      "node": "KqpOpRoot"
+    }
+  ],
+  "memory": {
+    "elapsed_seconds": 11.061,
+    "peak_scope_usage_bytes": 561831936,
+    "peak_group_rss_bytes": 561831936,
+    "minimum_host_available_bytes": 114178269184,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_membership_accounting_available": true,
+    "exit_code": 0,
+    "stdout_sha256": "20f97997a2d529702bb46570269ba2898f4a3ef134760607fe78ae9817329cc1",
+    "stdout_bytes": 395,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic_bytes": 0
+  }
+}

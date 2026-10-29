@@ -1,0 +1,128 @@
+{
+  "actual_channel_shape_verified": false,
+  "actual_no_spill_observed": false,
+  "after_sha256": "60462c0206c58978416b3e75740de951cf8d809e690ec214013c43519874ac64",
+  "audit_sha256": "4ea76db95ef70273c05acd131a327c79ed02ef60c84b995d48a620d92089b8ea",
+  "before_sha256": "3fdc8e7decc2db06c9a2adbec7544ae6a21f5867a575557efad06d40b4928f76",
+  "build_runs": 0,
+  "configuration_and_admission": {
+    "exact_base_config_hash_checked": true,
+    "exact_shared_producer_origin_proof_still_pending": true,
+    "full_native_protobuf_parse_verified": false,
+    "lineage_admission_added": false,
+    "matching_rendered_config_hash": "6c4af8f2a676cca125b2a7c5b7ce1c41d8156870861ee06ef22b76ed58d50529",
+    "nested_message_renderer_checked": true,
+    "new_expected_rejection_token": false,
+    "normal_row_and_physical_evidence_still_required": true,
+    "protobuf_subset_message_and_types_checked": true,
+    "row_and_physical_oracle_functions_unchanged": true,
+    "runtime_cap_failure_stays_semantic_failure": true,
+    "unknown_profiles_and_unsupported_row_counts_rejected": true
+  },
+  "full_lineage_admission_verified": false,
+  "generated_queries_results_plans_or_repros_persisted": false,
+  "live_helper_edits": false,
+  "native_processes_started": 0,
+  "patch": "proposed-correctness-amendments/C31-observation-no-payload-spill-files-20261028.patch",
+  "patch_sha256": "3ba620eaad5f60154a923653043371e4a0ca9595cf50ac284913e0cd50ab51bf",
+  "remaining_limits": [
+    "Apply only at an idle helper boundary, with the reviewed dependency/config hashes and exact runner receipt.",
+    "Native full-config parsing, startup, physical shape and row semantics remain unexecuted in this review.",
+    "Cap rejection is a failed observation, never a correctness pass.",
+    "No conclusion about whether prior runs spilled or created payload files is supported.",
+    "Empty session directories and normal runner bookkeeping files are outside this source-bound payload-file guarantee."
+  ],
+  "scope": {
+    "arbitrary_other_workloads_covered": false,
+    "exact_pinned_runner_receipt_required": true,
+    "fixed_revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+    "node_count": 1,
+    "profiles": [
+      "c31_stability_float_domain__spilling__left",
+      "c31_stability_integer_domain__spilling__left"
+    ],
+    "rows": 24
+  },
+  "source_checks": [
+    {
+      "claim": "Every local-service payload write checks MaxTotalSize before accounting, name assignment, queueing and either create or append. The cap is one byte, so zero/unlimited semantics are avoided.",
+      "references": [
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:409",
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:445",
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:486",
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:967"
+      ]
+    },
+    {
+      "claim": "Open-file events only allocate in-memory bookkeeping. The service starts at TotalSize_=0; bootstrap can create an empty session directory, which is outside the payload-file guarantee.",
+      "references": [
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:239",
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:319",
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:1144"
+      ]
+    },
+    {
+      "claim": "Both V2 spill routes send the complete uncompressed outer envelope: four ui32, four bool, and two ui64 mandatory fields give 36 bytes on this target; optional metadata and payload only increase it. Legacy serialization always contributes three ui32 plus two size fields, at least 20 bytes and 28 on this 64-bit target.",
+      "references": [
+        "ydb/library/yql/dq/runtime/dq_channel_service.cpp:78",
+        "ydb/library/yql/dq/runtime/dq_channel_service.cpp:194",
+        "ydb/library/yql/dq/runtime/dq_channel_service.cpp:542",
+        "ydb/library/yql/dq/common/dq_serialized_batch.cpp:63",
+        "ydb/library/yql/dq/actors/spilling/channel_storage_actor.cpp:112"
+      ]
+    },
+    {
+      "claim": "EnableSpillingNodes=None blocks the reviewed mask-controlled GraceJoin/sort paths, but does not disable new hash aggregation. Its state and input spill paths both use the wide scalar adapter, including scalarized block inputs. Empty adapters do not call Put. Nonempty non-fast batches add length metadata and a packed row-count field, each at least one byte. Optional/null values cannot remove these headers.",
+      "references": [
+        "ydb/library/yql/dq/tasks/dq_task_program.cpp:14",
+        "ydb/core/kqp/query_compiler/kqp_mkql_compiler.cpp:498",
+        "ydb/library/yql/dq/comp_nodes/dq_hash_combine.cpp:882",
+        "ydb/library/yql/dq/comp_nodes/dq_hash_combine.cpp:946",
+        "ydb/library/yql/dq/comp_nodes/dq_hash_combine.cpp:2054",
+        "ydb/library/yql/dq/comp_nodes/dq_hash_combine.cpp:2931",
+        "yql/essentials/minikql/computation/mkql_spiller_adapter.h:93",
+        "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp:1482",
+        "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp:1514",
+        "yql/essentials/minikql/pack_num.h:75"
+      ]
+    },
+    {
+      "claim": "Compute and channel storage actors forward whole blobs to the service; no downstream compression bypasses the checked envelope or packed scalar batch.",
+      "references": [
+        "ydb/library/yql/dq/actors/spilling/channel_storage_actor.cpp:121",
+        "ydb/library/yql/dq/actors/spilling/compute_storage_actor.cpp:111",
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:996"
+      ]
+    },
+    {
+      "claim": "With total initially zero and all reviewed reachable blobs greater than one byte, each attempted write returns before mutation. The bounded profiles cannot overflow the size arithmetic. This is not a general guarantee for arbitrary raw one-byte callers.",
+      "references": [
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:445",
+        "ydb/library/yql/dq/actors/spilling/spilling_file.cpp:456"
+      ]
+    },
+    {
+      "claim": "The service stays enabled, so kqprun adds the global spilling flag. Query/channel sharing stays eligible independently of the None node mask. UseBlockHashJoin remains false. No claim is made that a particular physical shared producer was observed.",
+      "references": [
+        "ydb/tests/tools/kqprun/kqprun.cpp:1068",
+        "ydb/core/kqp/provider/yql_kikimr_settings.cpp:239",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:609",
+        "ydb/core/kqp/query_compiler/kqp_query_compiler.cpp:1179",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp:692"
+      ]
+    }
+  ],
+  "source_findings": [],
+  "status": "independent_source_review_passed_exact_profiles_native_pending",
+  "toolchain_runs": 0,
+  "verification": {
+    "clean_temporary_patch_application": true,
+    "independent_assertions": 122,
+    "metadata_report": "verification/C31-spill-cap-independent-metadata-20261028.json",
+    "metadata_report_sha256": "c9c1099be8a3e1ad7d3770a8495fcc8b5fb0a98ec8447eaa864e3104030f3dd5",
+    "metadata_script_sha256": "d6238215f42f2e7d8537db8880616c40a4407646f655fff033063458687e09aa",
+    "mocked_runtime_failures_rejected": 2,
+    "pinned_binding_hashes_match": true,
+    "pinned_source_bindings_independently_checked": 39
+  }
+}

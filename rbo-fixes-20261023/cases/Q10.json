@@ -1,0 +1,47 @@
+{
+  "id": "Q10",
+  "title": "Multiple DISTINCT aggregates duplicate deduplication of the same argument.",
+  "branch": "fix/new-rbo/q10-multiple-distinct-aggregates-duplicate-deduplication-of-the-same-argument",
+  "commit": "efeebb38e72fd7a7c84ab65121e49362f93e2d4b",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp"
+  ],
+  "proposal_sha256": "72cf9dcd7b35e91b35ba80a52f4ec5cbbe66a9c9f36369243235115c6bc9be16",
+  "proposal": "proposed-quality-patches/Q10.patch",
+  "proposal_metadata": {
+    "id": "Q10",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_patch_not_applied",
+    "files": [
+      "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp"
+    ],
+    "scope": "One DISTINCT branch per exact argument IU, preserving independent accumulator/output state and one ordinary-aggregate branch.",
+    "validation_required": [
+      "Count DISTINCT branches and replicate ports against unique argument IUs",
+      "Independent scalar/grouped optional/all-null/empty result models",
+      "Shared and distinct arguments; mixed ordinary aggregates; spilling on/off",
+      "Runtime read/shuffle bytes and aggregate CPU"
+    ],
+    "apply_check_passed": true,
+    "production_edited": false,
+    "compiled": false,
+    "native_verified": false,
+    "integration_overlap": [
+      "C24",
+      "C26",
+      "C35"
+    ],
+    "scope_note": "This independent patch retains existing base state typing. Interval/variance state defects are separate correctness findings; integration must preserve their fixes.",
+    "independent_source_review": "No additional source blocker after review; native/build and stated topology checks remain required.",
+    "independently_reviewed_patch_sha256": "72cf9dcd7b35e91b35ba80a52f4ec5cbbe66a9c9f36369243235115c6bc9be16"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

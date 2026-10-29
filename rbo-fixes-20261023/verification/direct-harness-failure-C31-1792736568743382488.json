@@ -1,0 +1,7 @@
+{
+  "bug": "C31",
+  "command": "capture",
+  "no_runtime_verdict_accepted": true,
+  "reason": "unresolved_build_graph_resource",
+  "status": "direct_harness_failed"
+}

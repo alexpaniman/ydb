@@ -1,0 +1,54 @@
+{
+  "status": "sanitized_diagnostic_categories_only",
+  "bug": "C31",
+  "exit_code": 1,
+  "guard_limits_unchanged": true,
+  "diagnostics": [
+    {
+      "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diagnostic_bytes": 0,
+      "capture_complete": true,
+      "category_counts": {
+        "undefined symbol": 0,
+        "duplicate symbol": 0,
+        "cannot open": 0,
+        "unable to create": 0,
+        "unknown argument": 0,
+        "file format not recognized": 0,
+        "Permission denied": 0,
+        "No such file": 0,
+        "out of memory": 0,
+        "segmentation fault": 0,
+        "unresolved external": 0,
+        "failed to write": 0,
+        "cannot write": 0,
+        "relocation": 0
+      },
+      "error_line_count": 0,
+      "raw_diagnostics_or_symbol_names_persisted": false
+    },
+    {
+      "diagnostic_sha256": "82bd823aa40ae3eea13fb5f41d88464bb5071cbbdf247ac52d0af5c11ececcd0",
+      "diagnostic_bytes": 8233,
+      "capture_complete": true,
+      "category_counts": {
+        "undefined symbol": 0,
+        "duplicate symbol": 0,
+        "cannot open": 0,
+        "unable to create": 0,
+        "unknown argument": 0,
+        "file format not recognized": 0,
+        "Permission denied": 0,
+        "No such file": 0,
+        "out of memory": 0,
+        "segmentation fault": 0,
+        "unresolved external": 0,
+        "failed to write": 0,
+        "cannot write": 0,
+        "relocation": 0
+      },
+      "error_line_count": 12,
+      "raw_diagnostics_or_symbol_names_persisted": false
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "finding": "C31",
+  "artifact_only": true,
+  "live_files_modified": false,
+  "patch_sha256": "b21c2cc5d2ba34d210fbfa09e294e142518e5757f106c318069a1407cfc5e997",
+  "preimage_sha256": {
+    "rbo-fixes-20261023/sharing_lifecycle_checks.py": "52bc893a2810a3dbae30cd38366f91450381f55e9556c735302d30bc43fbed94",
+    "rbo-fixes-20261023/c31_identity_checks.py": "3ce09393f4169673ad98ef84dd0336eac0d67da888ad491e5f3a9a5b91408254"
+  },
+  "apply_check_passed": true,
+  "generator_change": "Retain LEFT SQL profiles; move unsupported explicit SEMI/ONLY builders to unavailable_recipes.",
+  "preserve_native_failures": true,
+  "excluded_frontend_profile_count": 96,
+  "retained_C31_SQL_profile_count_in_changed_modules": 48,
+  "retained_C31_SQL_profile_count_including_original_subsystem_controls": 50,
+  "exists_alternative_added": false,
+  "reason": "EXISTS/NOT EXISTS creates a pure-key outer LeftSemi/LeftOnly, with mixed residual evaluation inside the dependent right-side plan. That does not prove C31 residual-reconstruction coverage.",
+  "direct_cpp_scope": "Existing 24 internal rule contracts include LeftSemi/LeftOnly binding and identity checks; no full SQL semantics claim.",
+  "C38_exclusion": "Already excluded from active distribution_checks.recipes and retained in unavailable_recipes.",
+  "native_executed": false,
+  "mocks_executed": false
+}

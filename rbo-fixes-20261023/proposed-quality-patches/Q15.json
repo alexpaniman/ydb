@@ -1,0 +1,24 @@
+{
+  "id": "Q15",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_patch_not_applied",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+  ],
+  "scope": "When effective shuffle elimination is enabled, reuse only a direct preceding window with identical nonempty ordered partition IUs; other inputs retain existing shuffle behavior.",
+  "validation_required": [
+    "Four-node exact semantic window-chain models with different local sort/frame definitions",
+    "Negative controls with different ordered keys, intervening operators and keyless partitions",
+    "HashShuffle count and bytes, including shuffle elimination on/off",
+    "Downstream distribution checks after integrating C37"
+  ],
+  "apply_check_passed": true,
+  "production_edited": false,
+  "compiled": false,
+  "native_verified": false,
+  "scope_note": "Bounded direct-window improvement; general reuse from arbitrary inputs/subset keys remains open.",
+  "integration_dependency": "C37 fixes pre-existing window output metadata; apply its correction before broad downstream-distribution validation.",
+  "independent_source_review": "No additional source blocker after review; native/build and stated topology checks remain required.",
+  "independently_reviewed_patch_sha256": "0bc0c4292963841dd636a651a6d4f40753bd56939747acef8bc8030452b69cc6",
+  "review_correction": "Added existing OptShuffleElimination override/default gate; generator covers on/off and overrides."
+}

@@ -1,0 +1,141 @@
+{
+  "schema": "c31_changed_behavior_acceptance_scope_review_v1",
+  "reviewer": "/root/q01_measurement_review",
+  "reviewed_at_utc": "2026-10-28T01:11:43.978048+00:00",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "verdict": "original_lifecycle_fix_verified_with_explicit_scope_added_shared_identity_lineage_still_pending",
+  "new_production_bug_established": false,
+  "answer": "A scoped verification statement is justified for the original no-channel-sharing lifecycle correction and the enumerated successful SQL/local contracts. The entire amended C31 branch is not fully verified: newly admitted keyless/nullable reconstruction on the shared path retains a concrete physical value-pairing proof obligation. No acceptance gate should be changed by this assessment.",
+  "original_finding": {
+    "source": "rbo-review-20261021/bugs.json:C31",
+    "title": "Late join-filter inlining recreates unsupported sharing",
+    "failure": "With block joins and channel spilling disabled, residual reconstruction creates Replicate after copy expansion, then stage assignment rejects sharing.",
+    "changed_lines": "kqp_rbo_transformer.cpp:701-709",
+    "mechanism": "Required reconstruction now runs before existing copy expansion, only under !allowChannelSpilling. Copy eligibility and stage admission remain unchanged.",
+    "exact_native_evidence": "Row and forced LEFT reconstruction controls have correct bags, expected physical join kinds, and no shared-stage Replicate. Retained-block and real-lookup controls pass their separate shape assertions.",
+    "why_shared_field_proof_not_required_here": "This corrected execution route deliberately removes sharing before stage assignment; proving field correspondence across a surviving multi-output Switch is not a prerequisite for that route.",
+    "scope": "Exercised ordinary LEFT SQL pipeline plus source lifecycle analysis; not a claim that local LeftSemi/LeftOnly tests execute the full physical pipeline."
+  },
+  "source_lifecycle_revalidation": [
+    {
+      "source": "rules/inline_join_filters.cpp:117-165",
+      "claim": "Remaining keyed block residuals are retained under unchanged block/force settings; only left-family reconstruction creates a hub."
+    },
+    {
+      "source": "rules/build_initial_cbo_tree.cpp:28; rules/expand_cbo_tree.cpp:69",
+      "claim": "Both CBO packing paths exclude joins with residual filters, so a retained residual does not acquire a new lookup algorithm through ordinary CBO."
+    },
+    {
+      "source": "rules/kqp_cbo_trees.cpp:447; rules/push_filter_into_join.cpp:88-96",
+      "claim": "CBO reconstruction starts without residual filters; the intervening residual attachment targets Cross, whose inlining is a Filter rather than left-family Replicate reconstruction."
+    },
+    {
+      "source": "rules/expand_replicate.cpp:45-56; rules/assign_stages.cpp:105-112",
+      "claim": "Copy repeatability/support and no-sharing stage rejection remain intact. This assessment does not certify unsupported or nonrepeatable no-sharing producers as accepted."
+    }
+  ],
+  "changed_behavior_matrix": [
+    {
+      "behavior": "Early inlining before copying",
+      "mode": "channel sharing disabled",
+      "scope_status": "original lifecycle correction verified in exercised SQL scope",
+      "remaining_shared_field_proof": false
+    },
+    {
+      "behavior": "Scalar keyless complete-row domain, nullable identity encoding and helper-column construction",
+      "mode": "both sharing modes",
+      "scope_status": "Observed LEFT bag semantics pass; 33 local contracts cover accepted/rejected identities, exact IU pairing/captures and internal three join kinds. Full physical execution for raw-unavailable Semi/Only and zero-column forms is not supplied by local contracts.",
+      "remaining_shared_field_proof": "Required for the added shared-domain guarantee, separately from passing observed bags."
+    },
+    {
+      "behavior": "Conservative stable-reduction gate before copying",
+      "mode": "channel sharing disabled",
+      "scope_status": "Source guard plus four expected rejection records and stable positive controls; guarded rejection is not query semantic acceptance.",
+      "remaining_shared_field_proof": false
+    },
+    {
+      "behavior": "Newly admitted keyless scalar-domain reconstruction over a producer containing reductions",
+      "mode": "channel sharing enabled",
+      "scope_status": "Concrete changed path: old implementation rejected missing keys; new implementation admits complete-row identity and secondary-port deduplication. Per-case semantics pass; actual aggregate value to compared identity and same-producer field lineage remain unproved.",
+      "remaining_shared_field_proof": true
+    },
+    {
+      "behavior": "Previously admitted nonnullable unique-key reconstruction with sharing enabled",
+      "mode": "channel sharing enabled",
+      "scope_status": "Existing shared producer mechanism, no new early pass or copy-stability gate on this route. Such observations are regression/confidence controls for the original lifecycle fix, though they cannot certify all old identity types.",
+      "remaining_shared_field_proof": "Not needed to accept the original stage-order fix; any broader same-evaluated-value claim still requires supporting evidence."
+    }
+  ],
+  "why_the_two_observations_do_not_close_the_added_scope": [
+    "Both intended profiles are domain profiles with expected_domain_deduplication=true. They are not interchangeable with previously admitted keyed sharing controls.",
+    "The scalar-domain code creates a key-only logical MakeDomainProjection, but downstream aggregate propagation may put reducers in Switch branches. A global reduction count and a local projection bijection do not bind the actual compared keys to that logical domain.",
+    "Actual projected branches end at DqPhyHashCombine after recognized wide/block wrappers. Current counters do not inspect actual reducer key/init/update/finish lambdas or map their fields to the reconstruction join keys.",
+    "The fixtures deliberately use reduction values whose sum is exact in every order. Their correct outputs therefore do not distinguish one shared evaluated value from equal independent recomputations.",
+    "This is a missing guarantee, not evidence of incorrect execution. The observed reducer may be the correct key-only domain reducer; current data does not classify it."
+  ],
+  "minimum_remaining_fact_not_new_framework": "For the shared scalar-domain extension, bind the actual outer and inner reconstruction keys (including encoding) to the same already-evaluated source fields; show any intervening actual reducer is the complete key-only domain and does not recompute an unstable producer value. Keep all current proof flags false until such evidence exists. No observer redesign or additional native run is proposed here.",
+  "verified_evidence_summary": {
+    "exact_sql_records": 50,
+    "semantic_successes": 46,
+    "expected_guard_successes": 4,
+    "applicable_structural_successes": 44,
+    "direct_cases": 33,
+    "direct_assertions": 1416,
+    "direct_scope": "linked production local contracts, not full query semantics",
+    "latest_bounded_observations": 2,
+    "rows_per_observation": 24,
+    "both_semantic_and_existing_structural_pass": true,
+    "exact_shared_producer_origin_proved": false,
+    "aggregation_value_to_identity_binding_proved": false,
+    "full_shared_producer_contract_pass": false
+  },
+  "recommended_human_status": "C31: original late-sharing stage-order bug verified for the tested LEFT pipeline. All 50 SQL checks and 33 direct contracts pass. Added scalar/nullable identity support has passing observed semantics, but its full shared-value lineage and end-to-end internal Semi/Only/zero-column coverage remain explicitly limited.",
+  "status_policy": {
+    "modify_case_status": false,
+    "modify_acceptance_gates": false,
+    "whole_amended_branch_full_verified": false,
+    "may_report_original_finding_scoped_verified": true,
+    "optimization_quality_claimed": false
+  },
+  "preserved_exclusions": [
+    "Unsupported floating/composite/opaque complete-row identities and unsupported nullable keys",
+    "Volatile keyless predicates or unproved called subplans",
+    "Nonrepeatable or unsupported no-sharing producer copy routes",
+    "Raw frontend-rejected Semi/Only forms are not execution passes"
+  ],
+  "source_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "121c7897a70f4b535cd853b1964c909bca4e376dc89cccd83d727d7066f53e3a",
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667",
+    "ydb/core/kqp/opt/rbo/rules/build_initial_cbo_tree.cpp": "db1af8bc5a1491ab83b69229050356cc93efa6859ba1406f876dcec974e993ba",
+    "ydb/core/kqp/opt/rbo/rules/expand_cbo_tree.cpp": "8ba31075b870249daf3657ad9584b7e3084e02e49cb3d8b478e4fdc303662272",
+    "ydb/core/kqp/opt/rbo/rules/kqp_cbo_trees.cpp": "c3a072c8cd24b2f4363d667473b98291e3fa312699468d033ed5d5db0c1c66b1",
+    "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp": "3c30374f7517254dfc2eb3a0002d0c5fcda04203bbe2e6620426af5d2e4c82b9",
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85",
+    "ydb/core/kqp/opt/rbo/rules/expand_replicate.cpp": "4bc5fe0f799c3fa51883e5167dd7d8759c4dc105274602be7436f47b6336f8b7",
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb",
+    "ydb/core/kqp/opt/rbo/rules/propagate_aggregate_through_stage.cpp": "aec3c828e7bf8cbabbff051b95436f0fe314e3ce92fd421e580161cffd10aae1"
+  },
+  "evidence_sha256": {
+    "verification/guarded-fixed-C31-24e1aae9a067-1792735900260575936.jsonl": "c8fb76b58c4f9c0b16abe5084bfde149cb6d6591fee3aa3b5def9176dd5a31a9",
+    "verification/direct-run-C31-1793147369208959585.json": "4fdbc5752b63be1bec5c435cb59c9edabf41a8cf145b7b835b7d519dd2018900",
+    "verification/guarded-C31-wide-observation-1793149460058563909.jsonl": "089968b36ba0892496347533876216bc3e1978a86890babff5207b17c6965de4",
+    "verification/C31-actual-wide-observation-source-assessment-20261028.json": "4b09b0c1d29b1b7cc8c215a81923347a49f5c29a590d04b305c3e30f0a5c4531",
+    "verification/C31-sharing-lifecycle-reassessment.json": "70dbd0f1b04b3ee5f661636870f54e27c87651d3335efd01107019e3273e9a5a",
+    "verification/C31-scope-completion-source-review.json": "06eab500d410a6f0d84731a12e8d048694972734500b0e5b2b72c6c57394ee8f",
+    "verification/C31-direct24-and-shared-origin-source-assessment.json": "70f40dcdec26d7f9dbc6f747633523dcf75c28204447a0d0ebb5bb59f773a6ba",
+    "verification/C31-copy-stability-independent-review.json": "0323e4c0c3f345de35e6d403241312af953aa4c6cc52f06634f3466ae2dc19a7",
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_identity_cpp_generator.py": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9"
+  },
+  "execution": {
+    "native_runs": 0,
+    "build_or_toolchain_runs": 0,
+    "generator_render_calls": 0,
+    "live_helper_edits": false,
+    "production_edits": false,
+    "case_or_gate_edits": false,
+    "rendered_sql_cpp_fixtures_plans_or_results_saved": false,
+    "source_and_sanitized_existing_metadata_only": true
+  }
+}

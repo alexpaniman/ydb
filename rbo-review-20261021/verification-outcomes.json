@@ -1,0 +1,683 @@
+{
+  "revision": "f746f5a75ca7846d2bcc422142d9329ec0064f94",
+  "baseline": {
+    "suites": 2,
+    "passed_tests": 352
+  },
+  "historical_targeted_executions": [
+    {
+      "label": "current-new-mixed",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-legacy-mixed",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-new-having",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "a3950c774952cf6035015abe3d66de0c13c9132cf3cd293d2ecd219af9abc59f"
+    },
+    {
+      "label": "current-legacy-having",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "33e8f31f8499b69752e5827e1beba19fe310fb4ba567993180b8860d1999ab44"
+    },
+    {
+      "label": "current-new-rollup",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "601846c45737da90165a82aa49d8ddce1cf9cc2b6274c894f9324ba609b7fabc"
+    },
+    {
+      "label": "current-legacy-rollup",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "02a032f10e3c1228cb78a741abe8a9cbe876a08bfa9371b7b33a3a7d56730413"
+    },
+    {
+      "label": "current-new-rank",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "invalid expression child"
+    },
+    {
+      "label": "current-new-group-null",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-dist-stddev",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-dist-interval",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "unsupported merge key"
+    },
+    {
+      "label": "current-new-win-interval",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "physical type mismatch"
+    },
+    {
+      "label": "current-new-win-null",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-win-range",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-pgclock",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "eafe9d2b2360b251277f4f95e296f9d2950f211b1dce362b8f75cc988eca29fe"
+    },
+    {
+      "label": "current-block-block-subplan",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "unavailable column binding"
+    },
+    {
+      "label": "current-new-guard-scalar",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "scalar cardinality check"
+    },
+    {
+      "label": "current-no-block-late-share",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "shared plan without spilling"
+    },
+    {
+      "label": "current-new-distinct-count",
+      "exit_code": 0,
+      "row_count": 100,
+      "result_sha256": "70cbfa25bd8eb9f75f66a3cf617865ac7a519fdfc0c2612ebef0f0c8808e751b"
+    },
+    {
+      "label": "current-legacy-distinct-count",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "8e325816cf2d9e97b7611a0c80bb71ea45c10fdbd1df2411972ddd407272cb70"
+    },
+    {
+      "label": "current-new-distinct-group-expr",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "type mismatch"
+    },
+    {
+      "label": "current-legacy-distinct-group-expr",
+      "exit_code": 0,
+      "row_count": 2,
+      "result_sha256": "12647954e6a414522bc6cfade977d5aadb6d6427c8333f0b0049ecd57e63c77a"
+    },
+    {
+      "label": "current-new-having-dup",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "a0656447cef6c70ad783a9bdf493c376904b9e29a9b0c66b622ca985ace78fd6"
+    },
+    {
+      "label": "current-new-group-arithmetic",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "type mismatch"
+    },
+    {
+      "label": "current-legacy-group-arithmetic",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "45c16363771926b9a0fea11c609eec8f587d94e08eaf7a6dc5f59583fa7e598e"
+    },
+    {
+      "label": "current-new-distinct-window",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-distinct-window",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "e7c56995cebe771617453276482578e2fb2cf416e2251f30ad59e8325f14db55"
+    },
+    {
+      "label": "current-new-nested-aggregates",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-nested-aggregates",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "e8d38819d39f705646bfb643368eca78f7db476c16471dbc33b941b27326410d"
+    },
+    {
+      "label": "current-new-having-key",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "HAVING translation"
+    },
+    {
+      "label": "current-new-same-side-on",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-same-side-on",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-union-order",
+      "exit_code": 0,
+      "row_count": 2,
+      "result_sha256": "5b8773009047781819bf904b7099b1b80f2ad02bf30a4b6bb67d7df2e92f4b65"
+    },
+    {
+      "label": "current-legacy-union-order",
+      "exit_code": 0,
+      "row_count": 2,
+      "result_sha256": "fdfb2cf6d85ca954420afeb1a223ae09007e213e512e9de020407152309e389f"
+    },
+    {
+      "label": "current-new-full-map",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-full-map",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-nested-qualified",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "3f024faab90e785bd2178545b78e1d793104a25f01c94983e8b328dee6f39524"
+    },
+    {
+      "label": "current-legacy-nested-qualified",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "e8d38819d39f705646bfb643368eca78f7db476c16471dbc33b941b27326410d"
+    },
+    {
+      "label": "current-new-group-arithmetic-coalesce",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "cedf74272c9fc8db5448283a93277e7e7eb7534b71df3bd8ab35fd9b1b73404c"
+    },
+    {
+      "label": "current-legacy-group-arithmetic-coalesce",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "45c16363771926b9a0fea11c609eec8f587d94e08eaf7a6dc5f59583fa7e598e"
+    },
+    {
+      "label": "current-new-set-postfix",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-set-postfix",
+      "exit_code": 0,
+      "row_count": 2,
+      "result_sha256": "58db9b88ad6a9143c9034a6ca82d4fe44e4b89c317b0c0e2b53a53659c8a3cab"
+    },
+    {
+      "label": "current-new-insert-revert",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-insert-revert",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-new-full-map",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-full-map",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "74beda057040fd685d5c784517b0379e51cd4f295a37636a9217b6b6c7799e13"
+    },
+    {
+      "label": "current-new-mixed-oracle",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "9679c121e5dac32ac91eabb999f28b9bed4698a4d2505c938480bc78b3f754f4"
+    },
+    {
+      "label": "current-new-scalar-domain",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "scalar cardinality check"
+    },
+    {
+      "label": "current-legacy-scalar-domain",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-nan-in",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-legacy-nan-in",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-new-nullable-rank",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "type mismatch"
+    },
+    {
+      "label": "current-legacy-nullable-rank",
+      "exit_code": 0,
+      "row_count": 2,
+      "result_sha256": "4d5ef473a13c25632e6efe9f92b9ab4e0a38fc2c68311e8fa16d89b6bdc0ede3"
+    },
+    {
+      "label": "current-new-variance",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-r-read",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "8958ae9c9306daf48f3a8689720c21c23cfaa687c86c0470736382c4bd656098"
+    },
+    {
+      "label": "current-new-mixed-bare",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-new-mixed-cast",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "ce284bf81751dffbf9a87f6e376c3dbbb6e560664a41dde475374639f2d762b6"
+    },
+    {
+      "label": "current-new-corr-empty",
+      "exit_code": 0,
+      "row_count": 2,
+      "result_sha256": "3084509ee19fd99fc1ef52aad68640ed096f74c1814e635f71c912f01ab08d0d"
+    },
+    {
+      "label": "current-new-corr-distinct",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "invalid aggregate phase"
+    },
+    {
+      "label": "current-new-legacy-in",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-legacy-legacy-in",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-new-compound-in",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-compound-in",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-new-corr-nan",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "7a5d7f1a52f6dbddd6695c5c0d47f4c39a9ab45d9395901a0456abc8b0bede0b"
+    },
+    {
+      "label": "current-new-corr-mixed",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "a2755922a8169ff08b824473e7d5f9050ffb7e4740b1cd73ef892759f6106a70"
+    },
+    {
+      "label": "current-new-compound-in-col",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-legacy-compound-in-col",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-new-variance",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-mixed-int",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-legacy-mixed-int",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "152b15cbf2eb52582770233fc66cf0b3ec346e0956980243d2004e6664322061"
+    },
+    {
+      "label": "current-new-mixed-oracle2",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "7b993f2fde508825df8e68fb9b0410a482bb171ae00f6d5863de24a34fd45d82"
+    },
+    {
+      "label": "current-new-corr-empty-independent",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "31b22440771332a1d4ab05e667b18f888a0c1d37ae2b95dffc12bbdae25df228"
+    },
+    {
+      "label": "current-new-grouped-distinct-multi",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "cdbc9affa1e3c70ae7401f85aac3055222c636ab807b970c004a391f9f059648"
+    },
+    {
+      "label": "current-new-pgclock",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "424e683b5d32fbe1d742f90091bce4939c8777acc6dc9ad7b86b677a0b6842c2"
+    },
+    {
+      "label": "current-legacy-pgclock",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "623499deb13237e8e6a6a6686f5935a097c4b53c43615e73aa9512aceeda88f7"
+    },
+    {
+      "label": "current-legacy-rank",
+      "exit_code": 0,
+      "row_count": 100,
+      "result_sha256": "14d7f1d7e40d9a3ba6b98ab625e6607a7112fd4dfebcedb750eda4e76ccef0dd"
+    },
+    {
+      "label": "current-legacy-group-null",
+      "exit_code": 0,
+      "row_count": 2,
+      "result_sha256": "c0ba0ccb9022c4bffc6d5fc5a98ba320b05a159e6b409b5390422148e6cd6ce8"
+    },
+    {
+      "label": "current-legacy-dist-interval",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "9f35457d988053d16b510b4e87d35e2ab443da452d00e9b416ed5636ee2e5371"
+    },
+    {
+      "label": "current-legacy-win-interval",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "b185a9951ecf96a00485759d609883828f12a9c94f809288cb8ea0edb516d97c"
+    },
+    {
+      "label": "current-legacy-win-null",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "type mismatch"
+    },
+    {
+      "label": "current-new-group-empty-prune",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-group-empty-prune",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "cedf74272c9fc8db5448283a93277e7e7eb7534b71df3bd8ab35fd9b1b73404c"
+    },
+    {
+      "label": "current-new-compound-in-ansi",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-legacy-compound-in-ansi",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-new-cast-predicate",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-legacy-cast-predicate",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "152b15cbf2eb52582770233fc66cf0b3ec346e0956980243d2004e6664322061"
+    },
+    {
+      "label": "current-new-fusion",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-fusion",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-new-duplicate-group",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "64f4ad82db765a4df5b65b73135820d7d638c096049d9d540e3a8dc39b52f762"
+    },
+    {
+      "label": "current-new-duplicate-window",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-new-group-empty-inner",
+      "exit_code": 0,
+      "row_count": 2,
+      "result_sha256": "120bc97ece9c8b287f9acecb2bf0ad816b0a62fe4691f143bf01ce1ab612b89d"
+    },
+    {
+      "label": "current-new-group-empty-constant",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "e7c56995cebe771617453276482578e2fb2cf416e2251f30ad59e8325f14db55"
+    },
+    {
+      "label": "current-new-mixed-int-bare",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "152b15cbf2eb52582770233fc66cf0b3ec346e0956980243d2004e6664322061"
+    },
+    {
+      "label": "current-new-r14-prune-cache",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "unavailable column binding"
+    },
+    {
+      "label": "current-legacy-r14-prune-cache",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "f352751e46889d29cabe17dd07d8cf5412e9b0de8485e32b6508240563070b1f"
+    },
+    {
+      "label": "current-legacy-duplicate-window",
+      "exit_code": 0,
+      "row_count": 3,
+      "result_sha256": "15062a04ca533a24f9f85340111c3ab80521104e1dbb1bec5f50d04138b8f95e"
+    },
+    {
+      "label": "current-new-in-coalesce",
+      "exit_code": 0,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "current-legacy-in-coalesce",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-new-in-isnull",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-legacy-in-isnull",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "51bc513113548e062ada62b03efea153cae2abdf46b051c551c3e62a4dfb88cf"
+    },
+    {
+      "label": "current-new-late-share",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "f1570ff6acb45fd1d179e1caa75b0a633ee378d96529349824006a5f0f3f1945"
+    },
+    {
+      "label": "current-new-window-overlap",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "duplicate physical sort key"
+    },
+    {
+      "label": "current-new-dist-stddev",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "unsupported distinct variance"
+    },
+    {
+      "label": "current-legacy-dist-stddev",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "445601ab975b89257a45349fe13b3a391c9eb7b669f0268ed8038c3b3a0f564e"
+    },
+    {
+      "label": "current-new-stddev-decimal",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-stddev-decimal",
+      "exit_code": 1,
+      "row_count": 0,
+      "result_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failure_category": "query or compilation error"
+    },
+    {
+      "label": "current-legacy-guard-scalar",
+      "exit_code": 0,
+      "row_count": 1,
+      "result_sha256": "f9677616f77c6ffb0497a50c9b2ec6ac6cc584f363f07db46c02db5905da27d1"
+    }
+  ]
+}

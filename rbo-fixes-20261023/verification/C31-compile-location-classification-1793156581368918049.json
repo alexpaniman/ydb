@@ -1,0 +1,30 @@
+{
+  "schema": "sanitized_compile_locations_v1",
+  "captures": [
+    {
+      "stream_sha256": "b6e7e961580022f80174e721a519349bcd90828a8a54a672a52a2c2e4c0be1b7",
+      "error_locations": [
+        {
+          "line": 2720,
+          "column": 72,
+          "categories": [
+            "unclassified"
+          ],
+          "message_sha256": "d16be7c76ca7d482a72f023e0898fbc7ef768f4e0d88be7be3de19c59d7e621c",
+          "warning_flags": []
+        },
+        {
+          "line": 2749,
+          "column": 60,
+          "categories": [
+            "unclassified"
+          ],
+          "message_sha256": "d16be7c76ca7d482a72f023e0898fbc7ef768f4e0d88be7be3de19c59d7e621c",
+          "warning_flags": []
+        }
+      ]
+    }
+  ],
+  "raw_diagnostics_persisted": false,
+  "guard_unchanged": true
+}

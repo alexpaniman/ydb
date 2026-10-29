@@ -1,0 +1,17 @@
+{
+  "schema": "C41_amended_acceptance_root_review_v1",
+  "manifest": "verification/C41-amended-exact-vector-20261028.json",
+  "manifest_sha256": "c38aac3168417f57a49f8d8bdb92d92a2030efd4b2fa72ba1d3ecb8d0f804347",
+  "checker": "proposed-correctness-amendments/c41_amended_exact_vector_check_20261028.py",
+  "checker_sha256": "fbd7a0aa9268993dfd2a928dd590189bc791b316c35eed9e07a58ad841a3daf5",
+  "status": "approved_source_only_native_pending",
+  "hash_and_vector_checks_passed": 218,
+  "source_review": [
+    "Exact original12 cells, modes, rows, repetitions and requirements preserved.",
+    "Fresh exact revision receipt and binary binding retained through immutable historical checker.",
+    "Full unfiltered suite target, success, diagnostics hash and memory budgets required.",
+    "Suite178 source files and final boundary checked before and after evidence admission.",
+    "No automatic finding promotion and no reinterpretation of historical13."
+  ],
+  "native_runs": 0
+}

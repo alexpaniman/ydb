@@ -1,0 +1,24 @@
+{
+  "schema": "integration_auxiliary_dependency_build_v1",
+  "revision": "2bc207a991cc036e1a74616d7ea3e7df6137d8dd",
+  "target": "yql/essentials/udfs/common/math",
+  "exit_code": 0,
+  "elapsed_seconds": 209.0,
+  "memory": {
+    "scheduler_memory_threshold": "40GB",
+    "requested_cgroup_memory_max_gib": 72,
+    "requested_cgroup_memory_high_gib": 56,
+    "watchdog_min_host_available_gib": 36,
+    "watchdog_max_scope_usage_gib": 52,
+    "peak_group_rss_bytes": 4558848,
+    "peak_scope_usage_bytes": 2479906816,
+    "minimum_host_available_bytes": 102157606912,
+    "watchdog_stopped": false,
+    "explicit_build_workers": 8,
+    "scope_memory_accounting_available": false,
+    "scope_process_rss_available": true,
+    "elapsed_seconds": 208.9
+  },
+  "diagnostic_sha256": "7fe9cbedc69be8b4caf035dc3f75a3fd6fc3cd0b9ae0530755f97c7b04c0c127",
+  "tracked_source_edits": false
+}

@@ -1,0 +1,35 @@
+{
+  "status": "dormant_source_proposal_not_applied",
+  "patch": "proposed-correctness-amendments/C31-production-graph-export-artifacts.patch",
+  "patch_sha256": "279e5ba3462b772e0af8acdc829d784a189dc72cc5ccdbb2c7619c5dbe82b371",
+  "source_before": {
+    "anonymous_cpp_metadata.py": "140c361798d737c8608efbc0a8bcc9d29257196cc98c985eb37ebc9a8c847ee6",
+    "anonymous_cpp_verify.py": "63d3c5ae9590e45b180d3ac7e34712c780e36a1326c84e88f2a5377ee567121f"
+  },
+  "source_after": {
+    "anonymous_cpp_metadata.py": "0f2c51535c546cf2135ccbdd26eed79f2e6b1767f1c7287d1f3c3f30abb8d909",
+    "anonymous_cpp_verify.py": "be017968b3e2a62b440270ea01c779e35e588f78a82e9eddde2626619b5e9d76"
+  },
+  "syntax_parse_passed": true,
+  "basis": "Parent supplied installed primary help confirms save-graph-to is context-only and actual graph export uses dump-json-graph plus dump-graph-to-file. Child direct help attempt failed before help due sandbox log directory permissions.",
+  "behavior": [
+    "Production build and graph-only export have distinct records; a graph-only successful exit is never accepted as a production build.",
+    "Export preserves normalized production arguments, relwithdebinfo, authorized8workers, and memory-safe-build helper hash.",
+    "Graph record binds clean revision before/after, profile, successful immutable build.json hash, configuration, exact export arguments, graph file identity, and guarded exit metrics.",
+    "Capture validates graph record against the successful build and graph identity; receipt binds the graph record for later revalidation.",
+    "Export-graph command permits graph-only retry from a saved successful build record.",
+    "Current legacy C31 build.json needs an explicit reviewed configuration recovery binding before this stricter path accepts it; successful build must not be rerun merely to migrate metadata."
+  ],
+  "limits": [
+    "Actual graph-only invocation still pending parent verification.",
+    "Only explicit build configuration and builder helper bytes are bound; this proposal does not add a new ambient-environment or user-config snapshot system.",
+    "No automatic migration or relaxation for older incomplete build records."
+  ],
+  "execution": {
+    "builds": 0,
+    "native_runs": 0,
+    "mocks": 0,
+    "live_helper_edits": false,
+    "production_edits": false
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "metadata_and_mocked_os_only",
+  "assertions": 183,
+  "descriptor_scenarios": 28,
+  "actual_execute_guard_boundary": true,
+  "existing_scope_regressions_pass": true,
+  "native_execution": false,
+  "build_toolchain_execution": false,
+  "live_edits": false,
+  "payload_persistence": false,
+  "fixed_native_contract_acceptance": false
+}

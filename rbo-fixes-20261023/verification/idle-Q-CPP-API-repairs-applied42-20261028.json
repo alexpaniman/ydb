@@ -1,0 +1,42 @@
+{
+  "status": "three_reviewed_generator_API_patches_applied_at_idle_native_pending",
+  "patches": {
+    "Q14": {
+      "path": "proposed-quality-amendments/Q14-direct-generator-API-repair-20261028.patch",
+      "sha256": "0759f720551f9b51a5e69247911ea6721ea2aee7888d402c48f14db4bd8a063b"
+    },
+    "Q20": {
+      "path": "proposed-quality-amendments/Q20-direct-generator-API-repair-20261028.patch",
+      "sha256": "702fad08d74bc1986baaad1fdd7fca09abe67ba6389188b391d10b77de488e9d"
+    },
+    "Q28": {
+      "path": "proposed-quality-amendments/Q28-direct-generator-API-repair-20261028.patch",
+      "sha256": "20c61c07c53e2ac88b030ff6437f80b4183350b65f3e423b9a791267121497c6"
+    }
+  },
+  "files": {
+    "quality_rule_cpp_generator.py": {
+      "after_sha256": "e732ca4705744697e0ff597ed930d6aa21403a9f3aa47f6dcede5f2d56ec2cca",
+      "before_sha256": "92a0d554eca03485322fac7b89e7b3f7f21962ec4bbc7aa7834e03b3de498674"
+    },
+    "quality_scheduler_cpp_checks.py": {
+      "after_sha256": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7",
+      "before_sha256": "e32719455f2ea13b6cbd0b19772243c7d61f2497cfb9310c896515ecf642a00d"
+    },
+    "quality_statistics_cpp_generator.py": {
+      "after_sha256": "89cd11f199a6d6dd91c95687759f7464b7db6a2046a5a34427e6ea0c1f72d044",
+      "before_sha256": "e26a52777a3b20789ecb1f892713d3f7883f111be9cc7334146d76c3378f9693"
+    },
+    "quality_statistics_cpp_profiles.json": {
+      "before_sha256": "9e2598a2879ac3626fb852cc6dc105c2614d95d195adee7838cb9c7890e6b273",
+      "after_sha256": "36da9cc19f80a1a377b7a9bcf3a65ac05aa284e6d772b26ab596e4e9765c83ae"
+    }
+  },
+  "independent_review": "verification/Q-CPP-API-repair-independent-root-review-20261028.json",
+  "independent_review_sha256": "5e3b236c97e77a3136007c561524ebdc4908a3271c4411062d2a6dacb6c247db",
+  "applied_unix_time": 1793149275.3835824,
+  "total_applied_helper_patches": 42,
+  "previous_batch": "verification/idle-C31-lexical-observation-applied39-20261028.json",
+  "production_edits": false,
+  "query_semantics_or_quality_admission": false
+}

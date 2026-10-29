@@ -1,0 +1,251 @@
+{
+  "status": "reviewed_24_patch_stack_prepared_not_applied",
+  "active_build_must_finish_before_application": 65797,
+  "patches": [
+    {
+      "patch": "proposed-correctness-amendments/C31-stdout-link-output-artifacts.patch",
+      "sha256": "5af59db821a70dee6de37537498c20d9cc6c5cb4200c70114dfb175744b26402"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C47-narrow-production-export-artifacts.patch",
+      "sha256": "9ec963255f6b6629903e8538b5032f0bde5d86aeff2c25ff0285d6269ee9ac14"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C47-production-graph-lifecycle-artifacts.patch",
+      "sha256": "43d9c5ff1100e8675515dd139e930ae8d353a5ccfd63cd196959b7bfad0cc6e4"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C31-origin-multibody-traversal.patch",
+      "sha256": "7381c1073d25bec5b6f1b9077f2b6636ab0e4a014f56401145bc2118ff3b71c7"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C31-scope-observation-install.patch",
+      "sha256": "8c2343caae6cf3572c9002948a6881f568b0513d57fac018bbe419454c53866e"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C31-shared-field-probe-install.patch",
+      "sha256": "78f87b83b950062c605ce402b3828a2b0dbdddd56e19c1916fec638e5d179add"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C31-scope-observation-field-wrapper.patch",
+      "sha256": "a42c6bcaa41f671aa16b6d9f53a98d85904166280be01fdc509389b4cf57f23a",
+      "after": "C31-scope-observation-install.patch"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q19-abi-stable-inspection-objects.patch",
+      "sha256": "22e712e96321166b8e713288a4d07cbe7a2f8b9d04d01b5b91358bcd8b9ef9f1",
+      "review": "verification/Q19-abi-stable-inspection-independent-review.json",
+      "after_existing_cpp_lifecycle_patches": true
+    },
+    {
+      "patch": "proposed-quality-amendments/optimization-admission-guards.patch",
+      "sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70",
+      "review": "verification/optimization-admission-guards-independent-review-20261027.json",
+      "run_metadata_only_regressions_before_quality_verification": true
+    },
+    {
+      "patch": "proposed-quality-amendments/Q11-direct-union-admission-artifacts.patch",
+      "sha256": "5b00b05d4c9ffd61f0bb3a01af55eb7ce02fbeac61d5b98453ed20a8b8c8fa12",
+      "review": "verification/Q11-direct-union-independent-review.json",
+      "after_q19_cpp_adapter": true
+    },
+    {
+      "patch": "proposed-quality-amendments/quality-baseline-evidence-binding.patch",
+      "sha256": "0fd89fe863d1512e436ba820ad537ea250713216708256eb78691a9985588d30",
+      "review": "verification/quality-baseline-evidence-binding-independent-review-20261027.json",
+      "after": "optimization-admission-guards.patch"
+    },
+    {
+      "patch": "proposed-quality-amendments/OA06-saved-direct-pair-admission.patch",
+      "sha256": "ac3e6528dce87fed5cdc0667410914233f829fb6c52ef720f936d9d3f86c742a",
+      "review": "verification/OA06-saved-direct-pair-independent-review.json",
+      "after": "Q11-direct-union-admission-artifacts.patch"
+    },
+    {
+      "patch": "proposed-quality-amendments/optimization-window-physical-contracts.patch",
+      "sha256": "fc97df50c74b413b7ec58ddac1b4bb788c850ab548265983b7751203ae8aac14",
+      "review": "verification/optimization-OA04-OA07-independent-review-20261027.json"
+    },
+    {
+      "patch": "proposed-quality-amendments/optimization-physical-pairing-contracts.patch",
+      "sha256": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8",
+      "review": "verification/optimization-OA04-OA07-independent-review-20261027.json"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q01-resource-scaling-admission-gate.patch",
+      "sha256": "c1a800815db08f4bcb2dbb86fccf39c1ec44ffb2763e14b5991a1d3590c27368",
+      "review": "verification/Q01-resource-scaling-admission-gate-independent-review.json"
+    },
+    {
+      "patch": "proposed-correctness-amendments/runner-receipt-ctime-revalidation.patch",
+      "sha256": "45a32322b03746ef772feddd7de00455782f30f863a8ebbd0d3dd3367f5d8115",
+      "review": "verification/runner-receipt-ctime-revalidation-independent-review.json",
+      "required_before_C31_scope_observation": true
+    },
+    {
+      "patch": "proposed-correctness-amendments/anonymous-correctness-strip-debug-20261028.patch",
+      "sha256": "a0e0b7c9ac16546ca592cb9884df2b608f47453df897fcac5c32f1f70753ee2e",
+      "review": "verification/anonymous-correctness-strip-debug-independent-review-20261028.json"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C49-extra-identity-controls.patch",
+      "sha256": "a6ec3056be33b7ee13d843992c999ac06b56fac137992eb1b9927f9d8e5c1667",
+      "review": "verification/C49-C50-coverage-independent-review-20261028.json"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C50-gather-observation-install.patch",
+      "sha256": "00ea9bdeec6458f56b97bb74f547d14207ba1e953c864988e4436a48300e83d4",
+      "review": "verification/C49-C50-coverage-independent-review-20261028.json"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C50-correctness-query-plan-admission.patch",
+      "sha256": "82801eb71b02c55a209c2e2346857a96c007d9415ae8460886ceeeb1af5e0e32",
+      "review": "verification/C49-C50-coverage-independent-review-20261028.json"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q16-window-guard-controls-20261028.patch",
+      "sha256": "3d9b953e7273368975af4444ef6d150a97dec4e0e37846fbc191af7dfb8d9f7f",
+      "review": "verification/Q16-window-guard-controls-independent-review-20261028.json"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q18-statistics-object-controls-20261028.patch",
+      "sha256": "c63a66dd9ba1ec6ce27ed059ffacc76d5660069476e59e981eec5002c5077684",
+      "review": "verification/Q18-statistics-object-controls-independent-review-20261028.json"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q26-source-kind-controls-20261028.patch",
+      "sha256": "ccfdac0c0d4328c243cab9e45697ab1039e09d82036c637cfe95e02d62a6f655",
+      "review": "verification/Q26-source-kind-controls-independent-review-20261028.json"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q25-map-semantic-controls-20261028.patch",
+      "sha256": "f13402de720ac174b6343192b40b3fca80d6161c70931cffe98c370e068d7ade",
+      "review": "verification/Q25-map-semantic-controls-independent-review-20261028.json"
+    }
+  ],
+  "files": {
+    "anonymous_cpp_verify.py": {
+      "before_sha256": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+      "after_sha256": "65120ce941bd99d5b2f60f6b897e7a95ad797e9780247cecf0c3a56e2405afcf"
+    },
+    "c31_shared_origin_probe.py": {
+      "before_sha256": "3cc2fbc03ddcb2b2c5fe5e07d5f5a3fb83277727cee6c970d35d1b599b4ae0ea",
+      "after_sha256": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276"
+    },
+    "quality_union_cpp_profile.json": {
+      "before_sha256": null,
+      "after_sha256": "bb0664a231d0f29baea57af13e3a7fc1e659af982e0c9e89905cc03a55151717"
+    },
+    "anonymous_cpp_metadata.py": {
+      "before_sha256": "e81ef3cf02488ab469ac2432106400b96955325d39e3255681f79c4c0a60d39b",
+      "after_sha256": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf"
+    },
+    "quality_window_checks.py": {
+      "before_sha256": "4304f9319e180234de339f369288ae48c6271ab2115aa6713f9ba245dbadaa72",
+      "after_sha256": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+    },
+    "quality_union_cpp_contract.py": {
+      "before_sha256": null,
+      "after_sha256": "3b7bd8de5d199f08519718b34d27fe73e96db3b626209011e763d37f7920a8fb"
+    },
+    "quality_union_cpp_generator.py": {
+      "before_sha256": null,
+      "after_sha256": "8eb0b44ba1be62a92875b84c5cc8dbfd35d5388397fac53593c29cb33d04d5ce"
+    },
+    "c31_shared_field_probe.py": {
+      "before_sha256": null,
+      "after_sha256": "da4de444927190d983c7068fa416c9b3371eb70f929c8a40073137c538dfa85e"
+    },
+    "quality_pairing.py": {
+      "before_sha256": "25fe7d594c031073b05a4ad42b3482b3ebb87d656869bd7150bb79771e5c9886",
+      "after_sha256": "838f5513dd26682268a9a2d9b36812d72b3d5eec0437a43ffca0d9553968a685"
+    },
+    "binary_provenance_contracts.py": {
+      "before_sha256": null,
+      "after_sha256": "e5c39e5b23de72cb2c650ab28bbe1e980c2808defeafdacf119e2ca40926c6ab"
+    },
+    "quality_pairing_contracts.py": {
+      "before_sha256": "e9de55728d8879a3f9c4b2173bed924806e0ea08e44603b2edf40d5d160efc72",
+      "after_sha256": "198a6aaf828cf9d04a3d6b6461b5a173044a69b42350472da411bce12715ea34"
+    },
+    "c31_scope_observation.py": {
+      "before_sha256": null,
+      "after_sha256": "3fdc8e7decc2db06c9a2adbec7544ae6a21f5867a575557efad06d40b4928f76"
+    },
+    "verify_series.py": {
+      "before_sha256": "ac16a3e9049127e845c8103f1673a4520b23a2e81e0f1d56e35098635b556249",
+      "after_sha256": "4cd4d3bc248d382b0f345247fc4779aea272a7c5c905360376532a427b23a011"
+    },
+    "binary_provenance.py": {
+      "before_sha256": "c8816180730bd91df65d35143cd8da9136734ebe222c34607d5d06632f4c1ca6",
+      "after_sha256": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c"
+    },
+    "c49_identity_controls.py": {
+      "before_sha256": null,
+      "after_sha256": "ebe6b959d96c8da6bfa1c7545df73c8da7dcfd4444e15a9b4029a8422d2962e0"
+    },
+    "c50_gather_observation.py": {
+      "before_sha256": null,
+      "after_sha256": "63011af833d51da03e10e12fac39c341c5dd8e95cafe49ad2a59b6d6bb6d57e1"
+    },
+    "native_verify.py": {
+      "before_sha256": "ada91caca657beb641dca120172f6c9a894db4b5f3d843c8a0abc510420609f5",
+      "after_sha256": "cc467403ba5aca0dfc16ad56d92a47a46c5817ae86bc42ea633bb78aff0717c5"
+    },
+    "verification_contract.py": {
+      "before_sha256": "50dd2432dc492f7a59fbd92281bcbb3fc42c033241597aab25904721546bc151",
+      "after_sha256": "73a7608c2a8ea37395bd2336def4801a3aa77e607324376816fac996242cd952"
+    },
+    "quality_source_settings_checks.py": {
+      "before_sha256": null,
+      "after_sha256": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba"
+    },
+    "quality_rule_cpp_generator.py": {
+      "before_sha256": "9e0711f9ea1a43517117de3abdbda62bb464407a5a6818a23c2f932b94ecfd15",
+      "after_sha256": "92a0d554eca03485322fac7b89e7b3f7f21962ec4bbc7aa7834e03b3de498674"
+    },
+    "quality_cpp_contract_generator.py": {
+      "before_sha256": "10d5f97d36c1142d5c7c033e76c3a2152b720087640fb8f2b69773cc8c46dd28",
+      "after_sha256": "f7f85132057a0c6b42b7663a59faf5a8012ed325bd43b42cf532248165e8390f"
+    },
+    "quality_map_semantic_checks.py": {
+      "before_sha256": null,
+      "after_sha256": "f4bb620657c063e98b0a136d6866243f96ee0c6a2d03fdb99a7dfd058e572d66"
+    }
+  },
+  "temporary_sequential_application_passed": true,
+  "syntax_parse_passed": true,
+  "source_oracle_limits_preserved": true,
+  "native_runs": 0,
+  "live_helper_edits": false,
+  "metadata_contract_evidence": [
+    "verification/stacked-quality-metadata-contracts-20261027.json",
+    "verification/OA06-saved-direct-pair-independent-review.json",
+    "verification/runner-receipt-ctime-revalidation-independent-review.json"
+  ],
+  "first_runtime_after_application": "C31 direct33 against existing exact production closure; then two bounded C31 observations",
+  "previous_plan": "verification/idle-artifact-application-plan-20261028-reviewed.json",
+  "active_build_pid": 3488388,
+  "additional_runtime_after_main_queue": [
+    "C49 seven additional identity controls",
+    "C50 three bounded gather observations"
+  ],
+  "stacked_quality_metadata_result": {
+    "status": "synthetic_contracts_passed_native_unverified",
+    "assertions": 97,
+    "real_builds": 0,
+    "real_process_launches": 0,
+    "native_runs": 0,
+    "coverage": [
+      "profile/config/workload fingerprint mismatch",
+      "baseline failure separate from fixed failure",
+      "fixed provenance rejection",
+      "duplicate/missing pairs",
+      "semantic-only pending",
+      "one baseline build per invocation",
+      "approved workers forwarded",
+      "correctness dual-mode command retained",
+      "guard limitations preserved"
+    ]
+  }
+}

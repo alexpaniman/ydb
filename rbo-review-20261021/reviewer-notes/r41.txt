@@ -1,0 +1,45 @@
+Reviewer r41_final_rule_sweep
+Scope: final adversarial review of logical rules, CBO boundaries, decorrelation, pruning/inlining, and window import/expansion. Three source passes complete. No sources edited, no builds or native executions, no exact reproduction inputs created or retained.
+
+Native-confirmed valid-query rejection; source cause traced independently:
+
+Window translation loses the receiver of nested member expressions.
+Priority: P2 native-confirmed valid-query rejection. Wrong-value impact from same-named top-level fields is source-inferred and was not observed; do not present it as a native result.
+Locations: ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:1153-1154 and1253-1258 (ResolveWindowKeyColumn / ProcessWindowCalls).
+ResolveWindowKeyColumn accepts any Member node and returns only its final field name. ProcessWindowCalls does the same for every window argument. Neither checks that the Member receiver is the row argument. Consequently, a nested field used as a window argument, partition key, or ordering key is rebound to a top-level field of the same name, or fails binding when no such field exists. This is a distinct translation path from C14 ordinary aggregate input deduplication at1034/1067, although both need full member-path preservation.
+Fix: use the direct-field fast path only when the receiver is the lambda row argument. Materialize all other member expressions using their full expression trees, just like other computed window arguments and keys.
+Verification basis: both importer functions and their consumers were traced; window definitions contain only the reduced field name after these fast paths. Root native feedback: nested_window_member fails in new RBO at opt/kqp_type_ann.cpp:3467, while legacy succeeds. This verifies a valid-query rejection, not a wrong-value output.
+
+Two additional targets were sent to root but are not promoted to verified bugs:
+1. Computed-map movement below a Filter or Join checks dependencies/preserved sides but not throwing-expression evaluation boundaries. ExtractJoinExpressions supplies NeedToPush Maps. Relevant locations: rules/push_map_elements_through_input.cpp:45-58,128-149; rules/extract_join_expressions.cpp:73. This is distinct code from C04 filter fusion, but a supported native input is still needed to establish a separate actionable failure. Do not count a hypothetical effect-safety warning as a confirmed bug.
+2. Whole-partition window expansion uses equality joins for nonnullable floating partition keys. Initially suspected canonical NaN row loss, but engine hash/dictionary equality deliberately equates NaNs (mkql_computation_node_holders.h:469). Ordinary scalar equality is therefore insufficient evidence. The candidate is downgraded; do not report canonical NaN row loss without native confirmation.
+
+Pass 1 checks:
+- Initial/expanded CBO trees: residual-predicate exclusion, left/right tree orientation, EqualNulls retention in TJoinKey, filter movement, map pull-up nullable-side guard.
+- Map/filter/aggregate pushdown: unresolved-subplan guards, dependency sets, scalar-aggregate barrier, direct-copy versus computation movement.
+- Whole-partition window expansion: empty scalar aggregation row behavior, result optionality, preservation of native window functions, nullable-key handling.
+- Global inlining and shared-plan duplication: simultaneous Map RHS semantics, copy-chain flattening, primary/secondary ports, repeatability checks, duplication exclusions.
+
+Pass 2 checks:
+- Decorrelated aggregate restoration, domain substitution, union branch namespaces, join-side propagation, sort/limit domain handling. Existing C05-C08/C25 cover the established defects; no distinct new verified defect from these paths.
+- Right-join normalization preserves residual filters and EqualNulls; union flattening composes output rows and preserves ordered-union barriers.
+- Physical aggregate/limit propagation reviewed at logical boundary; known metadata C37/C38 and aggregate-type findings remain applicable.
+- Window importer rechecked against actual downstream representation, revealing the nested-member defect above.
+- Constant folding failures and foldUdfs propagation rechecked; these are already source-only candidates in earlier coverage, not additional findings.
+
+Existing-list challenge results:
+- No source basis found to retract C01-C15 or C37-C39.
+- C18 native failure attribution remains weaker than its observation; retain the existing qualification rather than claim a fully traced concrete invalid cast occurrence.
+- Single-NaN window-join suspicion was explicitly downgraded after checking engine comparison semantics.
+
+Convergence statement:
+The initial two passes found one new distinct defect, subsequently confirmed as a valid-query rejection. The third focused pass below found no new distinct actionable issue. This is a bounded source-review convergence result, not a proof that no bugs remain. No additional optimization-quality issue was added during this sweep.
+
+Pass 3: final focused field-resolution challenge.
+- Rechecked ResolveWindowKeyColumn and ProcessWindowCalls independently against the window type annotator: field names stored by the former are looked up directly in the input row; the receiver is not reconstructed downstream. Root native failure is consistent with this path.
+- Checked adjacent ordinary aggregate argument collection, GROUP BY key collection, DISTINCT projection, and HAVING aggregate deduplication. These retain similar final-member-name assumptions, but are the same missing-receiver/name-identity defect family already represented by C14 and the confirmed window finding. No separate count was added.
+- Checked general expression binding, renaming, dependency collection, and equality recognition. TExpression::FromExpr, ApplyRenames, GetRawInputIUs, MaybeEquiJoinCondition, and IsColumnAccess use IsRowMember with row-argument identity; the general expression implementation does not share the window fast-path defect. IsJoinKeys in the select importer also verifies both receivers.
+- Adjacent repair checklist, source-only and not additional confirmed findings: GetAllMembers stops at any Member and keeps its final name (kqp_expression.cpp:874), so its ordinary-sort-dependency use must preserve the actual row-level base field. NormalizeMemberNames rewrites alias-looking names on all Member nodes regardless of receiver (rewrite_select.cpp:560). PlanConverter::ConvertExpression IN binding accepts a Member left operand without checking its receiver (plan_conversion_utils.cpp:210-220). These are the same receiver-assumption family; upstream normalization and supported-input reachability were not established during this pass. Avoid claiming distinct native bugs for these call sites.
+- Root native feedback eliminated the other two tested targets from this sweep: canonical NaN window expansion and computed-key Ensure guarded-filter checks both produced matching canonical hashes between new and legacy. They are not promoted or counted.
+
+Pass 3 disposition: no new distinct actionable issue found. The only new confirmed issue from r41 remains nested-window field resolution, with native valid-query rejection as its demonstrated consequence. All artifacts are prose source-review notes; no exact inputs were written.

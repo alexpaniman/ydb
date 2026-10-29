@@ -1,0 +1,214 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp
+@@ -7,6 +7,57 @@
+ using namespace NYql::NNodes;
+ 
+ namespace {
++
++bool IsSafeComparisonOperand(const TExprNode& node, const TExprNode& row, const TOpRead& read, TExprContext& ctx) {
++    if (node.IsCallable("Member") && node.ChildrenSize() == 2 && node.Child(0) == &row && node.Child(1)->IsAtom()) {
++        const auto id = GetMemberId(node);
++        if (!read.Type || !read.GetColumns().Contains(id)) {
++            return false;
++        }
++        const auto* type = read.GetIUType(id, ctx);
++        if (type && type->GetKind() == ETypeAnnotationKind::Optional) {
++            type = type->Cast<TOptionalExprType>()->GetItemType();
++        }
++        if (!type || type->GetKind() != ETypeAnnotationKind::Data) {
++            return false;
++        }
++        switch (type->Cast<TDataExprType>()->GetSlot()) {
++            case NUdf::EDataSlot::Bool:
++            case NUdf::EDataSlot::Int8:
++            case NUdf::EDataSlot::Uint8:
++            case NUdf::EDataSlot::Int16:
++            case NUdf::EDataSlot::Uint16:
++            case NUdf::EDataSlot::Int32:
++            case NUdf::EDataSlot::Uint32:
++            case NUdf::EDataSlot::Int64:
++            case NUdf::EDataSlot::Uint64:
++            case NUdf::EDataSlot::Float:
++            case NUdf::EDataSlot::Double:
++            case NUdf::EDataSlot::String:
++            case NUdf::EDataSlot::Utf8:
++                return true;
++            default:
++                return false;
++        }
++    }
++    return node.IsCallable({"Bool", "Int8", "Uint8", "Int16", "Uint16", "Int32", "Uint32",
++        "Int64", "Uint64", "Float", "Double", "String", "Utf8"})
++        && node.ChildrenSize() == 1 && node.Head().IsAtom();
++}
++
++bool IsSafeComparison(const TExpression& expression, const TOpRead& read) {
++    const auto* body = expression.GetExpressionBody().Get();
++    if (body->IsCallable("Coalesce") && body->ChildrenSize() == 2
++        && body->Tail().IsCallable("Bool") && body->Tail().ChildrenSize() == 1 && body->Tail().Head().IsAtom()) {
++        body = body->Child(0);
++    }
++    if (!body->IsCallable({"==", "!=", "<", "<=", ">", ">="}) || body->ChildrenSize() != 2) {
++        return false;
++    }
++    const auto& row = expression.GetLambda()->Head().Head();
++    return IsSafeComparisonOperand(body->Head(), row, read, *expression.Ctx)
++        && IsSafeComparisonOperand(body->Tail(), row, read, *expression.Ctx);
++}
+ 
+ bool IsValidIndex(const TIndexDescription& index) {
+     return index.Type != TIndexDescription::EType::GlobalAsync
+@@ -120,6 +171,44 @@
+ }
+ 
+ } // anonymous namespace
++
++std::optional<TExpression> BuildLookupJoinFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
++    TVector<TExpression> conjuncts;
++    if (read.RangeInfo) {
++        if (!read.OriginalPredicate) {
++            supported = false;
++            return std::nullopt;
++        }
++        conjuncts = read.OriginalPredicate->SplitConjunct();
++    }
++    if (filter) {
++        for (const auto& conjunct : filter->GetFilterExpression().SplitConjunct()) {
++            // Only total primitive comparisons may be omitted. Unknown calls, guards and
++            // effectful expressions retain their original order and evaluation count.
++            bool duplicate = false;
++            if (IsSafeComparison(conjunct, read)) {
++                for (const auto& existing : conjuncts) {
++                    const TExprNode* left = existing.GetLambda().Get();
++                    const TExprNode* right = conjunct.GetLambda().Get();
++                    if (IsSafeComparison(existing, read) && CompareExprTrees(left, right)) {
++                        duplicate = true;
++                        break;
++                    }
++                }
++            }
++            if (!duplicate) {
++                conjuncts.push_back(conjunct);
++            }
++        }
++    }
++    for (const auto& conjunct : conjuncts) {
++        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(read.GetColumns())) {
++            supported = false;
++            return std::nullopt;
++        }
++    }
++    return conjuncts.empty() ? std::nullopt : std::optional<TExpression>(MakeConjunction(conjuncts));
++}
+ 
+ std::optional<TLookupJoinRightSide> MatchLookupJoinRightSide(const TIntrusivePtr<IOperator>& input) {
+     auto op = input;
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h
+@@ -26,6 +26,9 @@
+ // its description in SourceRead.
+ std::optional<TLookupJoinRightSide> MatchLookupJoinRightSide(const TIntrusivePtr<IOperator>& input);
+ 
++// Reconstructs fetched-row filtering and removes only repeated total primitive comparisons.
++std::optional<TExpression> BuildLookupJoinFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported);
++
+ // Maps the right side join keys to physical columns of the read. Read output units carry the physical
+ // source column as their name, so the mapping is a registry lookup.
+ std::optional<THashSet<TString>> GetLookupJoinKeyColumns(const TOpRead& read, const TUnorderedIUs& rightJoinKeys,
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp
+@@ -7,36 +7,6 @@
+ using namespace NYql;
+ using namespace NYql::NNodes;
+ using namespace NKikimr::NKqp;
+-
+-std::optional<TExpression> BuildFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
+-    TVector<TExpression> conjuncts;
+-    if (read.RangeInfo.has_value()) {
+-        if (!read.OriginalPredicate.has_value()) {
+-            supported = false;
+-            return std::nullopt;
+-        }
+-        const auto original = read.OriginalPredicate->SplitConjunct();
+-        conjuncts.insert(conjuncts.end(), original.begin(), original.end());
+-    }
+-    if (filter) {
+-        const auto filters = filter->GetFilterExpression().SplitConjunct();
+-        conjuncts.insert(conjuncts.end(), filters.begin(), filters.end());
+-    }
+-
+-    if (conjuncts.empty()) {
+-        return std::nullopt;
+-    }
+-
+-    // The filter is evaluated on a fetched row, so it can only refer to the fetched columns.
+-    for (const auto& conjunct : conjuncts) {
+-        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(read.GetColumns())) {
+-            supported = false;
+-            return std::nullopt;
+-        }
+-    }
+-
+-    return MakeConjunction(conjuncts);
+-}
+ 
+ struct TLookupKey {
+     TInfoUnit LeftIU;
+@@ -134,7 +104,7 @@
+     }
+ 
+     bool filterSupported = true;
+-    const auto fetchedRowFilter = BuildFetchedRowFilter(*read, rightFilter, filterSupported);
++    const auto fetchedRowFilter = BuildLookupJoinFetchedRowFilter(*read, rightFilter, filterSupported);
+     if (!filterSupported) {
+         return false;
+     }
+--- a/ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp
+@@ -8,37 +8,6 @@
+ 
+ using namespace NYql;
+ using namespace NYql::NNodes;
+-
+-std::optional<TExpression> BuildFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
+-    TVector<TExpression> conjuncts;
+-    if (read.RangeInfo.has_value()) {
+-        if (!read.OriginalPredicate.has_value()) {
+-            supported = false;
+-            return std::nullopt;
+-        }
+-        const auto original = read.OriginalPredicate->SplitConjunct();
+-        conjuncts.insert(conjuncts.end(), original.begin(), original.end());
+-    }
+-    if (filter) {
+-        const auto filters = filter->GetFilterExpression().SplitConjunct();
+-        conjuncts.insert(conjuncts.end(), filters.begin(), filters.end());
+-    }
+-
+-    if (conjuncts.empty()) {
+-        return std::nullopt;
+-    }
+-
+-    // The filter is evaluated on a fetched row, so it can only refer to the fetched columns.
+-    const auto& readOutputs = read.GetColumns();
+-    for (const auto& conjunct : conjuncts) {
+-        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(readOutputs)) {
+-            supported = false;
+-            return std::nullopt;
+-        }
+-    }
+-
+-    return MakeConjunction(conjuncts);
+-}
+ 
+ const TTypeAnnotationNode* StripOptional(const TTypeAnnotationNode* type) {
+     return type && type->GetKind() == ETypeAnnotationKind::Optional ? type->Cast<TOptionalExprType>()->GetItemType() : type;
+@@ -182,7 +151,7 @@
+     // Built from the original read, so a predicate pushed into it is re-applied to the fetched rows
+     // even when the lookup probes a different table.
+     bool filterSupported = true;
+-    const auto fetchedRowFilter = BuildFetchedRowFilter(*read, rightFilter, filterSupported);
++    const auto fetchedRowFilter = BuildLookupJoinFetchedRowFilter(*read, rightFilter, filterSupported);
+     if (!filterSupported) {
+         return input;
+     }

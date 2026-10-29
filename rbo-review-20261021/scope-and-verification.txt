@@ -1,0 +1,32 @@
+Review scope and verification
+Revision: f746f5a75ca7846d2bcc422142d9329ec0064f94
+
+43 distinct subagents were used, in bounded concurrent batches. Each primary scope received repeated source review. Independent challenge reviewers revisited correctness claims and optimization quality. Final narrow logical-field and physical-key sweeps each completed a third pass without another distinct source-complete finding. This is bounded review convergence, not proof that no bugs remain.
+
+Primary output: bugs.txt — 50 native-verified correctness/valid-query findings (21 P1, 29 P2), including one explicitly shared new/legacy numeric-shuffle defect.
+Separate output: optimization-quality.txt — 29 source-supported, unbenchmarked quality findings.
+Additional-candidates.txt preserves unresolved source hypotheses and rejected native probes without mixing them into confirmed counts.
+
+Existing repository tests: 2 suites, 352 passed, 0 failed.
+Current-checkout kqprun and required Math UDF were built. JSON is built into the runner; an unnecessary separate JSON module registration was detected and removed from the harness.
+Retained targeted native invocations: 242 (106 historical sanitized records, 120 generator records, 16 semantic-correlation records). These include setup diagnostics, negative controls and rejected hypotheses; they are not 242 successful tests or distinct bugs.
+Checks compare legacy where meaningful, use independent relational/Boolean oracles when legacy rejects the shape, and use passing controls to isolate type, cardinality, index and metadata causes. Canonical unordered result hashes exclude ordering-only differences where relevant; cardinality differences and explicit oracle booleans independently establish the major wrong-result cases.
+
+Complex systems and invariants reviewed
+- SQL/select import: aliases, nested fields, grouping, windows, set-operation stacks, writes and result ordering.
+- Rewrite rules: every top-level rule implementation and decorrelation operator family. rule-and-stage-coverage.csv maps files to reviewer scopes.
+- Correlated subplans: domain identity, type preservation, NULL/NaN equality, empty groups, demand-sensitive scalar cardinality and conditionals.
+- Plan graph state: liveness, pruning, shared producer ports, copying, consumer rebinding, parent consistency, expression caches and IU/bitset representation.
+- CBO/statistics: tree boundaries, algorithm admission, plan import, key uniqueness, distributions, cost estimates and asynchronous statistics.
+- Access paths: ranges, ordinary/specialized indexes, lookup lowering, row/column sources, OLAP filters/projections and write maintenance.
+- Physical stages: joins, normalized keys, hash identity, shuffle elimination, aggregate phases, sort/limit/window lowering, unions and output/effect ownership.
+- Diagnostic formatting was sampled where related to expressions. Trace-viewer JavaScript and unrelated database subsystems were not exhaustively reviewed.
+
+Generated abstract models supplement native checks but are not described as C++/engine tests. They included IU/bitset boundary/random operations, decorrelation bag semantics, union layout, Boolean truth tables, storage projection layout, distribution/uniqueness properties, and partial-identity join reconstruction. Reviewer notes identify model-specific limits.
+
+Artifacts and limits
+- No project source code was changed and no bug fixes were applied. The added project directory contains review artifacts only.
+- Query text, generated fixtures, result payloads and verbose runner diagnostics remain in anonymous memory and are not retained. Core dumps are disabled for targeted runs. Earlier concrete inputs and verbose traces were removed.
+- Generators and sanitized evidence are retained. Some early findings retain historical outcome records and source descriptions rather than a runnable retained generator; do not imply every finding has automated regression coverage.
+- Source attribution is explicitly qualified where not independently traced, notably C18. Configuration-dependent failures are identified in the fix list.
+- Fallback is disabled to expose new-RBO failures. Production frequency, performance impact and speedups were not measured.

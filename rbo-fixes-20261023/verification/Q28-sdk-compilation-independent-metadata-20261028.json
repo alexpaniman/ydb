@@ -1,0 +1,71 @@
+{
+  "applied30_plan_sha256": "3d08b805f4ba60b5004108ff36b551a79c7c614703adcc69a7b04e33131cd98e",
+  "assertions": 253,
+  "build_runs": 0,
+  "compiler_runs": 0,
+  "link_runs": 0,
+  "native_runs": 0,
+  "patch_sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483",
+  "rendered_inputs_persisted": false,
+  "scenarios": {
+    "cold_failure": {
+      "mock_process_calls": 3,
+      "mocked_descriptors_closed": 9
+    },
+    "compile_env": {
+      "mock_process_calls": 1,
+      "mocked_descriptors_closed": 3
+    },
+    "compile_guard": {
+      "mock_process_calls": 1,
+      "mocked_descriptors_closed": 3
+    },
+    "executable_mutated": {
+      "mock_process_calls": 10,
+      "mocked_descriptors_closed": 50
+    },
+    "input_mutated": {
+      "mock_process_calls": 3,
+      "mocked_descriptors_closed": 9
+    },
+    "link_env": {
+      "mock_process_calls": 2,
+      "mocked_descriptors_closed": 3
+    },
+    "link_guard": {
+      "mock_process_calls": 2,
+      "mocked_descriptors_closed": 3
+    },
+    "native_guard": {
+      "mock_process_calls": 3,
+      "mocked_descriptors_closed": 9
+    },
+    "profile_mutated": {
+      "mock_process_calls": 10,
+      "mocked_descriptors_closed": 50
+    },
+    "receipt_mutated": {
+      "mock_process_calls": 10,
+      "mocked_descriptors_closed": 50
+    },
+    "report_oversize": {
+      "mock_process_calls": 3,
+      "mocked_descriptors_closed": 9
+    },
+    "valid": {
+      "mock_process_calls": 10,
+      "mocked_descriptors_closed": 50
+    },
+    "wrong_profile": {
+      "mock_process_calls": 0,
+      "mocked_descriptors_closed": 0
+    },
+    "wrong_target": {
+      "mock_process_calls": 0,
+      "mocked_descriptors_closed": 0
+    }
+  },
+  "source": "Q28-sdk-compilation-independent-contracts-20261028.py",
+  "source_sha256": "3080e00741ceeccc60b8a0f85b1476c68e1252a082ecbcd796de95d1673e3d82",
+  "status": "independent_metadata_only_passed"
+}

@@ -1,0 +1,128 @@
+"""Exercise the prepared integration entirely in memory; never launch tools."""
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT.parent/'rbo-review-20261021'))
+import prepare_q01_runtime_verifier_patch as prepared
+
+
+def main():
+    edits = prepared.render_files()
+    for filename in ('anonymous_cpp_metadata.py', 'anonymous_cpp_verify.py',
+                     'quality_range_minmax_checks.py', 'quality_minmax_checks.py', 'verify_series.py'):
+        name = filename.removesuffix('.py')
+        module = ModuleType(name)
+        module.__file__ = str(ROOT/filename)
+        sys.modules[name] = module
+        exec(compile(edits[filename][1], str(ROOT/filename), 'exec'), module.__dict__)
+    import anonymous_cpp_verify as verify
+    import quality_range_minmax_checks as ranges
+    import quality_minmax_checks as rows
+    import quality_pairing as pairing
+    import quality_pairing_contracts as pairing_contracts
+    import quality_range_runtime_cpp_generator as runtime
+    import verify_range_runtime_contracts as mocked
+    import native_verify as native
+    assertions = 0
+    def check(value):
+        nonlocal assertions
+        assert value
+        assertions += 1
+    check(verify.GENERATORS['Q01'] == 'quality_range_runtime_cpp_generator')
+    check(verify._closure_profile('Q01') == 'kqp_runtime')
+    check(verify._closure_profile('Q15') == 'rbo' and verify._closure_profile('Q27') == 'ast')
+    try:
+        verify._expected_revision('Q01', 'baseline', ROOT)
+    except verify.MetadataError:
+        check(True)
+    else:
+        check(False)
+    source, count, digest = verify.render_suite('Q01', ROOT, runtime.SOURCE_COMMIT)
+    check(source == runtime.render_cpp_suite().encode() and count == len(runtime.cases()))
+    check(digest == runtime.execution_manifest()['generator_sha256'])
+    for case in ranges._specifications():
+        metadata = ranges.metadata(case, 8)
+        check(metadata['additional_ir_admission_required'] == metadata['optimization_acceptance_case'])
+        summary = ranges.check_physical_ast(case, '(DqPhyStage ((KqpRangeMinMax)))')
+        check(summary['additional_ir_admission_required'] == metadata['additional_ir_admission_required'])
+    check(rows.metadata('q01_minmax_range_control', 8)['additional_ir_admission_required'])
+    for case in rows._specifications():
+        metadata = rows.metadata(case, 8)
+        summary = rows.check_physical_ast(case, '(DqPhyStage ((KqpRangeMinMax)))')
+        check(summary['additional_ir_admission_required'] == metadata['additional_ir_admission_required'])
+    evidence, _, raw_receipt = mocked._fixture()
+    original_read = Path.read_bytes
+    def mocked_read(path):
+        return raw_receipt if str(path) == '/anonymous-mocked-receipt' else original_read(path)
+    with patch.object(Path, 'read_bytes', mocked_read):
+        check(verify.validate_fixed_admission(evidence, 'Q01', runtime.SOURCE_COMMIT))
+        # Exercise the real transport and physical summary hooks. Only the
+        # subprocess response is mocked; no admission flag is injected into
+        # records by this test, matching the native driver's actual behavior.
+        def generated_record(module, case, phase):
+            module._verification_source_sha256 = hashlib.sha256(edits[module.__name__ + '.py'][1].encode()).hexdigest()
+            result_rows = module.expected_rows(case, 8)
+            ast = ('(DqPhyStage ((KqpRangeMinMax)))' if phase == 'fixed' else
+                   '(DqPhyStage ((WinFramesCollector) (WinFrame) (Fold1)))')
+            def response(command, **kwargs):
+                check(set(kwargs['pass_fds']))
+                outputs = {'--result-file': '\n'.join(json.dumps(row) for row in result_rows),
+                           '--script-ast-file': ast}
+                for option, payload in outputs.items():
+                    destinations = [command[index + 1] for index, value in enumerate(command) if value == option]
+                    destination = next(value for value in reversed(destinations) if value != '/dev/null')
+                    descriptor = int(destination.removeprefix('/proc/self/fd/'))
+                    check(descriptor in kwargs['pass_fds'])
+                    os.write(descriptor, payload.encode())
+                return SimpleNamespace(returncode=0, stdout=b'', stderr=b'')
+            with patch.object(native.subprocess, 'run', response):
+                record = native.run_generated(module, case, 'new', 8)
+            check(record.get('semantic_oracle_pass') is True)
+            check(record.get('additional_ir_admission_required') is True)
+            check(record.get('physical_ast_parsed') is True)
+            # These are the metadata fields attached outside run_generated by
+            # native main and the serial driver. They do not change its oracles.
+            record.update(bug='Q01', phase=phase, rows=8, repetition=0,
+                          revision=runtime.SOURCE_COMMIT if phase == 'fixed' else 'b'*40,
+                          binary_provenance_verified=True, binary_provenance={'sha256': '3'*64},
+                          build_receipt_sha256='4'*64, quality_profile_sha256='5'*64)
+            return record
+        for module, case, expects_improvement in (
+            (ranges, 'q01_range_minmax_int64_optional_asc_overlap', True),
+            (rows, 'q01_minmax_range_control', False),
+        ):
+            before = generated_record(module, case, 'baseline')
+            after = generated_record(module, case, 'fixed')
+            evaluate = lambda proof: pairing.pair_quality_records([before], [after], 'Q01', 'b'*40,
+                                                                  runtime.SOURCE_COMMIT, ir_evidence=proof)
+            pending, success, _ = evaluate(None)
+            check(success is False and pending[0]['quality_acceptance_pass'] is False)
+            check(pending[0]['quality_pairing_reasons'] == ['additional_ir_admission_pending'])
+            accepted, success, _ = evaluate(evidence)
+            check(accepted[0]['quality_acceptance_pass'] is True)
+            check(success is expects_improvement)
+            check(accepted[0]['quality_pairing_reasons'] == [])
+            changed = copy.deepcopy(evidence); changed['generator_sha256'] = '2'*64
+            check(evaluate(changed)[0][0]['quality_acceptance_pass'] is False)
+            changed = copy.deepcopy(evidence); changed['native']['exit_code'] = 1
+            check(evaluate(changed)[0][0]['quality_acceptance_pass'] is False)
+    prior = pairing_contracts.run_contract_checks()
+    result = dict(in_memory_patch_contracts_passed=True, assertions=assertions,
+                  existing_pairing_contracts=prior, patch_sha256=hashlib.sha256(prepared.render_patch().encode()).hexdigest(),
+                  native_runs=0, compiler_runs=0, active_helpers_edited=False,
+                  mocked_run_generated_calls=4,
+                  physical_summary_gate_checks=len(ranges._specifications())+len(rows._specifications()),
+                  generated_translation_units_saved=False, synthetic_evidence_saved=False)
+    (ROOT/'verification/Q01-runtime-integration-mocked-contracts.json').write_text(json.dumps(result,indent=2)+'\n')
+    print(json.dumps(result, sort_keys=True))
+
+
+if __name__ == '__main__':
+    main()

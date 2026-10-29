@@ -1,0 +1,7 @@
+{
+  "bug": "C31",
+  "command": "capture",
+  "no_runtime_verdict_accepted": true,
+  "reason": "anonymous_link_requires_explicit_lld_driver_selection",
+  "status": "direct_harness_failed"
+}

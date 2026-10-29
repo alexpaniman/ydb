@@ -1,0 +1,113 @@
+{
+  "after_files": {
+    "anonymous_child_measurement.py": "082b44fd51a942d68f2d6f1d918765e01520287187747b7e422208f1ee8bede7",
+    "native_verify.py": "a0abb05ec07f94dd3cb8a016616233073c044715e0a1f85e0088b2a5daaa4bd1",
+    "q01_measurement_metadata_contracts.py": "3c9ccfe385843ea44d31b74fde3ee34f00cd1d3fce2818b5a29da117fc9190cb",
+    "q01_native_child_measurement.py": "e2d724fba399450f1de945b8a62529b1f304f029e5ae3a39d35d8d2614ec62d4",
+    "quality_q01_scaling_checks.py": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3",
+    "verify_series.py": "cc07fc271efde3ed8f8377ef86f9560b484591503d7c0198d89e7ca7488d6265"
+  },
+  "applies_after": {
+    "patch_count": 28,
+    "path": "verification/idle-artifact-application-plan-20261028-latest.json",
+    "sha256": "0bdc2c91aec22669459358e0431a7e80758fa88e7187235e68f132ddc5e3a722"
+  },
+  "approved_patch_order": [
+    {
+      "path": "proposed-quality-amendments/Q01-dedicated-child-measurement.patch",
+      "sha256": "f4191c68677a6ae2451344b51a9f09f424930851bea8e261dab7fc941d8f4537"
+    },
+    {
+      "path": "proposed-quality-amendments/Q01-native-child-measurement-integration-20261028.patch",
+      "sha256": "9fa07f8be32edb35da301d4212b1366d83f9419ce0faab1811052061c2859d0a"
+    }
+  ],
+  "remaining_actual_run_prerequisites": [
+    "Keep the global serial lease and source freeze; no measured child may run while the active C47 build or another verification owner remains.",
+    "After idle application, validate real guarded normal/nonzero/signal/failed-exec/timeout/cancellation/memory/output-overflow behavior, descriptor transport and complete scope cleanup. OS mocks are not runtime proof.",
+    "Verify the target cannot inherit the measurement source/report descriptors and report sealing/nonce/terminal-status checks hold in actual transport.",
+    "Freeze exact baseline/fixed executables, complete sample matrix, sample ordering, hardware/load policy and metric scopes before collecting acceptance measurements.",
+    "Establish actual physical-path reachability and enough target signal above whole-runner startup/schema/fixture/compilation cost; do not relabel lifetime CPU as operator CPU.",
+    "MiniKQL allocation/absolute-peak measurements and mixed collector budgets remain a separate lane.",
+    "Ordinary imported helper identity relies on the required source freeze; the measured worker itself executes the exact sealed source snapshot.",
+    "No resource-admission validator or accepting thresholds exist; full Q01 quality remains pending."
+  ],
+  "resolved_review_findings": [
+    {
+      "evidence": "verification/Q01-scaling-result-order-source-finding-20261028.json",
+      "fix": "Use exact ordered JSON row encoding, retaining typed values and multiplicity. Reversed/swapped negative controls now reject; measurement boundaries and acceptance policy are unchanged.",
+      "fixed_generator_sha256": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3",
+      "issue": "The new scaling query requests final ID ordering, while the original Counter oracle accepted reordered output.",
+      "original_generator_sha256": "d68e5d66a39395f1dd49eac7d83ff4e7ac0c86b72534b1c4471ca4bfae70e690"
+    }
+  ],
+  "reviewed_contracts": [
+    {
+      "area": "Actual measurement boundary",
+      "assessment": "The dedicated worker waits for the exact spawned kqprun PID using wait4. Parent recipe/schema construction, row decoding and independent oracles are outside that child accounting. Startup, schema, fixtures, compilation, target execution and kernel-attributed waited descendants remain included.",
+      "references": [
+        "proposed-quality-amendments/Q01-native-measurement-files/native_verify.py:69",
+        "proposed-quality-amendments/Q01-native-measurement-files/native_verify.py:171",
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:60",
+        "proposed-quality-amendments/Q01-native-measurement-files/anonymous_child_measurement.py:113"
+      ]
+    },
+    {
+      "area": "Scope and descriptor ownership",
+      "assessment": "Existing rbo-direct cgroup is required and wrapper membership rechecked. start_new_session creates a private process group without creating another cgroup or systemd scope. Only original payload fds reach kqprun; report/source fds are not in target pass_fds. Caller owns payload fds; integration owns and closes only its fresh wrapper/report fds.",
+      "references": [
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:37",
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:113",
+        "proposed-quality-amendments/Q01-native-measurement-files/anonymous_child_measurement.py:94"
+      ]
+    },
+    {
+      "area": "Normal and abnormal cleanup",
+      "assessment": "Normal worker execution reaps the exact target and communicates its terminal status; caller reaps the worker and checks the private group is empty. Timeout/cancellation kill the owned private group and bound drain/reap. After group-wide fatal termination, the outer cgroup remains responsible for remaining/reparented descendants; local drain alone is not treated as whole-scope proof. Only one selected cell can run, and outer guard failure rejects its observation.",
+      "references": [
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:44",
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:52",
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:124",
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:156"
+      ]
+    },
+    {
+      "area": "Identity and observation status",
+      "assessment": "Retains source/generator/dependency/workload identities, sample coordinates, actual revision and executable/build-receipt identity, UDF/environment/affinity/cgroup bindings and sealed nonce-bound report hash. Post-oracle source and runner provenance checks remain. Guard evidence path/hash and final cleanup are attached independently; the raw record stays non-accepting.",
+      "references": [
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:76",
+        "proposed-quality-amendments/Q01-native-measurement-files/native_verify.py:178",
+        "proposed-quality-amendments/Q01-native-measurement-files/native_verify.py:256",
+        "proposed-quality-amendments/Q01-native-measurement-files/native_verify.py:309",
+        "proposed-quality-amendments/Q01-native-measurement-files/verify_series.py:81"
+      ]
+    },
+    {
+      "area": "Resource scope and closed admission",
+      "assessment": "Kernel lifetime ru_maxrss is converted from KiB to bytes and is not a target-only peak or summed cgroup peak. Existing 24 GiB scope/36 GiB host headroom, output guards and scope cleanup remain. No scaling threshold, speedup claim, matrix completion or accepting resource validator is introduced.",
+      "references": [
+        "proposed-quality-amendments/Q01-native-measurement-files/q01_native_child_measurement.py:95",
+        "proposed-quality-amendments/Q01-native-measurement-files/quality_q01_scaling_checks.py:134",
+        "proposed-quality-amendments/Q01-native-measurement-files/verify_series.py:61"
+      ]
+    }
+  ],
+  "schema_version": "q01_native_child_independent_source_review_v1",
+  "source_preparation_report_sha256": "2328dd988139c43f2785882f1e8a09cc36c4530d3649fe260cd5421d90b9e26d",
+  "status": "source_and_metadata_approved_for_future_guarded_transport_validation_only",
+  "unresolved_source_findings": [],
+  "validation": {
+    "author_mock_assertions_rerun": 215,
+    "builds": 0,
+    "graphs": 0,
+    "independent_assertions": 750,
+    "independent_oracle_positions": 525,
+    "metadata_report": "verification/Q01-native-child-independent-metadata-checks-20261028.json",
+    "metadata_report_sha256": "95e2242dfcdb10936f124e89bd673b7f19fb2dd9da5bc7a72293c9206c86506d",
+    "native_runs": 0,
+    "real_memfds": 0,
+    "real_process_launches": 0,
+    "temporary_application_after_28": true,
+    "toolchain_runs": 0
+  }
+}

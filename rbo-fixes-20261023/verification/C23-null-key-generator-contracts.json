@@ -1,0 +1,9 @@
+{
+  "generator": "null_grouping_checks",
+  "cases": 44,
+  "artifact_contracts": 704,
+  "compiled": false,
+  "native_verified": false,
+  "generated_payloads_saved": false,
+  "sha256": "e4e2c84cd8284f2883cfbbbbcdc6e17658a0bf3eeeeb5b3eae4333be25186c8a"
+}

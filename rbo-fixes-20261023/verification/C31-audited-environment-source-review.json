@@ -1,0 +1,61 @@
+{
+  "status": "dormant_source_only_environment_adapter",
+  "patch_sha256": "ce9d17477cc17d280d2313538995fa0b7143a816ac1ee49f5de26fb2a3ecd8c9",
+  "before_sha256": {
+    "anonymous_cpp_metadata.py": "c22714482e7ba4f46285b0e0d2d9a9d669e6c2cbf98375641c12ca8246997d23",
+    "anonymous_cpp_guard.py": "b4962d3004296d2936558c4c5164868a021d4a246458c18713b913047ae862cc",
+    "anonymous_cpp_verify.py": "c325983afe2f30f31c3dc20ca7d8e7c90334acd398a21f61182bf0bfe5d77739"
+  },
+  "after_sha256": {
+    "anonymous_cpp_metadata.py": "43d018319f33ad5828eb83ccaaab4fb90a17c0fe6a11d5319cf368bbf8372102",
+    "anonymous_cpp_guard.py": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+    "anonymous_cpp_verify.py": "3572a5468633bb6a67233aea292abc7c4af5285c79c2e7cdba0a25681ef586dd"
+  },
+  "syntax_parse_passed": true,
+  "graph_schema_audited": {
+    "platform": "linux",
+    "environment_keys": [
+      "ARCADIA_ROOT_DISTBUILD",
+      "CPATH",
+      "DYLD_LIBRARY_PATH",
+      "LIBRARY_PATH",
+      "SDKROOT"
+    ],
+    "empty_required": [
+      "CPATH",
+      "LIBRARY_PATH",
+      "SDKROOT"
+    ],
+    "tool_root": "/home/alexpaniman/.ya/tools/v4",
+    "tool_root_confirmation": "Parent independently observed installed compiler debug/macro prefix maps.",
+    "selected_response_file_references": {
+      "compile": 0,
+      "link": 0
+    },
+    "selected_command_file_markers": {
+      "compile": 0,
+      "link_pairs": 1
+    }
+  },
+  "preserved_contracts": [
+    "Only exact audited Linux environment shape is accepted; unknown keys or nonempty search-path overrides reject.",
+    "Graph environment is expanded against bound source/tool resources, stored in the receipt and passed explicitly to anonymous compile/link.",
+    "Guard independently limits override keys; output-prevention environment clearing and forced LC_ALL/TMPDIR remain final.",
+    "Compile/link process evidence binds the requested environment hash; execute verifies it matches the receipt.",
+    "TOOL_ROOT is excluded from recursive fingerprinting only after all selected raw command/cwd/environment uses are checked as the two observed prefix-map flags.",
+    "Actual CLANG/LLD/SDK resources referenced by compiler/linker arguments or the audited environment remain fingerprinted.",
+    "No graph-export lifecycle changes are included.",
+    "Selected response-file references reject before TOOL_ROOT tree exclusion; actual selected compile/link commands use none."
+  ],
+  "remaining": [
+    "Independent exact-artifact source review and actual metadata capture/compile/link are pending."
+  ],
+  "execution": {
+    "native_runs": 0,
+    "compiler_runs": 0,
+    "mock_suites": 0,
+    "live_helper_edits": false,
+    "production_edits": false
+  },
+  "review_iteration": "Independent review requested response-file exclusion audit; source adjustment now fails closed for future response-file inputs."
+}

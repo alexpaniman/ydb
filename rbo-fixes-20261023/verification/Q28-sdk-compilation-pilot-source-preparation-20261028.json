@@ -1,0 +1,432 @@
+{
+  "apply_after": "verification/idle-artifact-application-plan-20261028-latest.json",
+  "build_runs": 0,
+  "direct_functions_unchanged_except_command_dispatch": true,
+  "direct_q28_case_count": 26,
+  "full_q28_admission": false,
+  "generated_cpp_bytes": 4552,
+  "generated_cpp_sha256": "c8fcacc84d0dd9adae4bea0bd65ce40cfc8c6bc632ebd641fdf10b8ea54bf2af",
+  "graph_exports": 0,
+  "helper_after_sha256": "e047fa63bb6707c02ce165a2768a892a3a9a77f40cc6a8db75848055c442bc53",
+  "helper_before_sha256": "fce1a48f08006a3ab7d3872bd4d8bb47f87be918e3d02b53b9cc75a52f11c20b",
+  "input_descriptors": [
+    {
+      "case": "q28_right_nullable_bag",
+      "generator_module": "quality_scheduler_semantic_checks",
+      "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "generator_version": "q28_stage_boundary_semantics_and_final_shape_v1",
+      "input_sha256": {
+        "config": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "query": "42dd50126a324af4a3d524b92cda8ba9f9c0935b8a98cd441c0835e5ac27eccd",
+        "schema": "945a6d6a874b34d1f0070329b1bc1d32998d85da969b42b48a082b12ca99b010",
+        "seed0": "efd8e37e846b93bef02caeb809bf9d8904040f3a439898832a7b8de023860dd5",
+        "seed1": "ca23b3978eec0314d297788de3862e4d17e8b943431a5700c76b28b25352150a"
+      },
+      "mode": "new",
+      "node_count": 1,
+      "optimizer_mode_config_verified": true,
+      "optimizer_mode_configuration": {
+        "enable_fallback": false,
+        "enable_new_rbo": true,
+        "fallback_requested": false,
+        "query_syntax": "yql",
+        "requested_mode": "new",
+        "settings_sha256": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "version": "requested_optimizer_configuration_v1",
+        "yql_select": "force"
+      },
+      "query_structure": {
+        "descriptor_kind": "generator_text_counts_not_optimizer_graph",
+        "family": "q28_right_nullable_bag",
+        "fixture_rows_do_not_scale_compile_graph": true,
+        "join_tokens": 1,
+        "select_tokens": 1,
+        "shared_binding": false,
+        "target_query_bytes": 281,
+        "union_tokens": 0
+      },
+      "query_syntax": "yql",
+      "requested_exec_mode": "Execute",
+      "requested_stats_mode": "Basic",
+      "rows": 24,
+      "table_service_overrides": {
+        "EnableFallbackToYqlOptimizer": false,
+        "EnableKqpDataQueryStreamIdxLookupJoin": false,
+        "EnableQueryServiceSpilling": false,
+        "EnableSpillingInHashJoinShuffleConnections": false,
+        "EnableSpillingNodes": "None",
+        "UseBlockHashJoin": false
+      }
+    },
+    {
+      "case": "q28_nested_right_bag",
+      "generator_module": "quality_scheduler_semantic_checks",
+      "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "generator_version": "q28_stage_boundary_semantics_and_final_shape_v1",
+      "input_sha256": {
+        "config": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "query": "1469ef6ca09445f20173181c1f95de4357ee0a0b22884b65254300a581d88f20",
+        "schema": "740592e129090f7c2bc4835606e7465373e22ca480c41dfc2d95666c58e5620b",
+        "seed0": "efd8e37e846b93bef02caeb809bf9d8904040f3a439898832a7b8de023860dd5",
+        "seed1": "ca23b3978eec0314d297788de3862e4d17e8b943431a5700c76b28b25352150a",
+        "seed2": "f057a8243fa97ba686756391890b2f0827d7d522bc1eea33bf0a177faa58d321"
+      },
+      "mode": "new",
+      "node_count": 1,
+      "optimizer_mode_config_verified": true,
+      "optimizer_mode_configuration": {
+        "enable_fallback": false,
+        "enable_new_rbo": true,
+        "fallback_requested": false,
+        "query_syntax": "yql",
+        "requested_mode": "new",
+        "settings_sha256": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "version": "requested_optimizer_configuration_v1",
+        "yql_select": "force"
+      },
+      "query_structure": {
+        "descriptor_kind": "generator_text_counts_not_optimizer_graph",
+        "family": "q28_nested_right_bag",
+        "fixture_rows_do_not_scale_compile_graph": true,
+        "join_tokens": 2,
+        "select_tokens": 2,
+        "shared_binding": false,
+        "target_query_bytes": 477,
+        "union_tokens": 0
+      },
+      "query_syntax": "yql",
+      "requested_exec_mode": "Execute",
+      "requested_stats_mode": "Basic",
+      "rows": 24,
+      "table_service_overrides": {
+        "EnableFallbackToYqlOptimizer": false,
+        "EnableKqpDataQueryStreamIdxLookupJoin": false,
+        "EnableQueryServiceSpilling": false,
+        "EnableSpillingInHashJoinShuffleConnections": false,
+        "EnableSpillingNodes": "None",
+        "UseBlockHashJoin": false
+      }
+    },
+    {
+      "case": "q28_right_map_dependencies",
+      "generator_module": "quality_scheduler_semantic_checks",
+      "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "generator_version": "q28_stage_boundary_semantics_and_final_shape_v1",
+      "input_sha256": {
+        "config": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "query": "f6899974fa402eeb6d5994e2043fa996a9fcd1fe4c4c13711ea734ee2a0aba8b",
+        "schema": "945a6d6a874b34d1f0070329b1bc1d32998d85da969b42b48a082b12ca99b010",
+        "seed0": "efd8e37e846b93bef02caeb809bf9d8904040f3a439898832a7b8de023860dd5",
+        "seed1": "ca23b3978eec0314d297788de3862e4d17e8b943431a5700c76b28b25352150a"
+      },
+      "mode": "new",
+      "node_count": 1,
+      "optimizer_mode_config_verified": true,
+      "optimizer_mode_configuration": {
+        "enable_fallback": false,
+        "enable_new_rbo": true,
+        "fallback_requested": false,
+        "query_syntax": "yql",
+        "requested_mode": "new",
+        "settings_sha256": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "version": "requested_optimizer_configuration_v1",
+        "yql_select": "force"
+      },
+      "query_structure": {
+        "descriptor_kind": "generator_text_counts_not_optimizer_graph",
+        "family": "q28_right_map_dependencies",
+        "fixture_rows_do_not_scale_compile_graph": true,
+        "join_tokens": 1,
+        "select_tokens": 4,
+        "shared_binding": false,
+        "target_query_bytes": 565,
+        "union_tokens": 0
+      },
+      "query_syntax": "yql",
+      "requested_exec_mode": "Execute",
+      "requested_stats_mode": "Basic",
+      "rows": 24,
+      "table_service_overrides": {
+        "EnableFallbackToYqlOptimizer": false,
+        "EnableKqpDataQueryStreamIdxLookupJoin": false,
+        "EnableQueryServiceSpilling": false,
+        "EnableSpillingInHashJoinShuffleConnections": false,
+        "EnableSpillingNodes": "None",
+        "UseBlockHashJoin": false
+      }
+    },
+    {
+      "case": "q28_map_filter_sort_limit_control",
+      "generator_module": "quality_scheduler_semantic_checks",
+      "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "generator_version": "q28_stage_boundary_semantics_and_final_shape_v1",
+      "input_sha256": {
+        "config": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "query": "3569fb8726773020de82e3fd2cbd5aec4017647ce6f5a1ae7521b2854f8463fd",
+        "schema": "e27807a3c8310b61314108b8fd0ed8b024efbdfd9ac6f0e9466f5202f4f55eb5",
+        "seed0": "efd8e37e846b93bef02caeb809bf9d8904040f3a439898832a7b8de023860dd5"
+      },
+      "mode": "new",
+      "node_count": 1,
+      "optimizer_mode_config_verified": true,
+      "optimizer_mode_configuration": {
+        "enable_fallback": false,
+        "enable_new_rbo": true,
+        "fallback_requested": false,
+        "query_syntax": "yql",
+        "requested_mode": "new",
+        "settings_sha256": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "version": "requested_optimizer_configuration_v1",
+        "yql_select": "force"
+      },
+      "query_structure": {
+        "descriptor_kind": "generator_text_counts_not_optimizer_graph",
+        "family": "q28_map_filter_sort_limit_control",
+        "fixture_rows_do_not_scale_compile_graph": true,
+        "join_tokens": 0,
+        "select_tokens": 3,
+        "shared_binding": false,
+        "target_query_bytes": 314,
+        "union_tokens": 0
+      },
+      "query_syntax": "yql",
+      "requested_exec_mode": "Execute",
+      "requested_stats_mode": "Basic",
+      "rows": 24,
+      "table_service_overrides": {
+        "EnableFallbackToYqlOptimizer": false,
+        "EnableKqpDataQueryStreamIdxLookupJoin": false,
+        "EnableQueryServiceSpilling": false,
+        "EnableSpillingInHashJoinShuffleConnections": false,
+        "EnableSpillingNodes": "None",
+        "UseBlockHashJoin": false
+      }
+    },
+    {
+      "case": "q28_conditional_guard_control",
+      "generator_module": "quality_scheduler_semantic_checks",
+      "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "generator_version": "q28_stage_boundary_semantics_and_final_shape_v1",
+      "input_sha256": {
+        "config": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "query": "c3919f3697c570b844242a31fc3edc2f3b47ec116a89013ef149063879dc7d38",
+        "schema": "e27807a3c8310b61314108b8fd0ed8b024efbdfd9ac6f0e9466f5202f4f55eb5",
+        "seed0": "efd8e37e846b93bef02caeb809bf9d8904040f3a439898832a7b8de023860dd5"
+      },
+      "mode": "new",
+      "node_count": 1,
+      "optimizer_mode_config_verified": true,
+      "optimizer_mode_configuration": {
+        "enable_fallback": false,
+        "enable_new_rbo": true,
+        "fallback_requested": false,
+        "query_syntax": "yql",
+        "requested_mode": "new",
+        "settings_sha256": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "version": "requested_optimizer_configuration_v1",
+        "yql_select": "force"
+      },
+      "query_structure": {
+        "descriptor_kind": "generator_text_counts_not_optimizer_graph",
+        "family": "q28_conditional_guard_control",
+        "fixture_rows_do_not_scale_compile_graph": true,
+        "join_tokens": 0,
+        "select_tokens": 2,
+        "shared_binding": false,
+        "target_query_bytes": 298,
+        "union_tokens": 0
+      },
+      "query_syntax": "yql",
+      "requested_exec_mode": "Execute",
+      "requested_stats_mode": "Basic",
+      "rows": 24,
+      "table_service_overrides": {
+        "EnableFallbackToYqlOptimizer": false,
+        "EnableKqpDataQueryStreamIdxLookupJoin": false,
+        "EnableQueryServiceSpilling": false,
+        "EnableSpillingInHashJoinShuffleConnections": false,
+        "EnableSpillingNodes": "None",
+        "UseBlockHashJoin": false
+      }
+    },
+    {
+      "case": "q28_full_outer_nullable_control",
+      "generator_module": "quality_scheduler_semantic_checks",
+      "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "generator_version": "q28_stage_boundary_semantics_and_final_shape_v1",
+      "input_sha256": {
+        "config": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "query": "ae7439cdcf1a1aa665e63e4e19ab905c3a68afcf7a5ad5d95219a90305c95efd",
+        "schema": "945a6d6a874b34d1f0070329b1bc1d32998d85da969b42b48a082b12ca99b010",
+        "seed0": "efd8e37e846b93bef02caeb809bf9d8904040f3a439898832a7b8de023860dd5",
+        "seed1": "ca23b3978eec0314d297788de3862e4d17e8b943431a5700c76b28b25352150a"
+      },
+      "mode": "new",
+      "node_count": 1,
+      "optimizer_mode_config_verified": true,
+      "optimizer_mode_configuration": {
+        "enable_fallback": false,
+        "enable_new_rbo": true,
+        "fallback_requested": false,
+        "query_syntax": "yql",
+        "requested_mode": "new",
+        "settings_sha256": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "version": "requested_optimizer_configuration_v1",
+        "yql_select": "force"
+      },
+      "query_structure": {
+        "descriptor_kind": "generator_text_counts_not_optimizer_graph",
+        "family": "q28_full_outer_nullable_control",
+        "fixture_rows_do_not_scale_compile_graph": true,
+        "join_tokens": 1,
+        "select_tokens": 1,
+        "shared_binding": false,
+        "target_query_bytes": 280,
+        "union_tokens": 0
+      },
+      "query_syntax": "yql",
+      "requested_exec_mode": "Execute",
+      "requested_stats_mode": "Basic",
+      "rows": 24,
+      "table_service_overrides": {
+        "EnableFallbackToYqlOptimizer": false,
+        "EnableKqpDataQueryStreamIdxLookupJoin": false,
+        "EnableQueryServiceSpilling": false,
+        "EnableSpillingInHashJoinShuffleConnections": false,
+        "EnableSpillingNodes": "None",
+        "UseBlockHashJoin": false
+      }
+    },
+    {
+      "case": "q28_shared_spilling_control",
+      "generator_module": "quality_scheduler_semantic_checks",
+      "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "generator_version": "q28_stage_boundary_semantics_and_final_shape_v1",
+      "input_sha256": {
+        "config": "bb929fcab542f5780731f303b1e643e270252d96719d94fb0db6feb52d873eb6",
+        "query": "e90e5e929707fb2fd796dcf05860f1d90599277bfc4d459bcfd90dc79ecf9096",
+        "schema": "945a6d6a874b34d1f0070329b1bc1d32998d85da969b42b48a082b12ca99b010",
+        "seed0": "efd8e37e846b93bef02caeb809bf9d8904040f3a439898832a7b8de023860dd5",
+        "seed1": "ca23b3978eec0314d297788de3862e4d17e8b943431a5700c76b28b25352150a"
+      },
+      "mode": "new",
+      "node_count": 1,
+      "optimizer_mode_config_verified": true,
+      "optimizer_mode_configuration": {
+        "enable_fallback": false,
+        "enable_new_rbo": true,
+        "fallback_requested": false,
+        "query_syntax": "yql",
+        "requested_mode": "new",
+        "settings_sha256": "bb929fcab542f5780731f303b1e643e270252d96719d94fb0db6feb52d873eb6",
+        "version": "requested_optimizer_configuration_v1",
+        "yql_select": "force"
+      },
+      "query_structure": {
+        "descriptor_kind": "generator_text_counts_not_optimizer_graph",
+        "family": "q28_shared_spilling_control",
+        "fixture_rows_do_not_scale_compile_graph": true,
+        "join_tokens": 1,
+        "select_tokens": 3,
+        "shared_binding": true,
+        "target_query_bytes": 594,
+        "union_tokens": 1
+      },
+      "query_syntax": "yql",
+      "requested_exec_mode": "Execute",
+      "requested_stats_mode": "Basic",
+      "rows": 24,
+      "table_service_overrides": {
+        "EnableFallbackToYqlOptimizer": false,
+        "EnableKqpDataQueryStreamIdxLookupJoin": false,
+        "EnableQueryServiceSpilling": true,
+        "EnableSpillingInHashJoinShuffleConnections": true,
+        "EnableSpillingNodes": "All",
+        "UseBlockHashJoin": false
+      }
+    },
+    {
+      "case": "q28_shared_copied_control",
+      "generator_module": "quality_scheduler_semantic_checks",
+      "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "generator_version": "q28_stage_boundary_semantics_and_final_shape_v1",
+      "input_sha256": {
+        "config": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "query": "e90e5e929707fb2fd796dcf05860f1d90599277bfc4d459bcfd90dc79ecf9096",
+        "schema": "945a6d6a874b34d1f0070329b1bc1d32998d85da969b42b48a082b12ca99b010",
+        "seed0": "efd8e37e846b93bef02caeb809bf9d8904040f3a439898832a7b8de023860dd5",
+        "seed1": "ca23b3978eec0314d297788de3862e4d17e8b943431a5700c76b28b25352150a"
+      },
+      "mode": "new",
+      "node_count": 1,
+      "optimizer_mode_config_verified": true,
+      "optimizer_mode_configuration": {
+        "enable_fallback": false,
+        "enable_new_rbo": true,
+        "fallback_requested": false,
+        "query_syntax": "yql",
+        "requested_mode": "new",
+        "settings_sha256": "bbc65531bb954f01adc9e6617eff871bfada9035b6efb95b5c4534b9058d6142",
+        "version": "requested_optimizer_configuration_v1",
+        "yql_select": "force"
+      },
+      "query_structure": {
+        "descriptor_kind": "generator_text_counts_not_optimizer_graph",
+        "family": "q28_shared_copied_control",
+        "fixture_rows_do_not_scale_compile_graph": true,
+        "join_tokens": 1,
+        "select_tokens": 3,
+        "shared_binding": true,
+        "target_query_bytes": 594,
+        "union_tokens": 1
+      },
+      "query_syntax": "yql",
+      "requested_exec_mode": "Execute",
+      "requested_stats_mode": "Basic",
+      "rows": 24,
+      "table_service_overrides": {
+        "EnableFallbackToYqlOptimizer": false,
+        "EnableKqpDataQueryStreamIdxLookupJoin": false,
+        "EnableQueryServiceSpilling": false,
+        "EnableSpillingInHashJoinShuffleConnections": false,
+        "EnableSpillingNodes": "None",
+        "UseBlockHashJoin": false
+      }
+    }
+  ],
+  "limits": [
+    "API compatibility and compiler/link/native execution remain unverified.",
+    "Eight existing semantic query shapes provide a transport/measurement pilot; fixture row counts do not scale compilation structure.",
+    "Final Q28 optimization assessment still requires structural query-size cells plus direct scheduler work counters and separate end-to-end semantics.",
+    "Timings are server-reported compilation wall/CPU, with parse/queue/scoping limits recorded in the prior API report; they are not pure optimizer or per-stage timers.",
+    "No quality admission or automatic timing comparison is added.",
+    "TKikimrRunner defaults differ from kqprun; both phases must use this same runner and configuration, not mix their timing samples."
+  ],
+  "live_helper_edits": false,
+  "metadata_checks_passed": 86,
+  "module_sha256": "22c807e6780ef984ba7114b917c1d3d3e5f4914bdbd278817961e394472a75ee",
+  "native_runs": 0,
+  "optimizer_stage_timings_verified": false,
+  "patch": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+  "patch_sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483",
+  "pilot": true,
+  "pilot_case_vector": [
+    "q28_right_nullable_bag",
+    "q28_nested_right_bag",
+    "q28_right_map_dependencies",
+    "q28_map_filter_sort_limit_control",
+    "q28_conditional_guard_control",
+    "q28_full_outer_nullable_control",
+    "q28_shared_spilling_control",
+    "q28_shared_copied_control"
+  ],
+  "quality_improvement_verified": false,
+  "query_semantics_verified": false,
+  "rendered_inputs_persisted": false,
+  "source_checks_sha256": "718da96002248ca1b3f92e55b65231c26651f534c55a4e9a6d0cfa08a9214fb7",
+  "stack_patch_count": 28,
+  "stack_sha256": "0bdc2c91aec22669459358e0431a7e80758fa88e7187235e68f132ddc5e3a722",
+  "status": "dormant_source_prepared_native_pending",
+  "structural_query_scaling_measured": false,
+  "toolchain_runs": 0
+}

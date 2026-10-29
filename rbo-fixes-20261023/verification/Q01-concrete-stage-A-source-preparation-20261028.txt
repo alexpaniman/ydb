@@ -1,0 +1,15 @@
+Q01 Stage A candidate is frozen for independent source review; no native execution or quality acceptance occurred.
+
+The patch preserves all652 canonical SQL cases and42 direct runtime cases. It selects15 resource profiles, adds exact shared-window boundary controls and local stream/queue/field witnesses, and appends15 public allocator snapshots without removing existing checks.
+
+The closed validator separates the30-record actual path pilot, verified fixed42 allocation/lifecycle evidence, and180 raw child observations. It preserves all samples and reports inclusive CPU/RSS comparisons; optimization acceptance stays false. Unknown actual lowering fails closed.
+
+This explicitly proposes replacing only the unimplemented31-profile resource-design matrix and arbitrary ratio policy. It does not replace any existing oracle or current quality gate. The proposed15-profile design still requires independent review.
+
+Next: after the existing42/652 verification, run the exact30-record pilot. A small separately reviewed Stage B dispatch binding and acceptance integration is required after actual path approval and before accepted measurement collection. Profile fingerprints must be recomputed after applying this patch; exactly two of28 spill dependency hashes change.
+
+Source/mock checks passed:1977; retained/extended recipe checks passed:1818. Seven modules clean-applied to a disposable copy of exact idle53. No rendered queries, plans, output rows or generated C++ were persisted.
+
+The final source trace corrected the two new fallback oracles to the exact integral JSON representation emitted for their bounded Double values. Exact extrema, nullness, order and type encoding remain checked; wrong integer, fractional, boolean and string outputs are rejected. Baseline and fixed serializer source bindings are included.
+
+Independent review also required native identity and protocol evidence for every path pilot. The correction binds run/sample coordinates, source/workload identity, child cleanup and outer guard, and distinct one-cell guard/scope/report observations. Pilot success still cannot grant raw measurement or optimization acceptance. Exact per-file predecessors and all28 spill dependencies allow unrelated reviewed C31 helper repairs without rebasing any safety binding.

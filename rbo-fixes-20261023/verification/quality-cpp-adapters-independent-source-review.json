@@ -1,0 +1,34 @@
+{
+  "status": "source_review_only_compile_and_native_pending",
+  "production_source_edits": false,
+  "builds": false,
+  "native_runs": false,
+  "modules": {
+    "quality_rule_cpp_generator.py": {
+      "sha256": "9e0711f9ea1a43517117de3abdbda62bb464407a5a6818a23c2f932b94ecfd15"
+    },
+    "quality_cpp_contract_generator.py": {
+      "sha256": "10d5f97d36c1142d5c7c033e76c3a2152b720087640fb8f2b69773cc8c46dd28"
+    }
+  },
+  "resolved_before_closure": [
+    "Q18 merge definition required NYql qualification; parent amended production branch to f27cc1474705c540c5a64c2700f19eb4df749f54.",
+    "Q18/Q19 adapter now includes host/kqp_transform.h to complete the intrusive pointer target type.",
+    "Q18 adapter no longer requires its newly introduced helper on baseline; repeated merges use existing ApplyColumnStatistics."
+  ],
+  "contracts": [
+    "Q14 optimizer node constructor, InnerJoin enum, MakeCBOColumn and ConvertOptimizedTree signature match the actual KQP API. Empty leaves are unused by this conversion path.",
+    "Q14 Map cases require absent shuffle directives; Grace/ReverseBlock cases distinguish absent from engaged empty and ordered nonempty directives.",
+    "Q16 read/union/limit constructors and TUnorderedIUs.Add match the existing fixture and production headers. The column source is reachable only in column/mixed cases; unrelated remains outside the visited subtree.",
+    "Q18 calls the real existing transformer cache-application path and preserves the cached map identity, optional zero statistics and untouched fields.",
+    "Q19 wrapper signatures match both external AddStatRequest definitions, including single-column versus tuple maps and callback types.",
+    "Q19 starts three pending promises before executing the actual transformer future callback and cache application; exceptional futures must propagate."
+  ],
+  "remaining": [
+    "Compile and link adapters against each selected branch object closure.",
+    "Verify real --wrap references and disable misleading acceptance if LTO/inlining bypasses the request boundary.",
+    "Q16 WindowFunctionsV2 control remains separate and pending.",
+    "Q18 sketch/histogram object identity extension remains pending.",
+    "Successful model/generation or signature review does not establish native execution, physical placement or optimization improvement."
+  ]
+}

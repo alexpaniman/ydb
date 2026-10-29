@@ -1,0 +1,197 @@
+{
+  "artifacts": [
+    {
+      "path": "proposed-quality-amendments/OA06-saved-direct-pair-admission.patch",
+      "sha256": "ac3e6528dce87fed5cdc0667410914233f829fb6c52ef720f936d9d3f86c742a",
+      "size_bytes": 15601
+    },
+    {
+      "path": "proposed-quality-amendments/OA06-saved-direct-pair-metadata-contracts.py",
+      "sha256": "11a8c05bd7f55cb32a14ba9c793194647047851ed6781bd7730aa1cef22cadfc",
+      "size_bytes": 9913
+    },
+    {
+      "path": "verification/OA06-saved-direct-pair-offline-checks.json",
+      "sha256": "14f727fa46b487e3eba017ea7f513dc652ea1dce6775f4c532e61441f5b9cc54",
+      "size_bytes": 3076
+    }
+  ],
+  "changed_live_destination": [
+    "anonymous_cpp_verify.py"
+  ],
+  "changes": [
+    "Load exactly the current generator Python bytes instead of trusting an imported module cache; retain that snapshot hash through rendering and return it unchanged so the next-snapshot comparison catches same-count source changes.",
+    "Record direct_case_vector_sha256 during actual execution and require current generator hash, current complete count and current vector for both saved sides.",
+    "Bind pairing revisions to current case metadata. Load the referenced receipt bytes, check their evidence hash, schema, revision, successful build revision/profile/target, metadata profile/target and nonempty valid input identities.",
+    "Require the immutable recorded Git commit to exist in the receipt source checkout. Do not require that reused checkout HEAD still equal either old verification revision.",
+    "For versioned production build records, require the recorded before/after source revisions to match the receipt revision.",
+    "Recompute each accepted saved adapter source hash and byte length in memory from the current generator. Q27 extracts the actual function from the receipt checkout and exact revision.",
+    "Capture the two Q19 symbols actually found by production object inspection. At saved admission require their mangled syntax, overload classification and hashes; bind definition/caller object hashes to the unique receipt-listed objects and require completed inspection/relocation records before rendering.",
+    "Recheck current generator bytes after pairing; preserve existing local pass/improvement/regression calculations and explicit false whole-query/full-finding success fields.",
+    "Require each generic saved compile/link/native record to be a dictionary with an integer (not boolean) exit code, explicit false watchdog/stdout-overflow flags and explicit true cleanup; missing or truthy-coercible fields reject."
+  ],
+  "current_case_vectors": {
+    "Q14": {
+      "case_count": 12,
+      "case_vector_sha256": "66bae4bac711a3730be9d46aa1a35f09a83d2f06bdb04c40fb875e509af35e89",
+      "generator_sha256": "9e0711f9ea1a43517117de3abdbda62bb464407a5a6818a23c2f932b94ecfd15"
+    },
+    "Q16": {
+      "case_count": 60,
+      "case_vector_sha256": "759122fff0730c614b6474b5a0bc2c673e48329dfd20257bc87afbd91a02ecd4",
+      "generator_sha256": "9e0711f9ea1a43517117de3abdbda62bb464407a5a6818a23c2f932b94ecfd15"
+    },
+    "Q18": {
+      "case_count": 3,
+      "case_vector_sha256": "7391c4a007014e9d41685a961547d2291d025b30b91bf48d0fc2a36ae2649db3",
+      "generator_sha256": "10d5f97d36c1142d5c7c033e76c3a2152b720087640fb8f2b69773cc8c46dd28"
+    },
+    "Q19": {
+      "case_count": 6,
+      "case_vector_sha256": "ce47386dce2d6430912d8b901a82a2155a9fd94b5c641c418ac3313804b95e12",
+      "generator_sha256": "10d5f97d36c1142d5c7c033e76c3a2152b720087640fb8f2b69773cc8c46dd28"
+    },
+    "Q25": {
+      "case_count": 48,
+      "case_vector_sha256": "692bf60e9c349f8ef6c469e0b502bbc942a5556dd096489d4b63a1b0772a5bf5",
+      "generator_sha256": "36616ebce47c0bdaed66e0f0baf7a452cb61670a01d889d4b40ffc124043eed8"
+    },
+    "Q27": {
+      "case_count": 20,
+      "case_vector_sha256": "bed73ab96ad8e1fd7efb09eb1ef0ea82ba5a2f8bdab87647eb163feb9131370f",
+      "generator_sha256": "7e7f04b3c85bcd59c225ed44a970c8453ef5a4a4adfc79ffe0e600229ce4093e"
+    },
+    "Q28": {
+      "case_count": 26,
+      "case_vector_sha256": "45498e55c2682c193c9ea112b099cbe27303fa945589c060ce62e554772345ed",
+      "generator_sha256": "e32719455f2ea13b6cbd0b19772243c7d61f2497cfb9310c896515ecf642a00d"
+    }
+  },
+  "finding": "OA06",
+  "finding_title": "Saved generic direct pairs can retain local acceptance after adapter coverage or receipt binding changes.",
+  "helper_after_sha256": "024b3b8bed93890aa5b85612db3b5106896de86c89bc61fc76a4d9b8b834cf39",
+  "helper_before_sha256": "a34689c4870748eea21707cce97814b0a93826496168909b4973337f29fd1b6a",
+  "live_helper_unchanged_sha256": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+  "new_evidence_fields": {
+    "direct_case_vector_sha256": "All seven generic direct findings, recorded during actual execute.",
+    "wrapping.request_symbols": "Q19 only; exact inspected single/tuple mangled names alongside the existing symbol hashes."
+  },
+  "no_live_helper_production_branch_or_worktree_edits": true,
+  "prerequisites_in_order": [
+    {
+      "path": "proposed-correctness-amendments/C47-narrow-production-export-artifacts.patch",
+      "sha256": "9ec963255f6b6629903e8538b5032f0bde5d86aeff2c25ff0285d6269ee9ac14",
+      "size_bytes": 2055
+    },
+    {
+      "path": "proposed-correctness-amendments/C47-production-graph-lifecycle-artifacts.patch",
+      "sha256": "43d9c5ff1100e8675515dd139e930ae8d353a5ccfd63cd196959b7bfad0cc6e4",
+      "size_bytes": 12500
+    },
+    {
+      "path": "proposed-correctness-amendments/C31-stdout-link-output-artifacts.patch",
+      "sha256": "5af59db821a70dee6de37537498c20d9cc6c5cb4200c70114dfb175744b26402",
+      "size_bytes": 2643
+    },
+    {
+      "path": "proposed-quality-amendments/Q19-abi-stable-inspection-objects.patch",
+      "sha256": "22e712e96321166b8e713288a4d07cbe7a2f8b9d04d01b5b91358bcd8b9ef9f1",
+      "size_bytes": 1145
+    },
+    {
+      "path": "proposed-quality-amendments/Q11-direct-union-admission-artifacts.patch",
+      "sha256": "5b00b05d4c9ffd61f0bb3a01af55eb7ce02fbeac61d5b98453ed20a8b8c8fa12",
+      "size_bytes": 23740
+    }
+  ],
+  "proof_limits": [
+    "This task verifies source control flow and metadata rejection only; genuine generic direct baseline/fixed runs remain pending.",
+    "Future generated adapter fingerprints are recomputed in RAM during saved admission. During this task only a metadata-only stand-in exercised hash transport; no workload generator rendered C++.",
+    "Q19 success-path symbol/object bindings need an actual Q19 inspection record; invalid symbols were rejected without fabricating valid mangled names.",
+    "Saved admission validates receipt content and its recorded immutable revision, not current existence/content of every retained binary input. Actual execute still verifies the full closure before and after guarded execution.",
+    "Existing records lacking new coverage/symbol fields require genuine new evidence; no historical production execution is manufactured.",
+    "Direct local contracts cannot promote whole-query or full optimization quality acceptance."
+  ],
+  "q19_handling": {
+    "object_inspection_run_now": false,
+    "object_suffixes": [
+      ".cpp.o",
+      ".cpp.pic.o",
+      ".cpp.abi_stable.o"
+    ],
+    "old_symbol_incomplete_records": "Rejected before renderer invocation; no historical symbol reconstruction or fake backfill.",
+    "receipt_ambiguity": "Zero or multiple matching objects remain rejected.",
+    "symbols_discovered_now": false,
+    "symbols_guessed": false
+  },
+  "revision_history": [
+    {
+      "previous_helper_after_sha256": "71d57c41aa7876ae4587fae99080c40fae6ed2d363bdde34dd617f4c42420bb6",
+      "previous_patch_sha256": "fea161246f67b00e121f3f71a3576e0cafbddfd36acf43c0b058b4570502ada0",
+      "previous_review_sha256": "36b576ed706b3e11f5f37b53df09da2080e8687920bdbfaf3ba89886c3b532d9",
+      "reason": "Root requested exact loaded snapshot hash transport, aligned wrapper metadata indentation and typed explicit process guard admission."
+    },
+    {
+      "previous_helper_after_sha256": "5a8d007505b42dd90441ce42734f19bed1d0263c79fae67a9e9f7e5cc534235a",
+      "previous_patch_sha256": "a2d44a75ed0579a6da09efe2c890b35a6ea7c7c1c1fdaebcbe7eeeafd10365ca",
+      "previous_review_sha256": "2b97122f633141ebb92356cb08f0dbfd00ebbc7af5cd148e2bd5402f26721015",
+      "reason": "Formatting-only: request_symbols aligned with sibling keys at exactly 21 leading spaces; semantic syntax tree unchanged."
+    }
+  ],
+  "schema_version": "oa06_saved_direct_pair_source_review_v1",
+  "scope": [
+    "Q14",
+    "Q16",
+    "Q18",
+    "Q19",
+    "Q25",
+    "Q27",
+    "Q28"
+  ],
+  "status": "frozen_dormant_source_reviewed_execution_pending",
+  "validation": {
+    "build_or_native_executed": false,
+    "execution_tripwires": "Anonymous execution, object inspection and actual adapter render functions raise if called; snapshot transport uses one metadata-only stand-in.",
+    "fabricated_positive_native_evidence": false,
+    "final_formatting_check": {
+      "metadata_contracts_rerun": false,
+      "python_syntax": "passed",
+      "reason": "Formatting-only change; prior 131 rejection checks remain applicable.",
+      "request_symbols_leading_spaces": 21,
+      "semantic_ast_unchanged": true
+    },
+    "genuine_receipt_metadata_check": {
+      "note": "Metadata parser/source binding only against the retained actual C31 receipt; never treated as a Q14 finding pair or runtime acceptance.",
+      "path": "verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+      "size_bytes": 3938912
+    },
+    "graph_or_toolchain_jobs_executed": false,
+    "metadata_only_snapshot_hash_probe": "passed; changed bytes with unchanged case count rejected by next-snapshot comparison",
+    "negative_contract_classes": [
+      "stale generator hash",
+      "wrong or boolean case count",
+      "missing or changed ordered vector",
+      "missing receipt",
+      "changed receipt content hash",
+      "wrong receipt revision/schema/profile/target",
+      "wrong build revision/status/profile/target",
+      "empty input identities",
+      "relative or unavailable source checkout",
+      "unknown or source-incomplete versioned build record",
+      "Q19 missing or malformed captured symbols",
+      "missing guard fields",
+      "non-boolean watchdog/stdout/cleanup flags",
+      "boolean/float/string/missing exit code",
+      "compile/link failure exit code",
+      "non-dictionary process record"
+    ],
+    "negative_guard_metadata_rejections": 68,
+    "negative_metadata_rejections": 131,
+    "python_syntax": "passed",
+    "snapshot_probe_scope": "Actual render_suite routing with a temporary metadata-only stand-in, no C++ generation. It edits only a temporary generator copy, keeps case count unchanged and verifies returned hash remains the originally loaded snapshot.",
+    "temporary_stacked_application": "passed",
+    "workload_renderers_called": false
+  }
+}

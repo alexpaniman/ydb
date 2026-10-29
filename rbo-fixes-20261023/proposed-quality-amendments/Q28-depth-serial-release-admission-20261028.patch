@@ -1,0 +1,14 @@
+diff --git a/rbo-fixes-20261023/q28_depth_verify.py b/rbo-fixes-20261023/q28_depth_verify.py
+--- a/rbo-fixes-20261023/q28_depth_verify.py
++++ b/rbo-fixes-20261023/q28_depth_verify.py
+@@ -281,7 +281,9 @@
+         with direct.serial_slot():
+             evidence, code = execute(args, direct, metadata, version, generator)
+     except BaseException as error:
+-        evidence.update(failure_stage='source_or_serial_guard', failure_class=type(error).__name__)
++        evidence.update(status='q28_depth_harness_failed',
++                        amendment_local_contracts_verified=False,
++                        failure_stage='source_or_serial_guard', failure_class=type(error).__name__)
+         code = 130 if isinstance(error, (KeyboardInterrupt, SystemExit)) else 1
+     with output.open('x') as stream:
+         stream.write(json.dumps(evidence, sort_keys=True, indent=2) + '\n')

@@ -1,0 +1,357 @@
+RBO fix series: 79 findings; correctness C01-C50, then optimization quality Q01-Q29.
+Pinned main base: e8700d379b3b9c4fbaf68f36424e6bcf08314fd2
+Prepared branches require verification. Guard-only and limited checks are identified explicitly.
+
+CORRECTNESS
+C01 | Typed join predicates are copied across unequal key types
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c01-preserve-predicate-types (40a5bea4e432)
+  Validation: 6 targeted checks; passed; tied to the branch executable
+C02 | Volatile filters change aggregate values
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c02-preserve-volatile-group-filters (6f8b0f5ccd36)
+  Validation: 18 targeted checks; passed; tied to the branch executable
+C03 | DISTINCT aggregates over grouping sets compute incorrect subtotals
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c03-expand-grouping-sets-first (40b098bc31f1)
+  Validation: 5 targeted checks; passed; tied to the branch executable
+  Verification limit: The complete expanded5-case control vector passes against the fresh exact-branch executable and independent coverage check.
+C04 | Filter fusion evaluates expressions on rows already rejected
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c04-preserve-filter-evaluation-order (69b7c53d2f5a)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+  Verification limit: Bool and Optional Bool paths passed native checks. Pg handling is source-reviewed only: the pinned-main host rejects Pg syntax before optimizer entry.
+C05 | Scalar subquery validation runs for unrelated correlation keys
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c05-preserve-scalar-domains (bf6527096b7a)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+C06 | Correlation can select the wrong row after a key type changes
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c06-preserve-capture-types (446592a476b9)
+  Validation: 5 targeted checks; passed; tied to the branch executable
+  Verification limit: Independent semantic checks and combined C06+C50 integration16 pass, including four explicit empty-result witnesses. Combined evidence is separately scoped to the two unchanged fixes.
+C07 | Domain elimination admits matches forbidden by NaN equality
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c07-retain-correlation-equality (2e4843e6be7a)
+  Validation: 5 targeted checks; passed; tied to the branch executable
+C08 | Empty correlated scalar aggregates skip their result expression
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c08-restore-empty-scalar-groups (af05d7c39519)
+  Validation: 6 targeted checks; passed; tied to the branch executable
+C09 | IN subqueries ignore the requested NULL-semantics mode
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c09-preserve-in-null-semantics (1525ba0d79ef)
+  Validation: 5 targeted checks; passed; tied to the branch executable
+C10 | Nullable NaN is mistaken for NULL in IN handling
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c10-test-in-lookup-presence (8c96cdf3c1ef)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+C11 | IN typing removes a necessary COALESCE fallback
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c11-preserve-in-result-type (d23472b33678)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+C12 | Hidden grouping columns prevent DISTINCT from removing duplicates
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c12-distinct-selected-group-values (68356618882b)
+  Validation: 3 targeted checks; passed; tied to the branch executable
+C13 | Grouped result expressions are replaced by a bare grouping key
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c13-preserve-grouped-result-expressions (71378e72b8ce)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+C14 | Aggregates on different nested fields share the wrong input
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c14-preserve-nested-aggregate-inputs (c128b7c1bd99)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+C15 | A scalar subquery is evaluated outside its conditional guard
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c15-check-demanded-scalar-values (3a9521680600)
+  Validation: 8 targeted checks; passed; tied to the branch executable
+C16 | Unresolved subqueries enter block-cross join filters too early
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c16-defer-unresolved-join-subplans (473f0a46d614)
+  Validation: 7 targeted checks; passed; tied to the branch executable
+C17 | Shared-plan pruning leaves references to removed columns
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c17-refresh-pruned-schemas (d08902de5389)
+  Validation: 8 targeted checks; passed; tied to the branch executable
+C18 | Pruning leaves an invalid operator under an empty grouping-set wrapper
+  Status: New-parser invariant checks passed; compatibility limit remains
+  Branch: fix/new-rbo/c18-preserve-grouping-templates (ec25a7d3319c)
+  Validation: 14 targeted checks; passed; tied to the branch executable
+  Verification limit: Retained and pruned aggregate outputs preserve the new parser's exact bag multiplicity. Legacy deduplicates repeated empty grouping sets; that separate compatibility difference remains unresolved.
+C19 | Unordered rank functions construct an invalid expression
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c19-unordered-ranking (8c1af92732e2)
+  Validation: 2 targeted checks; passed; tied to the branch executable
+C20 | Window ranking loses the nullable-key compatibility setting
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c20-nullable-rank-mode (5f9ef7674522)
+  Validation: 8 targeted checks; passed; tied to the branch executable
+C21 | Window AVG uses the wrong physical type for intervals
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c21-window-interval-average (78462388619d)
+  Validation: 8 targeted checks; passed; tied to the branch executable
+C22 | Repeated window keys produce an invalid physical sort
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c22-window-sort-keys (e67e82b03f5e)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+C23 | Grouping sets mishandle a bare NULL key type
+  Status: Fix-specific semantic checks passed; separate failing controls remain tracked
+  Branch: fix/new-rbo/c23-null-grouping-key (030ea24b8e68)
+  Validation: 48 targeted checks; acceptance remains open; tied to the branch executable
+  Verification limit: 52 distinct C23-specific native checks pass, including bare Null grouping, DISTINCT, empty inputs, COUNT(NULL), row/block and distributed cases. Twelve additional duplicate-alias controls hit independent pre-lowering finding F01; their failures are retained and are not counted as C23 passes.
+  Scoped validation: 52 distinct fix-specific checks passed; 12 controls fail in the separately tracked F01.
+C24 | DISTINCT expansion creates a nested optional for interval SUM
+  Status: Fix-specific semantic checks passed; separate failing controls remain tracked
+  Branch: fix/new-rbo/c24-distinct-interval-state (037848a02d0d)
+  Validation: 14 targeted checks; acceptance remains open; tied to the branch executable
+  Verification limit: 13 targeted checks pass; the Interval64 control fails separate F02 (unsupported physical SUM builtin). The same control passes with the legacy optimizer. The original failed native record is retained; full interval-family behavior still needs F02.
+  Scoped validation: 13 distinct fix-specific checks passed; 1 controls fail in the separately tracked F02.
+C25 | Correlated multi-aggregate DISTINCT fails between stages
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c25-decorrelate-before-distinct (33e1d0f59ccf)
+  Validation: 3 targeted checks; passed; tied to the branch executable
+C26 | DISTINCT combined with sample standard deviation is rejected
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c26-distinct-variance-state (d40b5b11a3c4)
+  Validation: 10 targeted checks; passed; tied to the branch executable
+C27 | HAVING without an aggregate call fails translation
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c27-having-without-aggregate (fb3c38f6837a)
+  Validation: 6 targeted checks; passed; tied to the branch executable
+C28 | DISTINCT over window results references columns before definition
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c28-distinct-after-window (5616e3ad461b)
+  Validation: 32 targeted checks; passed; tied to the branch executable
+C29 | Mixed set-operation precedence is lowered without a real operand stack
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c29-set-operation-stack (9f2e822f0220)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+C30 | INSERT OR REVERT loses its conflict policy
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c30-route-insert-revert (d3f07e4572af)
+  Validation: 7 targeted checks; passed; tied to the branch executable
+C31 | Late join-filter inlining recreates unsupported sharing
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c31-inline-before-sharing-expansion (24e1aae9a067)
+  Validation: 50 targeted checks; passed; tied to the branch executable
+  Verification limit: Verified changed identity construction, sharing order and initial lowering with 50 SQL semantic/guard records and 37 direct contracts (1442 checkpoints). Final serialized-plan lineage remains unproved; unsupported identities, nonrepeatable copied producers, frontend-unavailable Semi/Only forms and zero-column end-to-end coverage retain their documented limits.
+C32 | Forced Map mode selects an unsupported algorithm for FULL JOIN
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c32-supported-map-join-kinds (244c9fa808fb)
+  Validation: 3 targeted checks; passed; tied to the branch executable
+C33 | Set-operation output column order follows the final arm
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c33-first-arm-column-order (b48c86eeb7c2)
+  Validation: 2 targeted checks; passed; tied to the branch executable
+C34 | Scalar tuple-valued aggregates are mistaken for AVG state
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c34-preserve-tuple-aggregate-results (80b8d1dcee88)
+  Validation: 10 targeted checks; passed; tied to the branch executable
+C35 | Ordinary AVG uses an incompatible accumulator for intervals
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c35-interval-average (545bae60730d)
+  Validation: 15 targeted checks; passed; tied to the branch executable
+C36 | Repeated ordinary ORDER BY keys fail physical type checking
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c36-order-sort-keys (49ca1046560e)
+  Validation: 4 targeted checks; passed; tied to the branch executable
+C37 | Window repartitioning leaves stale distribution metadata and breaks later grouping
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c37-window-distribution (bc9e6946f9d1)
+  Validation: 10 targeted checks; passed; tied to the branch executable
+C38 | Full outer joins advertise a false left-key distribution and break later grouping
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c38-full-join-distribution (62bdb6bf7ed7)
+  Validation: 12 targeted checks; passed; tied to the branch executable
+C39 | Full joins silently discard residual ON predicates when block joins are enabled
+  Status: Guard checks passed; see validation limits
+  Branch: fix/new-rbo/c39-require-residual-capability (416834fa9b1e)
+  Validation: 3 targeted checks; passed; tied to the branch executable
+  Verification limit: Correctness guard: unsupported residual FULL joins fail explicitly instead of silently dropping predicates; this branch does not implement residual FULL joins.
+C40 | Multiple JSON projections from one column fail compilation
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c40-decline-conflicting-olap-projections (a3f2d9824165)
+  Validation: 2 targeted checks; passed; tied to the branch executable
+C41 | Mixed read and write statements lose result bindings and fail task construction
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c41-preserve-mixed-query-results (c6a5904e300b)
+  Validation: 12 targeted checks; passed; tied to the branch executable
+C42 | Nested unions do not consistently widen branch types
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c42-widen-every-set-operation-edge (6eeadd50b057)
+  Validation: 2 targeted checks; passed; tied to the branch executable
+C43 | Focused physical lowering rejects supported composite expressions
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c43-lower-composite-compatibility (fd7ba4678acd)
+  Validation: 2 targeted checks; passed; tied to the branch executable
+C44 | Successful indexed INSERT can omit required index maintenance
+  Status: Guard checks passed; see validation limits
+  Branch: fix/new-rbo/c44-require-index-maintenance (329c771f34f9)
+  Validation: 3 targeted checks; passed; tied to the branch executable
+  Verification limit: Correctness guard: unsupported index-maintenance paths reject before execution, allowing normal legacy fallback. Forced no-fallback mode receives an error.
+C45 | Window expressions lose nested-field receivers
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c45-window-nested-members (6d8e86a79f54)
+  Validation: 6 targeted checks; passed; tied to the branch executable
+C46 | Conditional UPDATE is rejected by table-effect translation
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c46-route-conditional-update (43cf0cc6ab0a)
+  Validation: 7 targeted checks; passed; tied to the branch executable
+C47 | Explicit secondary-index reads are not imported
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c47-import-explicit-index-reads (54db45bef39b)
+  Validation: 12 targeted checks; passed; tied to the branch executable
+  Verification limit: All12 SQL semantic checks and the covering-index structural check pass on the exact amended branch. All51 direct production contracts (19 copy and32 covering-rule),796 assertions, pass under serial guards. Ordinary synchronous indexes are covered; specialized index families remain outside this fix. Covering elimination deliberately retains unsupported/shared/spilling lookup shapes.
+C48 | Indexed UPSERT is rejected when sink index maintenance is disabled
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c48-route-explicit-index-writes (35bc8b6938f4)
+  Validation: 9 targeted checks; passed; tied to the branch executable
+C49 | Incomplete lookup keys make residual LEFT JOIN reconstruction mix different rows
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/c49-preserve-lookup-identity (a2abaec9a49a)
+  Validation: 9 targeted checks; passed; tied to the branch executable
+  Verification limit: All9 targeted checks pass against the exact branch executable, including7 supplemental composite-identity and EXISTS/NOT EXISTS controls. Unsupported raw SEMI/ONLY frontend syntax remains outside the SQL coverage; the extra identity checks do not prove non-covering-index selection.
+C50 | Mixed numeric join keys can be shuffled before type normalization and lose matches
+  Status: Fix-specific semantic checks passed; separate failing controls remain tracked
+  Branch: fix/new-rbo/c50-gather-mixed-join-keys (946575513d23)
+  Validation: 62 targeted checks; acceptance remains open; tied to the branch executable
+  Verification limit: 73 distinct fix-specific records pass across the original and selected exact-branch runs, including repaired chains,8 uncorrelated membership variants and3 actual one-task gather observations. Eight original correlated failures expose separate C06 and remain unchanged; the4 old projection-name failures remain preserved and their repaired reruns pass. Public plans do not prove internal distribution annotations or shared-stage backpressure. Combined C06+C50 verification remains pending; both fixes stay independent main-based branches.
+  Scoped validation: 73 distinct fix-specific checks passed; 8 controls fail in the separately tracked C06.
+
+OPTIMIZATION QUALITY
+Q01 | General window frames repeatedly aggregate the whole frame.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q01-general-window-frames-repeatedly-aggregate-the-whole-frame (3e2a57e55955)
+  Verification limit: Source and model checks only. The scoped implementation covers COUNT, machine-integer SUM and admitted total-order scalar MIN/MAX across general ROWS/RANGE frames, including suffixes. Compilation, native semantics, cancellation and actual memory/work scaling remain pending. Unsupported types/functions keep their original fold. Mixed RANGE windows use two collectors and require explicit memory/latency acceptance.
+Q02 | Unused window results retain their complete execution pipeline.
+  Status: Semantics passed; optimization evidence pending
+  Branch: fix/new-rbo/q02-unused-window-results-retain-their-complete-execution-pipeline (1b50d28716f7)
+  Validation: 4 targeted checks; acceptance remains open; tied to the branch executable
+  Verification limit: Build and all 4 semantic checks pass. Optimization evidence is incomplete; preserve this pending status until the required structural checks pass.
+Q03 | An uncovered residual predicate prevents a selective index access path.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q03-an-uncovered-residual-predicate-prevents-a-selective-index-access-path (939173f5abcb)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q04 | An unfiltered bounded sort does not consider a matching secondary index.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q04-an-unfiltered-bounded-sort-does-not-consider-a-matching-secondary-index (a9df61306aa4)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q05 | Descending primary-key top-N loses row-store ordered-read pushdown.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q05-descending-primary-key-top-n-loses-row-store-ordered-read-pushdown (33bc67934dd9)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q06 | Lookup selection can choose a broad secondary-index prefix over a complete primary-key probe.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q06-lookup-selection-can-choose-a-broad-secondary-index-prefix-over-a-complete (864bd56c1abb)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q07 | Lookup costing and actual lookup eligibility disagree.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q07-lookup-costing-and-actual-lookup-eligibility-disagree (18eb64e0a7e1)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q08 | Filters apply earlier selectivity again to already-reduced estimates.
+  Status: Semantics and optimization evidence passed
+  Branch: fix/new-rbo/q08-filters-apply-earlier-selectivity-again-to-already-reduced-estimates (799af8215d79)
+  Validation: 2 targeted checks; passed; tied to the branch executable
+  Verification limit: Bounded paired SQL/plan contract passed; this does not establish a general runtime speedup.
+Q09 | Scalar aggregate cardinality is estimated as its input cardinality.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q09-scalar-aggregate-cardinality-is-estimated-as-its-input-cardinality (a3f90f2d1667)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q10 | Multiple DISTINCT aggregates duplicate deduplication of the same argument.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q10-multiple-distinct-aggregates-duplicate-deduplication-of-the-same-argument (efeebb38e72f)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q11 | Filters above UnionAll miss branch-local access-path optimization.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q11-filters-above-unionall-miss-branch-local-access-path-optimization (f9279dcfeac8)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q12 | Early peephole expansion prevents native JSON filter pushdown.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q12-early-peephole-expansion-prevents-native-json-filter-pushdown (a92df58f248c)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q13 | Bulk OLAP writes cannot retain parallel streaming sinks.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q13-bulk-olap-writes-cannot-retain-parallel-streaming-sinks (b0df3bf71706)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q14 | ReverseBlockJoin loses the CBO's shuffle directives.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q14-reverseblockjoin-loses-the-cbo-s-shuffle-directives (0600104a1fba)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q15 | Every window repartitions even when input partitioning is sufficient.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q15-every-window-repartitions-even-when-input-partitioning-is-sufficient (4e6d9217ef22)
+  Verification limit: Native correctness, distributed placement and eliminated-shuffle evidence remain pending. Reuse supports a proven partition subset through direct aliases and filters from Window or column storage; unproved producers retain repartitioning.
+Q16 | A wide row-store LIMIT disables the query-wide block engine.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q16-a-wide-row-store-limit-disables-the-query-wide-block-engine (36000459cb44)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q17 | Covering lookup indexes are rejected when outputs use implicit primary-key columns.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q17-covering-lookup-indexes-are-rejected-when-outputs-use-implicit-primary-key (a5a23189d946)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q18 | Fetched statistics are discarded when any table statistics already exist.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q18-fetched-statistics-are-discarded-when-any-table-statistics-already-exist (f27cc1474705)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q19 | A failure in the first statistics request discards later successful statistics.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q19-a-failure-in-the-first-statistics-request-discards-later-successful-statis (c261bd389b61)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q20 | Join statistics omit right-side aliases when applying hints.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q20-join-statistics-omit-right-side-aliases-when-applying-hints (49b33e196eef)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q21 | Positive LIMIT inside a correlated EXISTS becomes unnecessary window work.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q21-positive-limit-inside-a-correlated-exists-becomes-unnecessary-window-work (a15cf405bd25)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q22 | Focused scalar IN lowering expands large explicit collections linearly.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q22-focused-scalar-in-lowering-expands-large-explicit-collections-linearly (81b248477b23)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q23 | Original lookup keys stay in payloads after their last semantic use.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q23-original-lookup-keys-stay-in-payloads-after-their-last-semantic-use (183be021902e)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q24 | Range-enforced predicate columns remain projected for provenance alone.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q24-range-enforced-predicate-columns-remain-projected-for-provenance-alone (734379d38b24)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q25 | Map fusion drops the request to continue pushing definitions.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q25-map-fusion-drops-the-request-to-continue-pushing-definitions (1300a777c320)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q26 | Configured sequential-read concurrency is not forwarded.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q26-configured-sequential-read-concurrency-is-not-forwarded (c0e36684231f)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q27 | Shared nonterminal AST nodes are revisited during top-level SELECT collection.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q27-shared-nonterminal-ast-nodes-are-revisited-during-top-level-select-collect (72e17774d130)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+Q28 | Every successful rule restarts traversal and recomputes global properties.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q28-every-successful-rule-restarts-traversal-and-recomputes-global-properties (8089888107b1)
+  Verification limit: The scoped worklist and local output invalidation are implemented for three reviewed rules in two complete stages. Actual compilation, native semantics, excluded-effect controls and paired optimizer-work measurements remain pending. Unclassified rule effects and logical-boundary global analyses intentionally retain conservative invalidation.
+Q29 | Lookup filters can duplicate deterministic residual evaluation.
+  Status: Prepared; build and runtime verification pending
+  Branch: fix/new-rbo/q29-lookup-filters-can-duplicate-deterministic-residual-evaluation (73620db7e22c)
+  Verification limit: Source preparation only; compilation, native semantics and optimization evidence still required.
+
+ADDITIONAL CORRECTNESS FINDINGS FROM VERIFICATION
+F01 | Repeated DISTINCT aliases create duplicate Map definitions
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/f01-deduplicate-distinct-inputs (cb7a4189eea1)
+  Validation: 32 targeted checks; passed; tied to the branch executable
+  Verification limit: Standalone main-based acceptance uses ordinary and optional data; bare-Null physical DISTINCT additionally needs the separate C23 correction.
+F02 | Interval SUM uses an unsuitable physical accumulator
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/f02-normalize-interval-sums (1c4fd440a12e)
+  Validation: 88 targeted checks; passed; tied to the branch executable
+  Verification limit: All88 targeted checks pass on this independent branch, including ordinary/DISTINCT interval aggregation, nullable/empty inputs, final overflow and intermediate cancellation, row/block execution and multi-node controls. Physical-window paths use separate F03.
+F03 | Physical-window interval SUM uses an unsuitable accumulator
+  Status: Semantic checks passed
+  Branch: fix/new-rbo/f03-normalize-window-interval-sums (2a99d200829f)
+  Validation: 68 targeted checks; passed; tied to the branch executable
+  Verification limit: All68 physical-window interval SUM profiles pass on this independent branch, including Interval/Interval64, nullable and empty frames, cancellation and final overflow, running/finite/suffix and peer paths. Whole-partition windows rewritten as logical aggregates use separate F02.

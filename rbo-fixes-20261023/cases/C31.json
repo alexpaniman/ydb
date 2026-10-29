@@ -1,0 +1,216 @@
+{
+  "id": "C31",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c31-inline-before-sharing-expansion",
+  "commit": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp"
+  ],
+  "rationale": "Inline residual join filters before sharing expansion when channel spilling is disabled, while producers still have copyable logical representations.",
+  "checks": [
+    "git diff --check passed"
+  ],
+  "verification_plan": "Native row-join, retained-block residual, forced reconstruction and real lookup controls with exact row oracles and physical AST checks; source proof confirms the alleged post-CBO residual Lookup path is unreachable in this pipeline.",
+  "source_reassessment": "verification/C31-sharing-lifecycle-reassessment.json",
+  "additional_generator_module": "sharing_lifecycle_checks.py",
+  "additional_generator_modules": [
+    "sharing_lifecycle_checks",
+    "c31_identity_checks"
+  ],
+  "verification_limitation": "Verified changed identity construction, sharing order and initial lowering with 50 SQL semantic/guard records and 37 direct contracts (1442 checkpoints). Final serialized-plan lineage remains unproved; unsupported identities, nonrepeatable copied producers, frontend-unavailable Semi/Only forms and zero-column end-to-end coverage retain their documented limits.",
+  "amendments": [
+    {
+      "patch": "proposed-correctness-amendments/C31-scalar-row-identity.patch",
+      "sha256": "9ed0d81563d8dd825b28de0bbe71003d4b8263d92ce9ac1b8f90f3b8a7801f0b",
+      "source_commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "commit": "add2cf0b3d838963596676c952622e6995b9abf6"
+    }
+  ],
+  "archived_identity_scope": {
+    "status": "admitted_scalar_domain_prepared_remaining_types_open",
+    "source_report": "verification/C31-archived-row-identity-design.json",
+    "independent_review": "verification/C31-scalar-identity-independent-review.json",
+    "artifact_contracts": "verification/C31-scalar-identity-artifact-contracts.json"
+  },
+  "superseded_commits": [
+    {
+      "commit": "add2cf0b3d838963596676c952622e6995b9abf6",
+      "reason": "Add local copy-stability guard for order-sensitive reductions hidden behind scalar output types; reject eligibility-transition bypass."
+    }
+  ],
+  "copy_stability_amendment": {
+    "patch_sha256": "dd0d5369f0f0ae42655582be6e79424276cac7cea4d4da9e6bbbd7eb5a1d2801",
+    "independent_review": "verification/C31-copy-stability-independent-review.json",
+    "scope": "Local to join-filter reconstruction; preserve true shared evaluation; require stable reductions for copied producers and domain-deduplicated subplans.",
+    "native_controls_pending": true,
+    "left_query_controls_verified": true,
+    "unsupported_raw_join_syntax_profiles_preserved": true
+  },
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C31",
+    "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+    "exit_code": 0,
+    "elapsed_seconds": 149.2,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4632576,
+      "peak_scope_usage_bytes": 43177103360,
+      "minimum_host_available_bytes": 98053332992,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 148.9
+    },
+    "diagnostic_sha256": "fd9e538b5ef48e5597d9984cf2401cb92927e85cb48db7f88df4a40d7873eabd",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/24e1aae9a0677e8ed12f257a7944c50516e9cba4-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 50,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C31-24e1aae9a067-1792735900260575936.jsonl",
+    "finding_acceptance_passed": true,
+    "direct_local_contracts_required": true,
+    "direct_local_contracts_verified": true
+  },
+  "superseded_native_verification": [
+    {
+      "commit": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "native_verification": {
+        "checks": 146,
+        "checks_passed": false,
+        "evidence": "verification/guarded-fixed-C31-24e1aae9a067-1792733611342056896.jsonl"
+      },
+      "reason": "Raw SEMI/ONLY frontend profiles were unreachable; physical oracle omitted actual block and map join callable names."
+    },
+    {
+      "commit": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "native_verification": {
+        "checks": 33,
+        "checks_passed": false,
+        "evidence": "verification/guarded-fixed-C31-24e1aae9a067-1792735684274603205.jsonl",
+        "finding_acceptance_passed": false,
+        "direct_local_contracts_required": true,
+        "direct_local_contracts_verified": false
+      },
+      "reason": "Cancelled unamended run after artifact-application preflight failed; no records accepted."
+    }
+  ],
+  "direct_verification_preparation": {
+    "status": "production_closure_prepared",
+    "evidence": "verification/direct-capture-C31-1792738219665295894.json",
+    "receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+    "receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+    "generated_contracts_compiled": true
+  },
+  "direct_local_contract_amendment": {
+    "contracts": 33,
+    "generator_sha256": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9",
+    "evidence": "verification/C31-receipt-and-binding-artifacts-applied.json",
+    "status": "direct_local_contracts_passed",
+    "iterator_repair_evidence": "verification/C31-unit-map-iterator-artifacts-applied.json",
+    "latest_attempt": "verification/direct-run-C31-1793147369208959585.json"
+  },
+  "direct_verification_attempts": [
+    {
+      "evidence": "verification/direct-run-C31-1792739385607374412.json",
+      "status": "anonymous_compile_failed",
+      "reason": "Generated test used unavailable map front accessor; corrected iterator access retains all33 contracts.",
+      "diagnostic_evidence": "verification/C31-direct33-compile-diagnostic.json",
+      "accepted": false
+    },
+    {
+      "evidence": "verification/direct-run-C31-1792739858740946421.json",
+      "status": "anonymous_link_failed",
+      "compile_passed": true,
+      "reason": "Compiler driver tries to create a temporary response file for long production archive list; anonymous archive response adapter pending.",
+      "diagnostic_evidence": "verification/C31-link-driver-empty-input-diagnostic.json",
+      "accepted": false
+    },
+    {
+      "evidence": "verification/direct-run-C31-1793128069261166550.json",
+      "evidence_sha256": "00ac5c761bd702f02e8617127b5e985786c939e52ace7b3643812180bf7fc38f",
+      "status": "anonymous_link_failed",
+      "compile_passed": true,
+      "anonymous_archive_response_transport_passed": true,
+      "reason": "Anonymous archive responses removed the long-driver-command obstruction. Linking then failed at output-path creation; the independently reviewed stdout-to-memfd adapter is pending the idle boundary.",
+      "diagnostic_evidence": "verification/C31-direct-stage-diagnostic-1793128171454267406.json",
+      "accepted": false
+    },
+    {
+      "evidence": "verification/direct-harness-failure-C31-1793146364665476623.json",
+      "compile_passed": true,
+      "link_passed": true,
+      "native_worker_exit": 70,
+      "native_contracts_executed": false,
+      "accepted": false,
+      "reason": "Native worker raises OSError before any contract output; diagnostic class hash checked, errno diagnosis pending."
+    }
+  ],
+  "historical_verification_wording": [
+    "All50 reachable SQL semantic/guard and applicable physical checks pass against the exact executable. The33 direct C++ identity/reconstruction contracts compile, but linking and native execution remain pending, including internal LeftSemi/LeftOnly and zero-column cases. The anonymous archive-response adapter has passed independent source review and awaits application. Raw SEMI/ONLY syntax is rejected by the forced frontend;96 builder profiles and their failed records are preserved separately. Floating/composite/opaque keyless identities and volatile predicates remain unsupported. Exact shared-producer origin for domain spilling cases still needs dataflow confirmation."
+  ],
+  "scope_source_assessment": "verification/C31-scope-completion-source-review.json",
+  "direct_local_contract_attempts": [
+    "verification/direct-run-C31-1793143308642678199.json",
+    "verification/direct-run-C31-1793143528396588742.json",
+    "verification/direct-run-C31-1793143732776091474.json"
+  ],
+  "direct_link_failure_classification": "Resolved by graph-bound production version-object replay; actual link passed.",
+  "bounded_scope_observations": {
+    "evidence": "verification/guarded-C31-scope-observation-1793146590698833385.jsonl",
+    "checks": 2,
+    "semantic_and_existing_structural_checks_passed": true,
+    "exact_shared_field_lineage_proved": false,
+    "field_probe_limit": "switch_projection",
+    "float_inventory_limit": "ValueError",
+    "storage_payload_spill_cap_bytes": 1,
+    "rows": 24
+  },
+  "direct_local_contract_verification": {
+    "status": "direct_local_contracts_passed",
+    "evidence": "verification/direct-run-C31-1793147369208959585.json",
+    "evidence_sha256": "4fdbc5752b63be1bec5c435cb59c9edabf41a8cf145b7b835b7d519dd2018900",
+    "cases": 33,
+    "checks_executed": 1416,
+    "exact_production_closure_verified": true,
+    "native_guard_passed": true
+  },
+  "lexical_scope_observations": {
+    "evidence": "verification/guarded-C31-lexical-observation-1793148426841856297.jsonl",
+    "checks": 2,
+    "semantic_and_existing_structural_checks_passed": true,
+    "full_shared_lineage_admission": false,
+    "source_review_pending": true
+  },
+  "wide_scope_observations": {
+    "evidence": "verification/guarded-C31-wide-observation-1793149460058563909.jsonl",
+    "checks": 2,
+    "semantic_and_existing_structural_checks_passed": true,
+    "full_shared_lineage_admission": false,
+    "source_scope_assessment_pending": true
+  },
+  "verification_history": [
+    {
+      "status": "sql_and_direct_passed_scope_pending",
+      "direct_verification": null,
+      "verification_limitation": "All50 reachable SQL checks,2 bounded spilling observations and33 direct local production contracts pass with exact executable/closure provenance. Full shared-value-to-identity lineage remains unproved: the field observer does not yet recognize optimized switch projections. Raw frontend-rejected SEMI/ONLY profiles stay excluded; unsupported identities and nonrepeatable keyless residuals remain guarded."
+    }
+  ],
+  "direct_verification": {
+    "evidence": "verification/direct-run-C31-1793157890139265085.json",
+    "cases": 37,
+    "checks": 1442,
+    "checks_passed": true,
+    "exact_admission_passed": true
+  },
+  "bounded_correctness_acceptance": "verification/C31-bounded-correctness-acceptance-20261028.json"
+}

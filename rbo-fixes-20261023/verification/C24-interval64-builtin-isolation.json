@@ -1,0 +1,47 @@
+{
+  "controls": [
+    {
+      "mode": "new",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "diagnostic_source_locations": [
+        "ydb/tests/tools/kqprun/kqprun.cpp:327",
+        "yql/essentials/minikql/invoke_builtins/llvm16/mkql_builtins.cpp:259"
+      ],
+      "failure_category": "query or compilation error",
+      "generator_sha256": "b9ac29432685d4bbfb102a0e6753163e9f9de9c65f11c20516220659cd51a3e5",
+      "unsupported_builtin_signatures": [
+        "Interval64? AggrAdd(Interval64?, Interval64?)"
+      ]
+    },
+    {
+      "mode": "legacy",
+      "exit_code": 0,
+      "semantic_oracle_pass": true,
+      "diagnostic_source_locations": null,
+      "failure_category": null,
+      "generator_sha256": "b9ac29432685d4bbfb102a0e6753163e9f9de9c65f11c20516220659cd51a3e5",
+      "unsupported_builtin_signatures": []
+    }
+  ],
+  "binary_provenance_verified": true,
+  "build_receipt_sha256": "2d0e31386cdfb475b99a80deeaa5d88b2740bcbdd04d827d838062f4b246eae4",
+  "unchanged_executable": true,
+  "memory": {
+    "elapsed_seconds": 12.585,
+    "peak_scope_usage_bytes": 565981184,
+    "peak_group_rss_bytes": 565981184,
+    "minimum_host_available_bytes": 114632687616,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_membership_accounting_available": true,
+    "exit_code": 0,
+    "stdout_sha256": "0b66a85b2b50cba01a47bc92d2f4ce5d6bb6e176bd1a845acfc023bc79faaed3",
+    "stdout_bytes": 860,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic_bytes": 0
+  }
+}

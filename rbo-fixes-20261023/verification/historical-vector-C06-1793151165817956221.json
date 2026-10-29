@@ -1,0 +1,19 @@
+{
+  "C03_expanded_control_vector_present": false,
+  "C41_fullsuite_build_bound": false,
+  "automatic_full_finding_promotion": false,
+  "bug": "C06",
+  "build_receipt_sha256": "3bb21a66169e3e8610a9ee699fb30b18a35759d01b956651643f28b68d30fd71",
+  "checked_records": 5,
+  "exact_vector_passed": true,
+  "fullsuite_build_evidence": null,
+  "guard_sha256": "d961389b02637f0af32b9e8122fb70c4a15c340c4c77d1f9b8e97650453134cd",
+  "qualified_legacy_adapter_records": 2,
+  "qualified_status": "verified",
+  "remaining_qualifications": [
+    "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract.",
+    "Original mixed numeric correlated C50 profiles are excluded: unchanged four-node controls can require both C06 and C50; separate integration remains pending."
+  ],
+  "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+  "slice_sha256": "4c627f79273151b8d3de0270c34aaf50f8defa4d6e29d49542d5eed50bfbbf3e"
+}

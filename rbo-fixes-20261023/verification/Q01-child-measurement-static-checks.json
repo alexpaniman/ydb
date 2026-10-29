@@ -1,0 +1,17 @@
+{
+  "child_processes_launched": 0,
+  "cumulative_child_accounting_used": false,
+  "exact_child_wait4_calls": 2,
+  "guard_options_forwarded_without_override": true,
+  "guard_source_sha256": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+  "measurements_produced": 0,
+  "module_imported_or_executed": false,
+  "no_new_session_environment_cwd_or_rlimit_override": true,
+  "patch_sha256": "f4191c68677a6ae2451344b51a9f09f424930851bea8e261dab7fc941d8f4537",
+  "production_sources_modified": false,
+  "python_syntax_valid": true,
+  "status": "source_checks_only",
+  "workload_launch_sites": 1,
+  "workloads_executed": 0,
+  "wrapper_source_sha256": "99c8c9d0233475daf052aaeb1d4ad3d202906e058978dbf428d2088a92858cc1"
+}

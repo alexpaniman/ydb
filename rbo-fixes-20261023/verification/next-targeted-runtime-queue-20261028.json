@@ -1,0 +1,61 @@
+{
+  "status": "execution_queue_prepared_not_executed",
+  "serial_only": true,
+  "production_source_freeze_required": true,
+  "items": [
+    {
+      "bug": "C31",
+      "phase": "fixed",
+      "kind": "direct_cpp",
+      "count": 33,
+      "receipt": "verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+      "requires": "reviewed sealed readonly native executable adapter"
+    },
+    {
+      "bug": "C47",
+      "phase": "fixed",
+      "kind": "direct_cpp_prepare_then_run",
+      "count": 51,
+      "assertions": 796,
+      "revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+      "resource": {
+        "TOOL_ROOT": "/home/alexpaniman/.ya/tools/v4"
+      }
+    },
+    {
+      "bug": "C50",
+      "kind": "selected_semantics_and_gather_observations",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "rows": 24,
+      "cases": [
+        "c50_left_semi_uncorrelated",
+        "c50_left_anti_uncorrelated",
+        "c50_right_semi_uncorrelated",
+        "c50_right_anti_uncorrelated",
+        "c50_left_semi_uncorrelated_same_type_control",
+        "c50_left_anti_uncorrelated_same_type_control",
+        "c50_right_semi_uncorrelated_same_type_control",
+        "c50_right_anti_uncorrelated_same_type_control",
+        "c50_join_chain",
+        "c50_join_chain_se",
+        "c50_scope_direct_row",
+        "c50_scope_grouped_se",
+        "c50_scope_chain_se"
+      ],
+      "additional_generator_modules": [
+        "c50_gather_observation"
+      ],
+      "existing_C06_correlated_failure_records_remain_false": true
+    },
+    {
+      "bug": "C49",
+      "kind": "supplemental_identity_controls",
+      "additional_generator_modules": [
+        "c49_identity_controls"
+      ],
+      "revision": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+      "rows": 24,
+      "new_cases": 7
+    }
+  ]
+}

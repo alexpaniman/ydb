@@ -1,0 +1,203 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_metadata.py
++++ b/rbo-fixes-20261023/anonymous_cpp_metadata.py
+@@ -59,8 +59,48 @@
+     # Missing standalone inputs still reject during metadata capture.
+     suffixes = [suffix for suffix in EXPORT_SUFFIXES if export_objects or suffix != '.o']
+     return [PROFILES[profile]['target'], '--no-src-links', '--output=' + str(export_root),
+-            '--save-graph-to=' + str(graph_path), '--all-outputs-to-result',
++            '--all-outputs-to-result',
+             *['--add-result=' + suffix for suffix in suffixes]]
++
++
++def production_graph_arguments(build_arguments, graph_path):
++    # A successful graph-only command is not a successful production build.
++    return list(build_arguments) + ['--dump-json-graph', '--dump-graph-to-file=' + str(graph_path)]
++
++
++def production_configuration(arguments, workers):
++    # Bind the explicit guard configuration; do not claim an ambient-config snapshot.
++    return {'build_mode': 'relwithdebinfo', 'workers': workers,
++            'arguments': list(arguments),
++            'build_guard_sha256': digest_file(HERE / 'memory_safe_build.py')['sha256']}
++
++
++def validate_graph_export(build, graph_path, export_root, profile, revision):
++    graph_path = Path(graph_path).resolve()
++    build_path = graph_path.parent / 'build.json'
++    record_path = graph_path.parent / 'graph-export.json'
++    record = json.loads(record_path.read_bytes())
++    configuration = build.get('configuration', {})
++    workers = configuration.get('workers')
++    if type(build.get('broad_object_export')) is not bool:
++        raise MetadataError('graph_export_requires_recorded_object_export_policy')
++    expected_arguments = production_build_arguments(profile, export_root, graph_path,
++                                                   export_objects=build['broad_object_export'])
++    if (build.get('build_record_version') != 'production_cpp_build_v2'
++        or build.get('revision_before') != revision or build.get('revision_after') != revision
++        or build.get('memory', {}).get('watchdog_stopped') is not False
++        or workers != 8 or configuration != production_configuration(expected_arguments, workers)
++        or record.get('schema_version') != 'production_graph_export_v1'
++        or record.get('exit_code') != 0 or record.get('memory', {}).get('watchdog_stopped') is not False
++        or record.get('revision_before') != revision or record.get('revision_after') != revision
++        or record.get('profile') != profile or record.get('graph_path') != str(graph_path)
++        or json.loads(build_path.read_bytes()) != build
++        or record.get('build_record_sha256') != digest_file(build_path)['sha256']
++        or record.get('configuration') != configuration
++        or record.get('arguments') != production_graph_arguments(expected_arguments, graph_path)
++        or record.get('graph') != digest_file(graph_path)):
++        raise MetadataError('graph_export_does_not_match_successful_build')
++    return record, digest_file(record_path), digest_file(build_path)
+ 
+ 
+ def _replace(text, substitutions):
+@@ -513,13 +553,17 @@
+     if graph_path.stat().st_size > 512 * 1024 * 1024:
+         raise MetadataError('build_graph_exceeds_bounded_parser_limit')
+     graph_identity = digest_file(graph_path)
++    graph_export, graph_export_identity, build_identity = validate_graph_export(
++        build, graph_path, export_root, profile, revision)
+     metadata = extract_metadata(json.loads(graph_path.read_bytes()), worktree, export_root, profile, resources)
+     identities = {path: digest_file(path) for path in metadata.pop('files')}
+     if source_revision(worktree) != revision or digest_file(graph_path) != graph_identity:
+         raise MetadataError('production_inputs_changed_during_receipt')
+     return {'schema_version': VERSION, 'worktree': str(Path(worktree).resolve()),
+             'revision': revision, 'recorded_unix_ns': time.time_ns(),
+-            'build': build, 'graph': graph_identity, 'metadata': metadata, 'files': identities}
++            'build': build, 'build_record': build_identity, 'graph': graph_identity,
++            'graph_export': graph_export, 'graph_export_record': graph_export_identity,
++            'metadata': metadata, 'files': identities}
+ 
+ 
+ def verify_receipt(receipt, worktree, revision):
+@@ -538,4 +582,15 @@
+             raise MetadataError('production_closure_input_changed')
+     if digest_file(receipt['graph']['resolved_path']) != receipt['graph']:
+         raise MetadataError('production_build_graph_changed')
++    # Existing v1 receipts remain usable without fabricating historical binding.
++    # Newly captured receipts must retain both immutable lifecycle records.
++    if receipt['build'].get('build_record_version') is not None or 'graph_export_record' in receipt:
++        if (receipt['build'].get('build_record_version') != 'production_cpp_build_v2'
++            or not isinstance(receipt.get('build_record'), dict)
++            or not isinstance(receipt.get('graph_export_record'), dict)):
++            raise MetadataError('production_graph_lifecycle_records_missing')
++        if digest_file(receipt['build_record']['resolved_path']) != receipt['build_record']:
++            raise MetadataError('production_build_record_changed')
++        if digest_file(receipt['graph_export_record']['resolved_path']) != receipt['graph_export_record']:
++            raise MetadataError('production_graph_export_record_changed')
+     return True
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -20,7 +20,8 @@
+ 
+ from anonymous_cpp_guard import run_anonymous
+ from anonymous_cpp_metadata import (VERSION as CLOSURE_VERSION, MetadataError, digest_file, issue_receipt,
+-                                    production_build_arguments, source_revision, verify_receipt)
++                                    production_build_arguments, production_graph_arguments, production_configuration,
++                                    source_revision, verify_receipt)
+ 
+ HERE = Path(__file__).resolve().parent
+ GENERATORS = {'C31': 'c31_identity_cpp_generator', 'C47': 'c47_lookup_copy_contract_generator',
+@@ -99,18 +100,74 @@
+                                           export_objects=args.bug not in ('C31', 'C47'))
+     if any(any(char.isspace() for char in arg) for arg in arguments):
+         raise MetadataError('build_guard_argument_transport_rejects_whitespace_paths')
++    configuration = production_configuration(arguments, workers)
+     start = time.monotonic()
+     build, memory = run_build(args.worktree, ' '.join(arguments), workers)
+-    record = {'revision': expected, 'profile': profile, 'exit_code': build.returncode,
++    record = {'build_record_version': 'production_cpp_build_v2',
++              'revision': expected, 'revision_before': expected,
++              'revision_after': source_revision(args.worktree),
++              'profile': profile, 'exit_code': build.returncode,
+               'export_root': str(export_root), 'graph_path': str(graph_path),
+               'target': arguments[0], 'elapsed_seconds': round(time.monotonic() - start, 3),
+               'diagnostic_sha256': hashlib.sha256((build.stdout + build.stderr).encode()).hexdigest(),
+               'memory': memory, 'explicit_build_workers': workers,
+-              'broad_object_export': args.bug not in ('C31', 'C47')}
++              'broad_object_export': args.bug not in ('C31', 'C47'),
++              'configuration': configuration}
+     _write_json(directory / 'build.json', record)
+     if build.returncode:
+         return {'status': 'production_closure_build_failed', 'build_record': str(directory / 'build.json')}, 1
++    graph_record, graph_code = export_graph(args, directory / 'build.json')
++    if graph_code:
++        return graph_record, graph_code
+     return capture_closure(args, directory / 'build.json')
++
++
++def export_graph(args, build_record_path):
++    from memory_safe_build import run_build
++    expected = _expected_revision(args.bug, args.phase, args.worktree)
++    build_record_path = Path(build_record_path).resolve()
++    raw_build = build_record_path.read_bytes()
++    build = json.loads(raw_build)
++    profile = _closure_profile(args.bug)
++    configuration = build.get('configuration', {})
++    workers = configuration.get('workers')
++    graph_path = Path(build['graph_path']).resolve()
++    export_root = Path(build['export_root']).resolve()
++    if type(build.get('broad_object_export')) is not bool:
++        raise MetadataError('graph_export_requires_recorded_object_export_policy')
++    arguments = production_build_arguments(profile, export_root, graph_path,
++                                           export_objects=build['broad_object_export'])
++    if (build.get('build_record_version') != 'production_cpp_build_v2'
++        or build.get('exit_code') != 0 or build.get('memory', {}).get('watchdog_stopped') is not False
++        or build.get('revision') != expected or build.get('revision_before') != expected
++        or build.get('revision_after') != expected or build.get('profile') != profile
++        or build.get('target') != arguments[0] or workers != 8
++        or configuration != production_configuration(arguments, workers)
++        or source_revision(args.worktree) != expected):
++        raise MetadataError('graph_export_requires_matching_successful_build_configuration')
++    if build_record_path != graph_path.parent / 'build.json':
++        raise MetadataError('graph_export_build_record_location_mismatch')
++    command = production_graph_arguments(arguments, graph_path)
++    if any(any(char.isspace() for char in arg) for arg in command):
++        raise MetadataError('graph_export_argument_transport_rejects_whitespace_paths')
++    start = time.monotonic()
++    result, memory = run_build(args.worktree, ' '.join(command), workers)
++    record = {'schema_version': 'production_graph_export_v1', 'exit_code': result.returncode,
++              'profile': profile, 'revision_before': expected,
++              'revision_after': source_revision(args.worktree), 'graph_path': str(graph_path),
++              'configuration': configuration, 'arguments': command,
++              'build_record_sha256': hashlib.sha256(raw_build).hexdigest(), 'memory': memory,
++              'elapsed_seconds': round(time.monotonic() - start, 3),
++              'diagnostic_sha256': hashlib.sha256((result.stdout + result.stderr).encode()).hexdigest()}
++    if (result.returncode == 0 and not memory.get('watchdog_stopped')
++        and record['revision_after'] == expected and build_record_path.read_bytes() == raw_build
++        and graph_path.is_file()):
++        record['graph'] = digest_file(graph_path)
++    _write_json(graph_path.parent / 'graph-export.json', record)
++    if 'graph' not in record:
++        return {'status': 'production_graph_export_failed',
++                'build_record': str(build_record_path)}, 1
++    return {'status': 'production_graph_exported', 'graph': str(graph_path)}, 0
+ 
+ 
+ def capture_closure(args, build_record_path):
+@@ -539,14 +596,14 @@
+ def main():
+     parser = argparse.ArgumentParser()
+     sub = parser.add_subparsers(dest='command', required=True)
+-    for action in ('prepare', 'capture', 'run'):
++    for action in ('prepare', 'export-graph', 'capture', 'run'):
+         child = sub.add_parser(action)
+         child.add_argument('--worktree', type=Path, required=True)
+         child.add_argument('--bug', choices=sorted(GENERATORS), required=True)
+         child.add_argument('--phase', choices=('baseline', 'fixed'), required=True)
+-        if action in ('prepare', 'capture'):
++        if action in ('prepare', 'export-graph', 'capture'):
+             child.add_argument('--resource', action='append', default=[])
+-            if action == 'capture':
++            if action in ('export-graph', 'capture'):
+                 child.add_argument('--build-record', type=Path, required=True)
+         else:
+             child.add_argument('--receipt', type=Path, required=True)
+@@ -568,6 +625,8 @@
+             with serial_slot() as state:
+                 if args.command == 'prepare':
+                     evidence, code = prepare(args, state)
++                elif args.command == 'export-graph':
++                    evidence, code = export_graph(args, args.build_record)
+                 elif args.command == 'capture':
+                     evidence, code = capture_closure(args, args.build_record)
+                 else:

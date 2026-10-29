@@ -1,0 +1,68 @@
+{
+  "id": "C22",
+  "rationale": "Deduplicate physical wide-sort positions while preserving their first direction. Partition keys remain first; duplicates cannot affect within-partition ordering. Logical partition and peer key lists remain intact.",
+  "checks": [
+    "Inspected key construction and peer comparison consumers; implementation follows existing candidate with explicit hash-set include.",
+    "Parent commit matches pinned main.",
+    "git diff --check HEAD^ HEAD passed.",
+    "No builds or native runs; coordinated validation pending."
+  ],
+  "generator_labels": [
+    "duplicate-window",
+    "window-overlap"
+  ],
+  "expected_oracle": "Window results match those from equivalent unique physical sort keys, including peer rank and frame semantics.",
+  "controls": [
+    "Partition/order overlap",
+    "Repeated keys with opposing later directions",
+    "Aliases resolving to the same physical column",
+    "Distinct keys with ties and multiple partitions"
+  ],
+  "concerns": [
+    "Only physical sort-key emission changes; generated merge/peer behavior still needs native controls."
+  ],
+  "branch": "fix/new-rbo/c22-window-sort-keys",
+  "commit": "e67e82b03f5ece6469b879a25083fea8e5684f87",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp"
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C22",
+    "revision": "e67e82b03f5ece6469b879a25083fea8e5684f87",
+    "exit_code": 0,
+    "elapsed_seconds": 76.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4481024,
+      "peak_scope_usage_bytes": 43195846656,
+      "minimum_host_available_bytes": 109184372736,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 75.9
+    },
+    "diagnostic_sha256": "d5ec61b16476dcfaa4a0d2607fcfe10afe08379491b946defb43f6e644f155a9",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/e67e82b03f5ece6469b879a25083fea8e5684f87-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 4,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C22-e67e82b03f5e-1792728236533800143.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Native execution and compilation pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

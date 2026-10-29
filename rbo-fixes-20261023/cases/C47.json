@@ -1,0 +1,232 @@
+{
+  "id": "C47",
+  "branch": "fix/new-rbo/c47-import-explicit-index-reads",
+  "commit": "54db45bef39b3515bd662daefe9d10c8757e74db",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+    "ydb/core/kqp/opt/rbo/rules/propagate_limit_through_stage.cpp",
+    "ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+    "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp"
+  ],
+  "rationale": [
+    "Reuse legacy KqpRewriteIndexRead for implementation-table metadata and covering versus full-primary-key lookup selection.",
+    "Carry lowered index input in one trailing optional TKqpOpRead child; preserve requested output IDs and aliases when importing covering TOpRead or noncovering TOpTableLookup.",
+    "Restore physical primary-key order after legacy alphabetic read-payload normalization.",
+    "Preserve imported ranges and read settings through read reconstruction and physical export; initialize limit/sort properties and restrict rewrites that cannot retain storage restrictions.",
+    "Permit repeated plain imported index lookups to copy fresh fetched-column IUs and rebind ordered input keys. Decline join-mode, filtered, prefixed, source-recovery and chained lookup programs."
+  ],
+  "checks": [
+    "git diff --check passed",
+    "Expression node schema JSON parses",
+    "Source review traced legacy index helper, physical lookup key ordering, nullable key handling and read reconstruction sites",
+    "No builds or native execution by this agent",
+    "Compositional generator AST/import/schema and positive/negative semantic oracle checks passed at sizes 8,19,32; no native execution",
+    "Plain-lookup copy amendment independently source-reviewed against constructor defaults, recursive repeatability checks and two-pass IU rebinding; native shared-consumer coverage pending",
+    "Two-line lookup-key pointer move independently source-reviewed; actual guarded build/native verification pending.",
+    "Independently reviewed one-argument NYql::EStorageType qualification; same pinned-main parent, diff check passed; fresh build/native verification required."
+  ],
+  "generator_case_names": [
+    "c47_covering",
+    "c47_noncovering",
+    "c47_composite_primary_key",
+    "c47_nullable_primary_key",
+    "c47_nullable_index_key",
+    "c47_range_filter",
+    "c47_alias_join",
+    "c47_sorted_limit",
+    "c47_main_table_control"
+  ],
+  "expected_oracle_controls": [
+    "Explicit index query rows and labels match legacy.",
+    "Covering cases read implementation table without main lookup.",
+    "Noncovering cases use all primary-key fields in physical key order and retain nullable keys.",
+    "Range, alias/join and sorted-limit cases remain correct.",
+    "Unindexed ordinary read control unchanged."
+  ],
+  "concerns": [
+    "Compilation and native checks pending coordinated build.",
+    "Special vector/fulltext index families intentionally retain existing unsupported status; ordinary synchronous index path is the scope."
+  ],
+  "superseded_commits": [
+    "92a3aebcaa4858c945c9a56e929b5d2d4a030b58",
+    "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+    {
+      "commit": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "reason": "Reconsider explicit-index covering lookup after pruning; preserve separate original12 SQL and direct19 verification evidence."
+    }
+  ],
+  "amendments": [
+    {
+      "patch": "proposed-correctness-amendments/C47-copy-plain-index-lookups.patch",
+      "sha256": "a9ea5ed33aa4587d76c201d61bb003aaaa30d9a981fe12895343695fbbee8fa1",
+      "source_commit": "92a3aebcaa4858c945c9a56e929b5d2d4a030b58",
+      "commit": "535684543d798106b01872b81fe4bbbdea72a4de",
+      "checked_out_sources_edited": false
+    },
+    {
+      "patch": "proposed-correctness-amendments/C47-covering-import-after-pruning-20261028.patch",
+      "sha256": "39736f6f917dcb09a5edc726eb7618bd14228f0c93c39ab5324bfeef33a0702d",
+      "prior_commit": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "commit": "54db45bef39b3515bd662daefe9d10c8757e74db",
+      "independent_review": "verification/C47-covering-import-independent-source-review-20261028.json"
+    }
+  ],
+  "status_before_verification": "prepared_unverified",
+  "superseded_verification": [
+    {
+      "revision": "535684543d798106b01872b81fe4bbbdea72a4de",
+      "status": "build_failed",
+      "build_verification": {
+        "bug": "C47",
+        "revision": "535684543d798106b01872b81fe4bbbdea72a4de",
+        "exit_code": 1,
+        "elapsed_seconds": 449.8,
+        "target": "ydb/tests/tools/kqprun",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 4628480,
+          "peak_scope_usage_bytes": 14996848640,
+          "minimum_host_available_bytes": 100706091008,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": true,
+          "elapsed_seconds": 449.7
+        },
+        "diagnostic_sha256": "de25ae80d3ff313fa17e26e311f4029aeeab62345ec876bae39897309614f015"
+      },
+      "reason": "Correct single-use lookup key pointer value category for ChangeChild."
+    }
+  ],
+  "build_verification_history": [
+    {
+      "revision": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+      "build_record": "verification/C47-build-compiler-crash-1793139771883780.json",
+      "build_record_sha256": "14176ae4be0625ea6c36f1d0bd4c03400f2154056c70547f4e7bf251b8f3ddb9",
+      "classification": "compiler_SIGSEGV_on_unchanged_production_source",
+      "diagnosis": "verification/C47-compiler-crash-diagnosis-20261028.json"
+    },
+    {
+      "revision": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+      "build_record": "verification/C47-build-namespace-failure-a58066d3.json",
+      "build_record_sha256": "65f9844b21b06f04f1b73c2f422d59e97c99dd0a5365d199b81b06b2b86a42ba",
+      "classification": "wrong_namespace_enum_argument",
+      "repaired_in": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837"
+    }
+  ],
+  "verification_limitation": "All12 SQL semantic checks and the covering-index structural check pass on the exact amended branch. All51 direct production contracts (19 copy and32 covering-rule),796 assertions, pass under serial guards. Ordinary synchronous indexes are covered; specialized index families remain outside this fix. Covering elimination deliberately retains unsupported/shared/spilling lookup shapes.",
+  "historical_native_verification": [
+    {
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "build_verification": {
+        "bug": "C47",
+        "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+        "exit_code": 0,
+        "elapsed_seconds": 171.8,
+        "target": "ydb/tests/tools/kqprun",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 4538368,
+          "peak_scope_usage_bytes": 43351494656,
+          "minimum_host_available_bytes": 86644064256,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": true,
+          "elapsed_seconds": 171.6
+        },
+        "diagnostic_sha256": "1d250925635595687f9f6bf3071ca0fd7c0b17b1e1339e2a7db7b2170ee2a3bd",
+        "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837-0270cdce795d4724.json"
+      },
+      "native_verification": {
+        "checks": 12,
+        "checks_passed": false,
+        "evidence": "verification/guarded-fixed-C47-ebbd0e0aef61-1793144641136640364.jsonl",
+        "finding_acceptance_passed": false,
+        "direct_local_contracts_required": true,
+        "direct_local_contracts_verified": false
+      },
+      "status": "12_semantic_passes_1_covering_structure_failure"
+    }
+  ],
+  "build_verification": {
+    "bug": "C47",
+    "revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+    "exit_code": 0,
+    "elapsed_seconds": 156.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4542464,
+      "peak_scope_usage_bytes": 43231567872,
+      "minimum_host_available_bytes": 73637285888,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 156.3
+    },
+    "diagnostic_sha256": "d9d965f23fe952b37569dfd881d17de227d3b307619344b27752b914d2a7478e",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/54db45bef39b3515bd662daefe9d10c8757e74db-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 12,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C47-54db45bef39b-1793146957277760774.jsonl",
+    "finding_acceptance_passed": true,
+    "direct_local_contracts_required": true,
+    "direct_local_contracts_verified": true
+  },
+  "required_direct_local_contracts": {
+    "cases": 51,
+    "assertions": 796,
+    "lookup_copy_cases": 19,
+    "covering_rule_cases": 32,
+    "independent_review": "verification/C47-combined-direct-independent-review-20261028.json",
+    "native_pending": false
+  },
+  "direct_verification_preparation": {
+    "generated_contracts_compiled": true,
+    "input_count": 6274,
+    "receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/54db45bef39b-1793147648306259464/receipt.json",
+    "receipt_sha256": "30ab549105d700451f7ac151473e35506f1418131859678d76700bc0a90ad6cb",
+    "revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+    "status": "production_closure_prepared",
+    "evidence": "verification/direct-prepare-C47-1793147647867908890.json"
+  },
+  "direct_local_contract_verification": {
+    "status": "direct_local_contracts_passed",
+    "evidence": "verification/direct-run-C47-1793148171278692365.json",
+    "evidence_sha256": "db4be7ae68319cc93e26d8242702839540e32247ef383ed4bf9982891a4a1420",
+    "cases": 51,
+    "checks_executed": 796,
+    "exact_production_closure_verified": true,
+    "native_guard_passed": true
+  }
+}

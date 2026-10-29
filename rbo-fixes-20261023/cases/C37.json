@@ -1,0 +1,60 @@
+{
+  "id": "C37",
+  "branch": "fix/new-rbo/c37-window-distribution",
+  "commit": "bc9e6946f9d128036b13912fedafabb1bd9a206d",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp"
+  ],
+  "rationale": "Window metadata describes the partition keys that stage assignment actually uses rather than inheriting pre-window partitioning; keyless windows clear the old claim. The correct property is available before downstream metadata/CBO computation.",
+  "checks": [
+    "git diff --check passed",
+    "Source comparison with Window stage assignment and aggregate shuffle-elimination predicate; no build or native run"
+  ],
+  "generators": [
+    "rbo-fixes-20261023/distribution_checks.py:recipes(n), names prefixed c37_"
+  ],
+  "expected_oracle": "With four nodes and shuffle elimination enabled, post-window grouping has the relationally expected group cardinality and totals, matching legacy controls.",
+  "controls": [
+    "Shuffle elimination disabled",
+    "Window partition keys match downstream grouping",
+    "Keyless window gather",
+    "Multiple consecutive windows with different partition keys"
+  ],
+  "concerns": [
+    "Native multi-node verification required; a single task masks the original failure."
+  ],
+  "generator_oracle": "Independent relational formulas plus legacy comparison under four-node execution.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C37",
+    "revision": "bc9e6946f9d128036b13912fedafabb1bd9a206d",
+    "exit_code": 0,
+    "elapsed_seconds": 290.5,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 15425536,
+      "peak_scope_usage_bytes": 43363274752,
+      "minimum_host_available_bytes": 97277911040,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 290.2
+    },
+    "diagnostic_sha256": "c6c483128ed654b7666dfe7b68cc8c1bb95be7f471f5b66508fe66df5059e10d",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/bc9e6946f9d128036b13912fedafabb1bd9a206d-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 10,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C37-bc9e6946f9d1-1792738842457940930.jsonl"
+  }
+}

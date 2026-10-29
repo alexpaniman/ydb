@@ -1,0 +1,33 @@
+{
+  "status": "abstract_design_contracts_passed",
+  "production_commit": "c4a3cd163ec32e76c2557469378f89f22da3b5fc",
+  "patch_sha256": "8bdc88f6222ac1764cceabc3cad32433ef48803a74bdf07482b5fe9ac0da92b6",
+  "generator_sha256": "0432d71492a19bf83dd40d81d49534dcb328dce491ac70ef4776233600dbc130",
+  "contract_generator_sha256": "fa3ae72d6bcdb67f50ccdca48e226dda44edfb78f230077838ffac6882621ad0",
+  "production_files": 11,
+  "all_changes_within_kqp": true,
+  "interval_scenarios": 624,
+  "checked_frames": 47504,
+  "unbounded_following_scenarios": 40,
+  "mutation_classes_rejected": 2,
+  "capacity_arithmetic_assertions": 126,
+  "model_work_counters": {
+    "pushes": 13458,
+    "pops": 13450,
+    "comparisons": 14552,
+    "peak_candidates": 74
+  },
+  "range_comparator_semantics_tested": false,
+  "compiled_production_callable_tested": false,
+  "native_allocations_or_operation_counts_measured": false,
+  "compiler_or_native_processes_started": 0,
+  "rendered_test_inputs_persisted": false,
+  "limitations": [
+    "Abstract monotone interval and deque contracts only; production collection and runtime have not executed.",
+    "Memory tests verify proposed accounting arithmetic, not allocator integration or process RSS.",
+    "Finite RANGE bounds may still retain a whole peer group; this is frame-size-dependent memory, not a fixed row cap.",
+    "Mixed windows retain the existing second collector and can require additional following-bound lookahead.",
+    "Unbounded-following frames require an initial partition drain; this does not introduce a partition drain for bounded frames.",
+    "Excluded aggregate/value families retain their existing implementation; all admitted scalar MIN/MAX general frame shapes are covered by the design."
+  ]
+}

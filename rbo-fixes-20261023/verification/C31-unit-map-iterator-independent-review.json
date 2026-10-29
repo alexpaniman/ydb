@@ -1,0 +1,18 @@
+{
+  "status": "approved_source_only",
+  "reviewer": "root",
+  "patch_sha256": "5fb4b53d43d07bcb88115c25ac21868e7bb55762fda75d187a1a05ef77afeee9",
+  "checks": [
+    "TMappedIUs::Items returns a const map reference whose iterator exposes the mapped value through second.",
+    "The preceding Check(size == 1) throws and leaves the case body on failure, so an empty map cannot be dereferenced.",
+    "No map mutation occurs between the size assertion and begin dereference.",
+    "Only the unavailable accessor changes; all33 cases and assertion expectations remain.",
+    "Profile changes are limited to generator/source fingerprints and source byte count."
+  ],
+  "references": [
+    "worktrees/aggregate/ydb/core/kqp/opt/rbo/kqp_info_unit.h:720",
+    "c31_identity_cpp_generator.py:31",
+    "c31_identity_cpp_generator.py:249"
+  ],
+  "native_verification_pending": true
+}

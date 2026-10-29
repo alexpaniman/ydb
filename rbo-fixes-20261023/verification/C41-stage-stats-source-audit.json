@@ -1,0 +1,13 @@
+{
+  "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+  "reviewer": "harness_provenance",
+  "status": "source_contract_checked_no_current_empty_stats_overwrite_found",
+  "evidence": [
+    "GetExecutionJson emits no initial Stats object.",
+    "AddExecStatsToTxPlan creates node[Stats] only inside stages.FindPtr(StageGuid) success at ydb/core/kqp/opt/kqp_query_plan.cpp:3490.",
+    "Other transactions therefore omit those stage Stats rather than contributing empty objects.",
+    "Stage GUID keyed collection retains earlier maps while taking actual matching-stage stats from later transaction copies."
+  ],
+  "limitation": "CollectStageStats itself accepts any Stats value and would overwrite with an explicitly empty object if a future producer introduced one. No current producer path found; this is not a confirmed bug.",
+  "native_verified": false
+}

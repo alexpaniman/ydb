@@ -1,0 +1,12 @@
+{
+  "id": "C28",
+  "module": "window_distinct_projection_checks",
+  "generator_sha256": "437809c251fdb190110f656a78144f2160a28818daaf7a4695eb3d9f8f5d7bf4",
+  "profiles": 26,
+  "in_memory_renderings": 78,
+  "oracle_acceptances": 78,
+  "bag_oracle_mutations_rejected": 78,
+  "compiled": false,
+  "native_executed": false,
+  "generated_inputs_saved": false
+}

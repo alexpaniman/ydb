@@ -1,0 +1,45 @@
+{
+  "id": "C29",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c29-set-operation-stack",
+  "commit": "9f2e822f02204297e1aef990a2ce29310c7d438c",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "rationale": "Evaluate postfix set operations using a real operand stack so nested right operands preserve precedence.",
+  "checks": [
+    "git diff --check passed"
+  ],
+  "verification_plan": "Targeted native baseline/fixed checks plus existing tests.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C29",
+    "revision": "9f2e822f02204297e1aef990a2ce29310c7d438c",
+    "exit_code": 0,
+    "elapsed_seconds": 108.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4591616,
+      "peak_scope_usage_bytes": 43292901376,
+      "minimum_host_available_bytes": 107409481728,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 107.9
+    },
+    "diagnostic_sha256": "ecd571c3ae73fdfb067d9913b01a641c393e51409c93dfee05fac8f4d912235b",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/9f2e822f02204297e1aef990a2ce29310c7d438c-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 4,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C29-9f2e822f0220-1792733233371230259.jsonl"
+  }
+}

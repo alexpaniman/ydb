@@ -1,0 +1,173 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_metadata.py
++++ b/rbo-fixes-20261023/anonymous_cpp_metadata.py
+@@ -99,6 +99,35 @@
+             if candidate.is_dir():
+                 result[pattern] = str(candidate.resolve())
+     return result
++
++
++
++def audited_command_environment(raw, substitutions, platform):
++    if not raw:
++        return {}
++    names = {'ARCADIA_ROOT_DISTBUILD', 'CPATH', 'DYLD_LIBRARY_PATH', 'LIBRARY_PATH', 'SDKROOT'}
++    if (not isinstance(raw, dict) or set(raw) != names
++        or not isinstance(platform, str) or platform.casefold() != 'linux'
++        or any(not isinstance(value, str) for value in raw.values())
++        or any(raw[name] != '' for name in ('CPATH', 'LIBRARY_PATH', 'SDKROOT'))
++        or raw['ARCADIA_ROOT_DISTBUILD'] != '$(SOURCE_ROOT)'
++        or not re.fullmatch(r'\$\(CLANG-[0-9]+\)/lib:\$\(OS_SDK_ROOT-sbr:[0-9]+\)/usr/lib/x86_64-linux-gnu',
++                            raw['DYLD_LIBRARY_PATH'])):
++        raise MetadataError('selected_command_environment_requires_audit')
++    return {name: _replace(value, substitutions) for name, value in raw.items()}
++
++
++def require_non_input_tool_root(raw_arguments, raw_cwd, raw_environment):
++    # The installed compiler uses TOOL_ROOT only to normalize diagnostic/macro
++    # file names. A new input-path use must be audited before omitting its tree.
++    token = '$(TOOL_ROOT)'
++    allowed = {'-fdebug-prefix-map=$(TOOL_ROOT)=/-T', '-fmacro-prefix-map=$(TOOL_ROOT)/='}
++    # Response files could hide another input-path use from this raw audit.
++    if (any(value.startswith('@') for value in raw_arguments)
++        or any(token in value and value not in allowed for value in raw_arguments)
++        or token in (raw_cwd or '')
++        or any(token in value for value in (raw_environment or {}).values())):
++        raise MetadataError('tool_root_reference_requires_input_audit')
+ 
+ 
+ def _flatten(arguments, cwd):
+@@ -392,14 +421,15 @@
+                 str(value).endswith('/build/scripts/link_exe.py') for value in raw)
+             if not selected_compile and not selected_link:
+                 continue
++            environment = audited_command_environment(command.get('env'), substitutions,
++                                                      graph.get('conf', {}).get('platform'))
++            require_non_input_tool_root(raw, command.get('cwd'), command.get('env'))
+             args = [_replace(value, substitutions) for value in raw]
+             cwd = _replace(command.get('cwd') or '$(BUILD_ROOT)', substitutions)
+-            if command.get('env'):
+-                raise MetadataError('selected_command_environment_requires_audit')
+             if selected_compile:
+-                compiles.append((_normalize_paths(_unwrap(args, worktree, cwd, False), cwd), node.get('uid'), cwd))
++                compiles.append((_normalize_paths(_unwrap(args, worktree, cwd, False), cwd), node.get('uid'), cwd, environment))
+             if selected_link:
+-                links.append((_normalize_paths(_unwrap(args, worktree, cwd, True), cwd), node.get('uid'), cwd))
++                links.append((_normalize_paths(_unwrap(args, worktree, cwd, True), cwd), node.get('uid'), cwd, environment))
+     if len(compiles) != 1 or len(links) != 1:
+         raise MetadataError('selected_production_commands_are_ambiguous')
+     compile_args = compile_template(compiles[0][0], source)
+@@ -433,7 +463,11 @@
+     if not linker.is_file():
+         raise MetadataError('selected_lld_binary_unavailable')
+     files.add(str(linker))
+-    used_resources = {value for value in resources.values() if any(str(value) in arg for arg in compile_args + link_args)}
++    # TOOL_ROOT is a common cache ancestor, not a compiler input. Its only raw
++    # occurrences were checked above; retain every actual tool/SDK resource.
++    environment_values = list(compiles[0][3].values()) + list(links[0][3].values())
++    used_resources = {value for name, value in resources.items() if name != 'TOOL_ROOT'
++                      and any(str(value) in arg for arg in compile_args + link_args + environment_values)}
+     for root in used_resources:
+         for file in Path(root).rglob('*'):
+             if file.is_file():
+@@ -452,6 +486,8 @@
+     return {'profile': profile, 'target': definition['target'],
+             'compile_argv': compile_args, 'link_argv': link_args,
+             'compile_cwd': compiles[0][2], 'link_cwd': links[0][2],
++            'compile_environment': compiles[0][3], 'link_environment': links[0][3],
++            'tool_root_prefix_maps_only': True,
+             'compile_node_uid': compiles[0][1], 'link_node_uid': links[0][1],
+             'removed_test_inputs': sorted(removed), 'files': sorted(files),
+             'graph_output_count': len(generated), 'captured_generated_input_count': captured_generated,
+--- a/rbo-fixes-20261023/anonymous_cpp_guard.py
++++ b/rbo-fixes-20261023/anonymous_cpp_guard.py
+@@ -25,6 +25,18 @@
+ 
+ class AnonymousGuardError(Exception):
+     pass
++
++
++
++def _environment_overrides(value, compiler_environment):
++    value = {} if value is None else value
++    allowed = {'ARCADIA_ROOT_DISTBUILD', 'CPATH', 'DYLD_LIBRARY_PATH', 'LIBRARY_PATH', 'SDKROOT'}
++    if (not isinstance(value, dict) or any(key not in allowed for key in value)
++        or any(not isinstance(item, str) or '\0' in item for item in value.values())
++        or any(value.get(key, '') != '' for key in ('CPATH', 'LIBRARY_PATH', 'SDKROOT'))
++        or value and not compiler_environment):
++        raise AnonymousGuardError('unaudited_compiler_environment_override')
++    return dict(value)
+ 
+ 
+ def _worker(manifest_path):
+@@ -60,7 +72,11 @@
+             for key in tuple(env):
+                 if key.startswith(('CC_PRINT_', 'CC_LOG_')):
+                     env.pop(key)
++            env.update(_environment_overrides(spec.get('environment'), True))
++            # Audited input environment cannot override these output guards.
+             env.update({'LC_ALL': 'C', 'TMPDIR': '/proc/self/fd/anonymous-no-temp-directory'})
++        elif spec.get('environment'):
++            raise AnonymousGuardError('unaudited_compiler_environment_override')
+         output = opened[spec['stdout_fd']] if spec.get('stdout_fd') else None
+         result = subprocess.run(command, cwd=spec['cwd'], env=env,
+                                 stdout=output, pass_fds=tuple(opened.values()), check=False)
+@@ -88,7 +104,7 @@
+ 
+ def run_anonymous(argv, cwd, fds, *, stdout_fd=None, timeout=600,
+                   max_scope_gib=24, min_host_gib=36, retain_stdout=1024 * 1024,
+-                  compiler_environment=True, metrics_path=None):
++                  compiler_environment=True, metrics_path=None, environment=None):
+     """Return (sanitized process evidence, bounded RAM-only stdout).
+ 
+     Inputs are descriptor numbers owned by the caller. argv uses @FD:name@
+@@ -100,19 +116,21 @@
+         raise AnonymousGuardError('invalid_guard_parameters')
+     if any(not isinstance(fd, int) for fd in fds.values()):
+         raise AnonymousGuardError('invalid_descriptor_mapping')
++    environment = _environment_overrides(environment, compiler_environment)
++    environment_sha256 = hashlib.sha256(json.dumps(environment, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+     start = time.monotonic()
+     metrics = {'elapsed_seconds': 0, 'peak_scope_usage_bytes': 0,
+                'peak_group_rss_bytes': 0, 'minimum_host_available_bytes': available_memory(),
+                'max_scope_gib': max_scope_gib, 'min_host_available_gib': min_host_gib,
+                'watchdog_stopped': False, 'cleanup_complete': False,
+-               'scope_collection_after_completion': False}
++               'scope_collection_after_completion': False, 'environment_sha256': environment_sha256}
+     if metrics['minimum_host_available_bytes'] < (min_host_gib + 4) * GIB:
+         return dict(metrics, exit_code=75, watchdog_stopped=True,
+                     stop_reason='insufficient_starting_memory', cleanup_complete=True), b''
+     unit = 'rbo-direct-' + uuid.uuid4().hex[:12]
+     descriptor = os.memfd_create('rbo-direct-command', os.MFD_CLOEXEC)
+     manifest = {'argv': list(argv), 'cwd': str(Path(cwd).resolve()), 'stdout_fd': stdout_fd,
+-                'compiler_environment': compiler_environment,
++                'compiler_environment': compiler_environment, 'environment': environment,
+                 'fds': {name: '/proc/' + str(os.getpid()) + '/fd/' + str(fd)
+                         for name, fd in fds.items()}}
+     os.write(descriptor, json.dumps(manifest).encode())
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -299,8 +299,11 @@
+             from correctness_cpp_contract import profile_digest
+             evidence['direct_contract_profile_sha256'] = profile_digest(args.bug, revision)
+         compile_record, _ = run_anonymous(receipt['metadata']['compile_argv'], receipt['metadata']['compile_cwd'], fds,
+-                                          stdout_fd='object', timeout=args.compile_timeout)
++                                          stdout_fd='object', timeout=args.compile_timeout,
++                                          environment=receipt['metadata']['compile_environment'])
+         evidence['compile'] = compile_record
++        if compile_record.get('environment_sha256') != _json_digest(receipt['metadata']['compile_environment']):
++            raise MetadataError('compiler_environment_transport_mismatch')
+         if compile_record['exit_code']:
+             evidence['status'] = 'anonymous_compile_failed'
+             return evidence, 1
+@@ -310,8 +313,10 @@
+         link_argv = receipt['metadata']['link_argv'] + ([] if symbols is None else
+                     ['-Wl,--wrap=' + value for value in symbols.values()])
+         link_record, _ = run_anonymous(link_argv, receipt['metadata']['link_cwd'], fds, timeout=args.link_timeout,
+-                                       max_scope_gib=36)
++                                       max_scope_gib=36, environment=receipt['metadata']['link_environment'])
+         evidence['link'] = link_record
++        if link_record.get('environment_sha256') != _json_digest(receipt['metadata']['link_environment']):
++            raise MetadataError('linker_environment_transport_mismatch')
+         if link_record['exit_code']:
+             evidence['status'] = 'anonymous_link_failed'
+             return evidence, 1

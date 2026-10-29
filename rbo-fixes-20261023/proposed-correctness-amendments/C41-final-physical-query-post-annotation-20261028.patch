@@ -1,0 +1,26 @@
+diff --git a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+@@ -10,6 +10,7 @@
+ #include <util/generic/string.h>
+ #include <util/system/env.h>
+ 
++#include <yql/essentials/core/yql_expr_csee.h>
+ #include <yql/essentials/core/yql_expr_optimize.h>
+ #include <yql/essentials/utils/log/log.h>
+ 
+@@ -458,7 +459,13 @@
+     AddPlans(rboCtx.ExecutionJson, rboCtx.ExplainJson);
+     // The optimizer exports the complete physical query. Replacing nested result
+     // tuples would confuse their ownership with the enclosing query's effects.
+-    return TStatus::Ok;
++    // Final stage rebuilding can replace lambdas while reusing their bodies.
++    // Restore completion and canonicalization on the final closed query.
++    const auto status = UpdateCompletness(output, output, ctx);
++    if (status != TStatus::Ok) {
++        return status;
++    }
++    return EliminateCommonSubExpressions(output, output, ctx, false, *TypeCtx.ColumnOrderStorage);
+ } catch (const std::exception& e) {
+     ctx.AddError(ExceptionToIssue(e, ctx.GetPosition(input->Pos())));
+     return TStatus::Error;

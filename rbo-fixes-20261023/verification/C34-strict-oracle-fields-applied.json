@@ -1,0 +1,9 @@
+{
+  "bug": "C34",
+  "patch_sha256": "ca64768f023edeae1e0ad9f18b39c49df3d1276954f9a8357c775c20362d5ac9",
+  "before_sha256": "4eb669bedec2951d9e4a40158cafd4b333ff3484f7116a1ad277824163325af1",
+  "after_sha256": "dce4b13ca0adf238cb78ae5d6caf1ec12e7899ac969a33de4717c7bde4c92973",
+  "applied_at_idle_boundary": true,
+  "source_review_pass": true,
+  "native_pending": true
+}

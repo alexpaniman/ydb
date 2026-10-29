@@ -1,0 +1,130 @@
+Historical attribution challenge: highest-risk findings
+Reviewed HEAD: f746f5a75ca7846d2bcc422142d9329ec0064f94
+Scope: C01, C03, C06, C37, C39, C44, C49, C50, plus a narrow C09/C11 interaction check requested by the coordinator.
+Method: blame followed by original commit diff, parent implementation, and interacting-feature history. No historical builds or native bisection were run. "Source-traced introduction" identifies a defective mechanism in history; it does not assert that the present generated case was executable at that exact old revision. Names below are Git author metadata, not a claim of personal fault, sole ownership, or AI authorship. No emails or reproduction inputs are retained.
+
+C01 — Typed predicates copied across unlike join keys
+Source-traced mechanism introduction:
+7c422d3d0bfc3cf2970974c6e3667d3749dbaeff | 2026-07-09 | Pavel Velikhov
+[NEW RBO] Push constant condition on join key to both sides (#46050)
+The original diff introduces both the broad MaybeConstantCondition predicate classifier and the opposite-key ApplyRenames substitution. It has no type equality check or cast back to the expression's original key type. This is the same semantic omission as current C01.
+Additional affected-rule introduction:
+4c737c01104e1151bd2a7e9b41350092a3c35a83 | 2026-08-13 | Pavel Velikhov
+[NEW OPTIMIZER] Fix bugs in join filter processing (#49829)
+The simple join-filter rule contains a second copy of this behavior.
+Misleading last-line blame:
+026a4acc33c26deef68af9c271412cc5ff1095f8 | 2026-09-29 | alexpaniman
+[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+This changes containers and identifier APIs around the unsafe substitution. Its parent already does the same substitution without checking types. Do not call it the introduction merely because the current ApplyRenames line is attributed there.
+Confidence: high for mechanism introduction; historical runtime not bisected.
+
+C03 — DISTINCT and grouping-set expansion order
+Source-traced interaction introduction:
+9589d9b27518163f55722b2c5c8ba98dadd02594 | 2026-09-06 | Denis Khalikov
+[Optimizer] Expand rollup in rbo rule (#52313)
+This commit moves rollup from frontend per-grouping-set expansion into a GroupingSets operator and registers its expander in the same rule stage as DISTINCT expansion. The existing traversal visits children before the parent, so DISTINCT on the child aggregate runs first. The new grouping-set rule then builds every branch from that already-deduplicated input. Its parent frontend explicitly builds each grouping-set aggregate with that set's own keys, avoiding this particular wrong-granularity interaction.
+Preexisting component, not sufficient alone:
+5d68400dca1ba7c8fdcbbe725dae4a9d300ea4bc | 2026-06-09 | Denis Khalikov
+[Optimizer] Add distinct aggregation expander. (#42994)
+DISTINCT expansion itself predates the introduction of the problematic grouping-set boundary. The September SSA migration rewrites implementation details but does not originate the ordering error. Merely reordering entries in the rule list does not defeat postorder traversal.
+Confidence: high source-traced interaction boundary; no historical execution.
+
+C06 — Captured correlation type changes before serialized key matching
+Source-traced introduction:
+7ee9137a38b158fb733613e21e2d160003a7c324 | 2026-09-02 | Denis Khalikov
+[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+The initial domain-elimination implementation binds each captured dependency directly to the equal inner column, without requiring identical types or restoring the captured type. That same commit introduces StablePickle-based null-safe domain join keys. Thus both the type-changing substitution and its type-sensitive serialized consumer are present together in the initial decorrelation code.
+The September SSA migration changes dependency/capture bookkeeping and current binding syntax, but the original map binding already has the unsafe type substitution. The later nullable-intersection feature is unrelated to the origin of this correlation encoding interaction.
+Confidence: high source-traced mechanism introduction; no historical execution. Current native evidence uses an independent semantic oracle because legacy rejects the tested correlated shape.
+
+C37 — Window metadata incorrectly preserves pre-window distribution
+Source-traced interaction introduction:
+11ebdccf532442bc91e1c664403a677d55b2fd2b | 2026-09-10 | Denis Khalikov
+[Optimizer] Add initial support for window functions. (#52620)
+The added TOpWindow inherits IUnaryOperator without a metadata override, while its stage assignment repartitions by window keys. A downstream aggregate can consequently consume the inherited pre-window distribution. This defect is in the new operator's interaction with existing metadata consumers.
+Preexisting enabling consumer:
+852eb1781df7c52e7430d28f940ea3ba196e3be0 | 2026-08-31 | alexpaniman
+[NEW RBO] Eliminate shuffles in aggregates (#51500)
+Adds metadata-based aggregate shuffle elimination behind its original aggregate-specific setting.
+Exposure/configuration change:
+1fdceae385da9d885ecb9492507cf86362de993a | 2026-09-14 | alexpaniman
+[NEW RBO] Use SE for the aggregates unconditionally (#53070)
+Changes aggregate shuffle elimination to follow the general shuffle-elimination setting. It broadens exposure but does not introduce TOpWindow's stale property.
+Misleading blame:
+04a2a1c50ede1819db281133d128fa16d75bfe4c | 2025-12-03 | Pavel Velikhov
+[NEW RBO] Added metadata and statistics calculation to new RBO (#30009)
+The generic unary metadata copy long predates Window. It is valid for many unary operators, so attributing the Window bug solely to this old copy line is incorrect.
+Confidence: high source-traced interaction; current native verification requires shuffle elimination and partitioned execution.
+
+C39 — Full residual predicate retained for an unavailable block implementation
+Source-traced exact configuration mechanism:
+e687f7790e78179f93079bdbe2fcf42b3e5951b5 | 2026-08-20 | Pavel Velikhov
+[NEW OPTIMIZER] Disable join filter inlining (#50389)
+This diff explicitly skips residual inlining whenever the global block-join option is enabled, a non-lookup join has equijoin keys, and no actual per-kind block capability check is made. Full already selects scalar Grace because the block implementation supports only selected join kinds. Grace does not consume the retained residual. This establishes the exact mechanism present in C39.
+Earlier related precursor, exact exposure not established:
+84b63212775a250475b6fe397aa428fe25b9eb70 | 2026-08-13 | Pavel Velikhov
+[NEW OPTIMIZIER] Temporarily disable join inlining for all join implementations (#49923)
+Skips inlining if an equijoin condition remains inside JoinFilters. This may expose a similar omission, but the current failing family has extracted JoinKeys. Do not claim this earlier commit is the exact first failing revision without historical reachability verification.
+Supporting implementation boundary:
+4382787158e5fcddd09e0de7cf6a153c7ca0329f | 2026-07-15 | alexpaniman
+[NEW RBO] Show BlockHashJoin in explain (#46362)
+The actual block-capability restriction includes Inner/Left/LeftSemi/LeftOnly and excludes Full. That restriction represents supported algorithms rather than the faulty residual predicate decision.
+Later change, not initial cause:
+7fb688ddeee2b43220828fdbf0c5b19985cab7e1 | 2026-10-04 | Pavel Velikhov
+[NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)
+Adds the force-inlining exception to the already-existing global-block skip and changes scheduling. Current reproduction requires that exception to be disabled. Blaming only the latest conditional line would miss the August origin.
+Confidence: high for August exact mechanism; earlier August precursor remains a candidate rather than a proven earliest failure.
+
+C44 — Indexed INSERT accepted without required nonsink index writes
+Source-traced introduction of successful unsafe lowering:
+344f8fd79c22a14511219b7c22a7aa7f15a56d30 | 2026-09-24 | Pavel Velikhov
+[NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)
+The diff changes BuildSettings from accepting only ordinary effect variants to mapping indexed insert/update/upsert/delete variants onto ordinary sink modes. There is no corresponding nonsink index maintenance expansion. The parent BuildSettings rejects the indexed variants, so it cannot produce the same successful indexed write followed by missing maintenance through this route.
+Earlier infrastructure:
+b7945c07c68c68df76db3d787246eb3f895200f6 | 2026-09-07 | Pavel Velikhov
+[NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)
+Creates the base-sink effects infrastructure, but still rejects indexed variants in BuildSettings. It is not the introduction of the verified successful indexed INSERT omission.
+The parent of 344f8fd already has the query compiler's restricted ComputeAffectedIndexes support: ordinary synchronous indexes require stream index writes; compact index families have special sink support. Therefore downstream compiler history should not be assigned responsibility for this new path's failure to supply missing writes. Legacy explicitly expands nonsink index writes.
+Confidence: high source-traced transition from rejection to affected lowering. Current native confirmation covers noncompact fulltext and ordinary synchronous indexes with stream index writes disabled; other families remain separately qualified.
+
+C49 — Partial primary key advertised as unique and consumed as row identity
+Source-traced metadata-defect introduction:
+93ac68420d538bc9659cec81f915458e05c6ac0a | 2026-07-28 | Yesdaulet Izenov
+[NewRBO] Auto index select (#47915)
+The new TOpTableLookup::ComputeMetadata iterates all primary-key components but only appends those found among FetchColumns, then advertises that possibly incomplete list as KeyColumns. The same commit adds the noncovering index-to-main-table lookup path. It never checks that every original primary-key component survived. Current SSA-era code preserves this omission.
+Preexisting consumer/scheduling:
+e771af8fddfdf18624496f497d6167a1e348102f | 2026-07-17 | alexpaniman
+[NEW RBO] Inline join filters after CBO (#46665)
+Adds late residual inlining. The original July pipeline deliberately keeps key columns when this option is enabled, so an exact end-to-end introduction date cannot be inferred from July lookup metadata alone.
+Exposure changes:
+ace526f2d23b6c1a980cc3a01524467484aa4a3f | 2026-08-15 | Pavel Velikhov
+[NEW OPTIMIZER] CBO picks lookup joins correctly (#50095)
+Replaces the coupling between late inlining and early key preservation with EnablePruneKeyColumns and changes surrounding index/CBO stage order. This permits key pruning with late inlining under the relevant configuration.
+2bef7dc5e9eba990c818bf9d40e9cf71ead97249 | 2026-09-04 | alexpaniman
+[NEW RBO][PERF] Prune columns early to speedup TypeAnn during subplan handling (#52139)
+Adds an unconditional early pruning stage with primary-key pruning enabled, making a partial-key lookup input easier to reach independently of the old guard.
+Later 7fb688 changes the inlining flag's meaning/scheduling again. Neither that nor the September SSA migration is the first occurrence of the partial-key claim.
+Confidence: high for the July metadata defect; interaction-based exposure dates are source candidates, not a historical runtime bisect. Report metadata origin and later exposure separately, rather than assign the full current wrong-result chain to one person.
+
+C50 — Mixed numeric keys partitioned before compatible hashing/normalization
+This is a shared observed symptom, not evidence of a single shared introducing commit.
+New RBO source mechanism is present by:
+1d58575fc39a3d375a5dabb06fa51605e0986932 | 2026-03-24 | Denis Khalikov
+[NEW RBO] Add support to join on optional keys. (#36479)
+Introduces common-key type calculation and StrictCast maps inside the physical join builder. Stage assignment already uses original logical key columns for upstream shuffle connections, so these later maps cannot repair partition placement. The parent lacks these common-type preparation maps; whether it rejected or miscomputed every mixed-key family was not tested. Treat this as a source-traced point where the current late-normalization design is present, not a proven repository-wide earliest failure.
+Misleading modern blame:
+9293cd7151999a6fcb3498c0540dd087d18b5bd4 | 2026-05-12 | alexpaniman
+[NEW RBO] Enable Shuffle Elimination in new RBO (#37956)
+Current shuffle-construction lines are attributed here, but the February stage-assignment code already shuffles original keys. This commit is not the origin of original-key shuffling.
+Legacy path differs: ydb/library/yql/dq/opt/dq_opt_join.cpp can build and push key casts into upstream stages and remap shuffle keys. However it deliberately skips those remaps when block hash joins are used. The current verification configurations inherit UseBlockHashJoin=true, so a legacy failure does not prove that scalar legacy lowering has the same late-cast structure as new RBO.
+Legacy exposure candidate requiring historical native verification:
+2fd81e982c1aca687358e605804ed873a28ff835 | 2026-05-14 | Filitov Mikhail
+[BHJ] remove filternullmembers (#40283)
+Adds the !useBlockHashJoin guard around key-type remap creation in legacy DQ. This is a precise relevant historical change, but no old-revision execution or native algorithm-isolation test was performed here. Do not identify it as a proven earliest legacy regression.
+The current bug remains valid and explicitly shared with legacy. Its earliest historical introduction remains uncertain across the two pipelines; preserve that uncertainty instead of inferring a common author from similar helper code.
+
+ADDITIONAL C09/C11 INTERACTION CHECK
+The coordinator's proposed multi-commit attribution is supported by the diffs. d568eb8afcec reconstructs TKqpInSublink without carrying the source policy/settings. 10b439 establishes plain Bool for IN at both earlier sublink annotation and the RBO subplan context. The initial decorrelation commit 7ee9137a38b158fb733613e21e2d160003a7c324 later adds explicit three-valued generic IN mark construction. Thus producer-policy loss and a plain-Bool contract predate the backend behavior exposing the exact current compatibility/fallback failures. A single last-line or oldest-line author is not a complete introduction account.
+
+FINAL ATTRIBUTION GUIDANCE
+Use the source-traced introductions for C01/C03/C06/C37/C39/C44 with their stated feature interactions and conditions. For C49, separate defective metadata origin from later key-pruning exposure. For C50, keep new-path design history and legacy exposure candidate separate, with earliest regression unknown. Do not tally all current lines attributed to the large SSA migration as bugs introduced by that migration. None of this evidence establishes whether any code was written with an AI assistant.

@@ -1,0 +1,64 @@
+{
+  "id": "C44",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c44-require-index-maintenance",
+  "commit": "329c771f34f97af659cf4d78af1e6c54226deb3e",
+  "status": "verified_guard",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "rationale": "Decline table effects before execution when their indexes need maintenance absent from the current sink. Normal fallback can execute the legacy implementation; forcing new RBO without fallback receives an error instead of corrupting indexes.",
+  "checks": [
+    "git diff --check passed"
+  ],
+  "verification_plan": "Check explicit rejection in forced no-fallback mode; enable normal fallback and verify both base and index contents; retain sink-supported ordinary/compact controls.",
+  "verification_limitation": "Correctness guard: unsupported index-maintenance paths reject before execution, allowing normal legacy fallback. Forced no-fallback mode receives an error.",
+  "build_verification": {
+    "bug": "C44",
+    "revision": "329c771f34f97af659cf4d78af1e6c54226deb3e",
+    "exit_code": 0,
+    "elapsed_seconds": 97.8,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4653056,
+      "peak_scope_usage_bytes": 43064995840,
+      "minimum_host_available_bytes": 69767827456,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 97.6
+    },
+    "diagnostic_sha256": "d9d965f23fe952b37569dfd881d17de227d3b307619344b27752b914d2a7478e",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/329c771f34f97af659cf4d78af1e6c54226deb3e-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 3,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C44-329c771f34f9-1793152071715190394.jsonl"
+  },
+  "status_before_verification": "verified_guard",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "31e445e53e232ce091d5e38fbab27cee9982e76da0fbe9dbf2aa8bb72e9b32cd"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C44-1793152089367367645.json",
+    "coverage_evidence_sha256": "151bfd76ee937c8f5bd4c43a0fca2813d2a03bd61ffded3a0d7e1f5c52a992b1",
+    "remaining_qualifications": [
+      "This is guard/routing coverage. Forced no-fallback must reject at target; enabled fallback is legacy execution, not unsupported new-RBO effect support."
+    ]
+  }
+}

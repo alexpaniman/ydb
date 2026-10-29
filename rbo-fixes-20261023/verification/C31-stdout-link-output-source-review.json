@@ -1,0 +1,86 @@
+{
+  "status": "prepared_source_only_pending_independent_review_and_execution",
+  "bug": "C31",
+  "patch": "proposed-correctness-amendments/C31-stdout-link-output-artifacts.patch",
+  "patch_sha256": "5af59db821a70dee6de37537498c20d9cc6c5cb4200c70114dfb175744b26402",
+  "source_before_sha256": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+  "source_after_sha256": "119173e63877f216b520313051eb3bc74ce73aaf5dfc9f6d2ef07f2b79ed9acb",
+  "receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "observed_output_selector_count": 1,
+  "observed_expected_output_placeholder_count": 1,
+  "failure_evidence": "verification/direct-run-C31-1793128069261166550.json",
+  "sanitized_diagnostic_evidence": "verification/C31-direct-stage-diagnostic-1793128171454267406.json",
+  "diagnosis": {
+    "supported_mechanism": "LLD output writability preflight constructs a one-byte FileOutputBuffer without F_no_mmap, so it attempts a sibling temporary path even when final writing is configured no-mmap. Stdout explicitly bypasses this preflight and commits from an in-memory buffer.",
+    "actual_failure_matches_source_message": true,
+    "exact_failed_output_path_observed": false,
+    "installed_resource_family": "LLD20, mapped from sbr:9766798141",
+    "exact_vendor_revision_not_established": true,
+    "diagnosis_is_source_supported_inference": true
+  },
+  "change_scope": [
+    "Require exactly the single normalized executable output selector from the receipt.",
+    "Change only that output value to the linker stdout convention.",
+    "Redirect link stdout through existing guard to the already-open executable memfd.",
+    "Keep production inputs, archive ordering, compiler/linker environment, no-mmap flag, memory limits and diagnostics policy unchanged.",
+    "Bind original/adapted templates with hashes; retain transport metadata on rejected stages."
+  ],
+  "source_references": [
+    {
+      "path": "worktrees/aggregate/build/platform/lld/lld20.json",
+      "line": 13
+    },
+    {
+      "path": "anonymous_cpp_guard.py",
+      "line": 79
+    },
+    {
+      "path": "worktrees/aggregate/contrib/libs/llvm18/lib/Support/FileOutputBuffer.cpp",
+      "line": 94
+    },
+    {
+      "path": "worktrees/aggregate/contrib/libs/llvm18/lib/Support/FileOutputBuffer.cpp",
+      "line": 159
+    },
+    {
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-20.1.8/lld/Common/Filesystem.cpp",
+      "lines": [
+        117,
+        123
+      ]
+    },
+    {
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-20.1.8/lld/ELF/Driver.cpp",
+      "lines": [
+        1779,
+        1786
+      ]
+    },
+    {
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-20.1.8/llvm/lib/Support/FileOutputBuffer.cpp",
+      "lines": [
+        83,
+        87,
+        145,
+        148
+      ]
+    }
+  ],
+  "checks": {
+    "temporary_copy_patch_application": true,
+    "python_syntax_parse": true,
+    "actual_link_recipe_selector_check": true,
+    "live_helper_changes": false,
+    "native_runs": 0,
+    "compiler_runs": 0,
+    "linker_runs": 0,
+    "mock_runs": 0,
+    "rendered_repros_saved": false,
+    "generated_source_objects_binaries_or_raw_diagnostics_saved": false
+  },
+  "remaining": [
+    "Independent source review of exact patch.",
+    "Actual guarded link and native execution.",
+    "No C31 query correctness acceptance follows from this adapter alone."
+  ]
+}

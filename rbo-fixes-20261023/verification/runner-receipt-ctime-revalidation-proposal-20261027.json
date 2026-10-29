@@ -1,0 +1,50 @@
+{
+  "schema_version": "dormant_source_proposal_v1",
+  "recorded_unix_ns": 1793134103271610713,
+  "status": "prepared_source_only_not_applied_or_executed",
+  "patch": "proposed-correctness-amendments/runner-receipt-ctime-revalidation.patch",
+  "patch_sha256": "45a32322b03746ef772feddd7de00455782f30f863a8ebbd0d3dd3367f5d8115",
+  "files": [
+    "binary_provenance.py",
+    "binary_provenance_contracts.py"
+  ],
+  "source_before_sha256": {
+    "binary_provenance.py": "c8816180730bd91df65d35143cd8da9136734ebe222c34607d5d06632f4c1ca6"
+  },
+  "source_after_sha256": {
+    "binary_provenance.py": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c",
+    "binary_provenance_contracts.py": "e5c39e5b23de72cb2c650ab28bbe1e980c2808defeafdacf119e2ca40926c6ab"
+  },
+  "motivating_evidence": "verification/C31-runner-metadata-recheck-20261027.json",
+  "motivating_evidence_sha256": "06ebadd96a40c2a8c14fec178429c4c94e0a3db9ef485a8d73c8478ad304db35",
+  "receipt_sha256": "d91df7ee293b86784a202fed76147ec4fb36d3a01ce22f7959d8b4551791799a",
+  "receipt_content_rechecked": true,
+  "evidence_snapshot_differences_confirmed": [
+    "ctime_ns"
+  ],
+  "actual_binary_content_hash_performed_by_root": true,
+  "actual_binary_content_hash_performed_by_this_agent": false,
+  "invariants": [
+    "A successful exact-revision receipt remains mandatory.",
+    "Complete receipt identity fields and valid integer ctime remain mandatory.",
+    "Exact SHA256, resolved path, device, inode, size and mtime must still match.",
+    "fingerprint_binary retains strict ctime and all identity checks during and immediately after hashing.",
+    "Returned provenance contains the freshly measured full identity; later per-query checks continue to reject ctime changes.",
+    "Receipt bytes/schema/hash are never rewritten by verification.",
+    "The allowed ctime difference is explicit in comparison-version and ctime-difference fields.",
+    "Historical13 cases without exact executable receipt-bound evidence still require their reruns."
+  ],
+  "regression_scope": [
+    "Exact snapshot and ctime-only snapshot acceptance",
+    "Every non-ctime identity/content mismatch rejects",
+    "Missing/extra identity fields, invalid ctime and unsuccessful/wrong receipts reject",
+    "Current identity is retained for subsequent ctime-sensitive checks",
+    "Changes during hashing and final path recheck still reject"
+  ],
+  "source_ast_parse_passed": true,
+  "regression_contracts_executed": false,
+  "production_or_live_helper_edits": false,
+  "builds": 0,
+  "native_runs": 0,
+  "raw_workload_material_saved": false
+}

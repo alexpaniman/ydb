@@ -1,0 +1,41 @@
+{
+  "controls": [
+    {
+      "exit_code": 0,
+      "semantic_oracle_pass": true,
+      "diagnostic_source_locations": null,
+      "mode": "legacy",
+      "key_family": "bare_null"
+    },
+    {
+      "exit_code": 1,
+      "failure_category": "query or compilation error",
+      "diagnostic_source_locations": [
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:466",
+        "ydb/tests/tools/kqprun/kqprun.cpp:327"
+      ],
+      "mode": "new",
+      "key_family": "nonnullable_integer",
+      "result_oracle_applicable": false
+    }
+  ],
+  "binary_provenance_verified": true,
+  "unchanged_executable": true,
+  "memory": {
+    "elapsed_seconds": 12.561,
+    "peak_scope_usage_bytes": 548093952,
+    "peak_group_rss_bytes": 547860480,
+    "minimum_host_available_bytes": 114175422464,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_membership_accounting_available": true,
+    "exit_code": 0,
+    "stdout_sha256": "03aa8a40e74b4d8a7d02b6a57a23997eaf727716593c6e43d6b9cfb950472897",
+    "stdout_bytes": 498,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic_bytes": 0
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "status": "read_only_stat_preflight_not_content_verification",
+  "observed_unix_time": 1793135844.4457805,
+  "receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "input_count": 6274,
+  "missing_inputs": 0,
+  "changed_non_ctime_identity_count": 0,
+  "ctime_change_count": 3304,
+  "total_input_bytes": 35631833773,
+  "content_hashes_recomputed": false,
+  "native_verification": false
+}

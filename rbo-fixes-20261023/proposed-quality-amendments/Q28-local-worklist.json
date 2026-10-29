@@ -1,0 +1,25 @@
+{
+  "id": "Q28",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "architectural_step_proposed_partial_unverified",
+  "patch_sha256": "8a42b5698e16cbf3f4ef1824061657acf539f5416b995ac881d49ad050df192e",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo.h",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.cpp"
+  ],
+  "apply_check_passed": true,
+  "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "compiled": false,
+  "native_verified": false,
+  "production_edited": false,
+  "scope": "Explicit bounded-region worklist and local output-IU refresh for right-join and Map-push stages.",
+  "remaining_limits": [
+    "All unreviewed rule effects retain full conservative restart/invalidation.",
+    "No incremental types, metadata, statistics, parents or liveness.",
+    "Opaque CBO, physical stages and distinct raw owning slots reject the worklist.",
+    "A fresh final conservative pass remains mandatory.",
+    "Trace plan serialization costs are unchanged."
+  ]
+}

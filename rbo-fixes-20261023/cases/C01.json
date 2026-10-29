@@ -1,0 +1,91 @@
+{
+  "id": "C01",
+  "branch": "fix/new-rbo/c01-preserve-predicate-types",
+  "commit": "40a5bea4e432b65845052aacbd104b642ffc8df1",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_utils.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_utils.h",
+    "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp"
+  ],
+  "rationale": "Require identical annotated join-key types before substituting a predicate onto the opposite input. Both WHERE and residual ON propagation paths share the check; simple join-filter rewriting now requests type annotations. Same-type propagation remains enabled.",
+  "checks": [
+    "git diff --check passed",
+    "Inspected both propagation directions in both rules",
+    "Confirmed dedicated branch parent is the recorded base; no build/native execution"
+  ],
+  "generator_cases": [
+    "c01_mixed_where_left",
+    "c01_mixed_where_right",
+    "c01_mixed_on_left",
+    "c01_mixed_on_right",
+    "c01_same_where",
+    "c01_same_on"
+  ],
+  "expected_oracle_controls": [
+    "Mixed signed/unsigned key inputs must match legacy values and row counts",
+    "Same-type key control must retain predicate propagation",
+    "Exercise both WHERE-derived and ON-derived filters"
+  ],
+  "concerns": [
+    "Same-type expression congruence for unusual representation-sensitive operators is outside this reported unequal-type failure.",
+    "Generator syntax and oracle helpers checked; native path reachability remains unverified."
+  ],
+  "generator_module": "rbo-fixes-20261023/logical_checks.py",
+  "build_verification": {
+    "bug": "C01",
+    "revision": "40a5bea4e432b65845052aacbd104b642ffc8df1",
+    "exit_code": 0,
+    "elapsed_seconds": 282.2,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 15724544,
+      "peak_scope_usage_bytes": 43306651648,
+      "minimum_host_available_bytes": 66311684096,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 281.8
+    },
+    "diagnostic_sha256": "d9d965f23fe952b37569dfd881d17de227d3b307619344b27752b914d2a7478e",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/40a5bea4e432b65845052aacbd104b642ffc8df1-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 6,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C01-40a5bea4e432-1793149970123876738.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Runtime and build verification pending root-coordinated source freeze.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ],
+  "status_before_verification": "verified",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "7355237c5f24a406b91dc572a8f270a9d0a80d48340a2400bf4639e3920dfe44"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C01-1793149997671994676.json",
+    "coverage_evidence_sha256": "ef58c5cebd556477299d5d1b0b9bded5aa70245af0077ff6f2f10fe718014b77",
+    "remaining_qualifications": []
+  }
+}

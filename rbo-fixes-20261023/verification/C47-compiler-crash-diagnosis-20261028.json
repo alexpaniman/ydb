@@ -1,0 +1,139 @@
+{
+  "build": {
+    "bug": "C47",
+    "diagnostic_sha256": "0eaccace790348e3bce82aa835523018a96932776479f7e310795cdd52052207",
+    "elapsed_seconds": 11465.7,
+    "exit_code": 1,
+    "memory": {
+      "elapsed_seconds": 11465.7,
+      "explicit_build_workers": 8,
+      "minimum_host_available_bytes": 86898700288,
+      "peak_group_rss_bytes": 4538368,
+      "peak_scope_usage_bytes": 18116554752,
+      "requested_cgroup_memory_high_gib": 56,
+      "requested_cgroup_memory_max_gib": 72,
+      "scheduler_memory_threshold": "40GB",
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "watchdog_max_scope_usage_gib": 52,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_stopped": false
+    },
+    "revision": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+    "target": "ydb/tests/tools/kqprun"
+  },
+  "conclusion": "A single clang++ compile process terminated with SIGSEGV and no captured stderr. The cause inside the compiler is undetermined. No C++ source diagnostic or native test failure was observed.",
+  "date": "2026-10-28",
+  "failed_node": {
+    "build_root": "/home/alexpaniman/.ya/build/build_root/1rmp/00810c",
+    "diagnostic": "failed with -11 exit code: no strderr was provided",
+    "exit_code": -11,
+    "failed_node_core_or_stderr_artifact_found": false,
+    "failed_node_object_found": false,
+    "finish_log_time": "2026-10-28 01:21:41.044",
+    "node_elapsed_seconds": 11.888,
+    "nonzero_completed_nodes_in_build_log": 1,
+    "output": "ydb/core/kqp/gateway/behaviour/external_data_source/manager.cpp.o",
+    "pid": 3716894,
+    "signal": "SIGSEGV",
+    "source": "ydb/core/kqp/gateway/behaviour/external_data_source/manager.cpp",
+    "start_log_time": "2026-10-28 01:21:29.156",
+    "uid": "fXw47hFwa08HMid66criDA"
+  },
+  "memory_interpretation": {
+    "assessment": "Observed evidence does not identify a watchdog stop or kernel OOM kill; exit -11 differs from a SIGKILL termination.",
+    "contemporaneous_kernel_oom_or_clang_segfault_record_found": false,
+    "kernel_log_observation": "The visible OOM record was from October 24 and another Python process. No record matching the failed PID or build failure time was observed.",
+    "limitation": "Scope cgroup accounting was unavailable. Reported RSS and host availability do not prove the absence of all memory-related faults.",
+    "minimum_reported_host_available_gib": 80.931,
+    "peak_reported_scope_usage_gib": 16.872,
+    "scope_cgroup_accounting_available": false,
+    "watchdog_stopped": false
+  },
+  "primary_log": {
+    "diagnostic_line": 105355,
+    "failure_line": 105294,
+    "path": "/home/alexpaniman/.ya/logs/2026-10-27/22-11-46.gaq5b0ihjv6mhysa.log",
+    "start_line": 105273
+  },
+  "prior_success_evidence": {
+    "direct_prior_local_compilation_not_established": true,
+    "exported_object_closures": [
+      "24e1aae9a067-1792734238452891205",
+      "24e1aae9a067-1792734650324765793"
+    ],
+    "matching_exported_object_bytes": 5409776,
+    "matching_exported_object_sha256": "0d5fcb074c80b9a0bd75b1ad8b48c36cb4065e9da6d86f26e18f747a65030a73",
+    "prior_logs": [
+      {
+        "path": "/home/alexpaniman/.ya/logs/2026-10-23/08-43-58.zowdvvcrkn34p3wj.log",
+        "result_success_line": 97623
+      },
+      {
+        "path": "/home/alexpaniman/.ya/logs/2026-10-23/08-50-50.s7u5iyikf5ezgkzo.log",
+        "result_success_line": 49769
+      }
+    ],
+    "same_uid_cached_result_success": true
+  },
+  "recommendation": {
+    "action": "After the active C31 verification finishes, make one ordinary incremental C47 production-build retry under the existing serial and memory guards with the authorized eight workers.",
+    "force_rebuild_or_clean_required": false,
+    "if_same_node_crashes_again": "Treat the repeat as a compiler or build-infrastructure investigation. Preserve node/tool/source identities and obtain compiler or system diagnostics before changing RBO code.",
+    "manual_object_substitution_allowed": false,
+    "preserve_existing_caches_and_build_mode": true,
+    "source_change_warranted_by_this_diagnostic": false,
+    "success_guaranteed": false,
+    "toolchain_change_warranted": false
+  },
+  "schema_version": 1,
+  "scope": {
+    "compiler_or_native_execution": false,
+    "generated_inputs_persisted": false,
+    "production_or_live_helper_edits": false,
+    "read_only_diagnosis": true
+  },
+  "source_graph_evidence": {
+    "matching_uid": true,
+    "node_end_line": 3674531,
+    "node_sorted_json_sha256": "7f1f2a03a2a6df237d49ff619a88dc06b7807146b981c25b69c86a03ee44f780",
+    "node_start_line": 3673765,
+    "path": "rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/production-graph.json"
+  },
+  "source_identity": {
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "base_fixed_source_identical": true,
+    "fixed": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+    "head_matches_fixed": true,
+    "source_bytes": 25182,
+    "source_sha256": "2a37af0639124700e62c1da031c88d23fd84519090b8f24af4975bb77c626936",
+    "tracked_worktree_clean": true,
+    "worktree": "rbo-fixes-20261023/worktrees/verify",
+    "worktree_source_matches_fixed": true
+  },
+  "task": "C47 production build crash read-only diagnosis",
+  "tool": {
+    "bytes": 190629216,
+    "command_count": 1,
+    "configured_major_version": "20",
+    "direct_executable": "/home/alexpaniman/.ya/tools/v4/13899442575/bin/clang++",
+    "graph_resource": "CLANG-1656844850",
+    "matches_recorded_C31_closure_tool_hash": true,
+    "relevant_flags": [
+      "-pipe",
+      "-O3",
+      "-g",
+      "-fno-omit-frame-pointer",
+      "-std=c++20"
+    ],
+    "resource_id": "13899442575",
+    "sha256": "f2120cf3ea6f41baf3a07f22142472bf8ac0f5dbd02e3f042affab60affa6e17",
+    "target": "x86_64-linux-gnu",
+    "version_executable_invoked": false,
+    "wrapper": false
+  },
+  "unresolved": [
+    "Compiler crash mechanism and faulting compiler stack are unknown.",
+    "One incremental retry is justified by evidence, but its success remains unverified."
+  ]
+}

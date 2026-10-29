@@ -1,0 +1,12 @@
+{
+  "helper_sha256": "b90d56c2c8bc6d013e1e9940cd8f1113492c48cae8ade40b5a4252311c8e0379",
+  "scope_stopped_contract_checks": 4,
+  "status": "passed_mocked_only",
+  "cases": [
+    "missing_scope_explicit_inactive_dead_accepted",
+    "missing_scope_active_rejected",
+    "missing_scope_unknown_rejected",
+    "live_members_rejected"
+  ],
+  "real_processes_started": 0
+}

@@ -1,0 +1,102 @@
+{
+  "generator": "quality_lookup_checks.py",
+  "generator_version": "quality_lookup_independent_models_v1",
+  "generator_sha256": "801d21e9f6b4594babdb1aeb9cd580982dd38f3775b2b186701c1e679b587c76",
+  "shared_parser_sha256": "4304f9319e180234de339f369288ae48c6271ab2115aa6713f9ba245dbadaa72",
+  "findings": {
+    "Q03": {
+      "commit": "939173f5abcbcd596dd23ddfefed806df0d243ed",
+      "cases": 5,
+      "status": "generator_prepared_native_unverified"
+    },
+    "Q04": {
+      "commit": "a9df61306aa47badfbf1cec2fc043b3336addfd3",
+      "cases": 7,
+      "status": "generator_prepared_native_unverified"
+    },
+    "Q06": {
+      "commit": "864bd56c1abb0c47f9f1ee669acf722819354dee",
+      "cases": 4,
+      "status": "generator_prepared_native_unverified"
+    },
+    "Q07": {
+      "commit": "18eb64e0a7e18ccf2f50340a75f98b3ced6ab646",
+      "cases": 11,
+      "status": "generator_prepared_native_unverified"
+    },
+    "Q17": {
+      "commit": "a5a23189d946a8bd772e10279bc44e270648ec02",
+      "cases": 5,
+      "status": "generator_prepared_native_unverified"
+    },
+    "Q23": {
+      "commit": "183be021902ede0113798fcee8118c4479966713",
+      "cases": 5,
+      "status": "generator_prepared_native_unverified"
+    },
+    "Q24": {
+      "commit": "734379d38b24d68712098d96cd57fe79d1c90253",
+      "cases": 5,
+      "status": "generator_prepared_native_unverified"
+    },
+    "Q29": {
+      "commit": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+      "cases": 5,
+      "status": "generator_prepared_native_unverified"
+    }
+  },
+  "case_count": 47,
+  "offline_model_checks": 141,
+  "row_sizes": [
+    8,
+    19,
+    32
+  ],
+  "wrong_result_mutations_rejected": true,
+  "order_mutations_rejected": true,
+  "parser_contracts_checked": [
+    "quoted table atoms",
+    "reference resolution",
+    "join key and payload widths",
+    "malformed physical AST rejection",
+    "closed baseline summary validation"
+  ],
+  "maximum_combined_seed_rendering_bytes": 9721,
+  "native_execution": false,
+  "production_source_edits": false,
+  "builds": false,
+  "quality_improvement_verified": false,
+  "coverage": [
+    "uncovered residual after base-row fetch",
+    "covering ordered index with limit and direction",
+    "complete primary probe versus partial secondary probe",
+    "forced lookup with rejected types or features",
+    "large-right fallback cost eligibility",
+    "null-safe and residual-filter fallback",
+    "implicit base-key columns in index coverage",
+    "dead lookup payload and retained residual keys",
+    "range-only source projection",
+    "safe predicate deduplication with arithmetic and guard controls"
+  ],
+  "limits": [
+    "SQL parsing, native target reachability and final callable names need fingerprinted native runs.",
+    "Every quality claim needs matching baseline and fixed generator/config/schema/query hashes and semantic preservation.",
+    "Physical comparison DAG counts establish structural sites only, not runtime evaluation counts.",
+    "In-process query-cache reuse is not covered by the current one-target-request harness.",
+    "Automatic mixed-type lookup rejection need not exercise late fallback; only forced fallback asserts gathered inputs.",
+    "Q11 is in quality_union_checks.py; Q25 has a separate uncompiled IR adapter generator; Q26 is in quality_statistics_checks.py."
+  ],
+  "distributed_controls": {
+    "node_count": 4,
+    "partitions_per_table": 4,
+    "cases": [
+      "q07_disabled_lookup_large_right",
+      "q07_left_outer_mixed",
+      "q07_mixed_key",
+      "q07_mixed_key_large_right",
+      "q07_nested_fallback"
+    ],
+    "native_concurrency": 1,
+    "native_execution": false
+  }
+}

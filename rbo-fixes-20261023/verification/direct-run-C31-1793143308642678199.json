@@ -1,0 +1,98 @@
+{
+  "bug": "C31",
+  "case_count": 33,
+  "closure_provenance_verified": true,
+  "closure_receipt_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+  "closure_receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "compile": {
+    "cleanup_complete": true,
+    "diagnostic_bytes": 0,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "elapsed_seconds": 32.063,
+    "environment_sha256": "cd64c3bec61e31898ad530ad9ca7b66444cbfb16c0784903b937a7c640ec27f5",
+    "exit_code": 0,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "minimum_host_available_bytes": 104619130880,
+    "peak_group_rss_bytes": 2098487296,
+    "peak_scope_usage_bytes": 2098487296,
+    "scope_collection_after_completion": false,
+    "scope_membership_accounting_available": true,
+    "stdout_bytes": 0,
+    "stdout_overflow": false,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "watchdog_stopped": false
+  },
+  "direct_contract_profile_sha256": "19e2edf30c1c0289e1e824329920adb11a75eb597650c9c7624040ab41b0413b",
+  "generated_files_persisted": false,
+  "generated_object": {
+    "sha256": "9761d3bcf69e98c680d11cad4a9f99eddb4541b578fafe3603f113591b425353",
+    "size_bytes": 1696776
+  },
+  "generated_source_bytes": 157622,
+  "generated_source_sha256": "59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d",
+  "generator_module": "c31_identity_cpp_generator",
+  "generator_sha256": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9",
+  "link": {
+    "cleanup_complete": true,
+    "diagnostic_bytes": 8233,
+    "diagnostic_sha256": "21148863caeb24655e9da1839172f3d37943ae87b1530c1755704f4e732bd34c",
+    "elapsed_seconds": 7.813,
+    "environment_sha256": "cd64c3bec61e31898ad530ad9ca7b66444cbfb16c0784903b937a7c640ec27f5",
+    "exit_code": 1,
+    "max_scope_gib": 36,
+    "min_host_available_gib": 36,
+    "minimum_host_available_bytes": 104822726656,
+    "peak_group_rss_bytes": 10285539328,
+    "peak_scope_usage_bytes": 10285539328,
+    "scope_collection_after_completion": false,
+    "scope_membership_accounting_available": true,
+    "stdout_bytes": 0,
+    "stdout_overflow": false,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "watchdog_stopped": false
+  },
+  "link_archive_responses": {
+    "adapted_argv_template_sha256": "3a028d8b9ad0d9b9f0bd7509723534a1b4f120cda5eeb0ab7d9b7a67e494d1f4",
+    "original_argv_sha256": "f2a0e017f3bd9e642903541e054af64794540af09a428b58afaf51778f8b1d69",
+    "responses": [
+      {
+        "archive_count": 131,
+        "archive_sequence_sha256": "19c4d45a6aa8fd4138be2b89bc7443fbdbd404c31c14a7a25252ef5f97f6b390",
+        "argument_start": 2,
+        "content": {
+          "sha256": "070ac49e3d1516cd1484fef8f763c56e7d3f956e2e0fdabbfc14ac0099ff6c80",
+          "size_bytes": 28613
+        },
+        "descriptor": "link_archives_0"
+      },
+      {
+        "archive_count": 1786,
+        "archive_sequence_sha256": "39819103cd7df407dc85fb82767f1790288ab72d4c7d83a9402db4a116a98d9f",
+        "argument_start": 138,
+        "content": {
+          "sha256": "73b68a9b3f9a61dc05cc30b9dd826c3d9a2f6533d8dfbd90079b29af4f120bc0",
+          "size_bytes": 359176
+        },
+        "descriptor": "link_archives_1"
+      }
+    ]
+  },
+  "link_debug_info": {
+    "adapted_argv_template_sha256": "f2a0e017f3bd9e642903541e054af64794540af09a428b58afaf51778f8b1d69",
+    "option": "-Wl,--strip-debug"
+  },
+  "link_output_transport": {
+    "adapted_argv_template_sha256": "87c1737965c792da3481ada7ca06693963c6842cb3e4585865af87eb2e89f0ce",
+    "original_argv_sha256": "2779b7392482b270ee990530b54754afe0aeb9756684bd7715bae084caa1e4f1",
+    "transport": "stdout_to_executable_memfd"
+  },
+  "phase": "fixed",
+  "proof_scope": "linked_production_local_contracts",
+  "quality_improvement_verified": false,
+  "query_semantics_verified": false,
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "schema_version": "anonymous_direct_cpp_v1",
+  "status": "anonymous_link_failed",
+  "wrapping": null
+}

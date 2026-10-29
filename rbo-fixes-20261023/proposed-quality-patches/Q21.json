@@ -1,0 +1,14 @@
+{
+  "id": "Q21",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_not_applied",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.h",
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+    "ydb/core/kqp/opt/rbo/rules/inline_simple_in_exists_subplan.cpp",
+    "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp"
+  ],
+  "rationale": "Strip only literal-positive offset-free limits at EXISTS consumer binding before dependent LIMIT can become row numbering. Apply to simple and generic filter consumers.",
+  "limits": "Only directly exposed Limit chains; no movement across expression-evaluation wrappers, unknown/zero counts, offsets, IN or scalar consumers.",
+  "validation": "Native plan counts for dependent row numbering plus EXISTS/NOT EXISTS semantic controls, zero/offset/parameter limits and IN/scalar preservation."
+}

@@ -1,0 +1,7 @@
+{
+  "bug": "C31",
+  "command": "prepare",
+  "no_runtime_verdict_accepted": true,
+  "reason": "FileNotFoundError",
+  "status": "direct_harness_failed"
+}

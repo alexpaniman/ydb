@@ -1,0 +1,831 @@
+{
+  "schema": "independent_fix_branch_audit_v1",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "findings": 82,
+  "checks_per_branch": 4,
+  "all_passed": true,
+  "items": [
+    {
+      "bug": "C01",
+      "revision": "40a5bea4e432b65845052aacbd104b642ffc8df1",
+      "branch": "fix/new-rbo/c01-preserve-predicate-types",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 5,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C02",
+      "revision": "6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41",
+      "branch": "fix/new-rbo/c02-preserve-volatile-group-filters",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C03",
+      "revision": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e",
+      "branch": "fix/new-rbo/c03-expand-grouping-sets-first",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C04",
+      "revision": "69b7c53d2f5ad03f02256e03b972901bdab12eab",
+      "branch": "fix/new-rbo/c04-preserve-filter-evaluation-order",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 2,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C05",
+      "revision": "bf6527096b7a594beb47e3b2e274079b184b8128",
+      "branch": "fix/new-rbo/c05-preserve-scalar-domains",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 6,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C06",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "branch": "fix/new-rbo/c06-preserve-capture-types",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 2,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C07",
+      "revision": "2e4843e6be7a7b49fab191bc0d454653e0aca41e",
+      "branch": "fix/new-rbo/c07-retain-correlation-equality",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C08",
+      "revision": "af05d7c395191d1a19ff7a3a4b2c8bc29be83582",
+      "branch": "fix/new-rbo/c08-restore-empty-scalar-groups",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C09",
+      "revision": "1525ba0d79efbdae93eb658a6ab75daa5371f411",
+      "branch": "fix/new-rbo/c09-preserve-in-null-semantics",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 7,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C10",
+      "revision": "8c96cdf3c1ef0a971b7d736facd8d2610a5335d9",
+      "branch": "fix/new-rbo/c10-test-in-lookup-presence",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C11",
+      "revision": "d23472b33678121343af7ebc4f532c88e0488d51",
+      "branch": "fix/new-rbo/c11-preserve-in-result-type",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 8,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C12",
+      "revision": "68356618882bee6b367ac24f5536883c2cb14609",
+      "branch": "fix/new-rbo/c12-distinct-selected-group-values",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C13",
+      "revision": "71378e72b8ce2770e83abac301d701b744a6c603",
+      "branch": "fix/new-rbo/c13-preserve-grouped-result-expressions",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C14",
+      "revision": "c128b7c1bd99c1c7199e3ad2b00d061b7f3a2b6f",
+      "branch": "fix/new-rbo/c14-preserve-nested-aggregate-inputs",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C15",
+      "revision": "3a9521680600ea2f5bcdb2ea0736e8d2cdb5df5d",
+      "branch": "fix/new-rbo/c15-check-demanded-scalar-values",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C16",
+      "revision": "473f0a46d6145fb93e940140030f0ae21e83972e",
+      "branch": "fix/new-rbo/c16-defer-unresolved-join-subplans",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C17",
+      "revision": "d08902de538969291efbeb272b45a12982a65ae8",
+      "branch": "fix/new-rbo/c17-refresh-pruned-schemas",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C18",
+      "revision": "ec25a7d3319c8e75ad3849a638f6830642097709",
+      "branch": "fix/new-rbo/c18-preserve-grouping-templates",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C19",
+      "revision": "8c1af92732e2b672b9c9a3e0c9cf533eb2d8969c",
+      "branch": "fix/new-rbo/c19-unordered-ranking",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C20",
+      "revision": "5f9ef7674522a3df8d13b3d6080d82224a9fba83",
+      "branch": "fix/new-rbo/c20-nullable-rank-mode",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 8,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C21",
+      "revision": "78462388619dee01bf57156839620936e70d7376",
+      "branch": "fix/new-rbo/c21-window-interval-average",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 2,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C22",
+      "revision": "e67e82b03f5ece6469b879a25083fea8e5684f87",
+      "branch": "fix/new-rbo/c22-window-sort-keys",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C23",
+      "revision": "030ea24b8e681a8242c7f4e7df2c0b0bd1725676",
+      "branch": "fix/new-rbo/c23-null-grouping-key",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C24",
+      "revision": "037848a02d0d400ab3d90c29d329b83b9f03456c",
+      "branch": "fix/new-rbo/c24-distinct-interval-state",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C25",
+      "revision": "33e1d0f59ccf5c07308337e019b73f110cd98d53",
+      "branch": "fix/new-rbo/c25-decorrelate-before-distinct",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C26",
+      "revision": "d40b5b11a3c485d1b504c128931d120d94487324",
+      "branch": "fix/new-rbo/c26-distinct-variance-state",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C27",
+      "revision": "fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c",
+      "branch": "fix/new-rbo/c27-having-without-aggregate",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C28",
+      "revision": "5616e3ad461be8ae3f5716e1f3cfaae2580d2abb",
+      "branch": "fix/new-rbo/c28-distinct-after-window",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C29",
+      "revision": "9f2e822f02204297e1aef990a2ce29310c7d438c",
+      "branch": "fix/new-rbo/c29-set-operation-stack",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C30",
+      "revision": "d3f07e4572af7719c1846c38fc3a8200e9c2ebd6",
+      "branch": "fix/new-rbo/c30-route-insert-revert",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C31",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "branch": "fix/new-rbo/c31-inline-before-sharing-expansion",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 2,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C32",
+      "revision": "244c9fa808fb219eee19bf7a73dbed19602f303e",
+      "branch": "fix/new-rbo/c32-supported-map-join-kinds",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C33",
+      "revision": "b48c86eeb7c2f0ea14d052f107d04cf26330d885",
+      "branch": "fix/new-rbo/c33-first-arm-column-order",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C34",
+      "revision": "80b8d1dcee88c42a687c820600955953ec413c49",
+      "branch": "fix/new-rbo/c34-preserve-tuple-aggregate-results",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C35",
+      "revision": "545bae60730d260ed848ebbfde31b47a7d0fc21e",
+      "branch": "fix/new-rbo/c35-interval-average",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C36",
+      "revision": "49ca1046560e6edb6b2d616829833ef586e5822d",
+      "branch": "fix/new-rbo/c36-order-sort-keys",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C37",
+      "revision": "bc9e6946f9d128036b13912fedafabb1bd9a206d",
+      "branch": "fix/new-rbo/c37-window-distribution",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 2,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C38",
+      "revision": "62bdb6bf7ed7b70851ed62c3d886fcc9737de15b",
+      "branch": "fix/new-rbo/c38-full-join-distribution",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C39",
+      "revision": "416834fa9b1e0fec89d663026e74f76ab6909314",
+      "branch": "fix/new-rbo/c39-require-residual-capability",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C40",
+      "revision": "a3f2d982416508ada71d8e63fcc097631a3dbe12",
+      "branch": "fix/new-rbo/c40-decline-conflicting-olap-projections",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C41",
+      "revision": "dd1d8cabb86258c4bcb998bd6b317b296bfdd251",
+      "branch": "fix/new-rbo/c41-preserve-mixed-query-results",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 8,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C42",
+      "revision": "6eeadd50b057ceec10173d3fb1104b4a81ddbafe",
+      "branch": "fix/new-rbo/c42-widen-every-set-operation-edge",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C43",
+      "revision": "fd7ba4678acdce0c5473cb765187abdde514a16e",
+      "branch": "fix/new-rbo/c43-lower-composite-compatibility",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C44",
+      "revision": "329c771f34f97af659cf4d78af1e6c54226deb3e",
+      "branch": "fix/new-rbo/c44-require-index-maintenance",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C45",
+      "revision": "6d8e86a79f5417c74d46a8314e3591d6e3b88eed",
+      "branch": "fix/new-rbo/c45-window-nested-members",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C46",
+      "revision": "43cf0cc6ab0a627e42844759086ac020bd98925f",
+      "branch": "fix/new-rbo/c46-route-conditional-update",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C47",
+      "revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+      "branch": "fix/new-rbo/c47-import-explicit-index-reads",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 16,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C48",
+      "revision": "35bc8b6938f42a11e92747063bfafc1dec0b9b5c",
+      "branch": "fix/new-rbo/c48-route-explicit-index-writes",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C49",
+      "revision": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+      "branch": "fix/new-rbo/c49-preserve-lookup-identity",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 2,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "C50",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "branch": "fix/new-rbo/c50-gather-mixed-join-keys",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "F01",
+      "revision": "cb7a4189eea1f56dfdc7bbbb012c96403c090636",
+      "branch": "fix/new-rbo/f01-deduplicate-distinct-inputs",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "F02",
+      "revision": "1c4fd440a12e3a6a8267f119b1e25b603b5282c9",
+      "branch": "fix/new-rbo/f02-normalize-interval-sums",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 4,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "F03",
+      "revision": "2a99d200829f2dd090ef70ce69b491c12227c5d5",
+      "branch": "fix/new-rbo/f03-normalize-window-interval-sums",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q01",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "branch": "fix/new-rbo/q01-general-window-frames-repeatedly-aggregate-the-whole-frame",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 11,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q02",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "branch": "fix/new-rbo/q02-unused-window-results-retain-their-complete-execution-pipeline",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q03",
+      "revision": "939173f5abcbcd596dd23ddfefed806df0d243ed",
+      "branch": "fix/new-rbo/q03-an-uncovered-residual-predicate-prevents-a-selective-index-access-path",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q04",
+      "revision": "a9df61306aa47badfbf1cec2fc043b3336addfd3",
+      "branch": "fix/new-rbo/q04-an-unfiltered-bounded-sort-does-not-consider-a-matching-secondary-index",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q05",
+      "revision": "33bc67934dd9a881ca1aecbf4c6cefd0f882f8c1",
+      "branch": "fix/new-rbo/q05-descending-primary-key-top-n-loses-row-store-ordered-read-pushdown",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q06",
+      "revision": "864bd56c1abb0c47f9f1ee669acf722819354dee",
+      "branch": "fix/new-rbo/q06-lookup-selection-can-choose-a-broad-secondary-index-prefix-over-a-complete",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q07",
+      "revision": "18eb64e0a7e18ccf2f50340a75f98b3ced6ab646",
+      "branch": "fix/new-rbo/q07-lookup-costing-and-actual-lookup-eligibility-disagree",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 7,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q08",
+      "revision": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+      "branch": "fix/new-rbo/q08-filters-apply-earlier-selectivity-again-to-already-reduced-estimates",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q09",
+      "revision": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e",
+      "branch": "fix/new-rbo/q09-scalar-aggregate-cardinality-is-estimated-as-its-input-cardinality",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q10",
+      "revision": "efeebb38e72fd7a7c84ab65121e49362f93e2d4b",
+      "branch": "fix/new-rbo/q10-multiple-distinct-aggregates-duplicate-deduplication-of-the-same-argument",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q11",
+      "revision": "f9279dcfeac87c596f58ccc8e3add4722c66a960",
+      "branch": "fix/new-rbo/q11-filters-above-unionall-miss-branch-local-access-path-optimization",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 4,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q12",
+      "revision": "a92df58f248c54a46f82586f50fc58ae5b207e8e",
+      "branch": "fix/new-rbo/q12-early-peephole-expansion-prevents-native-json-filter-pushdown",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q13",
+      "revision": "b0df3bf71706e6a13041e3dda141e13312130b97",
+      "branch": "fix/new-rbo/q13-bulk-olap-writes-cannot-retain-parallel-streaming-sinks",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q14",
+      "revision": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd",
+      "branch": "fix/new-rbo/q14-reverseblockjoin-loses-the-cbo-s-shuffle-directives",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q15",
+      "revision": "4e6d9217ef22bdcced5cd1879d3639508717e8e0",
+      "branch": "fix/new-rbo/q15-every-window-repartitions-even-when-input-partitioning-is-sufficient",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 5,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q16",
+      "revision": "36000459cb44ccfe5e548a2622bfa21ffff591c7",
+      "branch": "fix/new-rbo/q16-a-wide-row-store-limit-disables-the-query-wide-block-engine",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q17",
+      "revision": "a5a23189d946a8bd772e10279bc44e270648ec02",
+      "branch": "fix/new-rbo/q17-covering-lookup-indexes-are-rejected-when-outputs-use-implicit-primary-key",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q18",
+      "revision": "f27cc1474705c540c5a64c2700f19eb4df749f54",
+      "branch": "fix/new-rbo/q18-fetched-statistics-are-discarded-when-any-table-statistics-already-exist",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q19",
+      "revision": "c261bd389b61872b7c78851a26bf46283b95b9cb",
+      "branch": "fix/new-rbo/q19-a-failure-in-the-first-statistics-request-discards-later-successful-statis",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q20",
+      "revision": "49b33e196eefd41df663417e7392f7ca0e1504cd",
+      "branch": "fix/new-rbo/q20-join-statistics-omit-right-side-aliases-when-applying-hints",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q21",
+      "revision": "a15cf405bd258b86dedf171e6a9eaac9022dd644",
+      "branch": "fix/new-rbo/q21-positive-limit-inside-a-correlated-exists-becomes-unnecessary-window-work",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 4,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q22",
+      "revision": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+      "branch": "fix/new-rbo/q22-focused-scalar-in-lowering-expands-large-explicit-collections-linearly",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q23",
+      "revision": "183be021902ede0113798fcee8118c4479966713",
+      "branch": "fix/new-rbo/q23-original-lookup-keys-stay-in-payloads-after-their-last-semantic-use",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q24",
+      "revision": "734379d38b24d68712098d96cd57fe79d1c90253",
+      "branch": "fix/new-rbo/q24-range-enforced-predicate-columns-remain-projected-for-provenance-alone",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q25",
+      "revision": "1300a777c320158fe82cd9416b355165dbe73ecd",
+      "branch": "fix/new-rbo/q25-map-fusion-drops-the-request-to-continue-pushing-definitions",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 6,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q26",
+      "revision": "c0e36684231f975761822543f88edae5a4e3297e",
+      "branch": "fix/new-rbo/q26-configured-sequential-read-concurrency-is-not-forwarded",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 3,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q27",
+      "revision": "72e17774d130a022ed4649c26c3db7656d83d971",
+      "branch": "fix/new-rbo/q27-shared-nonterminal-ast-nodes-are-revisited-during-top-level-select-collect",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 1,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q28",
+      "revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+      "branch": "fix/new-rbo/q28-every-successful-rule-restarts-traversal-and-recomputes-global-properties",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 4,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    },
+    {
+      "bug": "Q29",
+      "revision": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+      "branch": "fix/new-rbo/q29-lookup-filters-can-duplicate-deterministic-residual-evaluation",
+      "parent_is_pinned_main": true,
+      "branch_tip_matches": true,
+      "tracked_file_count": 4,
+      "no_essentials_changes": true,
+      "diff_check_pass": true
+    }
+  ],
+  "audited_unix_time": 1793156686.524732,
+  "build_or_native_claim": false
+}

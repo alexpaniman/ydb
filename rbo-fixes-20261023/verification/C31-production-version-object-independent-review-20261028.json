@@ -1,0 +1,29 @@
+{
+  "C31_and_C47_fixed_validation_require_supplementary_evidence": true,
+  "actual_production_C_flags_preserved_except_declared_transport_debug_adapters": true,
+  "actual_production_formatter_entrypoint_executed_in_process_with_memory_io": true,
+  "actual_target_graph_uid_unique": true,
+  "author_metadata_assertions": 132,
+  "build_runs": 0,
+  "descriptor_ownership_review": "Metadata/source descriptors close within prepare_object, supplementary object remains caller-owned through successful or failed preparation and closes in execute finally; all inputs/object are sealed before use. Collision rejection leaves caller descriptors untouched.",
+  "findings": [],
+  "generated_inputs_or_outputs_persisted": false,
+  "independent_assertions": 39,
+  "limits": [
+    "Actual production Python subprocess, C compilation, linking and native execution remain pending.",
+    "Ancillary VCS strings are preserved from the historical graph and do not assert current source revision.",
+    "The graph parser intentionally supports the recorded pretty-printed layout only.",
+    "The separate dormant Q28 SDK pilot still needs its own replay integration."
+  ],
+  "live_helper_edits": false,
+  "native_runs": 0,
+  "original_version_object_link_position_preserved": true,
+  "patch_sha256": "af0c861afcf3def464bd74707cc8e261f996c2783f92b9a1a5be3c844cba572d",
+  "production_formatter_output_matches_expected_digest": true,
+  "provenance_review": "Original receipt stays immutable. Initial/final receipt verification binds the original closure and graph. Supplementary script/template/header/Python/compiler/wrapper files are fingerprinted before subprocesses and after preparation; object seals/digest and dependencies rechecked after linking and native execution.",
+  "receipt_mutations": false,
+  "schema_version": "production_version_object_independent_source_review_v1",
+  "source_report_sha256": "9247e2c24f9d93c35eee54c0c0b13c325f87c44b890e18f79a87d1d32602a700",
+  "status": "approved_source_and_metadata_native_pending",
+  "toolchain_runs": 0
+}

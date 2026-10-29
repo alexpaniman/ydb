@@ -1,0 +1,24 @@
+{
+  "id": "Q20",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_unbuilt_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp"
+  ],
+  "summary": "Use both join inputs for side-specific hint aliases and derive the result alias union from relation identities.",
+  "review": [
+    "Independent patch generated directly from pinned base; production worktrees unchanged.",
+    "No yql/essentials edits."
+  ],
+  "validation_plan": [
+    "Assert left/right/composite/absent row and byte hints target the intended statistics.",
+    "Cover nested joins, self-joins with duplicate aliases, and semi/anti joins whose output omits one side.",
+    "Verify a hint is consumed once and unrelated hints do not change a larger result estimate."
+  ],
+  "limits": [
+    "The existing lineage suffix policy is preserved; this patch does not redesign hint syntax or alias naming.",
+    "Both input metadata objects must already exist at the metadata/statistics call sites, as in the existing flow."
+  ],
+  "apply_check_exit_code": 0,
+  "patch_sha256": "6f9dcb247c76f6a0701beec0706c93daeb441ff5e4ab2b5c85a97e67f4f09cbc"
+}

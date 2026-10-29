@@ -1,0 +1,267 @@
+--- a/c31_scope_observation.py
++++ b/c31_scope_observation.py
+@@ -28,8 +28,9 @@
+ _base = _snapshot('c31_identity_checks')
+ _origin = _snapshot('c31_shared_origin_probe')
+ _fields = _snapshot('c31_shared_field_probe')
++_switches = _snapshot('c31_switch_shape_observation')
+ CASE_SPECIFIC_SCHEMA = True
+-GENERATOR_VERSION = 'c31_shared_scope_observation_v3_capped_spill_storage'
++GENERATOR_VERSION = 'c31_shared_scope_observation_v4_lexical_switch_inventory'
+ CASES = ('c31_stability_float_domain__spilling__left',
+          'c31_stability_integer_domain__spilling__left')
+ _CALLABLES = frozenset(('DqPhyStage', 'TDqOutput', 'Switch', 'Map', 'OrderedMap',
+@@ -143,6 +144,16 @@
+         if field_observation[field] is not False:
+             raise ValueError('Field observation cannot grant lineage admission')
+     observation['constrained_field_observation'] = field_observation
++    switch_observation = _switches.observe(case, text)
++    if switch_observation['physical_ast_sha256'] != result['physical_ast_sha256']:
++        raise ValueError('Switch shape observation AST binding mismatch')
++    for field in ('exact_shared_producer_origin_proved',
++                  'aggregation_value_to_identity_binding_proved',
++                  'full_shared_producer_contract_pass',
++                  'candidate_complete_key_pair_lineage_observed'):
++        if switch_observation[field] is not False:
++            raise ValueError('Switch shape observation cannot grant lineage admission')
++    observation['lexical_switch_shape_observation'] = switch_observation
+     observation.update(_inventory(text))
+     observation.update(source_snapshot_sha256=dict(_HASHES),
+                        observation_only=True,
+--- /dev/null
++++ b/c31_switch_shape_observation.py
+@@ -0,0 +1,213 @@
++"""Bounded C31 lexical shape counters; no lineage or acceptance is inferred.
++
++Only allowlisted callable labels, counters and exact argument-identity booleans
++leave this module. Raw graph nodes, symbols, fields and constants stay in RAM.
++"""
++from collections import Counter
++import hashlib
++
++import c31_shared_field_probe as fields
++
++VERSION = 'c31_switch_lexical_shape_inventory_v1'
++_FLOW = frozenset(('ToFlow', 'FromFlow', 'ToStream', 'Iterator', 'Collect'))
++_MAP = frozenset(('Map', 'OrderedMap', 'ExpandMap', 'NarrowMap', 'WideMap',
++                  'FlatMap', 'OrderedFlatMap', 'WideFlatMap'))
++_INPUT = _MAP | _FLOW | frozenset(('ExtractMembers', 'SkipNullMembers', 'FilterNullMembers',
++                                  'Filter', 'OrderedFilter', 'WideFilter'))
++_HEADS = _INPUT | frozenset(('Switch', 'AsStruct', 'Member', 'Nth', 'Just', 'Unwrap',
++                            'StablePickle', 'IfPresent', 'Cast', 'SafeCast', 'DqPhyStage',
++                            'WideCombiner', 'WideLastCombiner', 'DqPhyHashCombine',
++                            'GraceJoinCore', 'GraceSelfJoinCore', 'MapJoinCore',
++                            'BlockHashJoinCore', 'BlockMapJoinCore'))
++_KINDS = frozenset(('Inner', 'Left', 'Right', 'Full', 'LeftSemi', 'RightSemi',
++                    'LeftOnly', 'RightOnly', 'Cross', 'Exclusion'))
++# Public expression-node child indices; _Node.children omits the callable name.
++_JOIN = {'GraceJoinCore': (2, 3, 4), 'GraceSelfJoinCore': (1, 2, 3),
++         'MapJoinCore': (2, 3, 4), 'BlockHashJoinCore': (2, 3, 4),
++         'BlockMapJoinCore': (3, 4, 6)}
++
++
++def _label(node):
++    if isinstance(node, fields._Arg):
++        return 'argument'
++    if isinstance(node, tuple):
++        return 'tuple'
++    if isinstance(node, str):
++        return 'atom'
++    head = fields._head(node)
++    return head if head in _HEADS else 'other_callable' if head is not None else 'other_value'
++
++
++def _bounded(value):
++    return str(value) if 0 <= value <= 128 else 'over_128'
++
++
++def _branch(node, counters):
++    try:
++        args, bodies = fields._lambda(node)
++    except fields._Reject:
++        counters['branch_status']['not_lambda'] += 1
++        return
++    counters['branch_argument_counts'][_bounded(len(args))] += 1
++    counters['branch_body_counts'][_bounded(len(bodies))] += 1
++    if len(args) != 1 or len(bodies) != 1:
++        counters['branch_status']['unsupported_arity'] += 1
++        return
++    argument, body = args[0], bodies[0]
++    counters['branch_root_heads'][_label(body)] += 1
++    if body is argument:
++        counters['branch_status']['direct_same_argument'] += 1
++    current = body
++    seen = set()
++    for depth in range(12):
++        if current is argument:
++            counters['input_chain_terminal']['same_branch_argument'] += 1
++            counters['input_chain_depths'][str(depth)] += 1
++            return
++        if isinstance(current, fields._Arg):
++            counters['input_chain_terminal']['different_argument'] += 1
++            return
++        head = fields._head(current)
++        counters['input_chain_heads'][str(depth) + ':' + _label(current)] += 1
++        if head not in _INPUT:
++            counters['input_chain_terminal']['unsupported_shape'] += 1
++            return
++        if current in seen:
++            counters['input_chain_terminal']['cycle'] += 1
++            return
++        seen.add(current)
++        expected = 1 if head in _FLOW else 2
++        if len(current.children) != expected:
++            counters['input_chain_terminal']['unsupported_arity'] += 1
++            return
++        if head in _MAP:
++            try:
++                rows, values = fields._lambda(current.children[1])
++            except fields._Reject:
++                counters['mapping_status']['not_lambda'] += 1
++            else:
++                counters['mapping_argument_counts'][_bounded(len(rows))] += 1
++                counters['mapping_body_counts'][_bounded(len(values))] += 1
++                for value in values[:128]:
++                    counters['mapping_body_heads'][_label(value)] += 1
++                    if isinstance(value, fields._Arg):
++                        counters['mapping_status']['own_argument' if value in rows else 'foreign_argument'] += 1
++                    if fields._head(value) == 'AsStruct':
++                        for pair in value.children[:128]:
++                            if not isinstance(pair, tuple) or len(pair) != 2:
++                                counters['struct_values']['invalid_pair'] += 1
++                                continue
++                            member = pair[1]
++                            if fields._head(member) == 'Member' and len(member.children) == 2:
++                                counters['struct_values']['own_row_member' if len(rows) == 1 and member.children[0] is rows[0]
++                                                          else 'foreign_row_member'] += 1
++                            else:
++                                counters['struct_values']['other_computation'] += 1
++                        if len(value.children) > 128:
++                            counters['struct_values']['truncated'] += 1
++                if len(values) > 128:
++                    counters['mapping_status']['truncated'] += 1
++        current = current.children[0]
++    counters['input_chain_terminal']['depth_limit'] += 1
++
++
++def _join(node, counters):
++    kind_index, left_index, right_index = _JOIN[node.head]
++    counters['join_callables'][node.head] += 1
++    if len(node.children) <= max(kind_index, left_index, right_index):
++        counters['join_status']['incomplete_children'] += 1
++        return
++    try:
++        kind = fields._atom(node.children[kind_index])
++    except (ValueError, TypeError):
++        counters['join_status']['kind_not_atom'] += 1
++    else:
++        counters['join_kinds'][kind if kind in _KINDS else 'other_kind'] += 1
++    widths = []
++    for side, index in [('left', left_index), ('right', right_index)]:
++        value = node.children[index]
++        if not isinstance(value, tuple):
++            counters['join_status'][side + '_keys_not_list'] += 1
++            widths.append(None)
++            continue
++        widths.append(len(value))
++        counters['join_key_counts'][side + ':' + _bounded(len(value))] += 1
++        try:
++            numeric = len(value) <= 128 and all(fields._atom(item).isdigit() for item in value)
++        except (ValueError, TypeError):
++            counters['join_status'][side + '_key_not_atom'] += 1
++        else:
++            counters['join_status'][side + ('_numeric_keys' if numeric else '_nonnumeric_or_large_keys')] += 1
++    if None not in widths:
++        counters['join_status']['equal_key_counts' if widths[0] == widths[1] else 'different_key_counts'] += 1
++
++
++def observe(case, text):
++    result = {'switch_shape_observer_version': VERSION,
++              'physical_ast_sha256': hashlib.sha256(text.encode()).hexdigest(),
++              'observation_only': True, 'switch_shape_inventory_complete': False,
++              'exact_shared_producer_origin_proved': False,
++              'aggregation_value_to_identity_binding_proved': False,
++              'full_shared_producer_contract_pass': False,
++              'candidate_complete_key_pair_lineage_observed': False,
++              'raw_graph_material_persisted': False}
++    if case not in fields.CASES:
++        result['scope_supported'] = False
++        return result
++    result['scope_supported'] = True
++    try:
++        if len(text.encode()) > 16 * 1024 * 1024:
++            raise fields._Reject('graph_budget')
++        graph = fields._LexicalGraph(text)
++        stages = [node for node in graph.nodes if node.head == 'DqPhyStage']
++        switches = [node for node in graph.nodes if node.head == 'Switch']
++        joins = [node for node in graph.nodes if node.head in _JOIN]
++        if not 1 <= len(stages) <= 128 or len(switches) > 32 or len(joins) > 32:
++            raise fields._Reject('inventory_budget')
++        names = ('branch_status', 'branch_argument_counts', 'branch_body_counts', 'branch_root_heads',
++                 'input_chain_terminal', 'input_chain_depths', 'input_chain_heads',
++                 'mapping_status', 'mapping_argument_counts', 'mapping_body_counts', 'mapping_body_heads',
++                 'struct_values', 'switch_status', 'switch_input_heads', 'switch_branch_counts',
++                 'join_callables', 'join_status', 'join_kinds', 'join_key_counts', 'stage_terminal_heads')
++        counters = {name: Counter() for name in names}
++        for stage in stages:
++            try:
++                _, bodies = fields._lambda(stage.children[1])
++                if len(bodies) != 1:
++                    counters['stage_terminal_heads']['unsupported_arity'] += 1
++                    continue
++                value = bodies[0]
++                for _ in range(12):
++                    if fields._head(value) not in _FLOW or len(value.children) != 1:
++                        break
++                    value = value.children[0]
++                counters['stage_terminal_heads'][_label(value)] += 1
++            except (fields._Reject, IndexError):
++                counters['stage_terminal_heads']['unsupported_program'] += 1
++        for switch in switches:
++            children = switch.children
++            if len(children) < 6 or (len(children) - 2) % 2 or len(children) > 34:
++                counters['switch_status']['unsupported_arity'] += 1
++                continue
++            counters['switch_input_heads'][_label(children[0])] += 1
++            counters['switch_branch_counts'][str((len(children) - 2) // 2)] += 1
++            for offset in range(2, len(children), 2):
++                selector, branch = children[offset:offset + 2]
++                try:
++                    valid = isinstance(selector, tuple) and len(selector) == 1 and fields._index(selector[0]) == 0
++                except fields._Reject:
++                    valid = False
++                counters['switch_status']['selector_zero' if valid else 'other_selector'] += 1
++                _branch(branch, counters)
++        for node in joins:
++            _join(node, counters)
++        result.update(switch_shape_inventory_complete=True, lexical_block_count=graph.block_count,
++                      normalized_node_count=len(graph.nodes), stage_count=len(stages),
++                      switch_count=len(switches), join_count=len(joins),
++                      counters={name: dict(sorted(value.items())) for name, value in counters.items()})
++    except fields._Reject as error:
++        # The lexical parser and this module use only fixed internal rejection labels.
++        result['switch_shape_inventory_rejection'] = str(error)
++    except (ValueError, TypeError, IndexError, KeyError, RecursionError, AttributeError):
++        result['switch_shape_inventory_rejection'] = 'unclassified_shape'
++    return result
+--- a/c31_shared_field_probe.py
++++ b/c31_shared_field_probe.py
+@@ -89,6 +89,7 @@
+         if len(self.roots) != 1:
+             raise _Reject('root_return_arity')
+         self.nodes = set()
++        seen_tuples = set()
+         pending = list(self.roots)
+         while pending:
+             item = pending.pop()
+@@ -98,6 +99,10 @@
+                 self.nodes.add(item)
+                 pending.extend(item.children)
+             elif isinstance(item, tuple):
++                identity = id(item)
++                if identity in seen_tuples:
++                    continue
++                seen_tuples.add(identity)
+                 pending.extend(item)
+ 
+     def _new_name(self, value):

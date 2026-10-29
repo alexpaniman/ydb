@@ -1,0 +1,30 @@
+R25: aggregate stage propagation and physical aggregate lowering, two-pass review
+
+Scope: rules/propagate_aggregate_through_stage.cpp; physical_conversion/kqp_rbo_physical_aggregation_builder.cpp and .h. Supporting traces: kqp_rbo_type_ann.cpp, expand_distinct_aggregation.cpp, global_pruning.cpp, kqp_rbo_utils.cpp, kqp_rewrite_select.cpp, base aggregate type annotation.
+No repository edits, builds, or executable queries produced. These findings are source-verified; executable verification delegated to the parent runner. No reproduction queries are included.
+
+Correctness findings
+
+1. Scalar tuple-valued SOME/MIN/MAX are misidentified as AVG partial states. Priority P2; high-confidence source defect, pending parent runtime verification.
+Location: physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:1312-1345; use at :1425-1436.
+Condition: a scalar aggregate whose actual result is a tuple, for example SOME over a tuple-valued expression or comparable tuple MIN/MAX. The final-stage empty-input wrapper scans output types and assumes any tuple denotes AVG internal state. It then asserts exactly two fields and replaces the tuple with its first field. Other tuple sizes hit the assertion; a two-field tuple gives Condense an incompatible initial state. This occurs while compiling even a nonempty input because the wrapper is constructed unconditionally for scalar final aggregation.
+Eligibility verified: the frontend supports SOME/MIN/MAX by name without argument restrictions; the ordinary SOME type annotator preserves arbitrary input types (yql/essentials/core/type_ann/type_ann_list.cpp:6951-6952,7140-7143), and MIN/MAX accept comparable types (yql/essentials/core/yql_expr_type_annotation.cpp:7235-7242).
+Fix direction: identify accumulator layout by aggregation function and explicit phase/state type, never solely by tuple shape. Preserve full tuple-valued final results in empty-input state construction. Validate multiple tuple sizes, nullable tuple values, scalar versus grouped operation, and a tuple aggregate combined with AVG.
+
+2. Ordinary AVG does not implement Interval/Interval64 result semantics. Priority P2; high-confidence source defect, pending parent runtime verification.
+Location: physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:63-74,28-44,77-113,837-878 and optional finish :679-745.
+Condition: scalar or grouped AVG on interval-valued data, including optional interval values. The common type annotator accepts these inputs and preserves their interval type (yql/essentials/core/yql_expr_type_annotation.cpp:7160-7175); physical lowering chooses Double for every nondecimal accumulator, casts interval inputs to that type, and emits numeric division without conversion back. This makes physical typing/result incompatible with the supported logical result type. Ordinary aggregate lowering is independent of the analogous window AVG issue previously reviewed by R06.
+Fix direction: implement the existing interval AVG accumulator and finalization contract, including overflow and interval type conversion, or prevent this physical implementation from claiming interval support until it can faithfully preserve semantics.
+
+Reviewed and not filed as additional defects
+- COUNT splits to local COUNT plus final SUM. Scalar COUNT's zero identity is restored from immediate partial provenance, and multi-DISTINCT COUNT uses its explicit Unwrap marker.
+- AVG and variance states pass through logical scalar types during ordinary two-stage lowering; the fact that logical input types are not the physical tuple state is intentional here. An initial suspicion that ordinary decimal AVG always fails original-precision lookup was refuted for this reason.
+- Existing null handling preserves absent partials for AVG, SOME, and variance.
+- Multi-DISTINCT variance explicitly unsupported is already a known finding; interval DISTINCT optional wrapping is already known; rollup DISTINCT ordering is already known.
+- Ordinary aggregate pruning removes dead aggregate traits before physical stage propagation; no independent dead-field Condense bug established.
+- Key shuffling preserves subset partitioning correctly when metadata is valid. Full outer join metadata can invalidate that premise, already reported by R22/R23.
+- The stage push only crosses UnionAll/Shuffle/Map and preserves connection output index; row-store reads are excluded, while Replicate ports lower into their own Switch branch.
+- Block mode wraps the same aggregate handlers; the two datatype/state-shape findings are shared lowering defects rather than independently verified block-specific failures.
+
+Optimization quality, separate from correctness
+No new verified optimization-quality issue in this scope. Unconditional partial/final splitting may perform redundant local aggregation when pushdown cannot cross a stage, but intermediate memory limiting can justify that shape; do not present it as a demonstrated regression without measurement.

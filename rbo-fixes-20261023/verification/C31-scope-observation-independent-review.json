@@ -1,0 +1,32 @@
+{
+  "reviewer": "root",
+  "status": "approved_for_observation_only",
+  "artifacts": [
+    {
+      "patch": "C31-origin-multibody-traversal.patch",
+      "sha256": "7381c1073d25bec5b6f1b9077f2b6636ab0e4a014f56401145bc2118ff3b71c7"
+    },
+    {
+      "patch": "C31-scope-observation-install.patch",
+      "sha256": "8c2343caae6cf3572c9002948a6881f568b0513d57fac018bbe419454c53866e"
+    }
+  ],
+  "after": {
+    "c31_shared_origin_probe.py": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "c31_scope_observation.py": "e4ef67e09386b31fb2528e1754ac5b1b92cbe78710d1adf7b99ed0114be8929c"
+  },
+  "checks": [
+    "General lambda traversal handles zero or multiple bodies with lexical argument shadowing; strict single-body stage/projection helper remains unchanged.",
+    "Existing workload generator supplies only the2 selected domain-spilling profiles and their semantic and physical checks.",
+    "Observation checks bind to the same AST hash and prohibit all3 full-proof flags from becoming true.",
+    "Only allowlisted callables, recognized join kinds, arities, Booleans, hashes and aggregate counters are emitted.",
+    "No raw fields, SQL, AST or rows are saved by the observation module.",
+    "Temporary patch application and syntax parsing passed."
+  ],
+  "limitations": [
+    "Lexical block bindings and exact field-to-identity lineage remain unproved.",
+    "No production correctness verdict follows from successful topology observations alone."
+  ],
+  "actual_execution_pending": true,
+  "live_edits": false
+}

@@ -1,0 +1,23 @@
+Reviewer r32: lookup physical lowering, source-range boundary, and runtime contract
+Scope: physical_conversion/kqp_rbo_physical_lookup_join_builder.cpp/.h; call sites in convert_to_physical; stage assignment; source builder/materialization; downstream lookup runtime and type annotation. Read-only, two passes. No repository edits, builds, concrete reproductions, or saved test data.
+
+CORRECTNESS
+No new actionable correctness defect confirmed in this scope after two passes. This is not a claim of exhaustive correctness or runtime test coverage.
+
+Rejected candidate issues, with guard verification:
+1. ResidualJoinKeys.EqualNulls is ignored by CmpEqual construction, but rewrite_join_to_index_lookup_join.cpp rejects every HasEqualNullsKey join before constructing these operators. Currently unreachable from the supported rewrite.
+2. Prefix expansion assigns distinct runtime row cookies per generated pair, which would invalidate outer/semi/anti cardinality for multiple prefix points. kqp_rbo_lookup_join.cpp:IsUsablePointPrefix explicitly limits non-inner joins to at most one expected point. Current generated plans enforce the needed guard.
+3. LeftSemi lookup strategy does not discard later residual-filter matches: runtime/kqp_stream_lookup_worker.cpp routes JOIN and SEMI_JOIN to the same TKqpJoinRows implementation, which forwards all fetched rows. ProcessFetchedRows preserves cookies and maps rejected candidates to absent optionals before the runtime semi/anti/left join state machines decide output.
+4. Missing index matches cannot turn into nullable-primary-key matches in supported noncovering lookup chains: nullable primary keys use a separate inner IndexLookupJoin before the main-table lookup; nonnullable keys use missing-key rejection. The left payload type is explicitly propagated in the direct chained path.
+5. Field renaming and order are resolved by explicit struct members, globally unique physical names, logical-ID-to-storage mapping for chained key types, and lexical storage ordering for wide OLAP reads. Duplicate storage fields are deduplicated then reconstructed under distinct logical names.
+6. Dynamic row/OLAP ranges are replaced on the finalized stage rather than its stale predecessor; source settings and the finalizedStages map carry the replacement. Sysview settings are not materialized by this branch, but push_ranges rejects system-view table kinds, so a new-RBO generated dynamic sysview range was not established.
+7. Lookup key type coercion does not silently change values here: the logical rewrite requires identical types after stripping the single storage optional wrapper.
+
+OPTIMIZATION QUALITY (separate from correctness)
+Q32: All original lookup join keys are carried through the lookup even after they are no longer needed.
+Primary location: ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp:332-336.
+Mechanism: TOpIndexLookupJoin::PropagateLiveness adds all JoinKeys.Left and JoinKeys.Right to the live input, although the builder never evaluates those keys at IndexLookupJoin. The lookup's matched prefix/key conditions are already consumed in BuildLookupKeys; only ResidualJoinKeys require later comparison. BuildLookupKeys lines 79-82 copies every thus-live left key into the preserved left payload, and that payload is returned with fetched rows. Final ExtractMembers at lines 397-399 prunes only after the lookup. This adds left payload width and can retain unnecessary fetched key columns. The overhead grows with wide string/composite keys and lookup fan-out, even when the user output does not use those keys.
+Fix direction: IndexLookupJoin should demand downstream outputs plus the columns actually used by residual/filter processing; keep original JoinKeys for explain/provenance without treating every key as a postlookup data dependency. Verify residual right fields and filter fields remain demanded by TableLookup/pruning before removing unconditional unions.
+Verification: static dependency trace across liveness -> BuildLookupKeys -> ProcessFetchedRows -> IndexLookupJoin -> final ExtractMembers; lookup implementation does not otherwise read LookupJoin.JoinKeys. No benchmark or dynamic test run by this reviewer.
+
+Suggested follow-up test dimensions, without concrete cases: nested noncovering index chains with nullable primary keys; unused wide keys with high fan-out; residual predicates with mixed accepted/rejected fetched rows; duplicate physical-column logical IDs; parameter-derived empty/single/multiple point prefixes with join-kind guards; row/OLAP computed-range materialization with peephole enabled and disabled.

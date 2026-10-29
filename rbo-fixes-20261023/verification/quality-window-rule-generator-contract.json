@@ -1,0 +1,20 @@
+{
+  "generators": [
+    {
+      "generator": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_window_checks.py",
+      "sha256": "4304f9319e180234de339f369288ae48c6271ab2115aa6713f9ba245dbadaa72",
+      "cases": 61
+    },
+    {
+      "generator": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_rule_checks.py",
+      "sha256": "79928bb8b273843ea6c4dd575c11ea4aa8fe377741e5091d027193852eee236e",
+      "cases": 31
+    }
+  ],
+  "builder_oracle_parser_contract_checks": 1396,
+  "result": "pass",
+  "native_runs": 0,
+  "quality_improvement_verified": false,
+  "generated_inputs_saved": false,
+  "generated_result_payloads_saved": false
+}

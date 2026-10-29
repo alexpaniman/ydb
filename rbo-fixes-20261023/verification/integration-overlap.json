@@ -1,0 +1,611 @@
+{
+  "purpose": "Review queue for combining independent fixes; overlap is not proof of a merge or semantic conflict",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "revisions": {
+    "C01": "40a5bea4e432b65845052aacbd104b642ffc8df1",
+    "C02": "6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41",
+    "C03": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e",
+    "C04": "69b7c53d2f5ad03f02256e03b972901bdab12eab",
+    "C05": "bf6527096b7a594beb47e3b2e274079b184b8128",
+    "C06": "446592a476b92437df5b2579e1027cfb313be1d9",
+    "C07": "2e4843e6be7a7b49fab191bc0d454653e0aca41e",
+    "C08": "af05d7c395191d1a19ff7a3a4b2c8bc29be83582",
+    "C09": "1525ba0d79efbdae93eb658a6ab75daa5371f411",
+    "C10": "8c96cdf3c1ef0a971b7d736facd8d2610a5335d9",
+    "C11": "d23472b33678121343af7ebc4f532c88e0488d51",
+    "C12": "68356618882bee6b367ac24f5536883c2cb14609",
+    "C13": "71378e72b8ce2770e83abac301d701b744a6c603",
+    "C14": "c128b7c1bd99c1c7199e3ad2b00d061b7f3a2b6f",
+    "C15": "3a9521680600ea2f5bcdb2ea0736e8d2cdb5df5d",
+    "C16": "473f0a46d6145fb93e940140030f0ae21e83972e",
+    "C17": "d08902de538969291efbeb272b45a12982a65ae8",
+    "C18": "ec25a7d3319c8e75ad3849a638f6830642097709",
+    "C19": "8c1af92732e2b672b9c9a3e0c9cf533eb2d8969c",
+    "C20": "5f9ef7674522a3df8d13b3d6080d82224a9fba83",
+    "C21": "78462388619dee01bf57156839620936e70d7376",
+    "C22": "e67e82b03f5ece6469b879a25083fea8e5684f87",
+    "C23": "030ea24b8e681a8242c7f4e7df2c0b0bd1725676",
+    "C24": "037848a02d0d400ab3d90c29d329b83b9f03456c",
+    "C25": "33e1d0f59ccf5c07308337e019b73f110cd98d53",
+    "C26": "d40b5b11a3c485d1b504c128931d120d94487324",
+    "C27": "fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c",
+    "C28": "5616e3ad461be8ae3f5716e1f3cfaae2580d2abb",
+    "C29": "9f2e822f02204297e1aef990a2ce29310c7d438c",
+    "C30": "d3f07e4572af7719c1846c38fc3a8200e9c2ebd6",
+    "C31": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+    "C32": "244c9fa808fb219eee19bf7a73dbed19602f303e",
+    "C33": "b48c86eeb7c2f0ea14d052f107d04cf26330d885",
+    "C34": "80b8d1dcee88c42a687c820600955953ec413c49",
+    "C35": "545bae60730d260ed848ebbfde31b47a7d0fc21e",
+    "C36": "49ca1046560e6edb6b2d616829833ef586e5822d",
+    "C37": "bc9e6946f9d128036b13912fedafabb1bd9a206d",
+    "C38": "62bdb6bf7ed7b70851ed62c3d886fcc9737de15b",
+    "C39": "416834fa9b1e0fec89d663026e74f76ab6909314",
+    "C40": "a3f2d982416508ada71d8e63fcc097631a3dbe12",
+    "C41": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+    "C42": "6eeadd50b057ceec10173d3fb1104b4a81ddbafe",
+    "C43": "fd7ba4678acdce0c5473cb765187abdde514a16e",
+    "C44": "329c771f34f97af659cf4d78af1e6c54226deb3e",
+    "C45": "6d8e86a79f5417c74d46a8314e3591d6e3b88eed",
+    "C46": "43cf0cc6ab0a627e42844759086ac020bd98925f",
+    "C47": "54db45bef39b3515bd662daefe9d10c8757e74db",
+    "C48": "35bc8b6938f42a11e92747063bfafc1dec0b9b5c",
+    "C49": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+    "C50": "946575513d233534e8f4fa4168f5dc9379ffc982",
+    "F01": "cb7a4189eea1f56dfdc7bbbb012c96403c090636",
+    "F02": "1c4fd440a12e3a6a8267f119b1e25b603b5282c9",
+    "F03": "2a99d200829f2dd090ef70ce69b491c12227c5d5",
+    "Q01": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+    "Q02": "1b50d28716f74eb02571e7490181132b14c37bff",
+    "Q03": "939173f5abcbcd596dd23ddfefed806df0d243ed",
+    "Q04": "a9df61306aa47badfbf1cec2fc043b3336addfd3",
+    "Q05": "33bc67934dd9a881ca1aecbf4c6cefd0f882f8c1",
+    "Q06": "864bd56c1abb0c47f9f1ee669acf722819354dee",
+    "Q07": "18eb64e0a7e18ccf2f50340a75f98b3ced6ab646",
+    "Q08": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+    "Q09": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e",
+    "Q10": "efeebb38e72fd7a7c84ab65121e49362f93e2d4b",
+    "Q11": "f9279dcfeac87c596f58ccc8e3add4722c66a960",
+    "Q12": "a92df58f248c54a46f82586f50fc58ae5b207e8e",
+    "Q13": "b0df3bf71706e6a13041e3dda141e13312130b97",
+    "Q14": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd",
+    "Q15": "4e6d9217ef22bdcced5cd1879d3639508717e8e0",
+    "Q16": "36000459cb44ccfe5e548a2622bfa21ffff591c7",
+    "Q17": "a5a23189d946a8bd772e10279bc44e270648ec02",
+    "Q18": "f27cc1474705c540c5a64c2700f19eb4df749f54",
+    "Q19": "c261bd389b61872b7c78851a26bf46283b95b9cb",
+    "Q20": "49b33e196eefd41df663417e7392f7ca0e1504cd",
+    "Q21": "a15cf405bd258b86dedf171e6a9eaac9022dd644",
+    "Q22": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+    "Q23": "183be021902ede0113798fcee8118c4479966713",
+    "Q24": "734379d38b24d68712098d96cd57fe79d1c90253",
+    "Q25": "1300a777c320158fe82cd9416b355165dbe73ecd",
+    "Q26": "c0e36684231f975761822543f88edae5a4e3297e",
+    "Q27": "72e17774d130a022ed4649c26c3db7656d83d971",
+    "Q28": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+    "Q29": "73620db7e22cbf67cb2e2262f227a9303492ed41"
+  },
+  "files": [
+    {
+      "file": "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+      "cases": [
+        "C09",
+        "C11",
+        "C20",
+        "C47"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C09",
+          "C11"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/host/kqp_host.cpp",
+      "cases": [
+        "C30",
+        "C46",
+        "C48"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C30",
+          "C46"
+        ],
+        [
+          "C30",
+          "C48"
+        ],
+        [
+          "C46",
+          "C48"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+      "cases": [
+        "C11",
+        "C20",
+        "C41",
+        "Q01"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp",
+      "cases": [
+        "Q02",
+        "Q23"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+      "cases": [
+        "C02",
+        "C05",
+        "C09",
+        "C11",
+        "C47",
+        "Q25"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C09",
+          "C11"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+      "cases": [
+        "C05",
+        "C17",
+        "C18",
+        "C47",
+        "Q13",
+        "Q25"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_operator.h",
+      "cases": [
+        "C05",
+        "C20",
+        "C37",
+        "C41",
+        "C47",
+        "C50",
+        "Q02",
+        "Q13",
+        "Q15",
+        "Q25",
+        "Q28"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C37",
+          "Q02"
+        ],
+        [
+          "C37",
+          "Q15"
+        ],
+        [
+          "Q02",
+          "Q15"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+      "cases": [
+        "C09",
+        "C11",
+        "C20",
+        "C42",
+        "C47"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C09",
+          "C11"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_plan_props.cpp",
+      "cases": [
+        "C09",
+        "C11"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C09",
+          "C11"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_plan_props.h",
+      "cases": [
+        "C09",
+        "C11"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C09",
+          "C11"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp",
+      "cases": [
+        "Q07",
+        "Q29"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "Q07",
+          "Q29"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+      "cases": [
+        "C37",
+        "C38",
+        "C47",
+        "C49",
+        "C50",
+        "Q08",
+        "Q09",
+        "Q15",
+        "Q20"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C37",
+          "Q15"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+      "cases": [
+        "Q06",
+        "Q07",
+        "Q17",
+        "Q29"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h",
+      "cases": [
+        "Q07",
+        "Q29"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "Q07",
+          "Q29"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "cases": [
+        "C01",
+        "C04",
+        "C06",
+        "C47",
+        "F02",
+        "Q04",
+        "Q11",
+        "Q28"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C47",
+          "Q04"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "cases": [
+        "C03",
+        "C25",
+        "C31",
+        "C41",
+        "C47",
+        "F02",
+        "Q04",
+        "Q11",
+        "Q18",
+        "Q19",
+        "Q27"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C03",
+          "F02"
+        ],
+        [
+          "Q18",
+          "Q19"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+      "cases": [
+        "C11",
+        "C20",
+        "C26"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_utils.cpp",
+      "cases": [
+        "C01",
+        "Q15"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rbo_utils.h",
+      "cases": [
+        "C01",
+        "Q15"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+      "cases": [
+        "C09",
+        "C11",
+        "C12",
+        "C13",
+        "C14",
+        "C20",
+        "C27",
+        "C28",
+        "C29",
+        "C33",
+        "C44",
+        "C45",
+        "C47",
+        "F01"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C09",
+          "C11"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+      "cases": [
+        "C23",
+        "C26",
+        "C34",
+        "C35"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C26",
+          "C34"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+      "cases": [
+        "C23",
+        "C35"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+      "cases": [
+        "C41",
+        "C43",
+        "Q22"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+      "cases": [
+        "C47",
+        "Q24",
+        "Q26"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C47",
+          "Q26"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "cases": [
+        "C19",
+        "C20",
+        "C21",
+        "C22",
+        "F03",
+        "Q01"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h",
+      "cases": [
+        "C20",
+        "C21",
+        "Q01"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+      "cases": [
+        "C32",
+        "C50",
+        "Q07",
+        "Q13",
+        "Q15"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C50",
+          "Q07"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "cases": [
+        "C05",
+        "C06",
+        "C07",
+        "C08",
+        "Q21"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.h",
+      "cases": [
+        "C05",
+        "Q21"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+      "cases": [
+        "C24",
+        "C26",
+        "C35",
+        "Q10"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C24",
+          "C35"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+      "cases": [
+        "C09",
+        "C10",
+        "Q21"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+      "cases": [
+        "C05",
+        "C15"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp",
+      "cases": [
+        "C47",
+        "Q05"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+      "cases": [
+        "C01",
+        "C16"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp",
+      "cases": [
+        "C47",
+        "Q12"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp",
+      "cases": [
+        "C40",
+        "C47",
+        "Q25"
+      ],
+      "overlapping_base_hunk_pairs": []
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+      "cases": [
+        "C47",
+        "C49",
+        "Q03",
+        "Q04"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C47",
+          "Q04"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp",
+      "cases": [
+        "C47",
+        "Q07",
+        "Q29"
+      ],
+      "overlapping_base_hunk_pairs": [
+        [
+          "C47",
+          "Q07"
+        ],
+        [
+          "C47",
+          "Q29"
+        ],
+        [
+          "Q07",
+          "Q29"
+        ]
+      ]
+    },
+    {
+      "file": "ydb/core/kqp/opt/rbo/rules/ya.make",
+      "cases": [
+        "F02",
+        "Q11"
+      ],
+      "overlapping_base_hunk_pairs": []
+    }
+  ],
+  "shared_files": 39,
+  "overlapping_base_hunk_pairs": 26
+}

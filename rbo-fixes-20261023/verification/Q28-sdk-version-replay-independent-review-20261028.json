@@ -1,0 +1,80 @@
+{
+  "actual_runtime_attestation_verified": false,
+  "actual_samples_accepted": 0,
+  "approved_module_after_sha256": "5a7f8ebd901340e1c8f19ff1d8db8d2a27e8e0fd9b00c738e01c546f73d3daa7",
+  "approved_patch": "proposed-quality-amendments/Q28-sdk-compilation-version-replay-20261028.patch",
+  "approved_patch_sha256": "4aabcde2409f4feb9d82c7b2908e7ffec334fd29ae9677402a104e366986a49f",
+  "build_runs": 0,
+  "clean_four_patch_application_to_disposable_stack_verified": true,
+  "combined_dispatcher_sha256": "4dd347ff4ac7f89334943f9d4708438cf85e8850db35875c3117068725aae0d9",
+  "contracts": [
+    "Uses the independently reviewed production-version prepare_object path after adapter compilation. The original restored link order passes through the existing stdout and archive adapters.",
+    "Prepared object remains caller-owned and sealed through linking and all seven samples; it is excluded from native sample descriptor mappings.",
+    "Object seals/digest and source/tool dependencies are verified after link, before and after each sample, and at final provenance. Executable hashing follows the post-link verification.",
+    "The recursive profile fingerprint includes production_version_object.py and detects its mutation. Original receipt checks, final source/profile hashes, executable digest and runtime environment/affinity checks remain active.",
+    "Preparation failures preserve available sanitized production-infrastructure evidence. Errors, cancellation and allocation interruptions cannot return accepted pilot records.",
+    "Compiler/link/native guard limits, serial ownership, SDK adapter C++ source, cold-cache rejection, statistics scope, local-file disabling and seven-cell selection are unchanged.",
+    "The shared-spilling eighth cell remains explicitly pending. Semantic, full-quality, structural-scaling, stage-timing and full-pilot-coverage acceptance flags remain false.",
+    "Q28 still maps to its separate 26-case direct scheduler suite; no direct admission path is modified."
+  ],
+  "finding": "Q28 compilation pilot production-version integration",
+  "full_q28_admission": false,
+  "generated_queries_cpp_plans_results_or_repros_persisted": false,
+  "live_helper_edits": false,
+  "native_runs": 0,
+  "optimizer_stage_timings_verified": false,
+  "production_version_helper_sha256": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+  "quality_improvement_verified": false,
+  "query_semantics_verified": false,
+  "remaining_prerequisites": [
+    "Apply the approved exact dependency patches only at an idle boundary; do not install the superseded third-patch hash.",
+    "Actual guarded production generation, C/C++ compilation, link and anonymous descriptor/seal transport remain unexecuted.",
+    "Actual SDK startup, runtime environment/affinity attestation, cold-target compilation statistics and local-file setup still need execution.",
+    "The seventh-cell partial-recorded status is only transport evidence. Full semantics, direct26 counter comparison, structural query-size measurements and optimization acceptance remain separate."
+  ],
+  "remaining_source_findings": [],
+  "resolved_review_finding": {
+    "correction": "Every successful descriptor allocation is now immediately assigned inside the existing owning try/finally block. Borrowed executable ownership remains with the outer block.",
+    "evidence": "verification/Q28-pilot-descriptor-allocation-source-finding-20261028.json",
+    "evidence_sha256": "dd17ad9c9f937fae55c49d669c2784e7f070117cd2971cb996f0e09a02126818",
+    "independent_verification": "Seventeen interrupted-allocation positions and prepare/link/native cancellation close all fake descriptors.",
+    "issue": "Partial initial and per-sample descriptor allocations could escape local cleanup ownership.",
+    "production_defect": false,
+    "resolved": true,
+    "source_references": [
+      "proposed-quality-amendments/q28_compilation_measurement_version_replay_20261028.candidate.py:344",
+      "proposed-quality-amendments/q28_compilation_measurement_version_replay_20261028.candidate.py:364",
+      "proposed-quality-amendments/q28_compilation_measurement_version_replay_20261028.candidate.py:407"
+    ]
+  },
+  "reviewed_dependencies": [
+    {
+      "patch": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+      "sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q28-sdk-compilation-runtime-identity-20261028.patch",
+      "sha256": "8712ec3993b04acf34b404818f48714588628fd6418315adcaeb57a54168a9e8"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C31-production-version-object-replay-20261028.patch",
+      "sha256": "af0c861afcf3def464bd74707cc8e261f996c2783f92b9a1a5be3c844cba572d"
+    }
+  ],
+  "source_preparation_sha256": "75a391250dc297ad96881ddfc48221d3de1cd5acec4b7a1718dd37f67fe75118",
+  "status": "approved_source_and_metadata_partial_pilot_native_pending",
+  "superseded_patch_sha256": "898d12bcb2d9fdce96e3740f4cd5156ae70e14a2f28c92fa8b61a18ce09cd76a",
+  "toolchain_runs": 0,
+  "verification": {
+    "all_non_execution_functions_unchanged": true,
+    "author_assertions_reported": 1107,
+    "dependency_fingerprint_mutation_detected": true,
+    "generated_adapter_cpp_sha256": "d8237e5c10705e5c0e69e1b8fc3f76c5f5906d9e01c5871b10dc5a73cb2485ec",
+    "generated_adapter_cpp_unchanged": true,
+    "independent_assertions": 737,
+    "independent_scenarios": 25,
+    "metadata_report": "verification/Q28-version-replay-independent-metadata-20261028.json",
+    "metadata_report_sha256": "cebba7d9b25920f867a971d6daa20d07107e97ae08d6be4d1a2a912d5966d39c",
+    "metadata_script_sha256": "b9337b161b2d051e42a9d4e6e145cd5f5b2ce4a5408cb158638cc3519b05a571"
+  }
+}

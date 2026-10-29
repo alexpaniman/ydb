@@ -1,0 +1,255 @@
+{
+  "assertion_failure_count": 6,
+  "base_revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "canonicalization_proof": [
+    {
+      "fact": "Equal atom nodes are merged and their formatting flags normalized.",
+      "location": "yql/essentials/core/yql_expr_csee.cpp:619",
+      "symbol": "EliminateCommonSubExpressions / VisitNode"
+    },
+    {
+      "fact": "For equal nonbinary atoms, the minimum flags are retained; merging with default numeric atoms removes arbitrary-content double quoting.",
+      "location": "yql/essentials/ast/yql_expr.h:2173",
+      "symbol": "TExprNode::NormalizeAtomFlags"
+    },
+    {
+      "fact": "Reference counts determine generated let aliases. Duplicate identical bounds retain extra parameter references until CSEE merges the common expression.",
+      "locations": [
+        "yql/essentials/ast/yql_expr.cpp:1838",
+        "yql/essentials/ast/yql_expr.cpp:2080"
+      ],
+      "symbol": "ConvertToAst / VisitNode / InlineNode"
+    },
+    {
+      "fact": "Printed atom quoting depends on expression flags; parameters are represented through declared names and any selected let bindings.",
+      "location": "yql/essentials/ast/yql_expr.cpp:1883",
+      "symbol": "BuildValueNode"
+    }
+  ],
+  "changed_production_files": [
+    "ydb/core/kqp/host/kqp_explain_prepared.cpp",
+    "ydb/core/kqp/opt/kqp_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_plan_to_json.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.h",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.h"
+  ],
+  "classification_limits": [
+    "The five lookup result-set checks passed before their failed AST assertions.",
+    "The parameterized-range runtime checks were not reached, so this report does not claim their semantic execution passed.",
+    "The logged metadata/bounds are semantically consistent with the expectations; no wrong result bag is established by these six failures.",
+    "A pinned-main native full-suite comparison was not run in this source-only assessment; causality follows the removed restart and observed canonicalization differences.",
+    "A scope-only UpdateCompletness amendment addresses the separate crash mechanism but does not itself restore CSEE canonicalization.",
+    "The combined amendment and all original assertions still require native verification; this is not a complete host-pipeline equivalence proof."
+  ],
+  "common_cause": {
+    "explanation": "C41 replaces the complete query and returns Ok. Previously RemapExpr returned Repeat with restart after a changed graph, re-entering the host post-type-annotation stages. That restart supplied both dependency-scope repair and common-subexpression elimination.",
+    "location": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:450",
+    "old_host_pipeline_location": "ydb/core/kqp/host/kqp_host.cpp:2363",
+    "old_post_annotation_locations": [
+      "yql/essentials/core/services/yql_transform_pipeline.cpp:161",
+      "yql/essentials/core/services/yql_transform_pipeline.cpp:172"
+    ],
+    "old_restart_location": "yql/essentials/core/yql_expr_optimize.cpp:554",
+    "symbol": "TKqpNewRBOTransformer::ContinueOptimizations"
+  },
+  "findings": [
+    {
+      "assertion_location": "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp:3663",
+      "bounds_structurally_equal_after_alias_resolution": true,
+      "classification": "printed_physical_AST_canonicalization_assertion",
+      "comment_sha256": "8d0a274f6b46bba1d34efe58c544a9fdc0890344cae36be66f418170a78e7dbe",
+      "expected_test_source_identical_to_pinned_main": true,
+      "explanation": "The two inclusive range bounds use generated aliases. Resolving those aliases yields exactly the expected declared parameters. The exact-text assertion fails before the runtime result checks execute.",
+      "inclusive_bound_count": 2,
+      "later_result_oracle_locations": [
+        "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp:3687",
+        "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp:3703"
+      ],
+      "later_result_oracle_not_reached": true,
+      "observed_explain_success": true,
+      "observed_prior_result_oracle_pass": false,
+      "resolved_arguments_are_declared_parameters": true,
+      "resolved_bound_matches_test_expected": true,
+      "symbols": [
+        "KqlKeyInc",
+        "Parameter",
+        "ConvertToAst"
+      ],
+      "test": [
+        "KqpRboYql",
+        "LiteralRangeWithParameters"
+      ]
+    },
+    {
+      "assertion_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:779",
+      "classification": "printed_physical_AST_canonicalization_assertion",
+      "comment_sha256": "1a67ad0bdef9934d27cbd06f5954a9856b8761bd4601b93cce9d42e6bfd2770a",
+      "exact_index_lookup_target_used": true,
+      "expected_test_source_identical_to_pinned_main": true,
+      "explanation": "The lookup strategy and null-key-prefix metadata are correct, and the test passed its result-set assertion. The printed numeric atom retains double quotes, causing an exact-text AST assertion to fail.",
+      "observed_explain_success": true,
+      "observed_prior_result_oracle_pass": true,
+      "only_numeric_atom_quote_normalization_needed": true,
+      "prior_result_oracle_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:770",
+      "symbols": [
+        "KqpCnStreamLookup",
+        "AllowNullKeysPrefixSize",
+        "LookupJoinRows"
+      ],
+      "test": [
+        "KqpRboLookupJoin",
+        "LookupJoinByNonCoveringIndexNullablePk"
+      ],
+      "unchanged_settings_confirmed": true
+    },
+    {
+      "assertion_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:563",
+      "classification": "printed_physical_AST_canonicalization_assertion",
+      "comment_sha256": "fc1c0db4ab095a867dfb84500e42b3a2168c2e833e712e75b823fd159f060b68",
+      "exact_index_lookup_target_used": true,
+      "expected_test_source_identical_to_pinned_main": true,
+      "explanation": "The lookup strategy and null-key-prefix metadata are correct, and the test passed its result-set assertion. The printed numeric atom retains double quotes, causing an exact-text AST assertion to fail.",
+      "observed_explain_success": true,
+      "observed_prior_result_oracle_pass": true,
+      "only_numeric_atom_quote_normalization_needed": true,
+      "prior_result_oracle_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:543",
+      "symbols": [
+        "KqpCnStreamLookup",
+        "AllowNullKeysPrefixSize",
+        "LookupJoinRows"
+      ],
+      "test": [
+        "KqpRboLookupJoin",
+        "LookupJoinByNonCoveringIndexWithConstPrefix+AllPointPrefixes+CoveringPredicateIndex"
+      ],
+      "unchanged_settings_confirmed": true
+    },
+    {
+      "assertion_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:393",
+      "classification": "printed_physical_AST_canonicalization_assertion",
+      "comment_sha256": "b1711cc9d044781f2ae97bc5a2f41de53713e772649c4da8bec5923769e644f8",
+      "exact_index_lookup_target_used": false,
+      "expected_test_source_identical_to_pinned_main": true,
+      "explanation": "The lookup strategy and null-key-prefix metadata are correct, and the test passed its result-set assertion. The printed numeric atom retains double quotes, causing an exact-text AST assertion to fail.",
+      "observed_explain_success": true,
+      "observed_prior_result_oracle_pass": true,
+      "only_numeric_atom_quote_normalization_needed": true,
+      "prior_result_oracle_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:377",
+      "symbols": [
+        "KqpCnStreamLookup",
+        "AllowNullKeysPrefixSize",
+        "LookupJoinRows"
+      ],
+      "test": [
+        "KqpRboLookupJoin",
+        "LookupJoinByIndexWithConstPrefix-AllPointPrefixes"
+      ],
+      "unchanged_settings_confirmed": true
+    },
+    {
+      "assertion_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:563",
+      "classification": "printed_physical_AST_canonicalization_assertion",
+      "comment_sha256": "c696d14c440c2d726f35377d3fe7681fcfdabcb6ccc9a8ff81c2060652aaba02",
+      "exact_index_lookup_target_used": true,
+      "expected_test_source_identical_to_pinned_main": true,
+      "explanation": "The lookup strategy and null-key-prefix metadata are correct, and the test passed its result-set assertion. The printed numeric atom retains double quotes, causing an exact-text AST assertion to fail.",
+      "observed_explain_success": true,
+      "observed_prior_result_oracle_pass": true,
+      "only_numeric_atom_quote_normalization_needed": true,
+      "prior_result_oracle_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:543",
+      "symbols": [
+        "KqpCnStreamLookup",
+        "AllowNullKeysPrefixSize",
+        "LookupJoinRows"
+      ],
+      "test": [
+        "KqpRboLookupJoin",
+        "LookupJoinByNonCoveringIndexWithConstPrefix+AllPointPrefixes-CoveringPredicateIndex"
+      ],
+      "unchanged_settings_confirmed": true
+    },
+    {
+      "assertion_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:393",
+      "classification": "printed_physical_AST_canonicalization_assertion",
+      "comment_sha256": "c3354c09133475fa74ebae8e690b2d92b2341f7d0078239906278257aaee3ba9",
+      "exact_index_lookup_target_used": false,
+      "expected_test_source_identical_to_pinned_main": true,
+      "explanation": "The lookup strategy and null-key-prefix metadata are correct, and the test passed its result-set assertion. The printed numeric atom retains double quotes, causing an exact-text AST assertion to fail.",
+      "observed_explain_success": true,
+      "observed_prior_result_oracle_pass": true,
+      "only_numeric_atom_quote_normalization_needed": true,
+      "prior_result_oracle_location": "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:377",
+      "symbols": [
+        "KqpCnStreamLookup",
+        "AllowNullKeysPrefixSize",
+        "LookupJoinRows"
+      ],
+      "test": [
+        "KqpRboLookupJoin",
+        "LookupJoinByIndexWithConstPrefix+AllPointPrefixes"
+      ],
+      "unchanged_settings_confirmed": true
+    }
+  ],
+  "live_source_edits": 0,
+  "native_build_runs": 0,
+  "raw_diagnostics_AST_SQL_results_copied": false,
+  "recommendation": "At the final whole-query RBO export, run UpdateCompletness and then the existing EliminateCommonSubExpressions with forSubGraph=false and the current TypeCtx column-order store. Keep all six assertions unchanged; do not add renderer-specific normalization to tests.",
+  "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+  "schema_version": "c41_six_assertion_source_assessment_v1",
+  "source_bindings": {
+    "ydb/core/kqp/common/kqp_yql.cpp": {
+      "base_sha256": "612958edef3d27f48144cd8fd46e5e65ddad1dc7947162206f9f1bb6b63a5196",
+      "fixed_sha256": "612958edef3d27f48144cd8fd46e5e65ddad1dc7947162206f9f1bb6b63a5196"
+    },
+    "ydb/core/kqp/host/kqp_host.cpp": {
+      "base_sha256": "349f0976fec6a945e8e1ef645bc78ed649c9267a17fa648c2123c3779da09f2c",
+      "fixed_sha256": "349f0976fec6a945e8e1ef645bc78ed649c9267a17fa648c2123c3779da09f2c"
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": {
+      "base_sha256": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896",
+      "fixed_sha256": "0a08d5f365e53b04330e5cd719efb5e8924051ccbedd0fa096d9ff057481ecbd"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp": {
+      "base_sha256": "aa418bdba1b88c9be06e885d9a2f0f5aa393ca688695d917d4928b7a7cac84bc",
+      "fixed_sha256": "ab962603994354ce12e01e5143705227aed2d3db8e5d99ddcad2084af735c455"
+    },
+    "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp": {
+      "base_sha256": "5e37c605b3c368a6423f7324651bc5e78502ddc20bce10aefd848de7f10037ec",
+      "fixed_sha256": "5e37c605b3c368a6423f7324651bc5e78502ddc20bce10aefd848de7f10037ec"
+    },
+    "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp": {
+      "base_sha256": "d74563bbe47346f31f0a78282ac4edbfae006d23ad08ed598cb62b55f81b5fc0",
+      "fixed_sha256": "d74563bbe47346f31f0a78282ac4edbfae006d23ad08ed598cb62b55f81b5fc0"
+    },
+    "yql/essentials/ast/yql_expr.cpp": {
+      "base_sha256": "e33b2bf21861a4509b9fba3a0f1a12de56dcab76d1a4b3d2ac6471e24fbd41f9",
+      "fixed_sha256": "e33b2bf21861a4509b9fba3a0f1a12de56dcab76d1a4b3d2ac6471e24fbd41f9"
+    },
+    "yql/essentials/ast/yql_expr.h": {
+      "base_sha256": "d86cf4b845a8071a419ee144d691818562330200ce79ea036079a7e30c132bc4",
+      "fixed_sha256": "d86cf4b845a8071a419ee144d691818562330200ce79ea036079a7e30c132bc4"
+    },
+    "yql/essentials/core/services/yql_transform_pipeline.cpp": {
+      "base_sha256": "48ed726441df8fb1414290276d7ff83f92ffa7eaf313d12c0b7956f99db173fc",
+      "fixed_sha256": "48ed726441df8fb1414290276d7ff83f92ffa7eaf313d12c0b7956f99db173fc"
+    },
+    "yql/essentials/core/yql_expr_csee.cpp": {
+      "base_sha256": "5e14327572f32cd7b3036d186136929a3117ddb6e049c5642a847a564729d2cc",
+      "fixed_sha256": "5e14327572f32cd7b3036d186136929a3117ddb6e049c5642a847a564729d2cc"
+    },
+    "yql/essentials/core/yql_expr_csee.h": {
+      "base_sha256": "b2675300a2bd9d3770ee8a032a08c96a59c2cdfaf8085a38acd065f7242f0e74",
+      "fixed_sha256": "b2675300a2bd9d3770ee8a032a08c96a59c2cdfaf8085a38acd065f7242f0e74"
+    },
+    "yql/essentials/core/yql_expr_optimize.cpp": {
+      "base_sha256": "bdb98e62a1e264244ea81b737b4547cbe8ec98d53a677b1b487053c1164cf443",
+      "fixed_sha256": "bdb98e62a1e264244ea81b737b4547cbe8ec98d53a677b1b487053c1164cf443"
+    }
+  },
+  "status": "source_causality_established_native_amendment_pending",
+  "trace_sha256": "f8af1255f37495f6bff1e7dc40c499e2cd20278b7e3e599cc54d4bcf6cf0c948"
+}

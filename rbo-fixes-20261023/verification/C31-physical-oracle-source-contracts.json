@@ -1,0 +1,49 @@
+{
+  "purpose": "Correct physical join names and retain strict reconstruction topology acceptance",
+  "artifact_only": true,
+  "live_files_modified": false,
+  "patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-physical-oracle-artifacts.patch",
+      "sha256": "6755649591ec5a6235f0246f1891a5cd9b07036c5fa44f5bff92bdb2ff9aa27b",
+      "apply_check_passed": true,
+      "preimages": {
+        "rbo-fixes-20261023/sharing_lifecycle_checks.py": "52bc893a2810a3dbae30cd38366f91450381f55e9556c735302d30bc43fbed94",
+        "rbo-fixes-20261023/c31_identity_checks.py": "3ce09393f4169673ad98ef84dd0336eac0d67da888ad491e5f3a9a5b91408254"
+      }
+    },
+    {
+      "path": "proposed-correctness-amendments/C31-coverage-and-physical-artifacts.patch",
+      "sha256": "6c8896d4789eaaa7ea49dfb5ff7bea8edb1f16e031383e63c2a2724c5eea0b8f",
+      "apply_check_passed": true,
+      "preimages": {
+        "rbo-fixes-20261023/sharing_lifecycle_checks.py": "52bc893a2810a3dbae30cd38366f91450381f55e9556c735302d30bc43fbed94",
+        "rbo-fixes-20261023/c31_identity_checks.py": "3ce09393f4169673ad98ef84dd0336eac0d67da888ad491e5f3a9a5b91408254"
+      }
+    },
+    {
+      "path": "proposed-quality-amendments/lookup-block-callable-artifacts.patch",
+      "sha256": "08785b1e008e7d9acb69669a4ff82ad85bf6c276c8d3e8d6d00232d46c65ad69",
+      "apply_check_passed": true,
+      "preimages": {
+        "rbo-fixes-20261023/quality_lookup_checks.py": "801d21e9f6b4594babdb1aeb9cd580982dd38f3775b2b186701c1e679b587c76"
+      }
+    }
+  ],
+  "source_contracts": [
+    "dq_expr_nodes.json: TDqBlockHashJoinCore matches BlockHashJoinCore; JoinKind child2.",
+    "physical_join_builder.cpp: BuildPhysicalJoin selects MapJoinCore or GraceJoinCore for row joins.",
+    "yql_expr_nodes.json: MapJoinCore/GraceJoinCore JoinKind child2; GraceSelfJoinCore child1.",
+    "kqp_expr_nodes.json: KqpIndexLookupJoin inherits JoinType child1.",
+    "inline_join_filters.cpp: keyed residual LEFT reconstruction creates Inner followed by Left.",
+    "All admitted reconstruction profiles still require two physical joins and both Inner/Left kinds.",
+    "Block controls require actual BlockHashJoinCore and Left kind; lookup exclusion remains.",
+    "BlockMapJoinCore is not added to C31: the reviewed RBO builder does not emit it."
+  ],
+  "native_name_evidence": "verification/C31-frontend-and-physical-callable-diagnostic.json",
+  "historical_records_reclassified": false,
+  "next_evidence": "Root reruns actual retained LEFT SQL profiles with corrected summaries; prior records remain unchanged.",
+  "native_executed": false,
+  "compiler_executed": false,
+  "mocks_executed": false
+}

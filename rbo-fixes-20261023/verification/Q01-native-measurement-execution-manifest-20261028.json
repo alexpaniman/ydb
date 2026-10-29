@@ -1,0 +1,306 @@
+{
+  "schema_version": "q01_child_measurement_execution_manifest_v1",
+  "status": "source_only_pilot_plan_resource_matrix_blocked_on_named_window_and_controls",
+  "integration": {
+    "patch": "proposed-quality-amendments/Q01-native-child-measurement-integration-20261028.patch",
+    "sha256": "9fa07f8be32edb35da301d4212b1366d83f9419ce0faab1811052061c2859d0a",
+    "independent_review": "verification/Q01-native-child-measurement-independent-review-20261028.json",
+    "review_sha256": "73a7e06e9b696e6e395d51954ae6712777af37a898d87899ecfa8cb0838e57b5"
+  },
+  "revisions": {
+    "baseline": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "fixed": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7"
+  },
+  "entrypoint": {
+    "outer_api": "verify_series.invoke_native",
+    "caller_must_hold_existing_global_serial_lease": true,
+    "no_new_standalone_outer_CLI": true,
+    "arguments": {
+      "worktree": "Path of clean exact-revision worktree",
+      "phase": "baseline or fixed",
+      "bugs": [
+        "Q01"
+      ],
+      "revision": "the exact corresponding revision above",
+      "rows": "N integer",
+      "modules": [
+        "quality_q01_scaling_checks"
+      ],
+      "repetitions": 1,
+      "q01_sample": {
+        "case": "q01_scaling_{family}_w{W}",
+        "rows": "same N integer",
+        "run_id": "32 lowercase hex digits; distinct for frontend pilot, signal pilot and final matrix",
+        "kind": "pilot, warmup, or measurement",
+        "index": "0..4; warmup must be 0"
+      }
+    },
+    "inner_cli_template": [
+      "python3",
+      "-B",
+      "rbo-fixes-20261023/native_verify.py",
+      "--worktree",
+      "{worktree}",
+      "--phase",
+      "{phase}",
+      "--bugs",
+      "Q01",
+      "--rows",
+      "{N}",
+      "--modes",
+      "new",
+      "--repetitions",
+      "1",
+      "--generator-module",
+      "quality_q01_scaling_checks",
+      "--measure-q01-child-resources",
+      "--cases",
+      "q01_scaling_{family}_w{W}",
+      "--q01-run-id",
+      "{run_id}",
+      "--q01-sample-kind",
+      "{kind}",
+      "--q01-sample-index",
+      "{index}"
+    ],
+    "inner_cli_limit": "Only inside existing guarded invoke_native scope; invoking it directly does not establish scope or serial ownership.",
+    "bounds": "One child at a time, 120-second target timeout, unchanged 24 GiB scope / 36 GiB host guard; 32-row legacy preflight precedes each cell and is unmeasured."
+  },
+  "receipt_requirements": {
+    "version": "successful_runner_build_v1",
+    "target": "ydb/tests/tools/kqprun",
+    "runner": "ydb/tests/tools/kqprun/kqprun",
+    "per_phase": [
+      "Successful receipt from exact revision, clean tracked sources and exact worktree path",
+      "Full streamed runner SHA plus size, mtime, ctime, inode and device match; unchanged after sample",
+      "Same frozen generator/dependency/helper/protocol and source-design hashes; matching workload/schema/fixture/settings hashes for each pair",
+      "Record UDF, Python, inherited environment, affinity and kernel bindings; compare identical metric scope and guard evidence"
+    ],
+    "lookup": "invoke_native uses existing automatic receipt lookup: verification/build-receipts/{revision}-{sha256(resolved_worktree)[:16]}.json. The inner parser additionally supports --build-receipt {path}; invoke_native does not forward that override.",
+    "missing_or_stale_receipt": "Stop that phase before any target; no reuse of a receipt from another path or commit; no build is part of this manifest."
+  },
+  "family_reconciliation": {
+    "rows_collectors": "Original COUNT plus machine-integer SUM family, ROWS frame",
+    "rows_minmax": "Original ROWS scalar MIN/MAX family",
+    "range_minmax": "Original RANGE scalar MIN/MAX-only family",
+    "range_mixed": "Original RANGE MIN/MAX plus supported collectors family; co-location currently unproved and source-shape correction required",
+    "range_collectors": "Required collector-only constituent of range_mixed; supplements the original four families, not a fifth new acceptance claim"
+  },
+  "pilot": {
+    "preconditions": [
+      "Idle reviewed artifact installation",
+      "Actual bounded transport/cleanup checks completed",
+      "Both exact executable receipts available; no concurrent build/native job"
+    ],
+    "frontend_smoke": {
+      "families": "all five above",
+      "rows": 2048,
+      "width": 16,
+      "kind": "pilot",
+      "index": 0,
+      "per_phase_samples": 5,
+      "purpose": "Check frontend typing, setup capacity, ordered row semantics and actual physical shapes; never treated as performance acceptance."
+    },
+    "signal_probe": {
+      "families": [
+        "rows_collectors",
+        "rows_minmax",
+        "range_minmax",
+        "range_mixed"
+      ],
+      "rows": "largest N at current ladder level",
+      "widths": [
+        16,
+        512
+      ],
+      "kind": "pilot",
+      "indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "samples_per_level_excluding_warmups": 80,
+      "ladder_rows": [
+        [
+          2048,
+          4096,
+          8192
+        ],
+        [
+          4096,
+          8192,
+          16384
+        ],
+        [
+          8192,
+          16384,
+          32768
+        ]
+      ],
+      "selection": "Choose a single ladder level before final matrix freeze. Do not tune tolerances, omit failures, or retain selected fast samples.",
+      "prerequisite": "Use the shared named-window correction and matched setup control first; bind the corrected generator and freeze the same source for the later matrix. Old split-window observations cannot select an accepted matrix."
+    },
+    "startup_and_setup": "CPU includes runner startup, fixture parsing/loading, compilation and target. At fixed N compare widths using identical setup. Report matched cheap-scan control separately once prepared; the 32-row legacy preflight is not that control. No operator CPU decomposition or startup-RSS subtraction exists.",
+    "signal_limit": "If common setup masks baseline width sensitivity, or the unchanged proposed signal/noise checks are inconclusive, remain pending. Row-growth can be dominated by setup and does not isolate the window runtime."
+  },
+  "later_matrix": {
+    "blocked_until_prerequisites_below": true,
+    "primary_families": [
+      "rows_collectors",
+      "rows_minmax",
+      "range_minmax",
+      "range_mixed"
+    ],
+    "row_counts": "the three N values of the frozen ladder level",
+    "primary_cells": "At each N use W=16 and W=512; add W=128 at largest N: 7 cells x 4 families = 28.",
+    "constituents": "range_minmax at W=512 already occurs at all three N; add only range_collectors W=512 at each N: 3 additional cells.",
+    "unique_profiles_excluding_missing_controls": 31,
+    "warmup": "One labeled excluded warmup per revision/(family,N,W) profile, index 0: 62 warmup children.",
+    "measurement": "Five paired attempts per profile, indices 0..4: 310 measured children; preserve every failed/inconclusive attempt.",
+    "order": "Serial profiles in declared family order, ascending N then W; alternate pair order by (profile ordinal + repetition) parity: baseline/fixed then fixed/baseline. No parallel pairs.",
+    "count_limit": "372 database children plus one separate preflight each, before missing controls or pilots. This is planning arithmetic, not executed evidence."
+  },
+  "prerequisites_and_narrow_followups": [
+    {
+      "id": "shared_window_identity",
+      "required": "Use one explicitly named window for all aggregate calls in each recipe. Current repeated inline clauses get fresh frontend names; new RBO emits one window operator per name. This can defeat the intended combined MIN/MAX and mixed collector path.",
+      "small_change": "A local generator builder emitting shared OVER-name references and one WINDOW definition; same schema, fixture, frame parameters and row oracle. No production or measurement-helper edit.",
+      "evidence": "Require a dataflow witness for the actual mixed MIN/MAX-plus-collector pipeline; global callable counts alone cannot prove co-location."
+    },
+    {
+      "id": "matched_setup_control",
+      "required": "Same schema_and_seeds(N, case), settings and input identity; cheap ordered id projection instead of windows.",
+      "small_change": "Add one explicit setup-scan case to the same scaling generator with minmax=false and collectors=false; reuse current row oracle and guarded one-cell API. Bind its own query hash and compare same-N control CPU separately.",
+      "limit": "The control still includes its scan/output/compilation; subtracting it does not prove exact operator CPU. No control is included in the frozen reviewed patch."
+    },
+    {
+      "id": "suffix_and_fallback",
+      "required": "At largest N add one suffix and one unsupported-aggregate fallback control for each MIN/MAX-bearing family (rows_minmax, range_minmax, range_mixed); keep their semantics/resource non-regression separate from supported-work speedup.",
+      "status": "Six control profiles proposed, generator/oracle/path contracts still needed; excluded from the 31-profile count."
+    },
+    {
+      "id": "allocator_and_admission",
+      "required": "Separate actual MiniKQL allocation/absolute-peak lane, exact physical-path evidence and independently reviewed closed resource validator; none is supplied by whole-child CPU/RSS."
+    }
+  ],
+  "frontend_and_type_review": {
+    "status": "source-compatible basic types/bounds; no native parser/type check performed",
+    "findings": [
+      "Small nonnegative frame literals fit the frontend Int32 bound contract; RANGE has exactly one required Int64 order key and uses numeric offsets.",
+      "Nullable bounded Int64 values fit fixed CanUsePrefixSum and admitted scalar MIN/MAX; the deterministic value range avoids accumulator overflow at every permitted N.",
+      "Per-partition ids are spaced by three, so RANGE width counts key distance; it admits roughly width/3 prior rows, whereas ROWS counts positions. Compare widths within a family, not equal-width row cardinalities across ROWS/RANGE.",
+      "Repeated inline window identities are the concrete shape blocker described above; actual lowering must be inspected after named-window correction.",
+      "One fixture statement contains N combined SELECT arms. Its frontend/type/compile cost and potential depth/size limits may dominate or fail the pilot; do not raise timeout/memory/output limits or reinterpret setup failure as an optimizer regression.",
+      "Existing 16 MiB result/AST limits remain fail-closed; large-N result serialization and final ordering still require native validation."
+    ],
+    "fixture_text_sizes_only": [
+      {
+        "rows": 2048,
+        "fixture_statement_bytes_with_semicolon": 74673
+      },
+      {
+        "rows": 4096,
+        "fixture_statement_bytes_with_semicolon": 150449
+      },
+      {
+        "rows": 8192,
+        "fixture_statement_bytes_with_semicolon": 302001
+      },
+      {
+        "rows": 16384,
+        "fixture_statement_bytes_with_semicolon": 611490
+      },
+      {
+        "rows": 32768,
+        "fixture_statement_bytes_with_semicolon": 1234082
+      }
+    ],
+    "pinned_source_evidence": [
+      {
+        "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+        "path": "yql/essentials/sql/v1/translation/sql_call_expr.cpp",
+        "sha256": "dfb8454dc6a4305a5e1308f293ec1692c47f9bcc502ad7cba47e4aec3f53567c",
+        "symbols": {
+          "WindowName_ = Ctx_.MakeName(\"_yql_anonymous_window\")": 447
+        },
+        "identical_at_fixed": true
+      },
+      {
+        "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+        "path": "yql/essentials/sql/v1/translation/sql_translation.cpp",
+        "sha256": "3ed4a248c7bdee10775c19cd865a13952f9d95652b7c28c84849170fc99ff54f",
+        "symbols": {
+          "bool CheckFrameBoundLiteral": 4017,
+          "bool TSqlTranslation::IsValidFrameSettings": 4039
+        },
+        "identical_at_fixed": true
+      },
+      {
+        "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+        "path": "yql/essentials/sql/v1/translation/select_yql.cpp",
+        "sha256": "3a3e01f1c93da3f30c16e6309343422ecc59ac8242e922267c74df7a1188e0b2",
+        "symbols": {
+          "TNodePtr BuildWindows": 807,
+          "TNodePtr WithFrameBound": 845
+        },
+        "identical_at_fixed": true
+      },
+      {
+        "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+        "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+        "sha256": "026f5d5afe7750add360e5c127242ac268b309455ab8ac47840e0c0d6abf33cd",
+        "symbols": {
+          "void ProcessWindowCalls": 1226,
+          "TExprNode::TPtr BuildWindowOperators": 1349
+        },
+        "identical_at_fixed": true
+      },
+      {
+        "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+        "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+        "sha256": "f272aab6c4cbbd90db7bf151899477bfab66b79a2abb8ef583030433f1fb5a95",
+        "symbols": {
+          "bool IsRangeOffsetType": 60,
+          "bool TPhysicalWindowBuilder::CanUsePrefixSum": 296,
+          "bool TPhysicalWindowBuilder::CanUseScalarMinMax": 342,
+          "TExprNode::TPtr TPhysicalWindowBuilder::BuildRangeBound": 1460,
+          "TExprNode::TPtr TPhysicalWindowBuilder::BuildFrameFold": 1645
+        }
+      },
+      {
+        "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+        "path": "ydb/core/kqp/common/kqp_window_minmax.h",
+        "sha256": "fb6afed0d9aa7bd92aa804b7a2fbf261abe7040054cf91e2ef1d2b906db8a71b",
+        "symbols": {
+          "inline bool IsIncrementalWindowMinMaxSlot": 9
+        }
+      }
+    ]
+  },
+  "acceptance_policy": {
+    "reference": "verification/Q01-resource-scaling-admission-plan-20261027.json",
+    "reference_sha256": "4f5cf34f70cf9a651b579017dee36afbfe907e0903530f9624300c2cfab4e596",
+    "threshold_changes": false,
+    "threshold_validator_implemented": false,
+    "pilot_is_acceptance": false,
+    "resource_scaling_verified": false,
+    "quality_improvement_verified": false
+  },
+  "actions": {
+    "live_edits": false,
+    "builds": 0,
+    "native_runs": 0,
+    "toolchain_runs": 0,
+    "graph_runs": 0,
+    "rendered_SQL_or_CPP_or_results_persisted": 0
+  },
+  "metadata_validation": {
+    "registered_cli_options_match": true,
+    "sample_descriptors_checked": 93,
+    "matrix_profiles_per_ladder": 31,
+    "threshold_reference_unchanged": true,
+    "native_runs": 0
+  }
+}

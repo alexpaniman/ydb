@@ -1,0 +1,154 @@
+{
+  "admission": {
+    "SDK7_remains_optional_partial_measurement_pilot": true,
+    "amendment_local_contracts_verified": "True only after all four exact records/counter deltas/assertion counts and final revision/receipt/source/object/executable/original26 rechecks pass.",
+    "canonical_SQL8_required_separately": true,
+    "existing26_paired_evidence_required_before_four": true,
+    "existing26_route_modified": false,
+    "existing26_validator": "Existing pair_direct(Q28) with exact immutable baseline/fixed files, source/vector/closure/guard checks; revalidated after native execution.",
+    "four_control_comparator": "Actual amended production rule versus same-build old-depth-two declaration, not an alternate production baseline.",
+    "full_q28_admission": false,
+    "pure_optimizer_or_whole_query_timing_claim": false,
+    "quality_improvement_verified": false,
+    "query_semantics_verified": false
+  },
+  "after_sha256": "77b151edb0de8cfa0c73ea44f0e230513bfcc802d3d14ecaf51a512aafc06d96",
+  "assertion_count_scope": "Derived from frozen generator source, checked exactly for passing records; actual native execution remains pending.",
+  "assertion_total": 1708,
+  "assertion_vector": [
+    136,
+    472,
+    238,
+    862
+  ],
+  "binding_refresh_note": "This runner pins seven exact helper/generator files. It does not import the quality SQL spill adapter on this path. Any future change to a pinned helper requires a separately reviewed binding-only refresh; the separate Q28 revision/SQL/SDK binding plan remains required.",
+  "case_vector": [
+    {
+      "case": "q28_fusion_depth_removed_8",
+      "fanout": 8,
+      "kept": false
+    },
+    {
+      "case": "q28_fusion_depth_removed_32",
+      "fanout": 32,
+      "kept": false
+    },
+    {
+      "case": "q28_fusion_depth_kept_8",
+      "fanout": 8,
+      "kept": true
+    },
+    {
+      "case": "q28_fusion_depth_kept_32",
+      "fanout": 32,
+      "kept": true
+    }
+  ],
+  "execution": {
+    "cleanup": "Each descriptor becomes caller-owned immediately after allocation inside try/finally. Partial allocation, version preparation and seal/native cancellation all retain cleanup ownership.",
+    "compile_timeout_seconds": 900,
+    "failure_evidence": "Completed parsed case verdicts and sanitized process/hash evidence survive final validation failure/cancellation. Unsafe malformed output is represented only by guarded process hashes; abrupt process death can prevent the final JSON and is not claimed recoverable.",
+    "file_or_raw_diagnostic_persistence": "Only sanitized metadata evidence written under a new exclusive filename. No raw generated input, output, AST, rows or diagnostics.",
+    "fixed_only": true,
+    "fresh_v2_build_and_graph_receipt_required": true,
+    "generated_Cpp_object_executable_transport": "Anonymous memfds; production version generation/replay, archive-order transport and same-inode sealed read-only executable handoff reuse exact reviewed helpers.",
+    "generic_generator_or_baseline_override": false,
+    "link_scope_gib": 36,
+    "link_timeout_seconds": 900,
+    "native_scope_gib": 12,
+    "native_timeout_seconds": 120,
+    "new_build_export_or_graph_commands": false,
+    "outer_serial_lock": "Unchanged anonymous_cpp_verify.serial_slot; requires frozen sources and direct_cpp_verification state.",
+    "production_closure_profile": "rbo",
+    "production_closure_target": "ydb/core/kqp/ut/rbo"
+  },
+  "generated_CPP_queries_results_or_repros_persisted": false,
+  "metadata_checks": {
+    "existing_receipt_schema_example_sha256": "30ab549105d700451f7ac151473e35506f1418131859678d76700bc0a90ad6cb",
+    "mock_checks_passed": 255,
+    "mock_report": "verification/Q28-depth-fixed-runner-metadata-checks-20261028.json",
+    "mock_report_sha256": "d9bf57a49f35a5b7d4a9ac8327ed78d2a5b1424b6ed0905933bbb1b5078f9132",
+    "mock_scenarios": 52,
+    "mock_script_sha256": "0fdcd95a1279b7286f983b9291d31411cfb2071221b8fbb85c0290babc7346f6",
+    "source_checks": [
+      "exact_mocked_runner_after_image",
+      "complete_current_mock_vector",
+      "no_duplicate_mock_scenarios",
+      "independently_reviewed_four_control_generator",
+      "same_generated_contract_hash_without_persistence",
+      "original26_source_binding_unchanged",
+      "frozen_helper_image:memory_safe_build",
+      "frozen_helper_image:anonymous_cpp_guard",
+      "frozen_helper_image:anonymous_cpp_metadata",
+      "frozen_helper_image:anonymous_cpp_verify",
+      "frozen_helper_image:production_version_object",
+      "frozen_helper_image:quality_scheduler_cpp_checks",
+      "frozen_helper_image:quality_scheduler_depth_checks",
+      "actual_helper_API:anonymous_cpp_verify.serial_slot",
+      "actual_helper_API:anonymous_cpp_verify._expected_revision",
+      "actual_helper_API:anonymous_cpp_verify._memfd",
+      "actual_helper_API:anonymous_cpp_verify._fd_digest",
+      "actual_helper_API:anonymous_cpp_verify._stdout_link_arguments",
+      "actual_helper_API:anonymous_cpp_verify._archive_response_arguments",
+      "actual_helper_API:anonymous_cpp_verify._seal_native_executable",
+      "actual_helper_API:anonymous_cpp_verify.pair_direct",
+      "actual_helper_API:anonymous_cpp_metadata.verify_receipt",
+      "actual_helper_API:anonymous_cpp_metadata.source_revision",
+      "actual_helper_API:production_version_object.prepare_object",
+      "actual_helper_API:production_version_object.verify_object",
+      "actual_helper_API:anonymous_cpp_guard.run_anonymous",
+      "normal_direct26_registration_unchanged",
+      "normal_direct26_pair_admission_unchanged",
+      "fresh_existing_receipt_schema_compatible_no_receipt_reused",
+      "exact_disposable_runner_install",
+      "exact_disposable_generator_then_runner_composition"
+    ],
+    "source_checks_passed": 31
+  },
+  "native_build_toolchain_runs": 0,
+  "new_revision": "Supplied by root only after the independently main-based one-line amendment; no placeholder is admitted.",
+  "ordered_installation": [
+    {
+      "patch": "proposed-quality-amendments/Q28-map-fusion-refresh-depth-controls-20261028.patch",
+      "sha256": "05c568415beb0c5e0155e1dc1067135cdb5f2e539609f219585ef86c2ca129f7"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q28-depth-fixed-runner-20261028.patch",
+      "sha256": "1985cf94a04fa93bbf97e7e2eae414ea086d8cbbb71bd14d8d053febc452f178"
+    }
+  ],
+  "patch": "proposed-quality-amendments/Q28-depth-fixed-runner-20261028.patch",
+  "patch_sha256": "1985cf94a04fa93bbf97e7e2eae414ea086d8cbbb71bd14d8d053febc452f178",
+  "production_amendment_patch_sha256": "b56ee3ef5a6976cf981f010ef5bee957e1e86ff75e7fb43e0b14463bc77518b5",
+  "production_live_helpers_or_Git_objects_modified": false,
+  "production_source_bindings": {
+    "ydb/core/kqp/opt/rbo/kqp_info_unit.h": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": "810ec6495a0f2571af8aaed157d947d69ec9798affa2a72f10f2e423c574290a",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.cpp": "ee672230519afa55b720f92bc37ba130e343d2911e131c8d66b5d53b4000ee7b",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.h": "fb1e560c105f97d21a5a4a8eceac7f69c83b8b9b294b916be9247c7eafda091c",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h": "73e36b5ccdbf430b4e5e7feaddc8cc7cd14547c44d6e3fbbb32d80ae4896d27c",
+    "ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp": "28e83a69b1e394ffe7d1cee1f184488217876421db3503f58f7ca9ca3bd649f5",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa"
+  },
+  "revision_checks": [
+    "Exact external expected revision equals cases/Q28.json and clean worktree HEAD.",
+    "Existing _expected_revision validates the pinned-main parent.",
+    "Relative to old Q28, the complete tree changes only the reviewed header.",
+    "Exact after-header hash and seven other reviewed production-source hashes are mandatory before and after execution."
+  ],
+  "schema": "q28_depth_fixed_runner_source_preparation_v1",
+  "source_bindings": {
+    "anonymous_cpp_guard": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+    "anonymous_cpp_metadata": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf",
+    "anonymous_cpp_verify": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+    "memory_safe_build": "ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd",
+    "production_version_object": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+    "quality_scheduler_cpp_checks": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7",
+    "quality_scheduler_depth_checks": "ffd071b611343437c26b5179fa9d4c8db926270cfe1095d60b1bdb737e996203"
+  },
+  "source_scope_report": "verification/Q28-map-fusion-refresh-depth-source-preparation-20261028.json",
+  "source_scope_report_sha256": "0ffb046299b0b6da60e06268421dd501c6af74a97cb8e92e28e072bb5fa1886b",
+  "status": "dormant_source_and_mock_checked_independent_review_and_native_pending",
+  "target": "rbo-fixes-20261023/q28_depth_verify.py"
+}

@@ -1,0 +1,893 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h
+@@ -26,6 +26,39 @@
+ // its description in SourceRead.
+ std::optional<TLookupJoinRightSide> MatchLookupJoinRightSide(const TIntrusivePtr<IOperator>& input);
+ 
++// The left key type comes from the annotated boundary operator, never column lineage.
++struct TTypedLookupJoinKey {
++    TInfoUnitId LeftIU;
++    TInfoUnitId RightIU;
++    const NYql::TTypeAnnotationNode* LeftType;
++    bool EqualNulls = false;
++};
++
++struct TLookupJoinKey {
++    TInfoUnitId LeftIU;
++    TInfoUnitId RightIU;
++    TString Column;
++};
++
++struct TPreparedLookupJoin {
++    // Owns the read carrying any PointPrefix referenced by Target.
++    TLookupJoinRightSide RightSide;
++    TLookupJoinTarget Target;
++    std::optional<TExpression> FetchedRowFilter;
++    TVector<TLookupJoinKey> PrefixKeys;
++    TVector<TLookupJoinKey> LookupKeys;
++    TVector<TLookupJoinKey> ResidualKeys;
++};
++
++std::optional<TExpression> BuildLookupJoinFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported);
++
++// Shared, side-effect-free eligibility, target and key partitioning for costing and lowering.
++std::optional<TPreparedLookupJoin> PrepareLookupJoin(const TIntrusivePtr<IOperator>& right,
++    const TVector<TTypedLookupJoinKey>& keys, TStringBuf joinKind, bool sharedLeft, bool hasJoinFilters,
++    const NOpt::TKqpOptimizeContext& kqpCtx, const TInfoUnitRegistry& registry, NYql::TExprContext& ctx);
++std::optional<TPreparedLookupJoin> PrepareLookupJoin(const TOpJoin& join, const NOpt::TKqpOptimizeContext& kqpCtx,
++    const TInfoUnitRegistry& registry, NYql::TExprContext& ctx);
++
+ // Maps the right side join keys to physical columns of the read. Read output units carry the physical
+ // source column as their name, so the mapping is a registry lookup.
+ std::optional<THashSet<TString>> GetLookupJoinKeyColumns(const TOpRead& read, const TUnorderedIUs& rightJoinKeys,
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp
+@@ -274,6 +274,129 @@
+     return best;
+ }
+ 
++std::optional<TExpression> BuildLookupJoinFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
++    TVector<TExpression> conjuncts;
++    if (read.RangeInfo.has_value()) {
++        if (!read.OriginalPredicate.has_value()) {
++            supported = false;
++            return std::nullopt;
++        }
++        const auto original = read.OriginalPredicate->SplitConjunct();
++        conjuncts.insert(conjuncts.end(), original.begin(), original.end());
++    }
++    if (filter) {
++        const auto filters = filter->GetFilterExpression().SplitConjunct();
++        conjuncts.insert(conjuncts.end(), filters.begin(), filters.end());
++    }
++
++    if (conjuncts.empty()) {
++        return std::nullopt;
++    }
++
++    // The filter is evaluated on a fetched row, so it can only refer to the fetched columns.
++    const auto& readOutputs = read.GetColumns();
++    for (const auto& conjunct : conjuncts) {
++        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(readOutputs)) {
++            supported = false;
++            return std::nullopt;
++        }
++    }
++
++    return MakeConjunction(conjuncts);
++}
++
++std::optional<TPreparedLookupJoin> PrepareLookupJoin(const TIntrusivePtr<IOperator>& right,
++    const TVector<TTypedLookupJoinKey>& keys, TStringBuf joinKind, bool sharedLeft, bool hasJoinFilters,
++    const NOpt::TKqpOptimizeContext& kqpCtx, const TInfoUnitRegistry& registry, TExprContext& ctx) {
++    if (!kqpCtx.Config->GetEnableKqpDataQueryStreamIdxLookupJoin()
++        || (!kqpCtx.IsDataQuery() && !kqpCtx.IsGenericQuery())
++        || (joinKind != "Inner" && joinKind != "Left" && joinKind != "LeftSemi" && joinKind != "LeftOnly")
++        || sharedLeft || hasJoinFilters || keys.empty()) {
++        return std::nullopt;
++    }
++    const auto rightSide = MatchLookupJoinRightSide(right);
++    if (!rightSide || !rightSide->Read->Type || rightSide->Read->Limit
++        || rightSide->Read->GetTableStorageType() != NYql::EStorageType::RowStorage) {
++        return std::nullopt;
++    }
++    const auto& read = *rightSide->Read;
++    TPreparedLookupJoin result;
++    result.RightSide = *rightSide;
++    bool supported = true;
++    result.FetchedRowFilter = BuildLookupJoinFetchedRowFilter(read, rightSide->Filter.Get(), supported);
++    if (!supported) {
++        return std::nullopt;
++    }
++    auto stripOptional = [](const TTypeAnnotationNode* type) {
++        return type && type->GetKind() == ETypeAnnotationKind::Optional
++            ? type->Cast<TOptionalExprType>()->GetItemType() : type;
++    };
++    THashMap<TString, TLookupJoinKey> keyByColumn;
++    THashSet<TString> keyColumns;
++    for (const auto& key : keys) {
++        if (key.EqualNulls || !read.GetColumns().Contains(key.RightIU)) {
++            return std::nullopt;
++        }
++        const auto* leftType = stripOptional(key.LeftType);
++        const auto* rightType = stripOptional(read.GetIUType(key.RightIU, ctx));
++        if (!leftType || !rightType || leftType != rightType) {
++            return std::nullopt;
++        }
++        const auto column = registry.Get(key.RightIU).GetColumnName();
++        if (!keyByColumn.emplace(column, TLookupJoinKey{key.LeftIU, key.RightIU, column}).second) {
++            return std::nullopt;
++        }
++        keyColumns.insert(column);
++    }
++    TVector<TString> readColumns;
++    for (const auto id : read.GetColumns()) {
++        readColumns.push_back(registry.Get(id).GetColumnName());
++    }
++    const auto target = ChooseLookupJoinTarget(read, readColumns, keyColumns, joinKind == "Inner", kqpCtx);
++    if (!target) {
++        return std::nullopt;
++    }
++    result.Target = *target;
++    const size_t prefixSize = target->PointPrefix ? target->PointPrefix->Columns.size() : 0;
++    THashSet<TString> taken;
++    const auto& physicalKeys = target->Metadata->KeyColumnNames;
++    for (size_t i = 0; i < physicalKeys.size(); ++i) {
++        const auto it = keyByColumn.find(physicalKeys[i]);
++        if (i < prefixSize) {
++            if (it != keyByColumn.end()) {
++                result.PrefixKeys.push_back(it->second);
++                taken.insert(it->first);
++            }
++        } else {
++            if (it == keyByColumn.end()) {
++                break;
++            }
++            result.LookupKeys.push_back(it->second);
++            taken.insert(it->first);
++        }
++    }
++    if (result.LookupKeys.empty()) {
++        return std::nullopt;
++    }
++    for (const auto& key : keys) {
++        const auto& column = registry.Get(key.RightIU).GetColumnName();
++        if (!taken.contains(column)) {
++            result.ResidualKeys.push_back(keyByColumn.at(column));
++        }
++    }
++    return result;
++}
++
++std::optional<TPreparedLookupJoin> PrepareLookupJoin(const TOpJoin& join, const NOpt::TKqpOptimizeContext& kqpCtx,
++    const TInfoUnitRegistry& registry, TExprContext& ctx) {
++    TVector<TTypedLookupJoinKey> keys;
++    for (const auto& [left, right, equalNulls] : join.JoinKeys.Items()) {
++        keys.push_back({left, right, join.GetLeftInput()->GetIUType(left, ctx), equalNulls});
++    }
++    return PrepareLookupJoin(join.GetRightInput(), keys, GetValidJoinKind(join.JoinKind),
++        join.GetLeftInput()->Kind == EOperator::Replicate, !join.JoinFilters.empty(), kqpCtx, registry, ctx);
++}
++
+ TExprNode::TPtr BuildTableCallable(const TKikimrTableMetadata& meta, TPositionHandle pos, TExprContext& ctx) {
+     // clang-format off
+     return Build<TKqpTable>(ctx, pos)
+--- a/ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp
+@@ -4,128 +4,8 @@
+ namespace NKikimr {
+ namespace NKqp {
+ 
+-namespace {
+-
+ using namespace NYql;
+ using namespace NYql::NNodes;
+-
+-std::optional<TExpression> BuildFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
+-    TVector<TExpression> conjuncts;
+-    if (read.RangeInfo.has_value()) {
+-        if (!read.OriginalPredicate.has_value()) {
+-            supported = false;
+-            return std::nullopt;
+-        }
+-        const auto original = read.OriginalPredicate->SplitConjunct();
+-        conjuncts.insert(conjuncts.end(), original.begin(), original.end());
+-    }
+-    if (filter) {
+-        const auto filters = filter->GetFilterExpression().SplitConjunct();
+-        conjuncts.insert(conjuncts.end(), filters.begin(), filters.end());
+-    }
+-
+-    if (conjuncts.empty()) {
+-        return std::nullopt;
+-    }
+-
+-    // The filter is evaluated on a fetched row, so it can only refer to the fetched columns.
+-    const auto& readOutputs = read.GetColumns();
+-    for (const auto& conjunct : conjuncts) {
+-        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(readOutputs)) {
+-            supported = false;
+-            return std::nullopt;
+-        }
+-    }
+-
+-    return MakeConjunction(conjuncts);
+-}
+-
+-const TTypeAnnotationNode* StripOptional(const TTypeAnnotationNode* type) {
+-    return type && type->GetKind() == ETypeAnnotationKind::Optional ? type->Cast<TOptionalExprType>()->GetItemType() : type;
+-}
+-
+-struct TLookupKey {
+-    TInfoUnitId LeftIU;
+-    TInfoUnitId RightIU;
+-    TString Column;
+-};
+-
+-struct TKeyMatch {
+-    // Represents a constant prefix keys.
+-    TVector<TLookupKey> PrefixKeys;
+-    // Represents a lookup keys.
+-    TVector<TLookupKey> LookupKeys;
+-    // Represents a join keys which are not present in the right side index.
+-    TVector<TLookupKey> ResidualKeys;
+-};
+-
+-std::optional<TKeyMatch> MatchKeyPrefix(const TOpJoin& join, const TOpRead& read, const TVector<TString>& keyColumnNames,
+-                                        size_t pointPrefixLen, const TInfoUnitRegistry& registry) {
+-    Y_ENSURE(pointPrefixLen < keyColumnNames.size());
+-
+-    THashMap<TString, TLookupKey> keyByColumn;
+-    for (const auto& [leftIU, rightIU, equalNulls] : join.JoinKeys.Items()) {
+-        Y_ENSURE(read.GetColumns().Contains(rightIU), "Cannot find a join key in input columns.");
+-        const auto column = registry.Get(rightIU).GetColumnName();
+-        if (!keyByColumn.emplace(column, TLookupKey{leftIU, rightIU, column}).second) {
+-            return std::nullopt;
+-        }
+-    }
+-
+-    TKeyMatch match;
+-    THashSet<TString> takenKeys;
+-    const auto end = keyByColumn.end();
+-    for (size_t i = 0; i < keyColumnNames.size(); ++i) {
+-        const auto it = keyByColumn.find(keyColumnNames[i]);
+-        if (i < pointPrefixLen) {
+-            if (it != end) {
+-                const auto key = it->second;
+-                match.PrefixKeys.push_back(key);
+-                takenKeys.insert(key.Column);
+-            }
+-            continue;
+-        }
+-
+-        if (it == end) {
+-            break;
+-        }
+-
+-        const auto key = it->second;
+-        match.LookupKeys.push_back(key);
+-        takenKeys.insert(key.Column);
+-    }
+-
+-    for (const auto& [column, key] : keyByColumn) {
+-        if (!takenKeys.contains(column)) {
+-            match.ResidualKeys.push_back(key);
+-        }
+-    }
+-
+-    if (match.LookupKeys.empty()) {
+-        return std::nullopt;
+-    }
+-
+-    return match;
+-}
+-
+-bool KeyTypesMatch(const IOperator& leftInput, const IOperator& rightInput, const TVector<TLookupKey>& keys, TExprContext& ctx) {
+-    for (const auto& key : keys) {
+-        const auto* leftType = StripOptional(leftInput.GetIUType(key.LeftIU, ctx));
+-        const auto* rightType = StripOptional(rightInput.GetIUType(key.RightIU, ctx));
+-        // TODO: Add support key with different types.
+-        if (!leftType || !rightType || leftType != rightType) {
+-            return false;
+-        }
+-    }
+-    return true;
+-}
+-
+-bool KeyTypesMatch(const IOperator& leftInput, const IOperator& rightInput, const TKeyMatch& keys, TExprContext& ctx) {
+-    return KeyTypesMatch(leftInput, rightInput, keys.LookupKeys, ctx) && KeyTypesMatch(leftInput, rightInput, keys.PrefixKeys, ctx)
+-        && KeyTypesMatch(leftInput, rightInput, keys.ResidualKeys, ctx);
+-}
+-
+-} // anonymous namespace
+ 
+ bool TRewriteJoinToIndexLookupJoinRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
+     return input->Kind == EOperator::Join;
+@@ -133,74 +13,19 @@
+ 
+ TIntrusivePtr<IOperator> TRewriteJoinToIndexLookupJoinRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx,
+                                                                                TPlanProps& props) {
+-    if (!ctx.KqpCtx.Config->GetEnableKqpDataQueryStreamIdxLookupJoin()) {
++    auto join = CastOperator<TOpJoin>(input);
++    if (join->Props.JoinAlgo && *join->Props.JoinAlgo != EJoinAlgoType::LookupJoin) {
+         return input;
+     }
+-    if (!ctx.KqpCtx.IsDataQuery() && !ctx.KqpCtx.IsGenericQuery()) {
++    const auto prepared = PrepareLookupJoin(*join, ctx.KqpCtx, props.InfoUnitRegistry, ctx.ExprCtx);
++    if (!prepared) {
+         return input;
+     }
+-
+-    auto join = CastOperator<TOpJoin>(input);
+-
+-    if (join->Props.JoinAlgo.has_value() && *join->Props.JoinAlgo != EJoinAlgoType::LookupJoin){
+-        return input;
+-    }
+-
+     const auto joinKind = GetValidJoinKind(join->JoinKind);
+-    if (joinKind != "Inner" && joinKind != "Left" && joinKind != "LeftSemi" && joinKind != "LeftOnly") {
+-        return input;
+-    }
+-
+-    if (HasEqualNullsKey(join->JoinKeys)) {
+-        return input;
+-    }
+-
+-    // Not supported for join with join filters.
+-    if (join->JoinKeys.Items().empty() || !join->JoinFilters.empty()) {
+-        return input;
+-    }
+-
+-    // We transform left side into special form: tuple(left row, key to lookup).
+-    if (join->GetLeftInput()->Kind == EOperator::Replicate) {
+-        return input;
+-    }
+-
+-    // Read, Filter -> Read, or a read already redirected to a non-covering index.
+-    const auto rightSide = MatchLookupJoinRightSide(join->GetRightInput());
+-    if (!rightSide) {
+-        return input;
+-    }
+-    auto* read = rightSide->Read.Get();
+-    auto* rightFilter = rightSide->Filter.Get();
++    auto* read = prepared->RightSide.Read.Get();
+     TIntrusivePtr<TOpRead> rewrittenRead;
+-
+-    // Only supports row storage tables.
+-    if (read->GetTableStorageType() != NYql::EStorageType::RowStorage) {
+-        return input;
+-    }
+-
+-    // Built from the original read, so a predicate pushed into it is re-applied to the fetched rows
+-    // even when the lookup probes a different table.
+-    bool filterSupported = true;
+-    const auto fetchedRowFilter = BuildFetchedRowFilter(*read, rightFilter, filterSupported);
+-    if (!filterSupported) {
+-        return input;
+-    }
+-
+-    const auto joinKeyColumns = GetLookupJoinKeyColumns(*read, join->JoinKeys.Right(), props.InfoUnitRegistry);
+-    if (!joinKeyColumns) {
+-        return input;
+-    }
+-
+-    TVector<TString> readColumns;
+-    for (const auto column : read->GetColumns()) {
+-        readColumns.push_back(props.InfoUnitRegistry.Get(column).GetColumnName());
+-    }
+-
+-    const auto target = ChooseLookupJoinTarget(*read, readColumns, *joinKeyColumns, joinKind == "Inner", ctx.KqpCtx);
+-    if (!target) {
+-        return input;
+-    }
++    const auto* target = &prepared->Target;
++    const auto& fetchedRowFilter = prepared->FetchedRowFilter;
+     const auto& tableMeta = target->Metadata;
+     if (TKqpTable(read->GetTable()).Path().Value() != tableMeta->Name) {
+         auto rightOriginalType = read->Type;
+@@ -215,25 +40,8 @@
+     const TOpRead::TPointPrefix* pointPrefix = target->PointPrefix;
+     size_t pointPrefixLen = pointPrefix ? pointPrefix->Columns.size() : 0;
+ 
+-    auto keys = MatchKeyPrefix(*join, *read, tableMeta->KeyColumnNames, pointPrefixLen, props.InfoUnitRegistry);
+-    if (!keys && pointPrefixLen != 0) {
+-        pointPrefixLen = 0;
+-        keys = MatchKeyPrefix(*join, *read, tableMeta->KeyColumnNames, 0, props.InfoUnitRegistry);
+-    }
+-
+-    if (!keys) {
+-        return input;
+-    }
+-
+-    // Different types for keys are not supported.
+-    if (!KeyTypesMatch(*join->GetLeftInput(), *read, *keys, ctx.ExprCtx)) {
+-        // This check is missing in CBO, so we need to change join implementation in this case
+-        join->Props.JoinAlgo = EJoinAlgoType::MapJoin;
+-        return input;
+-    }
+-
+     TOpTableLookup::TLookupKeys lookupKeys;
+-    for (const auto& key : keys->LookupKeys) {
++    for (const auto& key : prepared->LookupKeys) {
+         lookupKeys.Append(key.LeftIU, key.Column);
+     }
+ 
+@@ -243,14 +51,14 @@
+         keyPrefix.Points = pointPrefix->Points;
+         keyPrefix.PointsItemType = pointPrefix->PointsItemType;
+         keyPrefix.Columns = pointPrefix->Columns;
+-        for (const auto& key : keys->PrefixKeys) {
++        for (const auto& key : prepared->PrefixKeys) {
+             keyPrefix.Equalities.Append(key.LeftIU, key.Column);
+         }
+         prefix = std::move(keyPrefix);
+     }
+ 
+     TPairedIUs residualJoinKeys;
+-    for (const auto& key : keys->ResidualKeys) {
++    for (const auto& key : prepared->ResidualKeys) {
+         residualJoinKeys.Add(key.LeftIU, key.RightIU);
+     }
+ 
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp
+@@ -5,211 +5,37 @@
+ namespace {
+ 
+ using namespace NYql;
+-using namespace NYql::NNodes;
+ using namespace NKikimr::NKqp;
+ 
+-std::optional<TExpression> BuildFetchedRowFilter(const TOpRead& read, TOpFilter* filter, bool& supported) {
+-    TVector<TExpression> conjuncts;
+-    if (read.RangeInfo.has_value()) {
+-        if (!read.OriginalPredicate.has_value()) {
+-            supported = false;
+-            return std::nullopt;
+-        }
+-        const auto original = read.OriginalPredicate->SplitConjunct();
+-        conjuncts.insert(conjuncts.end(), original.begin(), original.end());
+-    }
+-    if (filter) {
+-        const auto filters = filter->GetFilterExpression().SplitConjunct();
+-        conjuncts.insert(conjuncts.end(), filters.begin(), filters.end());
+-    }
+-
+-    if (conjuncts.empty()) {
+-        return std::nullopt;
+-    }
+-
+-    // The filter is evaluated on a fetched row, so it can only refer to the fetched columns.
+-    for (const auto& conjunct : conjuncts) {
+-        if (!conjunct.GetInputIUs(/*includeSubplanVars=*/true, /*includeCorrelatedDeps=*/true).IsSubsetOf(read.GetColumns())) {
+-            supported = false;
+-            return std::nullopt;
+-        }
+-    }
+-
+-    return MakeConjunction(conjuncts);
++bool IsSharedRelNode(const std::shared_ptr<IBaseOptimizerNode>& node) {
++    return node->Kind == EOptimizerNodeKind::RelNodeType
++        && std::static_pointer_cast<TRBORelOptimizerNode>(node)->Op->Kind == EOperator::Replicate;
+ }
+ 
+-struct TLookupKey {
+-    TInfoUnit LeftIU;
+-    TInfoUnit RightIU;
+-    TString Column;
+-};
+-
+-struct TKeyMatch {
+-    // Represents a constant prefix keys.
+-    TVector<TLookupKey> PrefixKeys;
+-    // Represents a lookup keys.
+-    TVector<TLookupKey> LookupKeys;
+-    // Represents a join keys which are not present in the right side index.
+-    TVector<TLookupKey> ResidualKeys;
+-};
+-
+-bool MatchKeyPrefix(const THashSet<TString>& joinKeys, const TVector<TString>& keyColumnNames,
+-                                        size_t pointPrefixLen) {
+-    Y_ENSURE(pointPrefixLen < keyColumnNames.size());
+-
+-    auto firstKeyColumn = keyColumnNames[pointPrefixLen];
+-    return joinKeys.contains(firstKeyColumn);
++bool IsLookupJoinApplicable(const std::shared_ptr<IBaseOptimizerNode>& left,
++    const std::shared_ptr<IBaseOptimizerNode>& right,
++    const TVector<TJoinColumn>& leftJoinKeys, const TVector<TJoinColumn>& rightJoinKeys,
++    EJoinKind joinKind, const TRBOProviderContext& provider) {
++    if (right->Kind != EOptimizerNodeKind::RelNodeType || leftJoinKeys.size() != rightJoinKeys.size()
++        || right->Stats.StorageType != EStorageType::RowStorage || right->Stats.Type != EStatisticsType::BaseTable) {
++        return false;
++    }
++    TVector<TTypedLookupJoinKey> keys;
++    for (size_t i = 0; i < leftJoinKeys.size(); ++i) {
++        const auto leftId = GetCBOColumnId(leftJoinKeys[i]);
++        const auto* type = provider.BoundaryTypes.Find(leftId);
++        if (!type) {
++            return false;
++        }
++        keys.push_back({leftId, GetCBOColumnId(rightJoinKeys[i]), *type,
++            leftJoinKeys[i].EqualNulls || rightJoinKeys[i].EqualNulls});
++    }
++    const auto& rightOp = std::static_pointer_cast<TRBORelOptimizerNode>(right)->Op;
++    return PrepareLookupJoin(rightOp, keys, ConvertToJoinString(joinKind), IsSharedRelNode(left), false,
++        provider.KqpCtx, provider.Registry, provider.ExprCtx).has_value();
+ }
+ 
+-bool IsUsablePointPrefix(const TOpRead::TPointPrefix& prefix, const TVector<TString>& keyColumnNames, EJoinKind joinKind,
+-                         size_t pointsLimit) {
+-    if (!prefix.Points || !prefix.PointsItemType || prefix.Columns.empty()) {
+-        return false;
+-    }
+-
+-    if (prefix.Columns.size() >= keyColumnNames.size()) {
+-        return false;
+-    }
+-
+-    for (size_t i = 0; i < prefix.Columns.size(); ++i) {
+-        if (prefix.Columns[i] != keyColumnNames[i]) {
+-            return false;
+-        }
+-    }
+-
+-    // For left, left only, left semi joins we cannot support more than 1 point lookup.
+-    if (joinKind != EJoinKind::InnerJoin) {
+-        pointsLimit = std::min<size_t>(pointsLimit, 1);
+-    }
+-
+-    return prefix.ExpectedMaxPoints.Defined() && *prefix.ExpectedMaxPoints <= pointsLimit;
+-}
+-
+-// A shared producer is reached through a Replicate port.
+-bool IsSharedRelNode(const std::shared_ptr<IBaseOptimizerNode>& node) {
+-    if (node->Kind != EOptimizerNodeKind::RelNodeType) {
+-        return false;
+-    }
+-    const auto& op = std::static_pointer_cast<TRBORelOptimizerNode>(node)->Op;
+-    return op->Kind == EOperator::Replicate;
+-}
+-
+-bool IsLookupJoinApplicableDetailed(const std::shared_ptr<TRelOptimizerNode>& node, const TVector<TJoinColumn>& joinColumns, EJoinKind joinKind, const TKqpProviderContext& ctx,
+-    const TColumnLineage& lineage) {
+-    auto rel = std::static_pointer_cast<TRBORelOptimizerNode>(node);
+-    // The rewrite rule has to be able to rewrite every lookup join chosen here, so both match the right
+-    // side the same way, including a read already redirected to a non-covering index.
+-    const auto rightSide = MatchLookupJoinRightSide(rel->Op);
+-    if (!rightSide) {
+-        return false;
+-    }
+-    auto* read = rightSide->Read.Get();
+-    auto* rightFilter = rightSide->Filter.Get();
+-    Y_ENSURE(read->Props.Metadata, "Lookup applicability requires Read metadata");
+-    THashSet<TString> rightJoinKeys;
+-    for (const auto& joinCol : joinColumns) {
+-        const auto id = GetCBOColumnId(joinCol);
+-        if (!rel->Op->GetOutputIUs().Contains(id)) {
+-            return false;
+-        }
+-        const auto* source = lineage.Find(id);
+-        if (!source) {
+-            return false;
+-        }
+-        rightJoinKeys.insert(source->ColumnName);
+-    }
+-
+-    TVector<TString> columns;
+-    columns.reserve(read->GetColumns().Size());
+-    for (const auto id : read->GetColumns()) {
+-        const auto* source = lineage.Find(id);
+-        Y_ENSURE(source, "Read column without lineage");
+-        columns.push_back(source->ColumnName);
+-    }
+-
+-    // The rewrite rule has to be able to rewrite every lookup join chosen here, so both use one chooser.
+-    const auto target = ChooseLookupJoinTarget(*read, columns, rightJoinKeys, joinKind == EJoinKind::InnerJoin, ctx.KqpCtx);
+-    if (target) {
+-        return true;
+-    }
+-
+-    bool filterSupported = true;
+-    const auto fetchedRowFilter = BuildFetchedRowFilter(*read, rightFilter, filterSupported);
+-    if (!filterSupported) {
+-        return false;
+-    }
+-
+-    const auto table = TKqpTable(read->GetTable());
+-    if (table.PathId().Value().empty()) {
+-        return false;
+-    }
+-
+-    const auto& tableMeta = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, table.Path().Value()).Metadata;
+-    Y_ENSURE(tableMeta);
+-    if (!table.SysView().Value().empty() || tableMeta->Kind == EKikimrTableKind::SysView) {
+-        // Can't lookup in system views: a read of one is not a datashard read even though it is
+-        // described as a row storage read.
+-        return false;
+-    }
+-
+-    if (tableMeta->KeyColumnNames.empty()) {
+-        return false;
+-    }
+-
+-    size_t pointPrefixLen = 0;
+-    if (read->RangeInfo) {
+-        if (const auto* prefix = read->RangeInfo->FindPointPrefix(tableMeta->Name);
+-            prefix && IsUsablePointPrefix(*prefix, tableMeta->KeyColumnNames, joinKind, ctx.KqpCtx.Config->GetIdxLookupJoinPointsLimit())) {
+-            pointPrefixLen = prefix->Columns.size();
+-        }
+-    }
+-
+-    if (MatchKeyPrefix(rightJoinKeys, tableMeta->KeyColumnNames, pointPrefixLen)) {
+-        return true;
+-    } else {
+-        return MatchKeyPrefix(rightJoinKeys, tableMeta->KeyColumnNames, 0);
+-    }
+-}
+-
+-bool IsLookupJoinApplicable(std::shared_ptr<IBaseOptimizerNode> left,
+-    std::shared_ptr<IBaseOptimizerNode> right,
+-    const TVector<TJoinColumn>& leftJoinKeys,
+-    const TVector<TJoinColumn>& rightJoinKeys,
+-    EJoinKind joinKind,
+-    TKqpProviderContext& ctx,
+-    const TColumnLineage& lineage
+-) {
+-    Y_UNUSED(leftJoinKeys);
+-
+-    // We need to follow rewrite rule.
+-    if (IsSharedRelNode(left)) {
+-        return false;
+-    }
+-
+-    if (!(right->Stats.StorageType == NKikimr::NKqp::EStorageType::RowStorage)) {
+-        return false;
+-    }
+-
+-    auto rightStats = right->Stats;
+-
+-    if (!rightStats.KeyColumns) {
+-        return false;
+-    }
+-
+-    if (rightStats.Type != NKikimr::NKqp::EStatisticsType::BaseTable) {
+-        return false;
+-    }
+-
+-    // for (auto rightCol : rightJoinKeys) {
+-    //     if (find(rightStats.KeyColumns->Data.begin(), rightStats.KeyColumns->Data.end(), rightCol.AttributeName) == rightStats.KeyColumns->Data.end()) {
+-    //         return false;
+-    //     }
+-    // }
+-
+-    return IsLookupJoinApplicableDetailed(std::static_pointer_cast<TRelOptimizerNode>(right), rightJoinKeys, joinKind, ctx, lineage);
+-}
+-
+-}
++} // anonymous namespace
+ 
+ namespace NKikimr::NKqp::NOpt {
+ 
+@@ -225,7 +51,7 @@
+             if ((OptLevel != 3) && (left->Stats.Nrows > 5000)) {
+                 return false;
+             }
+-            return IsLookupJoinApplicable(left, right, leftJoinKeys, rightJoinKeys, joinKind, *this, Lineage);
++            return IsLookupJoinApplicable(left, right, leftJoinKeys, rightJoinKeys, joinKind, *this);
+         }
+         // FIXME: Don't pick reverse lookup join yet
+         /*
+@@ -236,7 +62,7 @@
+             if ((OptLevel != 3) && (right->Stats.Nrows > 5000)) {
+                 return false;
+             }
+-            return IsLookupJoinApplicable(right, left, rightJoinKeys, leftJoinKeys, joinKind, *this, Lineage);
++            return IsLookupJoinApplicable(right, left, rightJoinKeys, leftJoinKeys, joinKind, *this);
+         }
+         */
+         case EJoinAlgoType::MapJoin:
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_cbo.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_cbo.h
+@@ -56,9 +56,13 @@
+ };
+ 
+ struct TRBOProviderContext : public TKqpProviderContext {
+-    TRBOProviderContext(const TKqpOptimizeContext& kqpCtx, const int optLevel, bool useBlockHashJoin, const TColumnLineage& lineage)
++    TRBOProviderContext(const TKqpOptimizeContext& kqpCtx, const int optLevel, bool useBlockHashJoin,
++        const TInfoUnitRegistry& registry, const TMappedIUs<const NYql::TTypeAnnotationNode*>& boundaryTypes,
++        NYql::TExprContext& exprCtx)
+         : TKqpProviderContext(kqpCtx, optLevel, useBlockHashJoin)
+-        , Lineage(lineage)
++        , Registry(registry)
++        , BoundaryTypes(boundaryTypes)
++        , ExprCtx(exprCtx)
+     {}
+ 
+     virtual bool IsJoinApplicable(
+@@ -70,6 +74,8 @@
+         EJoinKind joinKind
+     ) override;
+ 
+-    const TColumnLineage& Lineage;
++    const TInfoUnitRegistry& Registry;
++    const TMappedIUs<const NYql::TTypeAnnotationNode*>& BoundaryTypes;
++    NYql::TExprContext& ExprCtx;
+ };
+ }
+--- a/ydb/core/kqp/opt/rbo/rules/apply_cbo.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/apply_cbo.cpp
+@@ -129,7 +129,16 @@
+         hints,
+         shuffleCtx ? shuffleCtx->FSM : nullptr);
+ 
+-    auto providerCtx = NOpt::TRBOProviderContext(ctx.KqpCtx, optLevel, useBlockHashJoin, props.ColumnLineage);
++    TMappedIUs<const TTypeAnnotationNode*> boundaryTypes;
++    for (const auto& leaf : leaves) {
++        for (const auto id : leaf.Op->GetOutputIUs()) {
++            boundaryTypes.Add(id, leaf.Op->GetIUType(id, ctx.ExprCtx));
++        }
++    }
++    // Join reordering can add optionality, which the lookup contract strips.
++    // Computed boundary values retain their annotated type rather than source lineage.
++    auto providerCtx = NOpt::TRBOProviderContext(ctx.KqpCtx, optLevel, useBlockHashJoin,
++        props.InfoUnitRegistry, boundaryTypes, ctx.ExprCtx);
+     auto opt = std::unique_ptr<IOptimizerNew>(MakeNativeOptimizerNew(
+         providerCtx, settings, ctx.ExprCtx,
+         enableShuffleElimination && canBuildShuffleCtx,
+--- a/ydb/core/kqp/opt/rbo/rules/assign_stages.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/assign_stages.cpp
+@@ -5,12 +5,94 @@
+ 
+ #include <yql/essentials/core/yql_expr_type_annotation.h>
+ 
++#include <cmath>
++#include <limits>
++
+ namespace NKikimr::NKqp {
+ 
+ namespace {
+ 
+ using namespace NKikimr;
+ using namespace NKikimr::NKqp;
++
++// A LookupJoin that remains a regular Join was not lowerable after the final
++// logical rewrites. Hints can also bypass CBO applicability, so validate here.
++bool IsUnloweredLookupJoin(const IOperator& op) {
++    return op.Kind == EOperator::Join && (op.Props.JoinAlgo == EJoinAlgoType::LookupJoin
++        || op.Props.JoinAlgo == EJoinAlgoType::LookupJoinReverse);
++}
++
++bool LookupFallbackNeedsGather(const TOpJoin& join, TExprContext& ctx) {
++    for (const auto& [left, right, equalNulls] : join.JoinKeys.Items()) {
++        const auto* leftType = join.GetLeftInput()->GetIUType(left, ctx);
++        const auto* rightType = join.GetRightInput()->GetIUType(right, ctx);
++        Y_ENSURE(leftType && rightType, "No types for lookup fallback keys");
++        if (!IsSameAnnotation(*leftType, *rightType)) {
++            // Comparison-compatible values need not have identical shuffle hashes.
++            return true;
++        }
++    }
++    return false;
++}
++
++void SelectLookupFallback(TOpJoin& join, TRBOContext& ctx, TPlanProps& planProps, bool gatherInputs) {
++    auto& props = join.Props;
++    props.JoinAlgo = EJoinAlgoType::GraceJoin;
++    props.UseBlockHashJoin.reset();
++    props.Cost.reset();
++    const auto joinKind = GetValidJoinKind(join.JoinKind);
++    if (joinKind == "Cross") {
++        props.JoinAlgo = EJoinAlgoType::MapJoin;
++        return;
++    }
++    const auto& left = join.GetLeftInput();
++    const auto& right = join.GetRightInput();
++    if (gatherInputs || !left->Props.Metadata || !right->Props.Metadata
++        || !left->Props.Statistics || !right->Props.Statistics) {
++        return;
++    }
++    const auto leftStats = BuildOptimizerStatistics(*left, planProps.ColumnLineage, true, ctx.TypeCtx);
++    const auto rightStats = BuildOptimizerStatistics(*right, planProps.ColumnLineage, true, ctx.TypeCtx);
++    auto leftNode = std::make_shared<TRelOptimizerNode>("lookup_fallback_left", leftStats);
++    auto rightNode = std::make_shared<TRelOptimizerNode>("lookup_fallback_right", rightStats);
++    TVector<TJoinColumn> leftKeys;
++    TVector<TJoinColumn> rightKeys;
++    for (const auto& [leftKey, rightKey, equalNulls] : join.JoinKeys.Items()) {
++        const auto* leftSource = planProps.ColumnLineage.Find(leftKey);
++        const auto* rightSource = planProps.ColumnLineage.Find(rightKey);
++        leftKeys.emplace_back(leftSource ? leftSource->GetRawAlias() : TString{}, ToString(leftKey));
++        rightKeys.emplace_back(rightSource ? rightSource->GetRawAlias() : TString{}, ToString(rightKey));
++        leftKeys.back().EqualNulls = rightKeys.back().EqualNulls = equalNulls;
++    }
++    const auto kind = ConvertToJoinKind(joinKind);
++    const bool supportsBlock = ctx.KqpCtx.Config->GetUseBlockHashJoin()
++        && (joinKind == "Inner" || joinKind == "Left" || joinKind == "LeftSemi" || joinKind == "LeftOnly");
++    double bestCost = std::numeric_limits<double>::infinity();
++    for (const auto algorithm : {EJoinAlgoType::GraceJoin, EJoinAlgoType::MapJoin, EJoinAlgoType::ReverseBlockJoin}) {
++        // The row Map implementation cannot preserve a right/full outer side.
++        if (algorithm == EJoinAlgoType::MapJoin
++            && ((joinKind != "Inner" && joinKind != "Left" && joinKind != "LeftSemi" && joinKind != "LeftOnly")
++                || (!join.JoinFilters.empty() && !supportsBlock))) {
++            continue;
++        }
++        if (algorithm == EJoinAlgoType::ReverseBlockJoin && !supportsBlock) {
++            continue;
++        }
++        if (!ctx.CBOCtx.IsJoinApplicable(leftNode, rightNode, leftKeys, rightKeys, algorithm, kind)) {
++            continue;
++        }
++        // A failed lookup changes distribution. Cost hash candidates with fresh
++        // shuffles; Map retains the provider's small-right-side applicability cap.
++        const bool shuffle = algorithm != EJoinAlgoType::MapJoin;
++        const auto stats = ctx.CBOCtx.ComputeJoinStatsV2(leftStats, rightStats, leftKeys, rightKeys,
++            algorithm, kind, nullptr, shuffle, shuffle, nullptr);
++        if (std::isfinite(stats.Cost) && stats.Cost < bestCost) {
++            bestCost = stats.Cost;
++            props.JoinAlgo = algorithm;
++            props.Cost = stats.Cost;
++        }
++    }
++}
+ 
+ void FinalizeJoinPhysicalProps(TOpJoin& join, const TRBOContext& rboCtx) {
+     auto& props = join.Props;
+@@ -77,7 +159,7 @@
+     return graph.GetOutputIndex(*input.Props.StageId);
+ }
+ 
+-void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
++void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props, bool gatherLookupInputs) {
+     const auto nodeName = input->ToString(ctx.ExprCtx, props.InfoUnitRegistry);
+     YQL_CLOG(TRACE, CoreDq) << "Assign stages: " << nodeName;
+ 
+@@ -135,7 +217,12 @@
+ 
+         // For cross-join or map join we build a stage with map and broadcast connections
+         // FIXME: We assume that right side is small one, map join also can work with hash shuffle connections.
+-        if (join->JoinKind == "Cross" || join->Props.JoinAlgo == EJoinAlgoType::MapJoin) {
++        if (gatherLookupInputs) {
++            // Casts run inside the join. Gather first when equality does not prove
++            // that the two physical key representations have the same hash.
++            props.StageGraph.Connect(leftStage, newStageId, MakeIntrusive<TUnionAllConnection>(leftOutputIndex));
++            props.StageGraph.Connect(rightStage, newStageId, MakeIntrusive<TUnionAllConnection>(rightOutputIndex));
++        } else if (join->JoinKind == "Cross" || join->Props.JoinAlgo == EJoinAlgoType::MapJoin) {
+             props.StageGraph.Connect(leftStage, newStageId, MakeIntrusive<TMapConnection>(leftOutputIndex));
+             props.StageGraph.Connect(rightStage, newStageId, MakeIntrusive<TBroadcastConnection>(rightOutputIndex));
+         }
+@@ -342,8 +429,35 @@
+ } // anonymous namespace
+ 
+ void TAssignStagesStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
++    bool hasLookupFallback = false;
+     for (const auto& item : root) {
+-        AssignStage(item.Current, ctx, root.PlanProps);
++        hasLookupFallback |= IsUnloweredLookupJoin(*item.Current);
++    }
++    THashSet<IOperator*> gatheredLookups;
++    if (hasLookupFallback) {
++        root.ComputePlanStatistics(ctx);
++        for (const auto& item : root) {
++            if (IsUnloweredLookupJoin(*item.Current)) {
++                auto& join = CastOperator<TOpJoin>(*item.Current);
++                const bool gather = LookupFallbackNeedsGather(join, ctx.ExprCtx);
++                SelectLookupFallback(join, ctx, root.PlanProps, gather);
++                if (gather) {
++                    gatheredLookups.insert(item.Current);
++                }
++            }
++        }
++        // CBO's saved edge decisions may also describe ancestors of the changed
++        // join. Discard them for this root before any connection is constructed.
++        for (const auto& item : root) {
++            item.Current->Props.LeftShuffleBy.reset();
++            item.Current->Props.RightShuffleBy.reset();
++            if (item.Current->Props.Metadata) {
++                item.Current->Props.Metadata->ShuffledByColumns.Clear();
++            }
++        }
++    }
++    for (const auto& item : root) {
++        AssignStage(item.Current, ctx, root.PlanProps, gatheredLookups.contains(item.Current));
+     }
+ }
+ 

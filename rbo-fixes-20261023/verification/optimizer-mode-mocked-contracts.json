@@ -1,0 +1,14 @@
+{
+  "status": "mocked_mode_contracts_passed_native_unverified",
+  "assertions": 725,
+  "mocked_run_generated_calls": 9,
+  "blocked_mismatched_legacy_calls": 2,
+  "actual_process_launches": 0,
+  "native_runs": 0,
+  "compiler_runs": 0,
+  "active_helpers_edited": false,
+  "patch_sha256": "782f5c2475d968d717d99f01bbe42006ae98e17a6db6635b8dd277fee1f700a8",
+  "helper_sha256": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad",
+  "generated_workloads_saved": false,
+  "synthetic_evidence_saved": false
+}

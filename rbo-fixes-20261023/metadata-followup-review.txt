@@ -1,0 +1,50 @@
+Read-only follow-up, production freeze active
+
+C17
+The first generator family did not reach the target and is retained as passing
+control coverage. In it, a resultless Aggregate removes the primary port inside
+BypassEmptyOperators, after ComputeParents has counted both ports. Collapse then
+waits until schemas have been invalidated.
+The stronger family removes an inactive scalar subplan before cleanup, matching
+global_pruning.cpp ordering. Baseline inactive-primary-subplan fails in new RBO
+with unavailable-column-binding category in the target phase; legacy passes.
+Secondary-first and active-primary controls pass in both modes. This establishes
+the pinned-base target without retaining any rendered input. Fixed verification
+is still pending.
+
+C18
+The duplicate-empty-set empty-input baseline abort reaches
+kqp_rbo_type_ann.cpp:442, inside Aggregate-trait access beneath GroupingSets.
+The nonempty counterpart aborts in kqp_info_unit.h:390. These support the invalid
+template contract already identified; neither is yet a fixed verification.
+Legacy returns one group for repeated empty sets because
+sql/v1/translation/sql_group_by.cpp:298 FeedCollection explicitly deduplicates
+empty grouping sets. New sql_select_yql.cpp preserves the entries. This is a
+separate compatibility question. metadata_checks.py no longer claims an exact
+semantic oracle for that duplicate-empty family; it reports execution/shape
+checks and an unresolved multiplicity status. All other exact C18 oracles remain.
+Previously saved baseline evidence is unchanged.
+
+C31, commit 3d6548a9d6168d93276ac6a780fcd803d009fc5e
+The early residual-inlining stage precedes Replicate expansion and has current
+types and metadata through the rule's requirements. With block joins disabled,
+eligible left-family residual joins therefore create their extra ports while
+logical producers are still copyable, covering the recorded failure family.
+Broader block-enabled/no-spill cases can still defer inlining until CBO chooses
+a lookup algorithm; the early pass does not know that algorithm yet. Do not
+claim that wider family is covered without dedicated execution evidence.
+The C31 case record's verification-plan text included accidental C39 wording;
+the coordinator was notified.
+
+C39, commit 416834fa9b1e0fec89d663026e74f76ab6909314
+The guard checks BuildPhysicalJoin's effective useBlockHashJoin parameter, not
+just the global configuration. It therefore catches Full/Exclusion nonblock
+fallback with retained residual predicates. Supported block residual execution
+continues through its existing path. The fix prevents silent wrong results by
+rejecting an unsupported shape; it does not implement full residual joins.
+
+C05/C06/C07/C15
+See next-domain-fixes.txt and per-case JSON for independent commits and exact
+scope. C15 preserves conditional placement of scalar cardinality validation;
+general laziness of arbitrary subquery-body errors remains outside that patch.
+No production edits or branch switches occurred during this review interval.

@@ -1,0 +1,63 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp
+@@ -9,24 +9,13 @@
+ namespace {
+ 
+ bool IsValidIndex(const TIndexDescription& index) {
+-    return index.Type != TIndexDescription::EType::GlobalAsync
+-        && index.Type != TIndexDescription::EType::GlobalJson
+-        && index.Type != TIndexDescription::EType::GlobalJsonCompact
+-        && index.Type != TIndexDescription::EType::LocalMinMax
+-        && index.Type != TIndexDescription::EType::LocalBloomFilter
+-        && index.Type != TIndexDescription::EType::LocalBloomNgramFilter
++    return (index.Type == TIndexDescription::EType::GlobalSync
++        || index.Type == TIndexDescription::EType::GlobalSyncUnique)
+         && index.State == TIndexDescription::EIndexState::Ready;
+ }
+ 
+-bool IsCoveringIndex(const TVector<TString>& readColumns, const TVector<TString>& keyColumns, const TVector<TString>& dataColumns) {
+-    THashSet<TString> indexColumnSet(keyColumns.begin(), keyColumns.end());
+-    indexColumnSet.insert(dataColumns.begin(), dataColumns.end());
+-    for (const auto& column : readColumns) {
+-        if (!indexColumnSet.contains(column)) {
+-            return false;
+-        }
+-    }
+-    return true;
++bool IsCoveringTable(const TKikimrTableMetadata& meta, const TVector<TString>& columns) {
++    return std::all_of(columns.begin(), columns.end(), [&](const TString& column) { return meta.Columns.contains(column); });
+ }
+ 
+ TIntrusivePtr<TKikimrTableMetadata> TryToFindBestIndexForRightSide(const TKikimrTableDescription& mainTableDesc,
+@@ -37,12 +26,18 @@
+     ui32 bestPrefix = 0;
+ 
+     for (const auto& index : meta.Indexes) {
+-        if (!IsValidIndex(index) || !IsCoveringIndex(readColumns, index.KeyColumns, index.DataColumns)) {
++        if (!IsValidIndex(index)) {
+             continue;
+         }
++        // Ordinary implementation tables also contain implicit primary-key
++        // fields, which participate in both coverage and the physical key.
++        const auto implementation = meta.GetIndexMetadata(index.Name).first;
++        if (!implementation || !IsCoveringTable(*implementation, readColumns)) {
++            continue;
++        }
+ 
+         ui32 currentPrefix = 0;
+-        for (const auto& keyCol : index.KeyColumns) {
++        for (const auto& keyCol : implementation->KeyColumnNames) {
+             if (!rightJoinKeys.contains(keyCol)) {
+                 break;
+             }
+@@ -91,10 +86,6 @@
+     }
+ 
+     return prefix.ExpectedMaxPoints.Defined() && *prefix.ExpectedMaxPoints <= pointsLimit;
+-}
+-
+-bool IsCoveringTable(const TKikimrTableMetadata& meta, const TVector<TString>& columns) {
+-    return std::all_of(columns.begin(), columns.end(), [&](const TString& column) { return meta.Columns.contains(column); });
+ }
+ 
+ // Rows found in a secondary index of the main table can be fetched from the main table by its primary key.

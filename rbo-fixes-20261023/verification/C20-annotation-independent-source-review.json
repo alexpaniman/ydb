@@ -1,0 +1,78 @@
+{
+  "amendment": "Mirror the established C20 result-type predicate in AnnotateOpWindow using the annotated sort element. Keep the original expected-type consistency check unchanged.",
+  "bug": "The new RBO expression-node annotator still assigns Uint64 to every native window function, so legacy nullable rank/dense-rank results lose their optional wrappers before importing the operator graph.",
+  "evidence": [
+    {
+      "claim": "AnnotateOpWindow unconditionally sets Native results to Uint64; AnnotateOpRoot forwards this input type.",
+      "line": 3462,
+      "path": "ydb/core/kqp/opt/kqp_type_ann.cpp"
+    },
+    {
+      "claim": "AnnotateOpSortElement types its lambda against the input row and assigns the resulting scalar annotation to the sort element.",
+      "line": 3298,
+      "path": "ydb/core/kqp/opt/kqp_type_ann.cpp"
+    },
+    {
+      "claim": "The C20 rewrite writes the requested AnsiRank flag to the native function traits.",
+      "line": 1370,
+      "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+    },
+    {
+      "claim": "The importer preserves that flag, treating an absent flag as ANSI.",
+      "line": 854,
+      "path": "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp"
+    },
+    {
+      "claim": "The operator graph already produces Optional<Uint64> only for legacy rank/dense-rank with one optional order key.",
+      "line": 587,
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp"
+    },
+    {
+      "claim": "The physical accumulator uses the same legacy/one-optional-key predicate.",
+      "line": 448,
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp"
+    },
+    {
+      "claim": "GetTypeAnn returns TCheckedDerefPtr; the amendment correctly uses const auto rather than const auto*.",
+      "line": 2321,
+      "path": "yql/essentials/ast/yql_expr.h"
+    }
+  ],
+  "finding": "C20",
+  "generator": "c20_window_type_patch_generator.py",
+  "generator_sha256": "401a307123f9a4585f9ab19211e89638758eb6f081b9dd9106007569414e0ff2",
+  "patch": "proposed-correctness-amendments/C20-annotate-legacy-rank.patch",
+  "patch_sha256": "96f5da8e34a76b234d643529dd8004a75de4c50dede9ec931a1b4ec68ae4b7bf",
+  "remaining": "Root must amend the independent branch and rebuild/rerun its eight existing paired controls; any additional state-machine issue remains subject to native results.",
+  "reviewed_revision": "a58be05380f395cb3a55d0490f5871a5f308f06b",
+  "reviewer": "c41_review",
+  "root_owned_native_diagnostic": {
+    "path": "verification/C20-type-consistency-diagnostic.json",
+    "sha256": "c7a149e3de9f50090bb7a97622735b461d029bd908eabee9ef158e2bb79ed489",
+    "summary": "Expected and actual scalar type sequence match, but KqpOpRoot loses exactly the two legacy ranking optional wrappers. Diagnostic was obtained by root with verified executable provenance."
+  },
+  "scope": {
+    "added_lines": 9,
+    "ansi_nonnullable_rownumber_result_type_changed": false,
+    "changed_handler": "AnnotateOpWindow for KqpOpWindow",
+    "essentials_edits": false,
+    "production_files": 1,
+    "state_machine_changes": false
+  },
+  "source_blob_sha256": {
+    "ydb/core/kqp/opt/kqp_type_ann.cpp": "4f2ac8d903510cbff1981d25d9718e95cff602767fd5d8bc2a45371aa5438592",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp": "194eb90ed34c11ec1538065f21036491f8457a9697b0fed421ad0bd0c28f861b",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp": "94bbac1672905cfd52be85356249efd4a172841d8f59441805e1d49345238230",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp": "e4e2a29064fcedfab8407426112b0d7007f62aff97222fd3fa94069cd856c6f8",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp": "90e475704faaf1e4f4aa0c5bcf27d65ce7a6775402da919469a555b75bbfe3a3",
+    "yql/essentials/ast/yql_expr.h": "d86cf4b845a8071a419ee144d691818562330200ce79ea036079a7e30c132bc4"
+  },
+  "status": "source_confirmed_annotation_gap_amendment_pending_native",
+  "verification": {
+    "compiled_after_amendment": false,
+    "exact_repro_written": false,
+    "git_apply_check_whitespace_error_all": true,
+    "native_after_amendment": false,
+    "production_checkout_edited_by_reviewer": false
+  }
+}

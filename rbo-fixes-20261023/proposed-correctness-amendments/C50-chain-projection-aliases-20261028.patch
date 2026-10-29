@@ -1,0 +1,11 @@
+--- a/join_key_checks.py
++++ b/join_key_checks.py
+@@ -102,7 +102,7 @@
+     if 'grouped_after_join' in label:
+         query = g.select(['li', g.alias(g.call('COUNT', '*'), 'c')], g.derived(query, 'q'), group='li')
+     elif 'join_chain' in label:
+-        query = g.select(['q.li', 'q.ri', g.alias('c.id', 'ti')],
++        query = g.select([g.alias('q.li', 'li'), g.alias('q.ri', 'ri'), g.alias('c.id', 'ti')],
+                          g.join(g.derived(query, 'q'), 'jt AS c', g.op('q.li', '=', 'c.id')))
+     return query
+ 

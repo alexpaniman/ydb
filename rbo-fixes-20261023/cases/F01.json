@@ -1,0 +1,60 @@
+{
+  "id": "F01",
+  "title": "Repeated DISTINCT aliases create duplicate Map definitions",
+  "branch": "fix/new-rbo/f01-deduplicate-distinct-inputs",
+  "commit": "cb7a4189eea1f56dfdc7bbbb012c96403c090636",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "rationale": "Reuse only identical direct-row pre-aggregate member definitions; retain all result traits, output aliases and importer duplicate-binding checks.",
+  "checks": [
+    "Independent source and API review passed; compilation and native verification pending."
+  ],
+  "generator_modules": [
+    "distinct_alias_checks"
+  ],
+  "verification_limitation": "Standalone main-based acceptance uses ordinary and optional data; bare-Null physical DISTINCT additionally needs the separate C23 correction.",
+  "introducing_source_commit": "b0246ec9d6335eb66f4a8e085b77f67f6b5550c9",
+  "introducing_source_author": "Denis Khalikov",
+  "source_attribution_limitation": "Source history verified; no historical native bisection or inference about agent use.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "F01",
+    "revision": "cb7a4189eea1f56dfdc7bbbb012c96403c090636",
+    "exit_code": 0,
+    "elapsed_seconds": 200.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 15646720,
+      "peak_scope_usage_bytes": 43297673216,
+      "minimum_host_available_bytes": 107694587904,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 200.3
+    },
+    "diagnostic_sha256": "8f745b08a42bb7dbaea48fd05ae7c0c53f14b577ac10340bcdf0516b475e0783",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/cb7a4189eea1f56dfdc7bbbb012c96403c090636-48c4f1872521cccc.json"
+  },
+  "superseded_harness_verifications": [
+    {
+      "status": "verification_harness_failed",
+      "native_harness_exit_code": 75,
+      "memory_evidence": "verification/native-memory-fixed-F01-cb7a4189eea1-1792730044680058089.json",
+      "reason": "Completed scope was collected while reader threads drained; guarded acceptance withheld and entire batch repeated."
+    }
+  ],
+  "native_verification": {
+    "checks": 32,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-F01-cb7a4189eea1-1792730383027247259.jsonl"
+  }
+}

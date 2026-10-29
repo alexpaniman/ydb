@@ -1,0 +1,21 @@
+{
+  "binary": {
+    "ctime_ns": 1792727889469522436,
+    "device": 64769,
+    "inode": 15738524,
+    "mtime_ns": 1792727883771396333,
+    "resolved_path": "/home/alexpaniman/.ya/build/symres/0cae44c0983066f73803d3295c3bbe18/kqprun",
+    "sha256": "ac2d6079d18051502cf50e1f85cc4aca44eab7f8668f5f61ba96675fb7889939",
+    "size_bytes": 11294507944
+  },
+  "build": {
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "elapsed_seconds": 75.0,
+    "exit_code": 0,
+    "target": "ydb/tests/tools/kqprun"
+  },
+  "recorded_unix_ns": 1792727899513381783,
+  "revision": "78462388619dee01bf57156839620936e70d7376",
+  "schema_version": "successful_runner_build_v1",
+  "worktree": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate"
+}

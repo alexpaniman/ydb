@@ -1,0 +1,11 @@
+{
+  "finding": "The scaling result checker uses a bag although the generated target requests final row ordering. Require exact typed ordered row comparison.",
+  "module_sha256": "d68e5d66a39395f1dd49eac7d83ff4e7ac0c86b72534b1c4471ca4bfae70e690",
+  "native_runs": 0,
+  "ordered_query_contract_source_reviewed": true,
+  "queries_rendered": false,
+  "reordered_in_memory_rows_accepted": true,
+  "rows_persisted_or_printed": false,
+  "schema_version": "q01_order_oracle_independent_review_v1",
+  "status": "narrow_harness_fix_requested"
+}

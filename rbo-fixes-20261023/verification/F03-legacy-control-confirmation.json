@@ -1,0 +1,77 @@
+{
+  "controls": [
+    {
+      "case": "f03_interval64_balanced_rows_overlap_required_asc",
+      "mode": "legacy",
+      "exit_code": 0,
+      "semantic_oracle_pass": true,
+      "failure_category": null,
+      "diagnostic_source_locations": null,
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "a34ce05133b8177ef16a2746804b50a6ab3022b329d6d6d8cf41f794ca506c60",
+      "result_sha256": "93d7e419e3181792eea5d0e0026c9a484f4d6f139992ac3a57f67dc00fe321af",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "DqHashOperatorsUseBlocks": false,
+        "EnableNewRBOPhysicalStagePeephole": false
+      }
+    },
+    {
+      "case": "f03_interval_cancellation_rows_running_required_asc",
+      "mode": "legacy",
+      "exit_code": 0,
+      "semantic_oracle_pass": true,
+      "failure_category": null,
+      "diagnostic_source_locations": null,
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "837926ca75e6f7a9f341fd4b9a35f9de7e72d43ea089dffd55e92830952ea4ed",
+      "result_sha256": "2202f873b2e650aa3038439d548b067fa53743dba48c7e941a6b3fade37b320b",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "DqHashOperatorsUseBlocks": false,
+        "EnableNewRBOPhysicalStagePeephole": false
+      }
+    },
+    {
+      "case": "f03_interval_cancellation_rows_overlap_required_asc",
+      "mode": "legacy",
+      "exit_code": 0,
+      "semantic_oracle_pass": true,
+      "failure_category": null,
+      "diagnostic_source_locations": null,
+      "generator_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "query_sha256": "1820b4989aedc244428b94e24778168fcc480c56ccbd03216f801873f5bdc801",
+      "result_sha256": "c5c45c7b0b737a0df1ac66eff1184401612a123bacb3e9b49e9bb44e8fdbe31d",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "DqHashOperatorsUseBlocks": false,
+        "EnableNewRBOPhysicalStagePeephole": false
+      }
+    }
+  ],
+  "correction": "Use the generator's explicit legacy requirements instead of its new-only metadata.",
+  "binary_provenance_verified": true,
+  "build_receipt_sha256": "1fb3ecc35ccd81b5dd4df4d336e44dfe50753c0bad1256eb59f6acc155792e42",
+  "unchanged_executable": true,
+  "memory": {
+    "elapsed_seconds": 15.822,
+    "peak_scope_usage_bytes": 558460928,
+    "peak_group_rss_bytes": 558460928,
+    "minimum_host_available_bytes": 114309701632,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_collection_after_completion": false,
+    "scope_membership_accounting_available": true,
+    "exit_code": 0,
+    "stdout_sha256": "f61a536c7f7abd0e260af0f865d0b4a3e910efcf5f79d9b09cc9de83cb3ce23a",
+    "stdout_bytes": 2128,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic_bytes": 0
+  }
+}

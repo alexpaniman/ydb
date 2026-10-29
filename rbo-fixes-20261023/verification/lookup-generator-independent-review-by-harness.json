@@ -1,0 +1,35 @@
+{
+  "reviewer": "harness_provenance",
+  "generator_sha256": "801d21e9f6b4594babdb1aeb9cd580982dd38f3775b2b186701c1e679b587c76",
+  "status": "independent_source_review_complete_native_pending",
+  "case_counts": {
+    "q03": 5,
+    "q04": 7,
+    "q06": 4,
+    "q07": 11,
+    "q17": 5,
+    "q23": 5,
+    "q24": 5,
+    "q29": 5
+  },
+  "offline_semantic_positive_negative_checks": 141,
+  "native_runs": 0,
+  "builds": 0,
+  "rendered_workloads_persisted": false,
+  "checks": [
+    "Q07 forces Lookup except the automatic control and covers exact/optional/mixed keys, disabled feature, null-safe equality, residual predicates, left outer join and nested fallback.",
+    "Large-right controls provide both row and byte hints; before/fixed structural acceptance requires a removed MapJoin plus no broadcast fallback.",
+    "Five Q07 cases now request four nodes and explicit key boundaries sized to the generated data, ensuring planned table ranges contain populated keys.",
+    "AST parsing resolves let bindings and deduplicates DAG nodes before counting comparisons and joins; raw paths/names become closed classifications and numeric field summaries.",
+    "Persisted baseline descriptors are validated against a closed schema; arbitrary extra raw AST fields are excluded from returned summaries.",
+    "Ordered Q04 semantic oracle checks actual order while other cases compare full multisets.",
+    "Every structural checker leaves quality_improvement_verified false pending paired provenance and semantic evidence.",
+    "Physical fallback checks distinguish KqpIndexLookupJoin payload, hash-join implementations, broadcast and gathered input connections."
+  ],
+  "remaining": [
+    "No native query parsing, target reachability or physical-plan shapes verified.",
+    "Four-node settings and populated logical partitions do not prove actual distributed task placement without native observations.",
+    "Q07 missing-statistics, shared-left, unsupported-right-shape and late join-filter controls remain additional coverage requirements.",
+    "Q29 comparison DAG node reduction measures structural work only; actual evaluation counts and query-cache reuse remain unverified."
+  ]
+}

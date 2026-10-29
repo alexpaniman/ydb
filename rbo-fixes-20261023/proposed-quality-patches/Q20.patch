@@ -1,0 +1,47 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp
+@@ -22,13 +22,20 @@
+ using namespace NYql::NNodes;
+ using namespace NYql::NDq;
+ 
+-// Known limitation: only the left input's aliases are collected; the right
+-// side contributes none.
+-void ComputeAlisesForJoin(IOperator* left, const TColumnLineage& lineage, TVector<TString>& leftAliases,
+-                          TVector<TString>& rightAliases, TVector<TString>& unionOfAliases) {
++void ComputeAliasesForJoin(IOperator* left, IOperator* right, const TColumnLineage& lineage,
++                           TVector<TString>& leftAliases, TVector<TString>& rightAliases,
++                           TVector<TString>& unionOfAliases) {
+     leftAliases = lineage.GetAliases(left->Props.Metadata->HintRelations);
+-    rightAliases.clear();
+-    unionOfAliases = leftAliases;
++    rightAliases = lineage.GetAliases(right->Props.Metadata->HintRelations);
++    auto relations = left->Props.Metadata->HintRelations;
++    for (const auto& [id, relation] : right->Props.Metadata->HintRelations.Items()) {
++        if (!relations.Find(id)) {
++            relations.Add(id, relation);
++        }
++    }
++    // Derive aliases from relation identities so self-join instances retain
++    // the same disambiguation as every other lineage consumer.
++    unionOfAliases = lineage.GetAliases(relations);
+ }
+ 
+ TOrderedIUs<> ComputeKeysAfterJoin(TOpJoin* join) {
+@@ -615,7 +622,7 @@
+     TVector<TString> leftAliases;
+     TVector<TString> rightAliases;
+     TVector<TString> unionOfAliases;
+-    ComputeAlisesForJoin(GetLeftInput().Get(), planProps.ColumnLineage, leftAliases, rightAliases, unionOfAliases);
++    ComputeAliasesForJoin(GetLeftInput().Get(), GetRightInput().Get(), planProps.ColumnLineage, leftAliases, rightAliases, unionOfAliases);
+     
+     NKqp::EJoinAlgoType joinAlgo = Props.JoinAlgo.has_value() ? *Props.JoinAlgo : NKqp::EJoinAlgoType::Undefined;
+ 
+@@ -713,7 +720,7 @@
+     TVector<TString> leftAliases;
+     TVector<TString> rightAliases;
+     TVector<TString> unionOfAliases;
+-    ComputeAlisesForJoin(GetLeftInput().Get(), planProps.ColumnLineage, leftAliases, rightAliases, unionOfAliases);
++    ComputeAliasesForJoin(GetLeftInput().Get(), GetRightInput().Get(), planProps.ColumnLineage, leftAliases, rightAliases, unionOfAliases);
+ 
+     auto hints = ctx.KqpCtx.GetOptimizerHints();
+ 

@@ -1,0 +1,26 @@
+{
+  "patch_sha256": "5dbe983da81fc60e24c7f1f6325ec71f85629d63458098e29edb4b39f36d991f",
+  "applied_during_idle_boundary": true,
+  "production_sources_changed": false,
+  "syntax_checks": 6,
+  "pairing_contracts": {
+    "status": "synthetic_contracts_passed_native_unverified",
+    "assertions": 74,
+    "real_builds": 0,
+    "real_process_launches": 0,
+    "native_runs": 0,
+    "coverage": [
+      "profile/config/workload fingerprint mismatch",
+      "baseline failure separate from fixed failure",
+      "fixed provenance rejection",
+      "duplicate/missing pairs",
+      "semantic-only pending",
+      "one baseline build per invocation",
+      "approved workers forwarded",
+      "correctness dual-mode command retained",
+      "guard limitations preserved"
+    ]
+  },
+  "actual_compile_or_native": false,
+  "gate_propagation_review": "verification/Q01-runtime-verifier-independent-review-v2.json"
+}

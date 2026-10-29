@@ -1,0 +1,195 @@
+--- a/rbo-fixes-20261023/quality_pairing.py
++++ b/rbo-fixes-20261023/quality_pairing.py
+@@ -215,6 +215,19 @@
+ 
+ def _fixed_acceptance(before, after):
+     case = after.get('case', '')
++    # The native hooks see only the fixed plan. Preserve the paired effect
++    # controls here before accepting their otherwise nonempty assertions.
++    if case == 'q11_fallible_control':
++        left, right = before.get('ensure_dag_nodes'), after.get('ensure_dag_nodes')
++        if type(left) is not int or type(right) is not int or left <= 0 or left != right:
++            return False
++    if case in ('q29_arithmetic_control', 'q29_guard_control', 'q29_no_range_control'):
++        left, right = before.get('comparison_dag_nodes'), after.get('comparison_dag_nodes')
++        if type(left) is not int or type(right) is not int or left < 0 or left != right:
++            return False
++        if case == 'q29_guard_control' and (
++                _count(before, 'Ensure') <= 0 or _count(before, 'Ensure') != _count(after, 'Ensure')):
++            return False
+     if case == 'q01_minmax_range_control' or case.startswith('q01_range_minmax_'):
+         if after.get('optimization_acceptance_case') is True:
+             assertions = after.get('structural_assertions')
+@@ -251,7 +264,8 @@
+     return False
+ 
+ 
+-def pair_quality_records(before_records, after_records, bug, base, revision, ir_evidence=None):
++def pair_quality_records(before_records, after_records, bug, base, revision, ir_evidence=None,
++                         *, required_case_owners=None, required_profile_sha256=None):
+     """Return derived sanitized records plus an honest aggregate verdict."""
+     before_by_key, duplicates = {}, set()
+     for record in before_records:
+@@ -286,7 +300,10 @@
+                 try:
+                     accepted = _fixed_acceptance(before, after)
+                     ir_accepted = True
+-                    if after.get('additional_ir_admission_required'):
++                    # Q11 requires exact Ordered/branch-identity/effect-placement
++                    # contracts in addition to SQL rows and physical counters.
++                    if bug == 'Q11' or after.get('additional_ir_admission_required'):
++                        after['additional_ir_admission_required'] = True
+                         from anonymous_cpp_verify import validate_fixed_admission
+                         ir_accepted = validate_fixed_admission(ir_evidence, bug, revision)
+                         if not ir_accepted:
+@@ -307,9 +324,23 @@
+                     after['quality_acceptance_pass'] = False
+                     after['quality_improvement_verified'] = False
+         after['quality_pairing_reasons'] = reasons
+-        after['quality_pairing_version'] = 'sanitized_matching_contracts_v1'
++        after['quality_pairing_version'] = 'canonical_profile_and_effect_controls_v2'
+         paired.append(after)
+-    complete = bool(paired) and after_keys == set(before_by_key) and not duplicates
++    observed_owners = {record['case']: record.get('generator_module') for record in paired}
++    coverage = (isinstance(required_case_owners, dict) and bool(required_case_owners)
++                and observed_owners == required_case_owners
++                and _digest(required_profile_sha256)
++                and all(record.get('quality_profile_sha256') == required_profile_sha256
++                        and record.get('generator_module') == required_case_owners.get(record['case'])
++                        for record in paired))
++    for record in paired:
++        record['required_quality_profile_sha256'] = required_profile_sha256
++        record['finding_profile_coverage_complete'] = coverage
++        if not coverage:
++            record['quality_acceptance_pass'] = False
++            record['quality_improvement_verified'] = False
++            record['quality_pairing_reasons'].append('required_finding_profile_coverage_missing')
++    complete = bool(paired) and after_keys == set(before_by_key) and not duplicates and coverage
+     semantic = bool(paired) and all(record_verdict(record) == 'functional'
+         and _provenance(record, 'fixed', revision) and record.get('bug') == bug for record in paired)
+     success = (complete and semantic and all(record['quality_acceptance_pass'] for record in paired)
+--- a/rbo-fixes-20261023/verify_series.py
++++ b/rbo-fixes-20261023/verify_series.py
+@@ -166,8 +166,8 @@
+     for path in args.quality_ir_evidence:
+         record = json.loads(path.read_bytes())
+         bug = record.get('bug')
+-        if bug not in ('Q01', 'Q15') or bug not in args.bugs or bug in ir_evidence:
+-            raise SystemExit('Expected one fixed runtime/IR evidence record for each requested Q01 or Q15')
++        if bug not in ('Q01', 'Q11', 'Q15') or bug not in args.bugs or bug in ir_evidence:
++            raise SystemExit('Expected one fixed runtime/IR evidence record for each requested Q01, Q11 or Q15')
+         case = json.loads((HERE / 'cases' / (bug + '.json')).read_text())
+         from anonymous_cpp_verify import validate_fixed_admission
+         if not validate_fixed_admission(record, bug, case['commit']):
+@@ -181,6 +181,16 @@
+             raise SystemExit('Direct IR/native adapter verification is still required for: ' + ', '.join(missing))
+         expected_quality_cases = {bug: selected_cases(bug, modules, args.rows)
+                                   for bug, modules in modules_by_bug.items()}
++        # Explicit profiles may exercise a subset, but cannot redefine the
++        # finding's required scope. Bind full acceptance to the canonical
++        # default profile snapshot and its exact case ownership.
++        required_quality_profiles = {}
++        for bug in modules_by_bug:
++            required_modules = generator_modules(bug)
++            required_quality_profiles[bug] = {
++                'modules': required_modules,
++                'owners': selected_cases(bug, required_modules, args.rows) if required_modules else {},
++                'sha256': profile_fingerprint(required_modules) if required_modules else None}
+     # Validate every independent branch before changing either worktree.
+     for bug in args.bugs:
+         case = json.loads((HERE / 'cases' / (bug + '.json')).read_text())
+@@ -254,7 +264,9 @@
+             stable_profile = profile_fingerprint(modules) == fingerprint
+             records = [dict(item, quality_profile_sha256=fingerprint if stable_profile else None) for item in records]
+             records, success, case['status'] = pair_quality_records(baseline.get(bug, []), records, bug, state['base'], revision,
+-                                                                  ir_evidence=ir_evidence.get(bug))
++                                                                  ir_evidence=ir_evidence.get(bug),
++                                                                  required_case_owners=required_quality_profiles[bug]['owners'],
++                                                                  required_profile_sha256=required_quality_profiles[bug]['sha256'])
+             observed_owners = {item['case']: item.get('generator_module') for item in records}
+             if observed_owners != expected_quality_cases[bug]:
+                 success = False
+@@ -266,6 +278,11 @@
+             paired_path = HERE / 'verification' / ('quality-paired-' + bug + '-' + revision[:12] + '-' + str(time.time_ns()) + '.jsonl')
+             paired_path.write_text(''.join(json.dumps(record, sort_keys=True) + '\n' for record in records))
+             case['quality_verification'] = {'generator_modules': modules, 'profile_sha256': fingerprint,
++                'required_generator_modules': required_quality_profiles[bug]['modules'],
++                'required_profile_sha256': required_quality_profiles[bug]['sha256'],
++                'required_profile_case_count': len(required_quality_profiles[bug]['owners']),
++                'finding_profile_coverage_complete': bool(records) and all(
++                    item.get('finding_profile_coverage_complete') is True for item in records),
+                 'paired_evidence': str(paired_path.relative_to(HERE)), 'baseline_revision': state['base'],
+                 'baseline_evidence': 'verification/baseline-' + bug + '-' + state['base'][:12] + '.jsonl',
+                 'paired_checks': len(records), 'optimization_contract_passed': success}
+--- a/rbo-fixes-20261023/quality_pairing_contracts.py
++++ b/rbo-fixes-20261023/quality_pairing_contracts.py
+@@ -50,9 +50,51 @@
+     check(driver.record_verdict(dict(ast_good, structural_oracle_pass=False)) == 'failure')
+     check(driver.record_verdict(dict(ast_good, physical_ast_sha256=None)) == 'failure')
+     def evaluate(b=before, a=after):
+-        return pairing.pair_quality_records([b], [a], 'Q08', 'b' * 40, 'f' * 40)
++        return pairing.pair_quality_records([b], [a], 'Q08', 'b' * 40, 'f' * 40,
++            required_case_owners={after['case']: after['generator_module']}, required_profile_sha256='d' * 64)
+     paired, success, status = evaluate()
+     check(success and status == 'verified_quality' and paired[0]['quality_improvement_verified'])
++    # Local pair success cannot stand in for the complete finding profile.
++    for requirements in ({},
++                         {'required_case_owners': {after['case']: after['generator_module']},
++                          'required_profile_sha256': 'e' * 64},
++                         {'required_case_owners': {after['case']: 'different'},
++                          'required_profile_sha256': 'd' * 64},
++                         {'required_case_owners': {after['case']: after['generator_module'],
++                                                  'required_other_case': after['generator_module']},
++                          'required_profile_sha256': 'd' * 64}):
++        rows, success, status = pairing.pair_quality_records(
++            [before], [after], 'Q08', 'b' * 40, 'f' * 40, **requirements)
++        check(not success and status == 'verified_semantics_quality_pending'
++              and rows[0]['finding_profile_coverage_complete'] is False)
++    union_before, union_after = copy.deepcopy(before), copy.deepcopy(after)
++    for item in (union_before, union_after):
++        item.update(bug='Q11', case='q11_primary_range', generator_module='quality_union_checks',
++                    quality_assertions={'predicate_reaches_both_access_paths': True},
++                    row_sources=[{'range_expression_present': item['phase'] == 'fixed'}])
++    union_requirements = {'required_case_owners': {'q11_primary_range': 'quality_union_checks'},
++                          'required_profile_sha256': 'd' * 64}
++    rows, success, status = pairing.pair_quality_records(
++        [union_before], [union_after], 'Q11', 'b' * 40, 'f' * 40, **union_requirements)
++    check(not success and status == 'verified_semantics_quality_pending'
++          and 'additional_ir_admission_pending' in rows[0]['quality_pairing_reasons'])
++    with patch('anonymous_cpp_verify.validate_fixed_admission', return_value=True):
++        rows, success, status = pairing.pair_quality_records(
++            [union_before], [union_after], 'Q11', 'b' * 40, 'f' * 40,
++            ir_evidence={'synthetic': True}, **union_requirements)
++        check(success and 'direct_ir_admission_evidence_sha256' in rows[0])
++    for case, metric in (('q11_fallible_control', 'ensure_dag_nodes'),
++                         ('q29_arithmetic_control', 'comparison_dag_nodes'),
++                         ('q29_no_range_control', 'comparison_dag_nodes')):
++        control = {'case': case, metric: 2, 'structural_assertions': {'preserved': True}}
++        check(pairing._fixed_acceptance(control, control))
++        check(not pairing._fixed_acceptance(control, dict(control, **{metric: 1})))
++        missing_control = dict(control); missing_control.pop(metric)
++        check(not pairing._fixed_acceptance(control, missing_control))
++    guard_control = {'case': 'q29_guard_control', 'comparison_dag_nodes': 2,
++                     'callables': {'Ensure': 2}, 'structural_assertions': {'preserved': True}}
++    check(pairing._fixed_acceptance(guard_control, guard_control))
++    check(not pairing._fixed_acceptance(guard_control, dict(guard_control, callables={'Ensure': 1})))
+     for field, replacement in [('generator_sha256', 'a' * 64), ('query_sha256', 'a' * 64),
+                                ('quality_profile_sha256', None), ('node_count', 4),
+                                ('fixture_sha256', []), ('generator_module', 'different')]:
+@@ -137,10 +179,14 @@
+     rows, success, status = pairing.pair_quality_records([ir_before], [ir_after], 'Q15', 'b' * 40, 'f' * 40)
+     check(not success and status == 'verified_semantics_quality_pending' and 'additional_ir_admission_pending' in rows[0]['quality_pairing_reasons'])
+     with patch('anonymous_cpp_verify.validate_fixed_admission', return_value=True):
+-        rows, success, status = pairing.pair_quality_records([ir_before], [ir_after], 'Q15', 'b' * 40, 'f' * 40, ir_evidence={'synthetic': True})
++        rows, success, status = pairing.pair_quality_records([ir_before], [ir_after], 'Q15', 'b' * 40, 'f' * 40,
++            ir_evidence={'synthetic': True},
++            required_case_owners={ir_after['case']: ir_after['generator_module']}, required_profile_sha256='d' * 64)
+         check(success and 'direct_ir_admission_evidence_sha256' in rows[0])
+         broken = dict(ir_after, quality_assertions={'expected_shuffle_count': False})
+-        check(not pairing.pair_quality_records([ir_before], [broken], 'Q15', 'b' * 40, 'f' * 40, ir_evidence={'synthetic': True})[1])
++        check(not pairing.pair_quality_records([ir_before], [broken], 'Q15', 'b' * 40, 'f' * 40,
++            ir_evidence={'synthetic': True},
++            required_case_owners={ir_after['case']: ir_after['generator_module']}, required_profile_sha256='d' * 64)[1])
+     with tempfile.TemporaryDirectory(prefix='rbo-native-guard-contract-') as temporary:
+         folder = Path(temporary)
+         (folder / 'verification').mkdir()

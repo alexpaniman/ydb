@@ -1,0 +1,163 @@
+{
+  "status": "independently_source_and_metadata_approved_native_pending",
+  "patch_sha256": "9c782adc11186b7a4c1712a666a3b39030de2df675e6b23bb01c8ec8b8e6494a",
+  "source_preparation_sha256": "270562627bab578feb938638b63d7c6490689e559bc1bdab7ce226b3ed23130e",
+  "module_before_sha256": "5a7f8ebd901340e1c8f19ff1d8db8d2a27e8e0fd9b00c738e01c546f73d3daa7",
+  "module_after_sha256": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c",
+  "integrated_actual_helper_mock_assertions": 1410,
+  "mock_scenarios": 34,
+  "scenarios": {
+    "allocation_1": {
+      "fake_descriptors_closed": 0,
+      "fake_native_calls": 0
+    },
+    "allocation_10": {
+      "fake_descriptors_closed": 9,
+      "fake_native_calls": 0
+    },
+    "allocation_11": {
+      "fake_descriptors_closed": 10,
+      "fake_native_calls": 0
+    },
+    "allocation_12": {
+      "fake_descriptors_closed": 11,
+      "fake_native_calls": 0
+    },
+    "allocation_13": {
+      "fake_descriptors_closed": 12,
+      "fake_native_calls": 0
+    },
+    "allocation_14": {
+      "fake_descriptors_closed": 13,
+      "fake_native_calls": 1
+    },
+    "allocation_15": {
+      "fake_descriptors_closed": 14,
+      "fake_native_calls": 1
+    },
+    "allocation_16": {
+      "fake_descriptors_closed": 15,
+      "fake_native_calls": 1
+    },
+    "allocation_17": {
+      "fake_descriptors_closed": 16,
+      "fake_native_calls": 1
+    },
+    "allocation_2": {
+      "fake_descriptors_closed": 1,
+      "fake_native_calls": 0
+    },
+    "allocation_3": {
+      "fake_descriptors_closed": 2,
+      "fake_native_calls": 0
+    },
+    "allocation_4": {
+      "fake_descriptors_closed": 3,
+      "fake_native_calls": 0
+    },
+    "allocation_5": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "allocation_6": {
+      "fake_descriptors_closed": 5,
+      "fake_native_calls": 0
+    },
+    "allocation_7": {
+      "fake_descriptors_closed": 6,
+      "fake_native_calls": 0
+    },
+    "allocation_8": {
+      "fake_descriptors_closed": 7,
+      "fake_native_calls": 0
+    },
+    "allocation_9": {
+      "fake_descriptors_closed": 8,
+      "fake_native_calls": 0
+    },
+    "cold_rejected": {
+      "fake_descriptors_closed": 13,
+      "fake_native_calls": 1
+    },
+    "final_changed": {
+      "fake_descriptors_closed": 60,
+      "fake_native_calls": 7
+    },
+    "handoff_cancelled": {
+      "fake_descriptors_closed": 5,
+      "fake_native_calls": 0
+    },
+    "link_cancelled": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "native_cancelled": {
+      "fake_descriptors_closed": 13,
+      "fake_native_calls": 1
+    },
+    "normal": {
+      "fake_descriptors_closed": 60,
+      "fake_native_calls": 7
+    },
+    "pending_handoff_cancelled": {
+      "fake_descriptors_closed": 5,
+      "fake_native_calls": 0
+    },
+    "postlink_changed": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "prepare_cancelled": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "profile_changed": {
+      "fake_descriptors_closed": 60,
+      "fake_native_calls": 7
+    },
+    "readonly_digest_changed": {
+      "fake_descriptors_closed": 60,
+      "fake_native_calls": 7
+    },
+    "readonly_identity_mismatch": {
+      "fake_descriptors_closed": 5,
+      "fake_native_calls": 0
+    },
+    "readonly_open_failed": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "readonly_seals_mismatch": {
+      "fake_descriptors_closed": 5,
+      "fake_native_calls": 0
+    },
+    "readonly_validation_cancelled": {
+      "fake_descriptors_closed": 5,
+      "fake_native_calls": 0
+    },
+    "seal_cancelled": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "seal_failed": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    }
+  },
+  "combined_dispatcher_sha256": "af352cd2937de3f8a88236650e61c03bb82c8736c046abb9e2c672d5a3c5484d",
+  "source_conclusions": [
+    "Exactly one reviewed helper call occurs after successful link/version verification, before the immutable executable digest and before sample descriptor borrowing.",
+    "Actual helper runs under fake OS operations inside the complete Q28 execution path; it seals, compares device/inode/size, reopens read-only and closes the writable owner.",
+    "All samples borrow the replaced owner. Sample cleanup never closes it; outer cleanup closes it exactly once and retains all other descriptor ownership.",
+    "Open/identity/seal rejection, validation cancellation, deferred cancellation after handoff, existing prepare/link/native cancellation and allocation failures leave no fake descriptor unowned.",
+    "Complete or failed measurement evidence retains sanitized handoff metadata; final executable hash mutation is rejected.",
+    "Generated C++, seven cold samples, runtime attestation, version-object provenance and cache checks remain unchanged.",
+    "Direct26 and its acceptance remain separate; shared spilling stays pending; all semantic, optimizer-quality, full-pilot and stage-timing admission flags remain false."
+  ],
+  "native_executed": false,
+  "build_or_toolchain_executed": false,
+  "live_helpers_changed": false,
+  "rendered_inputs_or_graphs_or_cpp_persisted": false,
+  "review_script_sha256": "c14924f3539234cc42d73b1c6ebac819a51333731dbfd85df40f04f1ff8f49f2",
+  "remaining": "Actual Q28 link, SDK samples and native environment attestation remain pending; this approval does not establish performance improvement."
+}

@@ -1,0 +1,98 @@
+{
+  "candidate": "unassigned_global_aggregate_copy_stability",
+  "status": "source_reachable_not_native_confirmed",
+  "generator": "aggregate_copy_stability_checks.py",
+  "generator_sha256": "5f61f1a3a545ea98cecec1f00e7f7aae6d54730e936fe272b2bb7ea371137e31",
+  "reviewed_source_revisions": [
+    "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "24e1aae9a0677e8ed12f257a7944c50516e9cba4"
+  ],
+  "source_equivalence": {
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp": {
+      "sha256": "6064c7c29f85923a02afa5be97e5e4d6f1dfe5e4e8a6bc1d0fd34c704bac980f",
+      "c31_identical": true
+    },
+    "ydb/core/kqp/opt/rbo/rules/expand_replicate.cpp": {
+      "sha256": "4bc5fe0f799c3fa51883e5167dd7d8759c4dc105274602be7436f47b6336f8b7",
+      "c31_identical": true
+    },
+    "ydb/core/kqp/opt/rbo/rules/expand_whole_partition_window.cpp": {
+      "sha256": "30e7b29539e4b0f93f354d118e3f24e77cec55706f09e29d1121a5d6187ae800",
+      "c31_identical": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp": {
+      "sha256": "026f5d5afe7750add360e5c127242ac268b309455ab8ac47840e0c0d6abf33cd",
+      "c31_identical": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp": {
+      "sha256": "31a077f34dc8becaea25939b92ab76c2f95b219e3ab4060463ab4bb1adaeb37b",
+      "c31_identical": true
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp": {
+      "sha256": "fdb9b801ed168150a67bbb69ec53a83d969a8231cff4a0af52e37983d9c09f15",
+      "c31_identical": true
+    },
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": {
+      "sha256": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85",
+      "c31_identical": true
+    },
+    "ydb/core/kqp/opt/kqp_type_ann.cpp": {
+      "sha256": "4f2ac8d903510cbff1981d25d9718e95cff602767fd5d8bc2a45371aa5438592",
+      "c31_identical": true
+    },
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json": {
+      "sha256": "99ea408376a2c6c280db32d91d424575e2872c1f4cd3b255964885d17d2e9e5c",
+      "c31_identical": true
+    },
+    "ydb/library/yql/dq/expr_nodes/dq_expr_nodes.json": {
+      "sha256": "c97f43ffb9ffacabd419fd350d2cbe4cacfdbfd34d8972c942e693a0415228ac",
+      "c31_identical": true
+    }
+  },
+  "c31_changed_files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp"
+  ],
+  "c31_isolation": "Whole-partition expansion produces only Cross or nonnullable equi joins with no JoinFilters; the extra C31 inlining stage returns before its local copy-stability guard. All inspected producer/copy/lowering code is byte-identical to pinned main.",
+  "runtime_invariant": "Each upstream aggregate yields one row per selected window partition; MIN over that singleton must equal the value attached to the same row, regardless of its legal SUM reduction order.",
+  "confirmation_requires": [
+    "An actual within-statement producer/window inconsistency, with row count/group/count and result types validated.",
+    "A separate review of the actual anonymous physical AST must bind the Double SUM update/state, source executions and both compared outputs to two independent producer evaluations. Stage-level marker counts provide candidate topology only; hash-bound dataflow evidence is mandatory.",
+    "No volatile/UDF/clock callable in the physical graph, with immutable generated input.",
+    "Matching revision, generator/schema/fixture hashes and row parameter across the candidate new record, same-case legacy record and new shared-producer control.",
+    "Explicit requested-mode configuration proof, disabled error fallback and successful exact-receipt binary provenance for every admitted record.",
+    "Legacy and shared controls satisfy the same invariant; the shared control has candidate multi-output topology plus a separate hash-bound actual AST dataflow review proving both compared outputs derive from one producer evaluation."
+  ],
+  "non_confirmation_cases": [
+    "Copied producers whose outputs still agree.",
+    "Different floating SUM answers only across separate runs or requested modes.",
+    "A target error, a C31 guard rejection, missing plan proof, opaque grammar, stale generator or unmatched mode evidence."
+  ],
+  "resources": {
+    "maximum_fixture_rows": 96,
+    "recommended_initial_rows": 24,
+    "node_count": 1,
+    "table_partitions": 3,
+    "native_concurrency": 1,
+    "profile_count": 16,
+    "initial_native_records_recommended": 4
+  },
+  "initial_run_selection": [
+    "cancellation_interleaved scalar copied in new and legacy modes",
+    "matching scalar shared case in new mode",
+    "exact_double scalar copied control in new mode"
+  ],
+  "scope_limits": [
+    "The conservative stage walker only detects candidate topology. It cannot establish the specific Double SUM state/input bindings or output provenance; actual anonymous AST dataflow review is explicitly required and unavailable so far.",
+    "Small deterministic workloads may use the same merge order on both copies; a consistent run does not prove the global policy safe.",
+    "Float/Decimal/Interval and representation-sensitive MIN/MAX have broader source concerns, but this probe isolates only finite Double SUM.",
+    "No generated query, input rows, raw plan, or result values are persisted."
+  ],
+  "native_executed": false,
+  "compiler_or_build_executed": false,
+  "production_sources_edited": false,
+  "mocks_executed": false,
+  "syntax_only_checked": true,
+  "source_independent_review_note": "c41_review found the stage-level typed-reducer heuristic insufficient for confirmation; it is now labeled candidate topology and cannot satisfy assess_records without separate closed hash-bound dataflow attestations for copied and shared plans.",
+  "dataflow_evidence_status": "pending_actual_plan_inspection_not_generated_from_heuristic_counters"
+}

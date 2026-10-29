@@ -1,0 +1,32 @@
+{
+  "after_sha256": "f7f85132057a0c6b42b7663a59faf5a8012ed325bd43b42cf532248165e8390f",
+  "api_review": [
+    "Pinned main histogram reader explicitly accepts empty finalized result as valid empty histogram.",
+    "Width estimator accepts real default one-bucket histogram.",
+    "Count-min sketch constructed by its actual allocator and owned by std::shared_ptr."
+  ],
+  "before_sha256": "10d5f97d36c1142d5c7c033e76c3a2152b720087640fb8f2b69773cc8c46dd28",
+  "build_runs": 0,
+  "case_count": 3,
+  "description_refreshed": true,
+  "generated_source_unchanged_after_description_refresh": true,
+  "live_helper_edits": false,
+  "native_runs": 0,
+  "nonclaims": [
+    "No histogram selectivity accuracy claim",
+    "No SQL or native acceptance from source rendering"
+  ],
+  "ordered_cases": [
+    "q18_fields_1",
+    "q18_fields_3",
+    "q18_fields_7"
+  ],
+  "patch": "proposed-quality-amendments/Q18-statistics-object-controls-20261028.patch",
+  "patch_sha256": "c63a66dd9ba1ec6ce27ed059ffacc76d5660069476e59e981eec5002c5077684",
+  "production_edits": false,
+  "recorded_unix_time": 1793135290.6221056,
+  "scope": "All five single-column and four multi-column merge fields through actual transformer ApplyColumnStatistics: pointer replacement, absence preservation, vectors/type replacement, zero optional values, repeated application and cache object identity.",
+  "source_rendered_in_memory_only": true,
+  "source_sha256": "6d3fd78101234a4f5bcf9a062ba078df0afc40c748fe728fcbad8d70fdedbc0e",
+  "status": "prepared_source_review_required_native_pending"
+}

@@ -1,0 +1,10 @@
+{
+  "old_revision": "535684543d798106b01872b81fe4bbbdea72a4de",
+  "revision": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "5a277db00d610e5ecc59fd16cec9d833b38adfbe0696be7e96c22d4b8e78dc57",
+  "profile_before_sha256": "f60dd032970fc9802c2ca72ba7de78c2bf39d4c30672365c0c899d3bbc68e9f9",
+  "profile_after_sha256": "2d648eae18749044ecd50e9b6c0d75d921e5e489eb47b7c8d0355fc2e8d9eea1",
+  "profile_change": "C47 revision only; generator/source fingerprints and19 contracts unchanged",
+  "actual_build_native_pending": true
+}

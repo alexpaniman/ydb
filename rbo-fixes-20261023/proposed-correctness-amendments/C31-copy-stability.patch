@@ -1,0 +1,89 @@
+diff --git a/ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp b/ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp
+--- a/ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp
+@@ -37,6 +37,62 @@
+     }
+ }
+ 
++// The general copy policy permits reductions whose result can depend on input
++// order. Reconstructing a left row requires the copied producer's values to
++// agree, including values hidden behind later casts or referenced subplans.
++bool HasStableJoinFilterReductions(const IOperator& root, const TSubplans& subplans, TExprContext& ctx) {
++    THashSet<const IOperator*> visited;
++    TVector<const IOperator*> pending{&root};
++    while (!pending.empty()) {
++        const auto* op = pending.back();
++        pending.pop_back();
++        if (!visited.insert(op).second) {
++            continue;
++        }
++        if (op->Kind == EOperator::Aggregate) {
++            const auto& aggregate = CastOperator<TOpAggregate>(*op);
++            const auto* input = aggregate.GetInput().Get();
++            if (!input->Type) {
++                return false;
++            }
++            for (const auto key : aggregate.GetKeyColumns().Items()) {
++                // A grouping key can expose an order-dependent representative
++                // even when every reduction is COUNT.
++                if (!HasExactScalarIdentity(input->GetIUType(key, ctx))) {
++                    return false;
++                }
++            }
++            for (const auto& [output, traits] : aggregate.GetAggregationTraits().Items()) {
++                Y_UNUSED(output);
++                if (traits.AggFunction == "count") {
++                    continue;
++                }
++                const auto* type = input->GetIUType(traits.Input, ctx);
++                if (!type) {
++                    return false;
++                }
++                if (traits.AggFunction == "sum") {
++                    const auto& valueType = RemoveOptionality(*type);
++                    if (valueType.GetKind() != ETypeAnnotationKind::Data
++                        || !IsDataTypeIntegral(valueType.Cast<TDataExprType>()->GetSlot())) {
++                        return false;
++                    }
++                } else if ((traits.AggFunction != "min" && traits.AggFunction != "max" && traits.AggFunction != "distinct")
++                    || !HasExactScalarIdentity(type)) {
++                    return false;
++                }
++            }
++        }
++        for (const auto* child : op->GetChildren()) {
++            pending.push_back(child);
++        }
++        for (const auto call : op->GetSubplanIUs(subplans)) {
++            pending.push_back(subplans.At(call).Plan.Get());
++        }
++    }
++    return true;
++}
++
+ }
+ 
+ namespace NKikimr {
+@@ -110,6 +166,13 @@
+     }
+ 
+     auto leftInput = join->GetLeftInput();
++    // Keep the same sharing decision as the optimizer and physical compiler.
++    const bool allowChannelSpilling = ctx.KqpCtx.Config->GetEnableQueryServiceSpilling()
++        && (ctx.KqpCtx.IsGenericQuery() || ctx.KqpCtx.IsScanQuery()) && ctx.KqpCtx.Config->SpillingEnabled();
++    if (!allowChannelSpilling) {
++        Y_ENSURE(HasStableJoinFilterReductions(*leftInput, props.Subplans, ctx.ExprCtx),
++            "Join filter reconstruction requires stable copied values");
++    }
+     auto keyColumns = leftInput->Props.Metadata->KeyColumns;
+     const bool needsDomain = keyColumns.Items().empty();
+     TUnorderedIUs nullableKeys;
+@@ -120,6 +183,8 @@
+         for (const auto call : join->GetSubplanIUs(props.Subplans)) {
+             Y_ENSURE(CanDuplicateSubtree(*props.Subplans.At(call).Plan, props.Subplans),
+                 "Join filter domain requires repeatable subplans");
++            Y_ENSURE(HasStableJoinFilterReductions(*props.Subplans.At(call).Plan, props.Subplans, ctx.ExprCtx),
++                "Join filter domain requires stable subplan values");
+         }
+         const auto& columns = leftInput->GetOutputIUs();
+         keyColumns = TOrderedIUs<>(columns.begin(), columns.end());

@@ -1,0 +1,12 @@
+{
+  "finding": "C34",
+  "status": "prospective_oracle_contracts_passed_not_applied",
+  "source_before_sha256": "4eb669bedec2951d9e4a40158cafd4b333ff3484f7116a1ad277824163325af1",
+  "source_after_sha256": "dce4b13ca0adf238cb78ae5d6caf1ec12e7899ac969a33de4717c7bde4c92973",
+  "patch_sha256": "ca64768f023edeae1e0ad9f18b39c49df3d1276954f9a8357c775c20362d5ac9",
+  "positive_and_negative_contracts": 24,
+  "active_generator_edited": false,
+  "production_sources_edited": false,
+  "native_executed": false,
+  "generated_reproductions_persisted": false
+}

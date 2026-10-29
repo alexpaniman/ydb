@@ -1,0 +1,50 @@
+{
+  "finding": "Q01",
+  "reviewer": "quality_review",
+  "review_kind": "independent_runtime_evidence_integration_review",
+  "artifact_sha256": {
+    "validator": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+    "integration_patch": "5dbe983da81fc60e24c7f1f6325ec71f85629d63458098e29edb4b39f36d991f",
+    "runtime_generator": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+    "integration_test": "b2b24d379d7ed2b8521124329f5ceb19f1f807c22b701af8355edca6b29aa158"
+  },
+  "verdict": "source_and_transport_mock_contracts_passed_actual_runtime_pending",
+  "checked_contracts": [
+    "Fixed-only admission rejects baseline because pinned main has no production KqpRangeMinMax callable.",
+    "Closure profile and target select the existing KQP streaming runtime unit-test closure; actual driver verify_receipt executes before compilation.",
+    "Acceptance binds evidence to the current generator bytes, rendered source bytes and length, fixed revision, saved closure receipt digest and successful closure build.",
+    "Every compile/link/native phase must report successful exit, complete cleanup, no watchdog stop and no captured-output overflow.",
+    "Closed JSONL fields reject unknown, missing, duplicate case indices, noninteger and negative observations; all forty-two current cases and consistent exit status are required.",
+    "Lifecycle checks require expected output/input counts, single node instance, complete row release, specified cancellation/reset/limit behavior and actual allocation observations for admitted nonempty cases.",
+    "Separate SQL quality acceptance consults the fixed runtime validator only after paired semantic/provenance and structural contracts; missing or stale runtime evidence keeps RANGE acceptance pending.",
+    "The patch preserves Q28 current-source binding and counter publication repairs by applying only unrelated adaptation sites.",
+    "Integration was evaluated in transient Python modules; active verifier files, production code, generated fixtures and synthetic evidence were not written.",
+    "Each of 443 physical-summary cases agrees with its metadata admission requirement.",
+    "Four actual run_generated invocations use anonymous descriptors and mocked subprocess responses; no gate field is injected by the test.",
+    "For both RANGE-capable modules, the records produced by the actual transport remain pending without fixed runtime proof, reject stale/failed proof, and accept matching proof; the older compatibility control is not misreported as an improvement.",
+    "Closure receipt build exit status must be an integer zero, rejecting boolean false and floating zero."
+  ],
+  "validation": {
+    "validator_mutation_assertions": 93,
+    "in_memory_integration_assertions": 771,
+    "physical_summary_gate_checks": 443,
+    "mocked_run_generated_calls": 4,
+    "existing_pairing_assertions": 74,
+    "all_passed": true
+  },
+  "limitations": [
+    "Mocked checks establish admission logic, not actual compiler/linker or runtime behavior.",
+    "Metric records inherit the exact reviewed runtime generator contract; they do not establish query RSS bounds or internal comparison counts.",
+    "Receipt admission relies on the provenance-verified producing driver and matching saved receipt; it does not repeat the full closure file audit during later SQL pairing.",
+    "Q01 full acceptance still requires guarded fixed runtime execution and separately paired SQL semantics and physical-plan evidence."
+  ],
+  "active_helpers_edited": false,
+  "production_sources_edited": false,
+  "compiler_runs": 0,
+  "native_runs": 0,
+  "generated_reproductions_persisted": false,
+  "full_acceptance_admission_proved": false,
+  "supersedes_review_sha256": "b8dfcfd243d26c75528d878a8a5f2dd9c40c006528615967a45efa44d525d051",
+  "resolved_blocker": "The prospective physical AST checker summaries now explicitly publish additional_ir_admission_required in both RANGE-capable modules. run_generated copies these summaries into records before SQL pairing evaluates runtime admission.",
+  "admission_transport_proved_in_mock": true
+}

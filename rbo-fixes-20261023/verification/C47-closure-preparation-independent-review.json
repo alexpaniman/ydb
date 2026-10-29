@@ -1,0 +1,33 @@
+{
+  "reviewer": "root",
+  "status": "approved_source_only",
+  "artifacts": [
+    {
+      "patch": "C47-narrow-production-export-artifacts.patch",
+      "sha256": "9ec963255f6b6629903e8538b5032f0bde5d86aeff2c25ff0285d6269ee9ac14"
+    },
+    {
+      "patch": "C47-production-graph-lifecycle-artifacts.patch",
+      "sha256": "43d9c5ff1100e8675515dd139e930ae8d353a5ccfd63cd196959b7bfad0cc6e4"
+    }
+  ],
+  "combined_with_reviewed_stdout_patch": "5af59db821a70dee6de37537498c20d9cc6c5cb4200c70114dfb175744b26402",
+  "combined_helper_hashes": {
+    "anonymous_cpp_verify.py": "f10a7e6a2da1deafce92f4f56b747a20f412fb23559c7aa7a20d30e74b1423af",
+    "anonymous_cpp_metadata.py": "dbf302533855afa83ebe7ed1535fb3c51ca656072b7a3ca7ba791df6654fa527"
+  },
+  "checks": [
+    "Only C47 joins C31 narrow object export; every referenced standalone input must still exist during capture.",
+    "Future prepare records a successful ordinary build before a separately guarded explicit graph export using the same explicit configuration.",
+    "Build/graph records bind clean exact revisions, profile, explicit workers, normalized arguments, build-guard hash and graph contents.",
+    "The original build record is not rewritten by export; sidecar binds its bytes and failure cannot be admitted as a successful build.",
+    "New captures require lifecycle binding and subsequent execution rechecks both sidecars; existing C31 receipt semantics remain unchanged without fabricated historical proof.",
+    "Composed temporary application and syntax parsing passed with the stdout patch."
+  ],
+  "limits": [
+    "Explicit configuration is bound, not a complete snapshot of arbitrary ambient build settings.",
+    "Actual C47 production build/export/capture is still required."
+  ],
+  "live_changes": false,
+  "native_or_build_runs": 0
+}

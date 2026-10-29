@@ -1,0 +1,22 @@
+{
+  "status": "independent_source_and_metadata_review_pass_native_pending",
+  "reviewed_unix_time": 1793136987.0349586,
+  "patch": "proposed-quality-amendments/Q28-stage-boundary-semantic-profiles-20261028.patch",
+  "patch_sha256": "64d76c5b4dfbb817fdf1c221965aad78af44beffca655b7b040e018361347fd2",
+  "metadata_assertions_passed": 701,
+  "source_confirmations": [
+    "SQL equality excludes nullable keys; occurrence-based bag oracle retains duplicates and both unmatched outer sides.",
+    "Sort/limit oracle checks selected rows without claiming unrequested final output order.",
+    "Final plan counters are whitelisted structural observations, not rule-call or timing evidence.",
+    "Generic quality admission remains false; all eight actual semantic pairs and separate direct26 work contracts are still required."
+  ],
+  "limits": [
+    "No native compiler or actual plan reachability established.",
+    "Shared producer identity, stage boundary execution and optimizer-stage timing remain unproved.",
+    "SDK compilation statistics are a separate pending measurement route."
+  ],
+  "native_runs": 0,
+  "builds": 0,
+  "live_edits": false,
+  "queries_or_plans_persisted": false
+}

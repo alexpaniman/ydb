@@ -1,0 +1,44 @@
+{
+  "status": "dormant_source_proposal_not_applied",
+  "author": "c47_build_recovery",
+  "patch": "proposed-correctness-amendments/C47-production-graph-lifecycle-artifacts.patch",
+  "patch_sha256": "43d9c5ff1100e8675515dd139e930ae8d353a5ccfd63cd196959b7bfad0cc6e4",
+  "apply_after": "proposed-correctness-amendments/C47-narrow-production-export-artifacts.patch",
+  "before": {
+    "anonymous_cpp_metadata.py": "bc05cf942f0e68fde1838d66598643b91fc42622644505b8b881471f0db3a2a4",
+    "anonymous_cpp_verify.py": "cbcb3eb306f30ec06ae316170d2191dc82e0b9ab2125a1667ad50eb7cdc50883"
+  },
+  "after": {
+    "anonymous_cpp_metadata.py": "dbf302533855afa83ebe7ed1535fb3c51ca656072b7a3ca7ba791df6654fa527",
+    "anonymous_cpp_verify.py": "fba2018cf338e39b43bdeef8642b7e8cdb75cacab74d5a02ad5d7fbd9705525d"
+  },
+  "behavior": [
+    "Normal production build runs first and writes an immutable v2 build record; graph-only success never substitutes for a build.",
+    "Graph export reuses exact normalized build arguments, profile, export root and explicit relwithdebinfo/eight-worker guard configuration; it adds only dump-json-graph and dump-graph-to-file.",
+    "Both stages bind clean source revisions before and after; graph sidecar binds build-record bytes, exact export arguments, explicit configuration, graph identity and guarded success.",
+    "Future capture requires that strict successful-build/graph binding and saves both immutable record identities in the receipt.",
+    "Existing v1 receipts, including current C31, retain their existing verification route without claiming a new historical binding or requiring recapture.",
+    "Export-graph CLI supports retrying only graph generation from a successful new-style build record.",
+    "Current C31 manually recovered build/export records are not automatically upgraded and cannot be recaptured as new-style proof without a new recorded lifecycle."
+  ],
+  "basis": [
+    "proposed-correctness-amendments/C31-production-graph-export-artifacts.patch",
+    "verification/C31-production-graph-export-proposal-review.json",
+    "verification/cpp-closures/24e1aae9a067-1792736142124693334/build.json",
+    "verification/cpp-closures/24e1aae9a067-1792736142124693334/graph-export.json"
+  ],
+  "limitations": [
+    "Independent source review and actual future prepare/export/capture remain pending.",
+    "Only explicit guard arguments/configuration and helper bytes are bound; this does not introduce an ambient user-config/environment snapshot system.",
+    "Existing C31 evidence remains under its recorded v1 provenance rather than being relabeled as v2."
+  ],
+  "checks": {
+    "temporary_apply_passed": true,
+    "syntax_parse_passed": true,
+    "native_runs": 0,
+    "builds": 0,
+    "mock_runs": 0,
+    "live_helper_edits": false,
+    "rendered_repros": false
+  }
+}

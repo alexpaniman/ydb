@@ -1,0 +1,96 @@
+{
+  "checks": [
+    "frozen_report",
+    "frozen_production_patch",
+    "frozen_generator_patch",
+    "source_binding:ydb/core/kqp/opt/rbo/kqp_info_unit.h",
+    "source_binding:ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+    "source_binding:ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "source_binding:ydb/core/kqp/opt/rbo/kqp_rbo.cpp",
+    "source_binding:ydb/core/kqp/opt/rbo/kqp_rbo.h",
+    "source_binding:ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "source_binding:ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp",
+    "source_binding:ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h",
+    "single_depth_declaration",
+    "production_exact_after",
+    "production_only_depth_literal",
+    "only_bottom_mutated",
+    "removed_upper_lower_depth_zero",
+    "kept_upper_lower_depth_one",
+    "own_cache_invalidated",
+    "refresh_postorder",
+    "root_output_guard_preserved",
+    "union_output_owned_mapping",
+    "existing26_source",
+    "existing26_vector_render",
+    "disposable_apply:production_patch",
+    "disposable_apply:generator_patch",
+    "production_applied_image",
+    "generator_after_hash",
+    "four_exact_vector",
+    "new4_render_bound",
+    "old26_not_mutated",
+    "same_rule_old_depth_override",
+    "actual_stage_twice",
+    "semantics_before_counter_publish_before_cost_gate",
+    "lower_input_leaf_identities",
+    "map_IU_predicates",
+    "current_q28_baseline_not_main",
+    "no_full_admission",
+    "original26_separately_required",
+    "region_geometry_False_8",
+    "region_geometry_True_8",
+    "region_geometry_False_32",
+    "region_geometry_True_32",
+    "dependency_drift_rejected"
+  ],
+  "checks_passed": 43,
+  "classification": "optimization_quality_redundant_work_no_correctness_failure_established",
+  "control_assessment": [
+    "New4 uses real IntoMap/stage APIs and a depth2 override of the same implementation. Existing independent value evaluator and ID invariants run before counters are published.",
+    "Original26 source/render are byte-identical and remain separately required. New4 compares current-Q28 against its amendment, not pinned main.",
+    "Counter deltas follow local-region geometry only; actual compilation and native counters remain unverified."
+  ],
+  "existing26": {
+    "rendered_sha256": "cf9105de708101ba9972f78b3bc9ba22d06eca7e581e28bf2470a7e1eca31bf7",
+    "required_separately": true,
+    "source_changed": false,
+    "source_sha256": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7"
+  },
+  "generated_source_sha256": "a33b908be2ad18993b390c8cc970040f29709c4dc62d6f2c360417b48953788a",
+  "generator_patch": {
+    "after_sha256": "ffd071b611343437c26b5179fa9d4c8db926270cfe1095d60b1bdb737e996203",
+    "path": "proposed-quality-amendments/Q28-map-fusion-refresh-depth-controls-20261028.patch",
+    "sha256": "05c568415beb0c5e0155e1dc1067135cdb5f2e539609f219585ef86c2ca129f7",
+    "target": "rbo-fixes-20261023/quality_scheduler_depth_checks.py"
+  },
+  "limitations": [
+    "Four-case runner/receipt/record integration is separately pending; source approval is not full Q28 admission.",
+    "No native/build/Git mutation or live/production edit. No rendered C++/query/result payload persisted."
+  ],
+  "new4_vector": [
+    "q28_fusion_depth_removed_8",
+    "q28_fusion_depth_removed_32",
+    "q28_fusion_depth_kept_8",
+    "q28_fusion_depth_kept_32"
+  ],
+  "production_assessment": [
+    "IntoMap mutates only the lower Map definitions/cache. Removed upper places it at replacement depth0; retained upper places it at depth1. Depth1 covers both cases and leaves unchanged descendant caches available.",
+    "ThroughInput stays depth2. The scheduler owning worklist, root-output equality guard, sharing/subplan exclusions and conservative final pass are unchanged."
+  ],
+  "production_patch": {
+    "after_sha256": "73e36b5ccdbf430b4e5e7feaddc8cc7cd14547c44d6e3fbbb32d80ae4896d27c",
+    "before_sha256": "116a02534acc129da6ce770fcc33d836e83ce6afdf5707ea7db5f367e041092c",
+    "path": "proposed-quality-amendments/Q28-map-fusion-refresh-depth-20261028.patch",
+    "semantic_rule_body_changed": false,
+    "sha256": "b56ee3ef5a6976cf981f010ef5bee957e1e86ff75e7fb43e0b14463bc77518b5",
+    "target": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h"
+  },
+  "revision_before_amendment": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+  "schema": "q28_map_fusion_refresh_depth_independent_source_review_v1",
+  "source_report": {
+    "path": "verification/Q28-map-fusion-refresh-depth-source-preparation-20261028.json",
+    "sha256": "0ffb046299b0b6da60e06268421dd501c6af74a97cb8e92e28e072bb5fa1886b"
+  },
+  "status": "approved_source_and_generator_only_integration_and_native_pending"
+}

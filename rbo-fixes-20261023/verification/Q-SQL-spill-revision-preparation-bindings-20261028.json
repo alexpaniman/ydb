@@ -1,0 +1,17 @@
+{
+  "schema": "quality_spill_revision_preparation_bindings_v1",
+  "status": "frozen_source_preparation_independent_review_required",
+  "predecessor_patch_sha256": "9e70be28e44f600870ceb0db59bf4b990b1ddc5a22cd11a6af51dfdee1952e93",
+  "predecessor_review": "verification/Q-SQL-spill-cap-independent-root-review-20261028.json",
+  "patch": "proposed-quality-amendments/Q-SQL-spill-cap-production-revision-guard-20261028.patch",
+  "patch_sha256": "b9393c041625cbf1b7f43d2d55aa6e7f440367a33f8f67b6ba68258423ebac54",
+  "helper_candidate": "proposed-quality-amendments/quality_spill_bounds_revision_guard_20261028.candidate.py",
+  "before_images": {
+    "quality_spill_bounds.py": "6ac0b38adc4207800a853e06cfccfc4f167dd79663398eec8712a09fee4fbe91",
+    "native_verify.py": "f00515a00a438b2549c0241d712fa34da3e996161d605d8cb04913410486f29f"
+  },
+  "after_images": {
+    "quality_spill_bounds.py": "8baef78c55b538fcd874e7485bdae853a3f9e9f3de1a06d330c68a28c3650eac",
+    "native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b"
+  }
+}

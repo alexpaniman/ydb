@@ -1,0 +1,111 @@
+diff --git a/native_verify.py b/native_verify.py
+--- a/native_verify.py
++++ b/native_verify.py
+@@ -3,6 +3,7 @@
+ import hashlib
+ import importlib
+ import importlib.util
++import inspect
+ import json
+ import os
+ from pathlib import Path
+@@ -18,6 +19,7 @@
+ import correlation_oracle_generator as correlation
+ import partial_lookup_key_generator as lookup
+ from verification_contract import failure_stage, parse_rows_output
++from optimizer_mode_contract import optimizer_mode_configuration
+ from binary_provenance import ProvenanceError, unchanged_since_verification, verify_build_receipt
+ 
+ 
+@@ -53,6 +55,8 @@
+ 
+ def module_metadata(module, case, mode, n):
+     if hasattr(module, 'metadata'):
++        if 'mode' in inspect.signature(module.metadata).parameters:
++            return module.metadata(case, n, mode=mode)
+         return module.metadata(case, n)
+     if hasattr(module, 'requirements'):
+         return module.requirements(case, mode)
+@@ -92,6 +96,8 @@
+         schema, seeds = g.schema_and_seeds(n, case)
+     settings = (REVIEW / (mode + '.conf')).read_text()
+     settings = config_with(settings, meta.get('table_service_overrides', meta.get('table_service_config', {})))
++    fallback_requested = meta.get('table_service_overrides', meta.get('table_service_config', {})).get('EnableFallbackToYqlOptimizer', False)
++    mode_configuration = optimizer_mode_configuration(settings, mode, syntax, pragmas, fallback_requested)
+     descriptors = []
+     def memory(label, value):
+         fd = g.anonymous_text(label, value)
+@@ -148,7 +154,11 @@
+               'validation_request_count': len(validations), 'target_results_checked': not validations,
+               'expected_rejection_configured': mode == 'new' and bool(meta.get('expected_rejection_token')),
+               'table_service_overrides': meta.get('table_service_overrides', meta.get('table_service_config', {}))}
++    record.update(mode_configuration)
+     try:
++        if record['optimizer_mode_config_verified'] is not True:
++            record.update(harness_exception='OptimizerModeConfigurationMismatch', semantic_oracle_pass=False)
++            return record
+         completed = subprocess.run(command, pass_fds=descriptors, capture_output=True, timeout=120,
+                                    preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))
+         record['exit_code'] = completed.returncode
+diff --git a/verification_contract.py b/verification_contract.py
+--- a/verification_contract.py
++++ b/verification_contract.py
+@@ -1,6 +1,8 @@
+ """Strict parsing and verdict contracts; contains no workload inputs."""
+ import json
+ import re
++
++from optimizer_mode_contract import optimizer_mode_matches_record
+ 
+ 
+ def _unique_object(pairs):
+@@ -69,6 +71,8 @@
+ 
+ def record_verdict(record):
+     """Return functional/guard/execution-only/failure, never merge the claims."""
++    if not optimizer_mode_matches_record(record):
++        return 'failure'
+     if record.get('native_batch_guard_pass') is False:
+         return 'failure'
+     if record.get('correctness_physical_ast_required') and (
+@@ -132,7 +136,9 @@
+                 return False, 'native_failed'
+             left, right = pair['new'], pair['legacy']
+             digest = left.get('unordered_result_sha256')
+-            success &= (record_verdict(left) == record_verdict(right) == 'functional'
++            success &= (optimizer_mode_matches_record(left, require_exclusive=True)
++                        and optimizer_mode_matches_record(right, require_exclusive=True)
++                        and record_verdict(left) == record_verdict(right) == 'functional'
+                         and left.get('exit_code') == right.get('exit_code') == 0
+                         and left.get('semantic_oracle_pass') is True
+                         and right.get('semantic_oracle_pass') is True
+diff --git a/interval_sum_checks.py b/interval_sum_checks.py
+--- a/interval_sum_checks.py
++++ b/interval_sum_checks.py
+@@ -159,10 +159,10 @@
+             'expected_lowering': 'Decimal interval accumulation before state splitting and final interval conversion'}
+ 
+ 
+-def metadata(case, n):
++def metadata(case, n, mode='new'):
+     spec = specs()[case]
+     _size(n)
+-    return dict(requirements(case), finding='F02',
++    return dict(requirements(case, mode), finding='F02',
+                 acceptance_scope='ordinary and DISTINCT aggregate interval SUM; bounded window path excluded',
+                 result_rows=len(expected_rows(case, n)),
+                 distributed_placement_requires_native_evidence=spec['nodes'] > 1)
+diff --git a/interval_window_checks.py b/interval_window_checks.py
+--- a/interval_window_checks.py
++++ b/interval_window_checks.py
+@@ -166,8 +166,8 @@
+             'node_count': 1, 'peak_native_concurrency': 1}
+ 
+ 
+-def metadata(case, n):
+-    return dict(requirements(case), finding='F03',
++def metadata(case, n, mode='new'):
++    return dict(requirements(case, mode), finding='F03',
+                 acceptance_scope='Physical-window interval SUM; logical whole-partition aggregate expansion is separate F02',
+                 result_rows=len(expected_rows(case, n)),
+                 native_plan_reachability_pending=True)

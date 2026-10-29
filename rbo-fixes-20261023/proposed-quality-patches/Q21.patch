@@ -1,0 +1,66 @@
+--- a/ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.h
++++ b/ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.h
+@@ -10,6 +10,8 @@
+ TIntrusivePtr<TOpAggregate> MakeDomainProjection(const TIntrusivePtr<IOperator>& input, const TUnorderedIUs& columns, TPositionHandle pos);
+ // Checks whether we have a free variables.
+ bool HasFreeCorrelation(const TIntrusivePtr<IOperator>& op, const TUnorderedIUs& correlatedColumns);
++// Positive offset-free limits do not change whether an existence input is empty.
++TIntrusivePtr<IOperator> RemoveExistenceLimits(TIntrusivePtr<IOperator> input);
+ bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu, TExprContext& ctx);
+ // Here we want to support semantics where null == null.
+ TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr<IOperator>& rightInput,
+--- a/ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp
+@@ -1,6 +1,7 @@
+ #include "dependent_join_pushdown.h"
+ 
+ #include "../kqp_rules_include.h"
++#include <util/string/cast.h>
+ #include <ydb/core/kqp/opt/rbo/copy_logical_subtree.h>
+ 
+ namespace NKikimr {
+@@ -231,6 +232,20 @@
+     return MakeIntrusive<TOpAggregate>(input, TAggregationIUs{}, TOrderedIUs<>(columns.begin(), columns.end()), EOpPhase::Undefined, /*distinctAll=*/false, pos);
+ }
+ 
++TIntrusivePtr<IOperator> RemoveExistenceLimits(TIntrusivePtr<IOperator> input) {
++    while (input->Kind == EOperator::Limit) {
++        const auto limit = CastOperator<TOpLimit>(input);
++        const auto count = limit->GetLimitCond().GetExpressionBody();
++        ui64 value = 0;
++        if (limit->HasOffset() || !count->IsCallable("Uint64") || count->ChildrenSize() != 1 ||
++            !count->Head().IsAtom() || !TryFromString(count->Head().Content(), value) || value == 0) {
++            break;
++        }
++        input = limit->GetInput();
++    }
++    return input;
++}
++
+ bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu, TExprContext& ctx) {
+     if (!input->Type) {
+         return true;
+--- a/ydb/core/kqp/opt/rbo/rules/inline_simple_in_exists_subplan.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/inline_simple_in_exists_subplan.cpp
+@@ -82,6 +82,9 @@
+     TIntrusivePtr<IOperator> join;
+     Y_ENSURE(subplanEntry);
+     auto subplan = CastOperator<IOperator>(subplanEntry->Plan);
++    if (subplanEntry->Type == ESubplanType::EXISTS) {
++        subplan = RemoveExistenceLimits(std::move(subplan));
++    }
+     const bool useDependentJoin = HasFreeCorrelation(subplan, subplanEntry->DependentIUs);
+ 
+     // If `NOT` and optional column the result could be nothing.
+--- a/ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp
+@@ -71,6 +71,9 @@
+     const auto& subplanEntry = props.Subplans.At(subplanIU);
+     TIntrusivePtr<IOperator> newFilterInput;
+     auto subplan = CastOperator<IOperator>(subplanEntry.Plan);
++    if (subplanEntry.Type == ESubplanType::EXISTS) {
++        subplan = RemoveExistenceLimits(std::move(subplan));
++    }
+ 
+     const bool useDependentJoin = HasFreeCorrelation(subplan, subplanEntry.DependentIUs);
+     if (subplanEntry.Type == ESubplanType::IN_SUBPLAN || useDependentJoin) {

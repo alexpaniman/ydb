@@ -1,0 +1,146 @@
+{
+  "binding_refresh_patch": {
+    "after_sha256": "d7dff3b1f4a20e2a2a3306bc9f969dfa77e048c824e9db9f2f9114e2072c0ca2",
+    "before_sha256": "b9ed14d8ef837ed8569adc9184a317fa096aa32051632dfc30aefb4339d3956e",
+    "changes": [
+      "native_verify.py exact final idle53 hash",
+      "quality_spill_bounds.py exact final idle53 hash newly reachable from native"
+    ],
+    "generator_function_bodies_changed": false,
+    "install_target": "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py",
+    "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-integration-idle53-binding-refresh-20261028.patch",
+    "production_bindings_changed": false,
+    "record_vector_changed": false,
+    "sha256": "a3ff753f5e6c8824a2127389a7b5a6c7bb0a3b4564e7d20402c94758eab8ad06"
+  },
+  "entrypoint": "After idle installation and successful dedicated build: c06_c50_integration_runner.py --worktree <integration-worktree> --expected-revision <exact-integration-commit> --build-receipt <fresh-successful-receipt>. Root controls phase and execution. Preparation does not invoke it.",
+  "evidence": {
+    "completed_failures_and_partial_prefix_preserved": true,
+    "exact_command_template_sha256_bound": true,
+    "final_admission_requires_exact16_vector": true,
+    "fresh_exclusive_paths": true,
+    "guard_exception_and_cancellation_recorded": true,
+    "guard_stdout_sha256_and_exact_length_bound": true,
+    "manifest_hash_and_nonce_bound": true,
+    "old_guard_document_input_accepted": false,
+    "original_failures_immutable": true,
+    "post_native_validation_interruption_emits_before_reraising": true,
+    "rendered_queries_fixtures_results_asts_cpp_persisted": false,
+    "validation_exception_does_not_drop_cell": true
+  },
+  "expected_revision": "required explicit 40-hex integration-only commit selected by root with this exact tree",
+  "idle53_composition_manifest": {
+    "path": "rbo-fixes-20261023/verification/quality-idle53-source-composition-20261028.json",
+    "sha256": "1bac7bb6118969b3d1b0c11fcd0215a3a1974ff66555250ffea4b4edda61544f"
+  },
+  "installation_order": [
+    "approved idle53 nine-patch composition",
+    {
+      "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-bounded-integration-generator-20261028.patch",
+      "sha256": "75ea46631d821354dde8ca87aee6d9845a612c09626fb6fefb52e62b24ae15a6"
+    },
+    {
+      "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-integration-idle53-binding-refresh-20261028.patch",
+      "sha256": "a3ff753f5e6c8824a2127389a7b5a6c7bb0a3b4564e7d20402c94758eab8ad06"
+    },
+    {
+      "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-bounded-integration-runner-20261028.patch",
+      "sha256": "775047f8626cf6ee6b33f463f59d2f3e34f76ecea61814fd01568e44e00df149"
+    }
+  ],
+  "limits": {
+    "abrupt_process_death_only_retains_already_emitted_prefix": true,
+    "directory_and_metadata_file_creation_excluded": false,
+    "final_distribution_proof": false,
+    "integration_execution_pending": true,
+    "original_failure_reclassification": false,
+    "production_or_live_helper_edits": false,
+    "separate_udf_build_receipt_verified": false,
+    "standalone_fix_admission_changed": false,
+    "unchanged_configuration_rerun": false
+  },
+  "metadata_validation": {
+    "actual_guard_native_build_execution": false,
+    "checks_passed": 795,
+    "disposable_three_patch_application_passed": true,
+    "mocked_scenarios": 40,
+    "path": "rbo-fixes-20261023/verification/C06-C50-bounded-integration-runner-metadata-contracts-20261028.json",
+    "script": {
+      "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-integration-runner-20261028/verify_metadata.py",
+      "sha256": "9219dd4b942198df72a23c084da58a01b2a3de31228a19bfb1b3946e78709c5d"
+    },
+    "sha256": "9750379197f71388df58d524a8d0abf2151054c0b31813390a05d43c962e4163"
+  },
+  "native_policy": {
+    "auxiliary_udf": "resolved path, stat identity and content hash before and after every cell and at finalization; separate successful build receipt not claimed",
+    "batch_timeout_seconds": 2220,
+    "binary": "existing successful exact-revision receipt fully fingerprinted before and after; source/binary identity checked between cells",
+    "configuration": "LocalFileConfig.Enable=true, MaxTotalSize=1; node mask None; query/channel spilling and UseBlockHashJoin remain enabled",
+    "guard": "unchanged anonymous_cpp_guard.run_anonymous",
+    "manifest": "sealed read-only memfd; fresh run ID and 64-hex nonce; exact source/vector/tree/receipt/self-source hash",
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "parallel_native_execution": false,
+    "per_query_timeout_seconds": 120,
+    "production_sources_frozen_required": true,
+    "serial_slot": "unchanged anonymous_cpp_verify.serial_slot",
+    "start_headroom_gib": 40,
+    "systemd_memory_max_gib": 28,
+    "work_state_phase": "direct_cpp_verification",
+    "worker_cgroup": "expected rbo-direct scope required; only its digest emitted"
+  },
+  "previous_candidate": {
+    "review_correction": "Completed native cell was emitted after validation, so a BaseException during validation could omit it. Catch, emit sanitized failed validation, then rethrow interruption.",
+    "runner_patch_sha256": "506a702dae222caaadc7ac3f430b238d547c4ff51716ff929492aa5976c6f613",
+    "runner_source_sha256": "71b4d0263d77df46ab924f95c17eea7e6ed5110162fb5b7babfbca0b21aa5a31",
+    "source_report_sha256": "8e1a1f733b2a22f081ebfe6ececa08ec147b52432b24c49196a7afef740037c6"
+  },
+  "production_tree": "138b36fd19ebf6d44f37aa3c73585e9c8be6ff5d",
+  "runner_patch": {
+    "after_sha256": "1c18bbe841ccd90be8f7b5c8a3cfdc4dba56a1c5a3b6b59072ef4e79a3b007c9",
+    "before_sha256": null,
+    "install_target": "rbo-fixes-20261023/c06_c50_integration_runner.py",
+    "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-bounded-integration-runner-20261028.patch",
+    "sha256": "775047f8626cf6ee6b33f463f59d2f3e34f76ecea61814fd01568e44e00df149"
+  },
+  "schema": "c06_c50_bounded_integration_runner_source_preparation_v1",
+  "source_binding_count": 21,
+  "source_bindings": {
+    "rbo-fixes-20261023/anonymous_cpp_guard.py": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+    "rbo-fixes-20261023/anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf",
+    "rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+    "rbo-fixes-20261023/binary_provenance.py": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c",
+    "rbo-fixes-20261023/c06_c50_bounded_integration_checks.py": "d7dff3b1f4a20e2a2a3306bc9f969dfa77e048c824e9db9f2f9114e2072c0ca2",
+    "rbo-fixes-20261023/join_key_checks.py": "32c91d788fd03cbb7035ebfea624f0b62eb012992810944c7450b509020a1acb",
+    "rbo-fixes-20261023/memory_safe_build.py": "ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd",
+    "rbo-fixes-20261023/native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b",
+    "rbo-fixes-20261023/optimizer_mode_contract.py": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad",
+    "rbo-fixes-20261023/quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89",
+    "rbo-fixes-20261023/verification/C06-C50-bounded-spill-production-source-comparison-20261028.json": "560c8365e4c66f6039d953f72d2bb1be2c147db13e165b1c6bbe0c89b746f514",
+    "rbo-fixes-20261023/verification/C06-C50-integration-independent-source-review-20261028.json": "530fb5c69460669e57836114a016ab5c9924476095308cf5ba867784c2698516",
+    "rbo-fixes-20261023/verification/C06-C50-integration-source-preparation-20261028.json": "17473d3cb4501754409d61c1ca225f147a8a1041f0ff0a55f752ba52832d0fa5",
+    "rbo-fixes-20261023/verification/guarded-fixed-C50-946575513d23-1793145911575205063.jsonl": "ee458a3f9112bc998787db65e5a0816b265d1a979a7ff8fb5b0dd9448033316f",
+    "rbo-fixes-20261023/verification_contract.py": "73a7608c2a8ea37395bd2336def4801a3aa77e607324376816fac996242cd952",
+    "rbo-fixes-20261023/verify_series.py": "cc07fc271efde3ed8f8377ef86f9560b484591503d7c0198d89e7ca7488d6265",
+    "rbo-fixes-20261023/window_checks.py": "c48fc8c06ddc561788de2c28d578b794390649a1b323b87ddd3e11f9af66698e",
+    "rbo-review-20261021/correlation_oracle_generator.py": "01df4ffff02830784e8aad4d4b072f671f89b8b3a8772a1e0949899551cdb2b9",
+    "rbo-review-20261021/generate_and_verify.py": "fa9f950e0d97e784574532f5092ee45ac8cabd8edfba91b9495bc81f8e9afaed",
+    "rbo-review-20261021/new.conf": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+    "rbo-review-20261021/partial_lookup_key_generator.py": "6b1c97b7d675d2a5a8ebc3f0bc2c3bbc08a341e6209e25e989612f8dde745911"
+  },
+  "status": "frozen_source_and_mock_review_candidate_native_pending",
+  "workload": {
+    "contracts": "original join_key_checks queries, schema/fixtures and row oracle delegated unchanged",
+    "distinct_cases": 8,
+    "nodes": 4,
+    "optimizer_modes": [
+      "new"
+    ],
+    "ordered_vector_sha256": "391ebefc5cf808b4daae8b59872cdfa9dc5ab24d9c8019ae2d13419d187f64e6",
+    "original_query_schema_fixture_hash_slots_unchanged": 48,
+    "records": 16,
+    "repetitions": 2,
+    "rows": 24,
+    "settings_hash_slots_deliberately_changed": 16
+  }
+}

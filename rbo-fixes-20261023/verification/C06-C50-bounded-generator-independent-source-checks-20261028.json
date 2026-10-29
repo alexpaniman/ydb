@@ -1,0 +1,25 @@
+{
+  "artifact_sources_checked": 14,
+  "author_regression_assertions": 644,
+  "exact_combined_tree": "138b36fd19ebf6d44f37aa3c73585e9c8be6ff5d",
+  "generator_patch_sha256": "75ea46631d821354dde8ca87aee6d9845a612c09626fb6fefb52e62b24ae15a6",
+  "independently_recomputed_tree": true,
+  "intentionally_changed_settings_slots": 16,
+  "native_admission": false,
+  "no_Git_mutations": true,
+  "no_live_helper_edits": true,
+  "no_native_build_or_graph_runs": true,
+  "ordered_records": 16,
+  "production_sources_checked": 52,
+  "remaining": [
+    "Review dedicated runner failure retention and fresh exact guard binding.",
+    "Review narrow refresh to native_verify final idle53 after-image before application.",
+    "Actual integration receipt, guarded execution and exact16 admission remain pending."
+  ],
+  "rendered_workloads_or_results_persisted": false,
+  "retained_workload_slots": 48,
+  "reviewed_generator_sha256": "b9ed14d8ef837ed8569adc9184a317fa096aa32051632dfc30aefb4339d3956e",
+  "schema_version": "c06_c50_independent_source_metadata_review_v1",
+  "source_assertions": 196,
+  "status": "generator_source_checks_passed_dedicated_runner_and_final_binding_refresh_pending"
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "C06_C50_empty_result_metadata_independent_review_v1",
+  "status": "source_metadata_approved_actual_transport_pending",
+  "patch": "proposed-correctness-amendments/C06-C50-empty-result-metadata-20261028.patch",
+  "patch_sha256": "1f36ac8729e1c4d80d1222613556bd7d7edf0608328702b344eda6bf4a8187df",
+  "source_report": "verification/C06-C50-empty-result-metadata-source-preparation-20261028.json",
+  "source_report_sha256": "a0ba25ad78b6fff81e2c6a74ea406e8d7f024e00f9e243ea48891c06be369230",
+  "after_images": {
+    "c06_c50_bounded_integration_checks.py": "6f40673cc6e1a8169185302d7895c46a40f45cb46f13dc4dad2afbb7104d60fd",
+    "c06_c50_integration_runner.py": "b2b939a9eee061e745b59be8307619a1fbf5e2e4a1bef619e14d0d349083f406",
+    "native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77"
+  },
+  "independent_checks_passed": 160,
+  "author_source_mock_checks_rerun_passed": 260,
+  "author_report_unchanged": true,
+  "scope": "Only two empty left-anti families/four records request existing full-json; all original16 query/schema/fixture/settings/node fingerprints preserved. No production or live edits/native executions.",
+  "verified": [
+    "Existing actual ResultSet schema/formatter source matches the strict required Int64 single-column witness; empty rows and default fields are omitted.",
+    "Blank/whitespace/multiple documents/malformed/nonempty/truncated/optional/unknown metadata do not become a successful empty result.",
+    "Actual _cell guards retain exact case/row/mode admission; parsing retains the independent unchanged expected-empty oracle.",
+    "Witness version, typed zero row count, typed one set count and raw payload digest are mandatory in final record validation.",
+    "Runner function ASTs unchanged; other native helper functions unchanged; default rows path and nonempty controls retain their original behavior.",
+    "Real run_generated author harness executed in mocks for all16; descriptors closed,4full-json selections and12old-format selections confirmed.",
+    "Source and record hashes verified before/after; original12pass/4boundary-failure evidence remains immutable."
+  ],
+  "remaining": [
+    "Root-only next-idle application against exact before-images.",
+    "Fresh guarded16 run using the exact combined production revision and revalidated existing receipt; actual full-json schema must match or remain failure.",
+    "Subsequent Q14/Q01 or SDK helper composition requires separately reviewed dependency/profile refresh because native_verify changed.",
+    "No standalone finding status, physical-distribution proof or integration acceptance is granted by source/mock checks."
+  ],
+  "actual_native_runs": 0,
+  "live_changes": false,
+  "old_failures_reclassified": false,
+  "integration_admitted": false
+}

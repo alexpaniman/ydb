@@ -1,0 +1,112 @@
+diff --git a/quality_pairing.py b/quality_pairing.py
+--- a/quality_pairing.py
++++ b/quality_pairing.py
+@@ -13,7 +13,7 @@
+ REVIEW = HERE.parent / 'rbo-review-20261021'
+ PROFILES = {
+     'window': ('quality_window_checks',), 'sum': ('quality_sum_checks',),
+-    'minmax': ('quality_minmax_checks',),
++    'minmax': ('quality_minmax_checks',), 'range_minmax': ('quality_range_minmax_checks',),
+     'rules': ('quality_rule_checks',), 'partition': ('quality_partition_checks',),
+     'partition_subset': ('quality_partition_subset_checks',),
+     'lookup': ('quality_lookup_checks',), 'union': ('quality_union_checks',),
+@@ -24,7 +24,7 @@
+     **dict.fromkeys(('Q03', 'Q04', 'Q06', 'Q07', 'Q17', 'Q23', 'Q24', 'Q29'), ('lookup',)),
+     **dict.fromkeys(('Q05', 'Q12', 'Q21'), ('rules',)),
+     **dict.fromkeys(('Q08', 'Q09', 'Q20', 'Q26'), ('statistics',)),
+-    'Q01': ('window', 'sum', 'minmax'), 'Q11': ('union',), 'Q15': ('partition_subset',),
++    'Q01': ('window', 'sum', 'minmax', 'range_minmax'), 'Q11': ('union',), 'Q15': ('partition_subset',),
+ }
+ 
+ 
+@@ -119,6 +119,13 @@
+     return value
+ 
+ 
++def _range_calls(record):
++    value = record.get('range_minmax_calls')
++    if type(value) is not int or value < 0:
++        raise ValueError('Missing or invalid RANGE callable count')
++    return value
++
++
+ def _sum_field(record, collection, field):
+     entries = record.get(collection)
+     if not isinstance(entries, list):
+@@ -151,6 +158,11 @@
+     b, a = before.get('optimizer_estimates', []), after.get('optimizer_estimates', [])
+     if bug == 'Q01' and after.get('structural_assertions', {}).get('count_has_no_frame_fold'):
+         return _count(before, 'Fold') + _count(before, 'Fold1') > 0
++    if case.startswith('q01_range_minmax_'):
++        return (after.get('optimization_acceptance_case') is True
++                and after.get('structural_assertions', {}).get('incremental_range_callable_present') is True
++                and _range_calls(before) == 0 and _range_calls(after) > 0
++                and _count(before, 'Fold1') > 0)
+     if case.startswith('q01_minmax_') and after.get('structural_assertions', {}).get('no_general_frame_fold'):
+         return _count(before, 'Fold1') > _count(after, 'Fold1')
+     if bug == 'Q02' and case == 'q02_all_dead':
+@@ -202,7 +214,21 @@
+ 
+ 
+ def _fixed_acceptance(before, after):
+-    if after.get('case') in {'q01_minmax_' + kind + '_control' for kind in ('range', 'running', 'whole', 'suffix')}:
++    case = after.get('case', '')
++    if case == 'q01_minmax_range_control' or case.startswith('q01_range_minmax_'):
++        if after.get('optimization_acceptance_case') is True:
++            assertions = after.get('structural_assertions')
++            return (isinstance(assertions, dict) and bool(assertions)
++                    and all(value is True for value in assertions.values())
++                    and assertions.get('incremental_range_callable_present') is True
++                    and _range_calls(before) == 0 and _range_calls(after) > 0
++                    and _count(before, 'Fold1') > 0)
++        if case.startswith(tuple('q01_range_minmax_' + name + '_' for name in ('running', 'whole', 'float_value'))):
++            return (after.get('structural_assertions', {}).get('physical_plan_parsed') is True
++                    and _range_calls(before) == _range_calls(after) == 0
++                    and isinstance(before.get('callables'), dict) and bool(before['callables'])
++                    and before['callables'] == after.get('callables'))
++    if after.get('case') in {'q01_minmax_' + kind + '_control' for kind in ('running', 'whole', 'suffix')}:
+         # These negative controls promise that unsupported frame shapes keep
+         # their existing path. The native hook receives only one AST; perform
+         # the paired shape comparison here rather than accepting parsing alone.
+diff --git a/quality_pairing_contracts.py b/quality_pairing_contracts.py
+--- a/quality_pairing_contracts.py
++++ b/quality_pairing_contracts.py
+@@ -99,16 +99,36 @@
+     bad = {'commit': 'f' * 40, 'provenance_reverification_required': True, 'verification_limitation': stale_sentence}
+     driver.clear_resolved_transient_limit(bad, [dict(after, native_batch_guard_pass=True, build_receipt_sha256=None)])
+     check(bad['provenance_reverification_required'] and bad['verification_limitation'] == stale_sentence)
+-    check(pairing.generator_modules('Q01') == ['quality_window_checks', 'quality_sum_checks', 'quality_minmax_checks'])
++    check(pairing.generator_modules('Q01') == ['quality_window_checks', 'quality_sum_checks', 'quality_minmax_checks', 'quality_range_minmax_checks'])
+     check(pairing.generator_modules('Q15') == ['quality_partition_subset_checks'])
+     check(pairing._improvement('q01_minmax_optional_overlap', {'callables': {'Fold1': 1}},
+         {'callables': {'Fold1': 0}, 'structural_assertions': {'no_general_frame_fold': True}}))
+     check(not pairing._improvement('q01_minmax_optional_overlap', {'callables': {'Fold1': 0}},
+         {'callables': {'Fold1': 0}, 'structural_assertions': {'no_general_frame_fold': True}}))
+-    control = {'case': 'q01_minmax_range_control', 'callables': {'Fold1': 1},
++    control = {'case': 'q01_minmax_running_control', 'callables': {'Fold1': 1},
+                'structural_assertions': {'physical_plan_parsed': True}}
+     check(pairing._fixed_acceptance(control, control))
+     check(not pairing._fixed_acceptance(control, dict(control, callables={'Fold1': 0})))
++    range_before = {'case': 'q01_range_minmax_int64_optional_asc_overlap',
++                    'range_minmax_calls': 0, 'callables': {'Fold1': 1}}
++    range_after = {'case': range_before['case'], 'optimization_acceptance_case': True,
++                   'range_minmax_calls': 1, 'callables': {'Fold1': 0},
++                   'structural_assertions': {'physical_plan_parsed': True,
++                       'incremental_range_callable_present': True,
++                       'remaining_general_fold_policy': True, 'minmax_only_collector_bypassed': True}}
++    check(pairing._fixed_acceptance(range_before, range_after))
++    check(pairing._improvement(range_after['case'], range_before, range_after))
++    check(not pairing._fixed_acceptance(range_before, dict(range_after, range_minmax_calls=0)))
++    check(not pairing._improvement(range_after['case'], range_before, dict(range_after, range_minmax_calls=0)))
++    check(not pairing._fixed_acceptance(dict(range_before, range_minmax_calls=1), range_after))
++    check(not pairing._fixed_acceptance(range_before, dict(range_after, structural_assertions={'physical_plan_parsed': True})))
++    check(not pairing._improvement(range_after['case'], range_before, dict(range_after, optimization_acceptance_case=False)))
++    fallback = dict(range_after, case='q01_range_minmax_float_value_asc',
++                    optimization_acceptance_case=False, range_minmax_calls=0, callables={'Fold1': 1},
++                    structural_assertions={'physical_plan_parsed': True, 'unsupported_scope_not_admitted': True})
++    check(pairing._fixed_acceptance(range_before, fallback))
++    check(not pairing._fixed_acceptance(range_before, dict(fallback, callables={'Fold1': 0})))
++    check(pairing._fixed_acceptance(range_before, dict(range_after, case='q01_minmax_range_control')))
+     ir_before, ir_after = copy.deepcopy(before), copy.deepcopy(after)
+     for item in (ir_before, ir_after):
+         item.update(bug='Q15', case='q15_strict_superset', generator_module='quality_partition_subset_checks',

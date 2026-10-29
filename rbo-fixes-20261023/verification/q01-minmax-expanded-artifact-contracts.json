@@ -1,0 +1,20 @@
+{
+  "generator_cases": 161,
+  "builder_oracle_contract_checks": 1932,
+  "physical_checker_contract_checks": 282,
+  "stack_model": {
+    "model_pass": true,
+    "checked_frames": 151658,
+    "appended_entries": 113716,
+    "transferred_entries": 97994,
+    "seed": 10115,
+    "unbounded_following_partitions": 375,
+    "allocation_complexity_verified": false
+  },
+  "generator_sha256": "b2e7c48da8ed33fa8960ecbe9d7aff65a812f7aedb1e11c2da959fe385b125ec",
+  "native_runs": 0,
+  "compiled": false,
+  "production_edited": false,
+  "generated_inputs_saved": false,
+  "sql_parser_verification_performed": false
+}

@@ -1,0 +1,13 @@
+Q01 can be closed with a finite verification contract for the concrete work-removal fix. The existing gate and all oracles remain unchanged by this assessment.
+
+Required work:
+1. Run the full42 runtime lifecycle contracts and652 paired semantic/structural cases first.
+2. Prove the actual named-window paths, especially RANGE MIN/MAX feeding the same retained collector. Existing mixed callable totals and direct42 do not prove the production prefix-COUNT/SUM composition.
+3. Cover three suffix paths and two same-window fallback paths. Existing SQL cases already cover suffix/fallback semantics; these additions target the missing composition/resource branches.
+4. Observe absolute allocation/peak/release values for the new RANGE buffer and its mixed/suffix paths. Preserve memory-limit and cancellation failures. Mixed execution intentionally has two buffers.
+5. Measure narrow/broad frames for the four supported algorithms, plus the RANGE constituent and matched setup control. Fifteen distinct profiles including the five boundary controls provide a bounded proposal; no numerical speedup or allocation tolerance is introduced.
+6. Review a closed evidence validator before changing the hard-false resource gate. All652/42 obligations stay mandatory; stronger empirical scaling flags remain false unless separately established.
+
+The original finding requires removing repeated whole-frame work and measuring narrow versus broad frames. The unimplemented31-profile scaling study, arbitrary gain/growth ratios, exhaustive type benchmarking and universal fallback speedup are broader claims. Whole-child CPU includes startup/setup/compilation; RSS is not an allocation counter. Inconclusive measurements must remain explicit, without endless ladder expansion or a fabricated pass.
+
+No new production bug was established. No native/build work or live edits were performed.

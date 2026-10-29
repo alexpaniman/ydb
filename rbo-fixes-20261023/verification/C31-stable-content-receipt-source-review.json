@@ -1,0 +1,53 @@
+{
+  "status": "dormant_source_only_completed_snapshot_ctime_adapter",
+  "patch_sha256": "2b1bf53c45009457ea43035caf4039f2818c213190954b5b8e591c02ebefdb82",
+  "before_sha256": "f6b18cb732eb4467607b5103c15c7a01c7705155b4281e5fde405e65637db165",
+  "after_sha256": "e81ef3cf02488ab469ac2432106400b96955325d39e3255681f79c4c0a60d39b",
+  "syntax_parse_passed": true,
+  "observed_inputs": [
+    {
+      "relative_path": "contrib/libs/llvm16/include/llvm/IR/Attributes.inc",
+      "link_count": 191
+    },
+    {
+      "relative_path": "yql/essentials/minikql/invoke_builtins/llvm16/mkql_builtins.h",
+      "link_count": 27
+    },
+    {
+      "relative_path": "yql/essentials/public/types/yql_types.pb.h",
+      "link_count": 364
+    }
+  ],
+  "observed_comparison": {
+    "sha256_matches": true,
+    "changed_keys": [
+      "ctime_ns"
+    ],
+    "identity_stable_during_read": true,
+    "probable_cause": "Shared cache hardlink churn is consistent with link counts; cause is not independently proved."
+  },
+  "contracts": [
+    "Only ctime_ns is omitted when comparing completed file snapshots.",
+    "Within-read digest_file identity checks retain device, inode, size, mtime and ctime before/after reading and at the named path.",
+    "Across snapshots, content SHA256, resolved path, device, inode, size and mtime remain exact, including unknown extra fields.",
+    "Graph identity comparison and receipt data remain unchanged.",
+    "Resource trees and explicit linker remain in the same file set."
+  ],
+  "failed_run_scope": {
+    "file": "verification/direct-harness-failure-C31-1792738339275237076.json",
+    "launch_stamp_ns": 1792738339275237076,
+    "failure_file_mtime_ns": 1792738346092114020,
+    "compile_or_native_success_claimed": false,
+    "stage": "Not recorded; timing permits an early preflight rejection but does not establish stage."
+  },
+  "verification": {
+    "native_runs": 0,
+    "compiler_runs": 0,
+    "mock_suites": 0,
+    "live_helper_edits": false,
+    "production_edits": false
+  },
+  "remaining": [
+    "Independent source review and actual run remain pending."
+  ]
+}

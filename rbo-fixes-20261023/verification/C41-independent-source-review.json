@@ -1,0 +1,43 @@
+{
+  "id": "C41",
+  "revision": "ddd3afcc0d22ef44eb5cff279ba4d3eb35a0b4b8",
+  "verdict": "no_additional_static_blocker_found",
+  "validation": "source_contract_review_only",
+  "contracts": [
+    {
+      "source": "ydb/core/kqp/opt/kqp_opt_kql.cpp:1651",
+      "finding": "BuildKqlQuery creates an ordered TKqlQueryList with separate result and effect ownership, matching the new typed importer."
+    },
+    {
+      "source": "ydb/core/kqp/provider/yql_kikimr_opt_build.cpp:193",
+      "finding": "Provider blocks separate indexed effects that read earlier writes and later read-after-write operations. Preserving these blocks retains required execution order."
+    },
+    {
+      "source": "ydb/core/kqp/opt/kqp_opt_build_txs.cpp:126",
+      "finding": "Legacy transaction construction supports result connections and effects within one physical transaction."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp:477",
+      "finding": "Per-block materialization transaction index, subsequent main transaction index, and per-transaction result ordinals are internally consistent."
+    },
+    {
+      "source": "ydb/core/kqp/query_compiler/kqp_query_compiler.cpp:1183",
+      "finding": "Compiler enumerates transaction result connections independently of effect stage detection."
+    },
+    {
+      "source": "ydb/core/kqp/query_data/kqp_query_data.cpp:411",
+      "finding": "Repeated external parameter bindings are idempotent; this is not a demonstrated correctness defect."
+    }
+  ],
+  "remaining_validation": [
+    "A successfully built binary with recorded provenance is required before judging current fixed records.",
+    "Native coverage must verify mixed results in ordinal order, indexed successive effects, pure read/effect controls, and range materialization after preceding effects.",
+    "No native execution, builds, production edits, or concrete reproductions were performed by this reviewer."
+  ],
+  "followup": {
+    "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+    "native_diagnostic": "Earlier physical transactions had empty plan strings, causing JSON parsing failure while collecting execution statistics.",
+    "amendment": "Populate every RBO transaction plan and merge execution statistics by stage GUID, safely skipping empty literal plans.",
+    "status": "source_checked_pending_build_and_native"
+  }
+}

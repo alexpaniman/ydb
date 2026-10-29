@@ -1,0 +1,155 @@
+diff --git a/ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp b/ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp
+--- a/ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp
+@@ -1,18 +1,40 @@
+ #include "kqp_rules_include.h"
+ 
++#include "decorrelation/dependent_join_pushdown.h"
++#include <ydb/core/kqp/opt/rbo/copy_logical_subtree.h>
++
+ namespace {
+ 
+ using namespace NKikimr::NKqp;
+ 
+-bool CheckNonNullKeys(const TIntrusivePtr<IOperator> &input, const TOrderedIUs<>& columns) {
+-    auto itemType = input->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+-    for (const auto & column : columns.Items()) {
+-        const auto* columnType = itemType->FindItemType(ToString(column));
+-        if (!columnType || columnType->IsOptionalOrNull()) {
++// Grouping equality and StablePickle agree for these scalar values. In
++// particular, do not merge complete floating rows by canonicalized zero/NaN.
++bool HasExactScalarIdentity(const TTypeAnnotationNode* type) {
++    if (!type) {
++        return false;
++    }
++    if (type->GetKind() == ETypeAnnotationKind::Optional) {
++        type = type->Cast<TOptionalExprType>()->GetItemType();
++    }
++    if (type->GetKind() != ETypeAnnotationKind::Data) {
++        return false;
++    }
++    switch (type->Cast<TDataExprType>()->GetSlot()) {
++        case NUdf::EDataSlot::Bool:
++        case NUdf::EDataSlot::Int8: case NUdf::EDataSlot::Uint8:
++        case NUdf::EDataSlot::Int16: case NUdf::EDataSlot::Uint16:
++        case NUdf::EDataSlot::Int32: case NUdf::EDataSlot::Uint32:
++        case NUdf::EDataSlot::Int64: case NUdf::EDataSlot::Uint64:
++        case NUdf::EDataSlot::Date: case NUdf::EDataSlot::Datetime:
++        case NUdf::EDataSlot::Timestamp: case NUdf::EDataSlot::Interval:
++        case NUdf::EDataSlot::Date32: case NUdf::EDataSlot::Datetime64:
++        case NUdf::EDataSlot::Timestamp64: case NUdf::EDataSlot::Interval64:
++        case NUdf::EDataSlot::String: case NUdf::EDataSlot::Utf8:
++        case NUdf::EDataSlot::Decimal:
++            return true;
++        default:
+             return false;
+-        }
+-    }
+-    return true;
++    }
+ }
+ 
+ }
+@@ -87,12 +109,54 @@
+         return input;
+     }
+ 
++    auto leftInput = join->GetLeftInput();
++    auto keyColumns = leftInput->Props.Metadata->KeyColumns;
++    const bool needsDomain = keyColumns.Items().empty();
++    TUnorderedIUs nullableKeys;
++    if (needsDomain) {
++        // One inner evaluation per complete left value, then reconstruct
++        // against the original bag. Volatile predicates need occurrence IDs.
++        Y_ENSURE(CanDuplicateOperator(*join), "Join filter domain requires repeatable predicates");
++        for (const auto call : join->GetSubplanIUs(props.Subplans)) {
++            Y_ENSURE(CanDuplicateSubtree(*props.Subplans.At(call).Plan, props.Subplans),
++                "Join filter domain requires repeatable subplans");
++        }
++        const auto& columns = leftInput->GetOutputIUs();
++        keyColumns = TOrderedIUs<>(columns.begin(), columns.end());
++    }
++    for (const auto column : keyColumns.Items()) {
++        const auto* type = leftInput->GetIUType(column, ctx.ExprCtx);
++        Y_ENSURE(type, "Missing join filter identity type");
++        if (needsDomain || type->IsOptionalOrNull()) {
++            Y_ENSURE(HasExactScalarIdentity(type), "Unsupported join filter identity type");
++        }
++        if (type->IsOptionalOrNull()) {
++            nullableKeys.Add(column);
++        }
++    }
++    if (keyColumns.Items().empty()) {
++        // A zero-column bag still has multiplicity; use a one-value domain.
++        const auto unit = props.InfoUnitRegistry.AddGenerated("join_filter_unit");
++        TMapIUs elements;
++        elements.Add(unit, MakeConstant("Uint64", "0", join->Pos, &ctx.ExprCtx));
++        leftInput = MakeIntrusive<TOpMap>(leftInput, join->Pos, std::move(elements));
++        keyColumns.Append(unit);
++    }
++
+     // The inner join reads the left input again: a Replicate port gives it its own IDs,
+     // so we can join on the same columns again without conflicts
+-    auto hub = TReplicate::Create(join->GetLeftInput(), join->Pos, props.InfoUnitRegistry);
+-    auto outerLeftInput = hub->AddOutput();
+-    auto innerLeftInput = hub->AddOutput();
+-    const auto renameMap = innerLeftInput->GetRebindings();
++    auto hub = TReplicate::Create(leftInput, join->Pos, props.InfoUnitRegistry);
++    TIntrusivePtr<IOperator> outerLeftInput = hub->AddOutput();
++    auto innerPort = hub->AddOutput();
++    const auto renameMap = innerPort->GetRebindings();
++    TIntrusivePtr<IOperator> innerLeftInput = innerPort;
++    if (needsDomain) {
++        TUnorderedIUs columns;
++        for (const auto column : keyColumns.Items()) {
++            columns.Add(renameMap.At(column));
++        }
++        innerLeftInput = MakeDomainProjection(innerLeftInput, columns, join->Pos);
++    }
+ 
+     // Build an inner join
+     const auto joinKind = join->JoinKeys.Items().empty() ? "Cross" : "Inner";
+@@ -103,22 +167,29 @@
+     auto innerJoin = MakeIntrusive<TOpJoin>(innerLeftInput, join->GetRightInput(), join->Pos, joinKind, innerJoinKeys);
+     auto filterExpr = MakeConjunction(join->JoinFilters).ApplyRenames(renameMap);
+ 
+-    auto newFilter = MakeIntrusive<TOpFilter>(innerJoin, input->Pos, filterExpr);
+-
+-    // The join will be on the keys of lhs, we just need to check that all the keys are non-null
+-    // We don't support nullable keys at this stage
+-    auto keyColumns = join->GetLeftInput()->Props.Metadata->KeyColumns;
+-    if (keyColumns.Items().empty()) {
+-        Y_ENSURE(false, "No key columns when inlining join filter");
+-    }
+-
+-    if (!CheckNonNullKeys(join->GetLeftInput(), keyColumns)) {
+-        Y_ENSURE(false, "During join filter inlining the keys on the left side cannot be null");
+-    }
++    TIntrusivePtr<IOperator> newFilter = MakeIntrusive<TOpFilter>(innerJoin, input->Pos, filterExpr);
+ 
+     TJoinIUs newJoinKeys;
+-    for (const auto & column : keyColumns.Items()) {
+-        newJoinKeys.Add(column, renameMap.At(column));
++    TMapIUs outerKeys;
++    TMapIUs innerKeys;
++    auto encode = [&](TInfoUnitId column, TMapIUs& elements) {
++        const auto encoded = props.InfoUnitRegistry.AddGenerated("join_filter_key");
++        elements.Add(encoded, MakeUnaryCallable("StablePickle",
++            MakeColumnAccess(column, join->Pos, &ctx.ExprCtx, &props)));
++        return encoded;
++    };
++    for (const auto column : keyColumns.Items()) {
++        if (nullableKeys.Contains(column)) {
++            // String keys are nonoptional and compare NULL identity exactly,
++            // independently of native EqualNulls support in the chosen join.
++            newJoinKeys.Add(encode(column, outerKeys), encode(renameMap.At(column), innerKeys));
++        } else {
++            newJoinKeys.Add(column, renameMap.At(column));
++        }
++    }
++    if (!outerKeys.Keys().Empty()) {
++        outerLeftInput = MakeIntrusive<TOpMap>(outerLeftInput, join->Pos, std::move(outerKeys));
++        newFilter = MakeIntrusive<TOpMap>(newFilter, join->Pos, std::move(innerKeys));
+     }
+ 
+     // Subplans called from the join filters now read the inner left input.

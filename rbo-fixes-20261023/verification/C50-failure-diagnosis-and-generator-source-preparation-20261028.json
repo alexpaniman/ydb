@@ -1,0 +1,192 @@
+{
+  "kind": "source_and_existing_digest_diagnosis_with_dormant_generator_repairs",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+  "native_evidence": "verification/fixed-C50-946575513d23.jsonl",
+  "evidence_sha256": "98cf015df095e553e645a1bee991b839ed93f81fc7119e1e20e03e9dbce544f7",
+  "human_readable_findings": [
+    {
+      "issue": "Existing C06: domain elimination changes the type of a captured equality key.",
+      "impact": "Correlated EXISTS/NOT EXISTS can fail to recognize matching domain values after typed null-safe serialization, removing matching semi rows and retaining unmatched-only rows incorrectly.",
+      "records": 8,
+      "classification": "Existing independent correctness bug; not a new C50 finding.",
+      "repair": "Retain separate C06 branch 446592a476b92437df5b2579e1027cfb313be1d9. Its narrow RequireTypes and exact-annotation guard preserves the original capture through normal decorrelation. Do not add that change to standalone C50.",
+      "evidence": "All eight failing bag digests match the type-mismatch no-domain-match prediction; all eight same-type correlated control records pass. Source guard absent at tested C50 revision.",
+      "remaining": "C06 plus C50 integration execution remains necessary; source diagnosis is not an actual fixed combined-run verdict."
+    },
+    {
+      "issue": "C50 verification generator: chain projections lack the stable output aliases required by its oracle.",
+      "impact": "Both chain shapes are reported as semantic failures even though complete independently expected bags match all four stored unordered result digests after projection-name qualification alone.",
+      "records": 4,
+      "classification": "Verification defect, not evidence of an additional production correctness bug.",
+      "repair": "One-line explicit alias repair; retain the independent existing row/value/duplicate-sensitive oracle.",
+      "remaining": "Rerun the two repaired chain shapes. Existing failed records stay false and immutable."
+    }
+  ],
+  "status": {
+    "native_records": 62,
+    "semantic_passes": 50,
+    "retained_failures": 12,
+    "full_C50_acceptance": false,
+    "physical_gather_witness_available_from_this_batch": false
+  },
+  "excluded_attributions": {
+    "C01": "Predicate propagation substitution differs from the captured-domain identity rewrite involved here.",
+    "C09": "Correlated EXISTS controls do not use nullable IN result truth semantics.",
+    "C07": "Retained equality for nonreflexive values is a separate domain-elimination issue; these bounded numeric fixtures do not establish it.",
+    "F03": "Interval physical window accumulation is unrelated."
+  },
+  "new_controls": {
+    "count": 8,
+    "kind": "Four nonnullable uncorrelated IN/NOT IN semantic orientations plus four same-type controls.",
+    "source_route": "Required COALESCE key annotations avoid the nullable NOT IN shortcut guard; no RHS outer references, so direct tuple keys reach simple LeftSemi/LeftOnly construction without MakeSubplanDomain. Right-oriented semantic controls also lower through the frontend left-preserved membership shape.",
+    "fixture_policy": "Existing bounded fixture and independent bag oracle unchanged. Fixture keys are present; COALESCE never changes an input value for these labels.",
+    "scope": "Four nodes, block hash join, shuffle elimination disabled. No row-path, direct RightSemi physical-node, null-aware NOT IN, or plan-observation claim.",
+    "native_execution": false,
+    "actual_frontend_type_and_gather_reachability_pending": true
+  },
+  "patch_order": [
+    "C50-chain-projection-aliases-20261028.patch",
+    "C50-uncorrelated-membership-controls-20261028.patch"
+  ],
+  "live_generator_before_sha256": "72c2efc2d77ec424f3ee794482728ce73b8d032e5fed88390d339f6d7e3310fe",
+  "artifacts": [
+    {
+      "path": "proposed-correctness-amendments/C50-chain-projection-aliases-20261028.patch",
+      "sha256": "515490fe8163bc3257873ea299dc4e36b228b7f13dbebc36ee64aaeaadb94570"
+    },
+    {
+      "path": "proposed-correctness-amendments/join_key_checks_chain_aliases_20261028.candidate.py",
+      "sha256": "7c182b07eb9a786cfbb4e49a917d4114b62c8ff94bcc93593fee0bea3bb99bd1"
+    },
+    {
+      "path": "proposed-correctness-amendments/C50-uncorrelated-membership-controls-20261028.patch",
+      "sha256": "8e79fa969bcb352597f3ff3b81898a1122c2e61c94624acdf9fa99d07d91a875"
+    },
+    {
+      "path": "proposed-correctness-amendments/join_key_checks_uncorrelated_membership_20261028.candidate.py",
+      "sha256": "32c91d788fd03cbb7035ebfea624f0b62eb012992810944c7450b509020a1acb"
+    },
+    {
+      "path": "proposed-correctness-amendments/C50-chain-and-membership-metadata-contracts-20261028.py",
+      "sha256": "a0191bd213820588712eba21449fef221b63adb5f641c50c734bef17a79c1825"
+    }
+  ],
+  "metadata": {
+    "assertions": 387,
+    "report": "verification/C50-chain-and-membership-metadata-contracts-20261028.json",
+    "sha256": "e6b34a03cfbb63996185a884328e6f2b2672535b98770ad5feb7fa9b247711ad",
+    "clean_patch_application": true,
+    "unchanged_existing_fixtures_oracles_and_other_recipes": true
+  },
+  "source_bindings": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/inline_simple_in_exists_subplan.cpp",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "604ce2ec3599c4453f260153123aa856982ca4078c268f2b48391c8253aed572",
+      "source_lines": [
+        87,
+        95,
+        102,
+        116,
+        121,
+        127
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb",
+      "source_lines": [
+        242,
+        247,
+        255,
+        260,
+        355,
+        382,
+        408,
+        420,
+        445
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf",
+      "source_lines": [
+        50,
+        95
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "dfaff3c1478f6eb4fd3bd39fa88cc05edd4f176142ce3b04b6199dded055e773",
+      "source_lines": [
+        304
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896",
+      "source_lines": [
+        643,
+        647,
+        652
+      ]
+    },
+    {
+      "path": "ydb/core/protos/table_service_config.proto",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "ad647255a24df1060dd1fa039ef600ee0a022a1dca4ba120bba969eff456dc4e",
+      "source_lines": [
+        622
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "0871ccc05675193dfd37120a1245d4cc7a9012dc3f5a2e2732349da19b7f8bde",
+      "source_lines": [
+        15,
+        145,
+        159,
+        369
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "f11a39d6425b3dcb7888a427f46cd443f35d802db9046b4f1c0e14dba21f7e6a",
+      "source_lines": [
+        248,
+        270,
+        535,
+        581
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "sha256": "679c84a75bbae282599d1c8dadba537353cc098f34d42dcbeae6711221294254",
+      "source_lines": [
+        651
+      ]
+    }
+  ],
+  "actions": {
+    "production_edits": false,
+    "live_helper_edits": false,
+    "native_or_build_or_toolchain_execution": false,
+    "original_failure_relabeling": false,
+    "rendered_query_fixture_result_or_AST_persistence": false
+  },
+  "next_steps": [
+    "Independently review both frozen generator patches.",
+    "Apply only during root-authorized idle helper window and record new generator hash.",
+    "Rerun two chain shapes and eight new membership controls with exact build receipt; preserve previous results.",
+    "Run separate C06 plus C50 integration later; retain standalone branch scope.",
+    "Collect actual intended-join gather and downstream distribution observations separately."
+  ]
+}

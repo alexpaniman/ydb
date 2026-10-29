@@ -1,0 +1,24 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -447,6 +447,12 @@
+         verification_stage = 'link'
+         link_argv, output_transport = _stdout_link_arguments(link_argv)
+         evidence['link_output_transport'] = output_transport
++        if args.bug in ('C31', 'C47'):
++            # Drop dependency DWARF only from the anonymous verification executable.
++            link_argv.append('-Wl,--strip-debug')
++            evidence['link_debug_info'] = {
++                'option': '-Wl,--strip-debug',
++                'adapted_argv_template_sha256': _json_digest(link_argv)}
+         link_argv, archive_responses = _archive_response_arguments(link_argv, fds, receipt['files'])
+         evidence['link_archive_responses'] = archive_responses
+         link_record, _ = run_anonymous(link_argv, receipt['metadata']['link_cwd'], fds, timeout=args.link_timeout,
+@@ -494,7 +500,7 @@
+         # Preserve sanitized process/hash evidence; rejected case verdicts are omitted.
+         exc.stage_evidence = {key: evidence[key] for key in
+                               ('compile', 'link', 'native', 'generated_object', 'generated_executable',
+-                               'link_archive_responses', 'link_output_transport')
++                               'link_archive_responses', 'link_output_transport', 'link_debug_info')
+                               if key in evidence}
+         raise
+     finally:

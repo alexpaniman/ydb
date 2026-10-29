@@ -1,0 +1,66 @@
+{
+  "review": "independent source review of six quality patches",
+  "results": [
+    {
+      "id": "Q01",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "patch_sha256": "7ebed1a419fc4867e9b4a97e01860fd381417b639b4c3e658dd41cf51e6b956d",
+      "apply_and_whitespace_check_passed": true,
+      "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "production_edited": false,
+      "native_verified": false
+    },
+    {
+      "id": "Q02",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "patch_sha256": "348ce403fadbd308472915423de834214f5047c2a48a2f59ff91d2869ee8268a",
+      "apply_and_whitespace_check_passed": true,
+      "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "production_edited": false,
+      "native_verified": false
+    },
+    {
+      "id": "Q10",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "patch_sha256": "72cf9dcd7b35e91b35ba80a52f4ec5cbbe66a9c9f36369243235115c6bc9be16",
+      "apply_and_whitespace_check_passed": true,
+      "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "production_edited": false,
+      "native_verified": false
+    },
+    {
+      "id": "Q13",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "patch_sha256": "4064e2e608990d889f9ee7d95d16dcf2d1ef49709f7491e0350675e294bd2921",
+      "apply_and_whitespace_check_passed": true,
+      "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "production_edited": false,
+      "native_verified": false
+    },
+    {
+      "id": "Q15",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "patch_sha256": "0bc0c4292963841dd636a651a6d4f40753bd56939747acef8bc8030452b69cc6",
+      "apply_and_whitespace_check_passed": true,
+      "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "production_edited": false,
+      "native_verified": false
+    },
+    {
+      "id": "Q22",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "patch_sha256": "efa8c1c35a023a1e3c9c90431673fbebfc9ae61c81066abcf96c19e023da4482",
+      "apply_and_whitespace_check_passed": true,
+      "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "production_edited": false,
+      "native_verified": false
+    }
+  ],
+  "generated_inputs_saved": false,
+  "limitations": [
+    "Q01 remains open for SUM/AVG/MIN/MAX general frames.",
+    "Q15 is bounded to direct exact-key window adjacency.",
+    "Q13 raw/opaque inputs conservatively retain existing sink mode; explicit authorization/config-negative and index-effect cases still need operator/native coverage.",
+    "All patches still await compilation and native semantic/topology evidence."
+  ]
+}

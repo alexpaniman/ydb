@@ -1,0 +1,40 @@
+--- a/rbo-fixes-20261023/native_verify.py
++++ b/rbo-fixes-20261023/native_verify.py
+@@ -126,9 +126,10 @@
+         for _ in validations:
+             command += ['--script-ast-file', '/dev/null']
+     plan_fd = None
+-    if meta.get('quality_requires_query_plan_evidence'):
++    correctness_plan_required = bool(meta.get('correctness_requires_query_plan_evidence'))
++    if meta.get('quality_requires_query_plan_evidence') or correctness_plan_required:
+         if not hasattr(module, 'check_query_plan'):
+-            raise ValueError('Quality checks require a query plan oracle')
++            raise ValueError('Query plan evidence requires a plan oracle')
+         command += ['--plan-format', 'json']
+         for _ in seeds:
+             command += ['--script-plan-file', '/dev/null']
+@@ -139,7 +140,8 @@
+     record = {'case': case, 'mode': mode,
+               'generator_module': module.__name__, 'node_count': nodes,
+               'query_syntax': syntax,
+-              'quality_evidence_required': bool(meta.get('quality_requires_separate_plan_evidence') or plan_fd is not None),
++              'quality_evidence_required': bool(meta.get('quality_requires_separate_plan_evidence') or meta.get('quality_requires_query_plan_evidence')),
++              'correctness_query_plan_required': correctness_plan_required,
+               'correctness_physical_ast_required': correctness_ast_required,
+               'verification_contract_version': 'strict_results_and_request_boundaries_v1',
+               'generator_version': meta.get('generator_version', 'unversioned'),
+--- a/rbo-fixes-20261023/verification_contract.py
++++ b/rbo-fixes-20261023/verification_contract.py
+@@ -79,6 +79,12 @@
+             record.get('structural_oracle_pass') is not True
+             or record.get('physical_ast_parsed') is not True
+             or not re.fullmatch('[0-9a-f]{64}', record.get('physical_ast_sha256', '') or '')):
++        return 'failure'
++    if record.get('correctness_query_plan_required') and (
++            record.get('query_plan_structural_oracle_pass') is not True
++            or record.get('query_plan_parsed') is not True
++            or not isinstance(record.get('query_plan_sha256'), str)
++            or not re.fullmatch('[0-9a-f]{64}', record['query_plan_sha256'])):
+         return 'failure'
+     if (record.get('phase') in ('fixed', 'baseline') or record.get('binary_provenance_required')):
+         if record.get('binary_provenance_verified') is not True:

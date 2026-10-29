@@ -1,0 +1,18 @@
+{
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "evidence": "verification/guarded-fixed-C31-24e1aae9a067-1792733611342056896.jsonl",
+  "records": 146,
+  "semantic_passes": 46,
+  "expected_guard_passes": 4,
+  "raw_frontend_syntax_failures": 96,
+  "semantic_passes_with_unmet_structural_oracle": 31,
+  "frontend_diagnostic": "C31-frontend-and-physical-callable-diagnostic.json",
+  "source_route_review": "C31-legacy-translator-bridge-independent-source-review.json",
+  "accepted_as_fixed": false,
+  "production_change_required_by_current_failures": false,
+  "pending": [
+    "Corrected active SQL matrix and physical oracle rerun",
+    "Actual anonymous direct C++ contracts",
+    "Remaining implementation scope review"
+  ]
+}

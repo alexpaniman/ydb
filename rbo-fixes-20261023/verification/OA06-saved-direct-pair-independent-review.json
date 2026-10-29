@@ -1,0 +1,34 @@
+{
+  "reviewer": "root",
+  "status": "approved_source_and_metadata_contracts",
+  "issue": "OA06",
+  "patch": "proposed-quality-amendments/OA06-saved-direct-pair-admission.patch",
+  "patch_sha256": "ac3e6528dce87fed5cdc0667410914233f829fb6c52ef720f936d9d3f86c742a",
+  "combined_helper_sha256": "024b3b8bed93890aa5b85612db3b5106896de86c89bc61fc76a4d9b8b834cf39",
+  "checks": [
+    "Saved pairs require the current generator bytes and ordered case/spec vector for every paired direct finding.",
+    "Each referenced receipt is loaded, content-hashed and checked for exact source/build/profile/target identities; old checkout HEAD is deliberately not required.",
+    "Q27 source extraction reads the exact immutable Git revision. Q19 requires the symbols captured from actual inspected production objects and matches both objects to receipt identities.",
+    "Rendered source bytes are checked against each saved evidence record; changed generator snapshots are rejected even when their case counts match.",
+    "Saved compile/link/native process evidence requires explicit clean guard flags and non-Boolean integer exit codes.",
+    "Whole-query semantics and full optimization acceptance remain explicitly false."
+  ],
+  "metadata_contract_execution": {
+    "script": "proposed-quality-amendments/OA06-saved-direct-pair-metadata-contracts.py",
+    "script_sha256": "11a8c05bd7f55cb32a14ba9c793194647047851ed6781bd7730aa1cef22cadfc",
+    "exec_session": 69552,
+    "exit_code": 0,
+    "invalid_metadata_rejections": 131,
+    "invalid_guard_metadata_rejections": 68,
+    "snapshot_hash_transport_passed": true,
+    "temporary_patch_application_passed": true,
+    "workload_renderers_called": false,
+    "build_or_native_executed": false,
+    "fabricated_positive_native_evidence": false
+  },
+  "limits": [
+    "Actual production direct contracts remain pending.",
+    "This validates saved-evidence admission and does not establish any optimization improvement."
+  ],
+  "live_helper_edits": false
+}

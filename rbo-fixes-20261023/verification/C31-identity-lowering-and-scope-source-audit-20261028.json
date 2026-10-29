@@ -1,0 +1,367 @@
+{
+  "actions": {
+    "build_toolchain_graph_operations": 0,
+    "generated_queries_fixtures_cpp_AST_or_results_persisted": false,
+    "live_helper_or_production_edits": 0,
+    "native_runs": 0,
+    "source_only": true,
+    "status_or_acceptance_changes": false
+  },
+  "answer": "A bounded production IR plus direct-builder contract can establish the new construction and initial lowering invariant without a general physical-AST parser. It must bind the actual aggregate-derived IU through both port namespaces and the exact key-only domain; hub pointer identity alone is insufficient. This is different from claiming the existing final optimized SQL AST has a completed field-lineage witness.",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "bounded_contract_recommendation": {
+    "count_guidance": "A few focused contracts around aggregate-derived complete-row identity, nullable encoding, post-stage key-only domain and row/block builder outputs; peer agent owns exact dormant generator design.",
+    "existing_evidence_reuse": "Keep actual33 local results and50 reachable SQL records immutable. Add new actual production-contract evidence; do not reinterpret earlier false full-lineage flags as true.",
+    "remaining_for_actual_SQL_field_claim": "A final optimized-graph or equivalent actual-pipeline witness for the specific SQL sample is still required if its metadata explicitly claims that exact observed-plan field lineage. It is not necessary to relabel a narrower source-plus-direct invariant as final-plan evidence.",
+    "scope_of_success": "Construction/initial-lowering invariant for the exercised typed producer/domain cases, composed with this source audit. Does not establish all final peephole paths, runtime scheduling internals, arbitrary identity types, or frontend-unavailable Semi/Only/zero-column SQL execution.",
+    "why_no_general_parser": "Typed IOperator/TExprNode APIs expose exact identities before generic final-plan serialization. Known direct-builder outputs can be checked structurally by argument pointer ownership without teaching an arbitrary-AST lineage engine."
+  },
+  "invariants": [
+    {
+      "check": "Retain a distinguished actual aggregate-result IU or deterministic cast/union output IU and identify its owner below the hub; do not replace it with an unrelated same-typed source field.",
+      "id": "I1_single_producer",
+      "statement": "The two reconstruction consumers are ports of one TReplicate owning the complete leftInput, after any aggregate/map/union producer calculation. Their shared input pointer remains the same canonical producer slot."
+    },
+    {
+      "check": "For all key pairs map through port.GetRebindings()/MapToInput and compare source IU identity, not labels, order or counts alone; reject duplicates/missing sources.",
+      "id": "I2_namespace_bijection",
+      "statement": "Primary output uses source IDs. Secondary output has one current rebind per input IU; reconstruction compares each source identity field with precisely its rebound partner."
+    },
+    {
+      "check": "Before and after aggregate splitting/propagation require empty traits for every derived domain aggregate and complete corresponding key set. Stateful upstream producer aggregate must remain distinct.",
+      "id": "I3_complete_key_only_domain",
+      "statement": "Keyless input uses all left output IUs (or explicit unit for zero-column bag). Only the secondary port is grouped; domain has no aggregation traits, distinctAll=false and keys retain IDs. Outer bag is preserved."
+    },
+    {
+      "check": "Inspect actual TExpression operand IUs and exact one-argument StablePickle shape; require equal source type, no unrelated input/encoder or false EqualNulls assumption.",
+      "id": "I4_matching_nullable_codec",
+      "statement": "Each supported optional identity uses StablePickle separately on the source IU and its exact secondary rebound; generated codec outputs form nonoptional matching join keys. Nonoptional fields pair directly."
+    },
+    {
+      "check": "Run production FinishLogicalRewrite, global inlining/pruning/property/liveness operations; recheck I1-I4 after identity aliases are substituted rather than asserting original numeric IDs survive unchanged.",
+      "id": "I5_rewrites_preserve_demands",
+      "statement": "Global inlining only removes direct column copies; liveness retains join keys, encoder inputs and domain grouping keys, and accumulates producer demand from both ports."
+    },
+    {
+      "check": "Exercise BuildSwitch with a known producer AST anchor and actual ports; require the anchor once outside branches and correct source-to-port member mapping. After selected-output transformation, unselected branch pointers/bodies remain unchanged.",
+      "id": "I6_stage_and_switch_identity",
+      "statement": "Ports use the same producer stage and distinct indexed outputs. ConvertToPhysical builds the hub once on the already constructed producer body. BuildSwitch branch renames read direct fields of that one stream."
+    },
+    {
+      "check": "Call actual TPhysicalAggregationBuilder::BuildPhysicalOp on domain aggregate for row/block modes and relevant prune setting. Assert exact TExprNode lambda argument ownership/permutation and absence of reducer state; never classify arbitrary DqPhyHashCombine as transparent.",
+      "id": "I7_domain_lowering_preserves_values",
+      "statement": "Empty-trait key-only aggregation uses direct input arguments as keys, empty init/update result vectors, and key arguments as finish results. NarrowMap binds these exact positions to key names, including row/block wrappers and live-output pruning."
+    }
+  ],
+  "narrowness": {
+    "decision_boundary": "No branch/functionality is removed here. Root can retain the combined grouped scope and finish bounded contracts, or explicitly separate the minimal lifecycle fix from the identity-precondition bug. The latter must preserve the grouped bug as open/separately tracked rather than silently declare it fixed.",
+    "independent_grouped_bug": "reviewer-notes/r29.txt:11-13 describes separate failures for valid left-family residual joins lacking nonnullable unique metadata identity. It states this happens before C31 sharing failure, persists with sharing, and was explicitly grouped with C31 by the parent.",
+    "minimal_stage_only_outcome": "For the original supported-key lifecycle scope, source ordering is sufficient to remove the specific late-sharing mechanism, subject to existing copying eligibility and actual verification. Retaining original key preconditions still rejects the separately grouped nullable/keyless valid queries in both sharing modes. It cannot be called a complete fix of the current combined C31 scope.",
+    "original_final_finding": "bugs.json C31 describes late join-filter inlining recreating sharing after expansion, causing stage assignment failures with block joins/spilling disabled.",
+    "original_lifecycle_fix": "The four inserted transformer lines schedule the existing inliner before copy expansion only when channel sharing is disabled. Original nonnullable-unique-key LEFT lifecycle profiles do not require keyless/nullable admission.",
+    "stability_guard": "Early inlining makes reconstruction producers eligible for independent copies. Generic CanDuplicateAggregation admits reductions without an exact representative/value-stability condition. The C31 conservative producer/referenced-subplan stability check protects that enabled route; deleting it together with broader domain support needs separate scrutiny. No native failure of a stage-only candidate was produced by this audit."
+  },
+  "new_production_bug_established": false,
+  "prepared_unix_ns": 1793150504865065488,
+  "public_APIs": [
+    {
+      "name": "TInlineJoinFiltersRule::SimpleMatchAndApply",
+      "scope": "Actual changed reconstruction builder; existing direct closure already links it."
+    },
+    {
+      "name": "TReplicate::GetInput, TOpReplicate::GetRebindings, MapToInput, GetReplicateOutputIndex",
+      "scope": "Shared owner, field rebinding and stable output selection."
+    },
+    {
+      "name": "FinishLogicalRewrite; TGlobalInliningStage::RunStage; ComputeRequiredProps; ComputePlanLiveness",
+      "scope": "Post-construction canonicalization/demand invariants; use actual property requirements."
+    },
+    {
+      "name": "TAssignStagesStage::RunStage; TPropagateAggregateThroughStageRule::SimpleMatchAndApply or TRuleBasedStage",
+      "scope": "Actual stage boundaries and domain split/propagation, without SQL frontend."
+    },
+    {
+      "name": "NPhysicalConvertionUtils::BuildSwitch and TransformStageOutput",
+      "scope": "Production initial per-port physical body construction and branch transformation."
+    },
+    {
+      "name": "TPhysicalAggregationBuilder::BuildPhysicalOp",
+      "scope": "Production domain row/block key/init/update/finish and output mapping."
+    },
+    {
+      "name": "TPhysicalJoinBuilder::BuildPhysicalOp; ConvertToPhysical",
+      "scope": "Optional broader pipeline coverage if fixture can satisfy genuine types/stage connections. Full conversion also invokes physical preparation/peephole; builder-only checks must not claim this was run."
+    }
+  ],
+  "references": {
+    "rbo-fixes-20261023/c31_identity_cpp_generator.py": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9",
+    "rbo-fixes-20261023/verification/C31-actual-wide-observation-source-assessment-20261028.json": "4b09b0c1d29b1b7cc8c215a81923347a49f5c29a590d04b305c3e30f0a5c4531",
+    "rbo-fixes-20261023/verification/C31-changed-behavior-acceptance-scope-independent-review-20261028.json": "08fcf10d0df9738897e14dcf7d59047478fe701cb3746485d83bbd15a0763c41",
+    "rbo-review-20261021/bugs.json": "2549bb4f2f173a7ccd944ad22f3e9e5d389395fc1723704d13e43b6708b882c0",
+    "rbo-review-20261021/reviewer-notes/r29.txt": "a4b737f965c38ea22be050368e5fc114db391a284308544fa93391bdd2fd254a"
+  },
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "schema_version": "c31_identity_lowering_source_invariants_v1",
+  "source_bindings": {
+    "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp": {
+      "lines": [
+        94,
+        226,
+        230,
+        254,
+        339
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Demand from every port accumulates; joins keep both key sets, Maps keep codec inputs and aggregates keep grouping keys.",
+      "sha256": "329b129a4b4c58fa71a6e649c8e44786998c7982806e1a380b411ef72a2f05a2",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp": {
+      "lines": [
+        16,
+        103,
+        108
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Existing generic duplicate policy accepts supported reductions without C31 exact-value stability test.",
+      "sha256": "6064c7c29f85923a02afa5be97e5e4d6f1dfe5e4e8a6bc1d0fd34c704bac980f",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/global_inlining.cpp": {
+      "lines": [
+        7,
+        23,
+        33,
+        48,
+        56,
+        85
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Only direct column aliases eliminated; port substitutions preserve namespace; does not copy producer calculations.",
+      "sha256": "0949eba73647e64e39277111c28d523a83e589767a0b817461e055aa057da1ac",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp": {
+      "lines": [
+        106,
+        118,
+        136,
+        179,
+        205,
+        221,
+        236
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Hub owns one input; ports retain/translate IU identity and live source mapping.",
+      "sha256": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rbo.cpp": {
+      "lines": [
+        111,
+        125,
+        136,
+        150
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Public property computation and rule-stage mutation through canonical producer slot.",
+      "sha256": "82cf05266e44fb8670009510dc46179faa2995e939a4a5333ebb63e63d62dcf5",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rbo.h": {
+      "lines": [
+        149,
+        150,
+        153
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Public ConvertToPhysical/property/liveness APIs.",
+      "sha256": "fd5f01b23804b1a191073c18ac78e73be221dae491d74b082ab068e3894f947c",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h": {
+      "lines": [
+        500,
+        542
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Public stage assignment and aggregate propagation APIs.",
+      "sha256": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": {
+      "lines": [
+        699,
+        701,
+        705,
+        745,
+        753,
+        761,
+        765
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Early no-sharing inlining and later shared path/stage order.",
+      "sha256": "121c7897a70f4b535cd853b1964c909bca4e376dc89cccd83d727d7066f53e3a",
+      "unchanged_from_base": false
+    },
+    "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp": {
+      "lines": [
+        150,
+        813,
+        824
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Type checking permits shared producer edges only from distinct ports of the same hub.",
+      "sha256": "dfaff3c1478f6eb4fd3bd39fa88cc05edd4f176142ce3b04b6199dded055e773",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp": {
+      "lines": [
+        63,
+        86,
+        100,
+        110,
+        270,
+        286
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "One BuildSwitch per hub after producer lowering; selected branch receives aggregate lowering.",
+      "sha256": "1f5a0fead4fd48d92ae7135c9f5898d8efa0ed6ca95589519003dd279f369d8e",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp": {
+      "lines": [
+        881,
+        903,
+        952,
+        1029,
+        1054,
+        1132,
+        1197,
+        1290,
+        1486,
+        1531,
+        1538
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Exact key extraction, empty state for domain grouping, key finish outputs and named narrow layout in row/block lowering.",
+      "sha256": "fdb9b801ed168150a67bbb69ec53a83d969a8231cff4a0af52e37983d9c09f15",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h": {
+      "lines": [
+        42,
+        51
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Public production BuildPhysicalOp entrypoint with prune/useBlocks options.",
+      "sha256": "4a4b70640d1f203eed139e0e83b53bfd2ae89df655f9fc50803dd22587d4e9b9",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp": {
+      "lines": [
+        57,
+        65,
+        70,
+        90,
+        127
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Switch branches use direct member renames from one existing input stream.",
+      "sha256": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h": {
+      "lines": [
+        35,
+        42,
+        58
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "TransformStageOutput replaces only the indexed branch body; wide projection construction.",
+      "sha256": "2b6dc81d287acc05fbd6887edab8796cdbf36c07a138a71eeb64534ff877fa1d",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp": {
+      "lines": [
+        137,
+        444,
+        533
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Physical join key and row layout originate from the typed logical key pairs.",
+      "sha256": "f11a39d6425b3dcb7888a427f46cd443f35d802db9046b4f1c0e14dba21f7e6a",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp": {
+      "lines": [
+        130,
+        137,
+        143,
+        191,
+        200
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Later preparation/compatibility/peephole remains distinct from the pre-peephole construction proof.",
+      "sha256": "aa418bdba1b88c9be06e885d9a2f0f5aa393ca688695d917d4928b7a7cac84bc",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": {
+      "lines": [
+        74,
+        105,
+        109,
+        121,
+        125
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Shared mode requires channel sharing; all ports share producer stage and outgoing edges retain output index.",
+      "sha256": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp": {
+      "lines": [
+        227
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Domain projection is empty-trait grouping, retains key IDs, distinctAll=false.",
+      "sha256": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb",
+      "unchanged_from_base": true
+    },
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": {
+      "lines": [
+        7,
+        43,
+        168,
+        178,
+        190,
+        193,
+        217,
+        224,
+        236,
+        246,
+        260,
+        265
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Identity admissibility, shared producer creation, complete domain, nullable encoding, capture and reconstruction mapping.",
+      "sha256": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667",
+      "unchanged_from_base": false
+    },
+    "ydb/core/kqp/opt/rbo/rules/propagate_aggregate_through_stage.cpp": {
+      "lines": [
+        13,
+        61,
+        85,
+        95,
+        106,
+        133
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Key-only aggregate split retains empty traits and same keys; propagation retains aggInput while changing stage/output connection.",
+      "sha256": "aec3c828e7bf8cbabbff051b95436f0fe314e3ce92fd421e580161cffd10aae1",
+      "unchanged_from_base": true
+    }
+  },
+  "status": "source_audit_complete_bounded_production_contracts_proposed_no_admission_change"
+}

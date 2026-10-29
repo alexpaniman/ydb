@@ -1,0 +1,526 @@
+{
+  "admission": {
+    "actual_empty_witness_pending": true,
+    "actual_partial_shape_known": false,
+    "full_Q02_quality_pass": false,
+    "new_production_bug": false,
+    "partial_quality_pass": false
+  },
+  "after_images": {
+    "c06_c50_bounded_integration_checks.py": "7fb679c0e6b7e4206074584f84db9e749442067cf00902b12dec16e4e0d9d012",
+    "c06_c50_integration_runner.py": "b9920ef82134389944ba2d9582357baa262bd4a8844f09891ce7975b95ef53d0",
+    "native_verify.py": "e8be177e9e07cb6b6e987be6d65456dcdf5e687056c4b174f022b2bb34140a80",
+    "quality_pairing.py": "0ddb4fabbbc5c3ccb033cda334e7593f4efed6053eb44dc98c269e9b17a8dafe",
+    "quality_spill_bounds.py": "f6a303c5aee942311ebac20ff8a01b4dfee809440eccdd5d46265360a399b219",
+    "quality_window_checks.py": "88824cdba8fd02c4e60439cb55db1a47836ba4cb88984b11dcb7f7d05e44a2f2"
+  },
+  "before_images": {
+    "c06_c50_bounded_integration_checks.py": "f8a5b3919d3f3eec715f29efebbc69ca8e0f593418eb16458643190f0252dd3e",
+    "c06_c50_integration_runner.py": "af935fa5acaf2da230304b6ba7da9bf2e484f44ffacb79af8e5c6f585fc7ae03",
+    "native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "quality_pairing.py": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+    "quality_spill_bounds.py": "6bd8b204c5846a274109f152998a08d73497c4b232c0a2cf4730ae746b51daf6",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "changes": [
+    "Add strict full-json metadata witness only for quality_window_checks q02_empty/new/24 rows and a loaded source snapshot; preserve original query/schema/fixture/settings hashes.",
+    "Require exact one required Int64 id column, no rows/extra/truncation/Arrow fields, exact witness hash and strict one-set/zero-row counts on both paired phases. Blank or malformed output is rejected.",
+    "Apply the existing unused-window pipeline assertion to q02_empty. No generic control or quality gate is weakened.",
+    "Add allowlisted Fold1 input/init/update shape counters and fixed rejection codes only. Existing partial proof fields, state checks, single-baseline-fold metric and acceptance remain unchanged and pending.",
+    "Refresh only exact native/window/pairing/cap/integration dependency hashes; cap28 dependencies, all82 metadata cells and policy functions are preserved."
+  ],
+  "coverage": {
+    "Q01_42_652_Q14_6_12_Q28_26_4_SQL8_SDK7_coverage_preserved": true,
+    "integration_strict16_behavior_preserved": true,
+    "original_Q02_cases": 4,
+    "original_queries_fixtures_schema_settings_preserved": true,
+    "partial_quality_admission_changed": false
+  },
+  "diagnosis": {
+    "all_dead": "Paired plan quality already passes and remains unchanged.",
+    "all_live_control": "Paired preservation control already passes and remains unchanged.",
+    "empty": "Actual empty control removes all window pipelines. It had no elimination assertion, so generic control pairing required unchanged structure. Single empty RowsJson result also lacks an explicit result-set boundary.",
+    "partial": "Actual partial control removes three of four window pipelines. The observer requires struct state and a single baseline fold; source peephole can scalarize one-field state, while saved baseline has three frame folds. The exact actual shape rejection remains unknown.",
+    "production_regression_established": false
+  },
+  "generated_workload_or_plan_artifacts_persisted": false,
+  "immutable_evidence": {
+    "verification/guarded-baseline-Q02-e8700d379b3b-1793161786378385707.jsonl": "7681f6222d20bf7e996b5f576a148cb8e8e8158c52189ed4c2ddb7b39535a1b4",
+    "verification/guarded-fixed-Q02-1b50d28716f7-1793162330132081306.jsonl": "e0e0d55b426e361f7deae8b27904d5cc627537d54218cd8c378090984d017416",
+    "verification/quality-paired-Q02-1b50d28716f7-1793162352080187176.jsonl": "c9e5477acdb1f1ca2c380909f5d33d6e088ef228b33ae89520c56ebb9a3794e9"
+  },
+  "live_helpers_edited": false,
+  "native_build_toolchain_or_Git_mutation_executed": false,
+  "next_finite_step": "After independent review and idle application, rerun the same four baseline/fixed cells. The empty cell requires its explicit boundary witness. Inspect only the two bounded partial shape summaries to design a concrete ownership-aware scalar/struct state proof; do not promote partial from callable counts or inventory.",
+  "original_failure_records_edited": false,
+  "patch": "proposed-quality-amendments/Q02-empty-result-and-partial-shape-observation-20261028.patch",
+  "patch_sha256": "c6e373732d2609b91b880e7d8df9563ac5c364e63d63768157904e5dcec1f9f1",
+  "profile_addendum": {
+    "Q01": {
+      "after_sha256": "0829622d0163de3e4a80e054cf4f2f92dc4abc71156e17f15110e5dd19c1a459",
+      "before_sha256": "c2faac5f1b76b669712a0a6cbd1f400a1e9117cf13a6c505dc25166625392fb3",
+      "modules": [
+        "quality_window_checks",
+        "quality_sum_checks",
+        "quality_minmax_checks",
+        "quality_range_minmax_checks"
+      ]
+    },
+    "Q01_concrete_stage_A": {
+      "after_sha256": "1d0da5af15ff5e76d1287da25d7236f44362bc1e4c972a2bb6d2ed0ae7c65e63",
+      "before_sha256": "0069314648c6030e832e4baaec7f10dbc74c694a2757208d5d5c1a58e8406ab0",
+      "modules": [
+        "quality_q01_scaling_checks",
+        "quality_q01_concrete_contract"
+      ]
+    },
+    "Q01_resource_pilot": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_q01_scaling_checks"
+      ]
+    },
+    "Q02": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_window_checks"
+      ]
+    },
+    "Q03": {
+      "after_sha256": "086efa60ed22b5388eef7c40a13971b7ad5973f3545a6dad7b5b06cc66297952",
+      "before_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q04": {
+      "after_sha256": "086efa60ed22b5388eef7c40a13971b7ad5973f3545a6dad7b5b06cc66297952",
+      "before_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q05": {
+      "after_sha256": "7c0687521f4ee8c300df25a07aa5d46c0fca9d2497ca2f5443981450de2524b6",
+      "before_sha256": "c48a4a9001ecca824d1f4608b8b4bcba37308fc51d5f76a302789e16646e08fe",
+      "modules": [
+        "quality_rule_checks"
+      ]
+    },
+    "Q06": {
+      "after_sha256": "086efa60ed22b5388eef7c40a13971b7ad5973f3545a6dad7b5b06cc66297952",
+      "before_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q07": {
+      "after_sha256": "086efa60ed22b5388eef7c40a13971b7ad5973f3545a6dad7b5b06cc66297952",
+      "before_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q08": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_statistics_checks"
+      ]
+    },
+    "Q09": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_statistics_checks"
+      ]
+    },
+    "Q10": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_window_checks"
+      ]
+    },
+    "Q11": {
+      "after_sha256": "9d7294b68b401133ad911a1d0d6461f14d494bf2019e33b817277488785648ba",
+      "before_sha256": "05cc433913cbca983fd92f511fc9ec5513e79323eed0cd0f9f94166e7cbcf5c1",
+      "modules": [
+        "quality_union_checks"
+      ]
+    },
+    "Q12": {
+      "after_sha256": "7c0687521f4ee8c300df25a07aa5d46c0fca9d2497ca2f5443981450de2524b6",
+      "before_sha256": "c48a4a9001ecca824d1f4608b8b4bcba37308fc51d5f76a302789e16646e08fe",
+      "modules": [
+        "quality_rule_checks"
+      ]
+    },
+    "Q13": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_window_checks"
+      ]
+    },
+    "Q14": {
+      "after_sha256": "3ab5ef55f478a2c486f506f6f9ff54b3df00b7f124c5577823a65b806040ad5a",
+      "before_sha256": "45090751aac7f13280c06a21458cbcc2e3db0adc05a4618181f71a69f21a0607",
+      "modules": [
+        "quality_join_shuffle_checks"
+      ]
+    },
+    "Q15": {
+      "after_sha256": "f52f06f9f5e67f280566839aef3149fe6fc1e198043ac4ace1c29ccad6d3ba3f",
+      "before_sha256": "0396d2c5c8d9095f679870ff30fb69192088ecf580897e2894200ccd3604990c",
+      "modules": [
+        "quality_partition_subset_checks"
+      ]
+    },
+    "Q17": {
+      "after_sha256": "086efa60ed22b5388eef7c40a13971b7ad5973f3545a6dad7b5b06cc66297952",
+      "before_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q20": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_statistics_checks"
+      ]
+    },
+    "Q21": {
+      "after_sha256": "7c0687521f4ee8c300df25a07aa5d46c0fca9d2497ca2f5443981450de2524b6",
+      "before_sha256": "c48a4a9001ecca824d1f4608b8b4bcba37308fc51d5f76a302789e16646e08fe",
+      "modules": [
+        "quality_rule_checks"
+      ]
+    },
+    "Q22": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_window_checks"
+      ]
+    },
+    "Q23": {
+      "after_sha256": "086efa60ed22b5388eef7c40a13971b7ad5973f3545a6dad7b5b06cc66297952",
+      "before_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q24": {
+      "after_sha256": "086efa60ed22b5388eef7c40a13971b7ad5973f3545a6dad7b5b06cc66297952",
+      "before_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    },
+    "Q25": {
+      "after_sha256": "e8128cc6517f729fa591b9e233b59b804bc99586b784e8c2b35058836e58856e",
+      "before_sha256": "6dc6ce5e490af341b7692b45f6aff02a82e425a0c7967d00e0f86e9a35fdb587",
+      "modules": [
+        "quality_partition_checks"
+      ]
+    },
+    "Q26": {
+      "after_sha256": "5ad2d03e6592bd7adbba2c79c309c038a45401b73277eb3532718eed5bed76e1",
+      "before_sha256": "1c5c22bfc094c05f1deb54e5931a0ea93e6edbf72dbb72874bce3d905d72b68d",
+      "modules": [
+        "quality_source_settings_checks"
+      ]
+    },
+    "Q28": {
+      "after_sha256": "18c4084c7ecdd7409ccaf7f04485e2d821daec555d8401bdbad1150c4af40fbd",
+      "before_sha256": "11e793799409b40e5b3008ea1c5a527733b996c89a6c303ad9fe99c57d3ca1ab",
+      "modules": [
+        "quality_scheduler_semantic_checks"
+      ]
+    },
+    "Q28_SDK_pilot": {
+      "after_sha256": "18c4084c7ecdd7409ccaf7f04485e2d821daec555d8401bdbad1150c4af40fbd",
+      "before_sha256": "11e793799409b40e5b3008ea1c5a527733b996c89a6c303ad9fe99c57d3ca1ab",
+      "modules": [
+        "q28_compilation_measurement",
+        "quality_scheduler_semantic_checks"
+      ]
+    },
+    "Q29": {
+      "after_sha256": "086efa60ed22b5388eef7c40a13971b7ad5973f3545a6dad7b5b06cc66297952",
+      "before_sha256": "767d5a4db3600240f34fa52547f08c8e42ef7d821e6c8aedad7632b6737b8f78",
+      "modules": [
+        "quality_lookup_checks"
+      ]
+    }
+  },
+  "required_predecessor": {
+    "helper_composition": 60,
+    "manifest": "verification/quality-idle60-ordered-source-composition-20261028.json",
+    "manifest_sha256": "76b66904ad0033bd74d20780578b0c0151d3351a2b1ac8f039f2cfadc269b95f"
+  },
+  "sanitized_evidence": {
+    "baseline": [
+      {
+        "case": "q02_all_dead",
+        "quality_acceptance_pass": null,
+        "quality_pairing_reasons": null,
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {
+          "unused_frame_state_removed": false
+        },
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 3,
+          "QueueCreate": 4,
+          "WinFrame": 4,
+          "WinFramesCollector": 4
+        }
+      },
+      {
+        "case": "q02_partial",
+        "quality_acceptance_pass": null,
+        "quality_pairing_reasons": null,
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "state_descriptor_complete": false,
+        "state_shape_rejection": "ValueError",
+        "structural_assertions": {
+          "only_live_optional_count_state_retained": false,
+          "retained_window_pipeline_present": true
+        },
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 3,
+          "QueueCreate": 4,
+          "WinFrame": 4,
+          "WinFramesCollector": 4
+        }
+      },
+      {
+        "case": "q02_all_live_control",
+        "quality_acceptance_pass": null,
+        "quality_pairing_reasons": null,
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {},
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 3,
+          "QueueCreate": 4,
+          "WinFrame": 4,
+          "WinFramesCollector": 4
+        }
+      },
+      {
+        "case": "q02_empty",
+        "quality_acceptance_pass": null,
+        "quality_pairing_reasons": null,
+        "result_set_boundaries_known": false,
+        "result_set_count": 0,
+        "row_count": 0,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {},
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 3,
+          "QueueCreate": 4,
+          "WinFrame": 4,
+          "WinFramesCollector": 4
+        }
+      }
+    ],
+    "fixed": [
+      {
+        "case": "q02_all_dead",
+        "quality_acceptance_pass": null,
+        "quality_pairing_reasons": null,
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {
+          "unused_frame_state_removed": true
+        },
+        "structural_oracle_pass": true,
+        "window_counters": {
+          "Fold1": 0,
+          "QueueCreate": 0,
+          "WinFrame": 0,
+          "WinFramesCollector": 0
+        }
+      },
+      {
+        "case": "q02_partial",
+        "quality_acceptance_pass": null,
+        "quality_pairing_reasons": null,
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "state_descriptor_complete": false,
+        "state_shape_rejection": "ValueError",
+        "structural_assertions": {
+          "only_live_optional_count_state_retained": false,
+          "retained_window_pipeline_present": true
+        },
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 1,
+          "QueueCreate": 1,
+          "WinFrame": 1,
+          "WinFramesCollector": 1
+        }
+      },
+      {
+        "case": "q02_all_live_control",
+        "quality_acceptance_pass": null,
+        "quality_pairing_reasons": null,
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {},
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 3,
+          "QueueCreate": 4,
+          "WinFrame": 4,
+          "WinFramesCollector": 4
+        }
+      },
+      {
+        "case": "q02_empty",
+        "quality_acceptance_pass": null,
+        "quality_pairing_reasons": null,
+        "result_set_boundaries_known": false,
+        "result_set_count": 0,
+        "row_count": 0,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {},
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 0,
+          "QueueCreate": 0,
+          "WinFrame": 0,
+          "WinFramesCollector": 0
+        }
+      }
+    ],
+    "paired": [
+      {
+        "case": "q02_all_dead",
+        "quality_acceptance_pass": true,
+        "quality_pairing_reasons": [],
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {
+          "unused_frame_state_removed": true
+        },
+        "structural_oracle_pass": true,
+        "window_counters": {
+          "Fold1": 0,
+          "QueueCreate": 0,
+          "WinFrame": 0,
+          "WinFramesCollector": 0
+        }
+      },
+      {
+        "case": "q02_partial",
+        "quality_acceptance_pass": false,
+        "quality_pairing_reasons": [
+          "quality_metric_contract_incomplete"
+        ],
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "state_descriptor_complete": false,
+        "state_shape_rejection": "ValueError",
+        "structural_assertions": {
+          "only_live_optional_count_state_retained": false,
+          "retained_window_pipeline_present": true
+        },
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 1,
+          "QueueCreate": 1,
+          "WinFrame": 1,
+          "WinFramesCollector": 1
+        }
+      },
+      {
+        "case": "q02_all_live_control",
+        "quality_acceptance_pass": true,
+        "quality_pairing_reasons": [],
+        "result_set_boundaries_known": true,
+        "result_set_count": 1,
+        "row_count": 24,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {},
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 3,
+          "QueueCreate": 4,
+          "WinFrame": 4,
+          "WinFramesCollector": 4
+        }
+      },
+      {
+        "case": "q02_empty",
+        "quality_acceptance_pass": false,
+        "quality_pairing_reasons": [
+          "fixed_optimization_contract_not_established"
+        ],
+        "result_set_boundaries_known": false,
+        "result_set_count": 0,
+        "row_count": 0,
+        "semantic_oracle_pass": true,
+        "structural_assertions": {},
+        "structural_oracle_pass": false,
+        "window_counters": {
+          "Fold1": 0,
+          "QueueCreate": 0,
+          "WinFrame": 0,
+          "WinFramesCollector": 0
+        }
+      }
+    ]
+  },
+  "schema": "q02_empty_witness_partial_observation_source_preparation_v1",
+  "status": "dormant_source_metadata_checked_independent_review_pending",
+  "verification": {
+    "checks_passed": 204,
+    "independent_diagnosis": "verification/Q02-pending-observer-independent-source-assessment-20261028.json",
+    "independent_diagnosis_sha256": "d8b46062fb27dd53281089c76015b9e909feb544f202bfa7af0a37d319a0806a",
+    "metadata_report": "verification/Q02-empty-witness-partial-observation-metadata-20261028.json",
+    "metadata_report_sha256": "b9852871c2b4da1a20e6bdd0308e1674f988c6133ff68ea97c101f6e01171d6c",
+    "mock_native_driver_calls_only": true,
+    "production_sources": {
+      "contrib/tools/protoc/plugins/cpp_styleguide/cpp_styleguide.cpp": "3cff6eb2933e47480ca1e9b89b60f4476cbfe7b2f6f5cc285a4f641726da98e4",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp": "475c6688bca99a6a84da780e1ddff8461d1937dda25cf249515e28abe86dd8df",
+      "ydb/public/api/protos/ydb_value.proto": "cf11c3006d18d50efa4709687c415b6bdf2425e79d5caaa5d5621237d212d5da",
+      "ydb/tests/tools/kqprun/kqprun.cpp": "c706050a14132739899130cd5a97fdb0ed0445790d8dc7cd9859fb2b2d4a8cce",
+      "ydb/tests/tools/kqprun/runlib/utils.cpp": "f575648dba38ed2876a8d5a5bbe9d0e2dcc1f59ebfb30b2c593accac7ffd69b6",
+      "ydb/tests/tools/kqprun/src/kqp_runner.cpp": "bacfc529b96c4692ed498437ca7eae5e0c4d1a0a442d3cfcd657f196b1ad4c00",
+      "yql/essentials/core/common_opt/yql_co_flow1.cpp": "eef39cc9c86c933b8b5297de7715a4ab21d7b1c407a3503c046bd8e0db76c21d"
+    },
+    "scripts": {
+      "proposed-quality-amendments/Q02-empty-and-partial-observation-20261028/prepare_candidate.py": "f2e9abc944fded0fcd28ae7ae67d0618f9559c59c48525d43865a2d972c224d6",
+      "proposed-quality-amendments/Q02-empty-and-partial-observation-20261028/verify_metadata.py": "f4d9135dbd498bf0a8d1720efed1f5fbde428ee30c3a86377b5160a09c5d84bf"
+    }
+  }
+}

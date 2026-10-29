@@ -1,0 +1,72 @@
+{
+  "reviewer": "c41_review",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "kind": "source_only_translator_and_new_rbo_reachability_audit",
+  "candidate_configuration": {
+    "EnableNewRBO": true,
+    "YqlSelect": "disable",
+    "EnableFallbackToYqlOptimizer": false
+  },
+  "verdict": "Does not reach new-RBO residual LeftSemi/LeftOnly reconstruction; no supported legacy-AST bridge exists in this revision.",
+  "proof": [
+    {
+      "source": "yql/essentials/sql/v1/translation/sql_select_yql.cpp:985,997",
+      "fact": "Forced YqlSelect translation explicitly rejects ONLY/SEMI join tokens."
+    },
+    {
+      "source": "yql/essentials/sql/v1/translation/sql_translation.cpp:5479",
+      "fact": "Disable mode directly invokes the legacy translator rather than producing YqlSelect."
+    },
+    {
+      "source": "ydb/core/kqp/host/kqp_host.cpp:1676; ydb/core/kqp/host/kqp_runner.cpp:338",
+      "fact": "EnableNewRBO independently selects new host and runner optimization pipelines; changing SQL translation mode does not provide an import adapter."
+    },
+    {
+      "source": "ydb/core/kqp/host/kqp_runner.cpp:477",
+      "fact": "The new runner runs RewriteSelect followed by NewRBOTransformer; legacy common optimization is not an adapter stage."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:119",
+      "fact": "RewriteSelect converts top-level YqlSelect nodes, Take over an existing KqpOpRoot, and table effects. It does not convert a legacy EquiJoin/FlatMap SELECT tree."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:159,485",
+      "fact": "Root collection accepts KqpOpRoot tuple entries only. ContinueOptimizations requires a nonempty imported root set, so a legacy-translated standalone SELECT cannot reach optimizer rules."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:346-393",
+      "fact": "PlanConverter accepts KqpOp operator nodes and has no legacy EquiJoin/FlatMap conversion branch."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:1838-1893",
+      "fact": "A forced outer YqlSelect cannot bridge a legacy join subquery: admitted FROM shapes are table ranges, nested YqlSelect, or a parameter/ToList(parameter); the generic legacy expression is rejected."
+    },
+    {
+      "source": "ydb/core/kqp/compile_service/kqp_compile_actor.cpp:746",
+      "fact": "The error fallback predicate requires EnableFallbackToYqlOptimizer, so the proposed false setting cannot recover by changing optimizers."
+    },
+    {
+      "source": "optimizer_mode_contract.py:18,42",
+      "fact": "The current evidence contract also intentionally rejects new-mode SQL records with YqlSelect other than force. Changing that check would not establish actual rule reachability."
+    }
+  ],
+  "acceptance_consequence": [
+    "Keep parser-rejected SEMI/ONLY profiles separate from supported LEFT passes.",
+    "EXISTS/NOT EXISTS can supply join-family semantic controls, but no C31 residual-branch claim without actual residual JoinFilters and rule reachability.",
+    "Direct production-IR contracts remain necessary for the requested SEMI/ONLY residual path; do not count alternate frontend semantics as that coverage."
+  ],
+  "source_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "121c7897a70f4b535cd853b1964c909bca4e376dc89cccd83d727d7066f53e3a",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp": "31a077f34dc8becaea25939b92ab76c2f95b219e3ab4060463ab4bb1adaeb37b",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp": "026f5d5afe7750add360e5c127242ac268b309455ab8ac47840e0c0d6abf33cd",
+    "ydb/core/kqp/host/kqp_runner.cpp": "e3db6bf5c0f7c8cc3744a636cd71c8262423c0756d0559e0f711f7dc6ff0b577",
+    "ydb/core/kqp/host/kqp_host.cpp": "349f0976fec6a945e8e1ef645bc78ed649c9267a17fa648c2123c3779da09f2c",
+    "ydb/core/kqp/compile_service/kqp_compile_actor.cpp": "cd9ba38a4a21dc1f81743ba0d595face005edddd4f320e4ea5df7a4bf8627ade",
+    "yql/essentials/sql/v1/translation/sql_select_yql.cpp": "01c4d02f5cc327b557132eb8ba9073063f5f00a58d48928bb9e5a5ea07664eb4",
+    "yql/essentials/sql/v1/translation/sql_translation.cpp": "3ed4a248c7bdee10775c19cd865a13952f9d95652b7c28c84849170fc99ff54f"
+  },
+  "native_or_build_runs": 0,
+  "tests_or_models_run": 0,
+  "active_edits": false,
+  "generated_reproductions_persisted": false
+}

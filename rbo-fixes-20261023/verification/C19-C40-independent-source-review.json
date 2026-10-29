@@ -1,0 +1,296 @@
+{
+  "status": "source_review_complete_native_pending",
+  "pinned_base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "production_source_edits": false,
+  "builds": false,
+  "native_runs": false,
+  "new_confirmed_blockers": 0,
+  "cases": {
+    "C19": {
+      "commit": "8c1af92732e2b672b9c9a3e0c9cf533eb2d8969c",
+      "summary": "Unordered ranking keeps every row in the same peer group.",
+      "source_contracts": [
+        "Prepare disables peer-key comparison when sorting is absent; the chain lambda now initializes sortKeyChanged to false.",
+        "Ordered ranking continues to replace the default with the actual peer-key comparison."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:BuildChainLambda",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:Prepare"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C20": {
+      "commit": "a58be05380f395cb3a55d0490f5871a5f308f06b",
+      "summary": "Legacy nullable ranking retains its mode, nullable result, and non-NULL position state.",
+      "source_contracts": [
+        "AnsiRank travels through expression nodes, plan conversion, logical traits, type annotation and physical lowering.",
+        "The legacy state ignores NULL keys, initializes the first non-NULL key at rank one, and applies the existing ordinary equality convention.",
+        "Frontend YqlWin type annotation expands the rank call through the existing legacy validator, which rejects unsupported composite nullable key shapes before RBO."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:BuildWindowOperators",
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:window function conversion",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp:window function result type",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:IsLegacyNullableRank",
+        "reference:yql/essentials/core/type_ann/type_ann_yql.cpp:YqlWinWrapper",
+        "reference:yql/essentials/core/type_ann/type_ann_list.cpp:RankWrapper"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C21": {
+      "commit": "78462388619dee01bf57156839620936e70d7376",
+      "summary": "Window interval AVG uses the established decimal accumulation and cast path.",
+      "source_contracts": [
+        "Interval and Interval64 recognition strips optionality before type inspection.",
+        "The sum state uses Decimal(35,0), with interval-to-integer and final integer-to-interval casts matching the established aggregate traits.",
+        "Noninterval AVG branches remain unchanged."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:AVG trait construction",
+        "reference:yql/essentials/mount/lib/yql/aggregate.yqls:AVG traits"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C22": {
+      "commit": "e67e82b03f5ece6469b879a25083fea8e5684f87",
+      "summary": "Window wide-sort keys keep each physical position only once.",
+      "source_contracts": [
+        "The first occurrence and its direction survive; repeated partition/order positions cannot further distinguish peers.",
+        "Logical peer-key expressions remain intact."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp:BuildSortKeys"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C23": {
+      "commit": "9eda179893974bfabe793a15d697b989d9c344bf",
+      "summary": "Grouping-set padding handles a bare Null type without an Optional cast.",
+      "source_contracts": [
+        "Null-type keys produce a Null callable directly.",
+        "Only actual Optional types are unwrapped before absent-key construction."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp:BuildNullColumn"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C24": {
+      "commit": "037848a02d0d400ab3d90c29d329b83b9f03456c",
+      "summary": "DISTINCT branch padding derives nullability from the partial aggregate state.",
+      "source_contracts": [
+        "SUM interval overflow optionality is preserved through padding and final aggregation.",
+        "Optional Decimal AVG input is stripped before parameter inspection and its nullable tuple state is retained.",
+        "Final unwrapping uses the original aggregate output type, avoiding removal of intrinsic aggregate optionality."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp:GetAggregationType",
+        "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp:BuildMapWithNullElements",
+        "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp:NeedToUnwrapOptional"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C25": {
+      "commit": "33e1d0f59ccf5c07308337e019b73f110cd98d53",
+      "summary": "DISTINCT phase expansion follows logical aggregate decorrelation.",
+      "source_contracts": [
+        "The DISTINCT expansion rule is removed from the earlier aggregation stage and added immediately after decorrelation.",
+        "The later pruning, inlining and physical aggregation pipeline remains in its original order."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:InitializeRBOOptimizationStages"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C27": {
+      "commit": "fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c",
+      "summary": "HAVING without aggregate calls retains the post-aggregate predicate.",
+      "source_contracts": [
+        "The empty extraction-holder branch copies the original predicate and rebinds group references.",
+        "The existing HAVING-with-aggregate extraction path is unchanged."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:HAVING expression construction"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C28": {
+      "commit": "cf3d1399f717ebeef9dd6d2c6280f2a4c9f7effe",
+      "summary": "Result DISTINCT occurs after window results exist.",
+      "source_contracts": [
+        "Only the DISTINCT/window combination defers DISTINCT construction until window and post-window map operators have been built.",
+        "Grouping and HAVING retain their order.",
+        "The aggregation helper has a single call site and its changed reference parameters retain valid caller-owned objects."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:BuildAggregationPipeline",
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:BuildWindowOperators call site"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C29": {
+      "commit": "9f2e822f02204297e1aef990a2ce29310c7d438c",
+      "summary": "Set-operation assembly uses the actual postfix operand stack.",
+      "source_contracts": [
+        "Push consumes the next set arm; operators pop the right operand and then the left.",
+        "Input and operand count checks reject malformed postfix sequences.",
+        "The final stack contains exactly one result and consumes every arm."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:RewriteSelect set_ops handling"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C32": {
+      "commit": "244c9fa808fb219eee19bf7a73dbed19602f303e",
+      "summary": "Default Map mode selects only row-Map-supported join kinds.",
+      "source_contracts": [
+        "Inner, Left, LeftSemi and LeftOnly retain Map; unsupported default kinds use Grace.",
+        "Explicitly selected physical algorithms are left to their existing applicability checks.",
+        "The separate Cross lowering path does not require a row Map implementation."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp:FinalizeJoinPhysicalProps",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp:BuildPhysicalOp"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C33": {
+      "commit": "b48c86eeb7c2f0ea14d052f107d04cf26330d885",
+      "summary": "Set-operation result column order is taken from the first arm.",
+      "source_contracts": [
+        "The local column-order vector begins empty and is populated only while processing arm zero.",
+        "Per-arm projections and duplicate-name counters remain independently constructed."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:RewriteSelect finalColumnOrder"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C36": {
+      "commit": "49ca1046560e6edb6b2d616829833ef586e5822d",
+      "summary": "Ordinary wide sorting removes repeated physical positions.",
+      "source_contracts": [
+        "Deduplication uses the resolved physical position and preserves the first occurrence and direction.",
+        "Both WideSort and WideTopSort use the corrected helper."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_sort_builder.cpp:BuildSortKeysForWideSort"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C37": {
+      "commit": "bc9e6946f9d128036b13912fedafabb1bd9a206d",
+      "summary": "Window output metadata describes the partitioning its stage actually creates.",
+      "source_contracts": [
+        "The unary metadata assignment copies the optional value rather than sharing mutable input metadata.",
+        "The override replaces incoming shuffle keys with the exact ordered window partition keys; keyless windows clear the claim.",
+        "Stage assignment shuffles on those same keys or gathers a keyless window."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_operator.h:TOpWindow::ComputeMetadata",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:TOpWindow::ComputeMetadata",
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp:Window assignment"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C38": {
+      "commit": "62bdb6bf7ed7b70851ed62c3d886fcc9737de15b",
+      "summary": "Full and Exclusion joins make no one-sided partition-key claim.",
+      "source_contracts": [
+        "Join metadata is freshly initialized before the early return, so no previous shuffle list survives.",
+        "Column lineage, cardinality, source-statistics and hint metadata are computed before declining the distribution claim."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:TOpJoin::ComputeMetadata"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C39": {
+      "commit": "416834fa9b1e0fec89d663026e74f76ab6909314",
+      "summary": "Physical joins cannot silently discard residual predicates.",
+      "source_contracts": [
+        "The residual capability guard now applies to every selected physical join algorithm.",
+        "The final block-capability check runs before the guard, so a type-based block downgrade cannot evade it.",
+        "Unsupported full-join residual predicates are rejected rather than implemented; native acceptance must distinguish this deliberate restriction from successful query support."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp:BuildPhysicalJoin",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp:BuildPhysicalOp"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    },
+    "C40": {
+      "commit": "a3f2d982416508ada71d8e63fcc097631a3dbe12",
+      "summary": "Conflicting OLAP projections remain in the compute stage.",
+      "source_contracts": [
+        "The guard rejects a candidate/map-element cardinality mismatch and any synthetic repeated-source projection alias before constructing replacements.",
+        "The collector appends one candidate only when returning success, and does not mutate the source operator while collecting.",
+        "The preexisting single-projection, original-value retention checks remain in force."
+      ],
+      "references": [
+        "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp:TPushOlapProjectionRule::SimpleMatchAndApply",
+        "reference:ydb/core/kqp/opt/physical/kqp_opt_phy_olap_filter.cpp:CollectOlapOperationForProjection"
+      ],
+      "new_confirmed_blocker": false,
+      "base_parent_confirmed": true,
+      "forbidden_source_changes": false,
+      "native_verification": "pending; source review is not execution evidence"
+    }
+  },
+  "integration_notes": [
+    "C12/C13/C28 overlap in result projection and DISTINCT ordering; independent branch acceptance does not substitute for combined verification.",
+    "C20 and C22 touch window lowering but preserve distinct ranking-mode and duplicate-sort-position contracts.",
+    "C32/C39/Q07 share physical join applicability boundaries; combined verification must preserve residual rejection and valid forced-fallback behavior.",
+    "C37/C38 describe distribution claims; distributed native placement controls are required in addition to result equality.",
+    "C24 does not claim coverage of every preexisting aggregate-state combination; native tests must exercise nullable Decimal AVG and overflow-optional Interval SUM."
+  ]
+}

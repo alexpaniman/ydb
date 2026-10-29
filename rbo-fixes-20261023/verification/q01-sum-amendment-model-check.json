@@ -1,0 +1,13 @@
+{
+  "generator_sha256": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+  "cases": 197,
+  "generator_contract_checks": 2364,
+  "algebra": {
+    "algebra_oracle_pass": true,
+    "checked_frames": 32000,
+    "seed": 173
+  },
+  "native_runs": 0,
+  "production_edited": false,
+  "generated_inputs_saved": false
+}

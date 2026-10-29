@@ -1,0 +1,32 @@
+{
+  "schema": "independent_source_review_v1",
+  "reviewer": "/root/c35_compile_repair_review",
+  "artifact": "rbo-fixes-20261023/proposed-correctness-amendments/C31-rejected-stage-evidence-artifacts.patch",
+  "artifact_sha256": "7c63a3095c1b60f23595d466e9224717ae0075a9be6a2c63c2700a489786778e",
+  "source_before_sha256": "3572a5468633bb6a67233aea292abc7c4af5285c79c2e7cdba0a25681ef586dd",
+  "expected_source_after_sha256": "48515b54d5c8d96a38ce8755fdc732ec9817b2b8f5e58d7941b306c4d1e4d6f4",
+  "inspected_guard_sha256": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+  "verdict": "approved_source_only_sanitized_rejection_stage_evidence",
+  "contracts_checked": [
+    "Only MetadataError gains fixed stage labels and an allowlisted subset of accumulated evidence. The exception is re-raised into the existing failure path.",
+    "Initial receipt rejection has its own stage and no process evidence. Subsequent labels distinguish compile, link, native, final receipt, final generator, final receipt-file check and fixed admission.",
+    "The copied top-level keys are only compile/link/native records and generated_object/generated_executable hashes and sizes. No case verdicts, source, command argv, receipt contents or retained native stdout are copied.",
+    "The inspected guard returns metrics separately from retained stdout. Its metrics contain counters, hashes, timestamps/durations, booleans, exit status and fixed/class-only reason labels, not compiler diagnostics or generated material.",
+    "The existing direct_harness_failed status, exit code 1 and no_runtime_verdict_accepted=true remain unchanged; completed process records cannot grant native or finding acceptance.",
+    "The memfd close finally block, exception propagation, guard cleanup, source/receipt checks and all compile/link/native commands remain unchanged."
+  ],
+  "limitations": [
+    "Stage labels identify the phase where a MetadataError was raised; a stage label alone does not prove that the process started or completed. Process evidence must be inspected separately.",
+    "OSError, JSON/ValueError and other existing outer error paths do not gain this stage annotation. This patch is intentionally scoped to MetadataError.",
+    "No past failure is reclassified and no previous compile/link/native success is inferred.",
+    "No compilation, native execution or mock suite was run; the source-level evidence schema still requires actual execution validation."
+  ],
+  "actions": {
+    "live_helper_edits": false,
+    "production_edits": false,
+    "build_runs": 0,
+    "native_runs": 0,
+    "mock_runs": 0,
+    "raw_payloads_or_repros_saved": false
+  }
+}

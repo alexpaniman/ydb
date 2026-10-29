@@ -1,0 +1,25 @@
+--- a/ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp
+@@ -110,20 +110,8 @@
+     auto predicate = lambda.Body();
+     auto lambdaArg = lambda.Args().Arg(0).Ptr();
+ 
+-    // Here we want to apply coalesce and propagate it to optional predicates.
+-    // clang-format off
+-    predicate = Build<TCoCoalesce>(ctx.ExprCtx, input->Pos)
+-        .Predicate(predicate)
+-        .Value<TCoBool>()
+-            .Literal().Value("false").Build()
+-        .Build()
+-    .Done();
+-    // clang-format on
+-
+-    auto lambdaAfterRewrite = TExprBase(ApplyPeephole(predicate.Ptr(), lambda.Args().Arg(0).Ptr(), ctx)).Cast<TCoLambda>();
+-    lambdaArg = lambdaAfterRewrite.Args().Arg(0).Ptr();
+-    predicate = lambdaAfterRewrite.Body();
+-
++    // Collect the original typed predicate before peephole expands native JSON
++    // operations. Remaining expressions still use the Apply lowering below.
+     TOLAPPredicateNode predicateTree;
+     predicateTree.ExprNode = predicate.Ptr();
+     CollectPredicates(predicate, predicateTree, lambdaArg.Get(), lambdaArg->GetTypeAnn(), pushdownOptions);

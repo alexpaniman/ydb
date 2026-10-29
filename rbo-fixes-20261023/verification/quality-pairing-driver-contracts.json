@@ -1,0 +1,32 @@
+{
+  "status": "synthetic_contracts_passed_native_unverified",
+  "assertions": 64,
+  "real_builds": 0,
+  "real_process_launches": 0,
+  "native_runs": 0,
+  "coverage": [
+    "profile/config/workload fingerprint mismatch",
+    "baseline failure separate from fixed failure",
+    "fixed provenance rejection",
+    "duplicate/missing pairs",
+    "semantic-only pending",
+    "one baseline build per invocation",
+    "approved workers forwarded",
+    "correctness dual-mode command retained",
+    "guard limitations preserved",
+    "native scope guard and fresh evidence snapshots",
+    "explicit failed scope rejects historical-style semantic records",
+    "strict receipt rerun clears only stale-provenance sentence",
+    "Q15 fixed-only IR admission gate",
+    "Q01 MIN/MAX frame-fold delta and unchanged unsupported-frame controls",
+    "correctness physical AST required/failed/missing contracts"
+  ],
+  "files": {
+    "quality_pairing.py": "0552c1ed9b46474cbef643df6a08e00973b3114acc9b5b838efb5e37f87df9ab",
+    "quality_pairing_contracts.py": "1f65e42e1e7da58d43cd2da2b18aafad5727c5cf524a29d2dede6c1491eaabe2",
+    "verify_series.py": "b3cdbba539e90b9d3a05c6a03c46018d3f1ea8442ad8127c7521bf44b7d25201",
+    "native_verify.py": "573d45bc3e0e514c8fd201c902bc4693fde6ccc927042c74784582a04ed58115",
+    "verification_contract.py": "6fa7e6afa5108efb773658425966e5aa1ed24bae86937c63705db9f65fd2ce0f",
+    "refresh_status.py": "934e8a3b84f9494bf168fc883c0131b7bdb233880b40d05ae320f3a219324942"
+  }
+}

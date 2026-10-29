@@ -1,0 +1,295 @@
+"""Fixed-only four-control Q28 amendment runner; original26 remain required.
+
+This command reuses the existing production closure and anonymous process
+machinery. It never prepares a build or changes the normal direct26 route.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from types import ModuleType
+import uuid
+
+ROOT = Path(__file__).resolve().parent
+LOADED_SOURCE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+VERSION = 'q28_depth_fixed_controls_v1'
+BASE = 'e8700d379b3b9c4fbaf68f36424e6bcf08314fd2'
+OLD_FIXED = '567d22ff15c8036cbc9741e0bb29daa6c140f0c1'
+HEADER = 'ydb/core/kqp/opt/rbo/kqp_rbo_rules.h'
+HEADER_SHA256 = '73e36b5ccdbf430b4e5e7feaddc8cc7cd14547c44d6e3fbbb32d80ae4896d27c'
+GENERATOR = 'quality_scheduler_depth_checks'
+RENDERED_SOURCE_SHA256 = 'a33b908be2ad18993b390c8cc970040f29709c4dc62d6f2c360417b48953788a'
+SOURCE_BINDINGS = {'memory_safe_build': 'ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd', 'anonymous_cpp_guard': '58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819', 'anonymous_cpp_metadata': '83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf', 'anonymous_cpp_verify': '836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136', 'production_version_object': '55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9', 'quality_scheduler_cpp_checks': 'b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7', 'quality_scheduler_depth_checks': 'ffd071b611343437c26b5179fa9d4c8db926270cfe1095d60b1bdb737e996203'}
+PRODUCTION_BINDINGS = {'ydb/core/kqp/opt/rbo/kqp_info_unit.h': 'd02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81', 'ydb/core/kqp/opt/rbo/kqp_operator.cpp': '64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a', 'ydb/core/kqp/opt/rbo/kqp_operator.h': '810ec6495a0f2571af8aaed157d947d69ec9798affa2a72f10f2e423c574290a', 'ydb/core/kqp/opt/rbo/kqp_rbo.cpp': 'ee672230519afa55b720f92bc37ba130e343d2911e131c8d66b5d53b4000ee7b', 'ydb/core/kqp/opt/rbo/kqp_rbo.h': 'fb1e560c105f97d21a5a4a8eceac7f69c83b8b9b294b916be9247c7eafda091c', 'ydb/core/kqp/opt/rbo/kqp_rbo_rules.h': '73e36b5ccdbf430b4e5e7feaddc8cc7cd14547c44d6e3fbbb32d80ae4896d27c', 'ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp': '28e83a69b1e394ffe7d1cee1f184488217876421db3503f58f7ca9ca3bd649f5', 'ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h': 'e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa'}
+EXPECTED_CHECKS = (136, 472, 238, 862)
+SPECS = tuple({'case': 'q28_fusion_depth_' + mode + '_' + str(width),
+               'kept': mode == 'kept', 'fanout': width}
+              for mode in ('removed', 'kept') for width in (8, 32))
+
+
+def digest(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+
+
+def _sources():
+    images = {}
+    for name, expected in SOURCE_BINDINGS.items():
+        raw = (ROOT / (name + '.py')).read_bytes()
+        if digest(raw) != expected:
+            raise ValueError('q28_depth_helper_changed')
+        images[name] = raw
+    return images
+
+
+def _helpers(images):
+    # Load the exact checked bytes, including helpers imported later by replay.
+    for name in ('memory_safe_build', 'anonymous_cpp_guard', 'anonymous_cpp_metadata',
+                 'anonymous_cpp_verify', 'production_version_object',
+                 'quality_scheduler_cpp_checks', GENERATOR):
+        module = ModuleType(name)
+        module.__file__ = str(ROOT / (name + '.py'))
+        sys.modules[name] = module
+        exec(compile(images[name], module.__file__, 'exec'), module.__dict__)
+        module._verification_source_sha256 = digest(images[name])
+    return (sys.modules['anonymous_cpp_verify'], sys.modules['anonymous_cpp_metadata'],
+            sys.modules['production_version_object'], sys.modules[GENERATOR])
+
+
+def _revision(args, direct, metadata):
+    revision = args.expected_revision
+    if (not isinstance(revision, str) or not re.fullmatch('[0-9a-f]{40}', revision)
+            or revision in (BASE, OLD_FIXED)):
+        raise ValueError('q28_depth_requires_amended_fixed_revision')
+    case_raw = (ROOT / 'cases/Q28.json').read_bytes()
+    case = json.loads(case_raw)
+    if (case.get('base') != BASE or case.get('commit') != revision
+            or direct._expected_revision('Q28', 'fixed', args.worktree) != revision
+            or metadata.source_revision(args.worktree) != revision):
+        raise ValueError('q28_depth_revision_binding_changed')
+    changed = subprocess.check_output(
+        ['git', 'diff', '--name-only', OLD_FIXED, revision], cwd=args.worktree, text=True).splitlines()
+    if changed != [HEADER]:
+        raise ValueError('q28_depth_amendment_tree_delta_changed')
+    for path, expected in PRODUCTION_BINDINGS.items():
+        raw = subprocess.check_output(['git', 'show', revision + ':' + path], cwd=args.worktree)
+        if digest(raw) != expected:
+            raise ValueError('q28_depth_production_source_changed')
+    return revision, case_raw, case
+
+
+def _receipt(args, metadata, revision):
+    raw = args.receipt.read_bytes()
+    value = json.loads(raw)
+    metadata.verify_receipt(value, args.worktree, revision)
+    build, closure = value.get('build', {}), value.get('metadata', {})
+    if (build.get('build_record_version') != 'production_cpp_build_v2'
+            or build.get('revision_before') != revision or build.get('revision_after') != revision
+            or build.get('profile') != 'rbo' or build.get('target') != 'ydb/core/kqp/ut/rbo'
+            or closure.get('profile') != 'rbo' or closure.get('target') != 'ydb/core/kqp/ut/rbo'
+            or not isinstance(value.get('build_record'), dict)
+            or not isinstance(value.get('graph_export_record'), dict)):
+        raise ValueError('q28_depth_requires_fresh_exact_rbo_closure')
+    return raw, value
+
+
+def _original_pair(args, direct, case):
+    before_raw, after_raw = args.original_baseline.read_bytes(), args.original_fixed.read_bytes()
+    before, after = json.loads(before_raw), json.loads(after_raw)
+    if (before.get('case_count') != 26 or after.get('case_count') != 26
+            or before.get('generator_sha256') != SOURCE_BINDINGS['quality_scheduler_cpp_checks']
+            or after.get('generator_sha256') != SOURCE_BINDINGS['quality_scheduler_cpp_checks']):
+        raise ValueError('q28_depth_original26_required')
+    paired = direct.pair_direct('Q28', before, after, case)
+    if paired.get('local_contract_improvement_verified') is not True:
+        raise ValueError('q28_depth_original26_pair_not_accepted')
+    return {'baseline_file_sha256': digest(before_raw), 'fixed_file_sha256': digest(after_raw),
+            'pair': paired, 'original_case_count': 26}
+
+
+def _unique(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError('q28_depth_duplicate_verdict_key')
+        value[key] = item
+    return value
+
+
+def parse_records(stdout, exit_code):
+    if not stdout or len(stdout) > 16 * 1024:
+        raise ValueError('q28_depth_verdict_size')
+    records = [json.loads(line, object_pairs_hook=_unique) for line in stdout.splitlines()]
+    counters = tuple(prefix + '_' + suffix for prefix in ('current', 'old_depth')
+                     for suffix in ('source_refreshes', 'union_refreshes', 'rule_attempts', 'candidate_visits'))
+    fields = {'case_index', 'checks_executed', 'passed', *counters}
+    if len(records) != 4:
+        raise ValueError('q28_depth_incomplete_vector')
+    for index, (record, spec, checks) in enumerate(zip(records, SPECS, EXPECTED_CHECKS)):
+        if (not isinstance(record, dict) or set(record) != fields
+                or type(record['case_index']) is not int or record['case_index'] != index
+                or type(record['passed']) is not bool
+                or type(record['checks_executed']) is not int
+                or not 0 <= record['checks_executed'] <= checks
+                or any(type(record[key]) is not int or not 0 <= record[key] < 2 ** 64 for key in counters)):
+            raise ValueError('q28_depth_invalid_record')
+        if record['passed']:
+            delta = {'source_refreshes': 0 if spec['kept'] else spec['fanout'],
+                     'union_refreshes': int(spec['kept']),
+                     'rule_attempts': 1 if spec['kept'] else spec['fanout'],
+                     'candidate_visits': 1 if spec['kept'] else spec['fanout']}
+            if (record['checks_executed'] != checks
+                    or any(record[key] <= 0 for key in counters)
+                    or any(record['old_depth_' + name] != record['current_' + name] + count
+                           for name, count in delta.items())):
+                raise ValueError('q28_depth_assertion_or_work_delta_mismatch')
+    if type(exit_code) is not int or exit_code != (0 if all(x['passed'] for x in records) else 1):
+        raise ValueError('q28_depth_exit_verdict_mismatch')
+    return records
+
+
+def _process_ok(record, environment=None):
+    result = (type(record.get('exit_code')) is int and record['exit_code'] == 0
+              and record.get('cleanup_complete') is True
+              and record.get('watchdog_stopped') is False and record.get('stdout_overflow') is False)
+    if environment is not None:
+        result = result and record.get('environment_sha256') == digest(canonical(environment))
+    return result
+
+
+def execute(args, direct, metadata, version, generator):
+    evidence = {'schema_version': VERSION, 'bug': 'Q28', 'phase': 'fixed',
+                'full_q28_admission': False, 'query_semantics_verified': False,
+                'quality_improvement_verified': False, 'original26_required': True,
+                'canonical_sql8_required_separately': True, 'SDK7_pilot_substitutes_for_required_verification': False,
+                'generated_files_persisted': False, 'case_count': 4, 'case_vector': list(SPECS),
+                'assertion_vector': list(EXPECTED_CHECKS), 'proof_scope': 'IntoMap_depth_local_contracts_only',
+                'source_bindings': dict(SOURCE_BINDINGS), 'production_source_bindings': dict(PRODUCTION_BINDINGS),
+                'amendment_local_contracts_verified': False}
+    stage, fds = 'initial_identity', {}
+    try:
+        images = _sources()
+        own_hash = digest(Path(__file__).read_bytes())
+        if own_hash != LOADED_SOURCE_SHA256:
+            raise ValueError('q28_depth_loaded_driver_changed')
+        revision, case_raw, case = _revision(args, direct, metadata)
+        raw_receipt, receipt = _receipt(args, metadata, revision)
+        evidence.update(revision=revision, driver_sha256=own_hash, case_file_sha256=digest(case_raw),
+                        closure_receipt_path=str(args.receipt.resolve()), closure_receipt_sha256=digest(raw_receipt),
+                        closure_provenance_verified=True)
+        evidence['original26'] = _original_pair(args, direct, case)
+        if generator.specs() != list(SPECS) or generator.REQUIRED_ORIGINAL_SHA256 != SOURCE_BINDINGS['quality_scheduler_cpp_checks']:
+            raise ValueError('q28_depth_generator_vector_changed')
+        source = generator.render_cpp_suite().encode()
+        if digest(source) != RENDERED_SOURCE_SHA256:
+            raise ValueError('q28_depth_rendered_source_changed')
+        evidence.update(generator_module=GENERATOR, generator_sha256=SOURCE_BINDINGS[GENERATOR],
+                        generated_source_sha256=digest(source), generated_source_bytes=len(source))
+        stage = 'compile'
+        fds['source'] = direct._memfd('q28-depth-source', source)
+        fds['object'] = direct._memfd('q28-depth-object')
+        fds['executable'] = direct._memfd('q28-depth-executable', executable=True)
+        del source
+        record, _ = direct.run_anonymous(receipt['metadata']['compile_argv'], receipt['metadata']['compile_cwd'], fds,
+            stdout_fd='object', timeout=900, environment=receipt['metadata']['compile_environment'])
+        evidence['compile'] = record
+        if not _process_ok(record, receipt['metadata']['compile_environment']):
+            raise ValueError('q28_depth_compile_guard_or_exit_failed')
+        evidence['generated_object'] = direct._fd_digest(fds['object'])
+        if not evidence['generated_object']['size_bytes']:
+            raise ValueError('q28_depth_empty_object')
+        stage = 'production_version_infrastructure'
+        try:
+            argv, evidence['production_version_infrastructure'] = version.prepare_object(
+                receipt, args.receipt, args.worktree, fds, timeout=900)
+        except metadata.MetadataError as error:
+            evidence['production_version_infrastructure'] = getattr(error, 'production_version_evidence', {})
+            raise
+        stage = 'link'
+        argv, evidence['link_output_transport'] = direct._stdout_link_arguments(argv)
+        argv, responses = direct._archive_response_arguments(argv, fds, receipt['files'])
+        evidence['link_archive_responses'] = responses
+        record, _ = direct.run_anonymous(argv, receipt['metadata']['link_cwd'], fds,
+            stdout_fd='executable', timeout=900, max_scope_gib=36, environment=receipt['metadata']['link_environment'])
+        evidence['link'] = record
+        if not _process_ok(record, receipt['metadata']['link_environment']):
+            raise ValueError('q28_depth_link_guard_or_exit_failed')
+        for response in responses['responses']:
+            if direct._fd_digest(fds[response['descriptor']]) != response['content']:
+                raise ValueError('q28_depth_link_response_changed')
+        version.verify_object(evidence['production_version_infrastructure'], fds)
+        evidence['native_executable_transport'] = direct._seal_native_executable(fds)
+        evidence['generated_executable'] = direct._fd_digest(fds['executable'])
+        if not evidence['generated_executable']['size_bytes']:
+            raise ValueError('q28_depth_empty_executable')
+        stage = 'native'
+        record, stdout = direct.run_anonymous(['@FD:executable@'], args.worktree, fds,
+                                             timeout=120, max_scope_gib=12)
+        evidence['native'] = record
+        if (record.get('cleanup_complete') is not True or record.get('watchdog_stopped') is not False
+                or record.get('stdout_overflow') is not False):
+            raise ValueError('q28_depth_native_guard_failed')
+        evidence['cases'] = parse_records(stdout, record['exit_code'])
+        del stdout
+        stage = 'final_identity'
+        version.verify_object(evidence['production_version_infrastructure'], fds)
+        if (_revision(args, direct, metadata)[:2] != (revision, case_raw)
+                or _receipt(args, metadata, revision)[0] != raw_receipt
+                or _original_pair(args, direct, case) != evidence['original26']
+                or _sources() != images
+                or digest(Path(__file__).read_bytes()) != own_hash
+                or direct._fd_digest(fds['source']) != {'sha256': evidence['generated_source_sha256'],
+                                                       'size_bytes': evidence['generated_source_bytes']}
+                or direct._fd_digest(fds['object']) != evidence['generated_object']
+                or direct._fd_digest(fds['executable']) != evidence['generated_executable']):
+            raise ValueError('q28_depth_final_identity_changed')
+        passed = all(x['passed'] for x in evidence['cases'])
+        evidence.update(status='q28_depth_contracts_passed' if passed else 'q28_depth_contracts_failed',
+                        amendment_local_contracts_verified=passed)
+        return evidence, 0 if passed else 2
+    except BaseException as error:
+        evidence.update(status='q28_depth_harness_failed', failure_stage=stage,
+                        failure_class=type(error).__name__, amendment_local_contracts_verified=False)
+        return evidence, 130 if isinstance(error, (KeyboardInterrupt, SystemExit)) else 1
+    finally:
+        for fd in fds.values():
+            os.close(fd)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ('worktree', 'receipt', 'original-baseline', 'original-fixed'):
+        parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--expected-revision', required=True)
+    args = parser.parse_args()
+    output = ROOT / 'verification' / ('Q28-depth-fixed-' + uuid.uuid4().hex + '.json')
+    evidence = {'schema_version': VERSION, 'bug': 'Q28', 'phase': 'fixed',
+                'status': 'q28_depth_harness_failed',
+                'amendment_local_contracts_verified': False, 'full_q28_admission': False,
+                'query_semantics_verified': False, 'quality_improvement_verified': False}
+    code = 1
+    try:
+        images = _sources()
+        direct, metadata, version, generator = _helpers(images)
+        with direct.serial_slot():
+            evidence, code = execute(args, direct, metadata, version, generator)
+    except BaseException as error:
+        evidence.update(status='q28_depth_harness_failed',
+                        amendment_local_contracts_verified=False,
+                        failure_stage='source_or_serial_guard', failure_class=type(error).__name__)
+        code = 130 if isinstance(error, (KeyboardInterrupt, SystemExit)) else 1
+    with output.open('x') as stream:
+        stream.write(json.dumps(evidence, sort_keys=True, indent=2) + '\n')
+    print(json.dumps({'status': evidence['status'], 'evidence': str(output)}))
+    return code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,0 +1,32 @@
+{
+  "id": "Q01",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "source_count_branch": "ec5c4cdf9df226bab6e13b21da2bb25946a8966b",
+  "status": "amendment_proposed_not_applied",
+  "scope": "Existing COUNT improvement plus required/optional machine-integer SUM with private non-null prefix counters.",
+  "remaining_open": [
+    "Floating SUM",
+    "Decimal SUM",
+    "Interval SUM",
+    "AVG",
+    "MIN",
+    "MAX"
+  ],
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h"
+  ],
+  "patch_sha256": "63c95477c635d5b9b88866d8d7513f7ce2c4b775404de25a658652f884c3618b",
+  "apply_check_passed": true,
+  "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "compiled": false,
+  "native_verified": false,
+  "production_edited": false,
+  "validation_required": [
+    "Native ROWS/RANGE boundaries, empty and all-null frames, both directions and peer values.",
+    "Signed/unsigned accumulator wrap with required, optional and narrow integral inputs.",
+    "Queue-row type agrees with private count output and public output layout excludes auxiliaries.",
+    "Fallback SUM/AVG/MIN/MAX and whole/running/suffix frame paths retain ordered behavior.",
+    "COUNT/integer-SUM-only general frames have no reachable Fold/Fold1 and scale independently of frame width."
+  ]
+}

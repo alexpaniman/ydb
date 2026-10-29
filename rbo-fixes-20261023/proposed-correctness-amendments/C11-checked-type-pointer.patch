@@ -1,0 +1,11 @@
+--- a/ydb/core/kqp/opt/kqp_type_ann.cpp
++++ b/ydb/core/kqp/opt/kqp_type_ann.cpp
+@@ -2898,7 +2898,7 @@
+         }
+ 
+         // Hand-built sublinks may not have an imported result contract.
+-        const auto* lookupType = lambda->Tail().Head().GetTypeAnn();
++        const auto lookupType = lambda->Tail().Head().GetTypeAnn();
+         const bool nullable = lookupType->HasOptionalOrNull() ||
+             (HasSetting(*settings, "ansiIn") && IsSqlInCollectionItemsNullable(lookupType, valueType));
+         const TTypeAnnotationNode* resultType = ctx.MakeType<TDataExprType>(EDataSlot::Bool);

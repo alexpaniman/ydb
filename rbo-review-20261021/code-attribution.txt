@@ -1,0 +1,828 @@
+CODE AUTHORS AND INTRODUCING CHANGES — C01–C50
+
+Attribution covers the 50 correctness findings at f746f5a75ca7846d2bcc422142d9329ec0064f94. Reviewers followed blame through original diffs, parent versions, refactors and interacting features. The bugs have current-revision native verification; historical revisions were not executed or bisected. A source-traced introduction identifies the defective mechanism, not necessarily the earliest executable failing query. Names are Git authors, not assigned fix owners. Lineage, exposure and uncertain candidates are explicitly separate. Optimization-quality findings remain separate in optimization-quality.txt. No reproduction inputs are included.
+
+AUTHOR INDEX
+
+Denis Khalikov
+  Source-traced mechanisms: C02, C03, C05, C06, C07, C08, C09, C10, C11, C12, C13, C14, C16, C19, C20, C21, C22, C23, C24, C25, C26, C27, C28, C32, C34, C36, C37, C40, C45
+  Lineage/support gap/candidate only: C15, C35, C42, C50
+
+Filitov Mikhail
+  Lineage/support gap/candidate only: C50
+
+Pavel Velikhov
+  Source-traced mechanisms: C01, C04, C09, C11, C29, C30, C32, C33, C39, C41, C44
+  Multi-commit interaction; no unique introduction: C31
+  Lineage/support gap/candidate only: C15, C46, C47, C48
+  Separate exposure changes: C49
+
+Yesdaulet Izenov
+  Source-traced mechanisms: C49
+
+alexpaniman
+  Source-traced mechanisms: C17, C18, C38, C43
+  Multi-commit interaction; no unique introduction: C31
+  Separate exposure changes: C37, C49
+
+PER-BUG MAP
+
+ID | Bug | Source author / relevant lineage | Main commit(s) | Attribution class
+C01 | Typed join predicates are copied across unequal key types | Pavel Velikhov | 7c422d3d0bfc | source introduction
+C02 | Volatile filters change aggregate values | Denis Khalikov | a4765c75f755 | source introduction
+C03 | DISTINCT aggregates over grouping sets compute incorrect subtotals | Denis Khalikov | 9589d9b27518 | source introduction
+C04 | Filter fusion evaluates expressions on rows already rejected | Pavel Velikhov | fd5a7114c92b | source introduction
+C05 | Scalar subquery validation runs for unrelated correlation keys | Denis Khalikov | 7ee9137a38b1 | source introduction
+C06 | Correlation can select the wrong row after a key type changes | Denis Khalikov | 7ee9137a38b1 | source introduction
+C07 | Domain elimination admits matches forbidden by NaN equality | Denis Khalikov | 7ee9137a38b1 | source introduction
+C08 | Empty correlated scalar aggregates skip their result expression | Denis Khalikov | 7ee9137a38b1 | source introduction
+C09 | IN subqueries ignore the requested NULL-semantics mode | Denis Khalikov, Pavel Velikhov | 7ee9137a38b1 | source introduction
+C10 | Nullable NaN is mistaken for NULL in IN handling | Denis Khalikov | 7ee9137a38b1 | source introduction
+C11 | IN typing removes a necessary COALESCE fallback | Pavel Velikhov, Denis Khalikov | 10b439a01326 | source introduction
+C12 | Hidden grouping columns prevent DISTINCT from removing duplicates | Denis Khalikov | 64e5e4146c6b | source introduction
+C13 | Grouped result expressions are replaced by a bare grouping key | Denis Khalikov | fbe5541e6390 | source introduction
+C14 | Aggregates on different nested fields share the wrong input | Denis Khalikov | 7cf095c620a4 | source introduction
+C15 | A scalar subquery is evaluated outside its conditional guard | Pavel Velikhov, Denis Khalikov | a24651dc6c3b | lineage or candidate only
+C16 | Unresolved subqueries enter block-cross join filters too early | Denis Khalikov | e49db9c68f3d | source introduction
+C17 | Shared-plan pruning leaves references to removed columns | alexpaniman | 026a4acc33c2 | source introduction
+C18 | Pruning leaves an invalid operator under an empty grouping-set wrapper | alexpaniman | 026a4acc33c2 | source introduction
+C19 | Unordered rank functions construct an invalid expression | Denis Khalikov | 11ebdccf5324 | source introduction
+C20 | Window ranking loses the nullable-key compatibility setting | Denis Khalikov | 11ebdccf5324 | source introduction
+C21 | Window AVG uses the wrong physical type for intervals | Denis Khalikov | e15a17493ed7 | source introduction
+C22 | Repeated window keys produce an invalid physical sort | Denis Khalikov | 11ebdccf5324 | source introduction
+C23 | Grouping sets mishandle a bare NULL key type | Denis Khalikov | 6962e896755e | source introduction
+C24 | DISTINCT expansion creates a nested optional for interval SUM | Denis Khalikov | 0cffeb781b1f | source introduction
+C25 | Correlated multi-aggregate DISTINCT fails between stages | Denis Khalikov | 7ee9137a38b1 | source introduction
+C26 | DISTINCT combined with sample standard deviation is rejected | Denis Khalikov | 4f73c60b323a | source introduction
+C27 | HAVING without an aggregate call fails translation | Denis Khalikov | b70a0ef5ce8d | source introduction
+C28 | DISTINCT over window results references columns before definition | Denis Khalikov | 11ebdccf5324 | source introduction
+C29 | Mixed set-operation precedence is lowered without a real operand stack | Pavel Velikhov | 8c3d6d2ac4e6 | source introduction
+C30 | INSERT OR REVERT loses its conflict policy | Pavel Velikhov | b7945c07c68c | source introduction
+C31 | Late join-filter inlining recreates unsupported sharing | alexpaniman, Pavel Velikhov | dc773f93aec8 | multi commit interaction
+C32 | Forced Map mode selects an unsupported algorithm for FULL JOIN | Pavel Velikhov, Denis Khalikov | 2c0f2db37dc5 | source introduction
+C33 | Set-operation output column order follows the final arm | Pavel Velikhov | 2805cf0cdbc8 | source introduction
+C34 | Scalar tuple-valued aggregates are mistaken for AVG state | Denis Khalikov | 229509a8de17 | source introduction
+C35 | Ordinary AVG uses an incompatible accumulator for intervals | Denis Khalikov | 7e555f7069e1 | lineage or candidate only
+C36 | Repeated ordinary ORDER BY keys fail physical type checking | Denis Khalikov | ae5c21bc792f | source introduction
+C37 | Window repartitioning leaves stale distribution metadata and breaks later grouping | Denis Khalikov | 11ebdccf5324 | source introduction
+C38 | Full outer joins advertise a false left-key distribution and break later grouping | alexpaniman | 9293cd715199, 852eb1781df7 | source introduction
+C39 | Full joins silently discard residual ON predicates when block joins are enabled | Pavel Velikhov | e687f7790e78 | source introduction
+C40 | Multiple JSON projections from one column fail compilation | Denis Khalikov | b3ff58ad0752 | source introduction
+C41 | Mixed read and write statements lose result bindings and fail task construction | Pavel Velikhov | 6c5cba84ecf9 | source introduction
+C42 | Nested unions do not consistently widen branch types | Denis Khalikov | dc0256d7f53f, 3c09db7992df | lineage or candidate only
+C43 | Focused physical lowering rejects supported composite expressions | alexpaniman | d2b6c65e8670 | source introduction
+C44 | Successful indexed INSERT can omit required index maintenance | Pavel Velikhov | 344f8fd79c22 | source introduction
+C45 | Window expressions lose nested-field receivers | Denis Khalikov | 11ebdccf5324 | source introduction
+C46 | Conditional UPDATE is rejected by table-effect translation | Pavel Velikhov | b7945c07c68c | lineage or candidate only
+C47 | Explicit secondary-index reads are not imported | Pavel Velikhov | 2805cf0cdbc8 | lineage or candidate only
+C48 | Indexed UPSERT is rejected when sink index maintenance is disabled | Pavel Velikhov | b7945c07c68c | lineage or candidate only
+C49 | Incomplete lookup keys make residual LEFT JOIN reconstruction mix different rows | Yesdaulet Izenov | 93ac68420d53, ace526f2d23b, 2bef7dc5e9eb | source introduction
+C50 | Mixed numeric join keys can be shuffled before type normalization and lose matches | Denis Khalikov, Filitov Mikhail | 1d58575fc39a, 2fd81e982c1a | lineage or candidate only
+
+EVIDENCE AND COMMIT ROLES
+
+Dates below distinguish author date from commit date; either can differ by timezone or merge timing.
+
+C01 [P1] Typed join predicates are copied across unequal key types
+Predicate propagation substitutes a join key without preserving the original expression type. Valid matches disappear. Require type-preserving substitution or an equivalent expression in the original type.
+Location: rules/push_filter_into_join.cpp:165; rules/push_simple_join_filter.cpp:72
+Attribution: source_traced
+  7c422d3d0bfc3cf2970974c6e3667d3749dbaeff | Pavel Velikhov | authored 2026-07-09 | committed 2026-07-09
+    [NEW RBO] Push constant condition on join key to both sides (#46050)
+    Role: introducing mechanism
+  4c737c01104e1151bd2a7e9b41350092a3c35a83 | Pavel Velikhov | authored 2026-08-13 | committed 2026-08-13
+    [NEW OPTIMIZER] Fix bugs in join filter processing (#49829)
+    Role: same assumption added to simple-join-filter rule
+  Evidence: The commit adds cross-side predicate copying through ApplyRenames without checking source/target key type equivalence. Parent lacks this block. The sibling rule later copies the same assumption. SSA migration changes representation, not the missing proof.
+  Limit: Source history only; no historical runtime bisection.
+
+C02 [P1] Volatile filters change aggregate values
+A filter above grouped aggregation moves below it based only on column dependencies. Expressions evaluated once per group become evaluated once per input row. Gate movement on repeatability and evaluation semantics.
+Location: rules/push_filter_through_aggregate.cpp:51
+Attribution: source_traced
+  a4765c75f7555f86bf61a63d6214a4c1a6dd16dc | Denis Khalikov | authored 2026-10-09 | committed 2026-10-09
+    [Optimizer] Push filter through aggregate (#55697)
+    Role: introducing mechanism
+  Evidence: Introduces the filter-through-aggregate rule. Applicability checks unresolved subplans and key dependencies, but no volatility/evaluation-multiplicity restriction.
+  Limit: Source history only; no historical runtime bisection.
+
+C03 [P1] DISTINCT aggregates over grouping sets compute incorrect subtotals
+Postorder traversal expands DISTINCT before the enclosing grouping sets, so subtotal branches reuse deduplication at the wrong granularity. Expand grouping sets first, then deduplicate within each branch.
+Location: rules/expand_distinct_aggregation.cpp:35; rules/expand_grouping_sets.cpp:100
+Attribution: interaction_source_traced
+  9589d9b27518163f55722b2c5c8ba98dadd02594 | Denis Khalikov | authored 2026-09-06 | committed 2026-09-06
+    [Optimizer] Expand rollup in rbo rule (#52313)
+    Role: introducing mechanism
+  5d68400dca1ba7c8fdcbbe725dae4a9d300ea4bc | Denis Khalikov | authored 2026-06-09 | committed 2026-06-09
+    [Optimizer] Add distinct aggregation expander. (#42994)
+    Role: preexisting DISTINCT expansion involved in the interaction
+  Evidence: Moves rollup/grouping-set expansion from frontend per-branch aggregation into the postorder rule stage containing DISTINCT expansion. The child DISTINCT now expands before grouping-set fanout. Prior frontend placement handled distinct at each grouping branch.
+  Limit: Source history only; no historical runtime bisection.
+
+C04 [P1] Filter fusion evaluates expressions on rows already rejected
+Fusion reverses the execution order of adjacent filters. A guarded operation can fail on rows the original inner filter removed. Preserve filter evaluation boundaries and nullable short-circuit semantics.
+Location: rules/fuse_filters.cpp:28
+Attribution: source_traced
+  fd5a7114c92b6facae8018f0dd09ac057a08520c | Pavel Velikhov | authored 2026-04-14 | committed 2026-04-14
+    [NEW RBO] Join Filters support (#38005)
+    Role: introducing mechanism
+  Evidence: The new fuse_filters rule constructs conjuncts from the top filter first and appends bottom-filter conjuncts. The reversed evaluation order is present at rule introduction; later cached-expression and SSA edits preserve it.
+  Limit: Source history only; no historical runtime bisection.
+
+C05 [P1] Scalar subquery validation runs for unrelated correlation keys
+Domain elimination expands the inner computation to keys never requested by the outer query. Scalar cardinality checks run before those keys are discarded, rejecting valid queries. Restrict validation to demanded domains.
+Location: rules/decorrelation/dependent_join_pushdown.cpp:435; rules/inline_scalar_subplan.cpp:43
+Attribution: source_traced
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: introducing mechanism
+  Evidence: The initial dependent-join implementation removes the demanded domain when all correlations bind to inner columns. The same change adds scalar per-group cardinality checks, allowing checks on unrelated inner domains.
+  Limit: Source history only; no historical runtime bisection.
+
+C06 [P1] Correlation can select the wrong row after a key type changes
+Domain elimination replaces a captured value with an equal value of a different type. Serialized correlation keys no longer represent the same value and can collide with another key. Preserve capture types and equality semantics.
+Location: rules/decorrelation/dependent_join_pushdown.cpp:421
+Attribution: source_traced
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: introducing mechanism
+  Evidence: Introduces capture rebinding directly to an inner column without preserving the captured type, alongside StablePickle-based nullable-domain encoding. The complete mechanism precedes SSA migration.
+  Limit: Source history only; no historical runtime bisection.
+
+C07 [P1] Domain elimination admits matches forbidden by NaN equality
+Removing an equality condition and retaining only a non-null check changes semantics for NaN. The domain join can then accept a match the original predicate rejected. Preserve the original equality for nonreflexive values.
+Location: rules/decorrelation/dependent_join_pushdown.cpp:398
+Attribution: source_traced
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: introducing mechanism
+  Evidence: Introduces elimination of the correlation equality after recording a binding. It restores only nullable-column existence checks, with no nonreflexive floating-point equality guard.
+  Limit: Source history only; no historical runtime bisection.
+
+C08 [P1] Empty correlated scalar aggregates skip their result expression
+Decorrelation restores empty aggregate groups only on the COUNT path. Other aggregate results vanish before surrounding expressions run, so defaults and transformations are lost. Restore the scalar row for every aggregate before evaluating its projection.
+Location: rules/decorrelation/dependent_join_pushdown.cpp:543
+Attribution: source_traced
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: introducing mechanism
+  Evidence: Initial aggregate decorrelation restores missing domain rows only when countResults is nonempty. The count-only restoration guard already exists in this initial implementation.
+  Limit: Source history only; no historical runtime bisection.
+
+C09 [P1] IN subqueries ignore the requested NULL-semantics mode
+Subquery translation discards the ANSI/legacy IN setting; generic inlining always applies ANSI behavior. Preserve and use the mode through lowering.
+Location: kqp_rewrite_select.cpp:1592; rules/inline_generic_in_exists_subplan.cpp
+Attribution: interaction_source_traced
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: introducing mechanism
+  d568eb8afcecb4517a87464ccbfdd69e5d19259c | Pavel Velikhov | authored 2026-06-02 | committed 2026-06-02
+    [NEW RBO] Single pass rewrite select (#41065)
+    Role: YqlSelect IN reconstruction omits policy/settings
+  Evidence: Exact observed legacy-mode failure combines a producer that omits IN policy with the later generic lowering that explicitly synthesizes ANSI three-valued results. No single introducing author is established for the complete symptom.
+  Limit: Source history only; no historical runtime bisection.
+
+C10 [P1] Nullable NaN is mistaken for NULL in IN handling
+Generic IN detects nullness using self-equality. NaN fails that test despite being present, changing NOT IN results. Test presence directly.
+Location: rules/inline_generic_in_exists_subplan.cpp:243
+Attribution: source_traced
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: introducing mechanism
+  Evidence: Adds the nullable lookup null-test using negated self-equality. The parent generic lowering lacks this test; NaN is included by the new null-detection expression.
+  Limit: Source history only; no historical runtime bisection.
+
+C11 [P1] IN typing removes a necessary COALESCE fallback
+The subplan result is prematurely typed as nonnullable Boolean. Type-driven simplification discards a fallback before later lowering restores three-valued behavior. Model nullable IN consistently from initial annotation onward.
+Location: kqp_rbo_type_ann.cpp:191; ../kqp_type_ann.cpp:2887
+Attribution: interaction_source_traced
+  10b439a0132694280184769221ee276198980257 | Pavel Velikhov | authored 2025-12-28 | committed 2025-12-28
+    [NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)
+    Role: introducing mechanism
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: adds explicit nullable three-valued IN result production
+  Evidence: Introduces plain Bool annotations for IN at both frontend sublink and RBO subplan levels. Later nullable mark-result lowering exposes the mismatch to COALESCE simplification. Attribute both sides of the type contract, not only the old Bool line.
+  Limit: Source history only; no historical runtime bisection.
+
+C12 [P1] Hidden grouping columns prevent DISTINCT from removing duplicates
+Post-aggregate DISTINCT includes grouping keys absent from the selected result. Rows equal in the visible result remain distinct internally. Deduplicate precisely the selected expressions.
+Location: kqp_rewrite_select.cpp:1484
+Attribution: source_traced
+  64e5e4146c6b27f5391eb19fbc9e4d8187893698 | Denis Khalikov | authored 2025-11-21 | committed 2025-11-21
+    [KQP RBO] Add multiple aggregations in expressions (#29314)
+    Role: introducing mechanism
+  acb952da1c40c0d5e591c6801fbb529e99fd01b1 | Denis Khalikov | authored 2026-05-29 | committed 2026-05-29
+    [Optimizer] Fix distinct on top of aggregation (#41846)
+    Role: later duplicate-key cleanup preserves hidden-key inclusion
+  Evidence: Adds all aggregation grouping keys to post-aggregate DISTINCT, including keys absent from the projected result. Later duplicate-key cleanup leaves that semantic inclusion intact.
+  Limit: Source history only; no historical runtime bisection.
+
+C13 [P1] Grouped result expressions are replaced by a bare grouping key
+When a materialized aggregate/window/distinct output expression contains a nested grouping-column reference, translation can replace the complete expression with the first nested reference. Results or types change. Preserve the complete expression and replace only its grouped reference nodes; the ordinary nonmaterialized expression path already performs recursive replacement.
+Location: kqp_rewrite_select.cpp:2278
+Attribution: source_traced
+  fbe5541e63905ac791d36e2074c017745c0946eb | Denis Khalikov | authored 2025-12-11 | committed 2025-12-11
+    [NEW RBO] Refactor to support YqlSelect Aggregation (#30538)
+    Role: introducing mechanism
+  64e5e4146c6b27f5391eb19fbc9e4d8187893698 | Denis Khalikov | authored 2025-11-21 | committed 2025-11-21
+    [KQP RBO] Add multiple aggregations in expressions (#29314)
+    Role: earlier PG-oriented whole-expression replacement
+  7c7f969926be7f5eeb680940880daa8d822912e5 | Denis Khalikov | authored 2026-09-13 | committed 2026-09-13
+    [Optimizer] Fix order by groupby ref. (#52969)
+    Role: partial repair that retains the materialized-case defect
+  Evidence: Extends the whole-expression replacement on any nested group reference to native YQL aggregates. The earlier PG-oriented implementation already had the pattern. The later group-reference fix repairs nonmaterialized expressions but leaves the materialized case.
+  Limit: Source history only; no historical runtime bisection.
+
+C14 [P1] Aggregates on different nested fields share the wrong input
+Aggregate input deduplication identifies a member by its final field name, losing the containing structure. Different fields can feed both aggregates from the first input. Use expression identity and the full member-access chain.
+Location: kqp_rewrite_select.cpp:1034; kqp_rewrite_select.cpp:1067
+Attribution: source_traced
+  7cf095c620a4063f3134efa24ea49d876110852b | Denis Khalikov | authored 2026-01-23 | committed 2026-01-23
+    [NEW RBO] Eliminate pre aggregation map. (#32542)
+    Role: introducing mechanism
+  91f7c0b6130daba38e4f31f0e7bee82156ca8c9f | Denis Khalikov | authored 2026-05-28 | committed 2026-05-28
+    [Optimizer] Emit more optimal code for scalar aggregation. (#41727)
+    Role: removes forceOptional bypass that previously avoided some scalar collisions
+  Evidence: Replaces fresh names for repeated aggregation inputs with reuse keyed only by member name. Parent generated a fresh column on name collision; this change skips a second preaggregation expression when its leaf name matches. Later scalar optional-state cleanup widens exposure.
+  Limit: Source history only; no historical runtime bisection.
+
+C15 [P1] A scalar subquery is evaluated outside its conditional guard
+Scalar inlining hoists cardinality validation from a branch that need not execute. An unused branch can abort a valid query. Preserve conditional evaluation of the subquery and its check.
+Location: rules/inline_scalar_subplan.cpp:43; rules/inline_scalar_subplan.cpp:129
+Attribution: source_lineage_not_runtime_boundary
+  a24651dc6c3bbe037a87ad8faf51438bc8f27a36 | Pavel Velikhov | authored 2025-11-01 | committed 2025-11-01
+    [NEW RBO] Added support for scalar context (#28107)
+    Role: introducing mechanism
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: current per-group Ensure reimplementation preserves unconditional attachment
+  Evidence: Initial scalar-context lowering attaches a cardinality-checked subplan by cross join before the containing unary expression, without retaining its conditional guard. Current per-group Ensure lowering reimplements this architecture. Historic source proves the hoisting pattern, but the exact first failing modern-YQL query has not been bisected.
+  Limit: Source history only; no historical runtime bisection.
+
+C16 [P2] Unresolved subqueries enter block-cross join filters too early
+A fast path moves subplan references into join filters before subplan inlining, leaving unavailable columns during type annotation. Guard unresolved subplans or defer this rewrite.
+Location: rules/push_filter_into_join.cpp:88
+Attribution: source_traced
+  e49db9c68f3d3438a6a257a02fecbb1360a85598 | Denis Khalikov | authored 2026-09-03 | committed 2026-09-03
+    [Optimizer] Add support for cross join with filters (#52096)
+    Role: introducing mechanism
+  Evidence: Adds the block-cross fast path that moves every non-equality conjunct into JoinFilters without excluding unresolved subplans. A later force-inlining flag condition narrows when this block runs; it does not create the missing subplan guard.
+  Limit: Source history only; no historical runtime bisection.
+
+C17 [P2] Shared-plan pruning leaves references to removed columns
+Singleton secondary-port collapse uses a stale producer schema after pruning. It creates copies of deleted columns and fails compilation. Invalidate or recompute schemas before collapse.
+Location: kqp_operator.cpp:168; kqp_operator.cpp:1762
+Attribution: source-traced introduction
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: primary source change
+  Evidence: The commit adds TOpReplicate::TryCollapse, which enumerates cached producer GetOutputIUs when constructing copies for a secondary singleton port (current kqp_operator.cpp:168-176).
+  Evidence: The same commit adds global pruning and FinishLogicalRewrite with BypassEmptyOperators before InvalidateProperties (current1761-1763). Its parent lacks this new collapse/pruning sequence.
+  Evidence: The candidate diff and its parent were inspected; this is the logic that allows stale output schemas to be consumed after pruning.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C18 [P2] Pruning leaves an invalid operator under an empty grouping-set wrapper
+An unused scalar aggregate is replaced underneath a wrapper that still requires an Aggregate object. Source inspection finds an unchecked cast of the replacement operator, and native execution rejects the valid query. Normalize grouping sets together with their defining aggregate.
+Location: kqp_operator.cpp:1722; kqp_rbo_type_ann.cpp:423
+Attribution: source-traced interaction introduced by pruning rewrite
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: primary source change
+  9589d9b27518163f55722b2c5c8ba98dadd02594 | Denis Khalikov | authored 2026-09-06 | committed 2026-09-06
+    [Optimizer] Expand rollup in rbo rule (#52313)
+    Role: pre-existing grouping-set Aggregate-child invariant
+  Evidence: 026a4acc adds IsResultlessScalarAggregate and replacement with TOpEmptySource during BypassEmptyOperators, before grouping-set expansion.
+  Evidence: Its parent prunes aggregate traits but retains the Aggregate operator in rules/map/prune_dead_outputs.cpp; it lacks the new resultless replacement.
+  Evidence: 9589d9 introduced the grouping-set wrapper and type annotation that casts its child to Aggregate;026a4acc changes that child contract without normalizing the wrapper.
+  Limit: Source history inspection only; no historical runtime bisection. The native failure is verified; exact runtime attribution to the invalid cast is less direct than the source-contract violation.
+
+C19 [P2] Unordered rank functions construct an invalid expression
+The physical window builder disables the peer-change expression without adapting rank accumulation. Valid unordered ranking fails with a null child. Handle the all-peers case explicitly.
+Location: physical_conversion/kqp_rbo_physical_window_builder.cpp:242; physical_conversion/kqp_rbo_physical_window_builder.cpp:471
+Attribution: source-traced introduction
+  11ebdccf532442bc91e1c664403a677d55b2fd2b | Denis Khalikov | authored 2026-09-10 | committed 2026-09-10
+    [Optimizer] Add initial support for window functions. (#52620)
+    Role: primary source change
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: later refactor; not introduction
+  Evidence: Initial window builder already sets NeedsPeerKey false when ordering is empty, leaves sortKeyChanged unset, and consumes it in rank/dense-rank update expressions.
+  Evidence: The initial commit adds the physical window builder; its parent has no such builder.
+  Evidence: Current guard blame points at026a4acc, but comparison with its parent and original11ebdcc shows it merely translates names to ID collections.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C20 [P2] Window ranking loses the nullable-key compatibility setting
+Translation drops rank settings while physical lowering always implements ANSI behavior. The resulting nullability disagrees with the declared result type. Preserve the requested ranking mode.
+Location: kqp_rewrite_select.cpp:ProcessWindowCalls; physical_conversion/kqp_rbo_physical_window_builder.cpp:BuildAccumulator
+Attribution: source-traced introduction
+  11ebdccf532442bc91e1c664403a677d55b2fd2b | Denis Khalikov | authored 2026-09-10 | committed 2026-09-10
+    [Optimizer] Add initial support for window functions. (#52620)
+    Role: primary source change
+  Evidence: Initial window translation defines TWindowFuncTraits with function/kind/arguments/result only and ProcessWindowCalls skips window settings when copying the call.
+  Evidence: The corresponding initial physical rank accumulation implements the unconditional Uint64/ANSI-style result with no compatibility setting.
+  Evidence: The parent lacks this window import/lowering path; later accumulator extraction did not introduce the omitted setting.
+  Limit: Source history inspection only; no historical runtime bisection. Attribution identifies the omitted option in initial feature implementation, not a historically bisected regression.
+
+C21 [P2] Window AVG uses the wrong physical type for intervals
+Logical typing accepts an interval result, but physical accumulation forces Double for non-decimal inputs. Valid queries fail stage type inference. Match the logical interval accumulator and result type.
+Location: physical_conversion/kqp_rbo_physical_window_builder.cpp:367
+Attribution: source-traced introduction
+  e15a17493ed7698fd09c3816171d85c32770b79c | Denis Khalikov | authored 2026-09-12 | committed 2026-09-12
+    [Optimizer] Add support for avg for window (#52863)
+    Role: primary source change
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: later refactor; not introduction
+  Evidence: The commit introducing window AVG adds BuildAvgAccumulatorDataType: every nondecimal input selects Double.
+  Evidence: Its parent has no AVG accumulator helper or AVG accumulation branch; the new branch calls that helper for state construction.
+  Evidence: 026a4acc only converts the helper argument from TInfoUnit to TInfoUnitId.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C22 [P2] Repeated window keys produce an invalid physical sort
+Partition and ordering keys are concatenated without deduplicating physical columns. Repeated aliases or overlap between the two lists produce rejected sort indices. Normalize the physical sort keys while retaining peer semantics.
+Location: physical_conversion/kqp_rbo_physical_window_builder.cpp:358
+Attribution: source-traced introduction
+  11ebdccf532442bc91e1c664403a677d55b2fd2b | Denis Khalikov | authored 2026-09-10 | committed 2026-09-10
+    [Optimizer] Add initial support for window functions. (#52620)
+    Role: primary source change
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: later refactor; not introduction
+  Evidence: Initial BuildSortKeys appends every partition key, then every order key, directly into physical index specifications without deduplication.
+  Evidence: The initial commit introduces the window builder; the parent lacks this code.
+  Evidence: The current Items-based loops are a mechanical SSA migration of the same append sequence.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C23 [P2] Grouping sets mishandle a bare NULL key type
+Placeholder construction treats every Optional-or-Null type as an Optional wrapper. A bare Null reaches an invalid cast. Handle Null and other special types explicitly.
+Location: rules/expand_grouping_sets.cpp:18
+Attribution: source-traced introduction followed through code move
+  6962e896755e1f166f02647883d70575df8f206d | Denis Khalikov | authored 2026-05-29 | committed 2026-05-29
+    [Optimizer] Add support for rollup. (#41770)
+    Role: primary source change
+  9589d9b27518163f55722b2c5c8ba98dadd02594 | Denis Khalikov | authored 2026-09-06 | committed 2026-09-06
+    [Optimizer] Expand rollup in rbo rule (#52313)
+    Role: moves the same unsafe Null/Optional assumption from frontend into an RBO rule
+  Evidence: Initial frontend rollup implementation introduced IsOptionalOrNull followed by Cast<TOptionalExprType> for omitted grouping keys.
+  Evidence: The6962e896 candidate diff adds this branch; its parent has no rollup implementation.
+  Evidence: 9589d9 parent still contains the same cast in kqp_rewrite_select.cpp;9589d9 copies it into BuildNullColumn in rules/expand_grouping_sets.cpp. Therefore9589d9 is not the earliest introduction.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C24 [P2] DISTINCT expansion creates a nested optional for interval SUM
+Padding and state wrapping use input nullability rather than the aggregate result type, yielding an unsupported nested optional. Derive branch types from the actual aggregate state/result.
+Location: rules/expand_distinct_aggregation.cpp:99
+Attribution: source-traced introduction
+  0cffeb781b1ffc02c076c2eec50871970423606c | Denis Khalikov | authored 2026-06-16 | committed 2026-06-15
+    [Optimizer] Add initial multiple distinct support. (#43492)
+    Role: primary source change
+  84f51d19457d15b671fad2edfaac96ecd9686c4f | alexpaniman | authored 2026-06-20 | committed 2026-06-20
+    [NEW RBO] Fix Map key and shuffle column rename propagation (#43630)
+    Role: later refactor; not introduction
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: later refactor; not introduction
+  Evidence: Initial multi-DISTINCT padding computes fieldType from the original input column and wraps the real aggregate output in Just whenever that input is nonoptional.
+  Evidence: This ignores that an aggregate such as interval SUM may already have an Optional result; the missing-branch type is also derived from GetSumResultType plus an Optional wrapper.
+  Evidence: 84f51d19457d only changes the same condition into an early continue; parent inspection shows the original-input-nullability decision already existed.026a4acc changes bindings, not this decision.
+  Limit: Source history inspection only; no historical runtime bisection. Earlier versions may have additional failures masking this interval case; no claim that all neighboring multi-DISTINCT inputs previously worked.
+
+C25 [P2] Correlated multi-aggregate DISTINCT fails between stages
+DISTINCT expansion creates Final/Intermediate aggregate phases before decorrelation, which accepts only the Undefined phase. Align stage order or support the expanded phases.
+Location: rules/decorrelation/dependent_join_pushdown.cpp:508
+Attribution: source-traced interaction introduced by decorrelation support
+  7ee9137a38b158fb733613e21e2d160003a7c324 | Denis Khalikov | authored 2026-09-02 | committed 2026-09-02
+    [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+    Role: primary source change
+  0cffeb781b1ffc02c076c2eec50871970423606c | Denis Khalikov | authored 2026-06-16 | committed 2026-06-15
+    [Optimizer] Add initial multiple distinct support. (#43492)
+    Role: pre-existing multi-DISTINCT producer of Intermediate/Final phases
+  Evidence: 7ee913 introduces dependent aggregate pushdown with a hard Undefined-phase assertion.
+  Evidence: At that commit, Expand aggregation already precedes Decorrelation in InitializeRBOOptimizationStages.
+  Evidence: The earlier multi-DISTINCT implementation from0cffeb emits Intermediate and Final aggregates. The phase-incompatible consumer is newly added by7ee913; its parent lacks the new dependent-join decorrelation engine.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C26 [P2] DISTINCT combined with sample standard deviation is rejected
+Multi-distinct expansion explicitly rejects the variance state while constructing padding. Supply a compatible state representation for this otherwise supported aggregate combination.
+Location: rules/expand_distinct_aggregation.cpp:78
+Attribution: source-traced introduction of the current explicit rejection
+  4f73c60b323ad32961179d4413509bdfa422d5e8 | Denis Khalikov | authored 2026-06-17 | committed 2026-06-17
+    [Optimizer] Add support for more cases with multiple distinct. (#43624)
+    Role: primary source change
+  0cffeb781b1ffc02c076c2eec50871970423606c | Denis Khalikov | authored 2026-06-16 | committed 2026-06-15
+    [Optimizer] Add initial multiple distinct support. (#43492)
+    Role: earlier multi-DISTINCT implementation with a different variance type attempt
+  Evidence: The candidate diff replaces the variance branch GetAvgResultType call with an unconditional Y_ENSURE(false) in multiple-DISTINCT padding.
+  Evidence: That explicit variance rejection survives in current rules/expand_distinct_aggregation.cpp:78.
+  Evidence: Its parent attempted a variance result type; this is not merely a rename or moved line.
+  Limit: Source history inspection only; no historical runtime bisection. The parent implementation was not executed and may also have failed for this combination. This attributes the explicit rejection, not proof of a working predecessor.
+
+C27 [P2] HAVING without an aggregate call fails translation
+Predicate collection omits a plain grouping-key or constant expression, then asserts that one predicate was collected. Preserve every valid HAVING expression.
+Location: kqp_rewrite_select.cpp:1457
+Attribution: source-traced introduction
+  b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6 | Denis Khalikov | authored 2026-02-03 | committed 2026-02-03
+    [NEW RBO] Add support for HAVING. (#33329)
+    Role: primary source change
+  Evidence: Initial HAVING support adds ProcessAggregationsInHaving and requires exactly one expression in havingFilterHolder.
+  Evidence: The same new ProcessAggregations populates that holder only when aggregate calls are present, or on the DISTINCT path forbidden for HAVING.
+  Evidence: The candidate diff and its parent establish that the plain-HAVING omission is part of the feature introduction; later signature changes preserve it.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C28 [P2] DISTINCT over window results references columns before definition
+The DISTINCT aggregate is built before the window produces its result columns. Place result deduplication after window evaluation.
+Location: kqp_rewrite_select.cpp:983; kqp_rewrite_select.cpp:2256
+Attribution: source-traced interaction introduced by window support
+  11ebdccf532442bc91e1c664403a677d55b2fd2b | Denis Khalikov | authored 2026-09-10 | committed 2026-09-10
+    [Optimizer] Add initial support for window functions. (#52620)
+    Role: primary source change
+  b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6 | Denis Khalikov | authored 2026-02-03 | committed 2026-02-03
+    [NEW RBO] Add support for HAVING. (#33329)
+    Role: pre-existing DISTINCT-at-end-of-aggregate-pipeline behavior
+  Evidence: 11ebdcc moves window-result expressions out of the postaggregate map and adds BuildWindowOperators only after BuildAggregationPipeline.
+  Evidence: The earlier aggregate pipeline already constructs the final DISTINCT aggregate inside itself; no stage reorder accompanies the window introduction.
+  Evidence: Candidate/parent diff shows window values become unavailable to that pre-window DISTINCT at the point initial window support is introduced.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C29 [P2] Mixed set-operation precedence is lowered without a real operand stack
+The set-operation converter tracks only one accumulated result and a count of new operands rather than the operand stack required by postfix precedence trees. Valid mixed set-operation trees fail. Use an explicit stack and validate operand counts.
+Location: kqp_rewrite_select.cpp:2458
+Attribution: source-traced feature interaction; earlier structural limitation retained
+  8c3d6d2ac4e605acc0fc6caa265be3795973633d | Pavel Velikhov | authored 2026-06-09 | committed 2026-06-09
+    [NEW OPTIMIZER] Added support for set operations (#42928)
+    Role: primary source change
+  2805cf0cdbc875f908fabe74217de93cc490a5ad | Pavel Velikhov | authored 2025-11-20 | committed 2025-11-19
+    [NEW RBO] Add YqlSelect support (#28901)
+    Role: origin of single-accumulator postfix interpreter
+  Evidence: 2805cf0 introduced set-op traversal with one opResult and an opsInputCount counter rather than a stack; it initially accepted only union_all.
+  Evidence: 8c3d6d2 removes the union_all-only assertion and creates generic SetOp nodes without changing this operand traversal.
+  Evidence: The specific mixed-precedence defect therefore combines the original parser structure with later generalized set-operation support. Both candidate diffs and parents were inspected.
+  Limit: Source history inspection only; no historical runtime bisection. The structural limitation dates to2805cf0;8c3d6d2 is the source-traced enabling change for mixed set operations. Historical successful/failed queries were not bisected.
+
+C30 [P2] INSERT OR REVERT loses its conflict policy
+The imported policy is not carried into sink settings; conflicts return an error instead of the requested successful no-op. Preserve the policy through physical write generation.
+Location: kqp_operator.cpp:1622; kqp_plan_conversion_utils.cpp:972
+Attribution: source-traced introduction
+  b7945c07c68c68df76db3d787246eb3f895200f6 | Pavel Velikhov | authored 2026-09-07 | committed 2026-09-07
+    [NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)
+    Role: primary source change
+  344f8fd79c22a14511219b7c22a7aa7f15a56d30 | Pavel Velikhov | authored 2026-09-24 | committed 2026-09-24
+    [NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)
+    Role: later refactor; not introduction
+  Evidence: Initial DML-from-SELECT support imports Options.OnConflict but TOpTableEffect::BuildSettings chooses mode solely from EffectType and never consumes OnConflict.
+  Evidence: The candidate diff introduces both the imported conflict policy and its omission from sink construction; its parent lacks this effect lowering.
+  Evidence: The later switch conversion in344f8fd79c22 retains mode=insert and does not introduce the omission.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C31 [P2] Late join-filter inlining recreates unsupported sharing
+With block joins and spilling disabled, a late rewrite introduces sharing after the duplication stage has passed. Valid joins fail stage assignment. Duplicate eligible late producers or reorder the stages.
+Location: kqp_rbo_transformer.cpp:704; rules/inline_join_filters.cpp:90; rules/assign_stages.cpp:112
+Attribution: multi-commit interaction; unique first failing commit not established
+  dc773f93aec8fa5d56c1653bf43aef64165d8e0c | alexpaniman | authored 2026-10-05 | committed 2026-10-05
+    [NEW RBO] Duplicate shared subtrees when spilling is disabled (#54743)
+    Role: primary source change
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: introduces explicit Replicate sharing in join-filter inlining
+  7fb688ddeee2b43220828fdbf0c5b19985cab7e1 | Pavel Velikhov | authored 2026-10-04 | committed 2026-10-04
+    [NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)
+    Role: makes join-filter inlining unconditionally run after CBO
+  Evidence: 026a4acc replaces implicit left-input reuse with an explicit two-output Replicate in inline_join_filters.cpp.
+  Evidence: 7fb688 moves/enables the join-filter inlining stage unconditionally after CBO; its parent could choose early versus late placement by configuration.
+  Evidence: dc773 introduces no-spilling duplication before CBO and an assignment-time shared-stage rejection, leaving later-created Replicates outside the duplication pass.
+  Evidence: All three diffs and parents were inspected. The current reported stage-order failure is the interaction, not evidence that the later defensive assertion alone caused it.
+  Limit: Source history inspection only; no historical runtime bisection. Shared stages may already have been rejected later by the compiler without spilling. No unique first-bad historical runtime commit is claimed.
+
+C32 [P2] Forced Map mode selects an unsupported algorithm for FULL JOIN
+When CBO leaves the algorithm unset, stage assignment chooses Map without validating the join kind. Use a supported fallback for FULL joins.
+Location: rules/assign_stages.cpp:19
+Attribution: source-traced feature interaction
+  2c0f2db37dc5368f03d9d747176c3c47ca43dc78 | Pavel Velikhov | authored 2026-06-10 | committed 2026-06-10
+    [NEW OPTIMIZER] Added support for full outer join (#43141)
+    Role: primary source change
+  595f56f1b155dced92b9587866da1f5d9abc45a1 | Denis Khalikov | authored 2026-03-25 | committed 2026-03-25
+    [NEW RBO] Add support for map join. (#36605)
+    Role: origin of unconditional Map-mode fallback
+  4382787158e5fcddd09e0de7cf6a153c7ca0329f | alexpaniman | authored 2026-07-15 | committed 2026-07-15
+    [NEW RBO] Show BlockHashJoin in explain (#46362)
+    Role: later refactor; not introduction
+  Evidence: 595f56 adds HashJoinMode Map selection without checking JoinKind, while the physical builder at that revision accepts only inner/left-family joins.
+  Evidence: 2c0f2db adds Full to the physical builder accepted kinds but leaves the Map-selection fallback unchanged.
+  Evidence: 438278 only refactors MaybeSetJoinAlgo into FinalizeJoinPhysicalProps and preserves unconditional Map choice; it is not the introduction.
+  Evidence: The unsupported Full+Map combination becomes part of the advertised Full-join feature at2c0f2db, using the earlier unsafe generic fallback.
+  Limit: Source history inspection only; no historical runtime bisection. 2c0f2db is the enabling Full-support change;595f56 owns the earlier selection assumption. No historical runtime bisection.
+
+C33 [P2] Set-operation output column order follows the final arm
+Result ordering is overwritten while visiting each arm. Named values survive, but positional result consumers see a different column order. Preserve the first/canonical output contract.
+Location: kqp_rewrite_select.cpp:2264; kqp_rewrite_select.cpp:2500
+Attribution: source-traced introduction
+  2805cf0cdbc875f908fabe74217de93cc490a5ad | Pavel Velikhov | authored 2025-11-20 | committed 2025-11-19
+    [NEW RBO] Add YqlSelect support (#28901)
+    Role: primary source change
+  2d0a53c77711078980683c860b9cbf6af84e803c | Denis Khalikov | authored 2025-12-26 | committed 2025-12-26
+    [NEW RBO] Add more tests (#31384)
+    Role: later refactor; not introduction
+  Evidence: Initial YqlSelect importer clears and repopulates finalColumnOrder inside each set-item loop.
+  Evidence: After the loop, the same commit builds the root ColumnOrder from that last-written vector.
+  Evidence: 2d0a53c only changes the final iteration variable/reference style; inspection of2805cf0 source and parent shows the final-arm selection dates to initial import support.
+  Limit: Source history inspection only; no historical runtime bisection.
+
+C34 [P2] Scalar tuple-valued aggregates are mistaken for AVG state
+Empty-input handling interprets every tuple result as the internal AVG accumulator. A valid tuple-valued SOME fails, and comparable tuple MIN/MAX share the affected path. Decode tuple states only for the applicable function and phase.
+Location: physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:1312
+Attribution: source_traced_mechanism_introduction
+  229509a8de178c904cef7c88b2d804f1d3088405 | Denis Khalikov | authored 2026-06-19 | committed 2026-06-19
+    [Optimizer] Add support for avg aggregation with multi distinct (#43945)
+    Role: Introduces unqualified tuple-result decoding in empty-input aggregate output construction.
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: Later SSA refactor; parent already contains the tuple-decoding mistake.
+  Evidence: The parent CreateNothingForEmptyInput uses each aggregate result type directly. The introducing diff adds processTuple and invokes it for every tuple-valued output, asserts two elements, and replaces the type with its first element.
+  Evidence: No aggregate-function or aggregation-phase check restricts this treatment to AVG state. Current physical_conversion/kqp_rbo_physical_aggregation_builder.cpp preserves this logic after the SSA rewrite.
+  Limit: No historical execution was performed; this identifies the semantic change, not a runtime-bisected first failing revision.
+
+C35 [P2] Ordinary AVG uses an incompatible accumulator for intervals
+Physical aggregation converts nondecimal inputs to Double even where the logical AVG result is an interval. Use an interval-compatible accumulator and finalization.
+Location: physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:63
+Attribution: source_traced_feature_support_gap
+  7e555f7069e1f60ed69b301b6f9e862e14af99de | Denis Khalikov | authored 2025-11-24 | committed 2025-11-24
+    [KQP RBO] Add avg aggregation function (#29395)
+    Role: Initial new-RBO AVG lowering uses a Double accumulator for nondecimal inputs, including types needing different result semantics.
+  1cfaa6f5aa1f8029a99d531afa4dfe485f3e83d1 | Denis Khalikov | authored 2026-01-02 | committed 2026-01-02
+    [NEW RBO] Add PhysicalAggregationBuilder (#31657)
+    Role: Moves aggregation lowering into PhysicalAggregationBuilder; not the origin.
+  5befc907cdb026adb06534adc8d97665ad83b20a | Denis Khalikov | authored 2026-03-11 | committed 2026-03-11
+    [NEW RBO] Add support for AVG aggregation on Decimals (#35710)
+    Role: Adds decimal-specific accumulator handling but preserves the generic Double fallback.
+  Evidence: The initial AVG addition in kqp_convert_to_physical.cpp builds ordinary and optional AVG states by converting values to Double. Its parent has no AVG implementation.
+  Evidence: Following the implementation through extraction into physical_conversion/kqp_rbo_physical_aggregation_builder.cpp shows the same fallback. The later decimal support change does not add interval-compatible accumulation or finalization.
+  Limit: This is a feature-support omission present in the earliest traced AVG lowering, rather than evidence that the decimal-support author newly broke intervals.
+
+C36 [P2] Repeated ordinary ORDER BY keys fail physical type checking
+The sort builder preserves repeated physical column indices. WideSort/WideTopSort reject these valid order specifications. Deduplicate equivalent physical keys before construction.
+Location: physical_conversion/kqp_rbo_physical_sort_builder.cpp:73
+Attribution: source_traced_mechanism_introduction
+  ae5c21bc792f474584493f0942be1341efda0294 | Denis Khalikov | authored 2026-01-20 | committed 2026-01-20
+    [NEW RBO] Add wide sort for physical plan generation (#32407)
+    Role: Switches physical ORDER BY construction to wide sorting and emits one physical key index per logical sort element without deduplication.
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: Rewrites identifier lookup for SSA while retaining repeated physical indices.
+  Evidence: The introducing diff creates physical_conversion/kqp_rbo_physical_sort_builder.cpp and its BuildSortKeysForWideSort loop, retaining each sort element even when it resolves to a repeated column index.
+  Evidence: The same change replaces prior narrow sort construction with WideSort/WideTopSort. These physical operators reject repeated indices, explaining the currently verified valid-query rejection.
+  Limit: No old-revision runtime comparison was run; the attribution is to the offending wide-sort construction, not every earlier sorting implementation.
+
+C37 [P1] Window repartitioning leaves stale distribution metadata and breaks later grouping
+With shuffle elimination enabled and multiple partitions, Window inherits its input distribution even though it repartitions on different window keys. Later aggregation can skip its shuffle and produce duplicate groups and partial totals. Derive the actual window distribution before downstream metadata is computed, or invalidate and recompute all dependent metadata.
+Location: kqp_operator.h:974; kqp_rbo_compute_statistics.cpp:121; rules/assign_stages.cpp:265; rules/assign_stages.cpp:249
+Attribution: source_traced_feature_interaction
+  11ebdccf532442bc91e1c664403a677d55b2fd2b | Denis Khalikov | authored 2026-09-10 | committed 2026-09-10
+    [Optimizer] Add initial support for window functions. (#52620)
+    Role: Adds Window with inherited input metadata while assigning it a repartition by window keys.
+  852eb1781df7c52e7430d28f940ea3ba196e3be0 | alexpaniman | authored 2026-08-31 | committed 2026-08-31
+    [NEW RBO] Eliminate shuffles in aggregates (#51500)
+    Role: Preexisting consumer: aggregate shuffle elimination trusts distribution metadata.
+  1fdceae385da9d885ecb9492507cf86362de993a | alexpaniman | authored 2026-09-14 | committed 2026-09-14
+    [NEW RBO] Use SE for the aggregates unconditionally (#53070)
+    Role: Broadens exposure by making aggregate shuffle elimination follow the general setting.
+  04a2a1c50ede1819db281133d128fa16d75bfe4c | Pavel Velikhov | authored 2025-12-03 | committed 2025-12-02
+    [NEW RBO] Added metadata and statistics calculation to new RBO (#30009)
+    Role: Generic unary metadata copying predates Window and is valid for many other operators; not the Window defect introduction.
+  Evidence: The Window feature diff adds TOpWindow as an IUnaryOperator without a metadata override. The same feature assigns a shuffle by partition keys in rules/assign_stages.cpp.
+  Evidence: The existing aggregate shuffle-elimination implementation can therefore consume the pre-window distribution inherited through IUnaryOperator, although the physical Window stage changed it.
+  Evidence: The September SSA rewrite changes representation, not this missing operator-specific metadata invalidation.
+  Limit: The verified failure requires shuffle elimination and partitioned execution. The generic unary-copy author is not assigned the new Window bug solely because blame points at that shared line.
+
+C38 [P1] Full outer joins advertise a false left-key distribution and break later grouping
+With shuffle elimination enabled and multiple partitions, Full join metadata claims partitioning by left join keys. Unmatched right rows have NULL left keys but remain spread across partitions, so downstream grouping can emit duplicate NULL groups. Full joins must not claim a one-sided key distribution.
+Location: kqp_rbo_compute_statistics.cpp:674; rules/assign_stages.cpp:249; kqp_rbo_utils.cpp:45
+Attribution: source_traced_multi_commit_interaction
+  9293cd7151999a6fcb3498c0540dd087d18b5bd4 | alexpaniman | authored 2026-05-12 | committed 2026-05-12
+    [NEW RBO] Enable Shuffle Elimination in new RBO (#37956)
+    Role: Introduces the false one-sided Grace-join distribution claim, treating Full like left-preserving joins.
+  852eb1781df7c52e7430d28f940ea3ba196e3be0 | alexpaniman | authored 2026-08-31 | committed 2026-08-31
+    [NEW RBO] Eliminate shuffles in aggregates (#51500)
+    Role: Adds the downstream aggregate consumer involved in the verified wrong grouping.
+  1fdceae385da9d885ecb9492507cf86362de993a | alexpaniman | authored 2026-09-14 | committed 2026-09-14
+    [NEW RBO] Use SE for the aggregates unconditionally (#53070)
+    Role: Broadens aggregate consumer exposure through the general shuffle-elimination setting.
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: Preserves the one-sided Full-join premise during SSA/distribution representation changes.
+  Evidence: The shuffle-elimination metadata diff uses right keys only for Right/RightSemi/RightOnly and left keys otherwise; Full therefore acquires a left-key distribution despite unmatched right rows.
+  Evidence: The parent lacks this distribution claim. Later aggregate shuffle elimination converts the false claim into a skipped required shuffle, producing the current grouping failure.
+  Limit: The metadata defect and the verified downstream aggregation manifestation have different introduction points; no historical runtime bisection was performed.
+
+C39 [P1] Full joins silently discard residual ON predicates when block joins are enabled
+With global block joins enabled and forced residual-filter inlining disabled, an equijoin with a residual ON condition keeps that predicate for block evaluation. Full joins subsequently select nonblock Grace, which ignores the residual. Rows match incorrectly and required unmatched outer rows disappear. Base predicate lowering on the final algorithm capability and reject any unimplemented residual.
+Location: rules/inline_join_filters.cpp:68; rules/assign_stages.cpp:42; physical_conversion/kqp_rbo_physical_join_builder.cpp:502
+Attribution: source_traced_mechanism_with_earlier_precursor
+  e687f7790e78179f93079bdbe2fcf42b3e5951b5 | Pavel Velikhov | authored 2026-08-20 | committed 2026-08-20
+    [NEW OPTIMIZER] Disable join filter inlining (#50389)
+    Role: Introduces the exact global-block/equijoin bypass of residual-filter inlining without checking the final per-kind join capability.
+  84b63212775a250475b6fe397aa428fe25b9eb70 | Pavel Velikhov | authored 2026-08-13 | committed 2026-08-13
+    [NEW OPTIMIZIER] Temporarily disable join inlining for all join implementations (#49923)
+    Role: Earlier related bypass when equijoin conditions remain inside JoinFilters; exact exposure of this case not established.
+  4382787158e5fcddd09e0de7cf6a153c7ca0329f | alexpaniman | authored 2026-07-15 | committed 2026-07-15
+    [NEW RBO] Show BlockHashJoin in explain (#46362)
+    Role: Existing capability boundary excludes Full from block joins; this is a support constraint, not itself the faulty predicate decision.
+  7fb688ddeee2b43220828fdbf0c5b19985cab7e1 | Pavel Velikhov | authored 2026-10-04 | committed 2026-10-04
+    [NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)
+    Role: Adds a force-inlining exception and scheduling changes to an already-existing bypass.
+  Evidence: The August 20 diff returns the join unchanged when block joins are globally enabled, the join is not a lookup, and equijoin keys are present. It does not test whether this JoinKind will actually use blocks.
+  Evidence: Full selects scalar Grace under the existing capability rules, and that lowering has no residual predicate input. The retained condition is consequently dropped.
+  Evidence: The earlier August 13 precursor checks equijoin conditions still inside the filter collection; the exact current extracted-key mechanism is explicit in the August 20 change.
+  Limit: Do not claim August 20 is necessarily the earliest runtime failure: the earlier precursor was not historically executed. The current failing configuration disables the later force-inlining exception.
+
+C40 [P2] Multiple JSON projections from one column fail compilation
+OLAP projection collection creates a synthetic alias for a second extraction from the same JSON column, but the RBO rule asserts that no such alias exists. Support separate output information units or decline the unsupported pushdown without rejecting the query.
+Location: rules/push_olap_projection.cpp:97
+Attribution: source_traced_mechanism_introduction
+  b3ff58ad07528b163a07711e7c151955c0113d2e | Denis Khalikov | authored 2026-03-28 | committed 2026-03-28
+    [Optimizer] Push olap projection for JSON_VALUE. (#36779)
+    Role: Initial OLAP JSON projection rule rejects the synthetic alias required for repeated extraction from one source column.
+  4ecd29167f47546ae44a45f5e9549d2d4d1774c8 | Vladilen | authored 2026-09-22 | committed 2026-09-22
+    Fix pushdown distinct (#52125)
+    Role: Later edit substitutes a named prefix constant for a string literal; it does not introduce the rejection.
+  Evidence: The initial rules/push_olap_projection.cpp diff already asserts that the collected column name does not contain the OLAP-projection synthetic prefix.
+  Evidence: The collector can use that prefix to distinguish another extraction from the same underlying column. The subsequent constant-name cleanup leaves the original assertion semantics unchanged.
+  Limit: Current line blame identifies Vladilen for the prefix-constant substitution, but the rejecting condition was written earlier by Denis Khalikov. No historical native run was performed.
+
+C41 [P2] Mixed read and write statements lose result bindings and fail task construction
+The query builder treats the complete root set as effects-only when any root writes, omitting result bindings for read roots. Native execution fails while constructing task outputs. Keep result ownership per root and preserve statement dependencies.
+Location: physical_conversion/kqp_rbo_physical_query_builder.cpp:596; physical_conversion/kqp_rbo_physical_query_builder.cpp:636; kqp_rbo_transformer.cpp:507
+Attribution: source_traced_mechanism_introduction
+  6c5cba84ecf9ae08fd6b3c0c4d9eb3835f62cd04 | Pavel Velikhov | authored 2026-09-17 | committed 2026-09-17
+    [NEW OPTIMIZER] Support multiple statements in a query (#53062)
+    Role: Expands the query builder from one root to multiple roots but aggregates their effect status into one effects-only decision.
+  Evidence: The multiple-statement diff replaces Root with Roots in physical_conversion/kqp_rbo_physical_query_builder.cpp, ORs WithEffects across roots, and uses that combined condition to suppress result construction and bindings.
+  Evidence: The parent single-root effect decision applied to the same root whose result was being built. Extending it to the whole root set makes an unrelated writing root suppress read-root output ownership.
+  Limit: The verified native path disables per-statement execution. No historical execution was run; dependencies beyond the observed lost result bindings were not separately attributed.
+
+C42 [P2] Nested unions do not consistently widen branch types
+Set-operation import widens direct map inputs but misses nested union inputs. A later nullable branch leaves earlier nested branches nonnullable; physical sequence combination rejects the mismatch. Normalize every branch to the common output schema at every set-operation boundary.
+Location: kqp_plan_conversion_utils.cpp:598; kqp_rbo_type_ann.cpp:320; physical_conversion/kqp_rbo_physical_union_all_builder.cpp
+Attribution: inherited_support_gap_and_incomplete_repair
+  dc0256d7f53f85ce480a1d458dd2ebe044877ef0 | Denis Khalikov | authored 2025-10-06 | committed 2025-10-06
+    [KQP RBO] Add union all (#26359)
+    Role: Earliest traced union lowering combines branches without complete common-schema normalization.
+  3c09db7992df63b34399a027303c9dd20ff292bb | Denis Khalikov | authored 2026-05-26 | committed 2026-05-26
+    [Optimizer] Proper handle union all with optional types (#41373)
+    Role: Adds nullable widening only for direct map branches, leaving nested union branches untreated.
+  8c3d6d2ac4e605acc0fc6caa265be3795973633d | Pavel Velikhov | authored 2026-06-09 | committed 2026-06-09
+    [NEW OPTIMIZER] Added support for set operations (#42928)
+    Role: Extends set-operation support while preserving the direct-map normalization limitation.
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: Moves/rewrites the same limited branch normalization for SSA; not the original omission.
+  Evidence: Initial union conversion recursively lowers and combines the two inputs without inserting complete per-boundary schema normalization.
+  Evidence: The nullable-union repair explicitly calls MaybeForceColumnToOptional only when the input directly matches TKqpOpMap. Its parent does not have complete normalization either, so this repair is incomplete rather than a demonstrated regression.
+  Evidence: Nested set-operation inputs remain outside that guard through subsequent set-operation and SSA changes.
+  Limit: There is no proven good-to-bad revision for the present query family. Earlier frontend/type admission evolved; report an inherited support gap and incomplete repair, not a runtime-bisected regression.
+
+C43 [P2] Focused physical lowering rejects supported composite expressions
+When EnableNewRBOPhysicalStagePeephole is disabled, the focused compatibility checker requires complex comparisons and membership to be lowered, but its rewrites cover only scalar and shallow tuple cases. Valid nested composite comparisons are rejected. Reuse complete recursive lowering for all admitted types.
+Location: physical_conversion/kqp_rbo_compatibility.cpp:62; physical_conversion/kqp_rbo_compatibility.cpp:225; physical_conversion/kqp_rbo_compatibility.cpp:408
+Attribution: source_traced_feature_support_gap
+  d2b6c65e86707fad12e57b2a01de5073f56aaf43 | alexpaniman | authored 2026-09-01 | committed 2026-09-01
+    [NEW RBO] Disable YQL peephole in new RBO (#51457)
+    Role: Introduces focused physical compatibility lowering with a checker that requires more composite lowering than the rewrite implements.
+  Evidence: The change creates physical_conversion/kqp_rbo_compatibility.cpp and the path used when full stage peephole is disabled.
+  Evidence: Its rewrite covers scalar and limited tuple operations, while its compatibility checker requires complex comparisons/membership to be eliminated. The feature addition therefore lacks recursive coverage for admitted composite expressions.
+  Limit: The verified failure is conditional on disabling EnableNewRBOPhysicalStagePeephole. No claim is made that the ordinary full-peephole path regressed or that all composites fail.
+
+C44 [P1] Successful indexed INSERT can omit required index maintenance
+Indexed INSERT becomes a base-table sink without expanding maintenance for indexes the sink cannot update. Native controls confirm base rows are inserted while noncompact fulltext indexes, and ordinary synchronous indexes with EnableIndexStreamWrite disabled, remain empty. Preserve explicit maintenance for nonsink index families, or fall back before executing the write.
+Location: kqp_operator.cpp:1622; rules/assign_stages.cpp:324; ydb/core/kqp/query_compiler/kqp_query_compiler.cpp:1978
+Attribution: source_traced_unsafe_admission_interaction
+  344f8fd79c22a14511219b7c22a7aa7f15a56d30 | Pavel Velikhov | authored 2026-09-24 | committed 2026-09-24
+    [NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)
+    Role: Changes indexed effect variants from rejection to ordinary base-table sink modes without generating nonsink index-maintenance effects.
+  b7945c07c68c68df76db3d787246eb3f895200f6 | Pavel Velikhov | authored 2026-09-07 | committed 2026-09-07
+    [NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)
+    Role: Creates earlier effects infrastructure, but BuildSettings still rejects indexed variants at that point.
+  f4a8030ce54941922e5ccafd19b773e92e6cc298 | Vitaliy Filippov | authored 2026-09-16 | committed 2026-09-16
+    Allow to update compact fulltext indexes without the global EnableIndexStreamWrite flag (#53237)
+    Role: Preexisting sink contract distinguishes stream-maintained indexes from compact sink-maintained families; not the new-RBO omission origin.
+  eff90e896672ce0be15dbf4cd2a2b6dad782885c | Nikita Vasilev | authored 2026-07-02 | committed 2026-07-02
+    Refactoring for sinks query compiler (#45144)
+    Role: Earlier query-compiler refactor retains restricted sink maintenance; context only, not a defect attribution.
+  Evidence: In kqp_operator.cpp, the September 24 diff adds InsertRowsIndex and other indexed variants to the ordinary mode cases in BuildSettings. Its parent rejects those variants.
+  Evidence: The resulting Effect still becomes an ordinary table sink, with no separate maintenance expansion for index families outside the sink contract.
+  Evidence: The parent already has the compiler limitation: ordinary synchronous maintenance requires stream index writes, while compact families have dedicated sink support. Legacy explicitly supplies other maintenance effects.
+  Limit: Native evidence covers noncompact fulltext and ordinary synchronous indexes with stream writes disabled. The consumer's intentional capability boundary is not assigned blame for the producer's unsupported admission. No historical runtime bisection was performed.
+
+C45 [P2] Window expressions lose nested-field receivers
+Window argument and key translation treats a nested Member as a direct row column and retains only the final field name. A valid window aggregate over a nested field fails argument binding. The same receiver assumption exists for partition and ordering keys. Preserve the complete access expression or materialize it into a dedicated column.
+Location: kqp_rewrite_select.cpp:1143; kqp_rewrite_select.cpp:1253
+Attribution: source_traced_feature_support_gap
+  11ebdccf532442bc91e1c664403a677d55b2fd2b | Denis Khalikov | authored 2026-09-10 | committed 2026-09-10
+    [Optimizer] Add initial support for window functions. (#52620)
+    Role: Initial Window import reduces Member expressions to their final field name without validating or preserving the receiver.
+  Evidence: The initial Window feature adds ResolveWindowKeyColumn and window-call argument translation. Both recognize Member and retain its Name as if the receiver were the row itself.
+  Evidence: A nested field receiver is therefore lost before argument/key binding. Current kqp_rewrite_select.cpp retains the same assumption.
+  Limit: Only valid-query rejection for nested window arguments is native-confirmed. Wrong-column binding and partition/order variants remain source-only consequences, and were not historically executed.
+
+C46 [P2] Conditional UPDATE is rejected by table-effect translation
+A valid conditional UPDATE reaches RewriteTableEffect with an input outside the two accepted translated root/map forms and is rejected. Native checks fail with and without a secondary index. Translate the normalized conditional-update input and preserve its effect mode and row shape.
+Location: kqp_rewrite_select.cpp:1678
+Attribution: source_traced_feature_support_gap
+  b7945c07c68c68df76db3d787246eb3f895200f6 | Pavel Velikhov | authored 2026-09-07 | committed 2026-09-07
+    [NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)
+    Role: Initial table-effect importer accepts only an already-translated root as input, leaving normalized conditional-update inputs unsupported.
+  344f8fd79c22a14511219b7c22a7aa7f15a56d30 | Pavel Velikhov | authored 2026-09-24 | committed 2026-09-24
+    [NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)
+    Role: Broadens accepted input to a map over a root, but retains rejection of the conditional-update form; incomplete expansion, not a newly introduced rejection.
+  Evidence: The initial RewriteTableEffect implementation demands TKqpOpRoot for its input and otherwise rejects it.
+  Evidence: The later Insert/Updates change adds a second accepted shape, Map(TKqpOpRoot), but still does not translate the normalized conditional-update input used by the verified failure.
+  Evidence: The current rejecting line is therefore inherited incomplete import support, not evidence that the September 24 expansion regressed a previously supported form.
+  Limit: The initial feature was described as effects from SELECT, so author attribution identifies the narrow importer's history rather than claiming that conditional UPDATE was previously promised or working in new RBO.
+
+C47 [P2] Explicit secondary-index reads are not imported
+Reading an ordinary synchronous secondary index through explicit VIEW produces TKqlReadTableIndexRanges. The source importer has no matching branch and rejects the query. Add the index-range source conversion while preserving index metadata, requested columns, and ranges.
+Location: kqp_rewrite_select.cpp:1892
+Attribution: inherited_source_kind_support_gap
+  2805cf0cdbc875f908fabe74217de93cc490a5ad | Pavel Velikhov | authored 2025-11-20 | committed 2025-11-19
+    [NEW RBO] Add YqlSelect support (#28901)
+    Role: Adds YqlSelect support using the inherited base-table-only source importer; the missing explicit-index read branch remains.
+  83f4fbe79d33d2c0e11fc3d26569cecc7e50f988 | Pavel Velikhov | authored 2025-05-08 | committed 2025-05-08
+    New RBO prototype (#13704)
+    Role: Earliest implementation ancestry: the original prototype directly wraps sources as TKqlReadTableRanges.
+  a7816a06aeb6251034bbe98f55aef1f773c68ddf | Pavel Velikhov | authored 2025-09-26 | committed 2025-09-26
+    Added support for CTEs, alias renames and graphs into new RBO (#24467)
+    Role: Adds CTE/source handling while retaining the base-table-only branch.
+  d568eb8afcecb4517a87464ccbfdd69e5d19259c | Pavel Velikhov | authored 2026-06-02 | committed 2026-06-02
+    [NEW RBO] Single pass rewrite select (#41065)
+    Role: Makes the branch test and unsupported-source error explicit in the single-pass rewrite; not the original missing source kind.
+  Evidence: Current import handles TKqlReadTableRanges and translated roots/YqlSelect forms, but no TKqlReadTableIndexRanges branch.
+  Evidence: The June single-pass rewrite makes that restriction explicit. Its parent already assumes non-subquery inputs are TKqlReadTableRanges.
+  Evidence: Following the file move through YqlSelect support and earlier CTE changes reaches the May prototype, whose source importer also directly wraps TKqlReadTableRanges. No complete explicit-index importer removed by these commits was found.
+  Limit: This is not a proven regression introduced by the prototype, the file move, or the current error line. The feature admission point and earliest runtime failure were not historically bisected.
+
+C48 [P2] Indexed UPSERT is rejected when sink index maintenance is disabled
+With EnableIndexStreamWrite disabled, indexed UPSERT is represented by KqlUpsertRowsIndex. Table-effect translation does not handle that operation and rejects it. Support the explicit index-maintenance path or fall back before committing to the new optimizer.
+Location: kqp_rewrite_select.cpp:1792; ydb/core/kqp/opt/kqp_opt_kql.cpp:587
+Attribution: source_traced_feature_support_gap
+  b7945c07c68c68df76db3d787246eb3f895200f6 | Pavel Velikhov | authored 2026-09-07 | committed 2026-09-07
+    [NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)
+    Role: Initial effects importer handles ordinary KqlUpsertRows but lacks KqlUpsertRowsIndex.
+  344f8fd79c22a14511219b7c22a7aa7f15a56d30 | Pavel Velikhov | authored 2026-09-24 | committed 2026-09-24
+    [NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)
+    Role: Adds indexed modes in sink settings, but does not add the missing indexed-upsert importer branch.
+  Evidence: The original RewriteTableEffect implementation contains ordinary upsert and other effect cases followed by an unsupported-effect failure, without a KqlUpsertRowsIndex case.
+  Evidence: The upstream effect representation legitimately uses KqlUpsertRowsIndex when stream index maintenance is disabled. This shape still does not reach a supported importer branch after the later sink-mode additions.
+  Limit: This is a conditional support gap, not evidence of a historically working indexed-upsert path later being removed. No historical runtime bisection was performed.
+
+C49 [P1] Incomplete lookup keys make residual LEFT JOIN reconstruction mix different rows
+A noncovering secondary-index lookup advertises the surviving part of a composite primary key as unique. Late residual-filter inlining uses that false identity to reattach matches, multiplying rows and assigning matches to the wrong left rows. Native verification fails with a partial key and passes when the complete key is retained. Require all primary-key components before advertising uniqueness and preserve a proven row identity for reconstruction.
+Location: kqp_rbo_compute_statistics.cpp:225; rules/push_ranges.cpp:690; rules/inline_join_filters.cpp:109
+Attribution: source_traced_metadata_defect_with_later_exposure
+  93ac68420d538bc9659cec81f915458e05c6ac0a | Yesdaulet Izenov | authored 2026-07-28 | committed 2026-07-28
+    [NewRBO] Auto index select (#47915)
+    Role: Introduces noncovering TableLookup metadata that advertises only surviving primary-key components as a complete unique key.
+  ace526f2d23b6c1a980cc3a01524467484aa4a3f | Pavel Velikhov | authored 2026-08-15 | committed 2026-08-15
+    [NEW OPTIMIZER] CBO picks lookup joins correctly (#50095)
+    Role: Exposure change: decouples key pruning from late residual inlining, permitting both together.
+  2bef7dc5e9eba990c818bf9d40e9cf71ead97249 | alexpaniman | authored 2026-09-04 | committed 2026-09-04
+    [NEW RBO][PERF] Prune columns early to speedup TypeAnn during subplan handling (#52139)
+    Role: Exposure change: adds unconditional early primary-key pruning before the later reconstruction consumer.
+  d865a089d7dd678ad474a9eac95b1ba27b074675 | Pavel Velikhov | authored 2026-05-19 | committed 2026-05-19
+    [NEW RBO] Fix inline join filters rule (#40392)
+    Role: Preexisting reconstruction consumer changes residual join reattachment to left metadata KeyColumns; it requires the producer's uniqueness contract.
+  e771af8fddfdf18624496f497d6167a1e348102f | alexpaniman | authored 2026-07-17 | committed 2026-07-16
+    [NEW RBO] Inline join filters after CBO (#46665)
+    Role: Adds late inlining but originally protects required key columns when late inlining is enabled.
+  026a4acc33c26deef68af9c271412cc5ff1095f8 | alexpaniman | authored 2026-09-29 | committed 2026-09-29
+    [NEW RBO] Migrate RBO to ID-based SSA columns (#54404)
+    Role: Mechanically preserves the partial-key metadata omission during SSA migration.
+  7fb688ddeee2b43220828fdbf0c5b19985cab7e1 | Pavel Velikhov | authored 2026-10-04 | committed 2026-10-04
+    [NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)
+    Role: Later changes residual-inlining policy and scheduling; not the origin of false partial-key uniqueness.
+  Evidence: The July Auto index select diff creates TOpTableLookup::ComputeMetadata and appends each base primary-key component only if it appears in FetchColumns, then advertises the possibly incomplete list as KeyColumns. It also creates the noncovering lookup path.
+  Evidence: The preexisting late-inlining consumer uses KeyColumns as the row identity for reattaching filtered matches. A strict subset of a composite key cannot establish that identity.
+  Evidence: The July pipeline still derives pruneKeyColumnsEarly from the absence of late inlining. The August change replaces this protection with an independent setting; the September early-pruning stage unconditionally enables key pruning.
+  Evidence: The SSA change rewrites lookup and key containers but does not add or remove the missing all-components completeness check.
+  Limit: Do not assign the full current wrong-result chain to the metadata author alone, or to the SSA author based on last-line blame. Native confirmation covers LEFT reconstruction; semi/anti variants remain source-only and are not claimed observed.
+
+C50 [P1] Mixed numeric join keys can be shuffled before type normalization and lose matches
+Distributed joins partition inputs using the original key types, then normalize keys inside the join stage. Numerically equal keys with different hash representations can be sent to different partitions and never meet. Normalize keys before shuffle construction, and include normalized type/hash identity in distribution proofs. This also reproduces with the legacy optimizer and is not claimed as newly introduced.
+Location: rules/assign_stages.cpp:170; rules/assign_stages.cpp:181; physical_conversion/kqp_rbo_physical_join_builder.cpp:247
+Attribution: separate_pipeline_mechanisms_with_uncertain_earliest_failure
+  1d58575fc39a3d375a5dabb06fa51605e0986932 | Denis Khalikov | authored 2026-03-24 | committed 2026-03-24
+    [NEW RBO] Add support to join on optional keys. (#36479)
+    Role: New RBO: introduces common-type preparation maps inside the consuming physical join, after existing original-key shuffle assignment.
+  2fd81e982c1aca687358e605804ed873a28ff835 | Filitov Mikhail | authored 2026-05-14 | committed 2026-05-14
+    [BHJ] remove filternullmembers (#40283)
+    Role: Legacy exposure candidate: disables upstream common-key remaps for block hash joins.
+  9293cd7151999a6fcb3498c0540dd087d18b5bd4 | alexpaniman | authored 2026-05-12 | committed 2026-05-12
+    [NEW RBO] Enable Shuffle Elimination in new RBO (#37956)
+    Role: Current new-RBO shuffle lines have this blame, but original-key shuffle construction predates this change; not sufficient as origin.
+  a7c82a1ebb7e95ba595f2db9836958a67d138563 | a-romanov | authored 2022-11-30 | committed 2022-11-30
+    Make common keys type for hash join.
+    Role: Older legacy common-key handling normalizes upstream and is not the same late-normalization defect.
+  Evidence: The March new-RBO change adds common-key type computation and StrictCast preparation in the physical join builder. Stage assignment already constructs hash-shuffle connections from original logical keys; a cast inside the receiving stage cannot repair earlier partition selection.
+  Evidence: Legacy DQ ordinarily pushes remapping lambdas into upstream stages and changes shuffle keys. The May block-join change adds an if-not-block guard around this upstream key-type preparation.
+  Evidence: Current verification inherits block joins enabled for the legacy path. That makes the block-specific guard relevant to the observed shared symptom, but does not prove legacy scalar lowering has the same new-RBO design.
+  Evidence: The new-RBO parent before March lacks the common-type preparation maps. Its behavior for every mixed numeric family was not executed, so an earlier wrong-result route cannot be excluded.
+  Limit: The current wrong result is independently native-confirmed in both optimizers. Their common symptom is not proof of one shared introducing commit. No historical runtime or native algorithm-isolation bisection was performed; the legacy block-specific candidate must remain qualified.
+

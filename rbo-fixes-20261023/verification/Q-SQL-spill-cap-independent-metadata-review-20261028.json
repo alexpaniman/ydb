@@ -1,0 +1,20 @@
+{
+  "schema": "quality_spill_cap_independent_metadata_review_v1",
+  "patch_sha256": "9e70be28e44f600870ceb0db59bf4b990b1ddc5a22cd11a6af51dfdee1952e93",
+  "after_images": {
+    "quality_spill_bounds.py": "6ac0b38adc4207800a853e06cfccfc4f167dd79663398eec8712a09fee4fbe91",
+    "native_verify.py": "f00515a00a438b2549c0241d712fa34da3e996161d605d8cb04913410486f29f"
+  },
+  "checks_passed": 1895,
+  "exact_affected_cells": 82,
+  "negative_rejections": 742,
+  "original_metadata_preserved": true,
+  "unrelated_flags_preserved": true,
+  "native_invocations": 0,
+  "live_edits": false,
+  "source_proof_review_pending": true,
+  "final_composition_binding_refresh_required": true,
+  "complete_SQL_vector_cells_checked": 850,
+  "unaffected_metadata_unchanged": 768,
+  "complete_SQL_vector_exact_counts": true
+}

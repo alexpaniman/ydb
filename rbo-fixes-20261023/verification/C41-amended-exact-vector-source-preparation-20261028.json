@@ -1,0 +1,109 @@
+{
+  "acceptance": [
+    "Use a fresh slice after this manifest preparation time at amended dd1d8cab; exact12 original records, new optimizer mode, row count24 and one repetition are mandatory.",
+    "Reuse all immutable historical checker validation, including strict seven-field binary identity, fresh receipt and guard hashes, per-case workload fingerprints and every case-specific oracle.",
+    "Additionally require binary path to match the receipt worktree, actual native memory peaks within24GiB, and unchanged178-file suite inventory and final query boundary before/after checking.",
+    "Require unfiltered full RBO-suite build success at the same revision, bound to the same runner receipt. Require eight workers,52GiB build watchdog budget and36GiB headroom; guard interruption remains failure.",
+    "No automatic finding promotion or reinterpretation of historical13 successes; parent reviews the complete result and retained qualifications."
+  ],
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "checker": {
+    "path": "proposed-correctness-amendments/c41_amended_exact_vector_check_20261028.py",
+    "sha256": "fbd7a0aa9268993dfd2a928dd590189bc791b316c35eed9e07a58ad841a3daf5"
+  },
+  "cli_argv": [
+    "python3",
+    "-B",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/proposed-correctness-amendments/c41_amended_exact_vector_check_20261028.py",
+    "--records",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/guarded-fixed-C41-dd1d8cabb862-<fresh-stamp>.jsonl",
+    "--fullsuite-build-record",
+    "<completed-bound-C41-fullsuite-build.json>"
+  ],
+  "constraints": {
+    "live_helpers_changed": false,
+    "native_build_or_Git_runs": 0,
+    "new_workloads": false,
+    "old_records_or_verdicts_rewritten": false,
+    "production_changed": false,
+    "raw_queries_results_or_diagnostics_persisted": false
+  },
+  "current_helper_source_bindings": 35,
+  "expected_records": 12,
+  "fullsuite": {
+    "exact_target": [
+      "ydb/tests/tools/kqprun",
+      "ydb/core/kqp/ut/rbo",
+      "-tA"
+    ],
+    "filters_or_runner_only_build_accepted": false,
+    "reference": "Same bytes in existing metadata, verify and aggregate worktrees; the main workspace has an unrelated OLAP test difference and is not used as the suite reference.",
+    "required_fixed_boundary_sha256": "429479d060ca8197be45e672dd3034834f3c842d8f5cde29a0c14dae00f2ed8b",
+    "requires_successful_build_exit_and_fresh_matching_runner_receipt": true,
+    "suite_source_files": 178
+  },
+  "immutable_original_checker": {
+    "path": "proposed-correctness-amendments/historical_rerun_vector_check_20261028.py",
+    "sha256": "c532b97282b370c4398b7a0db158844614a8e2d564ff86bbdd7dd3ecf48c282f"
+  },
+  "immutable_original_manifest": {
+    "path": "verification/historical-rerun-exact-vector-20261028.json",
+    "sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58"
+  },
+  "ledger": {
+    "count": 57,
+    "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/idle-C31-const-repair-applied57-20261028.json",
+    "sha256": "3cce0e79be966ab48fad4851fe9a3e0a18e783fa1e2aeef44170925f910e2b21"
+  },
+  "manifest": {
+    "path": "verification/C41-amended-exact-vector-20261028.json",
+    "sha256": "c38aac3168417f57a49f8d8bdb92d92a2030efd4b2fa72ba1d3ecb8d0f804347"
+  },
+  "metadata_checks": {
+    "checks_passed": 607,
+    "path": "verification/C41-amended-exact-vector-metadata-contracts-20261028.json",
+    "script": "proposed-correctness-amendments/c41_amended_exact_vector_contracts_20261028.py",
+    "script_sha256": "cf6a29ebafcb4300de02487c0329c2ac201d7fc75d6d82e71480dc425f8d213e",
+    "sha256": "121423d64f37545c32d37d80a387fea5f5e387bf5649bf304d0a5694e12779aa"
+  },
+  "preserved_historical13_verdicts": {
+    "verification/historical-vector-C01-1793149997671994676.json": "ef58c5cebd556477299d5d1b0b9bded5aa70245af0077ff6f2f10fe718014b77",
+    "verification/historical-vector-C02-1793150155318775826.json": "2adbeda62e0fcc40a969f826ba60942770a4b904b47361c7ab4c01a5871e620c",
+    "verification/historical-vector-C03-1793150262960555280.json": "b2f531c9f3723657865500129b9928bc99f6611b4242cbf64177e880ec1ef02e",
+    "verification/historical-vector-C04-1793150430874726304.json": "b98cc1ce1b7410d7d946026bf02b88933cf646d91b737e41fb1823ef58e5fb5b",
+    "verification/historical-vector-C05-1793151006520196337.json": "743a0134e3376b6e2cdb789a47cf41e51df682b050b3b3daef69bb014963c682",
+    "verification/historical-vector-C06-1793151165817956221.json": "9c6f084d9c2e54220812aa1aab676df118c9d07f98af203b3cc91595456d4c75",
+    "verification/historical-vector-C07-1793151297025408542.json": "92066b31f39b7f7b631e1ae1e6c8bee1ebe9dcabb722b5680064806593f9698e",
+    "verification/historical-vector-C08-1793151414194075129.json": "d7c6ef4197e66fc2f1e3788dd93dc61dd8d56daf12603a70481e007814fdddd8",
+    "verification/historical-vector-C17-1793151547747124053.json": "429301d3bfec7e161a8653d1520ab08813ce4a4463618825206e046a30236635",
+    "verification/historical-vector-C18-1793151682860836173.json": "9316bf6faeb0e6b527792ee65ffe1fd3a3a795d4f1fbc7ca3a3dc0fe558e64d6",
+    "verification/historical-vector-C26-1793151964265569601.json": "2de9b3bc2af0a51fdfcc57e1ecd416db6735c9d4d4921bd80b5bf4a04950bda4",
+    "verification/historical-vector-C44-1793152089367367645.json": "151bfd76ee937c8f5bd4c43a0fca2813d2a03bd61ffded3a0d7e1f5c52a992b1",
+    "verification/historical-vector-C48-1793152218059235680.json": "7f0595802d29f19038555fd39d00b4da00c80d5b923e29b797cd2164475196e1"
+  },
+  "preserved_prior_C41_failure_and_semantic_evidence": {
+    "verification/C41-fullsuite-failure-b71ac02f-20261028.json": "ff0d5ce2f8300dd55bcdb02cde66ffab4c91498410ded6a54062fac55c5226ea",
+    "verification/C41-fullsuite-sanitized-outcomes-20261028.json": "96707b4177892a96ed275004ed148cbf523fadb3ed02e717209f225b4b14a5d8",
+    "verification/fixed-C41-b71ac02fc35f.jsonl": "c755c823767be2b13568e90fa7cad923139d052afdab6ecd7ca5caccceab4aa6",
+    "verification/fixed-C41-ddd3afcc0d22.jsonl": "e15ca1b88a369d82738cf153a08d87c2d7d7bedb05a9638feaaf9fb6e9cd6f4b"
+  },
+  "refreshed_common_binding_paths": [
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/native_verify.py"
+  ],
+  "revision": "dd1d8cabb86258c4bcb998bd6b317b296bfdd251",
+  "rows": 24,
+  "schema": "C41_amended_exact_acceptance_source_preparation_v1",
+  "status": "frozen_for_independent_review_no_runtime_admission",
+  "unchanged_vector": {
+    "all_original_cells_and_required_fields_preserved": true,
+    "changed_cell_fields": [],
+    "changed_item_field": "revision",
+    "scope": [
+      "result binding order and ownership",
+      "empty result-set boundaries",
+      "effect persistence",
+      "base and index effects",
+      "read-only control"
+    ]
+  }
+}

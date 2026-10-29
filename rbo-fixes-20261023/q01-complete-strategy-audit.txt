@@ -1,0 +1,97 @@
+Q01 complete-strategy audit, 2026-10-23
+Read-only production review. No rendered workload or native result is retained.
+
+Existing legacy lowering does not provide a complete fast replacement.
+ExpandCalcOverWindow is publicly callable (yql_opt_window.h:10), but both ROWS
+and RANGE GENERIC frames select TChain1MapTraitsGeneric at
+yql_opt_window.cpp:2105-2110 and :2139-2145. Its BuildFinalOutput creates Fold1
+over the complete frame for each row (:1972-1991). Existing incremental/full
+specializations cover growing/full frames, not general sliding frames. Routing
+RBO through this API would retain the reported asymptotic work and add a broad
+representation bridge. It is not a complete Q01 fix.
+
+A stronger narrow COUNT optimization is available inside the RBO builder.
+BuildFrameFold already feeds BuildChainOutputs into the queue; each queued row
+therefore has cumulative outputs for every COUNT, including nullable arguments.
+For nonempty frames, subtract the first queued row's cumulative count from the
+last queued row's cumulative count, then add the first row's own countability.
+Use the same AggrCountInit contract as BuildAccumulator for nullable/Null input;
+use one for a statically required argument. Empty frames yield zero. Unsigned
+count arithmetic preserves the existing increment/subtraction wrap contract.
+
+Both boundary accesses are constant-time without editing essentials:
+- Head on the raw WinFrame list reads the first TQueueRange iterator element
+  (mkql_queue.cpp:129-140); avoid introducing a full-list materializer.
+- WinFrame with ReturnSingleElement=true returns buffer[frame.Max()-1]
+  directly (mkql_queue.cpp:552-557), using the exact same ROWS/RANGE handle.
+- Keep DependsOn(current row) on both accesses. The collector supplies clipped
+  bounds and queue lifetimes; reuse its ordering, peer, null and offset policy.
+- Remove COUNT states from the per-frame Fold1 lambdas. If only COUNT/native
+  functions remain, no Fold1 should be reachable from the result. Mixed windows
+  may still fold their other aggregates, while COUNT no longer participates.
+This closes the frame-width factor for all admitted COUNT variants, not just
+COUNT(*), and needs only physical-window-builder changes. It does not close Q01
+for the other four supported aggregate functions.
+
+Remaining full algorithm work is materially larger than a scoped rule fix.
+SUM over machine integers can use cumulative modular sums plus a cumulative
+non-null count, preserving empty/all-null result optionality. Auxiliary count
+state and queue-row type/layout must be added when no suitable COUNT is already
+present. Interval SUM has nullable overflow and cannot inherit this proof.
+MIN/MAX require a proven range-summary structure or monotone deque, with exact
+AggrMin/AggrMax comparison, equal-value selection, NaN, signed-zero, optional and
+custom-type behavior. Existing queue wrappers expose push/pop-front/peek, not a
+ready-made monotone-deque aggregate. A tuple/list implementation would need its
+own complexity proof so persistent list copying does not recreate the problem.
+
+Floating SUM/AVG currently perform order-sensitive floating additions. Prefix
+subtraction, inverse updates and balanced merging do not preserve those results
+under cancellation, infinity or NaN. Decimal and Interval accumulation have
+overflow/sentinel behavior, so algebraic cancellation is not a general proof
+there either. Exact ordered-fold equivalence cannot be assumed from the usual
+mathematical sum identities. A type/operation eligibility contract and defined
+numeric equivalence policy are prerequisites for expanding these fast paths.
+Keeping a Fold1 fallback is correct but must remain an explicitly unclosed part
+of Q01 rather than being counted as complete elimination of the frame-width cost.
+
+Independent review: smallest subsequent SUM step
+Required machine-integer SUM does not need auxiliary count state: the same
+first/last frame access already distinguishes empty frames. The queued SUM
+outputs can be differenced and the first original input added back, provided
+the admitted accumulator/result slot is explicitly Int64 or Uint64 and its
+input-to-accumulator cast cannot fail. Both interpreter TAdd::Do (SafeAdd) and
+LLVM TAdd::Gen (integer CreateAdd without overflow flags) use modular integer
+arithmetic in mkql_builtins_add.cpp:15-28. Verify the matching subtraction path
+and result optionality before implementing. No floating, Decimal, Interval or
+custom aggregate should inherit this eligibility proof.
+
+Optional machine-integer SUM can first be optimized only when the same window
+already has a COUNT with the exact same argument IU. Its frame count gives the
+all-null/empty distinction; missing cumulative sums use typed zero solely for
+the modular arithmetic, then the count restores NULL. This needs no new queued
+column or auxiliary state. General optional SUM without such a count needs the
+additional count state described above. Required-integer SUM is therefore a
+smaller next implementation than general optional SUM, but either extension is
+still a bounded Q01 improvement and must keep the remaining families open.
+
+Independent review of the current COUNT patch found no source-level blocker:
+BuildChainOutputs stores cumulative COUNT under the output IU, the first-row
+contribution reuses BuildAccumulator/AggrCountInit, and the frame Fold1 becomes
+unreachable when only COUNT/native functions remain. Removing the identity
+OrderedMap exposes TQueueRange directly; its iterator reads only one buffer
+element for Head. The last-element WinFrame form uses frame.Max()-1. This is
+a source proof, not native or performance validation.
+
+Verification for the stronger COUNT patch
+Use independent optional/nonoptional/all-null counts for ROWS and RANGE; clipped
+and empty frames; both sort directions; repeated peer values; native rank output
+beside counts; multiple count arguments; mixed aggregate windows. In the lowered
+graph, eligible count-only windows must have zero reachable frame Fold1 and O(1)
+boundary accesses. Measure fixed row count with increasing width and fixed width
+with increasing row count. Preserve whole-partition/running specializations and
+validate collector boundary agreement rather than reimplementing RANGE bounds.
+
+Conclusion: no complete reusable legacy algorithm was found. COUNT can receive a
+narrow complete family fix; the full Q01 aggregate scope needs additional type-
+specific algorithms and semantic contracts. Do not mark all of Q01 resolved by
+the COUNT patch or by falling back to legacy generic-frame lowering.

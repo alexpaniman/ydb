@@ -1,0 +1,46 @@
+{
+  "id": "C39",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c39-require-residual-capability",
+  "commit": "416834fa9b1e0fec89d663026e74f76ab6909314",
+  "status": "verified_guard",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp"
+  ],
+  "rationale": "Enforce residual predicate capability for every physical join algorithm, preventing silent wrong results. This is a correctness guard: FULL residual joins remain unsupported and fail compilation rather than return incorrect rows.",
+  "checks": [
+    "git diff --check passed"
+  ],
+  "verification_plan": "Native target and controls; C39 expects explicit rejection of unsupported residual shape, successful supported controls.",
+  "verification_limitation": "Correctness guard: unsupported residual FULL joins fail explicitly instead of silently dropping predicates; this branch does not implement residual FULL joins.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C39",
+    "revision": "416834fa9b1e0fec89d663026e74f76ab6909314",
+    "exit_code": 0,
+    "elapsed_seconds": 80.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4497408,
+      "peak_scope_usage_bytes": 43201007616,
+      "minimum_host_available_bytes": 108150607872,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 80.2
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/416834fa9b1e0fec89d663026e74f76ab6909314-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 3,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C39-416834fa9b1e-1792739181687571246.jsonl"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "content_unchanged": true,
+  "generated_query_or_contract_used": false,
+  "metrics": {
+    "cleanup_complete": true,
+    "diagnostic_bytes": 0,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "elapsed_seconds": 0.337,
+    "environment_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "exit_code": 0,
+    "max_scope_gib": 1,
+    "min_host_available_gib": 36,
+    "minimum_host_available_bytes": 89789984768,
+    "native_executable_transport": "sealed_read_only_memfd_v1",
+    "peak_group_rss_bytes": 0,
+    "peak_scope_usage_bytes": 0,
+    "scope_collection_after_completion": false,
+    "scope_membership_accounting_available": false,
+    "stdout_bytes": 0,
+    "stdout_overflow": false,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "watchdog_stopped": false
+  },
+  "passed": true,
+  "production_edits": false,
+  "purpose": "neutral_system_binary_sealed_readonly_memfd_transport",
+  "system_binary_sha256": "8a63c98320173f79e263115e10cefc170155e47d1fd4b5a70e4429d2699cae28",
+  "transport": {
+    "same_inode": true,
+    "version": "sealed_read_only_memfd_v1",
+    "writable_owner_closed": true,
+    "write_grow_shrink_and_seal_seals": true
+  },
+  "writable_descriptor_rejected_before_scope": true
+}

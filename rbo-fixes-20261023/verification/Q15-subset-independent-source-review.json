@@ -1,0 +1,28 @@
+{
+  "reviewer": "/root",
+  "independent_of_author": true,
+  "artifact": "proposed-quality-amendments/Q15-subset-contract.patch",
+  "patch_sha256": "e186058b626f1fb113fbc340617eb02be5d7939dbfabbda04a457bb49043c31e",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "source_verdict": "no_blocker_found_for_admitted_producer_scope",
+  "compiled": false,
+  "native_verified": false,
+  "contracts": [
+    "Uses the effective shuffle-elimination option, including its default, and declines empty window partition keys.",
+    "Only preceding Windows or column-source storage keys seed the proof; join/aggregate/replicate metadata is not trusted.",
+    "Filter and Map walk only through unchanged stages; direct Member aliases preserve type and value identity. Computed extra window keys do not replace required hash keys.",
+    "Every ordered input distribution key must have a surviving output IU and a corresponding window partition IU. The chosen key retains input hash order; it never substitutes the whole superset.",
+    "Column-source proof is grounded in ResolveStorageColumns, which requires every storage partition column to be present.",
+    "Before stage assignment, Window metadata predicts precisely the retained input distribution or the full window shuffle key.",
+    "Stage assignment verifies that the published distribution matches its current proof before choosing Map, Shuffle, or gather.",
+    "After assignment, metadata is derived from the actual unique connection: shuffle keys, recomputed preservation for Map, otherwise unknown.",
+    "IUnaryOperator metadata copy is value-based; changing the Window copy does not mutate its producer.",
+    "Map/Filter do not cross stages for admitted column-source and Window producer chains; rejected row-source and Replicate chains cannot invalidate the prestage proof.",
+    "No essentials edits and no dependence on a separate C37/C38 fix branch."
+  ],
+  "limits": [
+    "Column-source storage co-location and nested-window stage placement still need native distributed checks.",
+    "Join/Aggregate/Replicate and other unproved producers deliberately retain repartitioning.",
+    "This source review is not execution or optimization-quality verification."
+  ]
+}

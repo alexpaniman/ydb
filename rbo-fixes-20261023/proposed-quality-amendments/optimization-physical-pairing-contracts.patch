@@ -1,0 +1,73 @@
+--- a/rbo-fixes-20261023/quality_pairing.py
++++ b/rbo-fixes-20261023/quality_pairing.py
+@@ -150,6 +150,30 @@
+     return sum('ItemsLimit' in item and ('Sorted' in item or 'Reverse' in item) for item in names)
+ 
+ 
++def _partial_window_state_width(record):
++    summary = record.get('window_frame_fold_state')
++    if not isinstance(summary, dict) or summary.get('version') != 'window_frame_fold_state_v1' or summary.get('complete') is not True:
++        raise ValueError('Missing complete window state descriptor')
++    folds = summary.get('folds')
++    if not isinstance(folds, list) or len(folds) != 1 or not isinstance(folds[0], dict):
++        raise ValueError('Expected one retained frame fold')
++    fold = folds[0]
++    init, update, optional = (fold.get(name) for name in ('init_fields', 'update_fields', 'optional_count_fields'))
++    if (any(type(value) is not int or value < 1 for value in (init, update, optional))
++            or init != update or optional > init or fold.get('state_fields_match') is not True
++            or fold.get('collector_queue_bound') is not True
++            or type(fold.get('init_arity')) is not int or type(fold.get('update_arity')) is not int
++            or fold.get('init_arity') != 1 or fold.get('update_arity') != 2):
++        raise ValueError('Invalid retained window state descriptor')
++    return init
++
++
++def _same_callable_shape(before, after):
++    left, right = before.get('callables'), after.get('callables')
++    return (isinstance(left, dict) and bool(left) and isinstance(right, dict) and left == right
++            and all(type(value) is int and value >= 0 for counts in (left, right) for value in counts.values()))
++
++
+ def _improvement(case, before, after):
+     """Known measurable contracts only; unknown/missing evidence stays pending."""
+     bug = case[:3].upper()
+@@ -165,6 +189,8 @@
+                 and _count(before, 'Fold1') > 0)
+     if case.startswith('q01_minmax_') and after.get('structural_assertions', {}).get('no_general_frame_fold'):
+         return _count(before, 'Fold1') > _count(after, 'Fold1')
++    if case == 'q02_partial':
++        return _partial_window_state_width(before) > _partial_window_state_width(after) == 1
+     if bug == 'Q02' and case == 'q02_all_dead':
+         return _count(before, 'QueueCreate') + _count(before, 'WinFramesCollector') > 0
+     if bug in ('Q03', 'Q04'):
+@@ -215,6 +241,21 @@
+ 
+ def _fixed_acceptance(before, after):
+     case = after.get('case', '')
++    if case.startswith('q01_sum_') and case.endswith('_control') and case != 'q01_sum_native_control':
++        return (before.get('physical_ast_parsed') is True and after.get('physical_ast_parsed') is True
++                and after.get('structural_assertions', {}).get('control_physical_plan_parsed') is True
++                and _same_callable_shape(before, after))
++    if case in ('q29_primitive_residual', 'q29_optional_residual'):
++        left, right = before.get('comparison_dag_nodes'), after.get('comparison_dag_nodes')
++        if type(left) is not int or type(right) is not int or not left > right > 0:
++            return False
++    if case == 'q02_partial' and not _partial_window_state_width(before) > _partial_window_state_width(after) == 1:
++        return False
++    if re.fullmatch(r'q22_(?:ansi|legacy)_(?:tuple|list)_5_(?:nullable|required)', case):
++        left, right = before.get('scalar_equality_dag_nodes'), after.get('scalar_equality_dag_nodes')
++        if (type(left) is not int or type(right) is not int or left <= 0 or left != right
++                or not _same_callable_shape(before, after)):
++            return False
+     # The native hooks see only the fixed plan. Preserve the paired effect
+     # controls here before accepting their otherwise nonempty assertions.
+     if case == 'q11_fallible_control':
+@@ -324,7 +365,7 @@
+                     after['quality_acceptance_pass'] = False
+                     after['quality_improvement_verified'] = False
+         after['quality_pairing_reasons'] = reasons
+-        after['quality_pairing_version'] = 'canonical_profile_and_effect_controls_v2'
++        after['quality_pairing_version'] = 'required_case_physical_and_paired_controls_v3'
+         paired.append(after)
+     observed_owners = {record['case']: record.get('generator_module') for record in paired}
+     coverage = (isinstance(required_case_owners, dict) and bool(required_case_owners)

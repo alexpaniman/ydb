@@ -1,0 +1,57 @@
+{
+  "schema": "Q14_bounded_pair_configuration_source_preparation_v1",
+  "status": "frozen_source_metadata_passed_independent_review_pending",
+  "patch": "proposed-quality-amendments/Q14-bounded-pair-configuration-20261028.patch",
+  "patch_sha256": "7969cd26b2f1caa3a036b34f9ed650a3e701624ad2e1dcea25741599f724670e",
+  "before_images": {
+    "quality_join_shuffle_checks.py": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+    "quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+  },
+  "after_images": {
+    "quality_join_shuffle_checks.py": "2d817f9ba3fc4af3c0306910ce65a3b3640d5ecbe7ae3b14db7fdff6a10190cc",
+    "quality_spill_bounds.py": "d30060f032eb45ab346a6cb9193c9bc89d30679b5e173cf0cd73a3ea131e40da"
+  },
+  "metadata_script": "proposed-quality-amendments/Q14-bounded-pair-config-20261028/verify_metadata.py",
+  "metadata_script_sha256": "6ec273889c19f0a8cfcd41c32e98028f28b1001f159f199409f3b1c4e77dd88a",
+  "metadata_checks_passed": 504,
+  "source_defect": "The paired observer expected unbounded original settings while the mandatory native adapter uses the reviewed None spill mask and one-byte local service cap. All bounded observations were rejected before shape comparison.",
+  "narrow_change": [
+    "Reconstruct expected configuration using the existing validated_quality_spill_scope and bound_quality_spill_metadata APIs, with each saved actual runner receipt, phase and revision.",
+    "Require canonical-JSON-exact table_service_overrides and spill_payload_file_policy, including dependency/metadata/receipt/runner hashes; distinguish bool/int/float and reject absent or changed evidence.",
+    "Update exactly one of the existing28 spill dependency hash literals for the changed Q14 observer. No spill policy, source audit, revision list or cell entry changes."
+  ],
+  "unchanged": [
+    "All six SQL recipes, schema/fixtures, settings-builder inputs, bags, observer shape contracts and pair-control behavior.",
+    "Actual twelve direct CBO contracts and their execution order before SQL.",
+    "Full-quality flags remain false; owner must still combine all six paired observations and twelve direct contracts.",
+    "No production, live helper, policy, query, threshold or case-status changes."
+  ],
+  "verification": [
+    "All original observer functions except pair_observations remain AST-identical; one narrow configuration helper added.",
+    "Original and candidate recipes/schema/seeds/oracles/metadata compared in RAM for all six cases.",
+    "All six synthetic bounded before/after pairs accepted and original observer rejects them.",
+    "Both-side invalid settings, one-side stale/missing policy/receipt/phase/revision/source/binary evidence, and every one of28 changed dependencies reject.",
+    "Synthetic records, receipts, queries and physical expressions stayed in RAM; only sanitized counts and source hashes saved.",
+    "Policy boolean/integer/float substitutions and matching invalid settings on both sides reject."
+  ],
+  "after_profile": {
+    "modules": [
+      "quality_join_shuffle_checks"
+    ],
+    "canonical_path_profile_sha256": "338f92351c753d5de572d2646c27035372ef283b551ca7d47fcc1043d735993a",
+    "scope": "Computed with current installed helpers plus exactly these two candidate after-images; future unrelated helper composition requires a fresh profile digest."
+  },
+  "prerequisites": [
+    "Independent source/metadata review before root-only next-idle application.",
+    "Exact two before-images and all28 dependency images must still match.",
+    "Concurrent Q01 Stage A or empty-result transport changes may touch quality_spill_bounds dependencies; compose only through separately reviewed literal binding refresh. Do not silently reuse the recorded profile digest.",
+    "Actual receipt-bound direct12 and six bounded four-node SQL pairs remain required; no native acceptance follows from metadata tests."
+  ],
+  "actual_native_runs": 0,
+  "live_edits": false,
+  "new_workloads": 0,
+  "full_quality_acceptance_enabled": false,
+  "superseded_patch_sha256": [
+    "00185b64d5c21e1dbaf71fb220641d0e72c8fc17923e739924c2af543fe406b9"
+  ]
+}

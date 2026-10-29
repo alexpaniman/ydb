@@ -1,0 +1,145 @@
+{
+  "author_metadata_recheck": {
+    "checks_passed": 255,
+    "report_hash_unchanged": true,
+    "unique_scenarios": 52
+  },
+  "checks": [
+    "frozen:proposed-quality-amendments/Q28-depth-fixed-runner-20261028.patch",
+    "frozen:proposed-quality-amendments/Q28-depth-runner-20261028/q28_depth_verify.py",
+    "frozen:proposed-quality-amendments/Q28-depth-runner-20261028/verify_metadata.py",
+    "frozen:verification/Q28-depth-fixed-runner-source-preparation-20261028.json",
+    "frozen:verification/Q28-depth-fixed-runner-metadata-checks-20261028.json",
+    "frozen:anonymous_cpp_verify.py",
+    "exact_assertion_vector",
+    "exact_assertion_total",
+    "exact_case_coordinates",
+    "exact_binding_counts",
+    "helper_binding:memory_safe_build",
+    "helper_binding:anonymous_cpp_guard",
+    "helper_binding:anonymous_cpp_metadata",
+    "helper_binding:anonymous_cpp_verify",
+    "helper_binding:production_version_object",
+    "helper_binding:quality_scheduler_cpp_checks",
+    "helper_binding:quality_scheduler_depth_checks",
+    "allocation_exception_preserved:seek:OSError",
+    "confirmed_unreturned_owner:seek:OSError",
+    "allocation_exception_preserved:seek:KeyboardInterrupt",
+    "confirmed_unreturned_owner:seek:KeyboardInterrupt",
+    "allocation_exception_preserved:chmod:OSError",
+    "confirmed_unreturned_owner:chmod:OSError",
+    "allocation_exception_preserved:chmod:KeyboardInterrupt",
+    "confirmed_unreturned_owner:chmod:KeyboardInterrupt",
+    "outer_failure_evidence_retained:OSError",
+    "outer_failure_code_recorded:OSError",
+    "confirmed_outer_stale_success:OSError",
+    "outer_failure_evidence_retained:KeyboardInterrupt",
+    "outer_failure_code_recorded:KeyboardInterrupt",
+    "confirmed_outer_stale_success:KeyboardInterrupt"
+  ],
+  "checks_passed": 31,
+  "findings": [
+    {
+      "class": "verification_helper_resource_ownership",
+      "description": "A post-create failure or cancellation can leave the new descriptor unclosed because ownership is returned only after seek and chmod. Caller cleanup cannot see an owner that the helper never returned.",
+      "file": "anonymous_cpp_verify.py",
+      "id": "Q28-runner-review-01",
+      "line": 330,
+      "observations": [
+        {
+          "boundary": "seek",
+          "closed_fake_descriptors": 0,
+          "created_fake_descriptors": 1,
+          "exception_class": "OSError"
+        },
+        {
+          "boundary": "seek",
+          "closed_fake_descriptors": 0,
+          "created_fake_descriptors": 1,
+          "exception_class": "KeyboardInterrupt"
+        },
+        {
+          "boundary": "chmod",
+          "closed_fake_descriptors": 0,
+          "created_fake_descriptors": 1,
+          "exception_class": "OSError"
+        },
+        {
+          "boundary": "chmod",
+          "closed_fake_descriptors": 0,
+          "created_fake_descriptors": 1,
+          "exception_class": "KeyboardInterrupt"
+        }
+      ],
+      "requested_change": "Close the descriptor on every post-create exception before propagating, with fake-descriptor checks for seek, chmod and write/setup failures and cancellation; refresh affected exact helper bindings.",
+      "scope": "Existing shared helper; not a production RBO finding. CLI process exit eventually releases descriptors.",
+      "symbol": "_memfd"
+    },
+    {
+      "class": "verification_admission_failure_preservation",
+      "description": "If serial-slot release fails after execute succeeds, the outer handler records failure and returns nonzero but persists the successful status and true local-contract admission.",
+      "file": "q28_depth_verify.py",
+      "id": "Q28-runner-review-02",
+      "line": 286,
+      "observations": [
+        {
+          "boundary": "serial_slot_exit",
+          "exception_class": "OSError",
+          "exit_nonzero": true,
+          "failure_evidence_retained": true,
+          "local_admission_incorrectly_retained": true,
+          "success_status_incorrectly_retained": true
+        },
+        {
+          "boundary": "serial_slot_exit",
+          "exception_class": "KeyboardInterrupt",
+          "exit_nonzero": true,
+          "failure_evidence_retained": true,
+          "local_admission_incorrectly_retained": true,
+          "success_status_incorrectly_retained": true
+        }
+      ],
+      "requested_change": "Force failed status and false local-contract admission in the outer handler while preserving completed case/process evidence; cover error and cancellation after successful execute.",
+      "symbol": "main"
+    }
+  ],
+  "frozen_sources": {
+    "anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+    "proposed-quality-amendments/Q28-depth-fixed-runner-20261028.patch": "1985cf94a04fa93bbf97e7e2eae414ea086d8cbbb71bd14d8d053febc452f178",
+    "proposed-quality-amendments/Q28-depth-runner-20261028/q28_depth_verify.py": "77b151edb0de8cfa0c73ea44f0e230513bfcc802d3d14ecaf51a512aafc06d96",
+    "proposed-quality-amendments/Q28-depth-runner-20261028/verify_metadata.py": "0fdcd95a1279b7286f983b9291d31411cfb2071221b8fbb85c0290babc7346f6",
+    "verification/Q28-depth-fixed-runner-metadata-checks-20261028.json": "d9bf57a49f35a5b7d4a9ac8327ed78d2a5b1424b6ed0905933bbb1b5078f9132",
+    "verification/Q28-depth-fixed-runner-source-preparation-20261028.json": "e556eae93d7c532974019ee7be6828823d8386c4ab9ac995a70e31730eb69d43"
+  },
+  "limits": [
+    "No native, compiler, linker, graph, or build process executed.",
+    "No live helpers or production files changed.",
+    "Actual four-control execution remains pending.",
+    "Parser, source binding and successful mocked execution do not establish native production behavior.",
+    "Follow-up repairs require independent review and exact source-binding refresh before runner admission."
+  ],
+  "parent_and_author_notified": true,
+  "rendered_workload_or_reproduction_payloads_persisted_or_shown": false,
+  "reviewed_contract": {
+    "SDK7_separate": true,
+    "assertion_vector": [
+      136,
+      472,
+      238,
+      862
+    ],
+    "canonical_SQL8_required_separately": true,
+    "cases": 4,
+    "compile_link_native_guards_preserved": true,
+    "expected_production_revision_requires_case_clean_HEAD_main_parent_and_exact_amendment": true,
+    "full_Q28_admission": false,
+    "generated_source_payload_persistence": false,
+    "helper_bindings": 7,
+    "original26_pair_required": true,
+    "production_bindings": 8,
+    "total_assertions": 1708
+  },
+  "schema": "q28_depth_fixed_runner_independent_review_v1",
+  "scope": "source_and_metadata_only",
+  "status": "changes_requested"
+}

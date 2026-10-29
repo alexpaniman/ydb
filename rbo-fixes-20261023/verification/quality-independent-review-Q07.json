@@ -1,0 +1,37 @@
+{
+  "id": "Q07",
+  "reviewer": "harness_provenance",
+  "recorded_unix_ns": 1792720619877197973,
+  "patch_sha256": "883370dc00e342e6797ec75f4bb02f386a815a22b22341bb5663087decf704e2",
+  "status": "independent_source_review_complete_pending_compile_and_native",
+  "production_edited": false,
+  "builds_run": 0,
+  "native_checks_run": 0,
+  "checks": [
+    "Shared eligibility includes feature and query gates, supported join kinds, left sharing, unresolved residual join filters, nonempty keys, right read shape/storage/limit and typed boundary keys.",
+    "Both costing and physical lowering call PrepareLookupJoin; key type comes from annotated CBO leaf outputs rather than original column lineage.",
+    "Recovered source read is retained in TPreparedLookupJoin, preserving Target.PointPrefix lifetime.",
+    "ChooseLookupJoinTarget already guarantees a nonempty lookup suffix; prepared prefix/lookup/residual partition retains every input join equality.",
+    "Forced or late-invalidated LookupJoin/LookupJoinReverse remains detectable until stage assignment; source properties and types exist before fallback validation.",
+    "Fallback tests generic CBO applicability and finite cost; Map retains small-right threshold plus explicit supported-kind/residual restrictions; unavailable metadata/statistics stays Grace.",
+    "Mixed physical key annotations use gather connections before comparison, avoiding mismatched distributed hashes; local hash fallback does not claim broad mixed-key optimization.",
+    "All cached root shuffle-edge decisions are reset before any new physical connections are assigned, covering consumers of changed joins.",
+    "git apply --check --whitespace=error-all passes on pinned main."
+  ],
+  "limitations": [
+    "No compiler or native result validates the patch yet.",
+    "Late fallback recosts only the chosen orientation, not global join order; intermediate CBO search can still temporarily value a forced unsupported lookup.",
+    "Root distribution metadata clearing is transient: later physical aggregation can recompute Grace distribution claims. Gathered single-task output is colocated for every key in the current pipeline, but integration must retain C50 persistent gather metadata contract.",
+    "Cardinality/byte hint behavior and estimated-size controls require runtime plan checks, including overridden statistics and missing-statistics shapes.",
+    "Shared eligibility performs filter rebuilding and key/target preparation for CBO candidates; optimizer-time overhead needs measurement.",
+    "Q29 fetched-filter helper overlap, C47 read settings and index-family policy changes require explicit integration review."
+  ],
+  "required_validation": [
+    "Compile with existing RBO unit suite under memory guard",
+    "Baseline/fixed exact semantic checks for supported left-family joins, null-safe rejection, optional/mixed key types, residual filters and aliases",
+    "Forced lookup hints with feature disabled, shared left, unsupported right shape and late join filters",
+    "Large-right, missing-statistics and forced-byte-hint fallback plan checks",
+    "Nested/shared consumer distribution checks across multiple nodes",
+    "Eligible plan retains the same lookup target/prefix and bounded optimizer preparation overhead"
+  ]
+}

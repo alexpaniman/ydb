@@ -1,0 +1,37 @@
+F03 — Physical-window interval SUM uses an unsuitable accumulator
+
+Correctness: new-RBO physical windows accumulate Interval and Interval64 SUM
+in the public result type instead of the Decimal state used by established SUM
+traits. Interval64 addition lacks the required aggregate runtime implementation;
+small Interval intermediate sums can lose a value when the interval range is
+exceeded, even if later values would bring the frame total back into range.
+Native confirmation of the physical-window cases remains pending; F02's native
+aggregate failure is related source evidence, not a substitute for that check.
+
+Narrow fix: convert interval inputs through Int64 into Decimal(35,0), retain that
+state while updating a frame, and convert the final result back through Int64 to
+the original interval type. Final overflow remains NULL. The shared window
+accumulator/result helpers cover running, finite, incremental, suffix and peer
+paths. No yql/essentials code changes. Whole-partition windows rewritten into
+logical aggregates use the separate F02 fix.
+
+Source authorship / introducing history:
+- Denis Khalikov, 11ebdccf532442bc91e1c664403a677d55b2fd2b,
+  2026-09-10, “[Optimizer] Add initial support for window functions.” (#52620):
+  introduced BuildSumCastTarget and the SUM state cast/add sequence that treats
+  the public interval result type as the accumulator.
+- Denis Khalikov, cafc44678f8a601b16752a8de8a4a1203a2387c2,
+  2026-09-14, “[Optimizer] Add support for the whole frame” (#53036):
+  moved that sequence into the shared BuildAccumulator helper.
+- alexpaniman, 026a4acc33c26deef68af9c271412cc5ff1095f8,
+  2026-09-29, “[NEW RBO] Migrate RBO to ID-based SSA columns” (#54404):
+  adapted bindings while retaining the same accumulation logic.
+These attributions come from introducing diffs and function history. Native
+historical bisection has not been performed, and Git metadata does not establish
+whether an author used an agent.
+
+Prepared artifact: proposed-correctness-amendments/F03-interval-window-sum.patch,
+based directly on pinned main e8700d379b3b9c4fbaf68f36424e6bcf08314fd2.
+Verification generator: interval_window_checks.py, 68 compositional profiles.
+Source and model evidence: verification/F03-interval-window-artifact-contracts.json.
+Compilation and native execution are pending; the patch is not reported verified.

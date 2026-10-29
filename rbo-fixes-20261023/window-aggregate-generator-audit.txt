@@ -1,0 +1,27 @@
+Generator audit after environment restart, 2026-10-23
+
+Production source edits: none. Rendered queries, fixtures and native rows: none
+persisted. Pending native runs require the restored baseline runner.
+
+C03 now has five generated checks: the original collision shape, nonempty and
+empty rollup, and matching ordinary grouped-DISTINCT controls. The model computes
+per-group and grand-total distinct cardinalities independently.
+C23 includes empty-input bare-NULL grouping alongside nullable/nonnullable keys.
+C25 includes an empty correlated multi-DISTINCT aggregate result.
+C26 adds nonconstant and optional standard-deviation values plus an ordinary
+standard-deviation control. The new RBO admits variance_1_1; unsupported variance
+families are deliberately not substituted into this bug's acceptance checks.
+C34 tuple MIN/MAX now require the exact extreme tuple, while SOME accepts any
+actual input tuple. Empty and mixed-AVG cases remain present.
+C24/C27/C28/C35 retain explicit DqHashOperatorsUseBlocks=false and now tag the
+corrected interval-rounding oracle/configuration version in each native record.
+C50 fixture UNION arms all have the same Optional key type. This avoids an
+unrelated C42 failure before the target join. Its independent bag oracle remains
+authoritative because the baseline legacy path shares the mixed-key hash defect.
+
+Source audit of independent C23/C24/C25/C26/C28/C34/C35 commits found no definite
+additional blocker. Important integration overlap: C24/C26/C35 all edit DISTINCT
+state typing; C26/C34 share the AVG-only tuple-state restriction; C03/C25 both
+move DISTINCT expansion. These independent branches will require a deliberate
+integration resolution rather than blind patch stacking. Native checks are still
+required before promoting prepared branches to verified.

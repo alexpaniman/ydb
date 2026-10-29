@@ -1,0 +1,1830 @@
+{
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "build_failure_evidence": {
+    "path": "verification/C41-fullsuite-failure-b71ac02f-20261028.json",
+    "sha256": "ff0d5ce2f8300dd55bcdb02cde66ffab4c91498410ded6a54062fac55c5226ea"
+  },
+  "causal_chain": [
+    "Before C41, changed RemapExpr output returns Repeat(hasRestart=true) by default; the host pipeline reruns post-type annotation including UpdateCompletness.",
+    "C41 directly exports the complete physical query and returns Ok, bypassing that restart. The internal RBO annotator performs garbage collection and type annotation, not completion refresh.",
+    "Physical stage rebuilding reuses lambda arguments/bodies while replacing their owning lambdas. These nodes can retain raw dependency-scope pointers to an older lambda.",
+    "MiniKQL memoization dereferences the scope lambda through GetNodeContextByLambda; observed stacks either trip the deleted-node guard at UniqueId or fault during that lookup.",
+    "The existing UpdateCompletness API recomputes arguments, closures and dependency scopes across the final closed graph without changing its expression structure."
+  ],
+  "crash_class_counts": {
+    "deleted_lambda_dependency_scope": 28,
+    "invalid_lambda_dependency_scope": 59
+  },
+  "crash_evidence": [
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 61783,
+      "stderr_relative_path": "chunk1/testing_out_stuff/KqpRboGlobalIUs.ExpandReplicateExecutesSharedSubqueries.err",
+      "stderr_sha256": "8684c7df7e7c099f21abbedeebe620034b15ec231c2696f6e3a0f1f7d4517f14",
+      "test": [
+        "KqpRboGlobalIUs",
+        "ExpandReplicateExecutesSharedSubqueries"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 787647,
+      "stderr_relative_path": "chunk10/testing_out_stuff/KqpRboYql.ExplainStageConnections.err",
+      "stderr_sha256": "84a88a5d36b5c7c6e5e2d44b28437794f305fd89d8846064448cf52731b52548",
+      "test": [
+        "KqpRboYql",
+        "ExplainStageConnections"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 55227,
+      "stderr_relative_path": "chunk10/testing_out_stuff/KqpRboYql.InsertSelectColumnOrder.Distinct.err",
+      "stderr_sha256": "585602590a263a3ec4e3e5fee98785e4795a858d0cd49459b4a232f5cc1f71f7",
+      "test": [
+        "KqpRboYql",
+        "InsertSelectColumnOrder+Distinct"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 773277,
+      "stderr_relative_path": "chunk10/testing_out_stuff/KqpRboYql.FilterPushdownThroughJoin.err",
+      "stderr_sha256": "c9fe839bc9ab4b615ecca123b13c4fc897719db33aa7f7d36d846903d4908dde",
+      "test": [
+        "KqpRboYql",
+        "FilterPushdownThroughJoin"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 776587,
+      "stderr_relative_path": "chunk10/testing_out_stuff/KqpRboYql.ExplainReadRowsHints.err",
+      "stderr_sha256": "14f6e2c0196c0dbc136ef32303a5c885964a632afd0d884166632362de104a06",
+      "test": [
+        "KqpRboYql",
+        "ExplainReadRowsHints"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 830781,
+      "stderr_relative_path": "chunk10/testing_out_stuff/KqpRboYql.ExpressionSubquery.err",
+      "stderr_sha256": "d1c7cd701f7ba66dc39528338f662da89b1750e8db6daba424e3e3e470083c13",
+      "test": [
+        "KqpRboYql",
+        "ExpressionSubquery"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 825750,
+      "stderr_relative_path": "chunk10/testing_out_stuff/KqpRboYql.ExplainScalarSubquery.err",
+      "stderr_sha256": "2cceb7b4aa0868492fb90202d3a29812d6a8b3539715dcebdcd5f39084e2f043",
+      "test": [
+        "KqpRboYql",
+        "ExplainScalarSubquery"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 75115,
+      "stderr_relative_path": "chunk10/testing_out_stuff/KqpRboYql.InsertSelectColumnOrder-Distinct.err",
+      "stderr_sha256": "0a2d4d5bcf792f686bd93f7e06affb76fa98b26d22e50f854b31252660834bc9",
+      "test": [
+        "KqpRboYql",
+        "InsertSelectColumnOrder-Distinct"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 773286,
+      "stderr_relative_path": "chunk10/testing_out_stuff/KqpRboYql.InlineJoinFiltersAfterCBOChangesJoinTree.err",
+      "stderr_sha256": "9ac29271558b819ecdad118ef1750f915b60d3a43c35981a90ae60caba7246c7",
+      "test": [
+        "KqpRboYql",
+        "InlineJoinFiltersAfterCBOChangesJoinTree"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 59670,
+      "stderr_relative_path": "chunk11/testing_out_stuff/KqpRboYql.JoinFiltersOnClauseOuterJoins.err",
+      "stderr_sha256": "dd2d33384e8dec5d8198e12061b3a115e199185b65a0c97dc92c6fba0e760dc1",
+      "test": [
+        "KqpRboYql",
+        "JoinFiltersOnClauseOuterJoins"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 426286,
+      "stderr_relative_path": "chunk11/testing_out_stuff/KqpRboYql.MixedDistinctAggregationBeforeHashShuffle.ColumnStore.err",
+      "stderr_sha256": "57b9d2931817f8e36f9474b2d79bd3e670b522170d8735eb6934d8362e7e061c",
+      "test": [
+        "KqpRboYql",
+        "MixedDistinctAggregationBeforeHashShuffle+ColumnStore"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 778235,
+      "stderr_relative_path": "chunk11/testing_out_stuff/KqpRboYql.MapJoin.err",
+      "stderr_sha256": "9b666adee2cba86a2f28aa4298464977c0222c71f5da6aa12979f40b26fb8dcc",
+      "test": [
+        "KqpRboYql",
+        "MapJoin"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 1520303,
+      "stderr_relative_path": "chunk11/testing_out_stuff/KqpRboYql.LeftJoins.err",
+      "stderr_sha256": "c2cb839d02b7e160c02ed1322c9c4770c25453a40219fb5a431968812ba340d5",
+      "test": [
+        "KqpRboYql",
+        "LeftJoins"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 47689,
+      "stderr_relative_path": "chunk11/testing_out_stuff/KqpRboYql.LeftJoinInequalityOnClause.err",
+      "stderr_sha256": "559932b8b964d3b134555e86899ee66b7e8b040491e53998c383128b281aa628",
+      "test": [
+        "KqpRboYql",
+        "LeftJoinInequalityOnClause"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 74283,
+      "stderr_relative_path": "chunk11/testing_out_stuff/KqpRboYql.MixedDistinctAggregationBeforeHashShuffle-ColumnStore.err",
+      "stderr_sha256": "274c3fb6c49010ec10fe0fe903e649c3d9744d4634ecfb906c1d9c950d3b9cc4",
+      "test": [
+        "KqpRboYql",
+        "MixedDistinctAggregationBeforeHashShuffle-ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 778776,
+      "stderr_relative_path": "chunk11/testing_out_stuff/KqpRboYql.MapAliasCleanupSemanticRenameAndDeadSortKey.err",
+      "stderr_sha256": "55cb22684735dcc5011ce4e3bc09ce8dfcae3965711dab371389b84a961c359a",
+      "test": [
+        "KqpRboYql",
+        "MapAliasCleanupSemanticRenameAndDeadSortKey"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 775750,
+      "stderr_relative_path": "chunk12/testing_out_stuff/KqpRboYql.PropagateTopSortThroughStages.err",
+      "stderr_sha256": "64ec92d85fe97c34881f560859815351964c6da57f96fd136cdb8443403dd84e",
+      "test": [
+        "KqpRboYql",
+        "PropagateTopSortThroughStages"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 773758,
+      "stderr_relative_path": "chunk12/testing_out_stuff/KqpRboYql.PushConstantConditionOnJoinKeyBothSides.err",
+      "stderr_sha256": "a463a15ff6a2aaf690078ca40dc7b394c7798695b75e7fea9b248653b4a97902",
+      "test": [
+        "KqpRboYql",
+        "PushConstantConditionOnJoinKeyBothSides"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 407814,
+      "stderr_relative_path": "chunk12/testing_out_stuff/KqpRboYql.MultiConsumer.ColumnStore.err",
+      "stderr_sha256": "676151e39792ba3b7be840b3c80e6ed9e85275ac952aa12c03a57e77f24a5416",
+      "test": [
+        "KqpRboYql",
+        "MultiConsumer+ColumnStore"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 784195,
+      "stderr_relative_path": "chunk12/testing_out_stuff/KqpRboYql.PropagateAggregateThroughStages.err",
+      "stderr_sha256": "c0d34ab46815a673cb907a2922bd6cc1d35270eab95286ef45580e87da3eecf0",
+      "test": [
+        "KqpRboYql",
+        "PropagateAggregateThroughStages"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 781773,
+      "stderr_relative_path": "chunk12/testing_out_stuff/KqpRboYql.PropagateLimitThroughStages.err",
+      "stderr_sha256": "498197f6fac58648515c8f4b1828e771639bb4a157d85eff6d82680e0053ad29",
+      "test": [
+        "KqpRboYql",
+        "PropagateLimitThroughStages"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 777995,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.PushFilterThroughAggregateOnLeftJoinInput.ColumnStore.err",
+      "stderr_sha256": "98681a43b286dd3e4d7c82b01e6a56e1ff65c9a9804bf33b9e925f549bdb096b",
+      "test": [
+        "KqpRboYql",
+        "PushFilterThroughAggregateOnLeftJoinInput+ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 773054,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.PushFilterBeforeInlining.err",
+      "stderr_sha256": "885924212b2a2fa2a988803efdd7bbb56e1f7def3633243e499265ada827205b",
+      "test": [
+        "KqpRboYql",
+        "PushFilterBeforeInlining"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 60537,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.ReplicateBranchPushdown-ColumnStore.err",
+      "stderr_sha256": "c5fde45e5aa57b0f0ab8d92e29ce5c02317a8892dd8bcf762fefb55d066be870",
+      "test": [
+        "KqpRboYql",
+        "ReplicateBranchPushdown-ColumnStore"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 782691,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.RangePushdown.ColumnStore.err",
+      "stderr_sha256": "6e7f8c0d6027d10cebffdb44cba9dbecadf814fba8c6ed4c8cd96a574bd0eae8",
+      "test": [
+        "KqpRboYql",
+        "RangePushdown+ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 796132,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.Rollup.err",
+      "stderr_sha256": "6fb67c9e851dcc6c4c91755a546c7a140158204605eb9277709b5c108542a05f",
+      "test": [
+        "KqpRboYql",
+        "Rollup"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 425828,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.RollupGrouping.err",
+      "stderr_sha256": "d34c2e276860b01956dfc7b8494a073cdc9f40a96ab03cbbdc389e665f0cd694",
+      "test": [
+        "KqpRboYql",
+        "RollupGrouping"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 57785,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.PushFilterThroughAggregateOnLeftJoinInput-ColumnStore.err",
+      "stderr_sha256": "cc130ffde83953eee97c7c74d5e7b25b5d6296f890805c1e1eddf6e83dcc9ad2",
+      "test": [
+        "KqpRboYql",
+        "PushFilterThroughAggregateOnLeftJoinInput-ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 74705,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.ScalarAggregatesWithoutUsedResults.err",
+      "stderr_sha256": "1b188885cf50de10b8cf1d2c89e8118d505d6aef302baaf67f45a6e26b66b6c3",
+      "test": [
+        "KqpRboYql",
+        "ScalarAggregatesWithoutUsedResults"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 424499,
+      "stderr_relative_path": "chunk13/testing_out_stuff/KqpRboYql.ReplicateBranchPushdown.ColumnStore.err",
+      "stderr_sha256": "ec87d8ab7a01708a8b58c16ea2cccf7c1a29ab65f31a6a2840ed64138a413c7c",
+      "test": [
+        "KqpRboYql",
+        "ReplicateBranchPushdown+ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 84483,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationSingleJoinColumnShardHashCompatibility.err",
+      "stderr_sha256": "664102cc45e2b55867a71393e8f368d650fd669a960f1b16e7c25dcdbc6f0cc5",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationSingleJoinColumnShardHashCompatibility"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 134610,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationThreeJoinsHashFuncCompatibility.err",
+      "stderr_sha256": "6c38bf292d6b6153c3908b1e02eb0e646470735cfeafc13e8a722480bfd72188",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationThreeJoinsHashFuncCompatibility"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 84909,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationColumnShardHashPreservedInPhysicalAst.err",
+      "stderr_sha256": "9cd88516fd6145e10eaed33a9d47db736dc9d78567016361ae59626241e72db8",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationColumnShardHashPreservedInPhysicalAst"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 82677,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationCompositeSourceSubsetKeyExecute.err",
+      "stderr_sha256": "c13f5d32da9a07431897f234476ad20e7909dd30a8dd53109f803bbc7eb3372c",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationCompositeSourceSubsetKeyExecute"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 259902,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationMixedHashFuncCompatibility.err",
+      "stderr_sha256": "a5cf456dab1c126f29771db742bc185a10e99015cc07c7682bec825efd731532",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationMixedHashFuncCompatibility"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 782460,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationTPCHQ5CompositeJoinKeys.err",
+      "stderr_sha256": "b75e7356795828924e318f16536780955f28e764dcf1a12b9f9fbb9903c67075",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationTPCHQ5CompositeJoinKeys"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 775642,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationSimpleJoin.err",
+      "stderr_sha256": "2cf0928eaa4c07ba90e9e343c8ec90968046ce706e8f4f96610fd2afe30e10b5",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationSimpleJoin"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 134504,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationThreeJoinsColumnShardHashCompatibility.err",
+      "stderr_sha256": "39ba476f039db9421b317f2f40f2c344234bf32758bba22aefe2bbb857f05e9e",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationThreeJoinsColumnShardHashCompatibility"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 793916,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationSimpleJoinKeysBothSides.err",
+      "stderr_sha256": "2224df3651e2d0921bd4a6a8406df9bebc2d818b0bd08c526feba9f50b7bb10e",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationSimpleJoinKeysBothSides"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 781312,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.SetOps.err",
+      "stderr_sha256": "37939c23687a7c86d93a0a34f38507cd6318b73a514e205642000f05bc36ae4c",
+      "test": [
+        "KqpRboYql",
+        "SetOps"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 109556,
+      "stderr_relative_path": "chunk14/testing_out_stuff/KqpRboYql.ShuffleEliminationTwoJoinsHashFuncCompatibility.err",
+      "stderr_sha256": "fe04afaaf72b51ba0e8d18a4c98c9e2e5ea53d6556cfb4c92bb6e73035d191cc",
+      "test": [
+        "KqpRboYql",
+        "ShuffleEliminationTwoJoinsHashFuncCompatibility"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 58752022,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.TPCDS_14.err",
+      "stderr_sha256": "7b1c3393275f841b64a7f876f21b46b364442a1ef2e88845e74058cafbf47b2b",
+      "test": [
+        "KqpRboYql",
+        "TPCDS_14"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 789564,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.TPCH_YQL.err",
+      "stderr_sha256": "055adab73e891532a6ded09e36bdfbaa0e163333d33412259a79bbf90f39ba56",
+      "test": [
+        "KqpRboYql",
+        "TPCH_YQL"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 55463,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.SysViewNodes.NewRbo.err",
+      "stderr_sha256": "1da480ee6fa62fec6f3aa8088f7e7e69132971741e3f6a4deef6f47859c25197",
+      "test": [
+        "KqpRboYql",
+        "SysViewNodes+NewRbo"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 44846,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.WindowAggregates-ColumnStore.err",
+      "stderr_sha256": "7cf39338a608f372e5d7b8aa3d6f1021bf3166964507e0aed3c2f18781462165",
+      "test": [
+        "KqpRboYql",
+        "WindowAggregates-ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 406909,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.WholePartitionWindowAsAggregateJoin.WindowFunctionsV2.err",
+      "stderr_sha256": "6306715ac041e2716a84bb362415dcc6019370d3ae1f9a0f6849c48a08ba9d98",
+      "test": [
+        "KqpRboYql",
+        "WholePartitionWindowAsAggregateJoin+WindowFunctionsV2"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 69813,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.WindowFunctions-ColumnStore.err",
+      "stderr_sha256": "21f1563b4493ccb9107e0a05122f1ee89c648f87f33adcb111ae55f058e24629",
+      "test": [
+        "KqpRboYql",
+        "WindowFunctions-ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 781398,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.TPCH_YQL_CBO4_ColumnLineageMapping.err",
+      "stderr_sha256": "f7d1153411499a3c039979fda8fe1b60d82673827b248b4b1139f3e32a9b3ba5",
+      "test": [
+        "KqpRboYql",
+        "TPCH_YQL_CBO4_ColumnLineageMapping"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 781560,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.TPCH_9.err",
+      "stderr_sha256": "6121871bd52d9ae63c7d8fa93b5ec2c9dd727541bc15a84583f34b01e759fadb",
+      "test": [
+        "KqpRboYql",
+        "TPCH_9"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 798199,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.TPCH_YDB_PERF.err",
+      "stderr_sha256": "5a226c7ff5cc6206a83a724673c1971366ed3638f1866c3dc461682cf4af251e",
+      "test": [
+        "KqpRboYql",
+        "TPCH_YDB_PERF"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 783834,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.WindowAggregates.ColumnStore.err",
+      "stderr_sha256": "223e227cfdeeb0cb603a29f8e093c87b1974bd3977bb91237592ff4e88bf8409",
+      "test": [
+        "KqpRboYql",
+        "WindowAggregates+ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 2277436,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.TPCDS_YQL.err",
+      "stderr_sha256": "53d95a74d000ef1848da89c94c573bbf1ed14a6fdd36bc0ec85704755bb95867",
+      "test": [
+        "KqpRboYql",
+        "TPCDS_YQL"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 792053,
+      "stderr_relative_path": "chunk15/testing_out_stuff/KqpRboYql.WindowFunctions.ColumnStore.err",
+      "stderr_sha256": "57571eb8a7888bc8dc1757886a1bcfd59921ac39ff740aab48862d17f00536a9",
+      "test": [
+        "KqpRboYql",
+        "WindowFunctions+ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 87309,
+      "stderr_relative_path": "chunk3/testing_out_stuff/KqpRboLookupJoin.IndexLookupJoinChains.PhysicalStagePeephole.err",
+      "stderr_sha256": "a3e93c299c9e655b91a84f56336cab7bd2969fa5c3ee3bcbf5892d8bb5f54304",
+      "test": [
+        "KqpRboLookupJoin",
+        "IndexLookupJoinChains+PhysicalStagePeephole"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 62780,
+      "stderr_relative_path": "chunk4/testing_out_stuff/KqpRboOlap.BlockChannelAuto.err",
+      "stderr_sha256": "cb9dd60dcbea7912f9553a06d2f3f586c1274345ff23fe02363e7407b096a68f",
+      "test": [
+        "KqpRboOlap",
+        "BlockChannelAuto"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 87740,
+      "stderr_relative_path": "chunk4/testing_out_stuff/KqpRboOlap.AggregateNoPushdown.err",
+      "stderr_sha256": "cc2aba6d141b4c4b0fae8331455d09eff220f18fc44211866bafc59867e7a800",
+      "test": [
+        "KqpRboOlap",
+        "AggregateNoPushdown"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 77916,
+      "stderr_relative_path": "chunk5/testing_out_stuff/KqpRboOlap.ExplainSharedStageOnce.Analyze.err",
+      "stderr_sha256": "0795a7fb838df98770a028d3a22688332f20713a6581b9a9ffc3e4eb72f5f826",
+      "test": [
+        "KqpRboOlap",
+        "ExplainSharedStageOnce+Analyze"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 410306,
+      "stderr_relative_path": "chunk5/testing_out_stuff/KqpRboOlap.OlapFilterPeephole.err",
+      "stderr_sha256": "2b4e5bbef6c4e1795b1f345beec1d221258db0df50159a5f4dc1e739f55c6e5c",
+      "test": [
+        "KqpRboOlap",
+        "OlapFilterPeephole"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 1014061,
+      "stderr_relative_path": "chunk5/testing_out_stuff/KqpRboOlap.OlapPerfQueries.err",
+      "stderr_sha256": "6387a141c9c7712181b6f3ebc0849a7f90b392acae53ae6820712758e15ef68f",
+      "test": [
+        "KqpRboOlap",
+        "OlapPerfQueries"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 78008,
+      "stderr_relative_path": "chunk5/testing_out_stuff/KqpRboOlap.ExplainSharedStageOnce-Analyze.err",
+      "stderr_sha256": "b400fbe24445ec25478e49652b240161edda19f2669d16c928db64e7fcb71a97",
+      "test": [
+        "KqpRboOlap",
+        "ExplainSharedStageOnce-Analyze"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 423234,
+      "stderr_relative_path": "chunk6/testing_out_stuff/KqpRboYql.AggregateKeyColumnsNotLeakedToInputMap.err",
+      "stderr_sha256": "3f8293dc0eef9abca734f8194cbc011cd8e087eb051351ca4ffb3365f2c5f166",
+      "test": [
+        "KqpRboYql",
+        "AggregateKeyColumnsNotLeakedToInputMap"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 1158501,
+      "stderr_relative_path": "chunk6/testing_out_stuff/KqpRboYql.AliasesRenames.err",
+      "stderr_sha256": "ae165db80c2c3f947cb244cf4a469ae1526d8cb509ff2f392846a99674083b21",
+      "test": [
+        "KqpRboYql",
+        "AliasesRenames"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 790017,
+      "stderr_relative_path": "chunk7/testing_out_stuff/KqpRboYql.CommonConjunctExtractionFeedsJoinKey.err",
+      "stderr_sha256": "bb8301c3421e1a105bd1d6d3694e45582e5d5e05698ff7d8fc7c6679cca5e7ea",
+      "test": [
+        "KqpRboYql",
+        "CommonConjunctExtractionFeedsJoinKey"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 134526,
+      "stderr_relative_path": "chunk7/testing_out_stuff/KqpRboYql.ClickBench_YQL.err",
+      "stderr_sha256": "2c6572e77b8bafc2408420afe4a9638dfc282cd2294e5d7d5e8890bc9b5ce9d1",
+      "test": [
+        "KqpRboYql",
+        "ClickBench_YQL"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 783739,
+      "stderr_relative_path": "chunk7/testing_out_stuff/KqpRboYql.ComputedEqualityFeedsJoinKey.err",
+      "stderr_sha256": "47cc028d038522ae1f3381d2723268cfa68a85cc6442c9c17553c18cb13df546",
+      "test": [
+        "KqpRboYql",
+        "ComputedEqualityFeedsJoinKey"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 771287,
+      "stderr_relative_path": "chunk7/testing_out_stuff/KqpRboYql.BlockHashJoinCrossWithJoinFilters.UseBlockHashJoin.UseBlockHashJoinForCross.err",
+      "stderr_sha256": "9174129cc4274e3640b56d44e2057e8611bfc860036178212af54a31ea5f4b1a",
+      "test": [
+        "KqpRboYql",
+        "BlockHashJoinCrossWithJoinFilters+UseBlockHashJoin+UseBlockHashJoinForCross"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 413514,
+      "stderr_relative_path": "chunk7/testing_out_stuff/KqpRboYql.BlockHashCombine.ColumnStore.err",
+      "stderr_sha256": "822b5170dbe7981bd9228b4cbd267528f2390ede18d6cbffbfda669a00006c58",
+      "test": [
+        "KqpRboYql",
+        "BlockHashCombine+ColumnStore"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 1141887,
+      "stderr_relative_path": "chunk7/testing_out_stuff/KqpRboYql.BasicHashJoin.UseBlockHashJoin.err",
+      "stderr_sha256": "21ecf68d6a4ac4c143e7ebadcfdc8dbb7ada972070ca305656dc130ac6357521",
+      "test": [
+        "KqpRboYql",
+        "BasicHashJoin+UseBlockHashJoin"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 109121,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.Decorrelation-ColumnStore-EqualNullsJoinKeys.err",
+      "stderr_sha256": "a47e4a416585f649acd1ca6c0c37f2b41f29a3a23d0b13a63cc724c46e8f8aa6",
+      "test": [
+        "KqpRboYql",
+        "Decorrelation-ColumnStore-EqualNullsJoinKeys"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 783861,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.ExplainAggregate.err",
+      "stderr_sha256": "9b308bb3c01fd5425968ab4a202eb1c22ecbc26332564e4b172cbc8f15c35bab",
+      "test": [
+        "KqpRboYql",
+        "ExplainAggregate"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 793061,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.DecorrelationEqualNullsJoinKeys.EqualNullsJoinKeys.err",
+      "stderr_sha256": "42cebd7cb2fe4f80b33efff12b15039a5445f7bd053ada43ee87e3aaa4b2937f",
+      "test": [
+        "KqpRboYql",
+        "DecorrelationEqualNullsJoinKeys+EqualNullsJoinKeys"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 793669,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.DecorrelationEqualNullsJoinKeys-EqualNullsJoinKeys.err",
+      "stderr_sha256": "8cc2c2b27ea0380abe5fe94c9059e78cd92c3c611b238f9261e644556a20cc40",
+      "test": [
+        "KqpRboYql",
+        "DecorrelationEqualNullsJoinKeys-EqualNullsJoinKeys"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 816817,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.CorrelatedSubquery.err",
+      "stderr_sha256": "b053dcd6d889e73b90fbe5707b61f216521ed2806a0c74dfdc58618da9ffea37",
+      "test": [
+        "KqpRboYql",
+        "CorrelatedSubquery"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 109303,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.Decorrelation-ColumnStore.EqualNullsJoinKeys.err",
+      "stderr_sha256": "3c8f0894f126aebe9da37f47bad2f229ceb8b00e18de0f88d5e3d71fe339dc55",
+      "test": [
+        "KqpRboYql",
+        "Decorrelation-ColumnStore+EqualNullsJoinKeys"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 1195869,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.Decorrelation.ColumnStore.EqualNullsJoinKeys.err",
+      "stderr_sha256": "d4a9c71adffbb21f1d71b57847bc27252569c9efee83ccbfaa6c56e071cf4001",
+      "test": [
+        "KqpRboYql",
+        "Decorrelation+ColumnStore+EqualNullsJoinKeys"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 787519,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.ExplainAnalyze.err",
+      "stderr_sha256": "cd93aff9664164aecee5529f440e6be896e2ae779bdb140463a3ca188080f72a",
+      "test": [
+        "KqpRboYql",
+        "ExplainAnalyze"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 108159,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.DistinctShuffleEliminationTPCHQ4-CompositePartitionKey.err",
+      "stderr_sha256": "ed8115981d63b33486143eca96fc8fd78f3f347bfa1ee053b45d8bd883b1cc7a",
+      "test": [
+        "KqpRboYql",
+        "DistinctShuffleEliminationTPCHQ4-CompositePartitionKey"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 787987,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.Explain.err",
+      "stderr_sha256": "7095efcfe21a4e0a44d3f3546fcfeef22a3a576ccb7c133ddeb6891e4dde8809",
+      "test": [
+        "KqpRboYql",
+        "Explain"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 107927,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.DistinctShuffleEliminationTPCHQ4.CompositePartitionKey.err",
+      "stderr_sha256": "617ded161b37e136c771e2f661ec037169512ab58b22b0707c3d56162a0b65ef",
+      "test": [
+        "KqpRboYql",
+        "DistinctShuffleEliminationTPCHQ4+CompositePartitionKey"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 1196375,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.Decorrelation.ColumnStore-EqualNullsJoinKeys.err",
+      "stderr_sha256": "1b00eb1a92f46db113af83c5741a3dea22d12d7011d5fe52bcc0117fd2cd32ca",
+      "test": [
+        "KqpRboYql",
+        "Decorrelation+ColumnStore-EqualNullsJoinKeys"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 777089,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.CorrelatedScalarSubqueryCBO4KeepsOuterJoinKey.err",
+      "stderr_sha256": "6a8cb6b7657bb346929e1549aa238cbfdaf1f0b00db5c959761a36b882050935",
+      "test": [
+        "KqpRboYql",
+        "CorrelatedScalarSubqueryCBO4KeepsOuterJoinKey"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 436983,
+      "stderr_relative_path": "chunk8/testing_out_stuff/KqpRboYql.CorrelatedScalarAggregateReuseDoesNotDuplicateVisibleColumns.err",
+      "stderr_sha256": "7f82f037c478f9bd4b2baad07af3897de76c2d83eaa1bc8d100324cef28f8c5a",
+      "test": [
+        "KqpRboYql",
+        "CorrelatedScalarAggregateReuseDoesNotDuplicateVisibleColumns"
+      ]
+    },
+    {
+      "classification": "invalid_lambda_dependency_scope",
+      "deleted_node_guard_present": false,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:114",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 825762,
+      "stderr_relative_path": "chunk9/testing_out_stuff/KqpRboYql.ExplainAnalyzeScalarSubquery.err",
+      "stderr_sha256": "4f90cb6d8c89cb900539ef1049453712b6e4540f2a33545387c4c401fd376f71",
+      "test": [
+        "KqpRboYql",
+        "ExplainAnalyzeScalarSubquery"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 787287,
+      "stderr_relative_path": "chunk9/testing_out_stuff/KqpRboYql.ExplainJoin.err",
+      "stderr_sha256": "b8c3f78b71058912e6a83348baae507b1e9079284851327f697912c623432e79",
+      "test": [
+        "KqpRboYql",
+        "ExplainJoin"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 1885385,
+      "stderr_relative_path": "chunk9/testing_out_stuff/KqpRboYql.ExplainOriginalRowsHints.err",
+      "stderr_sha256": "84484269f576ad4e27d14d1b6453b6035a83eb862fede9cecc1c21dd9f72e01b",
+      "test": [
+        "KqpRboYql",
+        "ExplainOriginalRowsHints"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 69312,
+      "stderr_relative_path": "chunk9/testing_out_stuff/KqpRboYql.ExplainExpressionPrintingJoinPredicate.err",
+      "stderr_sha256": "95359de9920b5403eb4fe73b822dcd7b3d09edd367cb8ee41d806bee5e314f42",
+      "test": [
+        "KqpRboYql",
+        "ExplainExpressionPrintingJoinPredicate"
+      ]
+    },
+    {
+      "classification": "deleted_lambda_dependency_scope",
+      "deleted_node_guard_present": true,
+      "json_serializer_in_stack": false,
+      "lambda_scope_lookup_stack_present": true,
+      "mini_kql_build_stack_present": true,
+      "source_locations": [
+        "yql/essentials/ast/yql_expr.h:2185",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:115",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:153",
+        "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp:177"
+      ],
+      "status": "crashed",
+      "stderr_bytes": 2268437,
+      "stderr_relative_path": "chunk9/testing_out_stuff/KqpRboYql.ExplainAnalyzeMultipleSelectTPCDS23.err",
+      "stderr_sha256": "afc020c2bea7d8155b1bf0587eccfe224b5f3ebd372ad992328e19c8320b43e0",
+      "test": [
+        "KqpRboYql",
+        "ExplainAnalyzeMultipleSelectTPCDS23"
+      ]
+    }
+  ],
+  "limits": [
+    "Causal attribution is existing-native-stack plus exact-source control-flow evidence; the candidate itself has not run.",
+    "Rerun the original full suite and the existing12 targeted C41 contracts; preserve their separate verdicts.",
+    "This amendment addresses crash-class dependency scope ownership, not the six distinct printed-AST assertions or plan-statistics behavior."
+  ],
+  "native_or_build_executed": false,
+  "observed_suite_counts": {
+    "crashed": 87,
+    "fail": 6,
+    "good": 255
+  },
+  "original_evidence_preserved": true,
+  "patch": {
+    "after_sha256": "844d3c0ce43266d5a173640ed62ddeff4cde448c42f00601a4678d39e54bd56a",
+    "before_sha256": "0a08d5f365e53b04330e5cd719efb5e8924051ccbedd0fa096d9ff057481ecbd",
+    "changed_file_count": 1,
+    "description": "Include existing completion API and refresh final physical-query scopes at the direct RBO export boundary.",
+    "disposable_apply_check_passed": true,
+    "essentials_files_modified": false,
+    "path": "proposed-correctness-amendments/C41-final-physical-query-dependency-scopes-20261028.patch",
+    "sha256": "172152968e6d2f39e7b52a64bd5dfd3be0fcccbb61e474b8d2f106d309c4f933",
+    "target": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  },
+  "production_or_live_helpers_modified": false,
+  "raw_queries_results_plans_asts_diagnostics_persisted": false,
+  "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+  "schema": "c41_fullsuite_dependency_scope_diagnosis_v1",
+  "six_noncrash_assertions": "Separate reviewer is assessing printed physical-AST literal matching; not classified as semantic regressions by this crash diagnosis.",
+  "source_bindings": {
+    "ydb/core/kqp/host/kqp_runner.cpp": "e3db6bf5c0f7c8cc3744a636cd71c8262423c0756d0559e0f711f7dc6ff0b577",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "0a08d5f365e53b04330e5cd719efb5e8924051ccbedd0fa096d9ff057481ecbd",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp": "ab962603994354ce12e01e5143705227aed2d3db8e5d99ddcad2084af735c455",
+    "yql/essentials/ast/yql_expr.h": "d86cf4b845a8071a419ee144d691818562330200ce79ea036079a7e30c132bc4",
+    "yql/essentials/core/services/yql_transform_pipeline.cpp": "48ed726441df8fb1414290276d7ff83f92ffa7eaf313d12c0b7956f99db173fc",
+    "yql/essentials/core/yql_expr_csee.cpp": "5e14327572f32cd7b3036d186136929a3117ddb6e049c5642a847a564729d2cc",
+    "yql/essentials/core/yql_expr_csee.h": "b2675300a2bd9d3770ee8a032a08c96a59c2cdfaf8085a38acd065f7242f0e74",
+    "yql/essentials/core/yql_expr_optimize.cpp": "bdb98e62a1e264244ea81b737b4547cbe8ec98d53a677b1b487053c1164cf443",
+    "yql/essentials/core/yql_expr_optimize.h": "f32dbb3a0cf39dc008234f91d2d45a2681c5ae8e31456ada3a54978832ee6fc0",
+    "yql/essentials/providers/common/mkql/yql_provider_mkql.cpp": "2235101e7014536349c34dbceeeb85cd4bce5245696db6bfd24c97fd388c5dd0"
+  },
+  "source_only": true,
+  "trace_sha256": "f8af1255f37495f6bff1e7dc40c499e2cd20278b7e3e599cc54d4bcf6cf0c948"
+}

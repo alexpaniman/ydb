@@ -1,0 +1,44 @@
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.h
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.h
+@@ -26,6 +26,11 @@
+         return *this;
+     }
+ 
++    TPhysicalSourceBuilder& WithSequentialReadsInFlight(ui32 value) {
++        SequentialInFlight = value;
++        return *this;
++    }
++
+     TExprNode::TPtr BuildPhysicalOp() override;
+ 
+ private:
+@@ -49,4 +54,5 @@
+     bool IsSysView;
+     TString CarrierColumn;
+     const TOlapAggregate* OlapAggregate = nullptr;
++    std::optional<ui32> SequentialInFlight;
+ };
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp
+@@ -208,6 +208,9 @@
+             }
+ 
+             TKqpReadTableSettings settings;
++            if (!IsSysView && SequentialInFlight.has_value()) {
++                settings.SequentialInFlight = *SequentialInFlight;
++            }
+             if (Read.SortDir != ESortDir::None) {
+                 settings.SetSorting(Read.SortDir == ESortDir::Asc ? ERequestSorting::ASC : ERequestSorting::DESC);
+                 if (Read.Limit) {
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp
+@@ -118,6 +118,9 @@
+             TPhysicalSourceBuilder builder(opRead, ctx, opRead.Pos, names, root->PlanProps.InfoUnitRegistry,
+                 graph.StageGUIDs.at(*opRead.Props.StageId), table.Metadata->Kind == NYql::EKikimrTableKind::SysView,
+                 std::move(carrierColumn));
++            if (rboCtx.KqpCtx.Config->HasMaxSequentialReadsInFlight()) {
++                builder.WithSequentialReadsInFlight(*rboCtx.KqpCtx.Config->MaxSequentialReadsInFlight.Get());
++            }
+             if (olapAggregate) {
+                 builder.WithOlapAggregate(*olapAggregate);
+             }

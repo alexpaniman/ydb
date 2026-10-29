@@ -1,0 +1,68 @@
+{
+  "reviewer": "harness_provenance",
+  "review_kind": "read_only_applied_source_and_saved_evidence_review",
+  "verdict": "no_new_source_blocker_found_runtime_acceptance_pending",
+  "reviewed_hashes": {
+    "optimizer_mode_contract.py": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad",
+    "proposed-quality-amendments/optimizer-mode-verifier.patch": "782f5c2475d968d717d99f01bbe42006ae98e17a6db6635b8dd277fee1f700a8",
+    "native_verify.py": "ada91caca657beb641dca120172f6c9a894db4b5f3d843c8a0abc510420609f5",
+    "verification_contract.py": "f3fadf010766861f98082dfdd61741d49f972a2ee63839917ff6ad0403ec8c6e",
+    "verify_series.py": "41a63a26e2c8fb620407f1b996dc1f9d8114a2cf6e5c77cab879cd2307cb05fb",
+    "anonymous_cpp_verify.py": "1fc8186e29e8886878f7e67b59c9f202ad9b5d4f8f6c96987ae6299687e11068",
+    "correctness_cpp_contract.py": "c7b6a2238442ab7c1a57a651b2c91be731d1d6dfe4b515ee56e682dc7ee34669",
+    "correctness_cpp_profiles.json": "d6bdfd489b3f01a98d980abfc174a4ee91628ff75639f0df39632de8068c2791",
+    "proposed-correctness-amendments/C31-C47-direct-cpp-verifier.patch": "0873070e30ca7aec2b1846c9d5b2a2b73662c5d10c8f2e37745c92a4b4961e7f"
+  },
+  "applied_mode_contract": [
+    "run_generated passes the requested mode into metadata APIs that declare it, constructs the actual settings bytes, and binds their hash to requested/effective optimizer and fallback values.",
+    "Mode mismatch returns a harness failure before the runner subprocess is launched. YQL mode selection is set by the transport after generator pragmas are read.",
+    "verify_series invokes each correctness bug separately; C37 and C38 therefore receive both new and legacy modes in the normal serial path.",
+    "C37/C38 acceptance requires one new and one legacy record per case/repetition, explicit exclusive mode evidence with fallback disabled, successful independent row oracles and matching result digests.",
+    "C37/C38 generator metadata changes shuffle configuration only and cannot override EnableNewRBO or fallback.",
+    "C44 fallback-enabled metadata remains valid because ordinary mode matching preserves explicit requested/effective fallback equality; fallback-disabled exclusivity is confined to C37/C38 comparisons.",
+    "C44 expected rejection requires the target request boundary and exact guard token. Its two successful controls validate the tagged base/index result and result-set ownership through a separate validation request.",
+    "Fresh batch evidence consists only of newly appended records and is annotated with the whole-batch memory-guard result; explicit guard failure is rejected by record_verdict.",
+    "Strict executable build receipts are checked before the batch and runner/source stability is checked again for each saved record."
+  ],
+  "mode_evidence_limit": "This proves the requested optimizer configuration delivered to the runner, not an independent trace of every internal optimizer routing decision. Explicit C44 legacy fallback is intentional; unrelated historical new-only evidence is not invalidated.",
+  "direct_readiness": {
+    "integration_applied": true,
+    "application_reconciliation": "The initial subdirectory git-apply attempt silently skipped the target; the original verifier hash was independently observed and reported. Parent corrected the application using the repository-root directory prefix. A subsequent source/hash review now confirms the expected registration, fixed-only routing, reviewed render/verdict delegates, profile binding and complete admission check at SHA256 1fc8186e29e8886878f7e67b59c9f202ad9b5d4f8f6c96987ae6299687e11068. No direct compiler or native execution occurred.",
+    "application_evidence": "verification/C31-C47-direct-cpp-artifacts-applied.json",
+    "previously_observed_verifier_sha256": "ab5efbf9bed8d22900e822fa45b684e1ad2da3d3121f47abfedf68778b92aef2",
+    "amendment_needed_from_this_review": false,
+    "applied_verifier_source_matches_independently_reviewed_delta": true,
+    "C31": {
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "generator_sha256": "30735cfee2bdd897668f3e0c29386674e010dc88873a3cf227b71f6ee7aa1b6c",
+      "case_count": 24,
+      "profile_matches_current_case": true,
+      "scope": "Fixed-only local identity/admission contracts. Aggregate-copy stability and full query sharing remain separate SQL/physical-graph obligations."
+    },
+    "C47": {
+      "revision": "535684543d798106b01872b81fe4bbbdea72a4de",
+      "generator_sha256": "74e378d5b40ec2aea8289b4b1e7c83b3324a6b3499944dc592d419a0e8a66224",
+      "case_count": 19,
+      "profile_matches_current_case": true,
+      "scope": "Fixed-only production Copy/repeatability/IU/storage-key contracts; pinned main lacks the required ReadSettings API."
+    },
+    "execution_plan": "verification/C31-C47-direct-cpp-execution-plan.json",
+    "independent_review": "verification/C31-C47-direct-cpp-independent-source-review.json",
+    "remaining": [
+      "Prepare the actual RBO production closure at each exact clean revision and execute guarded compile, link and native phases serially.",
+      "Require all reviewed cases, exact generator/rendered-source identities and complete closure/resource evidence before accepting local contracts.",
+      "Do not promote local direct contracts to whole-query semantics or optimization-quality evidence."
+    ]
+  },
+  "C44_remaining": "Existing guard/fallback/base/index controls satisfy the stated coverage plan; strict current-receipt rerun remains required.",
+  "activity_this_review": {
+    "source_and_artifact_reads": true,
+    "mock_suites_run": 0,
+    "builds_run": 0,
+    "compiler_or_linker_runs": 0,
+    "native_runs": 0,
+    "active_helpers_edited": false,
+    "production_sources_edited": false,
+    "generated_inputs_persisted": false
+  }
+}

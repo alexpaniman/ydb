@@ -1,0 +1,55 @@
+{
+  "status": "clean_source_composition_and_mocked_driver_passed_native_pending",
+  "patches": {
+    "C47-copy-generator-ordered-key-api-20261028.patch": "e0e65ce613aadb1c659800a4d289492273ccd81f92752c6206e613450b6cf206",
+    "C47-covering-import-direct-controls-20261028.patch": "3a923193506e0c968eea4bbb44ebfb16e1a801e05623af0daa03afb5873aa1c1",
+    "C47-covering-import-direct-driver-20261028.patch": "4f64ff7310a08559c44e95528bc2610a27265d5cff087d8f362aa9fb24a64b69",
+    "C31-sealed-readonly-native-executable-20261028.patch": "ab0a639765b5b1f8fffa71b16c2b29e757c8ac8f7b57ec1ed130bbe86b31f1f7"
+  },
+  "files": {
+    "anonymous_cpp_guard.py": {
+      "before_sha256": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+      "after_sha256": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819"
+    },
+    "anonymous_cpp_verify.py": {
+      "before_sha256": "87f389a070db81db77983ebe816dd6f1696a3382d718365d22e2c9b7231d72eb",
+      "after_sha256": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873"
+    },
+    "correctness_cpp_contract.py": {
+      "before_sha256": "6102f53df8908c412e70b102b9f341aec242a6a9188e5a0b6fa96c6fd7f65c92",
+      "after_sha256": "49598993c191a5a9784cb57ccc5e8fc0b8719deb77071959dbab5b9da8572326"
+    },
+    "correctness_cpp_profiles.json": {
+      "before_sha256": "672b472fd7bac647440ac855c0cdaad838f2f0bae1639888640d4280a385f5a2",
+      "after_sha256": "53c415c3b19f43132f79dfe2490ea5d5a246f9371629b9aa0ee054cf8ea20ca1"
+    },
+    "c47_lookup_copy_contract_generator.py": {
+      "before_sha256": "74e378d5b40ec2aea8289b4b1e7c83b3324a6b3499944dc592d419a0e8a66224",
+      "after_sha256": "7e717869cb10b65043ade9032a170c3dfec96e8e341847c774245637f35033df"
+    },
+    "c47_covering_import_contract_generator.py": {
+      "before_sha256": null,
+      "after_sha256": "d19a363c250f6f61702e29360b50b613dbc42bf0f0b19c0eab3f5a39c608cee6"
+    },
+    "c47_combined_cpp_generator.py": {
+      "before_sha256": null,
+      "after_sha256": "1aeeec8491b4b054344cbf3704476044153e4c2409bd6a168d0ecfa7ce835fb2"
+    }
+  },
+  "combined_metadata_checks": 276,
+  "original_copy_cases": 19,
+  "covering_rule_cases": 32,
+  "exact_total_assertions": 796,
+  "production_revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+  "actual_native_or_toolchain_execution": false,
+  "live_edits": false,
+  "rendered_source_persisted": false,
+  "synthetic_evidence_persisted": false,
+  "guard_scope_timeouts_cancellation_and_limits_unchanged": true,
+  "requirements": [
+    "Apply only at idle under parent coordination.",
+    "Root neutral sealed-readonly executable check under existing guard is required.",
+    "Actual C31 direct33 and C47 combined51 native verdicts remain pending.",
+    "Q28 separate post-link call must be updated before resource pilot execution."
+  ]
+}

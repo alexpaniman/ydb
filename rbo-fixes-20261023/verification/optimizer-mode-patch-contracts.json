@@ -1,0 +1,26 @@
+{
+  "patch_sha256": "782f5c2475d968d717d99f01bbe42006ae98e17a6db6635b8dd277fee1f700a8",
+  "helper_sha256": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad",
+  "files": [
+    {
+      "name": "native_verify.py",
+      "before_sha256": "573d45bc3e0e514c8fd201c902bc4693fde6ccc927042c74784582a04ed58115",
+      "after_sha256": "ada91caca657beb641dca120172f6c9a894db4b5f3d843c8a0abc510420609f5"
+    },
+    {
+      "name": "verification_contract.py",
+      "before_sha256": "6fa7e6afa5108efb773658425966e5aa1ed24bae86937c63705db9f65fd2ce0f",
+      "after_sha256": "f3fadf010766861f98082dfdd61741d49f972a2ee63839917ff6ad0403ec8c6e"
+    },
+    {
+      "name": "interval_sum_checks.py",
+      "before_sha256": "6097f97e13be1eee29943f682a3a3dc2870171a3edeb0864a64d56452f8c9425",
+      "after_sha256": "ad3af297f28f2566a382f48667edb65fd64e8b0999f9634123944067b2253c6c"
+    },
+    {
+      "name": "interval_window_checks.py",
+      "before_sha256": "157e2f56655c56216963499c9d1290f6b8fd9104bd99cb237578dedd38b7e9cc",
+      "after_sha256": "591249dd275f5aa59c7f5be84d490193246c49ede53f920b8b8b1639801b23ca"
+    }
+  ]
+}

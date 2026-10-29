@@ -1,0 +1,82 @@
+--- a/rbo-fixes-20261023/quality_pairing.py
++++ b/rbo-fixes-20261023/quality_pairing.py
+@@ -318,6 +318,9 @@
+     for original in after_records:
+         after = dict(original)
+         after.update(quality_acceptance_pass=False, quality_improvement_verified=False)
++        if bug == 'Q01':
++            after.update(q01_paired_structural_contract_pass=False,
++                         q01_structural_improvement_observed=False)
+         key = record_key(after)
+         before = before_by_key.get(key)
+         reasons = []
+@@ -340,6 +343,10 @@
+             else:
+                 try:
+                     accepted = _fixed_acceptance(before, after)
++                    if bug == 'Q01':
++                        after['q01_paired_structural_contract_pass'] = bool(accepted)
++                        after['q01_structural_improvement_observed'] = bool(
++                            accepted and _improvement(after['case'], before, after))
+                     ir_accepted = True
+                     # Q11 requires exact Ordered/branch-identity/effect-placement
+                     # contracts in addition to SQL rows and physical counters.
+@@ -365,7 +372,7 @@
+                     after['quality_acceptance_pass'] = False
+                     after['quality_improvement_verified'] = False
+         after['quality_pairing_reasons'] = reasons
+-        after['quality_pairing_version'] = 'required_case_physical_and_paired_controls_v3'
++        after['quality_pairing_version'] = 'required_case_controls_and_q01_resource_gate_v4'
+         paired.append(after)
+     observed_owners = {record['case']: record.get('generator_module') for record in paired}
+     coverage = (isinstance(required_case_owners, dict) and bool(required_case_owners)
+@@ -381,6 +388,16 @@
+             record['quality_acceptance_pass'] = False
+             record['quality_improvement_verified'] = False
+             record['quality_pairing_reasons'].append('required_finding_profile_coverage_missing')
++        if bug == 'Q01':
++            # Temporary fail-closed gate: physical work removal and lifecycle
++            # counters do not establish measured allocation/CPU scaling. A
++            # separately reviewed, receipt-bound measurement admission must
++            # replace this gate; self-attested record flags cannot unlock it.
++            record['q01_resource_scaling_required'] = True
++            record['q01_resource_scaling_verified'] = False
++            record['quality_acceptance_pass'] = False
++            record['quality_improvement_verified'] = False
++            record['quality_pairing_reasons'].append('required_q01_resource_scaling_evidence_pending')
+     complete = bool(paired) and after_keys == set(before_by_key) and not duplicates and coverage
+     semantic = bool(paired) and all(record_verdict(record) == 'functional'
+         and _provenance(record, 'fixed', revision) and record.get('bug') == bug for record in paired)
+--- a/rbo-fixes-20261023/quality_pairing_contracts.py
++++ b/rbo-fixes-20261023/quality_pairing_contracts.py
+@@ -95,6 +95,30 @@
+                      'callables': {'Ensure': 2}, 'structural_assertions': {'preserved': True}}
+     check(pairing._fixed_acceptance(guard_control, guard_control))
+     check(not pairing._fixed_acceptance(guard_control, dict(guard_control, callables={'Ensure': 1})))
++    scaling_before, scaling_after = copy.deepcopy(before), copy.deepcopy(after)
++    for item in (scaling_before, scaling_after):
++        item.pop('quality_assertions')
++        item.update(bug='Q01', case='q01_rows_asc_overlap', generator_module='quality_window_checks',
++                    structural_assertions={'count_has_no_frame_fold': item['phase'] == 'fixed'},
++                    callables={'Fold': int(item['phase'] == 'baseline'), 'Fold1': 0},
++                    # Input flags cannot replace measured resource admission.
++                    allocation_scaling_verified=True, q01_resource_scaling_verified=True)
++    scaling_requirements = {'required_case_owners': {'q01_rows_asc_overlap': 'quality_window_checks'},
++                            'required_profile_sha256': 'd' * 64}
++    rows, success, status = pairing.pair_quality_records(
++        [scaling_before], [scaling_after], 'Q01', 'b' * 40, 'f' * 40, **scaling_requirements)
++    check(not success and status == 'verified_semantics_quality_pending')
++    check(rows[0]['q01_paired_structural_contract_pass'] is True
++          and rows[0]['q01_structural_improvement_observed'] is True)
++    check(rows[0]['q01_resource_scaling_verified'] is False
++          and rows[0]['quality_acceptance_pass'] is False
++          and rows[0]['quality_improvement_verified'] is False)
++    check('required_q01_resource_scaling_evidence_pending' in rows[0]['quality_pairing_reasons'])
++    check(driver.record_verdict(rows[0]) == 'functional')
++    rows, success, status = pairing.pair_quality_records(
++        [scaling_before], [dict(scaling_after, semantic_oracle_pass=False)],
++        'Q01', 'b' * 40, 'f' * 40, **scaling_requirements)
++    check(not success and status == 'native_failed')
+     for field, replacement in [('generator_sha256', 'a' * 64), ('query_sha256', 'a' * 64),
+                                ('quality_profile_sha256', None), ('node_count', 4),
+                                ('fixture_sha256', []), ('generator_module', 'different')]:

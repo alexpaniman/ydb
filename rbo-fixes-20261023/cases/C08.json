@@ -1,0 +1,67 @@
+{
+  "id": "C08",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c08-restore-empty-scalar-groups",
+  "commit": "af05d7c395191d1a19ff7a3a4b2c8bc29be83582",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp"
+  ],
+  "rationale": "Restore missing scalar aggregate rows for every domain before projection, retaining COUNT-specific zero correction.",
+  "checks": [
+    "git diff --check passed"
+  ],
+  "generator_cases": [
+    "empty_scalar_projection",
+    "empty_count_restore_control"
+  ],
+  "verification_plan": "Independent correlation semantic oracle with empty/nonempty and COUNT controls.",
+  "build_verification": {
+    "bug": "C08",
+    "revision": "af05d7c395191d1a19ff7a3a4b2c8bc29be83582",
+    "exit_code": 0,
+    "elapsed_seconds": 81.8,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4550656,
+      "peak_scope_usage_bytes": 43124994048,
+      "minimum_host_available_bytes": 87084683264,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 81.7
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/af05d7c395191d1a19ff7a3a4b2c8bc29be83582-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 6,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C08-af05d7c39519-1793151388645270557.jsonl"
+  },
+  "status_before_verification": "verified",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "c00f7451a0441b75ab1039cfb1a6292020894b3023136d925d04089c27071fa0"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C08-1793151414194075129.json",
+    "coverage_evidence_sha256": "d7c6ef4197e66fc2f1e3788dd93dc61dd8d56daf12603a70481e007814fdddd8",
+    "remaining_qualifications": [
+      "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract."
+    ]
+  }
+}

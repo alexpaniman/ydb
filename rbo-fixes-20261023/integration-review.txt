@@ -1,0 +1,29 @@
+Shared source files across independently main-based correctness branches.
+File overlap identifies integration review points, not confirmed textual conflicts.
+
+ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp: C09, C11, C12, C13, C14, C20, C27, C28, C29, C33, C44, C45, C47
+ydb/core/kqp/opt/rbo/kqp_operator.h: C05, C20, C37, C41, C47, C50
+ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp: C02, C05, C09, C11, C47
+ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp: C09, C11, C20, C42, C47
+ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp: C37, C38, C47, C49, C50
+ydb/core/kqp/expr_nodes/kqp_expr_nodes.json: C09, C11, C20, C47
+ydb/core/kqp/opt/rbo/kqp_operator.cpp: C05, C17, C18, C47
+ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp: C03, C25, C31, C41
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp: C19, C20, C21, C22
+ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp: C05, C06, C07, C08
+ydb/core/kqp/host/kqp_host.cpp: C30, C46, C48
+ydb/core/kqp/opt/rbo/kqp_rbo_rules.h: C01, C04, C06
+ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp: C11, C20, C26
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp: C26, C34, C35
+ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp: C24, C26, C35
+ydb/core/kqp/opt/kqp_type_ann.cpp: C11, C41
+ydb/core/kqp/opt/rbo/kqp_plan_props.cpp: C09, C11
+ydb/core/kqp/opt/rbo/kqp_plan_props.h: C09, C11
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp: C41, C43
+ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h: C20, C21
+ydb/core/kqp/opt/rbo/rules/assign_stages.cpp: C32, C50
+ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp: C09, C10
+ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp: C05, C15
+ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp: C01, C16
+ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp: C40, C47
+ydb/core/kqp/opt/rbo/rules/push_ranges.cpp: C47, C49

@@ -1,0 +1,132 @@
+{
+  "kind": "source_attribution_and_integration_dependency_only",
+  "finding": "The original mixed-type correlated C50 controls cannot be assumed to isolate C06 on the standalone C06 branch.",
+  "human_readable_explanation": "C06 prevents domain elimination from changing the captured key type. That restores the intended type of the outer serialized domain key, but normal decorrelation then preserves a separate equality join between the original mixed numeric types. That inner join can still require C50 to bring matching values into the same task before physical key conversion.",
+  "branches": {
+    "C06": "446592a476b92437df5b2579e1027cfb313be1d9",
+    "C50": "946575513d233534e8f4fa4168f5dc9379ffc982",
+    "common_main_parent": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "each_is_independent_main_based": true,
+    "stacked_changes": false
+  },
+  "source_trace": [
+    {
+      "step": 1,
+      "contract": "Correlated EXISTS/NOT EXISTS builds a domain and final semi/anti domain join. Nullable domains default to typed StablePickle keys, so that final join has String keys on both sides.",
+      "source": "inline_simple_in_exists_subplan.cpp:115,120; dependent_join_pushdown.cpp:242,255"
+    },
+    {
+      "step": 2,
+      "contract": "C06 requires exactly equal source and captured type annotations before domain elimination may substitute the captured value. With unequal original numeric types, it retains the dependent join.",
+      "source": "dependent_join_pushdown.cpp:413"
+    },
+    {
+      "step": 3,
+      "contract": "Fallback pushes the dependent join through its Filter, replaces captured references using the original typed domain, and converts the AddDependencies leaf into Cross(domain, inner). The original equality filter remains.",
+      "source": "dependent_join_pushdown.cpp:326,328,463"
+    },
+    {
+      "step": 4,
+      "contract": "Later Logical rewrites I and II extract a member equality crossing the Cross inputs, append numeric join keys and change Cross to Inner. These stages follow decorrelation and precede stage assignment.",
+      "source": "kqp_rbo_transformer.cpp:663,684,695,758; push_filter_into_join.cpp:117,148,152"
+    },
+    {
+      "step": 5,
+      "contract": "Standalone C06 does not contain GatherJoinInputs. Regular Grace stage assignment hash-shuffles original input keys; common-type casts are introduced later inside the physical join builder. Thus a String outer-domain join does not prove the preserved inner numeric join is free of C50.",
+      "source": "assign_stages.cpp:143,170,181; kqp_rbo_physical_join_builder.cpp:162,247,275,582"
+    }
+  ],
+  "actual_evidence_scope": {
+    "original_C50_correlated_failures": 8,
+    "original_same_type_correlated_passes": 8,
+    "evidence": "verification/fixed-C50-946575513d23.jsonl",
+    "evidence_sha256": "98cf015df095e553e645a1bee991b839ed93f81fc7119e1e20e03e9dbce544f7",
+    "prior_attribution": "Existing C06 explains the typed-domain mismatch at C50. This report qualifies how to verify the fixes independently; it does not withdraw the original failures.",
+    "standalone_C06_cross_control_native_run": false,
+    "combined_C06_C50_native_run": false,
+    "actual_inner_join_shape_observed": false
+  },
+  "decision": {
+    "new_cross_control_generator_created": false,
+    "reason": "Relabeling unchanged four-node controls as isolated C06 acceptance would conflate two independent correctness fixes.",
+    "failure_oracle_weakened": false,
+    "old_failures_relabelled": false,
+    "production_or_live_helper_edits": false,
+    "native_build_toolchain_graph_operations": false,
+    "rendered_payloads_persisted": false
+  },
+  "required_followup": [
+    "Rerun C06 own existing controls against its standalone exact build receipt.",
+    "Retain original C50 correlated failures as qualified integration coverage.",
+    "If combined coverage is necessary, explicitly validate C06 plus C50 in a separate integration checkout and bind actual relevant inner/outer join shapes. Do not merge either fix into the other main-based branch.",
+    "Do not call a one-node or configuration-changed check an unchanged equivalent of the original four-node profiles."
+  ],
+  "source_checks": 4,
+  "source_bindings": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "sha256": "7c14e1724de571d9bc141b950b80074430cf067ba9a8932d2c87921fe364c466",
+      "lines": [
+        242,
+        255,
+        326,
+        328,
+        355,
+        413,
+        463
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "sha256": "3c30374f7517254dfc2eb3a0002d0c5fcda04203bbe2e6620426af5d2e4c82b9",
+      "lines": [
+        117,
+        148,
+        152
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/inline_simple_in_exists_subplan.cpp",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "sha256": "604ce2ec3599c4453f260153123aa856982ca4078c268f2b48391c8253aed572",
+      "lines": [
+        115,
+        120
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "sha256": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896",
+      "lines": [
+        663,
+        684,
+        695,
+        758
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "sha256": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85",
+      "lines": [
+        143,
+        170,
+        181
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "sha256": "f11a39d6425b3dcb7888a427f46cd443f35d802db9046b4f1c0e14dba21f7e6a",
+      "lines": [
+        162,
+        247,
+        275,
+        582
+      ]
+    }
+  ]
+}

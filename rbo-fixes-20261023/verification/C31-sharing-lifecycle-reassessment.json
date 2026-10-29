@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "reviewer": "c41_review",
+  "finding": "C31",
+  "reviewed_commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "verdict": "previous_block_enabled_post_cbo_lookup_gap_retracted",
+  "production_amendment_required_for_alleged_gap": false,
+  "proof_scope": "Pinned pipeline and ordinary imported SQL plans; excludes hand-built plans that inject physical JoinAlgo plus residual filters before CBO.",
+  "original_final_finding_scope": "Late residual-join reconstruction recreates Replicate after the sole copy stage when block joins and spilling are disabled.",
+  "proof": [
+    "Every left-family residual that requires reconstruction under the fixed block/force flags is processed by the added early pass, before copying.",
+    "A residual join retained by that pass has block joins enabled, at least one equality condition and forced inlining disabled.",
+    "It cannot later receive Lookup or LookupReverse from CBO because both packing paths exclude nonempty JoinFilters.",
+    "CBO-created joins start without JoinFilters. Remaining intervening rules do not attach residual filters to left-family joins. The only attachment targets Cross, whose inlining uses a Filter rather than Replicate.",
+    "No stage between these inlining passes changes the UseBlockHashJoin or force-inlining configuration values. Binding substitution and pruning preserve the nonempty key/equality condition needed by the early return.",
+    "Therefore the late pass cannot newly create left-family reconstruction sharing for the supposed retained-block/Lookup path. Adding fallback or relaxing Copy would introduce unnecessary behavior changes."
+  ],
+  "source_evidence": [
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "line": 704,
+      "blob_sha256": "121c7897a70f4b535cd853b1964c909bca4e376dc89cccd83d727d7066f53e3a",
+      "claim": "Early inlining precedes copy expansion, storage rewrites and CBO; late inlining precedes physical lookup lowering."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp",
+      "line": 57,
+      "blob_sha256": "971a6579e1d70f66cb786a9c1658138a6a33506d10aebc4be1535526824d096a",
+      "claim": "Only left-family residual reconstruction creates Replicate. Surviving block-capable keyed residual joins return unchanged unless force or Lookup eligibility changes."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/rules/build_initial_cbo_tree.cpp",
+      "line": 28,
+      "blob_sha256": "db1af8bc5a1491ab83b69229050356cc93efa6859ba1406f876dcec974e993ba",
+      "claim": "Initial CBO packing requires empty residual filters."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/rules/expand_cbo_tree.cpp",
+      "line": 69,
+      "blob_sha256": "8ba31075b870249daf3657ad9584b7e3084e02e49cb3d8b478e4fdc303662272",
+      "claim": "CBO expansion also rejects residual-filter joins, including an outer join above a packed child."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/rules/kqp_cbo_trees.cpp",
+      "line": 447,
+      "blob_sha256": "c3a072c8cd24b2f4363d667473b98291e3fa312699468d033ed5d5db0c1c66b1",
+      "claim": "CBO result import creates joins without residual filters before attaching its selected algorithm."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+      "line": 95,
+      "blob_sha256": "3c30374f7517254dfc2eb3a0002d0c5fcda04203bbe2e6620426af5d2e4c82b9",
+      "claim": "The only residual attachment in stages between CBO and late inlining is guarded by JoinKind Cross. It cannot create left-family reconstruction sharing."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+      "line": 107,
+      "blob_sha256": "a5b96f17bb1a26d612e033f944d9c612bfb2689c972a54f18795059b2d4867d2",
+      "claim": "This rule only removes or retains existing residual conjuncts; it cannot introduce a new left-family residual."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/rules/disable_blocks_on_columns_limit.cpp",
+      "line": 11,
+      "blob_sha256": "5269b3dc1fb00ed47b3fe4aef19304e51d141c44392b5012f59df36f140253d1",
+      "claim": "The intervening block mode rule changes expression BlockEngineMode, not the UseBlockHashJoin or force-inlining flags read by both inlining stages."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/global_inlining.cpp",
+      "line": 7,
+      "blob_sha256": "0949eba73647e64e39277111c28d523a83e589767a0b817461e055aa057da1ac",
+      "claim": "Post-CBO inlining performs binding substitutions, without introducing residual predicates or changing physical join eligibility."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/logical_renames.cpp",
+      "line": 55,
+      "blob_sha256": "c1e0080f0288002f9b9137dd9db72fc3e284097c7fae6d9defd9b328245a5cee",
+      "claim": "Binding renaming retains join keys and residual operator structure."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/rules/expand_replicate.cpp",
+      "line": 51,
+      "blob_sha256": "4bc5fe0f799c3fa51883e5167dd7d8759c4dc105274602be7436f47b6336f8b7",
+      "claim": "Copy expansion remains deliberately gated by repeatability and Copy support; no amendment should bypass those gates."
+    },
+    {
+      "commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+      "path": "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+      "line": 57,
+      "blob_sha256": "6064c7c29f85923a02afa5be97e5e4d6f1dfe5e4e8a6bc1d0fd34c704bac980f",
+      "claim": "Repeatability does not admit physical TableLookup; generic CopyImpl returns nullptr for unsupported operators."
+    }
+  ],
+  "scope_not_claimed_fixed": [
+    {
+      "topic": "Residual reconstruction without a nonnullable unique row identity",
+      "status": "Existing separate precondition remains; not a new late-sharing lifecycle failure.",
+      "evidence": "rbo-review-20261021/reviewer-notes/r29.txt requested grouping with C31, but the final bugs.json C31 description and no-block evidence label describe only late sharing. This scope discrepancy is explicitly reported to root."
+    },
+    {
+      "topic": "Nonrepeatable or unsupported producers that already cannot be duplicated",
+      "status": "Existing general copy eligibility restrictions remain; source safety checks must not be bypassed."
+    }
+  ],
+  "c47_relationship": {
+    "reviewed_commit": "92a3aebcaa4858c945c9a56e929b5d2d4a030b58",
+    "verdict": "separate_import_time_copy_coverage_followup",
+    "description": "Explicit noncovering index conversion creates TOpTableLookup before optimization. If import retains multiple consumers of that producer, the first copy stage encounters a physical TableLookup already; it neither satisfies repeatability nor implements Copy. This is not sharing introduced after the copy stage and cannot be fixed by moving C31 inlining. Covering reads retain ordinary TOpRead copy support.",
+    "native_reachability": "Pending; supplied shared-producer target and covering/spilling controls. Do not claim an observed native failure before those checks run.",
+    "safe_next_options": [
+      "Add a narrowly guarded Copy/repeatability contract for plain LookupRows over repeatable inputs, with complete output-IU and key rebinding, as a C47 amendment.",
+      "Retain a logical explicit-index read until after import-time sharing expansion."
+    ],
+    "not_proposed": [
+      "Enable spilling against configuration",
+      "Copy effectful or nonrepeatable producers unconditionally",
+      "Add generic materialization without an established logical operator contract"
+    ],
+    "followup_amended_commit": "535684543d798106b01872b81fe4bbbdea72a4de",
+    "followup_artifact": "verification/C47-copy-contracts.json"
+  },
+  "generator": {
+    "path": "sharing_lifecycle_checks.py",
+    "sha256": "52bc893a2810a3dbae30cd38366f91450381f55e9556c735302d30bc43fbed94",
+    "c31_cases": 12,
+    "c47_separate_cases": 3,
+    "positive_negative_row_oracle_checks": 90,
+    "synthetic_structural_checker_checks": 29,
+    "source_derived_model": {
+      "abstract_transition_checks": 48,
+      "new_late_left_family_replication_paths": 0,
+      "not_a_native_execution": true
+    },
+    "native_execution": false,
+    "compiler_execution": false,
+    "rendered_workloads_persisted": false
+  },
+  "verification_status": "Source lifecycle proof complete; original C31 native queue and new profiles remain root-owned."
+}

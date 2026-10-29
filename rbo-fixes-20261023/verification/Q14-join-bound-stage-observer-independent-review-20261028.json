@@ -1,0 +1,19 @@
+{
+  "status": "independent_source_and_metadata_review_pass_native_pending",
+  "reviewed_unix_time": 1793136785.9799142,
+  "patch": "proposed-quality-amendments/Q14-join-bound-stage-controls-20261028.patch",
+  "patch_sha256": "df2606e3d073b7accd33edac09f26d54f736d5152f94e2907c96279e9506a251",
+  "generator_sha256": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+  "metadata_assertions_passed": 304,
+  "stacked_application_passed": true,
+  "root_review_amendment": "Reject unsupported local declarations/returns, dead local expression traversal and lambda binding/shadowing ambiguity before using the shared global resolver. No shared parser change.",
+  "remaining_limits": [
+    "Actual ReverseBlock selection and required chain topology must be observed in native runs.",
+    "Local block/let or shadowing formatter shapes remain unsupported and reject evidence.",
+    "Syntactic input/connection observations do not prove per-field lineage, task placement, invocation counts or latency.",
+    "Whole quality acceptance requires all six paired observations plus existing twelve direct contracts."
+  ],
+  "native_runs": 0,
+  "build_runs": 0,
+  "live_edits": false
+}

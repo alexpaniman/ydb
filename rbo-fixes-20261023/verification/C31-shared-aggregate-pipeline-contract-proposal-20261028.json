@@ -1,0 +1,392 @@
+{
+  "actions": {
+    "builds": 0,
+    "compilations": 0,
+    "live_helper_edits": 0,
+    "native_runs": 0,
+    "production_edits": 0,
+    "rendered_cpp_or_queries_or_plans_persisted": 0
+  },
+  "assertion_count_reason": "Must be frozen from the actual reviewed generator and native result, not estimated from this proposal.",
+  "case_count": 4,
+  "case_vector": [
+    "c31_pipeline_shared_scalar_sum_count",
+    "c31_pipeline_shared_nullable_group_sum_count",
+    "c31_pipeline_shared_scalar_some_count",
+    "c31_pipeline_copied_scalar_some_rejected"
+  ],
+  "cells": [
+    {
+      "case": "c31_pipeline_shared_scalar_sum_count",
+      "domain": true,
+      "expected": "admit; full two-value domain; nullable SUM identity encoded; COUNT identity direct",
+      "metadata": "empty key set computed by actual aggregate metadata",
+      "producer": "real keyless scalar aggregate with integral SUM and COUNT",
+      "sharing": true
+    },
+    {
+      "case": "c31_pipeline_shared_nullable_group_sum_count",
+      "domain": false,
+      "expected": "admit; no domain; nullable key encoded; both non-key aggregate values remain on primary bag branch",
+      "metadata": "nullable grouping key computed from loaded table/aggregate metadata",
+      "producer": "real grouped aggregate with nullable exact-scalar grouping key and integral SUM plus COUNT",
+      "sharing": true
+    },
+    {
+      "case": "c31_pipeline_shared_scalar_some_count",
+      "domain": true,
+      "expected": "admit; full two-value domain; exact original SOME result binds both branches",
+      "metadata": "empty key set computed by actual aggregate metadata",
+      "producer": "real keyless scalar aggregate with order-sensitive nullable integral SOME and COUNT",
+      "sharing": true
+    },
+    {
+      "case": "c31_pipeline_copied_scalar_some_rejected",
+      "domain": false,
+      "expected": "reject at stable-copied-reduction guard before creating a hub, allocating identity IUs or changing any owning plan slot",
+      "metadata": "same genuine keyless metadata",
+      "producer": "same SOME/COUNT producer and typed fixture as preceding case",
+      "sharing": false
+    }
+  ],
+  "claim_boundary": {
+    "acceptance_decision_changed": false,
+    "can_establish_after_native_pass": "Actual shared-mode logical identity, post-pruning/stage producer ownership, exact key-only domain lowering, and reconstruction field/IU binding before generic physical peepholes.",
+    "does_not_establish": [
+      "final optimized SQL-plan field lineage across arbitrary generic peepholes",
+      "new SQL result/bag evidence",
+      "floating aggregation numerical correctness",
+      "full type/operator/configuration matrix",
+      "standalone proof of all C31 behavior"
+    ],
+    "evidence_combination": "Combine reviewed source transfer invariants and new real-pipeline results with existing33 and existing52 semantic cases. The existing two bounded final-plan observations remain observations; their full-lineage flags stay false.",
+    "full_lineage_admission": false,
+    "quality_admission": false
+  },
+  "coordination": "remaining_correctness_review independently agreed these four cells and supplied separate lowering/source audit; no production bug was established by this source-only task.",
+  "existing_artifact_bindings": [
+    {
+      "path": "rbo-fixes-20261023/c31_identity_cpp_generator.py",
+      "sha256": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9"
+    },
+    {
+      "path": "rbo-fixes-20261023/correctness_cpp_profiles.json",
+      "sha256": "53c415c3b19f43132f79dfe2490ea5d5a246f9371629b9aa0ee054cf8ea20ca1"
+    },
+    {
+      "path": "rbo-fixes-20261023/anonymous_cpp_verify.py",
+      "sha256": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873"
+    },
+    {
+      "path": "rbo-fixes-20261023/verification/C31-actual-wide-observation-source-assessment-20261028.json",
+      "sha256": "4b09b0c1d29b1b7cc8c215a81923347a49f5c29a590d04b305c3e30f0a5c4531"
+    },
+    {
+      "path": "rbo-fixes-20261023/verification/C31-changed-behavior-acceptance-scope-independent-review-20261028.json",
+      "sha256": "08fcf10d0df9738897e14dcf7d59047478fe701cb3746485d83bbd15a0763c41"
+    },
+    {
+      "path": "rbo-fixes-20261023/verification/C31-identity-lowering-and-scope-source-audit-20261028.json",
+      "sha256": "0bd7974ff759647f7c7c7bba53a06fff9a76d75e76e3805f390b82f4523cfd3b"
+    }
+  ],
+  "existing_contracts": {
+    "actual_assertions_previously_recorded": 1416,
+    "cases": 33,
+    "coverage": [
+      "immediate actual inline-rule rewrite",
+      "one hub and exact source/secondary rebinding",
+      "full domain key set and matching nullable encoders",
+      "join kind visibility, residual/capture rebinding, output IUs"
+    ],
+    "missing": [
+      "explicit shared-execution configuration",
+      "stateful aggregate producer",
+      "post-inlining pruning/inlining with actual type recomputation",
+      "stage assignment plus producer/domain aggregation propagation",
+      "aggregate-output identity through real branch-local physical builder"
+    ],
+    "unchanged": true
+  },
+  "fixture_requirements": [
+    "Use real TOpRead, TOpAggregate, TOpJoin, loaded TKikimrTableMetadata/TKikimrTableDescription::Load and registry physical-column bindings; no SQL, row values or fabricated aggregate metadata.",
+    "Set QueryCtx Type to Query, EnableQueryServiceSpilling true and _KqpEnableSpilling true for shared cells; assert IsGenericQuery/SpillingEnabled actual predicates. Toggle the service-sharing condition only for the paired rejection cell.",
+    "Construct a local TRBOContext with CreateTypeAnnotationTransformer(CreateExtCallableTypeAnnotationTransformer(TypeCtx), TypeCtx), keeping both real transformers alive. The stock TIdTestContext NullTransformer cannot justify post-invalidation typing.",
+    "Use required input PK outside the nullable grouping key so actual aggregate metadata selects the nullable grouping tuple. Require all producer result IUs in the root output; residual consumes an actual aggregate result IU plus a right-input IU.",
+    "Deliberately make result registry order, root projection order and trait/key declaration order differ; all checks use explicit IU/field mapping, never positional name coincidence.",
+    "No table-server startup, spill service, file payloads or query execution is required by these construction contracts."
+  ],
+  "integration_proposal": {
+    "existing_driver": "Reuse current anonymous_cpp_verify C31 fixed closure, memory/serialization watchdogs, actual production version-object replay and sealed read-only executable transport.",
+    "later_reviewed_edits": [
+      "new generator and metadata contracts only",
+      "combined generator module plus explicit component dependencies",
+      "C31 generator dispatch/profile hash and exact ordered37 vector; existing1416 record retained",
+      "new prospective assertion count only after deterministic author checks/native evidence"
+    ],
+    "live_changes_now": false,
+    "native_required_before_use": true,
+    "no_guard_or_admission_weakening": true,
+    "route": "Separate c31_shared_pipeline_cpp_generator module, then a small combined wrapper analogous to existing C47 composition; preserve original33 generator source and bodies."
+  },
+  "matrix_bounds": {
+    "fixture_rows": 0,
+    "join_kind": "Left only; old33 keep LeftSemi/LeftOnly immediate-IR coverage",
+    "lowering_variants_inside_positive_cases": [
+      "useBlocks=false",
+      "useBlocks=true"
+    ],
+    "native_data_execution": false,
+    "negative_count": 1,
+    "positive_count": 3,
+    "production_configuration_matrix": false
+  },
+  "negative_and_mutation_checks": [
+    "Fixed copied-SOME cell requires the expected guard rejection and compares plan owner pointers, registry size, hub count, metadata keys, aggregate traits, result IDs and expression pointers before/after; no catch-all success.",
+    "Metadata-only checker tests should substitute a foreign branch argument, swap equal-typed key fields, omit a domain key, add a state output, change the aggregate result IU or select the sibling port; every altered proof input must reject. Such generated objects remain in RAM.",
+    "Fixed-only C31 direct harness policy remains unchanged. Historical baseline failure evidence stays separate; this proposal does not enable baseline C++ execution or alter its existing phase restriction."
+  ],
+  "new_assertion_count": null,
+  "physical_identity_assertions": [
+    "Before branch adaptation, every retained physical port field is a direct Member of its own lambda row argument, with source name obtained from TPhysicalNames(original IU) and output name from that exact port rebinding.",
+    "The domain reducer input reaches the exact captured secondary branch body through the explicit builder envelope; reject any replacement aggregate producer or foreign argument identity.",
+    "ExpandMap input-field members and key extractor outputs form a bijection for the complete domain IU set; no omitted or repeated field, and no dependence on field ordering.",
+    "Empty domain traits must produce zero initialization/update outputs, no aggregate state arguments in finish, and finish outputs that are exactly the domain key argument permutation.",
+    "NarrowMap AsStruct fields must connect each domain IU name to the correct finish output argument position. Extra block envelopes are checked against the public builder structure separately for useBlocks false/true.",
+    "Reconstruction key pairs, codec expression source IUs and physical field names must connect to the same original aggregate output IDs. Known-key case encodes only the nullable grouping key; aggregate result outputs continue from the primary branch.",
+    "Actual StageGraph edges bind consumer positions to exact port output indexes; equality of total stage/join counts is never sufficient."
+  ],
+  "pipeline": [
+    {
+      "actual_api": "ComputeRequiredProps(root, inlineRule.Props, ctx, stageName)",
+      "must_check": "Actual input/result types and computed key metadata before rewrite; save aggregate result IDs, original input identity and output labels.",
+      "step": 1
+    },
+    {
+      "actual_api": "TInlineJoinFiltersRule via TRuleBasedStage",
+      "must_check": "Original aggregate producer is the one hub input; primary/secondary share that hub; exact complete keyless domain or no domain for known-key case; complete reconstruction binding including matching StablePickle operand identity.",
+      "step": 2
+    },
+    {
+      "actual_api": "TGlobalPruningStage then TGlobalInliningStage, followed by ComputeRequiredProps",
+      "must_check": "Real invalidation/retyping succeeds; unchanged original aggregate result ownership; all reconstruction and domain IUs retained; parent and SSA invariants valid; no synthetic restoration of Type or metadata.",
+      "step": 3
+    },
+    {
+      "actual_api": "TAssignStagesStage with its declared required properties",
+      "must_check": "Exact source/destination stage IDs and connection output indexes for each reachable hub port, matched against GetReplicateOutputIndex; required key/live field sets retained.",
+      "step": 4
+    },
+    {
+      "actual_api": "TRuleBasedStage containing TPropagateAggregateThroughStageRule",
+      "must_check": "Use the real mutable shared producer slot. Producer may become one Final/Intermediate pair; do not require the old aggregate object pointer after replacement. Final result IDs remain original, each maps to its actual new intermediate ID/input trait exactly once. Key-only domain splits retain full key set and empty traits; partial domain input remains the same secondary port and moves only into that branch.",
+      "step": 5
+    },
+    {
+      "actual_api": "ComputeRequiredProps plus global/local ComputePlanLiveness and AssertIdInvariants",
+      "must_check": "Shared final producer object is identical through both hub ports; primary bag keeps aggregate values; secondary demands and domain keys follow actual rebindings. No duplicated final aggregate definition owns the original output IUs.",
+      "step": 6
+    },
+    {
+      "actual_api": "TPhysicalAggregationBuilder + BuildSwitch + TransformStageOutput",
+      "must_check": "Build the actual shared producer output using production builders, then the real Switch and branch-local domain partial. Assert exact Switch input pointer and unchanged sibling lambda pointer; inspect only the known builder callsites/children, never a global callable counter or generic text parser.",
+      "step": 7
+    }
+  ],
+  "prospective_combined_case_count": 37,
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "schema": "c31-additional-real-pipeline-contract-proposal-v1",
+  "scope": "Four additional actual-rule/stage/lowering contracts for the existing grouped C31 nullable/keyless identity change; no new product finding.",
+  "source_bindings": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp",
+      "references": [
+        "176-229 shared-mode guard, exact identity admission, one common hub, full-domain keys",
+        "246-263 nullable encoding and reconstruction pairs"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "references": [
+        "227-239 key-only domain construction"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+      "references": [
+        "480-507 aggregate keys derive from real grouping/child metadata",
+        "775-786 unions naturally have no uniqueness keys"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "fce89a7e7f349a93b8784b2fcefd6b897fa4de9f13ea809028a3309d47337d55"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+      "references": [
+        "54-65 actual lambda transformer",
+        "256-298 maps require real expression annotation",
+        "813-857 ownership and type traversal"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "dfaff3c1478f6eb4fd3bd39fa88cc05edd4f176142ce3b04b6199dded055e773"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+      "references": [
+        "1761-1764 FinishLogicalRewrite invalidates cached types/metadata"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo.cpp",
+      "references": [
+        "77-116 required property computation",
+        "125-190 real rule stage and mutable shared producer slot"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "82cf05266e44fb8670009510dc46179faa2995e939a4a5333ebb63e63d62dcf5"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "references": [
+        "200 inline-filter prerequisites",
+        "500 stage assignment prerequisites",
+        "542-551 physical aggregate propagation prerequisites"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+      "references": [
+        "52-89 real liveness/pruning then invalidation"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "df253e54767b6adb18efdfb5bacceb68f0b55307fc255166b4bd1afdea634d2d"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/global_inlining.cpp",
+      "references": [
+        "85-90 copy elimination then invalidation"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "0949eba73647e64e39277111c28d523a83e589767a0b817461e055aa057da1ac"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+      "references": [
+        "actual sharing config guard and connections use real port output index"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/propagate_aggregate_through_stage.cpp",
+      "references": [
+        "65-90 final/intermediate result-ID mapping",
+        "108-136 preserved input and branch connection"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "aec3c828e7bf8cbabbff051b95436f0fe314e3ce92fd421e580161cffd10aae1"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp",
+      "references": [
+        "57-101 exact shared input and direct Member port mapping"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h",
+      "references": [
+        "35-48 exact output-branch rewrite, sibling identity preserved"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "2b6dc81d287acc05fbd6887edab8796cdbf36c07a138a71eeb64534ff877fa1d"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+      "references": [
+        "45-53 public builder supports pruneUnusedOutputs/useBlocks"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "4a4b70640d1f203eed139e0e83b53bfd2ae89df655f9fc50803dd22587d4e9b9"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+      "references": [
+        "881-901 direct argument key extractor",
+        "903-1024 state initializer/updater",
+        "1029-1130 finish mapping",
+        "1133-1195 exact narrow output field mapping",
+        "1486-1560 real row/block builder envelope"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "fdb9b801ed168150a67bbb69ec53a83d969a8231cff4a0af52e37983d9c09f15"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp",
+      "references": [
+        "86-110 builtReplicates binds each hub once",
+        "284-289 actual branch-local aggregation builder call"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "1f5a0fead4fd48d92ae7135c9f5898d8efa0ed6ca95589519003dd279f369d8e"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+      "references": [
+        "130-149 later compatibility/peephole boundary"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "aa418bdba1b88c9be06e885d9a2f0f5aa393ca688695d917d4928b7a7cac84bc"
+    },
+    {
+      "path": "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h",
+      "references": [
+        "17-105 TIdTestContext uses NullTransformer; do not use it to claim actual recomputation"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa"
+    },
+    {
+      "path": "ydb/core/kqp/ut/rbo/kqp_rbo_lowering_ut.cpp",
+      "references": [
+        "684-805 existing actual sharing, propagation, branch-builder test pattern"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "58b20da1fc6721b2d717891b86d12471d0040337f2735c21a1a91a29fb0383ba"
+    },
+    {
+      "path": "yql/essentials/core/type_ann/type_ann_expr.h",
+      "references": [
+        "20-22 public production type-transformer constructor; read only"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "14988cc6982b0b9a19add3cd295db1e0501abf84583ad59f6c89b8e9cb7b5a04"
+    },
+    {
+      "path": "yql/essentials/core/type_ann/type_ann_core.h",
+      "references": [
+        "16-17 public production builtin callable-transformer constructor; read only"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "8888157f3b145eadaccf36de2ab5978244ea7fe84e29ce2dd6203c5292f6edf9"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_context.h",
+      "references": [
+        "33-34 caller-supplied production type-transformer reference"
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "aca67cab04235f39ef9a2416f09506dfe11e13b6ea5e0c64287f223081a770be"
+    }
+  ],
+  "status": "concrete_source_only_proposal_not_implemented_or_executed"
+}

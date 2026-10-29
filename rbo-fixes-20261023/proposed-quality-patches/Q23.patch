@@ -1,0 +1,16 @@
+--- a/ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp
++++ b/ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp
+@@ -330,10 +330,9 @@
+ }
+ 
+ void TOpIndexLookupJoin::PropagateLiveness(ILivenessContext& ctx) {
+-    auto inputLive = ctx.GetLiveOut(this);
+-    inputLive.UnionWith(JoinKeys.Left());
+-    inputLive.UnionWith(JoinKeys.Right());
+-    ctx.AddLiveInput(this, 0, inputLive);
++    // JoinKeys describe the original join. Runtime probe keys and residual checks
++    // are consumed by TableLookup, which propagates their own input dependencies.
++    ctx.AddLiveInput(this, 0, ctx.GetLiveOut(this));
+ }
+ 
+ void TOpAggregate::PropagateLiveness(ILivenessContext& ctx) {

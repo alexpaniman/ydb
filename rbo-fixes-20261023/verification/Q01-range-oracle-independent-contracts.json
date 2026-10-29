@@ -1,0 +1,15 @@
+{
+  "status": "abstract_oracle_contracts_passed",
+  "assertions": 45827,
+  "nullable_unbounded_assertions": 8814,
+  "generator_sha256": "aa4606600f5ad0d4fc5eb8291f0b097fbbd488ab48af5ed5acd0956aaa2abab3",
+  "native_collector_executed": false,
+  "generated_inputs_saved": false,
+  "sql_parser_executed": false,
+  "reviewed_source_contracts": [
+    "Finite comparator treats equal NULL values as peers independently of offset.",
+    "Finite lower bound excludes earlier NULL domains and admits later NULL domains.",
+    "Infinite upper bound admits every remaining row, including a later NULL domain.",
+    "Both explicit NULL ordering placements are evaluated after sort direction."
+  ]
+}

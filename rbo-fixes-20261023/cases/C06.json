@@ -1,0 +1,128 @@
+{
+  "id": "C06",
+  "branch": "fix/new-rbo/c06-preserve-capture-types",
+  "commit": "446592a476b92437df5b2579e1027cfb313be1d9",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp"
+  ],
+  "rationale": "Require identical captured and inner types before replacing domain values; preserve typed captures through normal decorrelation otherwise.",
+  "checks": [
+    "git diff --check passed",
+    "Read-only trace of fallback dependent Filter -> AddDependencies -> Cross(domain, inner), preserving original predicate; no native execution or build"
+  ],
+  "generators": [
+    "rbo-review-20261021/correlation_oracle_generator.py:build(case, seed)"
+  ],
+  "generator_cases": [
+    "typed_capture_collision",
+    "typed_same_type_control"
+  ],
+  "expected_oracle": "Independent generated semantic oracle must pass and controls must preserve result multisets.",
+  "controls": [
+    "Signed/unsigned equal-value keys",
+    "Nullable and nonnullable type distinction",
+    "Same-type elimination remains eligible",
+    "Native null-safe and serialized domain matching"
+  ],
+  "concerns": [
+    "C05/C06/C07 are independent mechanisms; a single patch does not claim to repair the others."
+  ],
+  "build_verification": {
+    "bug": "C06",
+    "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+    "exit_code": 0,
+    "elapsed_seconds": 124.9,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4452352,
+      "peak_scope_usage_bytes": 43215032320,
+      "minimum_host_available_bytes": 78642388992,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 124.8
+    },
+    "diagnostic_sha256": "9f9a1907c5445e1a0369d9de43bc66ab87722e8668058111af4769541b65e958",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/446592a476b92437df5b2579e1027cfb313be1d9-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 5,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C06-446592a476b9-1793151141354908258.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Baseline and fixed native verification pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ],
+  "status_before_verification": "verified",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "3bb21a66169e3e8610a9ee699fb30b18a35759d01b956651643f28b68d30fd71"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C06-1793151165817956221.json",
+    "coverage_evidence_sha256": "9c6f084d9c2e54220812aa1aab676df118c9d07f98af203b3cc91595456d4c75",
+    "remaining_qualifications": [
+      "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract.",
+      "Original mixed numeric correlated C50 profiles are excluded: unchanged four-node controls can require both C06 and C50; separate integration remains pending."
+    ]
+  },
+  "verification_history": [
+    {
+      "status": "verified",
+      "native": {
+        "checks": 5,
+        "checks_passed": true,
+        "evidence": "verification/guarded-fixed-C06-446592a476b9-1793151141354908258.jsonl"
+      },
+      "verification_limitation": null
+    }
+  ],
+  "integration_verification": {
+    "evidence": "verification/integration-C06-C50-2bc207a991cc-6004b2a2594148e49ae53747964c42b5-summary.json",
+    "evidence_sha256": "bf9b16809b7c1a5c992b86dabcf579120a7768a9007a9073b54e1998efba0e99",
+    "records": 16,
+    "passed": 16,
+    "failed": 0,
+    "explicit_empty_result_witnesses": 4,
+    "guard_pass": true,
+    "bounded_integration_semantics_pass": true,
+    "final_distribution_proof": false,
+    "original_failure_records_preserved": true
+  },
+  "verification_limitation": "Independent semantic checks and combined C06+C50 integration16 pass, including four explicit empty-result witnesses. Combined evidence is separately scoped to the two unchanged fixes.",
+  "integration_verification_history": [
+    {
+      "evidence": "verification/integration-C06-C50-2bc207a991cc-4366390bb07240379f07b9162a14ce3b-summary.json",
+      "records": 16,
+      "passed": 12,
+      "failed": 4,
+      "failed_family": "left_anti",
+      "diagnosis_pending": false,
+      "original_independent_evidence_preserved": true,
+      "diagnosis": "verification/C06-C50-empty-result-boundary-diagnosis-20261028.json",
+      "failure_class": "ambiguous_empty_result_boundary",
+      "production_regression_demonstrated": false,
+      "additional_integration_admission_pending": true
+    }
+  ]
+}

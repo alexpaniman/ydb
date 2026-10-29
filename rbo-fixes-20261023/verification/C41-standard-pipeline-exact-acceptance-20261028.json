@@ -1,0 +1,25 @@
+{
+  "bug": "C41",
+  "revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+  "exact_vector_passed": true,
+  "checked_records": 12,
+  "slice_sha256": "4345491ae130d7d0e28301bd8c41358ab9605f3f489efcb009539032339e739d",
+  "guard_sha256": "cf52d767514d9cfaa0d5dd49957f9a87ce196e1b2802a137f63a09b5abc7658f",
+  "build_receipt_sha256": "e4aa596f748787524c58ba71cb06760b531a480e41c49e6ebe3eb5177b2bee4c",
+  "qualified_legacy_adapter_records": 0,
+  "qualified_status": "verified",
+  "C41_fullsuite_build_bound": true,
+  "fullsuite_build_evidence": {
+    "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/C41-fullsuite-pass-c6a5904e-20261028.json",
+    "sha256": "930d4333bb36f5a50f8718d4f8a76d4b84b2cdd84060115e91447ec9d54a2816"
+  },
+  "C03_expanded_control_vector_present": false,
+  "remaining_qualifications": [],
+  "automatic_full_finding_promotion": false,
+  "schema_version": "C41_amended_exact_acceptance_v1",
+  "manifest_sha256": "2986bdca21258973c08a5a30fcc7a62ceded15f5117f8ac4e674ba99a626b8e9",
+  "historical_checker_sha256": "c532b97282b370c4398b7a0db158844614a8e2d564ff86bbdd7dd3ecf48c282f",
+  "unchanged_suite_source_files": 178,
+  "original12_semantic_vector_preserved": true,
+  "historical13_evidence_reinterpreted": false
+}

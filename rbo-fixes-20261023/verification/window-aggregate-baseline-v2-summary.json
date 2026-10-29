@@ -1,0 +1,162 @@
+{
+  "checks": [
+    {
+      "bug": "C24",
+      "modes": {
+        "new": {
+          "checks": 10,
+          "passed": 2,
+          "failed": 8,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 10,
+          "passed": 10,
+          "failed": 0,
+          "setup_failures": 0
+        }
+      }
+    },
+    {
+      "bug": "C27",
+      "modes": {
+        "new": {
+          "checks": 6,
+          "passed": 1,
+          "failed": 5,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 6,
+          "passed": 6,
+          "failed": 0,
+          "setup_failures": 0
+        }
+      }
+    },
+    {
+      "bug": "C28",
+      "modes": {
+        "new": {
+          "checks": 6,
+          "passed": 2,
+          "failed": 4,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 6,
+          "passed": 6,
+          "failed": 0,
+          "setup_failures": 0
+        }
+      }
+    },
+    {
+      "bug": "C35",
+      "modes": {
+        "new": {
+          "checks": 15,
+          "passed": 5,
+          "failed": 10,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 15,
+          "passed": 15,
+          "failed": 0,
+          "setup_failures": 0
+        }
+      }
+    },
+    {
+      "bug": "C03",
+      "modes": {
+        "new": {
+          "checks": 5,
+          "passed": 3,
+          "failed": 2,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 5,
+          "passed": 5,
+          "failed": 0,
+          "setup_failures": 0
+        }
+      }
+    },
+    {
+      "bug": "C23",
+      "modes": {
+        "new": {
+          "checks": 4,
+          "passed": 2,
+          "failed": 2,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 4,
+          "passed": 4,
+          "failed": 0,
+          "setup_failures": 0
+        }
+      }
+    },
+    {
+      "bug": "C25",
+      "modes": {
+        "new": {
+          "checks": 3,
+          "passed": 1,
+          "failed": 2,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 3,
+          "passed": 1,
+          "failed": 2,
+          "setup_failures": 0
+        }
+      }
+    },
+    {
+      "bug": "C26",
+      "modes": {
+        "new": {
+          "checks": 10,
+          "passed": 1,
+          "failed": 9,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 10,
+          "passed": 9,
+          "failed": 1,
+          "setup_failures": 0
+        }
+      }
+    },
+    {
+      "bug": "C34",
+      "modes": {
+        "new": {
+          "checks": 10,
+          "passed": 0,
+          "failed": 10,
+          "setup_failures": 0
+        },
+        "legacy": {
+          "checks": 10,
+          "passed": 10,
+          "failed": 0,
+          "setup_failures": 0
+        }
+      }
+    }
+  ],
+  "oracle_corrections": {
+    "C26_single": "Use c26-singleton-oracle-reassessment.json or v3 native rerun"
+  },
+  "C25_legacy_limitation": "Correlated target rejected with unavailable column binding; independent model remains authoritative",
+  "generator_hash_limitation": "Live file edits caused some disk source digests to differ from loaded v2 code; generator_version identifies loaded module semantics"
+}

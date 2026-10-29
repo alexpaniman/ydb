@@ -1,0 +1,52 @@
+{
+  "schema": "independent_source_review_v1",
+  "reviewer": "/root/c35_compile_repair_review",
+  "finding": "C31",
+  "artifact": "rbo-fixes-20261023/proposed-correctness-amendments/C31-stable-content-receipt-artifacts.patch",
+  "artifact_sha256": "2b1bf53c45009457ea43035caf4039f2818c213190954b5b8e591c02ebefdb82",
+  "source_before_sha256": "f6b18cb732eb4467607b5103c15c7a01c7705155b4281e5fde405e65637db165",
+  "expected_source_after_sha256": "e81ef3cf02488ab469ac2432106400b96955325d39e3255681f79c4c0a60d39b",
+  "verdict": "approved_source_only_completed_snapshot_ctime_exception",
+  "contracts_checked": [
+    "The patch changes one comparison in verify_receipt. It removes only ctime_ns from each completed file-identity dictionary before equality comparison.",
+    "All remaining fields and unexpected extra dictionary fields still require equality. In particular SHA256, resolved path, device, inode, size_bytes and mtime_ns remain exact.",
+    "digest_file remains unchanged: it compares full device/inode/size/mtime/ctime identity before and after reading the same open file, and again at the named path.",
+    "verify_receipt still hashes every recorded input on each verification. The existing calls occur before anonymous compilation and after anonymous execution.",
+    "Graph identity comparison retains full dictionary equality, including ctime. Exact revision, clean tracked sources, profile and successful-build requirements are unchanged.",
+    "Compiler, explicit linker, SDK/resource trees, exported headers and production archive/object files remain in the same receipt set. None is omitted or replaced with timestamp-only verification.",
+    "The raw receipt file is still checked for byte equality after execution. This patch neither rewrites receipt history nor alters compile/link commands, output controls or native admission."
+  ],
+  "independent_read_only_observation": {
+    "receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+    "receipt_hash_verified": true,
+    "reported_header_count_checked": 3,
+    "all_per_read_identities_stable": true,
+    "only_mismatching_snapshot_field": "ctime_ns",
+    "content_path_device_inode_size_mtime_unchanged": true,
+    "reported_link_counts": [
+      190,
+      26,
+      363
+    ],
+    "later_independently_observed_link_counts": [
+      195,
+      31,
+      384
+    ],
+    "causal_conclusion": "Increasing link counts and isolated ctime changes are consistent with concurrent hardlink activity. The specific cache action causing the original rejection was not independently established."
+  },
+  "limitations": [
+    "No compiler, linker, native execution or mock suite was run. Actual receipt verification and C31 direct contracts remain pending.",
+    "The original failure record does not identify whether rejection was before compilation or during the final receipt recheck; this review does not infer a compile/link/native success from it.",
+    "A metadata change during a single digest read still rejects, including ctime-only churn; this deliberate stricter race check is retained."
+  ],
+  "actions": {
+    "live_helper_edits": false,
+    "production_edits": false,
+    "branches_modified": false,
+    "build_runs": 0,
+    "native_runs": 0,
+    "mock_runs": 0,
+    "repros_written_or_rendered": false
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "checks": [
+    {
+      "case": "c23_bare_null_grouping",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "failure_category": "query or compilation error",
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/tests/tools/kqprun/kqprun.cpp:327",
+        "yql/essentials/minikql/mkql_node_builder.cpp:101"
+      ],
+      "hash_blocks": false
+    },
+    {
+      "case": "c23_bare_null_empty",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "failure_category": "query or compilation error",
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/tests/tools/kqprun/kqprun.cpp:327",
+        "yql/essentials/minikql/mkql_node_builder.cpp:101"
+      ],
+      "hash_blocks": false
+    },
+    {
+      "case": "c23_bare_null_grouping",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "failure_category": "query or compilation error",
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/tests/tools/kqprun/kqprun.cpp:327",
+        "yql/essentials/minikql/mkql_node_builder.cpp:101"
+      ],
+      "hash_blocks": true
+    },
+    {
+      "case": "c23_bare_null_empty",
+      "exit_code": 1,
+      "semantic_oracle_pass": false,
+      "failure_category": "query or compilation error",
+      "failure_stage": "target",
+      "diagnostic_source_locations": [
+        "ydb/tests/tools/kqprun/kqprun.cpp:327",
+        "yql/essentials/minikql/mkql_node_builder.cpp:101"
+      ],
+      "hash_blocks": true
+    }
+  ],
+  "binary_provenance_verified": true,
+  "unchanged_executable": true,
+  "memory": {
+    "elapsed_seconds": 20.331,
+    "peak_scope_usage_bytes": 569188352,
+    "peak_group_rss_bytes": 569188352,
+    "minimum_host_available_bytes": 114191958016,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_membership_accounting_available": true,
+    "exit_code": 0,
+    "stdout_sha256": "e324fe0979b969ab7c9c09665d8d2273677306dd7fa22c2f74c2ab601db89b2d",
+    "stdout_bytes": 1303,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic_bytes": 0
+  }
+}

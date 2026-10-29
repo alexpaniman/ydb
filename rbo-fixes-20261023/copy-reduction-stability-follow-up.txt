@@ -1,0 +1,42 @@
+Separate source finding — Copied aggregate results need not agree
+
+Correctness: the general logical-subtree copy policy admits SUM, MIN, MAX and
+DISTINCT by function name while explicitly ignoring argument types and reduction
+order. Separate evaluations can disagree: floating sums depend on order, bounded
+or saturating sums can lose recoverable intermediates, and equal floating or
+timezone values can retain different observable representations. Later casts
+or serialization can hide the unstable source behind integer or string outputs.
+
+Distinct from the original 79: C02 concerns moved volatile predicates; C17 stale
+shared schemas; C31 late unsupported sharing; C49 false lookup uniqueness; Q10
+repeated DISTINCT work. None identifies this aggregate-copy stability policy.
+The earlier S09 candidate concerns expression movement, not this source path.
+C31's new local guard protects its own split evaluations; the global policy and
+independent consumers remain outside that repair.
+
+Reachable source path on pinned main: with channel spilling unavailable,
+whole-partition aggregate-window expansion creates two live ports before
+ExpandReplicate runs. An upstream floating aggregate satisfies the existing
+function-name clone check, so the row and window branches can evaluate it
+separately. A window must aggregate the same relation whose row values it
+accompanies; inconsistent copied values violate that invariant. This path is
+independent of residual join-filter reconstruction. Multi-DISTINCT expansion
+provides another live-port source. The registered dependent-join Replicate rule
+also uses the permissive check, but its precise frontend isolation is pending.
+
+Source locations: copy_logical_subtree.cpp:16; rules/expand_replicate.cpp:41;
+rules/expand_whole_partition_window.cpp:43; rules/expand_distinct_aggregation.cpp:199;
+rules/decorrelation/dependent_join_pushdown.cpp:662; kqp_rbo_transformer.cpp:704.
+All paths are under ydb/core/kqp/opt/rbo. Exact line evidence is recorded in
+verification/global-copy-reduction-stability-followup.json.
+
+Introducing author: alexpaniman, dc773f93aec8fa5d56c1653bf43aef64165d8e0c,
+2026-10-05, “[NEW RBO] Duplicate shared subtrees when spilling is disabled”
+(#54743). Attribution comes from the introducing function diff; no historical
+native bisection or inference about agent use is claimed.
+
+Status: distinct, source-reachable correctness candidate. The source path and
+arithmetic/representation invariant failures are established; actual native
+optimizer traversal and differing runtime results remain unverified. Do not
+add it to the native-verified bug count yet. No new fix patch, branch, generated
+query or fixture was saved, and no compiler or native process was started.

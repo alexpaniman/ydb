@@ -1,0 +1,18 @@
+{
+  "status": "algebra_contract_passed_native_pending",
+  "checks": 11856,
+  "empty_frames": 2512,
+  "all_null_frames": 844,
+  "wrapped_prefix_updates": 215,
+  "result_digest": "ee46b64c2e19aeaddd5d917a6eddeddd2e81f3ecfaeb068a005b8ded39cc1e7a",
+  "input_values_persisted": false,
+  "native_execution": false,
+  "does_not_verify": [
+    "production AST typing",
+    "queue endpoint lifetime",
+    "runtime frame bounds",
+    "lowering reachability",
+    "optimization work reduction"
+  ],
+  "generator_sha256": "589c33ac06e7fafd77124cbf1a763f177e31d31c69e93d7def68830acce00df7"
+}

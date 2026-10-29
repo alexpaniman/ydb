@@ -1,0 +1,32 @@
+Additional correctness findings discovered during fix verification
+All branches below have the same pinned main parent as the original79 fixes.
+No generated inputs, result payloads or exact reproductions are included.
+
+F01 — Repeated DISTINCT aliases create duplicate Map definitions
+Repeated DISTINCT aliases create duplicate input definitions. New RBO rejects a valid query during import. The fix shares identical direct-input definitions and retains every output alias.
+Status: 32 targeted native checks passed, tied to the exact branch executable and completed memory guard.
+Branch: fix/new-rbo/f01-deduplicate-distinct-inputs
+Commit: cb7a4189eea1f56dfdc7bbbb012c96403c090636
+Source attribution: Denis Khalikov, b0246ec9d633: producer append; alexpaniman, 026a4acc33c2: strict importer check exposes the malformed definitions.
+Scope: Bare-Null physical DISTINCT also needs C23.
+Evidence: verification/guarded-fixed-F01-cb7a4189eea1-1792730383027247259.jsonl
+
+F02 — Interval SUM uses an unsuitable physical accumulator
+Interval SUM uses an unsuitable accumulator. Interval64 can fail at runtime construction; smaller intervals can lose values when a partial sum overflows before later cancellation. The fix accumulates exact Decimal state and checks range at finalization.
+Status: 88 targeted native checks passed, tied to the exact branch executable and completed memory guard.
+Branch: fix/new-rbo/f02-normalize-interval-sums
+Commit: 1c4fd440a12e3a6a8267f119b1e25b603b5282c9
+Source attribution: Filitov Mikhail, c8d7de015050: interval-as-state type selection; Denis Khalikov, 05744b79f613: earlier generic aggregate-add lowering.
+Scope: Physical-window execution is handled by F03.
+Evidence: verification/guarded-fixed-F02-1c4fd440a12e-1792730882080212102.jsonl
+
+F03 — Physical-window interval SUM uses an unsuitable accumulator
+Physical-window interval SUM has the same accumulator problem in its separate window builder. The fix retains exact Decimal state across frame updates and converts only each final frame result.
+Status: 68 targeted native checks passed, tied to the exact branch executable and completed memory guard.
+Branch: fix/new-rbo/f03-normalize-window-interval-sums
+Commit: 2a99d200829f2dd090ef70ce69b491c12227c5d5
+Source attribution: Denis Khalikov, 11ebdccf5324: initial window SUM; cafc44678f8a: shared accumulator refactor.
+Scope: Whole-partition windows rewritten into logical aggregates use F02.
+Evidence: verification/guarded-fixed-F03-2a99d200829f-1792731219274033424.jsonl
+
+Attribution identifies introducing source changes. Historical native bisection has not established the first failing commit, and Git metadata does not establish whether an author used an agent.

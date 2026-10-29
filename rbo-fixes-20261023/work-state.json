@@ -1,0 +1,548 @@
+{
+  "task": "Fix all 79 findings, correctness C01-C50 first, then Q01-Q29; every finding independent main-based branch, verify each.",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "phase": "direct_cpp_verification",
+  "baseline_build_exec_session": null,
+  "production_sources_frozen": true,
+  "worktrees": {
+    "logical": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/logical",
+    "windows": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/windows",
+    "metadata": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/metadata",
+    "aggregate": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate",
+    "verify": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify"
+  },
+  "constraints": [
+    "No yql/essentials changes",
+    "No rendered repros in files/output; generators and sanitized results only",
+    "No source edits during builds; no -j or force rebuild; relwithdebinfo; test output 2>&1 | tail",
+    "Do not modify pre-existing worktrees/branches",
+    "Do not claim prepared commits verified",
+    "One memory-guarded build and one sequential native batch; do not overlap our build/native workloads",
+    "Global build lock respects other builds; watchdog stops our scope below36GiB hostavailable or above52GiB scopedRSS"
+  ],
+  "prepared_cases": [
+    "C01",
+    "C02",
+    "C03",
+    "C04",
+    "C05",
+    "C06",
+    "C07",
+    "C08",
+    "C09",
+    "C10",
+    "C11",
+    "C12",
+    "C13",
+    "C14",
+    "C15",
+    "C16",
+    "C17",
+    "C18",
+    "C19",
+    "C20",
+    "C21",
+    "C22",
+    "C23",
+    "C24",
+    "C25",
+    "C26",
+    "C27",
+    "C28",
+    "C29",
+    "C30",
+    "C31",
+    "C32",
+    "C33",
+    "C34",
+    "C35",
+    "C36",
+    "C37",
+    "C38",
+    "C39",
+    "C40",
+    "C41",
+    "C42",
+    "C43",
+    "C44",
+    "C45",
+    "C46",
+    "C47",
+    "C48",
+    "C49",
+    "C50"
+  ],
+  "verification_driver": "native_verify.py --worktree PATH --phase baseline|fixed --bugs Cxx ... --rows 32",
+  "next": [
+    "Finish independent review and apply the idle60 helper composition at this idle point.",
+    "Prepare and run paired direct prerequisites for Q09/Q20, then their bounded SQL profile.",
+    "Diagnose Q02 pending optimization assertions; preserve its 4 semantic passes and incomplete quality verdict.",
+    "Continue remaining optimization fixes with exact revision/profile binding and memory guards."
+  ],
+  "agents": {
+    "c31_artifacts_recovery": "Independent C31 coverage and physical-oracle artifact review",
+    "cpp_metadata_recovery": "Actual C++ closure metadata and source adaptation standby"
+  },
+  "root_prepared": [
+    "C03",
+    "C08",
+    "C23",
+    "C25",
+    "C26",
+    "C34"
+  ],
+  "notes": [
+    "HIVE unavailable; use git worktrees directly; git shared metadata outside sandbox needs require_escalated for mutations",
+    "Pinned origin/main newer than reviewed checkout; local main d11af71 is older and was not moved",
+    "C26 amended d40b5b11a3c to handle validated variance Tuple3 in physical decimal detection and restrict AVG tuple decoding; independent reviewer approved source contracts, native pending",
+    "Generator modules use different APIs; native_verify.py adapts them. C08/C49 use existing independent oracle runners; C37/C38 existing four-node generator with legacy comparison.",
+    "No production code edits in original ai-verification checkout; only untracked review/fix artifacts",
+    "C24/C27/C28/C35 baseline first attempt failed before query due unquoted EnableSpillingNodes; fixed serializer, rerunning. Do not treat setup failures as bug evidence."
+  ],
+  "baseline_build_result": {
+    "exit_code": 0,
+    "suites_good": 10,
+    "tests_good": 364,
+    "tests_skipped": 1
+  },
+  "baseline_native_session": null,
+  "build_worktree": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+  "build_bug": null,
+  "build_exec_session": 43883,
+  "completed_verified_cases": [
+    "C01",
+    "C02",
+    "C03",
+    "C04",
+    "C05",
+    "C06",
+    "C07",
+    "C08",
+    "C09",
+    "C10",
+    "C11",
+    "C12",
+    "C13",
+    "C14",
+    "C15",
+    "C16",
+    "C17",
+    "C19",
+    "C20",
+    "C21",
+    "C22",
+    "C25",
+    "C26",
+    "C27",
+    "C28",
+    "C29",
+    "C30",
+    "C31",
+    "C32",
+    "C33",
+    "C34",
+    "C35",
+    "C36",
+    "C37",
+    "C38",
+    "C40",
+    "C41",
+    "C42",
+    "C43",
+    "C45",
+    "C46",
+    "C47",
+    "C48",
+    "C49"
+  ],
+  "verification_series": [
+    "Q08",
+    "Q02"
+  ],
+  "verification_series_session": null,
+  "write_baseline_session": null,
+  "status_counts": {
+    "verified": 44,
+    "verified_new_parser_invariant": 1,
+    "verified_scoped": 3,
+    "verified_guard": 2,
+    "prepared_unverified": 27,
+    "verified_semantics_quality_pending": 1,
+    "verified_quality": 1
+  },
+  "access_baseline_session": null,
+  "environment_recovery": "Previous processes ended on environment restart. C41 pre-restart records quarantined for stale-runner ambiguity; repeat requires binary receipt. Persistent source checkouts remain intact.",
+  "pending_repairs": [],
+  "pending_coverage": [
+    "C04 Pg branch is source-reviewed only; pinned main rejects Pg syntax before optimizer entry",
+    "C18 new-parser pruning invariant verified, separate legacy multiplicity compatibility unresolved",
+    "C23 qualified: 52 fix-specific checks pass; 12 additional alias controls fail separate F01, preserved in evidence.",
+    "C24 qualified:13 checks pass;1 Interval64 control fails separate F02 and remains preserved."
+  ],
+  "quality_patch_artifacts": "proposed-quality-patches/; base-relative diffs only, not applied or verified while production compilation is active",
+  "memory_policy": {
+    "concurrent_builds": 1,
+    "concurrent_native_batches": 1,
+    "scheduler_memory_limit": "40GB",
+    "link_threads": 1,
+    "test_threads": 1,
+    "watchdog_scope_rss_gib": 52,
+    "watchdog_min_host_available_gib": 36,
+    "cgroup_memory_controller": "not delegated; scope membership RSS and host memory watchdog enforce budget",
+    "no_j_flag": true,
+    "authorized_build_workers": 8,
+    "worker_limit_exception": "Explicit user approval for this verification run; per-command --threads=8, no global config edits",
+    "build_native_overlap_allowed": false,
+    "native_watchdog_scope_rss_gib": 24,
+    "native_watchdog_min_host_available_gib": 36
+  },
+  "quality_prepared_cases": [
+    "Q01",
+    "Q02",
+    "Q03",
+    "Q04",
+    "Q05",
+    "Q06",
+    "Q07",
+    "Q08",
+    "Q09",
+    "Q10",
+    "Q11",
+    "Q12",
+    "Q13",
+    "Q14",
+    "Q15",
+    "Q16",
+    "Q17",
+    "Q18",
+    "Q19",
+    "Q20",
+    "Q21",
+    "Q22",
+    "Q23",
+    "Q24",
+    "Q25",
+    "Q26",
+    "Q27",
+    "Q28",
+    "Q29"
+  ],
+  "pending_user_question": {
+    "kind": "worker_limit_exception",
+    "source": "AGENTS.md: No -j; --threads equivalent",
+    "proposed_workers": 8,
+    "reason": "Configured 64 workers exceeded 52GiB scope budget; watchdog stopped before OOM",
+    "approval_received": true,
+    "answer": "Use 8 workers for this verification run"
+  },
+  "authorized_build_workers": 8,
+  "provenance_reverification_queue": [],
+  "native_verification_session": null,
+  "verification_series_extra_modules": [
+    "window_distinct_projection_checks",
+    "c31_identity_checks"
+  ],
+  "followup_status_counts": {
+    "verified": 3
+  },
+  "native_verification_reason": "SelectedC50 exact-vector native controls: repaired chains,8uncorrelated membership variants,3gather observations; preserve original C06failures.",
+  "pending_artifact_application": [
+    {
+      "patch": "C31-stdout-link-output-artifacts.patch",
+      "sha256": "5af59db821a70dee6de37537498c20d9cc6c5cb4200c70114dfb175744b26402"
+    },
+    {
+      "patch": "C47-narrow-production-export-artifacts.patch",
+      "sha256": "9ec963255f6b6629903e8538b5032f0bde5d86aeff2c25ff0285d6269ee9ac14"
+    },
+    {
+      "patch": "C47-production-graph-lifecycle-artifacts.patch",
+      "sha256": "43d9c5ff1100e8675515dd139e930ae8d353a5ccfd63cd196959b7bfad0cc6e4"
+    },
+    {
+      "patch": "C31-origin-multibody-traversal.patch",
+      "sha256": "7381c1073d25bec5b6f1b9077f2b6636ab0e4a014f56401145bc2118ff3b71c7"
+    },
+    {
+      "patch": "C31-scope-observation-install.patch",
+      "sha256": "8c2343caae6cf3572c9002948a6881f568b0513d57fac018bbe419454c53866e"
+    }
+  ],
+  "direct_cpp_bug": "Q09",
+  "direct_cpp_prepare_session": 43883,
+  "direct_cpp_recovery": {
+    "interrupted_prepare": "verification/cpp-closures/24e1aae9a067-1792734238452891205",
+    "saved_failure": "verification/direct-harness-failure-C31-1792734238235475517.json",
+    "successful_build_record_present": false,
+    "production_graph_present": false,
+    "our_verification_processes_remaining": false,
+    "unrelated_build_observed": "/home/alexpaniman/projects/ydb/verification",
+    "resume_requires_new_guarded_prepare": true,
+    "incremental_prepare_restarted": true
+  },
+  "direct_cpp_export_adjustment": {
+    "reason": "Global object export materialized more than12680 dependency objects unnecessarily.",
+    "cancelled_prepare_session": 91715,
+    "late_cleanup_confirmed_by_empty_scope_and_inactive_dead_unit": true,
+    "native_verdict_accepted": false,
+    "next": "For C31 omit broad .o export while retaining fail-closed link dependency checks.",
+    "independent_review": "verification/C31-narrow-production-export-independent-review.json"
+  },
+  "direct_cpp_capture_session": null,
+  "direct_cpp_current_closure": "verification/cpp-closures/54db45bef39b-1793147648306259464",
+  "direct_cpp_current_build_passed": true,
+  "direct_cpp_graph_export_passed": true,
+  "direct_cpp_capture_reason": "selected_command_environment_requires_audit",
+  "direct_cpp_explicit_resources": {
+    "TOOL_ROOT": "/home/alexpaniman/.ya/tools/v4"
+  },
+  "direct_cpp_exec_session": null,
+  "pending_artifact_apply_rule": "Reviewed30patch stack applied after all verification processes/scopes ended; future patches require independent review and a new idle boundary.",
+  "pending_artifact_reviews": [
+    "verification/C31-stdout-link-output-independent-review.json",
+    "verification/C47-closure-preparation-independent-review.json",
+    "verification/C31-scope-observation-independent-review.json"
+  ],
+  "cpp_checkpoint": {
+    "C31_revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+    "receipt": "verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+    "receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+    "contracts": 33,
+    "last_run": "verification/direct-run-C31-1793147369208959585.json",
+    "last_status": "all33_direct_contracts_passed_full_shared_lineage_pending",
+    "production_acceptance": false,
+    "after_pending_helper_hashes": {
+      "anonymous_cpp_verify.py": "fce1a48f08006a3ab7d3872bd4d8bb47f87be918e3d02b53b9cc75a52f11c20b",
+      "anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf"
+    }
+  },
+  "next_idle_quality_artifacts": [
+    {
+      "patch": "proposed-quality-amendments/Q19-abi-stable-inspection-objects.patch",
+      "sha256": "22e712e96321166b8e713288a4d07cbe7a2f8b9d04d01b5b91358bcd8b9ef9f1",
+      "review": "verification/Q19-abi-stable-inspection-independent-review.json",
+      "after_existing_cpp_lifecycle_patches": true
+    },
+    {
+      "patch": "proposed-quality-amendments/optimization-admission-guards.patch",
+      "sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70",
+      "review": "verification/optimization-admission-guards-independent-review-20261027.json",
+      "run_metadata_only_regressions_before_quality_verification": true
+    },
+    {
+      "patch": "proposed-quality-amendments/Q11-direct-union-admission-artifacts.patch",
+      "sha256": "5b00b05d4c9ffd61f0bb3a01af55eb7ce02fbeac61d5b98453ed20a8b8c8fa12",
+      "review": "verification/Q11-direct-union-independent-review.json",
+      "after_q19_cpp_adapter": true
+    },
+    {
+      "patch": "proposed-quality-amendments/quality-baseline-evidence-binding.patch",
+      "sha256": "0fd89fe863d1512e436ba820ad537ea250713216708256eb78691a9985588d30",
+      "review": "verification/quality-baseline-evidence-binding-independent-review-20261027.json",
+      "after": "optimization-admission-guards.patch"
+    },
+    {
+      "patch": "proposed-quality-amendments/OA06-saved-direct-pair-admission.patch",
+      "sha256": "ac3e6528dce87fed5cdc0667410914233f829fb6c52ef720f936d9d3f86c742a",
+      "review": "verification/OA06-saved-direct-pair-independent-review.json",
+      "after": "Q11-direct-union-admission-artifacts.patch"
+    },
+    {
+      "patch": "proposed-quality-amendments/optimization-window-physical-contracts.patch",
+      "sha256": "fc97df50c74b413b7ec58ddac1b4bb788c850ab548265983b7751203ae8aac14",
+      "review": "verification/optimization-OA04-OA07-independent-review-20261027.json"
+    },
+    {
+      "patch": "proposed-quality-amendments/optimization-physical-pairing-contracts.patch",
+      "sha256": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8",
+      "review": "verification/optimization-OA04-OA07-independent-review-20261027.json"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q01-resource-scaling-admission-gate.patch",
+      "sha256": "c1a800815db08f4bcb2dbb86fccf39c1ec44ffb2763e14b5991a1d3590c27368",
+      "review": "verification/Q01-resource-scaling-admission-gate-independent-review.json"
+    }
+  ],
+  "active_build_progress_checkpoint": {
+    "session": 21662,
+    "bug": "C47",
+    "revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+    "production_sources_frozen": true
+  },
+  "next_idle_c31_observation_artifacts": [
+    {
+      "patch": "proposed-correctness-amendments/C31-shared-field-probe-install.patch",
+      "sha256": "78f87b83b950062c605ce402b3828a2b0dbdddd56e19c1916fec638e5d179add"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C31-scope-observation-field-wrapper.patch",
+      "sha256": "a42c6bcaa41f671aa16b6d9f53a98d85904166280be01fdc509389b4cf57f23a",
+      "after": "C31-scope-observation-install.patch"
+    }
+  ],
+  "c31_field_observation_review": "verification/C31-constrained-field-probe-independent-review-20261027.json",
+  "optimization_acceptance_audit": "verification/optimization-acceptance-source-audit-20261027.json",
+  "source_preparation_agents": {
+    "c31_scope_completion": "completed source-prepared C31 field observer and OA04/OA07 contracts; no live edits",
+    "c47_build_recovery": "future Q01 isolated resource-measurement wrapper preparation only; not a correctness prerequisite",
+    "fix_series_evidence_audit": "completed independent OA04/OA07 and OA10 reviews; Q01 resource gate/plan prepared"
+  },
+  "stacked_metadata_verification": "verification/stacked-quality-metadata-contracts-20261027.json",
+  "next_idle_runner_receipt_artifact": {
+    "patch": "proposed-correctness-amendments/runner-receipt-ctime-revalidation.patch",
+    "sha256": "45a32322b03746ef772feddd7de00455782f30f863a8ebbd0d3dd3367f5d8115",
+    "review": "verification/runner-receipt-ctime-revalidation-independent-review.json",
+    "required_before_C31_scope_observation": true
+  },
+  "complete_idle_artifact_application_plan": "verification/idle-reviewed-composition-applied53-20261028.json",
+  "complete_idle_artifact_count": 59,
+  "future_quality_measurement_wrapper": {
+    "patch": "proposed-quality-amendments/Q01-dedicated-child-measurement.patch",
+    "source_review": "verification/Q01-dedicated-child-measurement-source-review.json",
+    "independent_review": "verification/Q01-native-child-measurement-independent-review-20261028.json",
+    "not_part_of_idle_stack": false,
+    "applied": true
+  },
+  "daemon_recovery_20261028": {
+    "surviving_verification_pid": 3488388,
+    "old_tool_session": 65797,
+    "old_tool_session_reconnectable": false,
+    "build_survived": true,
+    "output_tail_process_survived": true,
+    "monitor_via": [
+      "verification/active-series.json",
+      "verification/active-memory.json",
+      "verification/C47-build.json"
+    ],
+    "no_duplicate_work_started": true,
+    "observed_unix_time": 1793134855.2942064
+  },
+  "additional_correctness_controls_pending": [],
+  "source_preparation_agents_20261028": {
+    "remaining_correctness_review": "Narrow C31 missing production version object link-dependency repair; no native/build/live edits.",
+    "anonymous_link_memory_review": "Q28 pilot environment and local-file-spill limitations; no native/build/live edits.",
+    "q01_measurement_review": "Source-only C31 small shared-channel storage persistence audit; no actual spill claim."
+  },
+  "dormant_quality_followups_20261028": [
+    "proposed-quality-amendments/Q16-window-guard-controls-20261028.patch",
+    "proposed-quality-amendments/Q18-statistics-object-controls-20261028.patch",
+    "proposed-quality-amendments/Q26-source-kind-controls-20261028.patch",
+    "proposed-quality-amendments/Q09-Q20-direct-statistics-admission-20261028.patch"
+  ],
+  "dormant_quality_followups_status": "Reviewed additions are in authoritative28patch idle plan; Q01 measurement integration and Q28 compilation adapter remain separate pending review.",
+  "additional_source_reviews_20261028": [
+    "verification/Q09-Q20-statistics-independent-review-20261028.json",
+    "verification/Q25-map-semantic-controls-independent-review-20261028.json"
+  ],
+  "pending_q14_observer_review": "Resolved with fail-closed local-scope restrictions; root source/metadata review passed; actual native observations still pending.",
+  "last_build_failure": {
+    "bug": "C47",
+    "revision": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+    "classification": "wrong_namespace_enum_argument",
+    "immutable_build_record": "verification/C47-build-namespace-failure-a58066d3.json",
+    "source_repair_commit": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+    "diagnosis_pending": false
+  },
+  "direct_cpp_active_contracts": 37,
+  "direct_cpp_active_reason": "C31 expanded37 owner repair guarded compile/link/native",
+  "direct_cpp_last_run": "verification/direct-run-C31-1793157890139265085.json",
+  "direct_cpp_last_status": "direct_local_contracts_passed",
+  "C47_retry": "ordinary_incremental_same_revision_no_force_no_source_or_cache_changes",
+  "C47_current_verification": {
+    "revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+    "build_passed": true,
+    "semantic_checks_passed": 12,
+    "structural_checks_failed": 0,
+    "direct_contracts_pending": 0,
+    "full_acceptance": true,
+    "evidence": "verification/guarded-fixed-C47-54db45bef39b-1793146957277760774.jsonl",
+    "direct_cases_passed": 51,
+    "direct_assertions_passed": 796
+  },
+  "next_idle_correctness_artifact_plan": "verification/next-idle-correctness-artifacts-20261028.json",
+  "C31_version_infrastructure_source_reviewed": true,
+  "C31_spill_storage_guard_source_reviewed": true,
+  "Q28_partial_pilot_runtime_followup_review": "verification/Q28-sdk-runtime-identity-independent-root-review-20261028.json",
+  "C49_targeted_native_checks_passed": 9,
+  "C49_additional_controls_pending": 0,
+  "latest_idle_artifact_application": "verification/idle-integration-empty-witness-applied59-20261028.json",
+  "latest_idle_artifact_application_sha256": "e98ce6b888a551bc2dabf01c74b393584030a8b970c04034c18f5116726c6de1",
+  "C50_current_verification": {
+    "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+    "status": "verified_scoped",
+    "distinct_passing_records": 73,
+    "separate_C06_failing_records": 8,
+    "new_selected_checks": 23,
+    "actual_gather_observations": 3,
+    "combined_integration_pending": false,
+    "combined_integration_passed_records": 16
+  },
+  "neutral_readonly_executable_verification": "verification/C31-sealed-readonly-transport-actual-1793147363274485539.json",
+  "C31_direct_final": {
+    "cases": 37,
+    "assertions": 1442,
+    "all_passed": true,
+    "final_SQL_field_lineage_verified": false,
+    "evidence": "verification/direct-run-C31-1793157890139265085.json",
+    "bounded_correctness_acceptance": "verification/C31-bounded-correctness-acceptance-20261028.json"
+  },
+  "next_idle_C31_observation_plan": "verification/next-idle-C31-lexical-observation-20261028.json",
+  "Q28_fourth_readonly_followup_review": "verification/Q28-sdk-readonly-executable-independent-review-20261028.json",
+  "C31_latest_scope_observation": "verification/guarded-C31-wide-observation-1793149460058563909.jsonl",
+  "quality_CPP_API_independent_review": "verification/Q-CPP-API-repair-independent-root-review-20261028.json",
+  "historical_rerun_exact_vector_manifest": "verification/historical-rerun-exact-vector-20261028.json",
+  "historical_rerun_checker": "proposed-correctness-amendments/historical_rerun_vector_check_20261028.py",
+  "historical_rerun_checker_review": "verification/historical-rerun-vector-independent-review-20261028.json",
+  "historical_queue_evidence": "verification/historical-queue-1793149678401712174.json",
+  "historical_queue_exec_session": null,
+  "historical_queue_last_completed": "C48",
+  "historical_queue_result": "13 exact reruns passed; C41 compiled but existing suite failed, no watchdog stop",
+  "C41_current_failure": {
+    "revision": "dd1d8cabb86258c4bcb998bd6b317b296bfdd251",
+    "fullsuite_exit_code": 10,
+    "unit_counts": {
+      "good": 139,
+      "fail": 209
+    },
+    "evidence": "verification/C41-fullsuite-sanitized-outcomes-dd1d8cab-20261028.json",
+    "diagnosis_pending": true,
+    "watchdog_stopped": false,
+    "resolved_by": "verification/C41-standard-pipeline-exact-acceptance-20261028.json"
+  },
+  "direct_cpp_initial_attempt": "verification/direct-harness-failure-C31-1793154578443291571.json",
+  "direct_cpp_retry_reason": "Initial receipt fingerprint changed during read; no compilation or native verdict. Ordinary unchanged retry retains strict checks.",
+  "direct_cpp_compile_diagnosis": "verification/C31-compile-diagnostic-classification-1793155174803712636.json",
+  "C41_current_revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+  "integration_build_exec_session": null,
+  "integration_build_evidence": "verification/C06-C50-integration-build-1793158725548596624.json",
+  "integration_native_exec_session": null,
+  "integration_auxiliary_build_evidence": "verification/C06-C50-integration-Math-UDF-build-1793159140073981162.json",
+  "C06_C50_integration_result": "verification/integration-C06-C50-2bc207a991cc-6004b2a2594148e49ae53747964c42b5-summary.json",
+  "C41_current_verification": {
+    "revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+    "suite_passed": 348,
+    "semantic_checks_passed": 12,
+    "exact_vector_passed": true,
+    "memory_watchdog_stopped": false,
+    "evidence": "verification/C41-standard-pipeline-exact-acceptance-20261028.json"
+  },
+  "integration_guard_retry_reason": "Final scope-membership availability false after scope collection; no guard exception/watchdog stop and exit0/cleanuptrue.",
+  "quality_first_batch_plan": "verification/quality-first-Q08-Q02-idle59-plan-20261028.json",
+  "quality_Q28_current_revision": "8089888107b179ca5c08f145f70564bd4637daa6",
+  "quality_verification_session": null,
+  "last_quality_batch": {
+    "bugs": [
+      "Q08",
+      "Q02"
+    ],
+    "exit_code": 2,
+    "Q08": "verified_quality",
+    "Q02": "verified_semantics_quality_pending",
+    "helper_ledger": 59,
+    "session": 92143,
+    "finished": true
+  },
+  "live_helper_ledger": 60,
+  "last_helper_composition": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/idle-reviewed-quality-composition-applied60-20261028.json",
+  "direct_cpp_phase": "baseline"
+}

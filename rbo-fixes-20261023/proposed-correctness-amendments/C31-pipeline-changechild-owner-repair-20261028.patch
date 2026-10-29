@@ -1,0 +1,68 @@
+diff --git a/rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py b/rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py
+--- a/rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py
++++ b/rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py
+@@ -363,8 +363,8 @@
+     CheckPortBranch(before->Child(3 + 2 * secondaryIndex), *s.Secondary, names);
+     auto foreign = f.F.ExprCtx.NewArgument(f.F.Pos, "foreign");
+     const auto branch = before->ChildPtr(3 + 2 * secondaryIndex);
+-    auto wrongMapInput = f.F.ExprCtx.ChangeChild(*branch->Child(1), 0, foreign);
+-    auto wrongBranch = f.F.ExprCtx.ChangeChild(*branch, 1, wrongMapInput);
++    auto wrongMapInput = f.F.ExprCtx.ChangeChild(*branch->Child(1), 0, TExprNode::TPtr(foreign));
++    auto wrongBranch = f.F.ExprCtx.ChangeChild(*branch, 1, std::move(wrongMapInput));
+     RequireRejected([&] { CheckPortBranch(wrongBranch.Get(), *s.Secondary, names); });
+     if (!s.Domain) return;
+     auto& partial = CastOperator<TOpAggregate>(*s.Domain->GetInput());
+@@ -392,10 +392,10 @@
+     const auto fields = lambda->ChildPtr(1);
+     Require(fields->ChildrenSize() == 2);
+     auto duplicateField = f.F.ExprCtx.ChangeChild(*fields->Child(0), 0, fields->Child(1)->ChildPtr(0));
+-    auto wrongFields = f.F.ExprCtx.ChangeChild(*fields, 0, duplicateField);
+-    auto wrongLambda = f.F.ExprCtx.ChangeChild(*lambda, 1, wrongFields);
+-    auto wrongNarrow = f.F.ExprCtx.ChangeChild(*narrow, 1, wrongLambda);
+-    auto wrongOutput = f.F.ExprCtx.ChangeChild(*output, 0, wrongNarrow);
++    auto wrongFields = f.F.ExprCtx.ChangeChild(*fields, 0, std::move(duplicateField));
++    auto wrongLambda = f.F.ExprCtx.ChangeChild(*lambda, 1, std::move(wrongFields));
++    auto wrongNarrow = f.F.ExprCtx.ChangeChild(*narrow, 1, std::move(wrongLambda));
++    auto wrongOutput = f.F.ExprCtx.ChangeChild(*output, 0, std::move(wrongNarrow));
+     RequireRejected([&] { CheckDomainBuilder(wrongOutput.Get(), oldBranch->Child(1), partial, names, blocks); });
+ }
+ static void Run(bool grouped, bool some, bool shared) {
+diff --git a/rbo-fixes-20261023/c31_combined_cpp_generator.py b/rbo-fixes-20261023/c31_combined_cpp_generator.py
+--- a/rbo-fixes-20261023/c31_combined_cpp_generator.py
++++ b/rbo-fixes-20261023/c31_combined_cpp_generator.py
+@@ -5,7 +5,7 @@
+ from types import ModuleType
+ 
+ ROOT = Path(__file__).resolve().parent
+-BINDINGS = [{'vector': 'identity', 'module': 'c31_identity_cpp_generator', 'generator_sha256': '112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9', 'rendered_source_sha256': '59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d', 'case_count': 33, 'main_boundary': 'int main() { unsigned failures=0;\n', 'function_prefix': 'Run'}, {'vector': 'pipeline', 'module': 'c31_shared_pipeline_cpp_generator', 'generator_sha256': '7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6', 'rendered_source_sha256': '550d49960e5e34ac9edac3c08afc01a908418b67d42816438b75616735aa7992', 'case_count': 4, 'main_boundary': 'int main() { unsigned failures = 0;\n', 'function_prefix': 'Case'}]
++BINDINGS = [{'vector': 'identity', 'module': 'c31_identity_cpp_generator', 'generator_sha256': '112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9', 'rendered_source_sha256': '59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d', 'case_count': 33, 'main_boundary': 'int main() { unsigned failures=0;\n', 'function_prefix': 'Run'}, {'vector': 'pipeline', 'module': 'c31_shared_pipeline_cpp_generator', 'generator_sha256': '3cf515d213120fda6fa70da7029895d93e74940fa908f70e038d839b3185caa4', 'rendered_source_sha256': '72f422493123d789d1bd3d29206b4f65238c4b73197cc1d3803e1dcfdf0212a2', 'case_count': 4, 'main_boundary': 'int main() { unsigned failures = 0;\n', 'function_prefix': 'Case'}]
+ IDENTITY_ASSERTIONS = [51, 51, 51, 66, 66, 66, 61, 61, 61, 48, 48, 48, 4, 4, 4, 3, 3, 3, 4, 4, 4, 59, 59, 59, 55, 55, 55, 55, 55, 55, 66, 66, 66]
+ 
+ 
+diff --git a/rbo-fixes-20261023/correctness_cpp_profiles.json b/rbo-fixes-20261023/correctness_cpp_profiles.json
+--- a/rbo-fixes-20261023/correctness_cpp_profiles.json
++++ b/rbo-fixes-20261023/correctness_cpp_profiles.json
+@@ -6,9 +6,9 @@
+       "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+       "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+       "profile": "rbo",
+-      "generator_sha256": "7d56fc9bcc877762fc09238f46fa39983e0634e0f89fca9a183860b3fe57455e",
+-      "generated_source_sha256": "027dc4aa73c47c39238d59faa571dcf24e54bc1f8ff476fd74a9351d08f1d09c",
+-      "generated_source_bytes": 186818,
++      "generator_sha256": "6d2dfad9a4cb6e570fb39b5a4c605f223e07ccc85ee59cde0a87cdd2d36c1bb2",
++      "generated_source_sha256": "19be2d18ad56fdac509f9b1ed57251904238fe0e9c1ca07af5b5619674716b1a",
++      "generated_source_bytes": 186890,
+       "case_count": 37,
+       "proof_scope": "linked_production_local_contracts",
+       "case_assertions": [
+@@ -247,8 +247,8 @@
+         {
+           "vector": "pipeline",
+           "module": "c31_shared_pipeline_cpp_generator",
+-          "generator_sha256": "7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6",
+-          "rendered_source_sha256": "550d49960e5e34ac9edac3c08afc01a908418b67d42816438b75616735aa7992",
++          "generator_sha256": "3cf515d213120fda6fa70da7029895d93e74940fa908f70e038d839b3185caa4",
++          "rendered_source_sha256": "72f422493123d789d1bd3d29206b4f65238c4b73197cc1d3803e1dcfdf0212a2",
+           "case_count": 4,
+           "first_case_index": 33
+         }

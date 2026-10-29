@@ -1,0 +1,259 @@
+{
+  "kind": "metadata_only_historical_rerun_selection_and_admission_audit",
+  "findings": [
+    {
+      "bug": "C01",
+      "revision": "40a5bea4e432b65845052aacbd104b642ffc8df1",
+      "main_parent_verified": true,
+      "expected_records": 6,
+      "required_modules": [
+        "logical_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C02",
+      "revision": "6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41",
+      "main_parent_verified": true,
+      "expected_records": 18,
+      "required_modules": [
+        "logical_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C03",
+      "revision": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e",
+      "main_parent_verified": true,
+      "expected_records": 5,
+      "required_modules": [
+        "aggregate_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C04",
+      "revision": "69b7c53d2f5ad03f02256e03b972901bdab12eab",
+      "main_parent_verified": true,
+      "expected_records": 4,
+      "required_modules": [
+        "logical_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C05",
+      "revision": "bf6527096b7a594beb47e3b2e274079b184b8128",
+      "main_parent_verified": true,
+      "expected_records": 4,
+      "required_modules": [
+        "correlation_controls"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C06",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "main_parent_verified": true,
+      "expected_records": 5,
+      "required_modules": [
+        "correlation_controls"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C07",
+      "revision": "2e4843e6be7a7b49fab191bc0d454653e0aca41e",
+      "main_parent_verified": true,
+      "expected_records": 5,
+      "required_modules": [
+        "correlation_controls"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C08",
+      "revision": "af05d7c395191d1a19ff7a3a4b2c8bc29be83582",
+      "main_parent_verified": true,
+      "expected_records": 6,
+      "required_modules": [
+        "correlation_controls"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C17",
+      "revision": "d08902de538969291efbeb272b45a12982a65ae8",
+      "main_parent_verified": true,
+      "expected_records": 8,
+      "required_modules": [
+        "metadata_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C18",
+      "revision": "ec25a7d3319c8e75ad3849a638f6830642097709",
+      "main_parent_verified": true,
+      "expected_records": 14,
+      "required_modules": [
+        "metadata_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C26",
+      "revision": "d40b5b11a3c485d1b504c128931d120d94487324",
+      "main_parent_verified": true,
+      "expected_records": 10,
+      "required_modules": [
+        "aggregate_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C44",
+      "revision": "329c771f34f97af659cf4d78af1e6c54226deb3e",
+      "main_parent_verified": true,
+      "expected_records": 3,
+      "required_modules": [
+        "write_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C48",
+      "revision": "35bc8b6938f42a11e92747063bfafc1dec0b9b5c",
+      "main_parent_verified": true,
+      "expected_records": 9,
+      "required_modules": [
+        "write_checks"
+      ],
+      "fullsuite_required": false
+    },
+    {
+      "bug": "C41",
+      "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+      "main_parent_verified": true,
+      "expected_records": 12,
+      "required_modules": [
+        "access_effect_checks"
+      ],
+      "fullsuite_required": true
+    }
+  ],
+  "current_selection_matches_original_manifest": true,
+  "case_owner_collisions": false,
+  "required_extra_modules": [],
+  "case_counts": {
+    "finding_records": 109,
+    "modern_generator_records": 101,
+    "qualified_legacy_adapter_records": 8,
+    "independent_runtime_preflights_excluded": 14
+  },
+  "source_findings": [
+    "All intended case names remain selected from current default modules. C03 expanded five cases are owned by aggregate_checks, C17 eight by metadata_checks, C41 twelve by access_effect_checks.",
+    "Only original manifest module hash change is join_key_checks, unrelated to these historical vectors; its C50 amendments do not add or override these cases.",
+    "C02 two volatile cases require eight repetitions each; --repetitions overrides defaults and must be omitted.",
+    "Ordinary correctness summarize_verification checks record verdicts but not the complete expected vector. Root must require this separate checker before accepting driver verified status.",
+    "C05\u2013C08 each append two original correlation.run adapter records once. Those eight records gain exact binary receipt and outer guard evidence but lack modern per-record generator, mode, syntax and input hashes. Frozen source/config bindings are external only.",
+    "C04 Pg scope remains source-only. C18 remains qualified new-parser multiplicity coverage with legacy compatibility unresolved. C44 remains guard/routing coverage. C48 remains intended legacy routing coverage.",
+    "C41 must include existing complete RBO suite in successful build target; checker binds that build record and receipt separately from its twelve semantic records."
+  ],
+  "checker_contract": [
+    "Exact case/mode/repetition vector, rows24, actual generator owner/hash/version, strict record contract and required observation flags.",
+    "Modern query, schema, fixture, settings and validation hashes regenerated in RAM from the frozen generator APIs and preparation rules; values are not persisted.",
+    "Fresh guarded slice stamp and successful receipt must postdate this frozen manifest; one receipt and one guard document/hash per slice, strict integer exit values and required cleanup/watchdog/overflow/memory limits.",
+    "Binary identity matches receipt exactly except explicitly revalidated ctime; record flags and digest still required.",
+    "Existing independent row oracles and target-failure/guard expectations remain authoritative. C02 nonvacuity, C18 metamorphic pairs and C41 full suite are additional requirements.",
+    "Missing, duplicate, extra, wrong-mode, stale, mismatched or weakened records fail. Source and proof files are rechecked before return.",
+    "Passing produces scoped metadata, preserves every qualification and never edits case status or claims automatic full finding promotion."
+  ],
+  "artifacts": [
+    {
+      "path": "verification/historical-rerun-exact-vector-20261028.json",
+      "sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58"
+    },
+    {
+      "path": "proposed-correctness-amendments/historical_rerun_vector_check_20261028.py",
+      "sha256": "c532b97282b370c4398b7a0db158844614a8e2d564ff86bbdd7dd3ecf48c282f"
+    },
+    {
+      "path": "proposed-correctness-amendments/historical_rerun_vector_contracts_20261028.py",
+      "sha256": "1ab421b60c0e98dc03d369aa8958f11648a102fdd1f8c472598d260bba1136b5"
+    },
+    {
+      "path": "verification/historical-rerun-vector-metadata-contracts-20261028.json",
+      "sha256": "5051afd6885062f42f170c549332b7156b9dae882f1c533f21b183f473e57230"
+    }
+  ],
+  "metadata_assertions": 563,
+  "commands": [
+    {
+      "purpose": "13 independent exact-receipt reruns, serial; stop on any failure",
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bugs",
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "C07",
+        "C08",
+        "C17",
+        "C18",
+        "C26",
+        "C44",
+        "C48",
+        "--rows",
+        "24",
+        "--runner-only",
+        "--build-workers",
+        "8"
+      ]
+    },
+    {
+      "purpose": "C41 runner plus complete existing RBO suite and12 semantic cases",
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bugs",
+        "C41",
+        "--rows",
+        "24",
+        "--build-workers",
+        "8"
+      ]
+    }
+  ],
+  "commands_executed": false,
+  "production_or_live_helper_edits": false,
+  "native_build_toolchain_graph_operations": false,
+  "rendered_query_fixture_or_result_persistence": false,
+  "remaining": "Independent source/metadata review and actual root-coordinated serial reruns remain pending. Root retains responsibility for final scoped case updates.",
+  "independent_review_corrections": [
+    "Require canonical seven binary identity fields with strict valid types and exact receipt worktree, even when both receipt and record omit the same fields.",
+    "Require each C41 case to carry its actual successful result binding/order, ownership or persistence fields; indexed validations also require base/index and zero extra index rows.",
+    "Bind the four C18 metamorphic roles, pairs, semantic scope and legacy compatibility qualification to the exact cases. The existing summary still verifies paired projection digests.",
+    "Also require existing successful shape fields for logical controls, base/index/ownership fields for C44/C48 functional controls and common result hash/row count."
+  ],
+  "historical_oracle_field_metadata_crosscheck": {
+    "comparisons": 161,
+    "mismatches": 0,
+    "historical_records_admitted": false,
+    "scope": "Field presence/types only; no raw rows read or persisted, no historical record relabeling."
+  },
+  "superseded": {
+    "manifest_sha256": "017e1fc6144fbdc2e5481cf436cdfc2b5a9c5d173c1ee3e143b1706ca1a1cc61",
+    "checker_sha256": "b0cc537a8d9759c4d09e791c476417b9ee5d8121792bfb3aa0d1b091f6884014"
+  }
+}

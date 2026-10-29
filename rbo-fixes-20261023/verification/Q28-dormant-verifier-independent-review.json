@@ -1,0 +1,33 @@
+{
+  "status": "conditional_source_review_no_native",
+  "verifier_sha256": "9075f0f66cfa2e8bb93f4208f6a6e0740749d788dd3c59161176c80b8d8f1b53",
+  "generator_sha256": "cdf5001093ffc82a23bb39c7cf36d9e18bfcdfacb65f8ea3f4df31a88ea5e3c6",
+  "confirmed_contracts": [
+    "Q28 uses the existing RBO closure and baseline-compatible generated source.",
+    "Closed parser requires six nonnegative integer counters, rejects bool, missing and extra fields.",
+    "Pairing requires revision, generator/source/binary identities, guarded cleanup and equal suite sizes.",
+    "Eligible cases need all three measured work counters lower; excluded cases must preserve all three.",
+    "Fixed local contracts must pass and the result explicitly leaves query semantics and full quality verification pending."
+  ],
+  "findings": [
+    {
+      "id": "Q28-generator-baseline-semantic-gate",
+      "severity": "verification_gap",
+      "detail": "Run records positive work counters before its semantic/invariant checks. Baseline passed=false is expected for cost assertions, so pairing cannot distinguish an earlier baseline semantic failure from the intended cost failure. RunScenario publishes counters only after semantic checks and does not have this gap.",
+      "recommendation": "Publish Run counters only after the semantic/invariant checks, preferably run its second-pass semantic checks before the cost assertions too. Keep zero counters on earlier failures so pairing rejects them.",
+      "owner_notified": "quality_review"
+    },
+    {
+      "id": "Q28-current-specification-binding",
+      "severity": "verification_hardening",
+      "detail": "Pairing uses the currently imported specs to interpret exclusion versus eligible cases, but only compares evidence generator hashes to one another. A later generator edit could reinterpret older evidence.",
+      "recommendation": "Require the evidence generator digest to equal the current module digest before using its specs, or persist and bind a closed specification digest.",
+      "owner_notified": "quality_review"
+    }
+  ],
+  "mock_assertions_rerun": 24,
+  "compiler_runs": 0,
+  "native_runs": 0,
+  "production_edited": false,
+  "active_helper_files_edited": false
+}

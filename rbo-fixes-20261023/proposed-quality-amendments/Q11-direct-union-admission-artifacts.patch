@@ -1,0 +1,436 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -24,6 +24,7 @@
+ 
+ HERE = Path(__file__).resolve().parent
+ GENERATORS = {'C31': 'c31_identity_cpp_generator', 'C47': 'c47_lookup_copy_contract_generator',
++              'Q11': 'quality_union_cpp_generator',
+               'Q01': 'quality_range_runtime_cpp_generator', 'Q14': 'quality_rule_cpp_generator', 'Q16': 'quality_rule_cpp_generator',
+               'Q15': 'quality_partition_cpp_checks',
+               'Q18': 'quality_cpp_contract_generator', 'Q19': 'quality_cpp_contract_generator',
+@@ -40,7 +41,7 @@
+ 
+ 
+ def _expected_revision(bug, phase, worktree):
+-    if bug in ('C31', 'C47', 'Q01', 'Q15') and phase != 'fixed':
++    if bug in ('C31', 'C47', 'Q01', 'Q11', 'Q15') and phase != 'fixed':
+         raise MetadataError('new_runtime_or_helper_requires_fixed_only_admission')
+     case = json.loads((HERE / 'cases' / (bug + '.json')).read_text())
+     parent = subprocess.check_output(['git', 'rev-parse', case['commit'] + '^'], cwd=worktree, text=True).strip()
+@@ -185,6 +186,9 @@
+ 
+ 
+ def render_suite(bug, worktree, revision, wrapper_symbols=None):
++    if bug == 'Q11':
++        from quality_union_cpp_contract import render_suite as render_union_suite
++        return render_union_suite(revision)
+     if bug in ('C31', 'C47'):
+         from correctness_cpp_contract import render_suite as render_correctness_suite
+         return render_correctness_suite(bug, revision)
+@@ -205,6 +209,9 @@
+ 
+ 
+ def parse_verdicts(stdout, count, exit_code, bug):
++    if bug == 'Q11':
++        from quality_union_cpp_contract import parse_verdicts as parse_union_verdicts
++        return parse_union_verdicts(stdout, count, exit_code)
+     if bug in ('C31', 'C47'):
+         from correctness_cpp_contract import parse_verdicts as parse_correctness_verdicts
+         return parse_correctness_verdicts(stdout, count, exit_code)
+@@ -335,6 +342,9 @@
+         if args.bug in ('C31', 'C47'):
+             from correctness_cpp_contract import profile_digest
+             evidence['direct_contract_profile_sha256'] = profile_digest(args.bug, revision)
++        if args.bug == 'Q11':
++            from quality_union_cpp_contract import profile_digest as union_profile_digest
++            evidence['direct_contract_profile_sha256'] = union_profile_digest(revision)
+         compile_record, _ = run_anonymous(receipt['metadata']['compile_argv'], receipt['metadata']['compile_cwd'], fds,
+                                           stdout_fd='object', timeout=args.compile_timeout,
+                                           environment=receipt['metadata']['compile_environment'])
+@@ -387,7 +397,7 @@
+         if args.receipt.read_bytes() != raw_receipt:
+             raise MetadataError('production_closure_receipt_changed_during_verification')
+         verification_stage = 'fixed_admission'
+-        if args.bug in ('C31', 'C47') and evidence['status'] == 'direct_local_contracts_passed':
++        if args.bug in ('C31', 'C47', 'Q11') and evidence['status'] == 'direct_local_contracts_passed':
+             if not validate_fixed_admission(evidence, args.bug, revision):
+                 raise MetadataError('incomplete_fixed_correctness_cpp_admission')
+         return evidence, 0 if evidence['status'] == 'direct_local_contracts_passed' else 2
+@@ -405,7 +415,7 @@
+ 
+ 
+ def pair_direct(bug, before, after, case):
+-    if bug in ('C31', 'C47', 'Q01', 'Q15'):
++    if bug in ('C31', 'C47', 'Q01', 'Q11', 'Q15'):
+         raise MetadataError('fixed_admission_requires_separately_paired_sql')
+     def valid_digest(value):
+         return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
+@@ -486,6 +496,9 @@
+     if bug in ('C31', 'C47'):
+         from correctness_cpp_contract import validate_fixed_local_contracts
+         return validate_fixed_local_contracts(evidence, bug, revision)
++    if bug == 'Q11':
++        from quality_union_cpp_contract import validate_fixed_local_contracts
++        return validate_fixed_local_contracts(evidence, revision)
+     if bug == 'Q01':
+         from quality_range_runtime_contract import validate_fixed_runtime
+         return validate_fixed_runtime(evidence, revision)
+--- /dev/null
++++ b/rbo-fixes-20261023/quality_union_cpp_contract.py
+@@ -0,0 +1,127 @@
++"""Fixed-only, reviewed Q11 structural admission; SQL pairing stays separate."""
++import hashlib
++import json
++from pathlib import Path
++import re
++from types import ModuleType
++
++from anonymous_cpp_metadata import VERSION as CLOSURE_VERSION, MetadataError
++from correctness_cpp_contract import parse_verdicts as _parse_verdicts
++
++ROOT = Path(__file__).resolve().parent
++MODULE = 'quality_union_cpp_generator'
++PROFILE_KEYS = {'schema_version', 'module', 'revision', 'base', 'profile', 'generator_sha256',
++                'generated_source_sha256', 'generated_source_bytes', 'case_count',
++                'case_names_sha256', 'expected_checks', 'proof_scope'}
++
++
++def _digest(value):
++    return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
++
++
++def _json_digest(value):
++    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
++
++
++def profile(revision):
++    value = json.loads((ROOT / 'quality_union_cpp_profile.json').read_bytes())
++    if (not isinstance(value, dict) or set(value) != PROFILE_KEYS
++        or value.get('schema_version') != 'reviewed_union_cpp_profile_v1'
++        or value.get('module') != MODULE or value.get('revision') != revision
++        or not isinstance(revision, str) or not re.fullmatch('[0-9a-f]{40}', revision)
++        or value.get('profile') != 'rbo' or value.get('proof_scope') != 'linked_production_local_contracts'
++        or type(value.get('case_count')) is not int or value['case_count'] <= 0
++        or type(value.get('generated_source_bytes')) is not int or value['generated_source_bytes'] <= 0
++        or any(not _digest(value.get(key)) for key in
++               ('generator_sha256', 'generated_source_sha256', 'case_names_sha256'))
++        or not isinstance(value.get('expected_checks'), list)
++        or len(value['expected_checks']) != value['case_count']
++        or any(type(count) is not int or count <= 0 for count in value['expected_checks'])):
++        raise MetadataError('unreviewed_union_cpp_profile')
++    case = json.loads((ROOT / 'cases' / 'Q11.json').read_bytes())
++    if case.get('commit') != revision or case.get('base') != value.get('base'):
++        raise MetadataError('union_cpp_case_revision_changed')
++    return value
++
++
++def profile_digest(revision):
++    return _json_digest(profile(revision))
++
++
++def render_suite(revision):
++    expected = profile(revision)
++    path = ROOT / (MODULE + '.py')
++    raw = path.read_bytes()
++    if hashlib.sha256(raw).hexdigest() != expected['generator_sha256']:
++        raise MetadataError('union_cpp_generator_requires_source_review')
++    module = ModuleType(MODULE)
++    module.__file__ = str(path)
++    exec(compile(raw, str(path), 'exec'), module.__dict__)
++    source = module.render_cpp_suite().encode()
++    if (len(module.cases()) != expected['case_count']
++        or _json_digest(module.cases()) != expected['case_names_sha256']
++        or module.expected_checks() != expected['expected_checks']
++        or len(source) != expected['generated_source_bytes']
++        or hashlib.sha256(source).hexdigest() != expected['generated_source_sha256']):
++        raise MetadataError('union_cpp_rendered_contract_changed')
++    return source, expected['case_count'], expected['generator_sha256']
++
++
++def parse_verdicts(stdout, count, exit_code):
++    """Closed numeric verdict schema; the fixed gate also pins assertion counts."""
++    return _parse_verdicts(stdout, count, exit_code)
++
++
++def validate_fixed_local_contracts(evidence, revision):
++    if not isinstance(evidence, dict):
++        return False
++    try:
++        expected = profile(revision)
++        source, count, generator_hash = render_suite(revision)
++        del source
++        if (evidence.get('schema_version') != 'anonymous_direct_cpp_v1'
++            or evidence.get('bug') != 'Q11' or evidence.get('phase') != 'fixed'
++            or evidence.get('revision') != revision or evidence.get('status') != 'direct_local_contracts_passed'
++            or evidence.get('direct_contract_profile_sha256') != profile_digest(revision)
++            or evidence.get('generator_module') != MODULE
++            or evidence.get('generator_sha256') != generator_hash
++            or evidence.get('generated_source_sha256') != expected['generated_source_sha256']
++            or type(evidence.get('generated_source_bytes')) is not int
++            or evidence['generated_source_bytes'] != expected['generated_source_bytes']
++            or type(evidence.get('case_count')) is not int or evidence['case_count'] != count
++            or evidence.get('proof_scope') != expected['proof_scope']
++            or evidence.get('closure_provenance_verified') is not True
++            or evidence.get('generated_files_persisted') is not False
++            or evidence.get('query_semantics_verified') is not False
++            or evidence.get('quality_improvement_verified') is not False):
++            return False
++        raw_receipt = Path(evidence['closure_receipt_path']).read_bytes()
++        receipt = json.loads(raw_receipt)
++        if (hashlib.sha256(raw_receipt).hexdigest() != evidence.get('closure_receipt_sha256')
++            or receipt.get('schema_version') != CLOSURE_VERSION or receipt.get('revision') != revision
++            or type(receipt.get('build', {}).get('exit_code')) is not int or receipt['build']['exit_code'] != 0
++            or receipt.get('build', {}).get('revision') != revision
++            or receipt.get('build', {}).get('profile') != 'rbo'
++            or receipt.get('build', {}).get('target') != 'ydb/core/kqp/ut/rbo'
++            or receipt.get('metadata', {}).get('profile') != 'rbo'
++            or not isinstance(receipt.get('files'), dict) or not receipt['files']):
++            return False
++        for key in ('generated_object', 'generated_executable'):
++            item = evidence.get(key, {})
++            if not _digest(item.get('sha256')) or type(item.get('size_bytes')) is not int or item['size_bytes'] <= 0:
++                return False
++        for name in ('compile', 'link', 'native'):
++            process = evidence.get(name, {})
++            if (type(process.get('exit_code')) is not int or process['exit_code'] != 0
++                or process.get('cleanup_complete') is not True or process.get('watchdog_stopped') is not False
++                or process.get('stdout_overflow') is not False):
++                return False
++            if name in ('compile', 'link'):
++                environment = receipt['metadata'].get(name + '_environment')
++                if not isinstance(environment, dict) or process.get('environment_sha256') != _json_digest(environment):
++                    return False
++        records = parse_verdicts(b'\n'.join(json.dumps(value).encode() for value in evidence['cases']), count, 0)
++        return (all(value['passed'] for value in records)
++                and [value['checks_executed'] for value in records] == expected['expected_checks'])
++    except (OSError, ValueError, TypeError, KeyError, AttributeError, MetadataError):
++        return False
+--- /dev/null
++++ b/rbo-fixes-20261023/quality_union_cpp_generator.py
+@@ -0,0 +1,189 @@
++"""Anonymous local contracts for the actual Q11 UNION filter rewrite.
++
++Only compositional generators are stored. Translation units remain in memory.
++These structural contracts grant neither query semantics nor plan improvement.
++"""
++import json
++
++
++def cases():
++    return ['plain', 'ordered', 'three', 'three_ordered', 'shared', 'shared_ordered',
++            'nullable', 'constant', 'partial', 'subplan', 'external', 'optional_late',
++            'primitive_late', 'volatile', 'fallible', 'unknown', 'arithmetic',
++            'nested_volatile', 'nested_fallible']
++
++
++class _Body:
++    def __init__(self):
++        self.parts = []
++        self.checks = 0
++
++    def line(self, value):
++        self.parts.append(value + ';\n')
++
++    def check(self, value):
++        self.line('Check(' + value + ')')
++        self.checks += 1
++
++    def member(self, expression, node, expected):
++        self.line('CheckMember(' + expression + ', ' + node + ', ' + expected + ')')
++        self.checks += 4
++
++
++def _body(case):
++    if case not in cases():
++        raise ValueError('unknown UNION contract')
++    b = _Body()
++    positive = case in cases()[:8]
++    shared = case.startswith('shared')
++    count = 3 if case.startswith('three') else 2
++    ordered = case.endswith('ordered') or not positive
++    b.line('NKikimr::NKqp::NTests::TIdTestContext f')
++    b.line('const auto outA = f.Id("outA"), outB = f.Id("outB")')
++    b.line('TVector<TIntrusivePtr<IOperator>> inputs')
++    source_a, source_b = [], []
++    for index in range(count):
++        if shared and index == 1:
++            b.line('inputs.push_back(inputs[0])')
++            source_a.append('a0')
++            source_b.append('b0')
++        else:
++            a, c = 'a' + str(index), 'b' + str(index)
++            b.line('const auto ' + a + ' = f.Id("a"), ' + c + ' = f.Id("b")')
++            b.line('inputs.push_back(f.Read({' + a + ', ' + c + '}))')
++            b.line('f.SetType(*inputs.back()' + (', {' + a + ', ' + c + '}' if case == 'nullable' else '') + ')')
++            source_a.append(c if index == 1 else a)
++            source_b.append(a if index == 1 else c)
++    b.line('TUnionAllIUs columns(TUnionInputPolicy{' + str(count) + '})')
++    b.line('columns.Add(outA, TUnionInputRow{{' + ', '.join(source_a) + '}})')
++    b.line('columns.Add(outB, TUnionInputRow{{' + ', '.join(source_b) + '}})')
++    b.line('auto merge = MakeIntrusive<TOpUnionAll>(inputs, f.Pos, columns, ' + str(ordered).lower() + ')')
++    b.line('f.SetType(*merge' + (', {outA, outB}' if case in ('nullable', 'optional_late') else '') + ')')
++    if case == 'optional_late':
++        b.line('f.SetType(*inputs[0], {a0, b0})')
++    if case == 'primitive_late':
++        b.line('SetPrimitiveType(f, *inputs[0], EDataSlot::Int64)')
++        b.line('SetPrimitiveType(f, *merge, EDataSlot::Int64)')
++    b.line('auto predicate = MakeBinaryPredicate(">", f.Column(outA), f.Column(outB))')
++    if case == 'constant':
++        b.line('predicate = MakeConstant("Bool", "true", f.Pos, &f.ExprCtx)')
++        b.line('predicate.BindPlanProps(&f.Props)')
++    elif case in ('volatile', 'nested_volatile'):
++        b.line('TExpression random(f.ExprCtx.NewCallable(f.Pos, "RandomNumber", {}), &f.ExprCtx, &f.Props)')
++        b.line('auto risky = MakeBinaryPredicate(">", random, MakeConstant("Double", "0", f.Pos, &f.ExprCtx))')
++        b.line('predicate = ' + ('MakeConjunction({predicate, risky})' if case.startswith('nested_') else 'risky'))
++    elif case in ('fallible', 'nested_fallible'):
++        b.line('auto risky = MakeEnsure(predicate, MakeConstant("Bool", "false", f.Pos, &f.ExprCtx), "contract")')
++        b.line('predicate = ' + ('MakeConjunction({predicate, risky})' if case.startswith('nested_') else 'risky'))
++    elif case == 'unknown':
++        b.line('predicate = MakeBinaryPredicate(">", MakeUnaryCallable("Abs", f.Column(outA)), f.Column(outB))')
++    elif case == 'arithmetic':
++        b.line('predicate = MakeBinaryPredicate(">", MakeBinaryPredicate("/", f.Column(outA), f.Column(outB)), f.Column(outB))')
++    elif case == 'external':
++        b.line('const auto external = f.Id("external")')
++        b.line('predicate = MakeBinaryPredicate(">", f.Column(external), f.Column(outA))')
++    elif case == 'subplan':
++        b.line('const auto binding = f.Id("binding"), result = f.Id("result")')
++        b.line('auto subplan = f.Read({result})')
++        b.line('f.SetType(*subplan)')
++        b.line('f.Props.Subplans.Add(binding, subplan, ESubplanType::EXPR, TOrderedIUs<>{}, result)')
++        b.line('predicate = MakeBinaryPredicate(">", f.Column(binding), f.Column(outA))')
++    b.line('auto filter = MakeIntrusive<TOpFilter>(merge, f.Pos, predicate)')
++    if case == 'partial':
++        b.line('filter->PartiallyPushedDown = true')
++    b.line('auto observer = MakeIntrusive<TOpFilter>(inputs[0], f.Pos, MakeBinaryPredicate(">", f.Column(a0), f.Column(b0)))')
++    b.line('const auto observerNode = observer->GetFilterExpression().Node')
++    b.line('const auto originalNode = filter->GetFilterExpression().Node')
++    b.line('const auto originalUsed = filter->GetFilterExpression().GetRawInputIUs()')
++    b.line('const auto originalType = merge->Type')
++    for index in range(count):
++        b.line('const auto outputs' + str(index) + ' = inputs[' + str(index) + ']->GetOutputIUs()')
++        b.line('const auto type' + str(index) + ' = inputs[' + str(index) + ']->Type')
++    b.line('TPushFilterThroughUnionAllRule rule')
++    b.check('rule.QuickMatch(filter)')
++    b.check('!rule.QuickMatch(merge)')
++    b.check('!rule.QuickMatch(observer)')
++    b.line('auto rewritten = rule.SimpleMatchAndApply(filter, f.RboCtx, f.Props)')
++    b.check('filter->GetInput().Get() == merge.Get()')
++    b.check('filter->GetFilterExpression().Node == originalNode')
++    b.check('filter->GetFilterExpression().GetRawInputIUs() == originalUsed')
++    b.check('filter->PartiallyPushedDown == ' + str(case == 'partial').lower())
++    b.check('merge->Ordered == ' + str(ordered).lower())
++    b.check('merge->GetChildCount() == ' + str(count))
++    b.check('merge->GetColumns().Keys() == columns.Keys()')
++    b.check('merge->GetColumns().At(outA).Inputs == columns.At(outA).Inputs')
++    b.check('merge->GetColumns().At(outB).Inputs == columns.At(outB).Inputs')
++    b.check('merge->Type == originalType')
++    b.check('observer->GetInput().Get() == inputs[0].Get()')
++    b.check('observer->GetFilterExpression().Node == observerNode')
++    for index in range(count):
++        i = str(index)
++        b.check('merge->GetInput(' + i + ').Get() == inputs[' + i + '].Get()')
++        b.check('inputs[' + i + ']->GetOutputIUs() == outputs' + i)
++        b.check('inputs[' + i + ']->Type == type' + i)
++    if not positive:
++        b.check('rewritten.Get() == filter.Get()')
++        if case == 'subplan':
++            b.check('f.Props.Subplans.At(binding).Plan.Get() == subplan.Get()')
++        return ''.join(b.parts), b.checks
++    b.check('rewritten.Get() != filter.Get() && rewritten.Get() != merge.Get()')
++    b.check('rewritten->Kind == EOperator::UnionAll')
++    b.line('const auto pushed = CastOperator<TOpUnionAll>(rewritten)')
++    b.check('pushed->Ordered == merge->Ordered')
++    b.check('pushed->GetChildCount() == ' + str(count))
++    b.check('pushed->GetOutputIUs() == merge->GetOutputIUs()')
++    b.check('pushed->GetColumns().Policy().ChildCount == columns.Policy().ChildCount')
++    b.check('pushed->GetColumns().At(outA).Inputs == columns.At(outA).Inputs')
++    b.check('pushed->GetColumns().At(outB).Inputs == columns.At(outB).Inputs')
++    for index, (a, c) in enumerate(zip(source_a, source_b)):
++        i = str(index)
++        b.check('pushed->GetInput(' + i + ')->Kind == EOperator::Filter')
++        b.line('const auto branch' + i + ' = CastOperator<TOpFilter>(pushed->GetInput(' + i + '))')
++        b.check('branch' + i + '.Get() != filter.Get() && branch' + i + '.Get() != observer.Get()')
++        for previous in range(index):
++            b.check('branch' + i + '.Get() != branch' + str(previous) + '.Get()')
++        b.check('branch' + i + '->GetInput().Get() == inputs[' + i + '].Get()')
++        b.check('branch' + i + '->GetOutputIUs() == outputs' + i)
++        b.check('!branch' + i + '->PartiallyPushedDown')
++        b.line('const auto& expression' + i + ' = branch' + i + '->GetFilterExpression()')
++        b.line('const auto body' + i + ' = expression' + i + '.GetExpressionBody()')
++        if case == 'constant':
++            b.check('expression' + i + '.GetRawInputIUs().Empty()')
++            b.check('body' + i + '->IsCallable("Bool") && body' + i + '->ChildrenSize() == 1')
++            b.check('body' + i + '->Child(0)->Content() == "true"')
++        else:
++            b.check('expression' + i + '.GetRawInputIUs() == TUnorderedIUs{' + a + ', ' + c + '}')
++            b.check('expression' + i + '.Node != originalNode')
++            b.check('body' + i + '->IsCallable(">") && body' + i + '->ChildrenSize() == 2')
++            b.member('expression' + i, 'body' + i + '->Child(0)', a)
++            b.member('expression' + i, 'body' + i + '->Child(1)', c)
++    return ''.join(b.parts), b.checks
++
++
++def expected_checks():
++    return [_body(case)[1] for case in cases()]
++
++
++def render_cpp_suite():
++    includes = ('ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h', 'iostream', 'stdexcept')
++    text = ''.join('#include <' + path + '>\n' for path in includes)
++    text += 'using namespace NKikimr::NKqp;\nusing namespace NYql;\n'
++    text += 'static unsigned Checks = 0;\nstatic void Check(bool value) { ++Checks; if (!value) throw std::runtime_error("contract"); }\n'
++    text += 'static void CheckMember(const TExpression& expression, const TExprNode* member, TInfoUnitId expected) {\n'
++    text += 'const auto lambda = expression.GetLambda();\n'
++    text += 'Check(lambda->ChildrenSize() == 2 && lambda->Child(0)->ChildrenSize() == 1);\n'
++    text += 'Check(member && member->IsCallable("Member") && member->ChildrenSize() == 2);\n'
++    text += 'Check(member->Child(0) == lambda->Child(0)->Child(0)); Check(GetMemberId(*member) == expected); }\n'
++    text += 'static void SetPrimitiveType(NKikimr::NKqp::NTests::TIdTestContext& f, IOperator& op, EDataSlot slot) {\n'
++    text += 'TVector<const TItemExprType*> fields; for (const auto id : op.GetOutputIUs()) fields.push_back(f.ExprCtx.MakeType<TItemExprType>(f.ExprCtx.GetIndexAsString(id), f.ExprCtx.MakeType<TDataExprType>(slot)));\n'
++    text += 'op.Type = f.ExprCtx.MakeType<TListExprType>(f.ExprCtx.MakeType<TStructExprType>(fields)); }\n'
++    for index, case in enumerate(cases()):
++        text += 'static void Run' + str(index) + '() {\n' + _body(case)[0] + '}\n'
++    text += 'int main() { unsigned failures = 0;\n'
++    for index in range(len(cases())):
++        prefix = '{"case_index":' + str(index) + ',"checks_executed":'
++        text += '{ const auto before = Checks; bool passed = true; try { Run' + str(index) + '(); } catch (...) { passed = false; ++failures; }\n'
++        text += 'std::cout << ' + json.dumps(prefix) + ' << (Checks - before) << ' + json.dumps(',"passed":')
++        text += ' << (passed ? "true" : "false") << ' + json.dumps('}\n') + '; }\n'
++    text += 'return failures ? 1 : 0; }\n'
++    return text
+--- /dev/null
++++ b/rbo-fixes-20261023/quality_union_cpp_profile.json
+@@ -0,0 +1,34 @@
++{
++  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
++  "case_count": 19,
++  "case_names_sha256": "68b18bb51507411928efa7c9b54c152acf8162612876918c601140b1c850bb1a",
++  "expected_checks": [
++    62,
++    62,
++    83,
++    83,
++    62,
++    62,
++    62,
++    46,
++    22,
++    23,
++    22,
++    22,
++    22,
++    22,
++    22,
++    22,
++    22,
++    22,
++    22
++  ],
++  "generated_source_bytes": 70475,
++  "generated_source_sha256": "a5203daabaa67904b51b25b0c005838590cdd06d5b2c6a965d774d6dff1f9aeb",
++  "generator_sha256": "8eb0b44ba1be62a92875b84c5cc8dbfd35d5388397fac53593c29cb33d04d5ce",
++  "module": "quality_union_cpp_generator",
++  "profile": "rbo",
++  "proof_scope": "linked_production_local_contracts",
++  "revision": "f9279dcfeac87c596f58ccc8e3add4722c66a960",
++  "schema_version": "reviewed_union_cpp_profile_v1"
++}

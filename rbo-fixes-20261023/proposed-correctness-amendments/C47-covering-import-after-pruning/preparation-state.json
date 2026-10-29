@@ -1,0 +1,24 @@
+{
+  "base_revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+  "patch_sha256": "39736f6f917dcb09a5edc726eb7618bd14228f0c93c39ab5324bfeef33a0702d",
+  "files": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+      "before_sha256": "e8678e1ab8b62e2021cee5cd7d7acd1c9f22d9c848062ce096735456b8b298eb",
+      "after_sha256": "42c7398c1cbca4beb3491a05ae19b9375a20f4cfbef4ad09b6040618ae9c6fb1"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "before_sha256": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf",
+      "after_sha256": "dfd4424f21550df0ccf51f1b1a424b21061dc0cf8c5656c9d7c3f4fb87d4b1c2"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "before_sha256": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896",
+      "after_sha256": "6b57e3432ef09dc3b98a8e78f923a535b67fa66c6b174ec66207070eea025cf1"
+    }
+  ],
+  "status": "frozen_source_only_independent_review_required_native_pending",
+  "source_checks_passed": 36,
+  "report_sha256": "17da170a0b0ca8cf42f9ebe4cd0373fc98e4864dd63c284f98d450b874ab4583"
+}

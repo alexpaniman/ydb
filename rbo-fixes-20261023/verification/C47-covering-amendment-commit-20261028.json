@@ -1,0 +1,36 @@
+{
+  "status": "reviewed_production_amendment_committed_native_pending",
+  "old_commit": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+  "commit": "54db45bef39b3515bd662daefe9d10c8757e74db",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "independent_main_child": true,
+  "branch": "fix/new-rbo/c47-import-explicit-index-reads",
+  "production_patch_sha256": "39736f6f917dcb09a5edc726eb7618bd14228f0c93c39ab5324bfeef33a0702d",
+  "changed_files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp"
+  ],
+  "all_branch_files": [
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+    "ydb/core/kqp/opt/rbo/rules/propagate_limit_through_stage.cpp",
+    "ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+    "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp"
+  ],
+  "essentials_edits": false,
+  "git_diff_check": true,
+  "worktree_clean": true,
+  "observed_unix_time": 1793146724.6654482
+}

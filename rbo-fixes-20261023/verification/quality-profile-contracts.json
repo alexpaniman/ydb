@@ -1,0 +1,165 @@
+{
+  "status": "generation_only_profiles_resolved_native_unverified",
+  "profiles": {
+    "Q01": {
+      "modules": [
+        "quality_window_checks",
+        "quality_sum_checks",
+        "quality_minmax_checks"
+      ],
+      "case_count": 358,
+      "profile_sha256": "7ad1de835188967a6ad9fab17b0060e709c36071acbc2f536d9a50e7e510274f"
+    },
+    "Q02": {
+      "modules": [
+        "quality_window_checks"
+      ],
+      "case_count": 4,
+      "profile_sha256": "bee7e88ece32fc923ed6621fc7963d01adf7d60b0d144c8b695febe4d03f7143"
+    },
+    "Q03": {
+      "modules": [
+        "quality_lookup_checks"
+      ],
+      "case_count": 5,
+      "profile_sha256": "8634690b82db446640c5121d3acde03e3405947fee9895b181eb57a661ad6abf"
+    },
+    "Q04": {
+      "modules": [
+        "quality_lookup_checks"
+      ],
+      "case_count": 7,
+      "profile_sha256": "8634690b82db446640c5121d3acde03e3405947fee9895b181eb57a661ad6abf"
+    },
+    "Q05": {
+      "modules": [
+        "quality_rule_checks"
+      ],
+      "case_count": 11,
+      "profile_sha256": "7abef998c601777727bed13729bfdf99788384810fabe02bf9b340bf143919c0"
+    },
+    "Q06": {
+      "modules": [
+        "quality_lookup_checks"
+      ],
+      "case_count": 4,
+      "profile_sha256": "8634690b82db446640c5121d3acde03e3405947fee9895b181eb57a661ad6abf"
+    },
+    "Q07": {
+      "modules": [
+        "quality_lookup_checks"
+      ],
+      "case_count": 11,
+      "profile_sha256": "8634690b82db446640c5121d3acde03e3405947fee9895b181eb57a661ad6abf"
+    },
+    "Q08": {
+      "modules": [
+        "quality_statistics_checks"
+      ],
+      "case_count": 2,
+      "profile_sha256": "85dee779cb0d9ac5636a4c7a94757b65c347c26a28b05fd7b0e548b22d500443"
+    },
+    "Q09": {
+      "modules": [
+        "quality_statistics_checks"
+      ],
+      "case_count": 3,
+      "profile_sha256": "85dee779cb0d9ac5636a4c7a94757b65c347c26a28b05fd7b0e548b22d500443"
+    },
+    "Q10": {
+      "modules": [
+        "quality_window_checks"
+      ],
+      "case_count": 10,
+      "profile_sha256": "bee7e88ece32fc923ed6621fc7963d01adf7d60b0d144c8b695febe4d03f7143"
+    },
+    "Q11": {
+      "modules": [
+        "quality_union_checks"
+      ],
+      "case_count": 11,
+      "profile_sha256": "cec65798c16bec5babc7b9ae2f2c1d6778ff21f81e9b11f3f8039ecfca48ee65"
+    },
+    "Q12": {
+      "modules": [
+        "quality_rule_checks"
+      ],
+      "case_count": 7,
+      "profile_sha256": "7abef998c601777727bed13729bfdf99788384810fabe02bf9b340bf143919c0"
+    },
+    "Q13": {
+      "modules": [
+        "quality_window_checks"
+      ],
+      "case_count": 3,
+      "profile_sha256": "bee7e88ece32fc923ed6621fc7963d01adf7d60b0d144c8b695febe4d03f7143"
+    },
+    "Q15": {
+      "modules": [
+        "quality_partition_subset_checks"
+      ],
+      "case_count": 19,
+      "profile_sha256": "d3f51b4921481bce8e830dc403d092f7f5c59a1c48c98e77b702fcf4c08706b2"
+    },
+    "Q17": {
+      "modules": [
+        "quality_lookup_checks"
+      ],
+      "case_count": 5,
+      "profile_sha256": "8634690b82db446640c5121d3acde03e3405947fee9895b181eb57a661ad6abf"
+    },
+    "Q20": {
+      "modules": [
+        "quality_statistics_checks"
+      ],
+      "case_count": 3,
+      "profile_sha256": "85dee779cb0d9ac5636a4c7a94757b65c347c26a28b05fd7b0e548b22d500443"
+    },
+    "Q21": {
+      "modules": [
+        "quality_rule_checks"
+      ],
+      "case_count": 13,
+      "profile_sha256": "7abef998c601777727bed13729bfdf99788384810fabe02bf9b340bf143919c0"
+    },
+    "Q22": {
+      "modules": [
+        "quality_window_checks"
+      ],
+      "case_count": 25,
+      "profile_sha256": "bee7e88ece32fc923ed6621fc7963d01adf7d60b0d144c8b695febe4d03f7143"
+    },
+    "Q23": {
+      "modules": [
+        "quality_lookup_checks"
+      ],
+      "case_count": 5,
+      "profile_sha256": "8634690b82db446640c5121d3acde03e3405947fee9895b181eb57a661ad6abf"
+    },
+    "Q24": {
+      "modules": [
+        "quality_lookup_checks"
+      ],
+      "case_count": 5,
+      "profile_sha256": "8634690b82db446640c5121d3acde03e3405947fee9895b181eb57a661ad6abf"
+    },
+    "Q26": {
+      "modules": [
+        "quality_statistics_checks"
+      ],
+      "case_count": 6,
+      "profile_sha256": "85dee779cb0d9ac5636a4c7a94757b65c347c26a28b05fd7b0e548b22d500443"
+    },
+    "Q29": {
+      "modules": [
+        "quality_lookup_checks"
+      ],
+      "case_count": 5,
+      "profile_sha256": "8634690b82db446640c5121d3acde03e3405947fee9895b181eb57a661ad6abf"
+    }
+  },
+  "profile_count": 22,
+  "case_count": 522,
+  "rendered_workloads_saved": false,
+  "native_runs": 0
+}

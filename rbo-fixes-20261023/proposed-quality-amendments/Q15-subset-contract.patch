@@ -1,0 +1,166 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_utils.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_utils.h
+@@ -13,11 +13,14 @@
+ 
+ class IOperator;
+ class TOpAggregate;
++class TOpWindow;
+ class TExpression;
+ 
+ bool ReferencesUnresolvedSubplan(const TExpression& expr, const TPlanProps& props);
+ TOrderedIUs<> GetAggregatePreservedShuffling(const TOpAggregate& aggregate, const TRBOContext& ctx);
+ bool CanEliminateAggregateShuffle(const TOpAggregate& aggregate, const TRBOContext& ctx);
++// The actual ordered hash key, translated to window partition IUs, or no proof.
++TOrderedIUs<> GetWindowPreservedShuffling(const TOpWindow& window, const TRBOContext& ctx);
+ 
+ bool JoinOutputsLeft(const TString& joinKind);
+ bool JoinOutputsRight(const TString& joinKind);
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_utils.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_utils.cpp
+@@ -80,6 +80,75 @@
+     return !GetAggregatePreservedShuffling(aggregate, ctx).Items().empty();
+ }
+ 
++TOrderedIUs<> GetWindowPreservedShuffling(const TOpWindow& window, const TRBOContext& ctx) {
++    const bool enabled = ctx.KqpCtx.Config->OptShuffleElimination.Get()
++        .GetOrElse(ctx.KqpCtx.Config->GetDefaultEnableShuffleElimination());
++    if (!enabled || window.GetPartitionKeys().Items().empty()) {
++        return {};
++    }
++
++    const auto& keys = window.GetPartitionKeys().Items();
++    TVector<std::optional<TInfoUnitId>> translated;
++    translated.reserve(keys.size());
++    for (const auto key : keys) {
++        translated.emplace_back(key);
++    }
++    const auto* input = window.GetInput().Get();
++    while (input->Kind == EOperator::Map || input->Kind == EOperator::Filter) {
++        const auto* child = input->GetChild(0).Get();
++        if (input->Props.StageId && child->Props.StageId && input->Props.StageId != child->Props.StageId) {
++            return {};
++        }
++        if (input->Kind == EOperator::Map) {
++            const auto& map = CastOperator<TOpMap>(*input);
++            for (auto& key : translated) {
++                if (!key) {
++                    continue;
++                }
++                if (const auto* element = map.GetMapElements().Find(*key)) {
++                    if (element->IsColumnAccess()) {
++                        key = element->GetColumnAccess();
++                    } else {
++                        key.reset();
++                    }
++                }
++            }
++        }
++        input = child;
++    }
++
++    // Only these producers supply a local proof: Window publishes its actual
++    // chosen partition below, and a column read resolves storage hash keys.
++    // In particular, never inherit an unproved join/aggregate distribution.
++    const bool columnSource = input->Kind == EOperator::Source
++        && CastOperator<TOpRead>(*input).GetTableStorageType() == NYql::EStorageType::ColumnStorage;
++    if ((input->Kind != EOperator::Window && !columnSource) || !input->Props.Metadata) {
++        return {};
++    }
++    const auto& shuffledBy = input->Props.Metadata->ShuffledByColumns;
++    if (shuffledBy.Items().empty() || !shuffledBy.Unordered().IsSubsetOf(input->GetOutputIUs())) {
++        return {};
++    }
++
++    TOrderedIUs<> preserved;
++    for (const auto key : shuffledBy.Items()) {
++        bool found = false;
++        for (size_t i = 0; i < translated.size(); ++i) {
++            if (translated[i] && *translated[i] == key) {
++                preserved.Append(keys[i]);
++                found = true;
++                break;
++            }
++        }
++        if (!found) {
++            return {};
++        }
++    }
++    // Extra partition keys are harmless, but retain the input's hash order,
++    // multiplicity and types rather than claiming a hash of the full key set.
++    return preserved;
++}
++
+ bool SortMatchesKeyOrder(const TVector<TString>& sortColumns, const TVector<TString>& keyColumns, size_t pointPrefixLen) {
+     if (sortColumns.empty() || pointPrefixLen > keyColumns.size()) {
+         return false;
+--- a/ydb/core/kqp/opt/rbo/kqp_operator.h
++++ b/ydb/core/kqp/opt/rbo/kqp_operator.h
+@@ -983,6 +983,7 @@
+ 
+     TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
+     void PropagateLiveness(ILivenessContext& ctx) override;
++    void ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) override;
+     void RenameUsedIUs(const TSubstitutions& substitutions) override;
+     TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
+     NJson::TJsonValue ToJson(ui32 explainFlags, const TInfoUnitRegistry& registry) override;
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp
+@@ -126,6 +126,38 @@
+     if (Props.Metadata) {
+         Props.Metadata->SourceStatsColumns.IntersectWith(GetOutputIUs());
+         Props.Metadata->HintRelations.RetainKeys(GetOutputIUs());
++    }
++}
++
++void TOpWindow::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
++    IUnaryOperator::ComputeMetadata(ctx, planProps);
++    if (!Props.Metadata) {
++        return;
++    }
++
++    auto& shuffledBy = Props.Metadata->ShuffledByColumns;
++    if (!Props.StageId) {
++        auto preserved = GetWindowPreservedShuffling(*this, ctx);
++        shuffledBy = preserved.Items().empty() ? GetPartitionKeys() : std::move(preserved);
++        return;
++    }
++
++    // Physical rewrites recompute metadata after assignment. Describe the
++    // existing connection, never make a new decision from changed input facts.
++    shuffledBy.Clear();
++    if (!GetInput()->Props.StageId) {
++        return;
++    }
++    const auto& graph = planProps.StageGraph;
++    const auto edges = graph.Connections.find({*GetInput()->Props.StageId, *Props.StageId});
++    if (edges == graph.Connections.end() || edges->second.size() != 1) {
++        return;
++    }
++    const auto& connection = edges->second.front();
++    if (const auto* shuffle = dynamic_cast<const TShuffleConnection*>(connection.Get())) {
++        shuffledBy = shuffle->Keys;
++    } else if (IsConnection<TMapConnection>(connection)) {
++        shuffledBy = GetWindowPreservedShuffling(*this, ctx);
+     }
+ }
+ 
+--- a/ydb/core/kqp/opt/rbo/rules/assign_stages.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/assign_stages.cpp
+@@ -260,9 +260,16 @@
+         const auto inputStageId = *(window->GetInput()->Props.StageId);
+         const auto outputIndex = OutputIndex(*window->GetInput(), props.StageGraph);
+ 
++        const auto preserved = GetWindowPreservedShuffling(*window, ctx);
++        const auto& expected = preserved.Items().empty() ? window->GetPartitionKeys() : preserved;
++        Y_ENSURE(!window->Props.Metadata || window->Props.Metadata->ShuffledByColumns.Items() == expected.Items(),
++            "Window partition proof changed after metadata computation");
++
+         const auto newStageId = props.StageGraph.AddStage();
+         window->Props.StageId = newStageId;
+-        if (!window->GetPartitionKeys().Items().empty()) {
++        if (!preserved.Items().empty()) {
++            props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TMapConnection>(outputIndex));
++        } else if (!window->GetPartitionKeys().Items().empty()) {
+             props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TShuffleConnection>(window->GetPartitionKeys(), outputIndex));
+         } else {
+             // Without partition by we assume the whole input is one partition, so do it in one task.

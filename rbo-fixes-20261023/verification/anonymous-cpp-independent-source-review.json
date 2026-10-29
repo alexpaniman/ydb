@@ -1,0 +1,83 @@
+{
+  "after_sha256": {
+    "anonymous_cpp_contracts.py": "9d2dc9a214ef44e483f58332e7a9f9681c5d15474bd7dfd235ec687a826a6133",
+    "anonymous_cpp_guard.py": "cb31bdb87f985618815f089ab64991c7759fc3f5bddd726a3168f02b0676d235",
+    "anonymous_cpp_metadata.py": "25347b8dcaa25c4b36ae3d69873e25c31dd4830317fd15b704e76f604b1befeb",
+    "anonymous_cpp_verify.py": "13cfcd3e7e4422d2f7353522cb14eb6b158d5c709d5fd864182d5a5535502547"
+  },
+  "amendment_verification": {
+    "actual_anonymous_cpp_execution_pending": true,
+    "actual_prepared_closure_review_pending": true,
+    "mock_assertions_reported_by_harness_agent": 134,
+    "mock_contracts_checked": [
+      "Auxiliary linker inputs with a suffix outside the generic export list are fingerprinted in all four forwarding forms.",
+      "Mutation and deletion fail receipt validation or creation.",
+      "Empty and incomplete input options fail closed.",
+      "Compiler output-related environment variables are removed in compiler mode.",
+      "Native mode environment equality is checked including all inherited output-control markers.",
+      "Forwarded linker persistence options reject before execution."
+    ],
+    "mock_source_independently_reviewed": true,
+    "reviewer_executed_compiler_linker_native_builds": 0,
+    "reviewer_reexecuted_mock_tests": false,
+    "source_verdict": "No blocker found for the two narrow amendments; native queue behavior remains unchanged."
+  },
+  "before_sha256": {
+    "anonymous_cpp_guard.py": "c0d071bc4d6331e18b320dba640450f5f1a3cbe518d8402e819eb463e01aaace",
+    "anonymous_cpp_metadata.py": "3e08bd86fcb1dde42b9c2579b16d95f30720ed480d97ed97fece13ac80161ccd",
+    "anonymous_cpp_verify.py": "13cfcd3e7e4422d2f7353522cb14eb6b158d5c709d5fd864182d5a5535502547",
+    "memory_safe_build.py": "ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd"
+  },
+  "findings": [
+    {
+      "amendment_contract": "Both supported auxiliary inputs are normalized and fingerprinted for equals, comma, separate forwarded and -Xlinker forms; missing paths fail closed. Response files and general transitive linker script forms are rejected.",
+      "amendment_sources": [
+        "anonymous_cpp_metadata.py:175 _canonical_linker_arguments",
+        "anonymous_cpp_metadata.py:195 _linker_input_paths",
+        "anonymous_cpp_metadata.py:216 _normalize_paths",
+        "anonymous_cpp_metadata.py:392 extract_metadata auxiliary input fingerprints"
+      ],
+      "id": "auxiliary_linker_input_provenance",
+      "required_change": "Parse supported auxiliary linker input forms and bind their real files, or reject unbound forms; cover mutation detection.",
+      "source": "anonymous_cpp_metadata.py:326",
+      "status": "amendment_source_review_passed",
+      "summary": "The linker-option branch handles -Wl arguments before generic equals-value path extraction. Supported normalized version-script and dynamic-list equals forms do not enter the closure input fingerprints unless independently captured by another rule."
+    },
+    {
+      "additional_primary_source": "https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/driver.cpp",
+      "amendment_contract": "Only compiler_environment=True strips linker reproduction, Clang output logging/statistics controls and extra compiler caches. Forwarded linker output flags and compiler process-statistics output flags fail closed; compiler_environment=False retains the original environment.",
+      "amendment_sources": [
+        "anonymous_cpp_guard.py:52 compiler_environment branch",
+        "anonymous_cpp_metadata.py:274 _no_disk_emission"
+      ],
+      "id": "inherited_linker_reproduction_output",
+      "primary_locations": [
+        "getReproduceOption",
+        "LinkerDriver::linkerMain TarWriter creation"
+      ],
+      "primary_source": "https://raw.githubusercontent.com/llvm/llvm-project/release/20.x/lld/ELF/Driver.cpp",
+      "required_change": "Remove the inherited linker reproduction-output variable in compiler_environment=True; preserve native runner environment behavior.",
+      "source": "anonymous_cpp_guard.py:51",
+      "status": "amendment_source_review_passed",
+      "summary": "The compiler-specific environment retains a linker output control variable that can archive input files, bypassing command-line output filtering."
+    }
+  ],
+  "limits": [
+    "No real production graph adaptation, anonymous compiler/linker transport, scope cancellation, linker wrapping or native execution was run in this review.",
+    "Cross-driver serialization also relies on root releasing the documented execution phase; the source scan is not a shared lease acquired by every separate driver.",
+    "Installed compiler/SDK and generated closure coverage still require first actual prepared-closure inspection before broad provenance claims.",
+    "The active SQL-native path does not invoke LLD and does not depend on compiler_environment=True; no active queue interruption is required by these two findings."
+  ],
+  "original_79_finding_count_affected": false,
+  "scope": "Independent source review; no builds, compiler, linker, native execution, generated workloads or raw diagnostics persisted.",
+  "source_contracts_without_blocker": [
+    "Command manifest and generated source/object/executable use memfds; worker validates reopened descriptors and explicitly inherits them.",
+    "Compiler diagnostics are hashed and discarded; native stdout is bounded and parsed into a closed numeric/boolean contract schema.",
+    "No compiler/native core dumps are allowed in the worker.",
+    "Scope membership, process-group fallback, host headroom and timeout are monitored; cancellation and normal leftover cleanup fail closed if cleanup cannot be proven.",
+    "Active direct-C++ serial lease requires released work-state phase and clean exact revision; CLI itself does not alter correctness case statuses.",
+    "Successful closure inputs and graph are rechecked after direct execution; accepted paired contracts require complete matching provenance and no regressions.",
+    "Q15 admission remains fixed-only, Q27 remains source-extracted, and direct contracts never claim full query semantics or full quality verification."
+  ],
+  "status": "identified_gaps_closed_by_source_review_actual_closure_and_native_pending"
+}

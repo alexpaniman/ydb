@@ -1,0 +1,25 @@
+{
+  "generator_cases": 282,
+  "builder_oracle_contract_checks": 3384,
+  "physical_checker_contract_checks": 524,
+  "deque_model": {
+    "model_pass": true,
+    "seed": 19281,
+    "frames_checked": 43298,
+    "candidate_insertions": 27930,
+    "candidate_removals": 27165,
+    "native_collector_invoked": false,
+    "native_runtime_invoked": false
+  },
+  "generator_sha256": "aa4606600f5ad0d4fc5eb8291f0b097fbbd488ab48af5ed5acd0956aaa2abab3",
+  "native_runs": 0,
+  "compiled": false,
+  "production_edited": false,
+  "generated_inputs_saved": false,
+  "sql_parser_verification_performed": false,
+  "limitations": [
+    "Native yield/cancel/memory-accounting tests are still required.",
+    "Physical-shape checks are synthetic contracts until real plans are captured.",
+    "Scalar Decimal special values have source proof but no generated SQL case."
+  ]
+}

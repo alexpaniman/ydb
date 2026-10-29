@@ -1,0 +1,380 @@
+{
+  "actual_evidence_sha256": "b8928fe64a562886485507c5451816dd4e952cff8b6aea0be63ebd8750400009",
+  "case_vectors": [
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "plain"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "permuted"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "foreign"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "duplicate_argument"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "duplicate_name"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "computation"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "member"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "invalid_pair"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "nonatom_name"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "missing_field"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "foreign_source"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "bad_arity"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "depth"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "plain"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "permuted"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "foreign"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "duplicate_argument"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "duplicate_name"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "computation"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "member"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "invalid_pair"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "nonatom_name"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "missing_field"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "foreign_source"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "bad_arity"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_float_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "depth"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "plain"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "permuted"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "foreign"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "duplicate_argument"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "duplicate_name"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "computation"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "member"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "invalid_pair"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "nonatom_name"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "missing_field"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "foreign_source"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "bad_arity"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideFromBlocks",
+      "deterministic": true,
+      "variant": "depth"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "plain"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "permuted"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "foreign"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "duplicate_argument"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "duplicate_name"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "computation"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "member"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "invalid_pair"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "nonatom_name"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "missing_field"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "foreign_source"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "bad_arity"
+    },
+    {
+      "candidate_flags_false": true,
+      "case": "c31_stability_integer_domain__spilling__left",
+      "codec": "WideToBlocks",
+      "deterministic": true,
+      "variant": "depth"
+    }
+  ],
+  "checks": 765,
+  "field_proof_source_unchanged_sha256": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298",
+  "lineage_admission_changed": false,
+  "live_changes": false,
+  "native_runs": 0,
+  "observer_sha256": "f7352e08ab1abdcd3aaa82bb2c4f4dc2fe89a6c733ccc48b4b504f7b0b266fc8",
+  "patch_sha256": "663071e6b09e6db24a991e2df0f706fd3ba33bd237c6da75fb45c11a6c94a5a8",
+  "rendered_graphs_queries_or_cpp_saved": false,
+  "status": "source_metadata_only_passed",
+  "synthetic_observations": 58,
+  "wrapper_sha256": "53936c074cbfd900616accec68caaf0308e8866c12db2d04b3fa91d6504df9a7"
+}

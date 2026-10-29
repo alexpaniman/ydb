@@ -1,0 +1,65 @@
+{
+  "assessment": {
+    "admission": "Generator version is changed. Every physical quality and resource acceptance flag remains false; no threshold, driver, production source, or native guard is changed. There is no acceptance inflation.",
+    "matched_control": "Schema/fixture bytes, N, source expressions, settings/pragmas, node count, request count, and physical capture configuration match the primary cells. The projection and output width intentionally differ. Unused nullable expressions may be pruned in the setup control, so it cannot isolate pure startup or window-only CPU.",
+    "named_window": "Named OVER references resolve the same window entry; ProcessWindowCalls adds its name to usedWindowsInOrder only for the first function, then BuildWindowOperators creates one operator for that entry. This supports the intended shared logical window; actual parser/physical execution remains unverified.",
+    "ordered_oracle": "The existing exact ordered JSON row oracle is unchanged, preserving null/integer distinctions and rejecting swapped, reversed, boolean, or float substitutions. Setup output is checked in ascending id order."
+  },
+  "checks": {
+    "additional_independent_assertions": 711,
+    "candidate_after_images_exact": true,
+    "declared_recipe_contracts": 1373,
+    "independent_frame_scan_rows": 825,
+    "live_helper_edits": 0,
+    "native_runs": 0,
+    "patch_applied_only_in_memory": true,
+    "primary_oracle_equivalence_cells": 75,
+    "rendered_inputs_results_or_plans_persisted": 0,
+    "syntax_parse": true,
+    "toolchain_runs": 0
+  },
+  "date": "2026-10-28",
+  "files": {
+    "q01_scaling_recipe_metadata_contracts.py": {
+      "after_sha256": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+      "before_sha256": null
+    },
+    "quality_q01_scaling_checks.py": {
+      "after_sha256": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+      "before_sha256": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3"
+    }
+  },
+  "findings": [],
+  "frontend_evidence": [
+    {
+      "base_fixed_identical": true,
+      "path": "yql/essentials/sql/v1/translation/sql_call_expr.cpp",
+      "sha256": "dfb8454dc6a4305a5e1308f293ec1692c47f9bcc502ad7cba47e4aec3f53567c"
+    },
+    {
+      "base_fixed_identical": true,
+      "path": "yql/essentials/sql/v1/translation/sql_select_window.cpp",
+      "sha256": "ad54f3f6c641d18170ea9d470d4f859ad28129063b16c631c44f03c721370152"
+    },
+    {
+      "base_fixed_identical": true,
+      "path": "yql/essentials/sql/v1/translation/sql_select_yql.cpp",
+      "sha256": "01c4d02f5cc327b557132eb8ba9073063f5f00a58d48928bb9e5a5ea07664eb4"
+    },
+    {
+      "base_fixed_identical": true,
+      "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+      "sha256": "026f5d5afe7750add360e5c127242ac268b309455ab8ac47840e0c0d6abf33cd"
+    }
+  ],
+  "patch": "rbo-fixes-20261023/proposed-quality-amendments/Q01-shared-window-setup-controls-20261028.patch",
+  "patch_sha256": "a8527c634ad50e9066bf019f8d32af1aec805e9a9ad1eebebf907631ea93a93e",
+  "pending": [
+    "Actual baseline/fixed parsing, typing, ordered results and intended shared-window/two-collector dataflow witness.",
+    "Guarded paired resource measurements; no subtraction of maximum RSS and no pure operator CPU claim.",
+    "Existing suffix/fallback resource cells and full resource admission remain separate pending work."
+  ],
+  "preparation_report_sha256": "39d0a334b06e784e666e96c15e2f073ae8fc0e586a5abe20be66b06a76a09ca6",
+  "schema_version": "q01_shared_window_independent_review_v1",
+  "verdict": "approved_source_and_metadata_only_native_admission_pending"
+}

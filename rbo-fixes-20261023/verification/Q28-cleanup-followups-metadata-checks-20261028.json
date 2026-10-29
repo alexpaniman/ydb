@@ -1,0 +1,606 @@
+{
+  "checks": [
+    "only_intended_function_changed:_memfd",
+    "only_intended_function_changed:main",
+    "complete_payload:bytes:False:1",
+    "single_returned_owner:bytes:False:1",
+    "unchanged_creation_flags:bytes:False:1",
+    "rewound_descriptor:bytes:False:1",
+    "unchanged_mode_condition:bytes:False:1",
+    "complete_payload:bytes:False:3",
+    "single_returned_owner:bytes:False:3",
+    "unchanged_creation_flags:bytes:False:3",
+    "rewound_descriptor:bytes:False:3",
+    "unchanged_mode_condition:bytes:False:3",
+    "complete_payload:bytes:False:4096",
+    "single_returned_owner:bytes:False:4096",
+    "unchanged_creation_flags:bytes:False:4096",
+    "rewound_descriptor:bytes:False:4096",
+    "unchanged_mode_condition:bytes:False:4096",
+    "complete_payload:bytearray:False:1",
+    "single_returned_owner:bytearray:False:1",
+    "unchanged_creation_flags:bytearray:False:1",
+    "rewound_descriptor:bytearray:False:1",
+    "unchanged_mode_condition:bytearray:False:1",
+    "complete_payload:bytearray:False:3",
+    "single_returned_owner:bytearray:False:3",
+    "unchanged_creation_flags:bytearray:False:3",
+    "rewound_descriptor:bytearray:False:3",
+    "unchanged_mode_condition:bytearray:False:3",
+    "complete_payload:bytearray:False:4096",
+    "single_returned_owner:bytearray:False:4096",
+    "unchanged_creation_flags:bytearray:False:4096",
+    "rewound_descriptor:bytearray:False:4096",
+    "unchanged_mode_condition:bytearray:False:4096",
+    "complete_payload:memoryview:False:1",
+    "single_returned_owner:memoryview:False:1",
+    "unchanged_creation_flags:memoryview:False:1",
+    "rewound_descriptor:memoryview:False:1",
+    "unchanged_mode_condition:memoryview:False:1",
+    "complete_payload:memoryview:False:3",
+    "single_returned_owner:memoryview:False:3",
+    "unchanged_creation_flags:memoryview:False:3",
+    "rewound_descriptor:memoryview:False:3",
+    "unchanged_mode_condition:memoryview:False:3",
+    "complete_payload:memoryview:False:4096",
+    "single_returned_owner:memoryview:False:4096",
+    "unchanged_creation_flags:memoryview:False:4096",
+    "rewound_descriptor:memoryview:False:4096",
+    "unchanged_mode_condition:memoryview:False:4096",
+    "complete_payload:empty:False:1",
+    "single_returned_owner:empty:False:1",
+    "unchanged_creation_flags:empty:False:1",
+    "rewound_descriptor:empty:False:1",
+    "unchanged_mode_condition:empty:False:1",
+    "complete_payload:empty:False:3",
+    "single_returned_owner:empty:False:3",
+    "unchanged_creation_flags:empty:False:3",
+    "rewound_descriptor:empty:False:3",
+    "unchanged_mode_condition:empty:False:3",
+    "complete_payload:empty:False:4096",
+    "single_returned_owner:empty:False:4096",
+    "unchanged_creation_flags:empty:False:4096",
+    "rewound_descriptor:empty:False:4096",
+    "unchanged_mode_condition:empty:False:4096",
+    "complete_payload:bytes:True:1",
+    "single_returned_owner:bytes:True:1",
+    "unchanged_creation_flags:bytes:True:1",
+    "rewound_descriptor:bytes:True:1",
+    "unchanged_mode_condition:bytes:True:1",
+    "complete_payload:bytes:True:3",
+    "single_returned_owner:bytes:True:3",
+    "unchanged_creation_flags:bytes:True:3",
+    "rewound_descriptor:bytes:True:3",
+    "unchanged_mode_condition:bytes:True:3",
+    "complete_payload:bytes:True:4096",
+    "single_returned_owner:bytes:True:4096",
+    "unchanged_creation_flags:bytes:True:4096",
+    "rewound_descriptor:bytes:True:4096",
+    "unchanged_mode_condition:bytes:True:4096",
+    "complete_payload:bytearray:True:1",
+    "single_returned_owner:bytearray:True:1",
+    "unchanged_creation_flags:bytearray:True:1",
+    "rewound_descriptor:bytearray:True:1",
+    "unchanged_mode_condition:bytearray:True:1",
+    "complete_payload:bytearray:True:3",
+    "single_returned_owner:bytearray:True:3",
+    "unchanged_creation_flags:bytearray:True:3",
+    "rewound_descriptor:bytearray:True:3",
+    "unchanged_mode_condition:bytearray:True:3",
+    "complete_payload:bytearray:True:4096",
+    "single_returned_owner:bytearray:True:4096",
+    "unchanged_creation_flags:bytearray:True:4096",
+    "rewound_descriptor:bytearray:True:4096",
+    "unchanged_mode_condition:bytearray:True:4096",
+    "complete_payload:memoryview:True:1",
+    "single_returned_owner:memoryview:True:1",
+    "unchanged_creation_flags:memoryview:True:1",
+    "rewound_descriptor:memoryview:True:1",
+    "unchanged_mode_condition:memoryview:True:1",
+    "complete_payload:memoryview:True:3",
+    "single_returned_owner:memoryview:True:3",
+    "unchanged_creation_flags:memoryview:True:3",
+    "rewound_descriptor:memoryview:True:3",
+    "unchanged_mode_condition:memoryview:True:3",
+    "complete_payload:memoryview:True:4096",
+    "single_returned_owner:memoryview:True:4096",
+    "unchanged_creation_flags:memoryview:True:4096",
+    "rewound_descriptor:memoryview:True:4096",
+    "unchanged_mode_condition:memoryview:True:4096",
+    "complete_payload:empty:True:1",
+    "single_returned_owner:empty:True:1",
+    "unchanged_creation_flags:empty:True:1",
+    "rewound_descriptor:empty:True:1",
+    "unchanged_mode_condition:empty:True:1",
+    "complete_payload:empty:True:3",
+    "single_returned_owner:empty:True:3",
+    "unchanged_creation_flags:empty:True:3",
+    "rewound_descriptor:empty:True:3",
+    "unchanged_mode_condition:empty:True:3",
+    "complete_payload:empty:True:4096",
+    "single_returned_owner:empty:True:4096",
+    "unchanged_creation_flags:empty:True:4096",
+    "rewound_descriptor:empty:True:4096",
+    "unchanged_mode_condition:empty:True:4096",
+    "original_failure_preserved:create:OSError",
+    "post_create_owner_closed:create:OSError",
+    "exactly_one_close:create:OSError",
+    "original_failure_preserved:create:InterruptedError",
+    "post_create_owner_closed:create:InterruptedError",
+    "exactly_one_close:create:InterruptedError",
+    "original_failure_preserved:create:KeyboardInterrupt",
+    "post_create_owner_closed:create:KeyboardInterrupt",
+    "exactly_one_close:create:KeyboardInterrupt",
+    "original_failure_preserved:create:SystemExit",
+    "post_create_owner_closed:create:SystemExit",
+    "exactly_one_close:create:SystemExit",
+    "original_failure_preserved:write_1:OSError",
+    "post_create_owner_closed:write_1:OSError",
+    "exactly_one_close:write_1:OSError",
+    "original_failure_preserved:write_1:InterruptedError",
+    "post_create_owner_closed:write_1:InterruptedError",
+    "exactly_one_close:write_1:InterruptedError",
+    "original_failure_preserved:write_1:KeyboardInterrupt",
+    "post_create_owner_closed:write_1:KeyboardInterrupt",
+    "exactly_one_close:write_1:KeyboardInterrupt",
+    "original_failure_preserved:write_1:SystemExit",
+    "post_create_owner_closed:write_1:SystemExit",
+    "exactly_one_close:write_1:SystemExit",
+    "original_failure_preserved:write_2:OSError",
+    "post_create_owner_closed:write_2:OSError",
+    "exactly_one_close:write_2:OSError",
+    "original_failure_preserved:write_2:InterruptedError",
+    "post_create_owner_closed:write_2:InterruptedError",
+    "exactly_one_close:write_2:InterruptedError",
+    "original_failure_preserved:write_2:KeyboardInterrupt",
+    "post_create_owner_closed:write_2:KeyboardInterrupt",
+    "exactly_one_close:write_2:KeyboardInterrupt",
+    "original_failure_preserved:write_2:SystemExit",
+    "post_create_owner_closed:write_2:SystemExit",
+    "exactly_one_close:write_2:SystemExit",
+    "original_failure_preserved:seek:OSError",
+    "post_create_owner_closed:seek:OSError",
+    "exactly_one_close:seek:OSError",
+    "original_failure_preserved:seek:InterruptedError",
+    "post_create_owner_closed:seek:InterruptedError",
+    "exactly_one_close:seek:InterruptedError",
+    "original_failure_preserved:seek:KeyboardInterrupt",
+    "post_create_owner_closed:seek:KeyboardInterrupt",
+    "exactly_one_close:seek:KeyboardInterrupt",
+    "original_failure_preserved:seek:SystemExit",
+    "post_create_owner_closed:seek:SystemExit",
+    "exactly_one_close:seek:SystemExit",
+    "original_failure_preserved:mode:OSError",
+    "post_create_owner_closed:mode:OSError",
+    "exactly_one_close:mode:OSError",
+    "original_failure_preserved:mode:InterruptedError",
+    "post_create_owner_closed:mode:InterruptedError",
+    "exactly_one_close:mode:InterruptedError",
+    "original_failure_preserved:mode:KeyboardInterrupt",
+    "post_create_owner_closed:mode:KeyboardInterrupt",
+    "exactly_one_close:mode:KeyboardInterrupt",
+    "original_failure_preserved:mode:SystemExit",
+    "post_create_owner_closed:mode:SystemExit",
+    "exactly_one_close:mode:SystemExit",
+    "exceptional_buffer_cleanup:zero_progress",
+    "exceptional_buffer_cleanup:invalid_buffer",
+    "prior_defect_detected:seek:OSError",
+    "prior_defect_detected:seek:KeyboardInterrupt",
+    "prior_defect_detected:mode:OSError",
+    "prior_defect_detected:mode:KeyboardInterrupt",
+    "single_exclusive_metadata_record:none:None",
+    "unchanged_success_path",
+    "all_broader_claims_stay_false:none:none",
+    "single_exclusive_metadata_record:source:<class 'RuntimeError'>",
+    "nonzero_failure_exit:source:RuntimeError",
+    "failure_revokes_local_admission:source:RuntimeError",
+    "failure_class_preserved:source:RuntimeError",
+    "no_uncompleted_cases_fabricated:source:RuntimeError",
+    "all_broader_claims_stay_false:source:RuntimeError",
+    "single_exclusive_metadata_record:source:<class 'InterruptedError'>",
+    "nonzero_failure_exit:source:InterruptedError",
+    "failure_revokes_local_admission:source:InterruptedError",
+    "failure_class_preserved:source:InterruptedError",
+    "no_uncompleted_cases_fabricated:source:InterruptedError",
+    "all_broader_claims_stay_false:source:InterruptedError",
+    "single_exclusive_metadata_record:source:<class 'KeyboardInterrupt'>",
+    "nonzero_failure_exit:source:KeyboardInterrupt",
+    "failure_revokes_local_admission:source:KeyboardInterrupt",
+    "failure_class_preserved:source:KeyboardInterrupt",
+    "no_uncompleted_cases_fabricated:source:KeyboardInterrupt",
+    "all_broader_claims_stay_false:source:KeyboardInterrupt",
+    "single_exclusive_metadata_record:source:<class 'SystemExit'>",
+    "nonzero_failure_exit:source:SystemExit",
+    "failure_revokes_local_admission:source:SystemExit",
+    "failure_class_preserved:source:SystemExit",
+    "no_uncompleted_cases_fabricated:source:SystemExit",
+    "all_broader_claims_stay_false:source:SystemExit",
+    "single_exclusive_metadata_record:helpers:<class 'RuntimeError'>",
+    "nonzero_failure_exit:helpers:RuntimeError",
+    "failure_revokes_local_admission:helpers:RuntimeError",
+    "failure_class_preserved:helpers:RuntimeError",
+    "no_uncompleted_cases_fabricated:helpers:RuntimeError",
+    "all_broader_claims_stay_false:helpers:RuntimeError",
+    "single_exclusive_metadata_record:helpers:<class 'InterruptedError'>",
+    "nonzero_failure_exit:helpers:InterruptedError",
+    "failure_revokes_local_admission:helpers:InterruptedError",
+    "failure_class_preserved:helpers:InterruptedError",
+    "no_uncompleted_cases_fabricated:helpers:InterruptedError",
+    "all_broader_claims_stay_false:helpers:InterruptedError",
+    "single_exclusive_metadata_record:helpers:<class 'KeyboardInterrupt'>",
+    "nonzero_failure_exit:helpers:KeyboardInterrupt",
+    "failure_revokes_local_admission:helpers:KeyboardInterrupt",
+    "failure_class_preserved:helpers:KeyboardInterrupt",
+    "no_uncompleted_cases_fabricated:helpers:KeyboardInterrupt",
+    "all_broader_claims_stay_false:helpers:KeyboardInterrupt",
+    "single_exclusive_metadata_record:helpers:<class 'SystemExit'>",
+    "nonzero_failure_exit:helpers:SystemExit",
+    "failure_revokes_local_admission:helpers:SystemExit",
+    "failure_class_preserved:helpers:SystemExit",
+    "no_uncompleted_cases_fabricated:helpers:SystemExit",
+    "all_broader_claims_stay_false:helpers:SystemExit",
+    "single_exclusive_metadata_record:entry:<class 'RuntimeError'>",
+    "nonzero_failure_exit:entry:RuntimeError",
+    "failure_revokes_local_admission:entry:RuntimeError",
+    "failure_class_preserved:entry:RuntimeError",
+    "no_uncompleted_cases_fabricated:entry:RuntimeError",
+    "all_broader_claims_stay_false:entry:RuntimeError",
+    "single_exclusive_metadata_record:entry:<class 'InterruptedError'>",
+    "nonzero_failure_exit:entry:InterruptedError",
+    "failure_revokes_local_admission:entry:InterruptedError",
+    "failure_class_preserved:entry:InterruptedError",
+    "no_uncompleted_cases_fabricated:entry:InterruptedError",
+    "all_broader_claims_stay_false:entry:InterruptedError",
+    "single_exclusive_metadata_record:entry:<class 'KeyboardInterrupt'>",
+    "nonzero_failure_exit:entry:KeyboardInterrupt",
+    "failure_revokes_local_admission:entry:KeyboardInterrupt",
+    "failure_class_preserved:entry:KeyboardInterrupt",
+    "no_uncompleted_cases_fabricated:entry:KeyboardInterrupt",
+    "all_broader_claims_stay_false:entry:KeyboardInterrupt",
+    "single_exclusive_metadata_record:entry:<class 'SystemExit'>",
+    "nonzero_failure_exit:entry:SystemExit",
+    "failure_revokes_local_admission:entry:SystemExit",
+    "failure_class_preserved:entry:SystemExit",
+    "no_uncompleted_cases_fabricated:entry:SystemExit",
+    "all_broader_claims_stay_false:entry:SystemExit",
+    "single_exclusive_metadata_record:execute:<class 'RuntimeError'>",
+    "nonzero_failure_exit:execute:RuntimeError",
+    "failure_revokes_local_admission:execute:RuntimeError",
+    "failure_class_preserved:execute:RuntimeError",
+    "no_uncompleted_cases_fabricated:execute:RuntimeError",
+    "all_broader_claims_stay_false:execute:RuntimeError",
+    "single_exclusive_metadata_record:execute:<class 'InterruptedError'>",
+    "nonzero_failure_exit:execute:InterruptedError",
+    "failure_revokes_local_admission:execute:InterruptedError",
+    "failure_class_preserved:execute:InterruptedError",
+    "no_uncompleted_cases_fabricated:execute:InterruptedError",
+    "all_broader_claims_stay_false:execute:InterruptedError",
+    "single_exclusive_metadata_record:execute:<class 'KeyboardInterrupt'>",
+    "nonzero_failure_exit:execute:KeyboardInterrupt",
+    "failure_revokes_local_admission:execute:KeyboardInterrupt",
+    "failure_class_preserved:execute:KeyboardInterrupt",
+    "no_uncompleted_cases_fabricated:execute:KeyboardInterrupt",
+    "all_broader_claims_stay_false:execute:KeyboardInterrupt",
+    "single_exclusive_metadata_record:execute:<class 'SystemExit'>",
+    "nonzero_failure_exit:execute:SystemExit",
+    "failure_revokes_local_admission:execute:SystemExit",
+    "failure_class_preserved:execute:SystemExit",
+    "no_uncompleted_cases_fabricated:execute:SystemExit",
+    "all_broader_claims_stay_false:execute:SystemExit",
+    "single_exclusive_metadata_record:release:<class 'RuntimeError'>",
+    "nonzero_failure_exit:release:RuntimeError",
+    "failure_revokes_local_admission:release:RuntimeError",
+    "failure_class_preserved:release:RuntimeError",
+    "completed_cases_and_process_evidence_retained:release:RuntimeError",
+    "all_broader_claims_stay_false:release:RuntimeError",
+    "single_exclusive_metadata_record:release:<class 'InterruptedError'>",
+    "nonzero_failure_exit:release:InterruptedError",
+    "failure_revokes_local_admission:release:InterruptedError",
+    "failure_class_preserved:release:InterruptedError",
+    "completed_cases_and_process_evidence_retained:release:InterruptedError",
+    "all_broader_claims_stay_false:release:InterruptedError",
+    "single_exclusive_metadata_record:release:<class 'KeyboardInterrupt'>",
+    "nonzero_failure_exit:release:KeyboardInterrupt",
+    "failure_revokes_local_admission:release:KeyboardInterrupt",
+    "failure_class_preserved:release:KeyboardInterrupt",
+    "completed_cases_and_process_evidence_retained:release:KeyboardInterrupt",
+    "all_broader_claims_stay_false:release:KeyboardInterrupt",
+    "single_exclusive_metadata_record:release:<class 'SystemExit'>",
+    "nonzero_failure_exit:release:SystemExit",
+    "failure_revokes_local_admission:release:SystemExit",
+    "failure_class_preserved:release:SystemExit",
+    "completed_cases_and_process_evidence_retained:release:SystemExit",
+    "all_broader_claims_stay_false:release:SystemExit",
+    "frozen_original_mock_report_not_rewritten",
+    "all_prior_255_checks_52_scenarios_pass"
+  ],
+  "checks_passed": 313,
+  "limits": [
+    "Abrupt process death cannot guarantee final metadata persistence.",
+    "The memfd repair covers post-create initialization, not unrelated caller allocation patterns.",
+    "No compiler, linker, native subprocess, actual descriptor or workload artifact used."
+  ],
+  "native_work_executed": false,
+  "prior_failure_scope": "Verification infrastructure only, not a new production RBO finding.",
+  "prior_runner_regressions": {
+    "checks_passed": 255,
+    "original_report_preserved": true,
+    "scenario_count": 52
+  },
+  "scenario_count": 67,
+  "scenarios": [
+    {
+      "passed": true,
+      "scenario": "success:bytes:False:1"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytes:False:3"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytes:False:4096"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytearray:False:1"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytearray:False:3"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytearray:False:4096"
+    },
+    {
+      "passed": true,
+      "scenario": "success:memoryview:False:1"
+    },
+    {
+      "passed": true,
+      "scenario": "success:memoryview:False:3"
+    },
+    {
+      "passed": true,
+      "scenario": "success:memoryview:False:4096"
+    },
+    {
+      "passed": true,
+      "scenario": "success:empty:False:1"
+    },
+    {
+      "passed": true,
+      "scenario": "success:empty:False:3"
+    },
+    {
+      "passed": true,
+      "scenario": "success:empty:False:4096"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytes:True:1"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytes:True:3"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytes:True:4096"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytearray:True:1"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytearray:True:3"
+    },
+    {
+      "passed": true,
+      "scenario": "success:bytearray:True:4096"
+    },
+    {
+      "passed": true,
+      "scenario": "success:memoryview:True:1"
+    },
+    {
+      "passed": true,
+      "scenario": "success:memoryview:True:3"
+    },
+    {
+      "passed": true,
+      "scenario": "success:memoryview:True:4096"
+    },
+    {
+      "passed": true,
+      "scenario": "success:empty:True:1"
+    },
+    {
+      "passed": true,
+      "scenario": "success:empty:True:3"
+    },
+    {
+      "passed": true,
+      "scenario": "success:empty:True:4096"
+    },
+    {
+      "passed": true,
+      "scenario": "create:OSError"
+    },
+    {
+      "passed": true,
+      "scenario": "create:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "create:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "create:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "write_1:OSError"
+    },
+    {
+      "passed": true,
+      "scenario": "write_1:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "write_1:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "write_1:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "write_2:OSError"
+    },
+    {
+      "passed": true,
+      "scenario": "write_2:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "write_2:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "write_2:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "seek:OSError"
+    },
+    {
+      "passed": true,
+      "scenario": "seek:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "seek:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "seek:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "mode:OSError"
+    },
+    {
+      "passed": true,
+      "scenario": "mode:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "mode:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "mode:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "zero_progress"
+    },
+    {
+      "passed": true,
+      "scenario": "invalid_buffer"
+    },
+    {
+      "passed": true,
+      "scenario": "main:none:none"
+    },
+    {
+      "passed": true,
+      "scenario": "main:source:RuntimeError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:source:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:source:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "main:source:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "main:helpers:RuntimeError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:helpers:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:helpers:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "main:helpers:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "main:entry:RuntimeError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:entry:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:entry:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "main:entry:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "main:execute:RuntimeError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:execute:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:execute:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "main:execute:SystemExit"
+    },
+    {
+      "passed": true,
+      "scenario": "main:release:RuntimeError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:release:InterruptedError"
+    },
+    {
+      "passed": true,
+      "scenario": "main:release:KeyboardInterrupt"
+    },
+    {
+      "passed": true,
+      "scenario": "main:release:SystemExit"
+    }
+  ],
+  "schema": "q28_cleanup_followups_metadata_v1",
+  "sources": {
+    "anonymous_cpp_verify.py": "836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136",
+    "q28_depth_verify.py": "a6e1536cc3466f6b15a601a1c40c295dc4924e04b8c1d028c4e291cc925b89a1"
+  }
+}

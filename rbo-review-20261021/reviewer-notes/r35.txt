@@ -1,0 +1,27 @@
+R35: physical map/filter/union and nested-union merging
+Review complete: two source passes plus generated abstract checks. No repository source edits or builds. No exact query, generated input, result payload, or witness retained.
+
+CORRECTNESS
+
+1. Set-operation inputs are not normalized to one type on every edge. Source-confirmed contract defect; native reachability verification delegated to root.
+The set-operation importer adds optional wrappers only for direct TKqpOpMap inputs. A nested set operation is left unchanged when its parent needs a nullable output. Logical UnionAll then uses the first input's type and has disabled its cross-input equality assertion. Physical union only renames fields, while Extend rejects differing sequence types. A left-deep union that introduces nullability after an already-built inner union can consequently reject a valid query. Compatible differing numeric input types are another candidate, subject to whether the SQL frontend already inserts common casts.
+Locations: ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp:598-621; ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp:320-338; ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_union_all_builder.cpp:7-19,40-42; yql/essentials/core/type_ann/type_ann_list.cpp:3250-3259.
+Fix direction: explicitly normalize every branch edge to the resolved set-operation schema, independently of producer kind; restore the type-consistency invariant. Preserve shared producers by introducing edge-local maps.
+
+2. Logical PgBool filter support disagrees with physical filter lowering. Source-level candidate, frontend reachability not established.
+Logical Filter explicitly permits Pg bool. Physical Filter unconditionally creates Coalesce(predicate, native Bool false), then passes it to WideFilter, whose predicate must be native Bool. Unless an earlier conversion has already removed Pg predicates, accepted logical filters cannot lower correctly. Root is checking native reachability.
+Locations: ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp:238-243; ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_filter_builder.cpp:45-61; yql/essentials/core/type_ann/type_ann_wide.cpp:250.
+Fix direction: convert PgBool explicitly to optional native Bool before false-on-null handling, or reject the unsupported form before accepting it logically. Do not count this as native-confirmed without root verification.
+
+No additional correctness defect found in map member substitution or union flattening after the adversarial second pass. Physical Map/Filter substitution checks the exact top-level row argument, so same-named nested struct fields and nested lambda arguments are not accidentally rebound. This is stronger than a text-only field-name replacement. Map definitions are fresh, simultaneous outputs; pass-through IUs are live-filtered and separate from definitions. Filter maps NULL to false. Union projection supports repeated source columns and zero-column rows, retaining bag multiplicity. Shared producers are behind Replicate ports and are not flattened by the rule. Ordered nested unions are conservatively left intact. Connection grouping is undone when assigning logical child slots, preserving operand order.
+
+OPTIMIZATION QUALITY (separate from correctness)
+
+Q1. Filters are not distributed through logical UnionAll. The registered logical filter rules cover Map, Join and Aggregate, but no UnionAll case. A selective predicate above a union therefore misses RBO branch-local range/index/OLAP pushdown opportunities before stages are assigned. Physical union creates separate upstream connections, so a later local stage peephole is not equivalent to exposing each branch's read to those logical optimizations. This is a source-level missed opportunity, not a measured regression.
+Locations: ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:675-695; ydb/core/kqp/opt/rbo/rules/assign_stages.cpp:226-239.
+Fix direction: distribute only effect-safe predicates, replacing union output IUs through each branch mapping and preserving correct type/nullability semantics.
+
+VERIFICATION AND COVERAGE
+Pass one followed liveness, projection, expression substitution, stage arguments and type annotation. Pass two checked repeated columns, zero-column rows, duplicate rows, nested unions, ordered flags, shared producer grouping, and mismatched branch types.
+A retained generic generator ran 40,000 randomized union binding/multiplicity cases and 40,000 stage grouping/restoration cases. No counterexamples. This is an abstract semantic model of the relevant algorithm, not an engine test. Generator: /tmp/rbo-deep-review-20261021/r35_union_model_generator.py. It stores no generated cases and emits only counts. Output: union_binding_cases=40000, stage_grouping_cases=40000, counterexamples=0.
+Existing native test coverage was inspected, including UnionAllPreservesBindingsOrderAndEmptyRows, MergeUnionAllFlattensLeftDeepChain, MergeUnionAllFlattensNestedBranches, MergeUnionAllKeepsOrderedUnion, and MergeUnionAllKeepsSharedUnion; this agent did not rerun tests.

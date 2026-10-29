@@ -1,0 +1,80 @@
+Q28: bounded local scheduling for independently reviewed rewrite effects
+
+Status: proposed architectural step, partial and native-unverified. This is a
+base-relative replacement for the earlier right-join-only batching patch. It
+also covers both rules in the Map-push stage. It does not claim that every RBO
+rule or every whole-plan property analysis is now incremental.
+
+Safety contract
+
+Each admitted rule reads only its matched subtree and current output-column
+sets. It preserves the matched root's output IDs and changes at most a declared
+number of child edges below its replacement root. No changes to subplan bindings,
+the referenced subplan set, stages, IU allocation, context-global state, or
+ownership outside that region are admitted. Failed matches must have no effect.
+Rules may not rewrite through a Replicate port or change the output IDs of a
+shared producer inside their region. The three current implementations satisfy
+this stricter contract without using metadata, types, parents or liveness.
+
+The ownership prepass records actual owning-slot addresses. Multiple Replicate
+ports expose the same producer slot and are valid. Two different owning slots
+for one operator reject the fast path. Opaque CBO nodes and assigned physical
+stages also reject it. An owning postorder snapshot keeps both nodes and owners
+alive while rules replace pointers.
+
+After a successful match, changed descendants are refreshed in child-first
+order, then requeued before their replacement and pending ancestors. The root
+output contract is checked. Ancestor output caches remain valid because their
+child's complete output set is unchanged. Other property flags are invalidated.
+A changed queued owner ends the fast path and resumes the ordinary traversal.
+One fresh conservative fixed-point pass always follows local processing. The
+existing match ceiling and tracing behavior remain intact.
+
+Why the frontier is sufficient
+
+Map-into-Map mutates the lower Map's definitions and replaces/removes the top
+Map. A retained top Map places the changed child one edge below it. Declaring
+depth two is conservative. Map-through-input replaces/removes the top Map and
+inserts a Map on any eligible child of the intervening operator. A retained top
+Map places these new Maps at depth two. Right-join normalization creates a new
+root and reuses children, so its depth is zero. None of the rules crosses a
+Replicate port, changes a subplan binding, or introduces fresh IU definitions.
+
+Prepared verification
+
+quality_scheduler_model.py compares independent row evaluation and fixed-point
+graph shape for generated plans, including Map dependencies, multiple Join
+branches, canonical producer sharing, active subplan roots, unknown-effect
+fallbacks and distinct raw owning-slot fallbacks. It separately counts candidate
+visits, rule attempts and output recomputation. It is a model, not execution of
+production C++.
+
+quality_scheduler_cpp_checks.py renders 26 anonymous C++ cases using the actual
+production rules and stage. Cases cover retained/removed top Maps, both Join
+children, Filter/Limit/Sort chains, canonical Replicate ownership, raw sharing,
+subplan-root replacement, and CBO/physical/property-demand exclusions. A probe
+rule counts candidate visits; production-rule subclasses count QuickMatch
+attempts; source probes count actual output recomputation. Eligible scenarios
+compare these counters against the same graph with an unknown-effect rule that
+forces conservative scheduling. Excluded scenarios require identical counts.
+Independent row evaluation and ID invariants check results before and after;
+a second stage invocation checks the fixed point. The fixture interpreter only
+admits its generated constant-true filters, singleton sorts, unit limits, copy
+Maps, Cross joins and scalar subplan contracts.
+
+Generated source and graphs stay in RAM. Only generator code, hashes, counts,
+booleans and this contract are persisted. No compilation or native run has been
+performed by this artifact author. The same generator compiles against pinned
+main and the amended branch, allowing baseline failures to establish that work
+reduction assertions distinguish the scheduler implementations.
+
+Remaining obligations before treating Q28 as fully handled
+
+Run paired native production-rule contracts with exact revision/build provenance
+and measure real optimizer work or time on representative plan families. Audit
+additional rule effects individually before adding opt-ins. Incremental types,
+metadata, statistics, parents and liveness need explicit dependency contracts:
+some analyses clear plan-wide lineage or combine consumer demand with producer
+facts, so invalidating only a matched subtree is insufficient. Retaining the
+conservative path is intentional for those unresolved effects. Trace-plan
+serialization and the fixed global rewrite ceiling are unchanged.

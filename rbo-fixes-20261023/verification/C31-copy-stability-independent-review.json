@@ -1,0 +1,48 @@
+{
+  "finding": "C31",
+  "reviewer": "quality_review",
+  "review_kind": "independent_copy_stability_source_review",
+  "base_revision": "add2cf0b3d838963596676c952622e6995b9abf6",
+  "patch_sha256": "dd0d5369f0f0ae42655582be6e79424276cac7cea4d4da9e6bbbd7eb5a1d2801",
+  "verdict": "revised_local_guard_has_no_source_correctness_or_api_blocker_native_pending",
+  "confirmed_gap": "The original global clone classifier admits reductions by name and ignores input types. Upstream unstable aggregate values can be mapped into admitted scalar identities or affect predicates even with stable unique keys. C31 must not create separate evaluations of such producers.",
+  "rejected_draft": "The first guard depended on a negative CanDuplicateSubtree result. Its 1000-node size cap can become satisfied after nested port collapse; the revised guard audits all nonsharing producers regardless that prior eligibility result.",
+  "checked_contracts": [
+    "The stricter walk is local to inline_join_filters and runs before hub creation for every supported left join kind and both keyed and keyless reconstruction paths.",
+    "The channel-spilling predicate exactly matches the optimizer stage predicate; the shared path retains one producer instead of separately cloning it.",
+    "The walk traverses all producer children and referenced subplans, so later scalar casts or second aggregates cannot hide an unstable reduction.",
+    "Group keys are checked independently of aggregate functions, preventing unstable equality-class representatives from escaping COUNT-only producers.",
+    "Count and fixed-width integral SUM remain admitted; floating, Decimal and Interval SUM are conservatively rejected for cloning.",
+    "MIN/MAX and DISTINCT require exact scalar identity values; structured, floating and timezone representatives are rejected. Decimal MIN/MAX use exact fixed-scale integer ordering.",
+    "InlineJoinFilters already requests types and metadata; absent aggregate-input types reject instead of assuming stability.",
+    "Keyless residual called-subplans receive the stricter stability walk even with shared input, since domain deduplication changes their evaluation count.",
+    "Existing nonrepeatable expression, Window, Limit and top-sort clone gates are preserved; no global copy-policy caller is changed.",
+    "Ordinary Pickle preserves floating representation while StablePickle canonicalizes it; mapping an unstable float representative to String can therefore bypass a final scalar-only identity check."
+  ],
+  "abstract_checks": {
+    "floating_sum_hidden_by_integral_cast_witnesses": 32,
+    "floating_equal_representative_mutation_classes": 1,
+    "negative_old_eligibility_transition_models": 8,
+    "integral_sum_permutation_laws": 256
+  },
+  "source_reference_sha256": {
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp": "6064c7c29f85923a02afa5be97e5e4d6f1dfe5e4e8a6bc1d0fd34c704bac980f",
+    "ydb/core/kqp/opt/rbo/rules/expand_replicate.cpp": "4bc5fe0f799c3fa51883e5167dd7d8759c4dc105274602be7436f47b6336f8b7",
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": "95cf3ce2b19f37230bf646b95743a01ba0cf0b826695984d91fd35854108706c",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "121c7897a70f4b535cd853b1964c909bca4e376dc89cccd83d727d7066f53e3a",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf",
+    "yql/essentials/minikql/invoke_builtins/mkql_builtins_add.cpp": "e83538c6083270e89c41e8ecef0677e2a0453064984fe2db464dd50e9bd75ba7",
+    "yql/essentials/minikql/invoke_builtins/mkql_builtins_min.cpp": "8197b6175b4fe99fb4928e60ee4631fa38966b098fd8f970c5cfde76284f9b08",
+    "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp": "5c4ce7925f8701818b97bff40d6e8c12eda32a09a7bb1f30782b8420173f19c8",
+    "yql/essentials/minikql/comp_nodes/mkql_pickle.cpp": "14cafe0d80de7f16578820e854f683b1f44fdc9a5f44cd1d4da811e4df680737"
+  },
+  "remaining_global_scope": "The original CanDuplicateAggregation still admits type-insensitive reductions for other independent consumers, including dependent-join copy paths. That pre-existing policy issue is not repaired by this local C31 amendment and needs separate evidence/fix scope.",
+  "limitations": [
+    "Source and independent arithmetic/eligibility models only; guarded compilation and actual native/IR admission checks are pending.",
+    "Shared-execution acceptance relies on the current optimizer/physical compiler channel-spilling contract; the guard intentionally rejects unsafe duplicated evaluation rather than inventing occurrence identity."
+  ],
+  "compile_executed": false,
+  "native_executed": false,
+  "production_sources_edited": false,
+  "generated_reproductions_persisted": false
+}

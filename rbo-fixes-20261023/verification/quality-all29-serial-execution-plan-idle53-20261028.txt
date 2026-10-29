@@ -1,0 +1,20 @@
+Dormant quality execution plan after exact idle53 helper installation.
+Source-only: no native/build command in this plan has been executed.
+All29 findings preserved:850 SQL cases/853 records per phase; correctness remains separate.
+First ordinary invocation:Q08+Q02,6 cases per phase. Then Q09/Q20 after110 direct cases per phase, Q11 after fixed19.
+Use existing metadata worktree as future pinned-main baseline; keep aggregate unchanged and release verify from correctness first.
+C31 may be installed as ledger45 first. Resume from the exact checkpoint; final53 contains nine new patches including two-line binding refresh.
+All82 spill-enabled SQL cells stay conditional on exact cap/revision-token/binding installation. Cap rejection remains failure.
+Q01 resource/full-quality and Q28 SDK shared/timing/full-quality gates remain pending; no thresholds changed.
+No --repetitions override:Q25 volatile control retains4 repetitions.
+Baseline prepare/select must precede direct use; all execution is serial under existing guard.
+
+First workload command (only after root releases the queue and verifies final sources):
+python3 -B /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py --worktree /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify --quality-baseline-worktree /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/metadata --bugs Q08 Q02 --rows 24 --runner-only --build-workers 8
+
+Next SQL commands require the corresponding real fixed direct evidence paths:
+python3 -B /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py --worktree /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify --quality-baseline-worktree /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/metadata --bugs Q09 Q20 --rows 24 --runner-only --build-workers 8 --quality-ir-evidence '{fixed_direct_Q09}' --quality-ir-evidence '{fixed_direct_Q20}'
+python3 -B /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py --worktree /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify --quality-baseline-worktree /home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/metadata --bugs Q11 --rows 24 --runner-only --build-workers 8 --quality-ir-evidence '{fixed_direct_Q11}'
+
+Remaining concrete commands, exact vectors, review hashes and image checkpoints are in the JSON plan.
+JSON SHA256: 2be673f8ba306a10250c523525cdd4ca2dfc4083e909072e0849447a89ac6565

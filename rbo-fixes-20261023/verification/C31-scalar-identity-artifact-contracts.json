@@ -1,0 +1,25 @@
+{
+  "status": "offline_contracts_passed_native_pending",
+  "counts": {
+    "compositional_native_profiles": 252,
+    "bag_oracle_acceptance_checks": 252,
+    "bag_oracle_rejection_checks": 396,
+    "domain_reconstruction_comparisons": 252,
+    "raw_rejoin_duplicate_bugs_detected": 36,
+    "zero_column_and_empty_bag_comparisons": 108,
+    "admitted_type_contracts": 80,
+    "excluded_type_contracts": 20,
+    "repeatability_admission_contracts": 8,
+    "synthetic_structural_oracle_checks": 4
+  },
+  "native_runs": 0,
+  "builds": 0,
+  "exact_reproductions_persisted": false,
+  "excluded_cases_counted_as_supported": false,
+  "patch_sha256": "9ed0d81563d8dd825b28de0bbe71003d4b8263d92ce9ac1b8f90f3b8a7801f0b",
+  "generator_sha256": "0bbbf10699dc208a9ee7bd7b6994377fa66b0b325a5f5b302ad8787073b37d3d",
+  "contract_generator_sha256": "86700aca1e06c7e6ceea1bad8632c162964d626def28c0cebbf26c982efd9cba",
+  "isolated_index_apply_check": true,
+  "production_checkout_or_branch_mutation": false,
+  "native_zero_column_and_excluded_cases_pending": true
+}

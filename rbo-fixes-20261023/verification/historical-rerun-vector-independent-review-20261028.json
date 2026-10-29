@@ -1,0 +1,66 @@
+{
+  "status": "independently_approved_source_and_metadata_scope_actual_reruns_pending",
+  "manifest": {
+    "path": "verification/historical-rerun-exact-vector-20261028.json",
+    "sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58"
+  },
+  "checker": {
+    "path": "proposed-correctness-amendments/historical_rerun_vector_check_20261028.py",
+    "sha256": "c532b97282b370c4398b7a0db158844614a8e2d564ff86bbdd7dd3ecf48c282f"
+  },
+  "source_audit": {
+    "path": "verification/historical-rerun-vector-source-audit-20261028.json",
+    "sha256": "01c7a26b157024e05cec6ea67e4221f5b008f49d163935423f10bf7251faa975"
+  },
+  "fixed_review_findings": [
+    {
+      "bug": "Matching receipt/record key sets could both omit inode, device, mtime and resolved path while still passing.",
+      "fix": "Require canonical seven binary-identity fields and strict types, exact manifest worktree, same binary identity except documented ctime revalidation.",
+      "verification": "Mutually incomplete identities now fail; only correctly flagged ctime differences remain accepted."
+    },
+    {
+      "bug": "C41 vectors could pass with successful semantic flags but no case-specific result order, result-set ownership or effect persistence evidence.",
+      "fix": "Bind exact per-case oracle fields, including ordinary, effect-only and indexed-effect contracts. Equivalent existing functional C44/C48 oracle fields are also required.",
+      "verification": "Independent tests remove each required oracle field from every modern record and require rejection."
+    },
+    {
+      "bug": "C18 metamorphic roles and hashes could be moved onto unrelated cases while the aggregate summary still passed.",
+      "fix": "Bind each intended case to its exact pair, role, parser scope and compatibility qualification before applying the existing pair-digest comparison.",
+      "verification": "Relocated comparison metadata now fails."
+    }
+  ],
+  "approved_scope": [
+    "Exactly109 finding records:101 modern records across87 generated cases plus8 explicitly qualified legacy-adapter records. Fourteen startup preflights are excluded.",
+    "Exact case/mode/default-repetition vector, including eight repetitions per C02 volatile case. Missing, duplicate, extra, wrong-owner or wrong-repetition records fail.",
+    "Modern query/schema/settings/fixture/validation hashes and configuration metadata match the actual frozen preparation code without persisting rendered inputs.",
+    "One post-manifest guarded slice, one matching guard document and one successful post-manifest build receipt are required. Exact source/artifact hashes are rechecked before return.",
+    "Canonical binary identity and exact branch revision are required; all14 branch parents and current case bindings were independently rechecked against pinned main.",
+    "C41 additionally requires its exact successful runner-plus-full-RBO-suite build record, target, receipt and guarded eight-worker build budget.",
+    "C04 Pg coverage remains source-only; C18 remains new-parser invariant coverage with legacy compatibility unresolved; C44 and C48 preserve routing/guard qualifications.",
+    "C05-C08 extra adapter records retain absent per-record source/configuration/workload fingerprints and absent repetition fields; external source/config snapshots do not promote them to modern fingerprinted contracts.",
+    "The checker prints sanitized metadata only, never edits case status and never grants automatic full-finding promotion."
+  ],
+  "validation": {
+    "author_metadata_checks_rerun": 563,
+    "independent_metadata_rejection_checks": 755,
+    "independent_preparation_binding_checks": 1918,
+    "exact_branch_parents_checked": 14,
+    "metadata_report": {
+      "path": "verification/historical-rerun-vector-independent-contracts-20261028.json",
+      "sha256": "bb7bbd4905a5348a4640215d8ac674a1f03af8e9c0ff20932e71cad4057455fa"
+    },
+    "prefix_report": {
+      "path": "verification/historical-rerun-prefix-independent-contracts-20261028.json",
+      "sha256": "7aa403a454a495f076ff28cdcb98e4c58774df8978a71f167de02513ae7e8ecf"
+    },
+    "native_build_or_toolchain_runs": 0,
+    "live_helper_or_production_edits": false,
+    "rendered_payload_or_synthetic_evidence_persistence": false
+  },
+  "remaining": [
+    "Root must run the serialized guarded reruns and invoke this exact checker on each newly created guarded slice before accepting driver status.",
+    "C41 must omit --runner-only and supply its bound full-suite build record to the checker.",
+    "Do not override repetitions or filter cases; preserve the manifest scope and all remaining qualifications.",
+    "No fresh runtime acceptance was created by this independent review."
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "after_sha256": {
+    "c31_identity_cpp_generator.py": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+    "correctness_cpp_profiles.json": "673ffd586de480a5faf04681e222d19622b3ae6e82fa975f441a2431fe5949b5"
+  },
+  "before_sha256": {
+    "c31_identity_cpp_generator.py": "30735cfee2bdd897668f3e0c29386674e010dc88873a3cf227b71f6ee7aa1b6c",
+    "correctness_cpp_profiles.json": "d6bdfd489b3f01a98d980abfc174a4ee91628ff75639f0df39632de8068c2791"
+  },
+  "candidate_generator": "proposed-correctness-amendments/C31-local-bindings-generator.py",
+  "candidate_generator_sha256": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+  "case_counts": {
+    "additional_cases": 9,
+    "guard_rejection_cases": 9,
+    "join_families": 3,
+    "original_cases_preserved_at_original_indices": 24,
+    "positive_rewrite_cases": 24,
+    "total": 33
+  },
+  "limitations": [
+    "Independent source review and actual anonymous compile/link/native execution remain required.",
+    "These remain local logical-IR contracts; no SQL bag semantics, physical join execution, sharing expansion or aggregate-to-identity lineage proof is claimed.",
+    "Existing archived identity/volatile support limits and two domain-spilling shared-origin obligations remain outstanding."
+  ],
+  "new_contracts": [
+    "Existing equi-key source/right pairing and EqualNulls flags survive in the inner join.",
+    "Every reconstruction key maps to its exact original source and corresponding secondary-port binding; encoded keys are bound to direct Members of the expression row lambda.",
+    "Deduplication sits on the inner secondary port; the outer bag uses the primary port.",
+    "Accepted left-column residual arguments are renamed exactly and retain the right-column argument.",
+    "Correlated subplan left captures are rebound while right captures, local definitions, local expression, call binding and result identity remain unchanged.",
+    "Original external projection IDs/order/labels remain available after rewrite; right outputs remain absent for Semi/Only and the zero-column projection retains its expected arity."
+  ],
+  "patch": "proposed-correctness-amendments/C31-local-bindings-artifacts.patch",
+  "patch_sha256": "ce99bd0d33a61d4a2818b6c0ec9350bd8543bf911c89e93e349c3e22aa12f1b8",
+  "prospective_c31_profile": {
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "case_count": 33,
+    "generated_source_bytes": 157619,
+    "generated_source_sha256": "db908f12367b434770c9143a9e0698a0b7093f21cc291986bb884fbc1fce58a6",
+    "generator_sha256": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+    "module": "c31_identity_cpp_generator",
+    "profile": "rbo",
+    "proof_scope": "linked_production_local_contracts",
+    "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4"
+  },
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "status": "dormant_candidate_independent_review_required",
+  "validation": {
+    "compiler_runs": 0,
+    "generator_source_evaluated_for_profile_fingerprint_only": true,
+    "live_generator_or_profile_edits": false,
+    "mock_suites": 0,
+    "native_runs": 0,
+    "python_source_syntax_passed": true,
+    "rendered_cpp_saved_or_printed": false,
+    "temporary_patch_apply_and_profile_parse_passed": true
+  }
+}

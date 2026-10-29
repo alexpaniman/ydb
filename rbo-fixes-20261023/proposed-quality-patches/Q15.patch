@@ -1,0 +1,20 @@
+--- a/ydb/core/kqp/opt/rbo/rules/assign_stages.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/assign_stages.cpp
+@@ -262,7 +262,16 @@
+ 
+         const auto newStageId = props.StageGraph.AddStage();
+         window->Props.StageId = newStageId;
+-        if (!window->GetPartitionKeys().Items().empty()) {
++        const bool enableShuffleElimination = ctx.KqpCtx.Config->OptShuffleElimination.Get()
++            .GetOrElse(ctx.KqpCtx.Config->GetDefaultEnableShuffleElimination());
++        const bool sameWindowPartition = enableShuffleElimination && !window->GetPartitionKeys().Items().empty()
++            && window->GetInput()->Kind == EOperator::Window
++            && CastOperator<TOpWindow>(*window->GetInput()).GetPartitionKeys().Items() == window->GetPartitionKeys().Items();
++        if (sameWindowPartition) {
++            // The immediately preceding window already established this exact
++            // ordered hash partition. Keep its tasks and their hash function.
++            props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TMapConnection>(outputIndex));
++        } else if (!window->GetPartitionKeys().Items().empty()) {
+             props.StageGraph.Connect(inputStageId, newStageId, MakeIntrusive<TShuffleConnection>(window->GetPartitionKeys(), outputIndex));
+         } else {
+             // Without partition by we assume the whole input is one partition, so do it in one task.

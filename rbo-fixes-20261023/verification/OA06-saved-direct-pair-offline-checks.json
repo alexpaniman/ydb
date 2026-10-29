@@ -1,0 +1,61 @@
+{
+  "build_or_native_executed": false,
+  "contract_generator_sha256": "11a8c05bd7f55cb32a14ba9c793194647047851ed6781bd7730aa1cef22cadfc",
+  "current_case_vectors": {
+    "Q14": {
+      "case_count": 12,
+      "case_vector_sha256": "66bae4bac711a3730be9d46aa1a35f09a83d2f06bdb04c40fb875e509af35e89",
+      "generator_sha256": "9e0711f9ea1a43517117de3abdbda62bb464407a5a6818a23c2f932b94ecfd15"
+    },
+    "Q16": {
+      "case_count": 60,
+      "case_vector_sha256": "759122fff0730c614b6474b5a0bc2c673e48329dfd20257bc87afbd91a02ecd4",
+      "generator_sha256": "9e0711f9ea1a43517117de3abdbda62bb464407a5a6818a23c2f932b94ecfd15"
+    },
+    "Q18": {
+      "case_count": 3,
+      "case_vector_sha256": "7391c4a007014e9d41685a961547d2291d025b30b91bf48d0fc2a36ae2649db3",
+      "generator_sha256": "10d5f97d36c1142d5c7c033e76c3a2152b720087640fb8f2b69773cc8c46dd28"
+    },
+    "Q19": {
+      "case_count": 6,
+      "case_vector_sha256": "ce47386dce2d6430912d8b901a82a2155a9fd94b5c641c418ac3313804b95e12",
+      "generator_sha256": "10d5f97d36c1142d5c7c033e76c3a2152b720087640fb8f2b69773cc8c46dd28"
+    },
+    "Q25": {
+      "case_count": 48,
+      "case_vector_sha256": "692bf60e9c349f8ef6c469e0b502bbc942a5556dd096489d4b63a1b0772a5bf5",
+      "generator_sha256": "36616ebce47c0bdaed66e0f0baf7a452cb61670a01d889d4b40ffc124043eed8"
+    },
+    "Q27": {
+      "case_count": 20,
+      "case_vector_sha256": "bed73ab96ad8e1fd7efb09eb1ef0ea82ba5a2f8bdab87647eb163feb9131370f",
+      "generator_sha256": "7e7f04b3c85bcd59c225ed44a970c8453ef5a4a4adfc79ffe0e600229ce4093e"
+    },
+    "Q28": {
+      "case_count": 26,
+      "case_vector_sha256": "45498e55c2682c193c9ea112b099cbe27303fa945589c060ce62e554772345ed",
+      "generator_sha256": "e32719455f2ea13b6cbd0b19772243c7d61f2497cfb9310c896515ecf642a00d"
+    }
+  },
+  "execution_tripwires": "Anonymous execution, object inspection and actual adapter render functions raise if called; snapshot transport uses one metadata-only stand-in.",
+  "fabricated_positive_native_evidence": false,
+  "formatting_only_followup": {
+    "metadata_checks_rerun": false,
+    "python_syntax_valid": true,
+    "request_symbols_leading_spaces": 21,
+    "semantic_ast_unchanged": true
+  },
+  "genuine_retained_receipt_metadata_read": true,
+  "helper_after_sha256": "024b3b8bed93890aa5b85612db3b5106896de86c89bc61fc76a4d9b8b834cf39",
+  "invalid_guard_metadata_rejections": 68,
+  "invalid_metadata_rejections": 131,
+  "live_helper_sha256": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+  "metadata_checks_executed_helper_sha256": "5a8d007505b42dd90441ce42734f19bed1d0263c79fae67a9e9f7e5cc534235a",
+  "metadata_checks_executed_patch_sha256": "a2d44a75ed0579a6da09efe2c890b35a6ea7c7c1c1fdaebcbe7eeeafd10365ca",
+  "metadata_only_snapshot_hash_probe": "passed; changed bytes with unchanged case count rejected by next-snapshot comparison",
+  "patch_sha256": "ac3e6528dce87fed5cdc0667410914233f829fb6c52ef720f936d9d3f86c742a",
+  "scope": "negative_metadata_only",
+  "temporary_patch_application_passed": true,
+  "workload_renderers_called": false
+}

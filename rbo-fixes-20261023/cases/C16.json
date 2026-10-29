@@ -1,0 +1,75 @@
+{
+  "id": "C16",
+  "branch": "fix/new-rbo/c16-defer-unresolved-join-subplans",
+  "commit": "473f0a46d6145fb93e940140030f0ae21e83972e",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp"
+  ],
+  "rationale": "Use the existing unresolved-subplan check before the block cross-join shortcut consumes an entire filter. Mixed or unresolved predicates fall through to the normal per-conjunct path, which retains subplan result IUs above the join while still moving independent predicates. The shortcut remains enabled once every subplan is resolved.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed unresolved binding detection and includeSubplanVars dependency retention in the normal path",
+    "Verified commit parent is the specified main base",
+    "Working tree clean after commit",
+    "No build or native execution"
+  ],
+  "generator_cases": [
+    "c16_scalar_subplan",
+    "c16_membership_subplan",
+    "c16_mixed_predicates",
+    "c16_resolved_control",
+    "c16_force_inline_control",
+    "c16_nonblock_control",
+    "c16_equi_control"
+  ],
+  "expected_oracle_controls": [
+    "Block cross join with an unresolved subquery reaches inlining before join-filter type annotation",
+    "Scalar and membership subqueries preserve legacy row values and multiplicities",
+    "Mixed resolved and unresolved predicates retain independent filter pushdown",
+    "Resolved non-equality block cross-join filters still use the shortcut",
+    "Equi-join and forced-inlining controls retain their existing paths"
+  ],
+  "concerns": [
+    "Generator syntax and oracle helpers checked; native path reachability remains unverified."
+  ],
+  "generator_module": "rbo-fixes-20261023/logical_checks.py",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C16",
+    "revision": "473f0a46d6145fb93e940140030f0ae21e83972e",
+    "exit_code": 0,
+    "elapsed_seconds": 73.1,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4681728,
+      "peak_scope_usage_bytes": 43256127488,
+      "minimum_host_available_bytes": 109606830080,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 73.1
+    },
+    "diagnostic_sha256": "8eea22f7f86f5861a83d443ff85501541de77caa010ce65fa23cf6fb4a0fcd98",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/473f0a46d6145fb93e940140030f0ae21e83972e-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 7,
+    "checks_passed": true,
+    "evidence": "verification/fixed-C16-473f0a46d614.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Build/native verification is pending root coordination.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

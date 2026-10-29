@@ -1,0 +1,774 @@
+--- a/rbo-fixes-20261023/anonymous_child_measurement.py
++++ b/rbo-fixes-20261023/anonymous_child_measurement.py
+@@ -95,7 +95,10 @@
+     payload = [_fd(value) for value in arguments[5:5 + count]]
+     if report_fd in payload or len(set(payload)) != len(payload):
+         raise MeasurementError('measurement_descriptor_alias')
+-    if input_index == '-':
++    if input_index == 'inherit':
++        # The native query runner historically inherits the driver's stdin.
++        stdin = None
++    elif input_index == '-':
+         stdin = subprocess.DEVNULL
+     elif input_index.isdecimal() and int(input_index) < count:
+         stdin = payload[int(input_index)]
+--- a/rbo-fixes-20261023/native_verify.py
++++ b/rbo-fixes-20261023/native_verify.py
+@@ -66,8 +66,14 @@
+     return {}
+ 
+ 
+-def run_generated(module, case, mode, n):
++def run_generated(module, case, mode, n, *, measurement_identity=None):
+     meta = module_metadata(module, case, mode, n)
++    if measurement_identity is not None:
++        if (module.__name__ != 'quality_q01_scaling_checks' or mode != 'new'
++                or meta.get('q01_resource_scaling_cell') != module.cell(case, n)
++                or not getattr(module, '_verification_source_sha256', None)):
++            raise ValueError('Invalid Q01 measurement generator or mode')
++        dependency_bindings = module.source_bindings()
+     query = module.recipes(n)[case]
+     pragmas = dict(meta.get('pragmas', []))
+     pragmas['YqlSelect'] = 'force' if mode == 'new' else 'disable'
+@@ -157,12 +163,26 @@
+               'expected_rejection_configured': mode == 'new' and bool(meta.get('expected_rejection_token')),
+               'table_service_overrides': meta.get('table_service_overrides', meta.get('table_service_config', {}))}
+     record.update(mode_configuration)
++    identity = None
+     try:
+         if record['optimizer_mode_config_verified'] is not True:
+             record.update(harness_exception='OptimizerModeConfigurationMismatch', semantic_oracle_pass=False)
+             return record
+-        completed = subprocess.run(command, pass_fds=descriptors, capture_output=True, timeout=120,
+-                                   preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))
++        if measurement_identity is None:
++            completed = subprocess.run(command, pass_fds=descriptors, capture_output=True, timeout=120,
++                                       preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))
++        else:
++            if validations or nodes != 1:
++                raise ValueError('Q01 measurement requires one target without validation requests')
++            from q01_native_child_measurement import run_measured_kqprun
++            identity = dict(measurement_identity, case=case, mode=mode, rows=n,
++                            cell=module.cell(case, n), dependency_source_sha256=dependency_bindings,
++                            native_driver_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
++                            workload={key: record[key] for key in ('generator_sha256', 'settings_sha256',
++                                      'schema_sha256', 'fixture_sha256', 'query_sha256', 'validation_sha256')})
++            record['q01_measurement_identity'] = identity
++            completed, observation = run_measured_kqprun(command, descriptors, identity, timeout=120)
++            record['q01_child_observation'] = observation
+         record['exit_code'] = completed.returncode
+         os.lseek(result_fd, 0, os.SEEK_SET)
+         payload = os.read(result_fd, 16 * 1024 * 1024 + 1)
+@@ -222,13 +242,26 @@
+                         record['semantic_oracle_pass'] = bool(semantic and record.get('semantic_oracle_pass'))
+                 else:
+                     record['result_set_oracle_pass'] = bool(verdict)
+-    except subprocess.TimeoutExpired:
++    except subprocess.TimeoutExpired as exc:
+         record.update(timeout=True, semantic_oracle_pass=False)
++        if measurement_identity is not None:
++            record['q01_child_observation'] = getattr(exc, 'q01_child_observation', {'status': 'unavailable'})
+     except Exception as exc:
+         record.update(harness_exception=type(exc).__name__, semantic_oracle_pass=False)
++        if measurement_identity is not None:
++            record['q01_child_observation'] = getattr(exc, 'q01_child_observation', {'status': 'unavailable'})
+     finally:
+         for fd in descriptors:
+             os.close(fd)
++    if measurement_identity is not None and identity is not None:
++        try:
++            unchanged = (module.source_bindings() == dependency_bindings
++                and hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest() == record['generator_sha256']
++                and hashlib.sha256(Path(__file__).read_bytes()).hexdigest() == identity['native_driver_sha256'])
++        except OSError:
++            unchanged = False
++        if not unchanged:
++            record['q01_child_observation']['status'] = 'source_binding_rejected'
+     return record
+ 
+ 
+@@ -243,7 +276,22 @@
+     parser.add_argument('--repetitions', type=int)
+     parser.add_argument('--generator-module', action='append', default=[])
+     parser.add_argument('--build-receipt', type=Path)
++    parser.add_argument('--measure-q01-child-resources', action='store_true')
++    parser.add_argument('--q01-run-id')
++    parser.add_argument('--q01-sample-kind', choices=['pilot', 'warmup', 'measurement'])
++    parser.add_argument('--q01-sample-index', type=int)
+     args = parser.parse_args()
++    measurement_identity = None
++    if args.measure_q01_child_resources:
++        from quality_q01_scaling_checks import validate_sample
++        if (args.bugs != ['Q01'] or args.modes != ['new'] or args.repetitions != 1
++                or args.generator_module != ['quality_q01_scaling_checks']
++                or not args.cases or len(args.cases) != 1):
++            raise ValueError('Q01 measurement requires exactly one cell, mode and repetition')
++        measurement_identity = validate_sample({'case': args.cases[0], 'rows': args.rows,
++            'run_id': args.q01_run_id, 'kind': args.q01_sample_kind, 'index': args.q01_sample_index})
++    elif any(value is not None for value in (args.q01_run_id, args.q01_sample_kind, args.q01_sample_index)):
++        raise ValueError('Q01 sample coordinates require measurement opt-in')
+     g.BINARY = args.worktree / 'ydb/tests/tools/kqprun/kqprun'
+     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=args.worktree, text=True).strip()
+     preflight_path = HERE / 'verification' / ('preflight-' + args.phase + '-' + revision[:12] + '.jsonl')
+@@ -258,16 +306,29 @@
+         print(json.dumps(failure, sort_keys=True), flush=True)
+         raise SystemExit(3)
+ 
++    if measurement_identity is not None:
++        measurement_identity.update(phase=args.phase, revision=revision,
++            executable_sha256=provenance['binary_provenance']['sha256'],
++            build_receipt_sha256=provenance['build_receipt_sha256'],
++            resource_design_sha256=hashlib.sha256((HERE / 'verification' /
++                'Q01-resource-scaling-admission-plan-20261027.json').read_bytes()).hexdigest())
++
+     def attach_provenance(record):
+         record.update(provenance)
+         record['binary_provenance_required'] = True
+         if not unchanged_since_verification(args.worktree, revision, provenance):
+             record.update(binary_provenance_verified=False,
+                           provenance_failure_reason='runner_or_sources_changed_during_verification')
++        if measurement_identity is not None and record.get('binary_provenance_verified') is not True:
++            if 'q01_child_observation' in record:
++                record['q01_child_observation']['status'] = 'binary_provenance_rejected'
+         return record
+ 
+     module_names = ['logical_checks', 'window_checks', 'metadata_checks', 'aggregate_checks', 'subsystem_checks', 'aggregate_window_checks', 'write_checks', 'join_key_checks', 'access_effect_checks', 'correlation_controls', 'distribution_checks', 'sharing_lifecycle_checks']
+-    if (HERE / 'expression_checks.py').exists():
++    if measurement_identity is not None:
++        # Avoid constructing every unrelated correctness recipe at scaling N.
++        module_names = []
++    if measurement_identity is None and (HERE / 'expression_checks.py').exists():
+         module_names.append('expression_checks')
+     for module in args.generator_module:
+         if not re.fullmatch(r'[a-z][a-z0-9_]*', module) or not (HERE / (module + '.py')).is_file():
+@@ -279,8 +340,11 @@
+     # A known legacy scalar control checks local server startup, configuration,
+     # UDF loading and result decoding before a batch can accumulate misleading
+     # failures. It is kept outside per-bug evidence and has no rendered artifact.
+-    preflight = run_generated(available['c29_one_arm_control'], 'c29_one_arm_control', 'legacy', args.rows)
+-    preflight.update(purpose='runtime_preflight', phase=args.phase, revision=revision, rows=args.rows)
++    preflight_module = (import_generator_snapshot('subsystem_checks') if measurement_identity is not None
++                        else available['c29_one_arm_control'])
++    preflight_rows = 32 if measurement_identity is not None else args.rows
++    preflight = run_generated(preflight_module, 'c29_one_arm_control', 'legacy', preflight_rows)
++    preflight.update(purpose='runtime_preflight', phase=args.phase, revision=revision, rows=preflight_rows)
+     attach_provenance(preflight)
+     with preflight_path.open('a') as stream:
+         stream.write(json.dumps(preflight, sort_keys=True) + '\n')
+@@ -305,7 +369,8 @@
+             repeats = args.repetitions or module_metadata(module, case, 'new', args.rows).get('repetitions', 1)
+             for mode in args.modes:
+                 for repeat in range(repeats):
+-                    record = run_generated(module, case, mode, args.rows)
++                    record = (run_generated(module, case, mode, args.rows, measurement_identity=measurement_identity)
++                              if measurement_identity is not None else run_generated(module, case, mode, args.rows))
+                     record['repetition'] = repeat
+                     save(record)
+         if bug in ('C05', 'C06', 'C07', 'C08'):
+--- /dev/null
++++ b/rbo-fixes-20261023/q01_measurement_metadata_contracts.py
+@@ -0,0 +1,214 @@
++"""Metadata-only tests: all process, memfd and signal operations are mocked.
++
++Run only in a temporary candidate copy. No native/build operation occurs and
++no rendered workloads, fixtures, rows or diagnostics are saved or printed.
++"""
++from contextlib import ExitStack
++import hashlib
++import json
++from pathlib import Path
++import signal
++import subprocess
++import sys
++from types import SimpleNamespace
++from tempfile import TemporaryDirectory
++from unittest.mock import Mock, patch
++
++import anonymous_child_measurement as protocol
++import q01_native_child_measurement as measured
++import quality_q01_scaling_checks as scaling
++
++
++def main():
++    checks = 0
++    def check(value):
++        nonlocal checks
++        if not value:
++            raise AssertionError('metadata_contract_failed')
++        checks += 1
++
++    # Exact-child wait and inherited stdin extend the reviewed worker protocol.
++    for selector, expected in [('inherit', None), ('-', subprocess.DEVNULL), ('0', 31)]:
++        process = SimpleNamespace(pid=10001, returncode=None)
++        report = []
++        with ExitStack() as stack:
++            spawn = stack.enter_context(patch.object(protocol.subprocess, 'Popen', return_value=process))
++            wait = stack.enter_context(patch.object(protocol.os, 'wait4', return_value=(10001, 0,
++                SimpleNamespace(ru_utime=0.25, ru_stime=0.125, ru_maxrss=1024))))
++            stack.enter_context(patch.object(protocol, '_fd', side_effect=lambda value: int(value.rsplit('/', 1)[1])))
++            stack.enter_context(patch.object(protocol.os, 'fstat', return_value=SimpleNamespace(st_size=0)))
++            stack.enter_context(patch.object(protocol.os, 'pwrite', side_effect=lambda fd, raw, offset: report.append(raw) or len(raw)))
++            stack.enter_context(patch.object(protocol, '_seal'))
++            result = protocol._child(['--wait4-worker', 'a' * 32, '/proc/self/fd/40', selector,
++                                      '1', '/proc/self/fd/31', '--', '/metadata/kqprun'])
++            check(result == 0)
++            check(spawn.call_args.kwargs['stdin'] == expected)
++            check(spawn.call_args.kwargs['pass_fds'] == (31,))
++            check(wait.call_args.args == (10001, 0))
++            check(json.loads(report[0])['waited_pid'] == 10001)
++
++    scope = b'0::/user.slice/rbo-direct-012345abcdef.scope\n'
++    original_read = Path.read_bytes
++    def read(path):
++        return scope if str(path).startswith('/proc/') and str(path).endswith('/cgroup') else original_read(path)
++    for scenario in ('normal', 'nonzero', 'signal', 'malformed_report', 'mismatched_exit',
++                     'timeout', 'cancel', 'remaining_descendant', 'scope_mismatch', 'binding_changed',
++                     'udf_changed', 'environment_changed'):
++        returncode = 7 if scenario == 'nonzero' else -signal.SIGTERM if scenario == 'signal' else 0
++        process = Mock(pid=10001, returncode=returncode)
++        process.communicate.return_value = (b'', b'')
++        if scenario == 'timeout':
++            process.communicate.side_effect = [subprocess.TimeoutExpired('metadata', 120), (b'', b''), (b'', b'')]
++        if scenario == 'cancel':
++            process.communicate.side_effect = [KeyboardInterrupt(), (b'', b'')]
++        killed, closed = [], []
++        def kill(pid, number):
++            killed.append((pid, number))
++            if number == 0 and scenario != 'remaining_descendant':
++                raise ProcessLookupError()
++        def report(fd, nonce):
++            if scenario == 'malformed_report':
++                raise protocol.MeasurementError('child_report_not_sealed')
++            value = {'exit_code': returncode if returncode >= 0 else None,
++                     'termination_signal': -returncode if returncode < 0 else None,
++                     'linux_ru_maxrss_kib': 1024}
++            if scenario == 'mismatched_exit':
++                value['exit_code'] = 9
++            return value, 'b' * 64
++        with ExitStack() as stack:
++            stack.enter_context(patch.object(Path, 'read_bytes', read))
++            stack.enter_context(patch.object(protocol, '_memfd', side_effect=[41, 42]))
++            stack.enter_context(patch.object(protocol, '_read_report', side_effect=report))
++            spawn = stack.enter_context(patch.object(measured.subprocess, 'Popen', return_value=process))
++            stack.enter_context(patch.object(measured.os, 'killpg', side_effect=kill))
++            stack.enter_context(patch.object(measured.os, 'close', side_effect=closed.append))
++            if scenario == 'scope_mismatch':
++                stack.enter_context(patch.object(measured, '_scope', return_value='0' * 64))
++            if scenario in ('binding_changed', 'udf_changed'):
++                original_hash = measured._hash_file
++                seen = {}
++                def changed(path):
++                    name = str(path)
++                    seen[name] = seen.get(name, 0) + 1
++                    rejected = ((scenario == 'binding_changed' and name == measured.__file__ and seen[name] > 1)
++                                or (scenario == 'udf_changed' and name == protocol.__file__ and seen[name] > 2))
++                    return '0' * 64 if rejected else original_hash(path)
++                stack.enter_context(patch.object(measured, '_hash_file', side_effect=changed))
++            if scenario == 'environment_changed':
++                stack.enter_context(patch.object(measured, '_environment_hash', side_effect=['a' * 64, 'b' * 64]))
++            try:
++                completed, observation = measured.run_measured_kqprun(['/metadata/kqprun', '-u', protocol.__file__], [31, 32], {'sample': 0})
++            except BaseException as exc:
++                check(scenario in ('timeout', 'cancel', 'remaining_descendant', 'scope_mismatch'))
++                observation = exc.q01_child_observation
++                check((10001, signal.SIGKILL) in killed)
++            else:
++                check(completed.returncode == returncode)
++                check(observation['status'] == ('unavailable' if scenario == 'malformed_report' else
++                      'binding_or_exit_rejected' if scenario in ('mismatched_exit', 'binding_changed', 'udf_changed', 'environment_changed') else 'raw_observation'))
++                if 'raw_child_report' in observation:
++                    check(observation['linux_ru_maxrss_bytes'] == 1048576)
++            check(closed == [41, 42])
++            check(spawn.call_args.kwargs['start_new_session'] is True)
++            check(spawn.call_args.kwargs['pass_fds'] == (31, 32, 41, 42))
++            check(spawn.call_args.args[0][7] == 'inherit')
++            check(observation['resource_scaling_verified'] is False)
++            check(observation['python_generation_and_result_oracle_included'] is False)
++            check(observation['outer_memory_guard_admission_pending'] is True)
++
++    import native_verify as native
++    import verify_series as series
++    sample = {'case': next(iter(scaling.specifications())), 'rows': 2048,
++              'run_id': 'a' * 32, 'kind': 'pilot', 'index': 0}
++    command = series.native_command(Path('/metadata'), 'fixed', ['Q01'], 2048,
++        ['quality_q01_scaling_checks'], 1, q01_sample=sample)
++    for option in ('--measure-q01-child-resources', '--cases', '--q01-run-id', '--q01-sample-kind', '--q01-sample-index'):
++        check(command.count(option) == 1)
++    check(command[command.index('--modes') + 1] == 'new')
++    ordinary = series.native_command(Path('/metadata'), 'fixed', ['C37'], 32)
++    check('--measure-q01-child-resources' not in ordinary)
++    check(ordinary[ordinary.index('--modes') + 1:] == ['new', 'legacy'])
++    for change in ({'index': True}, {'index': -1}, {'index': 5}, {'kind': 'accepted'},
++                   {'kind': 'warmup', 'index': 1}, {'run_id': 'x'}, {'rows': 32769}, {'case': 'unknown'}):
++        try:
++            scaling.validate_sample(dict(sample, **change))
++        except ValueError:
++            check(True)
++        else:
++            check(False)
++    # Negative CLI admission must fail before source/binary/native operations.
++    for extra in (['--repetitions', '2'], ['--modes', 'legacy'], ['--cases', sample['case'], sample['case']],
++                  ['--generator-module', 'quality_window_checks']):
++        with patch.object(sys, 'argv', command[1:] + extra), patch.object(native.subprocess, 'check_output', side_effect=AssertionError('unexpected_process')):
++            try:
++                native.main()
++            except ValueError:
++                check(True)
++            else:
++                check(False)
++
++    # Exercise the actual native boundary while substituting every OS action.
++    native.REVIEW = Path(scaling.g.__file__).resolve().parent
++    scaling._verification_source_sha256 = hashlib.sha256(Path(scaling.__file__).read_bytes()).hexdigest()
++    expected = scaling.expected_rows(sample['case'], sample['rows'])
++    check(scaling.check_rows(sample['case'], expected, sample['rows'])['semantic_oracle_pass'] is True)
++    check(scaling.check_rows(sample['case'], list(reversed(expected)), sample['rows'])['semantic_oracle_pass'] is False)
++    swapped = [expected[1], expected[0]] + expected[2:]
++    check(scaling.check_rows(sample['case'], swapped, sample['rows'])['semantic_oracle_pass'] is False)
++    fds = iter(range(100, 120))
++    observation = {'status': 'raw_observation', 'resource_scaling_verified': False}
++    with ExitStack() as stack:
++        stack.enter_context(patch.object(scaling.g, 'anonymous_text', side_effect=lambda label, value: next(fds)))
++        stack.enter_context(patch.object(native.os, 'lseek'))
++        stack.enter_context(patch.object(native.os, 'read', return_value=b''))
++        close = stack.enter_context(patch.object(native.os, 'close'))
++        stack.enter_context(patch.object(native, 'parse_rows_output', return_value=(expected, [expected], True)))
++        stack.enter_context(patch.object(scaling, 'check_physical_ast', return_value={'quality_oracle_pass': False}))
++        stack.enter_context(patch.object(native.subprocess, 'run', side_effect=AssertionError('unexpected_process')))
++        run = stack.enter_context(patch.object(measured, 'run_measured_kqprun', return_value=(
++            subprocess.CompletedProcess([], 0, b'', b''), observation)))
++        record = native.run_generated(scaling, sample['case'], 'new', 2048, measurement_identity=sample)
++        check(run.call_count == 1)
++        check(run.call_args.kwargs == {'timeout': 120})
++        check(record['semantic_oracle_pass'] is True)
++        check(record['q01_child_observation'] is observation)
++        check(len(record['q01_measurement_identity']['workload']) == 6)
++        check(close.call_count == len(run.call_args.args[1]))
++        check(record['quality_oracle_pass'] is False)
++
++    # The existing outer guard owns the complete batch, its evidence, and all
++    # descendants. Opt-in admission does not weaken its limits or cleanup.
++    for change in ({}, {'stdout_overflow': True}, {'watchdog_stopped': True},
++                   {'cleanup_complete': False}, {'exit_code': 75}):
++        guard = dict(exit_code=0, cleanup_complete=True, watchdog_stopped=False, stdout_overflow=False)
++        guard.update(change)
++        with TemporaryDirectory(prefix='q01-guard-metadata-') as directory:
++            here = Path(directory)
++            (here / 'verification').mkdir()
++            def guarded(command, cwd, fds, **options):
++                raw = {'q01_child_observation': {'status': 'raw_observation', 'resource_scaling_verified': False}}
++                (here / 'verification' / ('fixed-Q01-' + 'a' * 12 + '.jsonl')).write_text(json.dumps(raw) + '\n')
++                return guard, b''
++            with patch.object(series, 'HERE', here), patch.object(series, 'run_anonymous', side_effect=guarded) as run:
++                completed, paths, records = series.invoke_native(Path('/metadata'), 'fixed', ['Q01'], 'a' * 40,
++                    2048, ['quality_q01_scaling_checks'], 1, q01_sample=sample)
++                check(run.call_count == 1)
++                check(run.call_args.kwargs['max_scope_gib'] == 24)
++                check(run.call_args.kwargs['min_host_gib'] == 36)
++                check(run.call_args.kwargs['timeout'] == 48 * 3600)
++                check(run.call_args.kwargs['compiler_environment'] is False)
++                check(len(records['Q01']) == 1)
++                observation = records['Q01'][0]['q01_child_observation']
++                check(observation['outer_memory_guard_admission_pending'] is False)
++                check(observation['outer_memory_guard_verified'] is (not change))
++                check(observation['resource_scaling_verified'] is False)
++                check(observation['status'] == ('raw_observation' if not change else 'outer_guard_rejected'))
++                check(len(observation['outer_memory_guard_sha256']) == 64)
++
++    return {'status': 'metadata_mock_contracts_passed_native_unverified', 'assertions': checks,
++            'real_process_launches': 0, 'real_memfds': 0, 'native_runs': 0,
++            'rendered_inputs_persisted': False, 'acceptance_thresholds_implemented': False}
++
++
++if __name__ == '__main__':
++    print(json.dumps(main(), sort_keys=True))
+--- /dev/null
++++ b/rbo-fixes-20261023/q01_native_child_measurement.py
+@@ -0,0 +1,175 @@
++"""Opt-in kqprun wait4 observation inside the existing outer native scope.
++
++No new systemd scope is created. The caller must select one cell, one repetition,
++and new optimizer mode; the existing serial guard still owns every descendant.
++This supplies raw whole-child observations only and implements no admission.
++"""
++import hashlib
++import json
++import os
++from pathlib import Path
++import re
++import resource
++import signal
++import subprocess
++import sys
++
++VERSION = 'q01_inherited_scope_child_observation_v1'
++
++
++class NativeMeasurementError(Exception):
++    pass
++
++
++def _digest(raw):
++    return hashlib.sha256(raw).hexdigest()
++
++
++def _hash_file(path):
++    result = hashlib.sha256()
++    with Path(path).open('rb') as stream:
++        for block in iter(lambda: stream.read(1024 * 1024), b''):
++            result.update(block)
++    return result.hexdigest()
++
++
++def _environment_hash():
++    return _digest(json.dumps(dict(os.environ), sort_keys=True, separators=(',', ':')).encode())
++
++
++def _scope():
++    raw = Path('/proc/self/cgroup').read_bytes()
++    if not re.search(rb'/rbo-direct-[0-9a-f]{12}\.scope(?:\n|$)', raw):
++        raise NativeMeasurementError('existing_native_scope_required')
++    return _digest(raw)
++
++
++def _kill_owned_group(process):
++    # start_new_session below gives this wrapper and its target a private group;
++    # it does not change their membership in the existing memory-control scope.
++    try:
++        os.killpg(process.pid, signal.SIGKILL)
++    except ProcessLookupError:
++        pass
++
++
++def _drain_after_stop(process):
++    try:
++        return process.communicate(timeout=2)
++    except subprocess.TimeoutExpired:
++        for stream in (process.stdout, process.stderr):
++            if stream is not None:
++                stream.close()
++        try:
++            process.wait(timeout=2)
++        except subprocess.TimeoutExpired:
++            pass
++        # The outer native scope still owns final descendant cleanup. A cell
++        # with incomplete local cleanup cannot provide a raw accepted sample.
++        raise NativeMeasurementError('measurement_cleanup_incomplete') from None
++
++
++def run_measured_kqprun(command, descriptors, identity, *, timeout=120):
++    """Return CompletedProcess and an unaccepted numeric child observation."""
++    import anonymous_child_measurement as protocol
++    if (timeout != 120 or not command or Path(command[0]).name != 'kqprun'
++        or any(not isinstance(arg, str) or '\0' in arg for arg in command)
++        or len(set(descriptors)) != len(descriptors)
++        or any(type(fd) is not int or fd < 3 for fd in descriptors)
++        or command.count('-u') > 1 or command[-1] == '-u'
++        or not isinstance(identity, dict)):
++        raise NativeMeasurementError('invalid_q01_measurement_request')
++    scope = _scope()
++    source = Path(protocol.__file__).read_bytes()
++    udf = command[command.index('-u') + 1] if '-u' in command else None
++    bindings = {'protocol_source_sha256': _digest(source),
++                'integration_source_sha256': _hash_file(__file__),
++                'outer_guard_source_sha256': _hash_file(Path(__file__).with_name('anonymous_cpp_guard.py')),
++                'python_executable_sha256': _hash_file(sys.executable),
++                'identity_sha256': _digest(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()),
++                'command_sha256': _digest(json.dumps(command, separators=(',', ':')).encode()),
++                'inherited_scope_sha256': scope,
++                'inherited_environment_sha256': _environment_hash(),
++                'udf_library_sha256': _hash_file(udf) if udf else None,
++                'linux_release': os.uname().release,
++                'machine': os.uname().machine,
++                'cpu_affinity': sorted(os.sched_getaffinity(0)),
++                'timeout_seconds': timeout}
++    owned = []
++    process = None
++    observation = {'schema_version': VERSION, 'status': 'unavailable', 'bindings': bindings,
++                   'metric_scope': 'whole_kqprun_lifetime_including_startup_schema_fixtures_and_target',
++                   'kernel_attributed_waited_descendants_included': True,
++                   'rss_scope': 'linux_wait4_maxrss_not_aggregate_scope_or_operator_peak',
++                   'python_generation_and_result_oracle_included': False,
++                   'outer_memory_guard_admission_pending': True,
++                   'resource_scaling_verified': False, 'quality_improvement_verified': False,
++                   'query_semantics_verified': False}
++    try:
++        wrapper_fd = protocol._memfd('q01-measurement-wrapper', source, seal=True)
++        owned.append(wrapper_fd)
++        report_fd = protocol._memfd('q01-measurement-report')
++        owned.append(report_fd)
++        nonce = os.urandom(16).hex()
++        path = lambda fd: '/proc/self/fd/' + str(fd)
++        argv = [sys.executable, '-I', '-B', path(wrapper_fd), '--wait4-worker', nonce,
++                path(report_fd), 'inherit', str(len(descriptors)),
++                *[path(fd) for fd in descriptors], '--', *command]
++        process = subprocess.Popen(argv, pass_fds=tuple(descriptors) + tuple(owned),
++            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
++            preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))
++        # The wrapper's target inherits this unchanged cgroup and environment.
++        # No subprocess request is made to a systemd service or another scope.
++        if _digest(Path('/proc/' + str(process.pid) + '/cgroup').read_bytes()) != scope:
++            raise NativeMeasurementError('measurement_scope_changed')
++        try:
++            stdout, stderr = process.communicate(timeout=timeout)
++        except subprocess.TimeoutExpired as exc:
++            _kill_owned_group(process)
++            _drain_after_stop(process)
++            observation['reason'] = 'query_timeout'
++            exc.q01_child_observation = observation
++            raise
++        try:
++            os.killpg(process.pid, 0)
++        except ProcessLookupError:
++            pass
++        else:
++            _kill_owned_group(process)
++            raise NativeMeasurementError('measurement_target_left_descendants')
++        completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
++        try:
++            report, digest = protocol._read_report(report_fd, nonce)
++            expected_exit = report['exit_code'] if report['exit_code'] is not None else -report['termination_signal']
++            unchanged = (_scope() == scope and _hash_file(protocol.__file__) == bindings['protocol_source_sha256']
++                         and _hash_file(__file__) == bindings['integration_source_sha256']
++                         and _hash_file(Path(__file__).with_name('anonymous_cpp_guard.py')) == bindings['outer_guard_source_sha256']
++                         and _environment_hash() == bindings['inherited_environment_sha256']
++                         and sorted(os.sched_getaffinity(0)) == bindings['cpu_affinity']
++                         and (_hash_file(udf) if udf else None) == bindings['udf_library_sha256']
++                         and _hash_file(sys.executable) == bindings['python_executable_sha256'])
++            observation.update(raw_child_report=report, report_sha256=digest,
++                               linux_ru_maxrss_bytes=report['linux_ru_maxrss_kib'] * 1024,
++                               target_group_empty=True, local_cleanup_complete=True)
++            observation['status'] = 'raw_observation' if unchanged and process.returncode == expected_exit else 'binding_or_exit_rejected'
++        except (protocol.MeasurementError, OSError, ValueError, TypeError, KeyError) as exc:
++            observation['reason'] = str(exc) if isinstance(exc, protocol.MeasurementError) else type(exc).__name__
++        return completed, observation
++    except BaseException as exc:
++        if process is not None:
++            # The wrapper may already have exited while descendants retain a
++            # pipe or remain alive. Stop the private group in that case too.
++            _kill_owned_group(process)
++            try:
++                _drain_after_stop(process)
++            except NativeMeasurementError:
++                observation['local_cleanup_complete'] = False
++            else:
++                observation['local_cleanup_complete'] = True
++        if not hasattr(exc, 'q01_child_observation'):
++            observation['reason'] = str(exc) if isinstance(exc, NativeMeasurementError) else type(exc).__name__
++            exc.q01_child_observation = observation
++        raise
++    finally:
++        for fd in owned:
++            os.close(fd)
+--- /dev/null
++++ b/rbo-fixes-20261023/quality_q01_scaling_checks.py
+@@ -0,0 +1,148 @@
++"""Dormant bounded Q01 scaling cells; generated inputs remain in memory.
++
++This selects the existing COUNT/SUM and scalar MIN/MAX window families. It
++provides an independent linear-space row model and raw physical counters, not
++resource admission, a target-only timer, or a complete acceptance matrix.
++"""
++from bisect import bisect_left, bisect_right
++from collections import deque
++import hashlib
++import json
++from pathlib import Path
++
++import generate_and_verify as g
++import quality_window_checks as windows
++
++CASE_SPECIFIC_SCHEMA = True
++GENERATOR_VERSION = 'q01_scaling_cells_v1'
++WIDTHS = (16, 128, 512)
++ROWS = (2048, 4096, 8192, 16384, 32768)
++FAMILIES = ('rows_collectors', 'rows_minmax', 'range_minmax', 'range_mixed', 'range_collectors')
++
++
++def specifications():
++    return {'q01_scaling_' + family + '_w' + str(width):
++            {'family': family, 'frame_width': width, 'partition_count': 3,
++             'kind': 'range' if family.startswith('range_') else 'rows',
++             'minmax': family.endswith(('minmax', 'mixed')),
++             'collectors': family.endswith(('collectors', 'mixed'))}
++            for family in FAMILIES for width in WIDTHS}
++
++
++def cell(case, n):
++    if type(n) is not int or n not in ROWS or case not in specifications():
++        raise ValueError('unknown_q01_scaling_cell')
++    return dict(specifications()[case], rows=n, case=case,
++                generator_version=GENERATOR_VERSION)
++
++
++def validate_sample(value):
++    if (not isinstance(value, dict) or set(value) != {'case', 'rows', 'run_id', 'kind', 'index'}
++            or value['kind'] not in ('pilot', 'warmup', 'measurement')
++            or type(value['index']) is not int or not 0 <= value['index'] <= 4
++            or value['kind'] == 'warmup' and value['index'] != 0
++            or not isinstance(value['run_id'], str) or len(value['run_id']) != 32
++            or any(c not in '0123456789abcdef' for c in value['run_id'])):
++        raise ValueError('invalid_q01_sample_coordinates')
++    return dict(value, cell=cell(value['case'], value['rows']))
++
++
++def source_bindings():
++    # Both builder and AST interpretation dependencies affect the observation.
++    return {module.__name__: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
++            for module in (g, windows)}
++
++
++def _source():
++    value = g.op(windows._mod('id', 97), '-', windows._int(48))
++    optional = g.call('IF', g.op(windows._mod('id', 13), '<', windows._int(9)),
++                      g.call('Nothing', 'Int64?'), g.call('Just', value))
++    return g.select(['id', g.alias(windows._mod('id', 3), 'p'), g.alias(optional, 'v')], 't')
++
++
++def recipes(n):
++    if type(n) is not int or n not in ROWS:
++        raise ValueError('unknown_q01_scaling_rows')
++    result = {}
++    for case, spec in specifications().items():
++        frame = spec['kind'].upper() + ' BETWEEN ' + str(spec['frame_width']) + ' PRECEDING AND 1 FOLLOWING'
++        aggregates = ([('MIN', 'v', 'lo'), ('MAX', 'v', 'hi')] if spec['minmax'] else [])
++        if spec['collectors']:
++            aggregates += [('COUNT', '*', 'c'), ('COUNT', 'v', 'cv'), ('SUM', 'v', 's')]
++        fields = ['id'] + [g.alias(g.over(g.call(name, argument), 'p', 'id ASC', frame), label)
++                           for name, argument, label in aggregates]
++        result[case] = g.select(fields, g.derived(_source(), 's'), order='id')
++    return result
++
++
++def schema_and_seeds(n, case):
++    cell(case, n)
++    schema = 'CREATE TABLE t (id Int64 NOT NULL, PRIMARY KEY (id));'
++    values = g.combine([g.select([g.alias(windows._int(i), 'id')]) for i in range(1, n + 1)])
++    return schema, ['UPSERT INTO t ' + values]
++
++
++def metadata(case, n):
++    return {'generator_version': GENERATOR_VERSION, 'q01_resource_scaling_cell': cell(case, n),
++            'table_service_overrides': {'EnableFallbackToYqlOptimizer': False},
++            'pragmas': [('ydb.WindowFunctionsV2', 'true')], 'node_count': 1,
++            'quality_requires_separate_plan_evidence': True, 'repetitions': 1,
++            'peak_native_concurrency': 1, 'resource_scaling_verified': False}
++
++
++def expected_rows(case, n):
++    spec = cell(case, n)
++    result = []
++    for partition in range(3):
++        ids = [i for i in range(1, n + 1) if i % 3 == partition]
++        values = [None if i % 13 < 9 else i % 97 - 48 for i in ids]
++        counts, sums = [0], [0]
++        for value in values:
++            counts.append(counts[-1] + (value is not None))
++            sums.append(sums[-1] + (value or 0))
++        minima, maxima, added = deque(), deque(), 0
++        for position, identity in enumerate(ids):
++            if spec['kind'] == 'rows':
++                left, right = max(0, position - spec['frame_width']), min(len(ids), position + 2)
++            else:
++                left = bisect_left(ids, identity - spec['frame_width'])
++                right = bisect_right(ids, identity + 1)
++            while added < right:
++                value = values[added]
++                if value is not None:
++                    while minima and values[minima[-1]] >= value:
++                        minima.pop()
++                    while maxima and values[maxima[-1]] <= value:
++                        maxima.pop()
++                    minima.append(added)
++                    maxima.append(added)
++                added += 1
++            for queue in (minima, maxima):
++                while queue and queue[0] < left:
++                    queue.popleft()
++            row = {'id': identity}
++            if spec['minmax']:
++                row.update(lo=values[minima[0]] if minima else None,
++                           hi=values[maxima[0]] if maxima else None)
++            if spec['collectors']:
++                count = counts[right] - counts[left]
++                row.update(c=right - left, cv=count, s=sums[right] - sums[left] if count else None)
++            result.append(row)
++    return sorted(result, key=lambda row: row['id'])
++
++
++def check_rows(case, rows, n):
++    encode = lambda values: [json.dumps(row, sort_keys=True, separators=(',', ':')) for row in values]
++    return {'semantic_oracle_pass': encode(rows) == encode(expected_rows(case, n)),
++            'resource_scaling_verified': False, 'quality_improvement_verified': False}
++
++
++def check_physical_ast(case, text):
++    spec = specifications()[case]
++    summary = windows.physical_ast_summary(text)
++    _, nodes = windows.parse_physical_graph(text)
++    summary['range_minmax_calls'] = sum(bool(node) and node[0] == 'KqpRangeMinMax' for node in nodes)
++    return {'physical_ast': summary, 'q01_scaling_family': spec['family'],
++            'quality_oracle_pass': False, 'resource_scaling_verified': False,
++            'quality_improvement_verified': False,
++            'quality_pending_reason': 'raw_scaling_observation_has_no_admission_validator'}
+--- a/rbo-fixes-20261023/verify_series.py
++++ b/rbo-fixes-20261023/verify_series.py
+@@ -26,7 +26,7 @@
+         raise SystemExit('Verification worktree has tracked changes')
+ 
+ 
+-def native_command(worktree, phase, bugs, rows, modules=(), repetitions=None):
++def native_command(worktree, phase, bugs, rows, modules=(), repetitions=None, *, q01_sample=None):
+     modes = ['new', 'legacy'] if len(bugs) == 1 and bugs[0] in ('C37', 'C38') else ['new']
+     command = [sys.executable, str(HERE / 'native_verify.py'), '--worktree', str(worktree),
+                '--phase', phase, '--bugs', *bugs, '--rows', str(rows), '--modes', *modes]
+@@ -34,13 +34,25 @@
+         command += ['--generator-module', module]
+     if repetitions is not None:
+         command += ['--repetitions', str(repetitions)]
++    if q01_sample is not None:
++        from quality_q01_scaling_checks import validate_sample
++        sample = validate_sample(q01_sample)
++        if (bugs != ['Q01'] or list(modules) != ['quality_q01_scaling_checks']
++                or repetitions != 1 or rows != sample['rows']):
++            raise ValueError('Q01 measurement requires its dedicated one-cell profile')
++        command += ['--measure-q01-child-resources', '--cases', sample['case'],
++                    '--q01-run-id', sample['run_id'], '--q01-sample-kind', sample['kind'],
++                    '--q01-sample-index', str(sample['index'])]
+     return command
+ 
+ 
+-def invoke_native(worktree, phase, bugs, revision, rows, modules=(), repetitions=None):
++def invoke_native(worktree, phase, bugs, revision, rows, modules=(), repetitions=None, *, q01_sample=None):
++    # As for ordinary batches, the caller must hold the existing global serial
++    # execution lease. This opt-in runs one cell and never starts a build.
+     paths = {bug: HERE / 'verification' / (phase + '-' + bug + '-' + revision[:12] + '.jsonl') for bug in bugs}
+     prior = {bug: len(path.read_text().splitlines()) if path.exists() else 0 for bug, path in paths.items()}
+-    command = native_command(worktree, phase, bugs, rows, modules, repetitions)
++    command = (native_command(worktree, phase, bugs, rows, modules, repetitions, q01_sample=q01_sample)
++               if q01_sample is not None else native_command(worktree, phase, bugs, rows, modules, repetitions))
+     stamp = str(time.time_ns())
+     memory_path = HERE / 'verification' / ('native-memory-' + phase + '-' + '-'.join(bugs) + '-' + revision[:12] + '-' + stamp + '.json')
+     # The scope contains the entire Python batch and all legacy generator
+@@ -53,6 +65,9 @@
+                                    metrics_path=memory_path)
+     guard_pass = (memory.get('exit_code') == 0 and memory.get('cleanup_complete') is True
+                   and not memory.get('watchdog_stopped'))
++    if q01_sample is not None:
++        guard_pass = (guard_pass and type(memory.get('exit_code')) is int
++                      and memory.get('watchdog_stopped') is False and memory.get('stdout_overflow') is False)
+     memory_path.write_text(json.dumps(memory, sort_keys=True, indent=2) + '\n')
+     native = subprocess.CompletedProcess(command, memory['exit_code'] if guard_pass else memory.get('exit_code') or 75,
+                                          stdout.decode(errors='replace'), '')
+@@ -64,6 +79,11 @@
+         for value in values:
+             value.update(native_batch_guard_pass=guard_pass,
+                          native_batch_memory_evidence=str(memory_path), native_batch_memory_sha256=memory_digest)
++            if q01_sample is not None and 'q01_child_observation' in value:
++                value['q01_child_observation'].update(outer_memory_guard_admission_pending=False,
++                    outer_memory_guard_verified=guard_pass, outer_memory_guard_sha256=memory_digest)
++                if not guard_pass:
++                    value['q01_child_observation']['status'] = 'outer_guard_rejected'
+         guarded_paths[bug] = HERE / 'verification' / ('guarded-' + phase + '-' + bug + '-' + revision[:12] + '-' + stamp + '.jsonl')
+         guarded_paths[bug].write_text(''.join(json.dumps(value, sort_keys=True) + '\n' for value in values))
+     return native, guarded_paths, records

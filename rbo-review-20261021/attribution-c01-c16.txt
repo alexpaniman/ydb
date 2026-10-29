@@ -1,0 +1,59 @@
+C01-C16 code provenance. Source history inspected; no historical runtime bisection.
+
+C01: Pavel Velikhov — 7c422d3d0bfc — [NEW RBO] Push constant condition on join key to both sides (#46050)
+Confidence: source_traced. The commit adds cross-side predicate copying through ApplyRenames without checking source/target key type equivalence. Parent lacks this block. The sibling rule later copies the same assumption. SSA migration changes representation, not the missing proof.
+Related: Pavel Velikhov — 4c737c01104e — same assumption added to simple-join-filter rule
+
+C02: Denis Khalikov — a4765c75f755 — [Optimizer] Push filter through aggregate (#55697)
+Confidence: source_traced. Introduces the filter-through-aggregate rule. Applicability checks unresolved subplans and key dependencies, but no volatility/evaluation-multiplicity restriction.
+
+C03: Denis Khalikov — 9589d9b27518 — [Optimizer] Expand rollup in rbo rule (#52313)
+Confidence: interaction_source_traced. Moves rollup/grouping-set expansion from frontend per-branch aggregation into the postorder rule stage containing DISTINCT expansion. The child DISTINCT now expands before grouping-set fanout. Prior frontend placement handled distinct at each grouping branch.
+Related: Denis Khalikov — 5d68400dca1b — preexisting DISTINCT expansion involved in the interaction
+
+C04: Pavel Velikhov — fd5a7114c92b — [NEW RBO] Join Filters support (#38005)
+Confidence: source_traced. The new fuse_filters rule constructs conjuncts from the top filter first and appends bottom-filter conjuncts. The reversed evaluation order is present at rule introduction; later cached-expression and SSA edits preserve it.
+
+C05: Denis Khalikov — 7ee9137a38b1 — [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+Confidence: source_traced. The initial dependent-join implementation removes the demanded domain when all correlations bind to inner columns. The same change adds scalar per-group cardinality checks, allowing checks on unrelated inner domains.
+
+C06: Denis Khalikov — 7ee9137a38b1 — [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+Confidence: source_traced. Introduces capture rebinding directly to an inner column without preserving the captured type, alongside StablePickle-based nullable-domain encoding. The complete mechanism precedes SSA migration.
+
+C07: Denis Khalikov — 7ee9137a38b1 — [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+Confidence: source_traced. Introduces elimination of the correlation equality after recording a binding. It restores only nullable-column existence checks, with no nonreflexive floating-point equality guard.
+
+C08: Denis Khalikov — 7ee9137a38b1 — [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+Confidence: source_traced. Initial aggregate decorrelation restores missing domain rows only when countResults is nonempty. The count-only restoration guard already exists in this initial implementation.
+
+C09: Denis Khalikov — 7ee9137a38b1 — [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+Confidence: interaction_source_traced. Exact observed legacy-mode failure combines a producer that omits IN policy with the later generic lowering that explicitly synthesizes ANSI three-valued results. No single introducing author is established for the complete symptom.
+Related: Pavel Velikhov — d568eb8afcec — YqlSelect IN reconstruction omits policy/settings
+
+C10: Denis Khalikov — 7ee9137a38b1 — [Optimizer] Add initial support for decorrelation based Neumann work. (#51876)
+Confidence: source_traced. Adds the nullable lookup null-test using negated self-equality. The parent generic lowering lacks this test; NaN is included by the new null-detection expression.
+
+C11: Pavel Velikhov — 10b439a01326 — [NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)
+Confidence: interaction_source_traced. Introduces plain Bool annotations for IN at both frontend sublink and RBO subplan levels. Later nullable mark-result lowering exposes the mismatch to COALESCE simplification. Attribute both sides of the type contract, not only the old Bool line.
+Related: Denis Khalikov — 7ee9137a38b1 — adds explicit nullable three-valued IN result production
+
+C12: Denis Khalikov — 64e5e4146c6b — [KQP RBO] Add multiple aggregations in expressions (#29314)
+Confidence: source_traced. Adds all aggregation grouping keys to post-aggregate DISTINCT, including keys absent from the projected result. Later duplicate-key cleanup leaves that semantic inclusion intact.
+Related: Denis Khalikov — acb952da1c40 — later duplicate-key cleanup preserves hidden-key inclusion
+
+C13: Denis Khalikov — fbe5541e6390 — [NEW RBO] Refactor to support YqlSelect Aggregation (#30538)
+Confidence: source_traced. Extends the whole-expression replacement on any nested group reference to native YQL aggregates. The earlier PG-oriented implementation already had the pattern. The later group-reference fix repairs nonmaterialized expressions but leaves the materialized case.
+Related: Denis Khalikov — 64e5e4146c6b — earlier PG-oriented whole-expression replacement
+Related: Denis Khalikov — 7c7f969926be — partial repair that retains the materialized-case defect
+
+C14: Denis Khalikov — 7cf095c620a4 — [NEW RBO] Eliminate pre aggregation map. (#32542)
+Confidence: source_traced. Replaces fresh names for repeated aggregation inputs with reuse keyed only by member name. Parent generated a fresh column on name collision; this change skips a second preaggregation expression when its leaf name matches. Later scalar optional-state cleanup widens exposure.
+Related: Denis Khalikov — 91f7c0b6130d — removes forceOptional bypass that previously avoided some scalar collisions
+
+C15: Pavel Velikhov — a24651dc6c3b — [NEW RBO] Added support for scalar context (#28107)
+Confidence: source_lineage_not_runtime_boundary. Initial scalar-context lowering attaches a cardinality-checked subplan by cross join before the containing unary expression, without retaining its conditional guard. Current per-group Ensure lowering reimplements this architecture. Historic source proves the hoisting pattern, but the exact first failing modern-YQL query has not been bisected.
+Related: Denis Khalikov — 7ee9137a38b1 — current per-group Ensure reimplementation preserves unconditional attachment
+
+C16: Denis Khalikov — e49db9c68f3d — [Optimizer] Add support for cross join with filters (#52096)
+Confidence: source_traced. Adds the block-cross fast path that moves every non-equality conjunct into JoinFilters without excluding unresolved subplans. A later force-inlining flag condition narrows when this block runs; it does not create the missing subplan guard.
+

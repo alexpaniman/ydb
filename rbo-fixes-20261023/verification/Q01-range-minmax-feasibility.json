@@ -1,0 +1,192 @@
+{
+  "status": "feasible_artifact_implementation_uncompiled",
+  "base_commit": "c4a3cd163ec32e76c2557469378f89f22da3b5fc",
+  "patch_sha256": "8bdc88f6222ac1764cceabc3cad32433ef48803a74bdf07482b5fe9ac0da92b6",
+  "scope": "Finite-lower ROWS and RANGE MIN/MAX over the shared admitted total-order scalar value families, with either finite or unbounded-following upper endpoints. Existing running, whole-partition and current-row ROWS suffix paths remain selected earlier.",
+  "files": [
+    {
+      "path": "ydb/core/kqp/common/kqp_window_minmax.h",
+      "added_lines": 27,
+      "removed_lines": 0,
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_sha256": "fb6afed0d9aa7bd92aa804b7a2fbf261abe7040054cf91e2ef1d2b906db8a71b"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/kqp_range_minmax.h",
+      "added_lines": 9,
+      "removed_lines": 0,
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_sha256": "7fffd91eb0ec372014a0fcf2741203b70916055355db0b4067d93064f5986f40"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/kqp_range_minmax.cpp",
+      "added_lines": 269,
+      "removed_lines": 0,
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_sha256": "4b1478cb1d08f006897cffbf352d070ec1c509f5e34eccc00326dfd481ce6eeb"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/ya.make",
+      "added_lines": 1,
+      "removed_lines": 0,
+      "before_sha256": "9b0f053c5c85173b930f2fd65003146319ab7ffbf7c583bacfbf313673f635a3",
+      "after_sha256": "ae2a80922e4dcddb02d57bb80bc6dc466aadd7023d28f2bf09f466f2be8a7ffe"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/kqp_compute.cpp",
+      "added_lines": 4,
+      "removed_lines": 0,
+      "before_sha256": "d85bb153a10bf36474b7df7c1a34b139b9538121df7c48fb30a27c798398c453",
+      "after_sha256": "09704aa385a1177aa1db9e15dff91ee23cba8b6bf00168d34ffd0d9487e4bb5f"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/common/kqp_program_builder.h",
+      "added_lines": 2,
+      "removed_lines": 0,
+      "before_sha256": "f4cb2df045564c74f9d4d6dabfbb53fbeb6de036df1baf5e74ceea017f000ab6",
+      "after_sha256": "18f73ee487f813e052e6647c9bf52e0f19dbaf491c39be8e78a28b0b7f27211c"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/common/kqp_program_builder.cpp",
+      "added_lines": 9,
+      "removed_lines": 0,
+      "before_sha256": "5dc8218f2473b7146c3bc20f8f84567124391199670373666f9e9c9a683d7f55",
+      "after_sha256": "e2dbed50ad9fcde09b8b3f74244d58ed8ece12c2bf00e46c5fdd69d75a8bba22"
+    },
+    {
+      "path": "ydb/core/kqp/query_compiler/kqp_mkql_compiler.cpp",
+      "added_lines": 15,
+      "removed_lines": 0,
+      "before_sha256": "838d2a5e7b511b8264593e7d5b75197403a5162660da066302bd98e00543264f",
+      "after_sha256": "98085ddb082f86f5360c8ebd640e1b92cb11d95c7be01a1789edf17eb6838711"
+    },
+    {
+      "path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+      "added_lines": 45,
+      "removed_lines": 0,
+      "before_sha256": "4f2ac8d903510cbff1981d25d9718e95cff602767fd5d8bc2a45371aa5438592",
+      "after_sha256": "34504c48158ddef8896ca43ccde11c22ec93d6d1cc39fb633f7190e51c6e9d68"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "added_lines": 46,
+      "removed_lines": 30,
+      "before_sha256": "f3194821e3717c13251d4daa3f7d8d9de0a34cd9e22d6b2a897e2e710c24c079",
+      "after_sha256": "f272aab6c4cbbd90db7bf151899477bfab66b79a2abb8ef583030433f1fb5a95"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h",
+      "added_lines": 2,
+      "removed_lines": 0,
+      "before_sha256": "3a7dbfef62e6bfe1da2aaecf1d506815485f5a20f3a78aebefe32de85f88b55f",
+      "after_sha256": "9cb28799b37963d3fdc29fcafbfa560e465c4f66ababd8975005f91c14e0c28d"
+    }
+  ],
+  "public_interfaces": [
+    {
+      "path": "yql/essentials/minikql/mkql_core_win_frames_collector.h",
+      "symbols": [
+        "TCoreWinFramesCollector::CreateFactory",
+        "Next",
+        "GetCurrentElement",
+        "TFrameBoundsIndices::GetIntervalInQueueByRange"
+      ],
+      "reason": "Caller owns the queue and indices; original collector computes sorted RANGE boundaries and trims the retained tail."
+    },
+    {
+      "path": "yql/essentials/minikql/comp_nodes/mkql_window_frames_collector_params_deserializer.h",
+      "symbols": [
+        "DeserializeBoundsAsVariant",
+        "DeserializeSortOrder"
+      ],
+      "reason": "Reuses production literal decoding and dependent nodes."
+    },
+    {
+      "path": "yql/essentials/minikql/mkql_core_window_frames_collector_params_deserializer.h",
+      "symbols": [
+        "TDeserializerContext",
+        "ConvertBoundsToComparators"
+      ],
+      "reason": "Preserves existing null, descending, saturated-bound and peer semantics."
+    },
+    {
+      "path": "yql/essentials/minikql/comp_nodes/mkql_safe_circular_buffer.h",
+      "symbols": [
+        "Size",
+        "Capacity",
+        "Reserve",
+        "Get",
+        "Clear"
+      ],
+      "reason": "Public indexed queue access; no private queue resource, buffer member layout or deprecated callable."
+    },
+    {
+      "path": "yql/essentials/public/udf/udf_type_ops.h",
+      "symbols": [
+        "CompareValues"
+      ],
+      "reason": "The admitted primitive/Decimal selectors match the total scalar ordering in AggrMin and AggrMax."
+    },
+    {
+      "path": "yql/essentials/minikql/aligned_page_pool.cpp",
+      "symbols": [
+        "OffloadAlloc",
+        "OffloadFree"
+      ],
+      "reason": "Charges std::vector storage before Reserve, including old plus new allocation; honors query memory limits."
+    }
+  ],
+  "invariants": [
+    "Only a successful stream fetch increments the absolute input count; Yield does not produce output or change candidate state.",
+    "Queue base equals successful fetch count minus public queue size after each collector step.",
+    "All admission/expiry occurs in absolute row ordinals; index rebasing cannot change membership.",
+    "Each row enters each MIN/MAX deque at most once and leaves at most once; only non-null scalar values are retained.",
+    "An empty gap clears stale candidates and permanently retires rows before the new lower boundary.",
+    "Factory storage outlives its collectors; each stream value owns its queue, indices and candidate deques.",
+    "Finish and destruction release queue references and exactly the charged buffer capacity.",
+    "Only a window whose every output function is an admitted MIN/MAX aggregate bypasses the second collector. Native functions keep the existing final path."
+  ],
+  "optimization_quality": {
+    "minmax_work": "For each admitted output, at most N pushes, N removals and 2N value comparisons, plus N result rows. Collector boundary movement is monotone; row construction copies the existing row width.",
+    "minmax_only_memory": "One retained-frame/lookahead queue at its high-water capacity, plus at most one candidate per non-null active-frame row per admitted output. No additional whole-partition materialization is introduced.",
+    "mixed_memory": "The prepass queue plus the existing second collector queue coexist; both retain row references and the second stores modified output rows. Candidate storage is additional. The bound is the sum of the two high-water queue capacities and candidate populations, not one frame buffer.",
+    "mixed_latency": "With a following bound, the downstream collector needs future prepass outputs, which themselves need future original input. The key-space lookahead can approach twice the following bound plus peer closure and one-row end detection; no fixed row-count bound follows for dense peers.",
+    "mixed_total_work": "Remaining generic aggregate folds retain their original frame-scan cost; optimizing MIN/MAX alone does not establish whole-query asymptotic improvement if another aggregate dominates.",
+    "peer_caveat": "A finite RANGE frame can contain an entire partition of equal keys. Frame-dependent buffering can therefore reach partition size without an explicit partition-materialization operator.",
+    "unbounded_following": "The existing public collector must consume the partition before emitting the first result. MIN/MAX then inserts each retained row once and only expires candidates; ROWS initial filling likewise occurs once and its right endpoint no longer advances. This required drain can retain a full partition, and the mixed path can retain nearly two partition buffers."
+  },
+  "validation": {
+    "apply_check": "passed_against_base_with_isolated_git_index",
+    "abstract_contract_scenarios": 624,
+    "abstract_frames_checked": 47504,
+    "capacity_arithmetic_assertions": 126,
+    "independent_review": "Two independent source reviews passed for the exact patch hash; compile/native remain pending",
+    "compile": "not_run",
+    "native": "not_run",
+    "actual_allocator_and_work_scaling": "not_measured",
+    "unbounded_following_abstract_scenarios": 40,
+    "independent_api_review": "Q01-range-minmax-independent-api-lifecycle-review.json",
+    "independent_semantics_review": "q01-range-minmax-independent-source-review.json",
+    "independent_oracle_assertions": 45827,
+    "nullable_unbounded_oracle_assertions": 8814
+  },
+  "outstanding": [
+    "Compile and link all registration/type/API paths.",
+    "Native differential checks for ascending/descending/null/Decimal boundaries, peers, empty gaps, all-null aggregates, multiple columns, mixed functions and partitions.",
+    "Yield, early cancellation, thrown memory limit and memory-release contracts against actual runtime objects.",
+    "Native operator counts, allocation high-water and scaling for minmax-only and mixed workloads."
+  ],
+  "generator_sha256": "0432d71492a19bf83dd40d81d49534dcb328dce491ac70ef4776233600dbc130",
+  "footprint": {
+    "files": 11,
+    "added_lines": 429,
+    "removed_lines": 30,
+    "essentials_files_changed": 0
+  },
+  "scope_reassessment": {
+    "source_implementation": "All previously identified frame-shape gaps for admitted scalar MIN/MAX are addressed by this artifact plus existing specialized paths.",
+    "original_requirement": "Q01 explicitly permits retaining the general path for functions requiring it.",
+    "remaining_fallbacks": "Non-integer SUM, AVG and unsupported MIN/MAX value families retain the existing ordered fold. No claim is made that every excluded family inherently requires a fold.",
+    "acceptance": "Implementation coverage can be reassessed independently of runtime verification. This report does not mark Q01 fixed or optimization quality verified."
+  }
+}

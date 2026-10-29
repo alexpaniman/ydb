@@ -1,0 +1,27 @@
+{
+  "reviewer": "c41_review",
+  "kind": "independent_source_control_flow_admission_review",
+  "patch": "proposed-correctness-amendments/C31-C47-pending-direct-admission.patch",
+  "patch_sha256": "f340b9db8fc002ae347b44cdd3b0bb6bd3cb781f0ab6c5dd1338f31378413fb3",
+  "current_helpers": {
+    "verification_contract.py": "f3fadf010766861f98082dfdd61741d49f972a2ee63839917ff6ad0403ec8c6e",
+    "verify_series.py": "41a63a26e2c8fb620407f1b996dc1f9d8114a2cf6e5c77cab879cd2307cb05fb",
+    "refresh_status.py": "2495a0d80b0282eef40c15bba72540f0b1cdb6002b90a6ed0531d23e463ce99e"
+  },
+  "verdict": "No blocker found after normal unified-diff context repair; ordinary git apply --check passes.",
+  "contracts": [
+    "An empty batch, any failed record, or execution-only C31/C47 evidence returns native_failed before the pending state.",
+    "Only all-functional-or-expected-guard C31/C47 SQL records receive sql_checks_passed_direct_pending, with overall success false.",
+    "Per-batch checks_passed is separate from finding_acceptance_passed=false and direct_local_contracts_verified=false.",
+    "The queue continues only for direct_pending; native build/harness/record failures retain early nonzero stop behavior.",
+    "After the requested queue finishes, any pending direct obligation produces exit code 2 instead of overall success.",
+    "The status refresh label explicitly preserves direct-contract and scope-review obligations; the completed_verified_cases list selects only verified.",
+    "Transient receipt/build limitation clearing does not remove the separately recorded unsupported-scope/direct obligations.",
+    "The patch adds no mechanism for direct-only evidence to promote full finding acceptance."
+  ],
+  "artifact_issue_resolved": "The original manually truncated final hunk failed standard apply check; regenerated patch includes trailing __main__ context without behavior changes.",
+  "tests_or_model_suites_run": 0,
+  "native_or_build_runs": 0,
+  "active_helpers_edited": false,
+  "generated_reproductions_persisted": false
+}

@@ -1,0 +1,12 @@
+{
+  "mock_contracts_passed": true,
+  "assertions": 93,
+  "case_count": 42,
+  "generator_sha256": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+  "validator_sha256": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+  "native_runs": 0,
+  "compiler_runs": 0,
+  "generated_source_saved": false,
+  "synthetic_evidence_saved": false,
+  "production_edited": false
+}

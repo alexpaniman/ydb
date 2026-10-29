@@ -1,0 +1,110 @@
+{
+  "id": "F02",
+  "classification": "correctness follow-up separate from the original 79 findings",
+  "title": "Interval aggregate SUM uses the wrong accumulator representation",
+  "human_readable_bug": "The new aggregate lowering emits an unsupported Interval64 AggrAdd call. For the smaller Interval type it also checks the interval range while accumulating, so an intermediate overflow can lose part of a sum even when later values would bring the final result back into range. Ordinary and DISTINCT SUM share this lowering.",
+  "evidence_status": {
+    "interval64_native_failure_confirmed": true,
+    "interval_overflow_semantics_source_confirmed": true,
+    "fixed_build_or_native_run": false,
+    "native_evidence": "verification/C24-interval64-builtin-isolation.json"
+  },
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "b1642d065e71d1dee50f90405e08a0b1db5680408f44e0010dc79f5ab73b98d0",
+  "patch": "proposed-correctness-amendments/F02-interval-sum-normalization.patch",
+  "generator": "interval_sum_checks.py",
+  "generator_sha256": "6097f97e13be1eee29943f682a3a3dc2870171a3edeb0864a64d56452f8c9425",
+  "generator_cases": 88,
+  "model_contracts": {
+    "builder_oracle_acceptances": 264,
+    "mutated_result_rejections": 264,
+    "duplicate_result_rejections": 252,
+    "split_merge_laws": 26760,
+    "premature_interval_overflow_mutations_rejected": 4
+  },
+  "fix": "Normalize interval SUM to Decimal(35,0) before aggregate expansion and state splitting, then StrictCast through Int64 to the original interval only after aggregation. Preserve each original output binding and all untouched traits/grouping keys.",
+  "comparison_of_approaches": {
+    "early_normalization": "One dedicated rule plus declaration, stage registration and build listing. Reuses existing Decimal states, DISTINCT padding, intermediate/final typing, copying, distribution and OLAP admission.",
+    "physical_state_change": "Would require coherent changes to physical initialization/update/finish, intermediate logical types, DISTINCT padding and original-type recovery across final states. Avoided because it duplicates existing Decimal behavior and spreads interval-specific state metadata."
+  },
+  "source_contracts": [
+    {
+      "source": "yql/essentials/mount/lib/yql/aggregate.yqls:76",
+      "contract": "Established interval SUM converts each present value through Int64 to Decimal(35,0), then converts the completed sum back through Int64. Read-only reference."
+    },
+    {
+      "source": "yql/essentials/mount/lib/yql/aggregate.yqls:623",
+      "contract": "Both interval families share Decimal accumulation; optional traits ignore absent inputs and keep all-absent results absent. Read-only reference."
+    },
+    {
+      "source": "yql/essentials/minikql/invoke_builtins/mkql_builtins_add.cpp:445",
+      "contract": "AggrAdd is registered for numeric/Decimal and small Interval, but not Interval64. Add has different NULL and bounded-overflow behavior and is not a drop-in aggregate repair."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/kqp_rbo.cpp:89",
+      "contract": "RequireTypes computes the whole reachable root/subplan annotation before SimpleMatchAndApply; MakeType returns raw pointers and GetIUType also returns a raw pointer."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/kqp_rbo.cpp:125",
+      "contract": "The rule stage restarts after each replacement and invalidates required properties; whole-partition-window and grouping-set output aggregates are revisited."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/kqp_operator.h:1708",
+      "contract": "Root iteration follows subplans; existing referenced subplan aggregates are normalized before inlining."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp:509",
+      "contract": "Later dependent aggregate pushdown copies existing traits and changes grouping; it does not invent a fresh interval SUM input."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp:21",
+      "contract": "Later scalar helper aggregates introduce count and min/some, not interval SUM."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp:207",
+      "contract": "Later IN/EXISTS helpers introduce count states; their sum rewrites consume counts."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/rules/propagate_aggregate_through_stage.cpp:50",
+      "contract": "Final/intermediate splitting copies existing SUM traits or creates Uint64 count-to-sum; no fresh interval SUM escapes normalization."
+    },
+    {
+      "source": "proposed-correctness-amendments/F02-interval-sum-normalization.patch",
+      "contract": "Only Undefined non-DISTINCT-ALL aggregates qualify. The rewrite retains Distinct/Unwrap flags, shares exact conversions per input, gives internal states fresh IDs and restores original output IDs."
+    },
+    {
+      "source": "yql/essentials/core/yql_expr_type_annotation.cpp:7120",
+      "contract": "Interval results remain optional even for required inputs; final StrictCast produces that same optionality, while intermediate Decimal optionality represents only absent inputs."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/rules/normalize_interval_sum.cpp (proposed)",
+      "contract": "Interval-to-Decimal conversion is injective on each admitted interval domain, so applying it before DISTINCT preserves equality and multiplicity."
+    }
+  ],
+  "source_attribution": {
+    "interval_state_change": {
+      "commit": "c8d7de0150504c118177f529bbc05b0774e5aa83",
+      "author": "Filitov Mikhail",
+      "date": "2026-10-06",
+      "subject": "[WindowFunctions][NewRBO] Do not make window aggregates over never empty frames optional (#55294)",
+      "evidence": "The introducing diff changes a name-prefix test that classified Interval names as Int64 to a numeric-signedness test, retaining Interval/Interval64 as accumulation types, and adds optional interval state wrapping."
+    },
+    "older_generic_sum_lowering": {
+      "commit": "05744b79f6132ebbd8de22eb67c4ad9b1d5acbde",
+      "author": "Denis Khalikov",
+      "date": "2026-01-07",
+      "subject": "[NEW RBO] Support wide lambdas for aggregation (#31698)",
+      "evidence": "Introduced the wide SUM AggrAdd builder. It is provenance for the generic mechanism, not proof of the same interval-as-interval failure before c8d7de015050."
+    },
+    "qualification": "Exact source diffs and pinned-main blame verified. No historical native bisection or statement about author intent."
+  },
+  "pending": [
+    "Build and native new/legacy controls with verified binary provenance.",
+    "Native main-only ordinary interval SUM controls, then DISTINCT/C24 interaction controls.",
+    "Four-node variants require actual native placement evidence; a node-count setting alone is not a distribution proof.",
+    "Bounded physical window SUM remains separate F03; this patch does not repair that lowering."
+  ],
+  "raw_workloads_or_results_persisted": false,
+  "production_source_edits": false,
+  "native_or_build_processes_started": false
+}

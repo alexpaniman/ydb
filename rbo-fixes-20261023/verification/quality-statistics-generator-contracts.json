@@ -1,0 +1,16 @@
+{
+  "generator_sha256": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4",
+  "recipe_schema_semantic_contract_checks": 42,
+  "query_plan_oracle_positive_and_negative_checks": 8,
+  "source_settings_oracle_positive_and_negative_checks": 6,
+  "status": "generator_contracts_passed_native_unverified",
+  "no_rendered_workloads_saved": true,
+  "fixed_plan_only_improvement_claim_prevented": true,
+  "helper_contract_ids": [
+    "Q14",
+    "Q16",
+    "Q18",
+    "Q19",
+    "Q25"
+  ]
+}

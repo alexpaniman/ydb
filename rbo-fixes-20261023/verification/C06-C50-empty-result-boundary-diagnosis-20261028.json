@@ -1,0 +1,13 @@
+{
+  "schema": "C06_C50_empty_result_boundary_diagnosis_v1",
+  "evidence": "verification/integration-C06-C50-2bc207a991cc-4366390bb07240379f07b9162a14ce3b-records.jsonl",
+  "evidence_sha256": "0d8b6a682f0abcec5d1cbb9707138ba69244adead244fd61e81ee42746312c87",
+  "records": 16,
+  "accepted_boundary_and_semantic_records": 12,
+  "empty_result_boundary_rejections": 4,
+  "all_four_observed_row_oracles_passed": true,
+  "actual_wrong_row_result_demonstrated": false,
+  "integration_acceptance_pending": true,
+  "next": "Obtain explicit native empty-result boundary witness; do not infer an empty result set from ambiguous empty bytes.",
+  "original_failed_records_preserved": true
+}

@@ -1,0 +1,69 @@
+{
+  "id": "C03",
+  "title": "Expand grouping sets before DISTINCT aggregation",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c03-expand-grouping-sets-first",
+  "commit": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  ],
+  "rationale": "Run grouping-set fanout in its own preceding stage so postorder traversal cannot deduplicate the common child before each branch has its own grouping keys.",
+  "checks": [
+    "git diff --check passed"
+  ],
+  "generator_cases": [
+    "distinct_rollup"
+  ],
+  "verification_plan": "Compare subtotal results with legacy and an independent grouping oracle; ordinary grouped DISTINCT control; existing grouping-set and distinct tests.",
+  "build_verification": {
+    "bug": "C03",
+    "revision": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e",
+    "exit_code": 0,
+    "elapsed_seconds": 77.5,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 5611520,
+      "peak_scope_usage_bytes": 43241979904,
+      "minimum_host_available_bytes": 81951916032,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": false,
+      "elapsed_seconds": 77.5
+    },
+    "diagnostic_sha256": "d9d965f23fe952b37569dfd881d17de227d3b307619344b27752b914d2a7478e",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/40b098bc31f1a41dea4ba7b68ac2553caff1f11e-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 5,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C03-40b098bc31f1-1793150242639372841.jsonl"
+  },
+  "verification_limitation": "The complete expanded5-case control vector passes against the fresh exact-branch executable and independent coverage check.",
+  "status_before_verification": "verified",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "75edfa6830de63603e7515fd18b379fe1349d170d077ebb99e7e7c46c3db04f5"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C03-1793150262960555280.json",
+    "coverage_evidence_sha256": "b2f531c9f3723657865500129b9928bc99f6611b4242cbf64177e880ec1ef02e",
+    "remaining_qualifications": []
+  },
+  "historical_verification_wording": [
+    "Initial targeted native verification passed; expanded control-set rerun is still pending."
+  ]
+}

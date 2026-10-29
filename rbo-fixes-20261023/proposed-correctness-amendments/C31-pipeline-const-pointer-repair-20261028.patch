@@ -1,0 +1,51 @@
+diff --git a/rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py b/rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py
+--- a/rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py
++++ b/rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py
+@@ -309,7 +309,7 @@
+     const auto* combine = narrow->Child(0);
+     if (blocks) combine = Unary(Unary(Unary(combine, "ToFlow"), "WideFromBlocks"), "FromFlow");
+     Call(combine, "DqPhyHashCombine", 6);
+-    auto* expand = combine->Child(0);
++    const auto* expand = combine->Child(0);
+     if (blocks) expand = Unary(Unary(Unary(expand, "ToFlow"), "WideToBlocks"), "FromFlow");
+     Call(expand, "ExpandMap", 2);
+     Require(Unary(expand->Child(0), "ToFlow") == expectedInput);
+diff --git a/rbo-fixes-20261023/c31_combined_cpp_generator.py b/rbo-fixes-20261023/c31_combined_cpp_generator.py
+--- a/rbo-fixes-20261023/c31_combined_cpp_generator.py
++++ b/rbo-fixes-20261023/c31_combined_cpp_generator.py
+@@ -5,7 +5,7 @@
+ from types import ModuleType
+ 
+ ROOT = Path(__file__).resolve().parent
+-BINDINGS = [{'vector': 'identity', 'module': 'c31_identity_cpp_generator', 'generator_sha256': '112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9', 'rendered_source_sha256': '59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d', 'case_count': 33, 'main_boundary': 'int main() { unsigned failures=0;\n', 'function_prefix': 'Run'}, {'vector': 'pipeline', 'module': 'c31_shared_pipeline_cpp_generator', 'generator_sha256': 'e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187', 'rendered_source_sha256': '61393ab1ed47147c6ba026e29c27f77d3723867a2b71fe751b1b703ffd5ebf39', 'case_count': 4, 'main_boundary': 'int main() { unsigned failures = 0;\n', 'function_prefix': 'Case'}]
++BINDINGS = [{'vector': 'identity', 'module': 'c31_identity_cpp_generator', 'generator_sha256': '112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9', 'rendered_source_sha256': '59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d', 'case_count': 33, 'main_boundary': 'int main() { unsigned failures=0;\n', 'function_prefix': 'Run'}, {'vector': 'pipeline', 'module': 'c31_shared_pipeline_cpp_generator', 'generator_sha256': '7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6', 'rendered_source_sha256': '550d49960e5e34ac9edac3c08afc01a908418b67d42816438b75616735aa7992', 'case_count': 4, 'main_boundary': 'int main() { unsigned failures = 0;\n', 'function_prefix': 'Case'}]
+ IDENTITY_ASSERTIONS = [51, 51, 51, 66, 66, 66, 61, 61, 61, 48, 48, 48, 4, 4, 4, 3, 3, 3, 4, 4, 4, 59, 59, 59, 55, 55, 55, 55, 55, 55, 66, 66, 66]
+ 
+ 
+diff --git a/rbo-fixes-20261023/correctness_cpp_profiles.json b/rbo-fixes-20261023/correctness_cpp_profiles.json
+--- a/rbo-fixes-20261023/correctness_cpp_profiles.json
++++ b/rbo-fixes-20261023/correctness_cpp_profiles.json
+@@ -6,9 +6,9 @@
+       "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+       "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+       "profile": "rbo",
+-      "generator_sha256": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+-      "generated_source_sha256": "565e7046e8729c1c87ce9b831f06d7aed4bafd592d120acba894e913fe3a0095",
+-      "generated_source_bytes": 186812,
++      "generator_sha256": "7d56fc9bcc877762fc09238f46fa39983e0634e0f89fca9a183860b3fe57455e",
++      "generated_source_sha256": "027dc4aa73c47c39238d59faa571dcf24e54bc1f8ff476fd74a9351d08f1d09c",
++      "generated_source_bytes": 186818,
+       "case_count": 37,
+       "proof_scope": "linked_production_local_contracts",
+       "case_assertions": [
+@@ -247,8 +247,8 @@
+         {
+           "vector": "pipeline",
+           "module": "c31_shared_pipeline_cpp_generator",
+-          "generator_sha256": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+-          "rendered_source_sha256": "61393ab1ed47147c6ba026e29c27f77d3723867a2b71fe751b1b703ffd5ebf39",
++          "generator_sha256": "7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6",
++          "rendered_source_sha256": "550d49960e5e34ac9edac3c08afc01a908418b67d42816438b75616735aa7992",
+           "case_count": 4,
+           "first_case_index": 33
+         }

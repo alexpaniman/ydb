@@ -1,0 +1,24 @@
+C31 source review and next verification steps
+
+The original final C31 finding concerns residual reconstruction introducing sharing after the only copy stage. Its fix is the earlier reconstruction pass. The archived row-identity restriction was separately grouped under C31: nullable keys and keyless inputs previously failed before that lifecycle issue. Keep these acceptance claims separate while retaining the archived support limitations in the backlog.
+
+The remaining concrete verification obligation for the new scalar-domain support is exact identity lineage in two existing spilling profiles. Both sides of reconstruction must use the same already-evaluated shared source values. Existing semantic results and a Switch somewhere in the graph do not prove this binding.
+
+One source-confirmed verifier issue was found. The dormant topology probe requires every lambda to have one body, but valid wide projections have multiple bodies. C31-origin-multibody-traversal.patch fixes general traversal while retaining strict stage/projection checks. It does not grant value-lineage proof or resolve lexical block bodies. The patch is dormant and needs independent review.
+
+The dormant C31-scope-observation-generator.py and its installation patch delegate to the existing workload generator. They add only hash-bound topology observations and an allowlisted shape inventory. They never assert any of the three full shared-value proof flags. No workload was rendered or executed during this source review.
+
+Next steps, under the parent's existing serial memory guard:
+
+1. Independently review and install the dormant traversal patch and observation module after active compilation has finished.
+2. Run only c31_stability_float_domain__spilling__left and c31_stability_integer_domain__spilling__left using native_verify.py's case filter, the observation module, the exact C31 executable receipt, new mode and 24 rows. Keep SQL, AST, rows and diagnostics in anonymous memory. Preserve the existing 50-record result batch rather than replacing it with these observations.
+3. Use the actual anonymous graph to establish its lambda/block representation and transport operators. A shape rejection is a verifier limitation, not a production failure.
+4. Implement and independently review exact column lineage through stage ports, narrow/wide maps, reconstruction join key positions, output renames and any identity codec. Require complete key coverage and the same shared source field on both sides. Only allow a proved pure key-only domain reduction after the shared hub; reject unproved post-hub computation.
+5. An upstream producer can remain opaque for the same-evaluated-value proof if both compared fields reach its terminal hub unchanged. Separately bind the intended aggregate result into the identity for profile coverage. If the hub precedes the aggregate, this shortcut is invalid and aggregate/UNION field tracing remains required.
+6. Change a full-proof flag only after complete field proof on the real graph, with revision, executable, generator and AST hashes bound to the sanitized verdict.
+
+Guard precision matters. The repeatable-predicate gate applies to keyless domains, not every keyed residual. The exact-scalar whitelist covers all keyless fields and optional unique keys; it does not newly certify existing nonoptional unique keys. Unsupported keyless Float/Double, opaque/composite types and per-occurrence volatile behavior remain guarded support exclusions. They are not evidence that the original late-sharing failure remains.
+
+Nonoptional Float/Double uniqueness can arise from grouping or deduplication, independently of table primary-key restrictions. Without channel spilling, the stable-copy guard rejects floating grouping keys even for COUNT-only aggregates. With channel spilling, a known nonoptional floating key can be admitted. Primary implementation sources show NaN-aware dictionary comparison, reflexive packed-bit GraceJoin comparison for the same value, and canonicalized block keys. No new NaN self-equality bug was established. This source conclusion does not replace the shared-value lineage proof or certify independently recomputed floating representatives.
+
+Machine-readable hashes, source bindings and limits: verification/C31-scope-completion-source-review.json.

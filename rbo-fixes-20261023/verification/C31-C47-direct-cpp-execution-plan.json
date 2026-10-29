@@ -1,0 +1,95 @@
+{
+  "status": "prepared_uncompiled_unexecuted",
+  "adapter_scope": {
+    "C31": "24 actual rule/identity contracts, including zero-column bags; aggregate-copy stability belongs to the separate SQL/native controls.",
+    "C47": "19 actual lookup Copy/repeatability/IU/storage-key contracts, fixed-only; pinned main lacks the required ReadSettings interface."
+  },
+  "closure": {
+    "profile": "rbo",
+    "target": "ydb/core/kqp/ut/rbo",
+    "compile_sample": "ydb/core/kqp/ut/rbo/kqp_rbo_global_ut.cpp",
+    "fixtures": "TIdTestContext is defined inline in kqp_rbo_test_helpers.h; production rule/operator/copy definitions come from linked KQP dependencies.",
+    "link_adaptation": "Existing link_template drops this unit-test target objects and unittest_main, keeps production dependency objects/archives and adds the anonymous adapter object. No copied production implementation is compiled.",
+    "actual_compile_and_link_feasibility": "Pending first real guarded closure build and metadata extraction; unknown wrappers/resources or missing objects reject before acceptance."
+  },
+  "serialization": [
+    "Parent applies the reviewed artifact only at an idle boundary.",
+    "Parent selects the exact independent main-based case revision with a clean worktree.",
+    "work-state.phase must be direct_cpp_verification, production_sources_frozen true, authorized_build_workers8; existing serial_slot refuses another verify_series.py, native_verify.py or anonymous_cpp_verify.py process. The parent separately coordinates any other build process.",
+    "Build/compile/link/native execute sequentially under existing scope RSS and host-headroom guards.",
+    "For each selected revision, complete prepare and run before switching the worktree to the next case."
+  ],
+  "acceptance": [
+    "Exact reviewed generator bytes are evaluated from a source snapshot, and rendered source size/hash/case count must match the reviewed profile.",
+    "Receipt binds successful RBO closure build, clean exact revision, compiler/link inputs and all captured object identities; execute verifies it before and after.",
+    "All guarded compile/link/native phases must exit0, clean up, avoid watchdog/output-overflow failures and produce nonempty hashed anonymous object/executable.",
+    "Every expected numeric case verdict must be present exactly once and pass; no extra fields or Boolean integer substitutions are admitted.",
+    "validate_fixed_admission accepts only local contracts; query_semantics_verified remains false. No case status is automatically promoted."
+  ],
+  "persistence": [
+    "Generators, reviewed profile metadata, production build outputs and sanitized evidence are retained.",
+    "Generated translation units, adapter objects/executables, raw diagnostics and verdict payloads use inherited memfds/in-memory buffers and are not persisted."
+  ],
+  "actual_builds": 0,
+  "actual_compiler_runs": 0,
+  "actual_native_runs": 0,
+  "active_helpers_edited": false,
+  "commands_by_selected_revision": {
+    "C31": [
+      [
+        "python3",
+        "-B",
+        "rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "C31",
+        "--phase",
+        "fixed"
+      ],
+      [
+        "python3",
+        "-B",
+        "rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "C31",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "<matching-production-closure-receipt>"
+      ]
+    ],
+    "C47": [
+      [
+        "python3",
+        "-B",
+        "rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "prepare",
+        "--worktree",
+        "rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "C47",
+        "--phase",
+        "fixed"
+      ],
+      [
+        "python3",
+        "-B",
+        "rbo-fixes-20261023/anonymous_cpp_verify.py",
+        "run",
+        "--worktree",
+        "rbo-fixes-20261023/worktrees/verify",
+        "--bug",
+        "C47",
+        "--phase",
+        "fixed",
+        "--receipt",
+        "<matching-production-closure-receipt>"
+      ]
+    ]
+  }
+}

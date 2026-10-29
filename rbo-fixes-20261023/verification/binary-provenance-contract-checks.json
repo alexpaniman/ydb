@@ -1,0 +1,15 @@
+{
+  "checks": [
+    "successful_receipt_matches_identity",
+    "stale_binary_rejected",
+    "failed_wrong_target_wrong_revision_builds_rejected",
+    "missing_receipt_rejected",
+    "source_mutation_rejected",
+    "functional_verdict_requires_provenance",
+    "distribution_verdict_requires_provenance"
+  ],
+  "checks_passed": 7,
+  "status": "passed",
+  "scope": "Harness-only synthetic contract checks; no database workload executed",
+  "recorded_unix_ns": 1792719913016975932
+}

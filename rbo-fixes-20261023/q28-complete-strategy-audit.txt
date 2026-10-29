@@ -1,0 +1,123 @@
+Q28 scheduler broadness audit, 2026-10-23
+
+The current branch is a bounded improvement, not an optimizer-wide fix.
+It batches the standalone right-join normalization stage and removes that
+rule's unused RequireParents dependency. All other rule stages still restart
+and invalidate computed properties after a successful match. The required
+fresh conservative pass also means the batch is not a universal single pass.
+This review made no source edits, builds or native runs.
+
+The current opt-in is narrow for a reason
+
+The owning postorder snapshot retains both node and parent. The right-join rule
+replaces an owning edge, preserves output IDs/types and subplan references,
+does not mutate preexisting nodes or optimizer-global state, and removes its
+own match kind. Descendants are normalized before parents. Consequently it
+does not need parent/type/metadata snapshots during the batch.
+
+The traversal deduplicates nodes, not every independent owning edge. A shared
+node replaced through one slot can still be reachable through another slot.
+The conservative pass is necessary with the current snapshot representation.
+Replacing it with an edge-aware schedule and a canonical replacement cache
+could avoid that tail cost, but would still optimize this one stage only.
+Legal Replicate ports share one canonical producer slot; an edge-aware design
+must not treat those views as independent producer slots. Raw shared ownership
+is also rejected by newer type validation, so invalid raw DAG tests should be
+distinguished from legal shared-producer tests.
+
+Nearby rules do not automatically satisfy the same contract
+
+- ExtractCommonConjuncts does not read its declared parent dependency and
+  returns a replacement Filter, but it shares a stage with rules that push and
+  introduce filters. Whole-stage batch eligibility cannot follow from this
+  one rule. Removing an unused property dependency is a small possible saving,
+  not completion of Q28; equivalence and repeated factoring still need review.
+- FuseFilters mutates the matched filter and its child edge. Chains create new
+  matches and same-pointer mutation reporting needs its own correctness fixes.
+  It does not satisfy pure owning-edge replacement.
+- PushLimitIntoSort mutates the existing child Sort before returning it, and
+  shares its stage with filtering/join rewrites. It fails the no-mutation
+  contract even though it does not explicitly read Parents.
+- InlineCBOTree exposes a previously opaque tree. A snapshot made before the
+  rewrite can miss newly visible operators and their rule candidates.
+- PushMapElements moves definitions into existing child nodes and inserts Maps
+  below nodes already visited in postorder. These new Maps intentionally need
+  further movement, and their changed output IUs invalidate cached properties.
+- Whole-partition window expansion allocates IUs and Replicate ports and emits
+  aggregates/joins/maps. Other rules in the same expansion stage can match its
+  new aggregate nodes, so it fails both global-state and no-new-candidates
+  requirements.
+- DisableBlocksOnColumnsLimit changes TypeCtx.BlockEngineMode while returning
+  the same operator. A scheduler cannot infer absence of global effects from
+  unchanged pointer identity or a false simplified-rule result.
+- CBO stages require statistics and can restructure opaque trees; physical
+  propagation rewrites modify the stage graph. Neither is covered by a local
+  output-IU-preservation argument.
+
+Why preserving all existing properties is not a safe broad shortcut
+
+RequireTypes, RequireMetadata, RequireStatistics and RequireLiveness include
+dependencies on other property bits. Output IDs alone do not prove type,
+lineage, uniqueness, ordering, distribution, cardinality or liveness unchanged.
+Parents record owning edges and Replicate output lists. A local replacement can
+change consumers even when the root output is identical. Liveness flows from
+all consumers toward producers; metadata/statistics flow the other direction.
+
+ComputePlanMetadata clears the plan-wide ColumnLineage table before its whole
+postorder pass. ComputeTypes first validates ownership across active subplans
+and opaque CBO trees, then annotates nodes. Reusing per-node cached metadata or
+types without handling those global steps is not equivalent. SetChild and
+MutableChild do not publish a change journal or dependency version that would
+let the scheduler identify every affected property from its current API.
+
+The smallest plausible path to a general solution
+
+1. Add a reviewed rule-effect contract rather than guessing from rule names or
+   final pointer identity. It must distinguish replaced owning slots, mutated
+   existing nodes, newly exposed/created candidates, subplan/registry changes,
+   stage-graph changes and context-global effects. Conservative unknown effects
+   remain the default until each rule is audited.
+2. Maintain a legal-edge worklist with stable ownership, canonical Replicate
+   producer slots, active subplan reachability and explicit reverse consumer
+   dependencies. Requeue the replacement, its newly exposed subtree and every
+   affected ancestor/consumer; keep rule ordering and match ceilings defined.
+3. Version properties according to that effect contract. Parents require edge
+   updates; output/types/metadata/statistics propagate up changed dependencies;
+   liveness requires changed demand to propagate down and across shared ports.
+   ColumnLineage and type ownership validation need explicit incremental or
+   stage-boundary handling. A per-node dirty bit alone is insufficient.
+4. Prove fixed-point equivalence to the conservative scheduler using generated
+   legal operator graphs, then compare result semantics and optimizer work.
+   Verify unchanged output bindings/types, no missed or duplicated candidates,
+   correct subplan activation, shared-port behavior and termination ceilings.
+
+A disjoint-region batch can be an intermediate step if dependency regions are
+proved independent and rule effects are known. Blindly continuing traversal
+after each mutation, recomputing properties once per round, or only queuing the
+replacement node can respectively use dead edges, stale properties or miss
+previously visited affected consumers. None is a safe universal narrow change.
+
+Verification must measure the actual cost
+
+The current scheduler improvement should be checked with rule-attempt counts,
+operator visits, property-computation calls and nodes visited by those calls.
+Compare growth with increasing independent matches and nested matches; include
+subplans, legal shared Replicate producers, no-match controls and near-ceiling
+match counts. Native equality alone does not show optimizer-work reduction.
+Trace serialization is a separate cost: measure with tracing disabled and
+enabled, and do not count unmodified full-plan trace output as eliminated work.
+
+Sources reviewed: kqp_rbo.cpp:EnsureRequiredProps/RunStage;
+kqp_rbo.h:ERuleProperties and rule/stage APIs;
+kqp_rbo_transformer.cpp:InitializeRBOOptimizationStages;
+kqp_operator.cpp:RecomputeOutputIUsSubtree/ComputeParents;
+kqp_rbo_type_ann.cpp:TOpRoot::ComputeTypes;
+kqp_rbo_compute_statistics.cpp:ComputePlanMetadata/ComputePlanStatistics;
+rules/rewrite_right_join.cpp, extract_common_conjuncts.cpp, fuse_filters.cpp,
+push_limit_into_sort.cpp, inline_cbo_tree.cpp,
+push_map_elements_through_input.cpp, expand_whole_partition_window.cpp,
+disable_blocks_on_columns_limit.cpp; current Q28 patch and independent review.
+
+No broader stage was proven eligible for the existing strict opt-in. The
+current right-join batch may remain independently useful after verification,
+but Q28 stays open for general scheduling and incremental invalidation.

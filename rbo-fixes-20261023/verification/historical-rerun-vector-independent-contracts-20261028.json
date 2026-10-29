@@ -1,0 +1,10 @@
+{
+  "status": "independent_metadata_rejections_passed_native_reruns_pending",
+  "assertions": 755,
+  "manifest_sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58",
+  "checker_sha256": "c532b97282b370c4398b7a0db158844614a8e2d564ff86bbdd7dd3ecf48c282f",
+  "native_or_build_execution": false,
+  "live_edits": false,
+  "synthetic_evidence_persisted": false,
+  "rendered_workloads_persisted": false
+}

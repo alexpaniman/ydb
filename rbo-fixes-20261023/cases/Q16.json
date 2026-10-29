@@ -1,0 +1,46 @@
+{
+  "id": "Q16",
+  "title": "A wide row-store LIMIT disables the query-wide block engine.",
+  "branch": "fix/new-rbo/q16-a-wide-row-store-limit-disables-the-query-wide-block-engine",
+  "commit": "36000459cb44ccfe5e548a2622bfa21ffff591c7",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/disable_blocks_on_columns_limit.cpp"
+  ],
+  "proposal_sha256": "9adfc97955af92fb61ebadbeeb5b6cf4dc360c56c38f8c67bd2a2fc7620ffc16",
+  "proposal": "proposed-quality-patches/Q16.patch",
+  "proposal_metadata": {
+    "id": "Q16",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_unbuilt_unverified",
+    "files": [
+      "ydb/core/kqp/opt/rbo/rules/disable_blocks_on_columns_limit.cpp"
+    ],
+    "summary": "Require an OLAP read in the affected Limit subtree before disabling block execution for width.",
+    "review": [
+      "Independent patch generated directly from pinned base; production worktrees unchanged.",
+      "No yql/essentials edits.",
+      "Independent review corrected generic IOperator child traversal: GetChildren yields raw pointers; GetInputs exists only on IVariadicOperator. Prepared branch must be amended after source freeze."
+    ],
+    "validation_plan": [
+      "Compare wide row-storage and column-storage Limit operators, narrow OLAP, threshold zero, and disabled-block controls.",
+      "Use a separate unrelated OLAP root to verify it cannot make a row-only Limit eligible.",
+      "Check shared-subtree traversal terminates and preserves the WindowFunctionsV2 guard."
+    ],
+    "limits": [
+      "The existing query-wide BlockEngineMode effect remains; only its Limit eligibility is narrowed.",
+      "Storage type is a source property and needs no computed metadata."
+    ],
+    "apply_check_exit_code": 0,
+    "patch_sha256": "9adfc97955af92fb61ebadbeeb5b6cf4dc360c56c38f8c67bd2a2fc7620ffc16"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required.",
+  "superseded_commit": "e43bea28885ed94638f6e049c08910d9ce1f97b3"
+}

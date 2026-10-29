@@ -1,0 +1,10 @@
+{
+  "v2_checks": 62,
+  "v2_setup_failures": 0,
+  "superseded_cases": "Explicit SEMI/ONLY syntax is rejected before RBO by sql_select_yql.cpp:986,996; v3 uses EXISTS/NOT EXISTS.",
+  "v3_checks": 16,
+  "v3_new_mixed_target_checks": 4,
+  "v3_new_same_type_controls_pass": true,
+  "legacy_qualification": "Correlated existence replacements and mixed-type null-safe equality are rejected by legacy; independent bag model is authoritative.",
+  "inputs_and_rows_persisted": false
+}

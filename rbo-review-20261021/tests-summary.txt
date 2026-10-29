@@ -1,0 +1,4 @@
+Current revision: f746f5a75ca7846d2bcc422142d9329ec0064f94
+Existing RBO tests: 2 suites, 352 passed, 0 failed.
+Command: ./ya make --build relwithdebinfo -tA ydb/core/kqp/opt/rbo/ut ydb/core/kqp/ut/rbo
+No repository sources modified.

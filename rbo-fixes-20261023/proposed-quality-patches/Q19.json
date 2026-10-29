@@ -1,0 +1,25 @@
+{
+  "id": "Q19",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_unbuilt_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  ],
+  "summary": "Accumulate diagnostics from all statistics responses and apply available payloads even when another request reports an issue.",
+  "review": [
+    "Independent patch generated directly from pinned base; production worktrees unchanged.",
+    "No yql/essentials edits."
+  ],
+  "validation_plan": [
+    "Permute success/error response order and assert successful fields survive with all diagnostics retained.",
+    "Cover all-success, all-failure, and payload-plus-warning responses on an initially uncached table.",
+    "Verify fatal future exceptions still propagate and no Success() status gate is introduced."
+  ],
+  "limits": [
+    "Existing cache entries still require Q18; independent Q19 validates initially uncached application.",
+    "Future exception handling is unchanged; this patch does not swallow service/runtime exceptions.",
+    "Successful response constructors currently leave default status unset, so this patch deliberately does not gate on Success()."
+  ],
+  "apply_check_exit_code": 0,
+  "patch_sha256": "1a5025893086d543a595ff2e2a651b4a155549fe6b17c34f26d1123d3f0dd36f"
+}

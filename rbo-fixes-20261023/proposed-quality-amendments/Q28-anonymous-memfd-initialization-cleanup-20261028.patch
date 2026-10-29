@@ -1,0 +1,32 @@
+diff --git a/rbo-fixes-20261023/anonymous_cpp_verify.py b/rbo-fixes-20261023/anonymous_cpp_verify.py
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -329,13 +329,21 @@
+ 
+ def _memfd(name, data=b'', executable=False):
+     fd = os.memfd_create(name, os.MFD_CLOEXEC | (os.MFD_ALLOW_SEALING if executable else 0))
+-    if data:
+-        with os.fdopen(os.dup(fd), 'wb') as stream:
+-            stream.write(data)
+-    os.lseek(fd, 0, os.SEEK_SET)
+-    if executable:
+-        os.fchmod(fd, 0o700)
+-    return fd
++    try:
++        if data:
++            pending = memoryview(data)
++            while pending:
++                written = os.write(fd, pending)
++                if written <= 0:
++                    raise OSError('anonymous_memfd_write_made_no_progress')
++                pending = pending[written:]
++        os.lseek(fd, 0, os.SEEK_SET)
++        if executable:
++            os.fchmod(fd, 0o700)
++        return fd
++    except BaseException:
++        os.close(fd)
++        raise
+ 
+ 
+ def _seal_native_executable(fds):

@@ -1,0 +1,153 @@
+{
+  "finding_label": "separate_copy_reduction_stability_followup_unassigned",
+  "base_revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "distinct_source_reachable_correctness_candidate_native_pending",
+  "original_scope_audit": {
+    "correctness_findings_reviewed": 50,
+    "optimization_findings_reviewed": 29,
+    "matching_existing_root_cause": false,
+    "nearest_items": {
+      "C02": "Volatile predicate relocation across aggregation, not aggregate duplication or reduction-order dependence.",
+      "C17": "Stale pruning/schema references at shared-port collapse, not value repeatability.",
+      "C31": "Late-created sharing causes unsupported-stage rejection; local amendment now guards its own split evaluations.",
+      "C49": "False uniqueness from incomplete lookup keys; does not establish copied aggregate-value consistency.",
+      "Q10": "Repeated DISTINCT branches and producer work are a cost finding; it does not cover changed aggregate values across copies.",
+      "S09": "Earlier unpromoted candidate covers expression movement/evaluation boundaries; no aggregate-copy stability failure was established there."
+    },
+    "catalog_sha256": {
+      "bugs.json": "2549bb4f2f173a7ccd944ad22f3e9e5d389395fc1723704d13e43b6708b882c0",
+      "optimization-quality.txt": "9d2f3d207949b1740b8e43f2b4502100c6be8851d4f7b453334c25ae0c9c1dad",
+      "additional-candidates.txt": "78dc040d5e80a2dc9f80f2eceed1adc0b172bb247e17e9784b8cb3a9f85fef0f"
+    }
+  },
+  "reachability": [
+    {
+      "caller": "TExpandReplicateRule",
+      "status": "registered_and_frontend_reachable_at_source_level",
+      "preconditions": [
+        "Channel spilling unavailable.",
+        "At least two live ports and a non-primary consumer.",
+        "Producer stays within the existing copy size limit and contains supported deterministic operators."
+      ],
+      "producer_origin": "Whole-partition aggregate window expansion creates a live row port and aggregate port before the shared-subtree expansion stage. An upstream ordinary floating SUM is admitted without inspecting its type. This route does not use residual join-filter inlining.",
+      "required_invariant": "A whole-partition aggregate must use the same input relation whose row values it accompanies; a single-row input makes disagreement directly observable.",
+      "scope_limit": "No native plan or actual differing execution is claimed."
+    },
+    {
+      "caller": "TExpandReplicateRule",
+      "status": "additional_registered_source_path",
+      "producer_origin": "Multi-DISTINCT expansion creates one live Replicate port per partial branch over a common upstream producer. An upstream order-sensitive reduction is admitted by the same classifier.",
+      "scope_limit": "Native selection and an independent branch-consistency oracle are pending; this is not counted as a second bug."
+    },
+    {
+      "caller": "TPushDependentJoinThroughReplicateRule",
+      "status": "registered_conditional_source_path",
+      "preconditions": [
+        "Free correlation survives into a Replicate producer.",
+        "Producer has no directly referenced subplan and satisfies CanDuplicateOperator."
+      ],
+      "scope_limit": "The shallow-copy call is proven present, but frontend isolation and the exact affected aggregate/dependent-join rewrite sequence remain pending; do not use this alone as frontend reachability proof."
+    }
+  ],
+  "causal_proof": "CanDuplicateAggregation explicitly ignores reduction order and input types. Float addition is nonassociative; Decimal addition saturates; Interval addition validates bounded intermediate values. Independent copies can consume different legal input orders. Equality-class representative selection also can preserve different observable bits. Casts or serialization can hide these differences behind admitted scalar outputs.",
+  "source_evidence": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+      "sha256": "6064c7c29f85923a02afa5be97e5e4d6f1dfe5e4e8a6bc1d0fd34c704bac980f",
+      "locations": {
+        "bool CanDuplicateAggregation": [
+          16
+        ],
+        "Deliberately ignore input types": [
+          17
+        ],
+        "bool CanDuplicateSubtree": [
+          108
+        ]
+      }
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/expand_replicate.cpp",
+      "sha256": "4bc5fe0f799c3fa51883e5167dd7d8759c4dc105274602be7436f47b6336f8b7",
+      "locations": {
+        "bool TExpandReplicateRule::MatchAndApply": [
+          41
+        ],
+        "!CanDuplicateSubtree": [
+          51
+        ]
+      }
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "sha256": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb",
+      "locations": {
+        "TPushDependentJoinThroughReplicateRule::SimpleMatchAndApply": [
+          662
+        ],
+        "!CanDuplicateOperator(producer)": [
+          677
+        ]
+      }
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/expand_whole_partition_window.cpp",
+      "sha256": "30e7b29539e4b0f93f354d118e3f24e77cec55706f09e29d1121a5d6187ae800",
+      "locations": {
+        "TReplicate::Create": [
+          43
+        ],
+        "MakeIntrusive<TOpAggregate>": [
+          86
+        ],
+        "TOpJoin": [
+          96
+        ]
+      }
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+      "sha256": "a1fa2c49f217d659ad2badcf862a83f88b7baf410f8274ce07270669b06b0610",
+      "locations": {
+        "TReplicate::Create": [
+          199
+        ],
+        "addPartialResult": [
+          201,
+          258,
+          263
+        ]
+      }
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "sha256": "593b73e3bfe99b67f9957cb4fe00da320ee0262af75c830929b50b42b8290896",
+      "locations": {
+        "Expand aggregation": [
+          615,
+          620
+        ],
+        "Expand shared subtrees": [
+          704
+        ],
+        "Decorrelation": [
+          647,
+          663
+        ]
+      }
+    }
+  ],
+  "author_attribution": {
+    "author": "alexpaniman",
+    "introducing_commit": "dc773f93aec8fa5d56c1653bf43aef64165d8e0c",
+    "date": "2026-10-05",
+    "subject": "[NEW RBO] Duplicate shared subtrees when spilling is disabled (#54743)",
+    "basis": "git log -L introducing diff for CanDuplicateAggregation",
+    "native_bisection_performed": false
+  },
+  "confidence_limits": [
+    "The whole-partition frontend-to-copy source route and algebraic invariant violation are established. Actual optimizer traversal and diverging runtime results still need guarded native or linked-production verification.",
+    "This is stronger than a purely hypothetical unreachable helper concern, but it is not promoted into the native-verified list.",
+    "No new fix patch, branch, exact query, concrete fixture or native execution was created."
+  ]
+}

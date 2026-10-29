@@ -1,0 +1,28 @@
+{
+  "id": "C23",
+  "base": "9eda179893974bfabe793a15d697b989d9c344bf",
+  "patch_sha256": "ecb795e8698263c0c2bf14f30bf910c70f77a7f979f1641cde37bb0924d1c282",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h"
+  ],
+  "apply_check_passed": true,
+  "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "production_edited": false,
+  "compiled": false,
+  "native_verified": false,
+  "root_cause": "The shared DQ hash runtime requires Data or Optional<Data> extracted keys; bare Null reaches it unchanged.",
+  "scope": "Encode only bare-Null hash keys as a constant Uint8 and restore Null in aggregate and DISTINCT result mappings.",
+  "invariants": [
+    "Key arity and order remain unchanged; keyed empty input stays empty.",
+    "Scalar aggregation dispatch and empty-input padding remain unchanged.",
+    "Nullable data keys and ordinary data keys use existing paths.",
+    "Aggregate argument fields remain logically typed; only extracted keys change.",
+    "Both intermediate and final outputs recover the original Null type.",
+    "Distinct result aliases restore by original key identity; liveness pruning remains unchanged."
+  ],
+  "pending": [
+    "Compile and native row/block controls on the amended branch.",
+    "Nonempty/empty grouping sets, mixed composite keys, distinct aliases, null argument count, phase and shuffle controls."
+  ]
+}

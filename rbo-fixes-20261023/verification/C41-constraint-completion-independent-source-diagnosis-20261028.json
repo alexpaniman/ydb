@@ -1,0 +1,216 @@
+{
+  "schema": "C41_constraint_completion_source_diagnosis_v1",
+  "scope": "Independent source-only diagnosis; no production, live helper, test or Essentials edits; no native/build/toolchain/Git operations; no workload or diagnostic payload persisted.",
+  "revision": "dd1d8cabb86258c4bcb998bd6b317b296bfdd251",
+  "evidence": {
+    "path": "verification/C41-fullsuite-sanitized-outcomes-dd1d8cab-20261028.json",
+    "sha256": "e7e2a1e76376848792a903b2541e808a21566413c9dc3ce7c0a8845f614b3cf3",
+    "good": 139,
+    "failed": 209,
+    "failed_records_referencing_expr_line_2204": 143,
+    "all_209_failures_attributed_to_this_cause": false
+  },
+  "confirmed_defect": {
+    "description": "The direct final query export restores completeness and common-subexpression elimination without first completing constraint annotation on newly built nodes. CSEE hashes and compares node and lambda-argument constraints, whose accessors require ConstrComplete. The final builder only type-annotates the exported query.",
+    "normal_order": [
+      "type annotation",
+      "constraint annotation",
+      "completeness",
+      "common-subexpression elimination"
+    ],
+    "current_order": [
+      "builder type annotation",
+      "completeness",
+      "common-subexpression elimination"
+    ],
+    "original_result_effect_ownership_fix_must_remain": true,
+    "manual_state_marking_or_constraint_check_disabling_is_a_fix": false
+  },
+  "narrow_repair_recommendation": {
+    "location": "ContinueOptimizations final output boundary, within new RBO",
+    "implementation_shape": "Use a local TTransformationPipeline(&TypeCtx).AddTypeAnnotationTransformer().AddPostTypeAnnotation(false).Build(false), then drive the final output through InstantTransform with default breakOnRestart=false. Replace the manually selected completeness/CSEE pair.",
+    "why_type_pass_is_retained": "Constraint transformation can return Repeat with HasRestart for nodes needing type annotation; a local composite restarts at its own type pass without rerunning RBO.",
+    "why_local_driver_matters": "TKqpNewRBOTransformer::DoTransform accepts only TKqlQueryList and clears/rebuilds roots; propagating a physical-query restart would violate that input contract. Existing async dispatch is reserved for column-statistics loading.",
+    "why_not_sync_wait": "SyncTransform can wait on async futures inside the compiler actor; existing KQP post-annotation wrappers instead use InstantTransform.",
+    "synchronous_scope_evidence": "Existing RBO physical builder rejects non-Ok/non-Repeat type results. KQP default, enabled KQP source/sink and DQ constraint handlers use synchronous transformer bases. Existing hash-propagation and peephole wrappers use local type/post-type pipelines with InstantTransform.",
+    "async_limit": "This is not a universal async provider proof. An unexpected Async is rejected by InstantTransform; it is never treated as completed. Supporting a newly asynchronous final provider path would require separately justified lifecycle handling.",
+    "constraint_checks_disabled": false,
+    "for_subgraph": false,
+    "outer_pipeline_restarted": false,
+    "host_or_essentials_changes_required": false,
+    "new_state_machine_required_for_traced_path": false
+  },
+  "source_bindings": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "sha256": "429479d060ca8197be45e672dd3034834f3c842d8f5cde29a0c14dae00f2ed8b",
+      "lines": [
+        149,
+        190,
+        452,
+        487,
+        510
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+      "sha256": "ab962603994354ce12e01e5143705227aed2d3db8e5d99ddcad2084af735c455",
+      "lines": [
+        149,
+        930
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/host/kqp_runner.cpp",
+      "sha256": "e3db6bf5c0f7c8cc3744a636cd71c8262423c0756d0559e0f711f7dc6ff0b577",
+      "lines": [
+        448,
+        461,
+        475
+      ]
+    },
+    {
+      "path": "yql/essentials/core/services/yql_transform_pipeline.cpp",
+      "sha256": "48ed726441df8fb1414290276d7ff83f92ffa7eaf313d12c0b7956f99db173fc",
+      "lines": [
+        161,
+        471,
+        485
+      ]
+    },
+    {
+      "path": "yql/essentials/ast/yql_expr.h",
+      "sha256": "d86cf4b845a8071a419ee144d691818562330200ce79ea036079a7e30c132bc4",
+      "lines": [
+        2190,
+        2204
+      ]
+    },
+    {
+      "path": "yql/essentials/core/yql_expr_csee.cpp",
+      "sha256": "5e14327572f32cd7b3036d186136929a3117ddb6e049c5642a847a564729d2cc",
+      "lines": [
+        106,
+        170,
+        263,
+        350
+      ]
+    },
+    {
+      "path": "yql/essentials/core/yql_expr_constraint.h",
+      "sha256": "cc3e5f8cc4af09a87977d030a0ce8416f0f687069f00c0f30bc1b509a8194882",
+      "lines": [
+        13
+      ]
+    },
+    {
+      "path": "yql/essentials/core/yql_expr_constraint.cpp",
+      "sha256": "4d54f7f985cead19efdd081d2f1d4796338829f9362801d47f9e5cfb786cc7b6",
+      "lines": [
+        282,
+        307,
+        3464,
+        3487,
+        3506,
+        3517,
+        3551,
+        3644,
+        3803,
+        3895
+      ]
+    },
+    {
+      "path": "yql/essentials/core/yql_graph_transformer.h",
+      "sha256": "6de51bb4393a83dc50e045a69fdd664710b9847619d1897f6ff461b71a18c2bc",
+      "lines": [
+        249,
+        250
+      ]
+    },
+    {
+      "path": "yql/essentials/core/yql_graph_transformer.cpp",
+      "sha256": "35e62fa937560ce53e4c860782072819856a60008b9348d0f72085239e3a897a",
+      "lines": [
+        44,
+        145,
+        290,
+        349,
+        419
+      ]
+    },
+    {
+      "path": "yql/essentials/core/yql_callable_transform.h",
+      "sha256": "7cd9135a69654cb16c501b5cdc1a52abb91b57ea1d714bbfba078a348c311e50",
+      "lines": [
+        173
+      ]
+    },
+    {
+      "path": "yql/essentials/providers/common/transform/yql_visit.h",
+      "sha256": "d0422d3d1365ee23051b7f180af46d827c5cf4320684fad5a4c2613a6166cc19",
+      "lines": [
+        15
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/provider/yql_kikimr_constraints.cpp",
+      "sha256": "aa77f898efee847bd7925b7b43c07df473c0c5491b491e345dc55ee49515b623",
+      "lines": [
+        74,
+        118,
+        126
+      ]
+    },
+    {
+      "path": "ydb/library/yql/dq/constraints/dq_constraints.cpp",
+      "sha256": "3bf6719725972dd59fa32d859d9a17c1e203f0ad766468159bfae074bd0111b9",
+      "lines": [
+        186
+      ]
+    },
+    {
+      "path": "ydb/library/yql/providers/dq/provider/yql_dq_datasource_constraints.cpp",
+      "sha256": "37d6b06e5cb431b823cb6fb44948c2182a6fc06fe00f53af7ad4075e04111a59",
+      "lines": [
+        16
+      ]
+    },
+    {
+      "path": "ydb/library/yql/providers/dq/provider/yql_dq_datasink_constraints.cpp",
+      "sha256": "d4cf357b337149342186c80387f97f3477a345c523c2f594c5b36c2361f28b3a",
+      "lines": [
+        17
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/kqp_opt_hash_func_propagate_transformer.cpp",
+      "sha256": "5702dad9f0cd33d6bc634944e336f133ef8a26fd6d2a2ce398be9843f795d0f6",
+      "lines": [
+        169,
+        221
+      ]
+    },
+    {
+      "path": "ydb/core/kqp/opt/peephole/kqp_opt_peephole.cpp",
+      "sha256": "c61e15d7a7621a205f904272f11b397d693dbe167ea59cf48a0a02e86c2811f9",
+      "lines": [
+        624,
+        676
+      ]
+    }
+  ],
+  "finite_verification_required": [
+    "Independently review the actual narrow candidate and its public API/include/status handling.",
+    "Rerun the unchanged full RBO suite against the newly amended standalone main-based C41 revision; preserve all prior failure evidence.",
+    "Rerun the original twelve C41 semantic observations with the same case-specific binding-order, result-set ownership and effect-persistence oracles.",
+    "Refresh only the C41 acceptance manifest revision and final-boundary source binding after the approved amendment; the dd1d8cab manifest must continue to reject this failed run.",
+    "Do not attribute the other failed tests to this omission without fresh evidence; no actual acceptance follows from this source diagnosis."
+  ],
+  "actual_fix_applied": false,
+  "actual_native_verification_performed": false,
+  "finding_verified": false,
+  "other_dormant_work_preserved": {
+    "Q01_stage_A_patch_sha256": "46a0940c71f2281569b5e9dc01be21b3693152ea828d331c5178c8bf1f40c2b1",
+    "Q01_independent_review_sha256": "d59b8fe426574c2a3a5cc298ed07a796d509c48616ee1a0f00e50a82e5c44d3a"
+  }
+}

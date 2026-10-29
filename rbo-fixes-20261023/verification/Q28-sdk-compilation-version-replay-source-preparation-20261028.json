@@ -1,0 +1,285 @@
+{
+  "all_non_execution_functions_unchanged": true,
+  "build_runs": 0,
+  "depends_on": [
+    {
+      "patch": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+      "sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q28-sdk-compilation-runtime-identity-20261028.patch",
+      "sha256": "8712ec3993b04acf34b404818f48714588628fd6418315adcaeb57a54168a9e8"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C31-production-version-object-replay-20261028.patch",
+      "sha256": "af0c861afcf3def464bd74707cc8e261f996c2783f92b9a1a5be3c844cba572d"
+    }
+  ],
+  "direct_admission_changed": false,
+  "direct_q28_cases": 26,
+  "executable_case_vector": [
+    "q28_right_nullable_bag",
+    "q28_nested_right_bag",
+    "q28_right_map_dependencies",
+    "q28_map_filter_sort_limit_control",
+    "q28_conditional_guard_control",
+    "q28_full_outer_nullable_control",
+    "q28_shared_copied_control"
+  ],
+  "generated_adapter_cpp_unchanged": true,
+  "generated_cpp_sha256": "d8237e5c10705e5c0e69e1b8fc3f76c5f5906d9e01c5871b10dc5a73cb2485ec",
+  "integration": [
+    "Prepare the actual graph-bound production version object after adapter compilation, using the reviewed shared implementation.",
+    "Feed its restored original link ordering through the existing stdout and archive adapters.",
+    "Retain the sealed supplementary object in caller-owned descriptors until final cleanup; do not pass it into native SDK samples.",
+    "Acquire each initial and per-sample descriptor individually inside its owning try/finally, so partial allocation and cancellation close every acquired descriptor.",
+    "Verify object seals, digest, and bound source/tool dependency identities after linking, before and after every native sample, and at final provenance.",
+    "Record supplementary production evidence on success and retain available preparation/link/native failure evidence on errors.",
+    "Existing profile fingerprint now includes the imported production-version helper, with final revalidation unchanged."
+  ],
+  "limits": [
+    "No compilation, production-generation subprocess, link, SDK execution, or actual memfd transport ran.",
+    "This remains a partial seven-cell transport pilot, with full Q28 quality admission false.",
+    "The third patch changes only the new pilot module; original two pilot patches and approved production replay helper are untouched."
+  ],
+  "live_helper_edits": false,
+  "metadata_checks_passed": 1107,
+  "mocked_scenarios": [
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 59,
+      "mock_native_calls": 7,
+      "scenario": "normal",
+      "version_identity_checks": 16
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 4,
+      "mock_native_calls": 0,
+      "scenario": "prepare_failure",
+      "version_identity_checks": 0
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 4,
+      "mock_native_calls": 0,
+      "scenario": "link_failure",
+      "version_identity_checks": 0
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 12,
+      "mock_native_calls": 1,
+      "scenario": "native_guard",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 12,
+      "mock_native_calls": 1,
+      "scenario": "cold_cache_rejected",
+      "version_identity_checks": 4
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 4,
+      "mock_native_calls": 0,
+      "scenario": "changed_post_link",
+      "version_identity_checks": 1
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 4,
+      "mock_native_calls": 0,
+      "scenario": "changed_pre_native",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 12,
+      "mock_native_calls": 1,
+      "scenario": "changed_post_native",
+      "version_identity_checks": 3
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 59,
+      "mock_native_calls": 7,
+      "scenario": "changed_final",
+      "version_identity_checks": 16
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 59,
+      "mock_native_calls": 7,
+      "scenario": "profile_changed_final",
+      "version_identity_checks": 16
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 4,
+      "mock_native_calls": 0,
+      "scenario": "cancel_prepare",
+      "version_identity_checks": 0
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 4,
+      "mock_native_calls": 0,
+      "scenario": "cancel_link",
+      "version_identity_checks": 0
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 12,
+      "mock_native_calls": 1,
+      "scenario": "cancel_native",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 1,
+      "mock_native_calls": 0,
+      "scenario": "allocate_1",
+      "version_identity_checks": 0
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 2,
+      "mock_native_calls": 0,
+      "scenario": "allocate_2",
+      "version_identity_checks": 0
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 3,
+      "mock_native_calls": 0,
+      "scenario": "allocate_3",
+      "version_identity_checks": 0
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 4,
+      "mock_native_calls": 0,
+      "scenario": "allocate_4",
+      "version_identity_checks": 0
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 5,
+      "mock_native_calls": 0,
+      "scenario": "allocate_5",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 6,
+      "mock_native_calls": 0,
+      "scenario": "allocate_6",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 7,
+      "mock_native_calls": 0,
+      "scenario": "allocate_7",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 8,
+      "mock_native_calls": 0,
+      "scenario": "allocate_8",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 9,
+      "mock_native_calls": 0,
+      "scenario": "allocate_9",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 10,
+      "mock_native_calls": 0,
+      "scenario": "allocate_10",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 11,
+      "mock_native_calls": 0,
+      "scenario": "allocate_11",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 12,
+      "mock_native_calls": 0,
+      "scenario": "allocate_12",
+      "version_identity_checks": 2
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 13,
+      "mock_native_calls": 1,
+      "scenario": "allocate_13",
+      "version_identity_checks": 4
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 14,
+      "mock_native_calls": 1,
+      "scenario": "allocate_14",
+      "version_identity_checks": 4
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 15,
+      "mock_native_calls": 1,
+      "scenario": "allocate_15",
+      "version_identity_checks": 4
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 16,
+      "mock_native_calls": 1,
+      "scenario": "allocate_16",
+      "version_identity_checks": 4
+    },
+    {
+      "all_descriptors_closed": true,
+      "allocation_calls": 17,
+      "mock_native_calls": 1,
+      "scenario": "allocate_17",
+      "version_identity_checks": 4
+    }
+  ],
+  "module_after_sha256": "5a7f8ebd901340e1c8f19ff1d8db8d2a27e8e0fd9b00c738e01c546f73d3daa7",
+  "module_before_sha256": "4e29a04b473601f61ba63a156c9c1068f8790325f7937b8e7cba722289713de7",
+  "native_runs": 0,
+  "patch": "proposed-quality-amendments/Q28-sdk-compilation-version-replay-20261028.patch",
+  "patch_sha256": "4aabcde2409f4feb9d82c7b2908e7ffec334fd29ae9677402a104e366986a49f",
+  "pending_case": {
+    "case": "q28_shared_spilling_control",
+    "executed": false,
+    "reason": "local_file_service_changes_shared_channel_eligibility_RAM_only_service_unverified"
+  },
+  "real_memfds": 0,
+  "real_process_launches": 0,
+  "receipt_mutations": false,
+  "rendered_inputs_or_outputs_persisted": false,
+  "resource_guards_unchanged": true,
+  "reviewed_version_helper_sha256": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+  "schema_version": "q28_version_replay_source_preparation_v1",
+  "source_checks_sha256": "3cace2be2c5dccc04d252b9a83c25dc9a5b7c2e2da164bb92b7cc94ef0c9bfab",
+  "status": "dormant_source_prepared_independent_and_native_review_pending",
+  "superseded_candidate": {
+    "module_sha256": "e6f623843e5cd90c7fd8b554c6f1c43446edccac5d85e9b66ee171ea6bb86d40",
+    "patch_sha256": "898d12bcb2d9fdce96e3740f4cd5156ae70e14a2f28c92fa8b61a18ce09cd76a",
+    "reason": "Independent review found partial-allocation descriptor ownership gaps in inherited pilot setup.",
+    "source_report_sha256": "79cd0bdfb314d3a3179c49755720f61f168bcc300a6411b5b457cd991d818dc9"
+  },
+  "toolchain_runs": 0
+}

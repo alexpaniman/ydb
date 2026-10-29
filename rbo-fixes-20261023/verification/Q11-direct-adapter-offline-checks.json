@@ -1,0 +1,24 @@
+{
+  "build_or_native_executed": false,
+  "live_helper_unchanged": true,
+  "negative_only_admission_checks": {
+    "fabricated_positive_native_evidence": false,
+    "rejections": 13
+  },
+  "rendered_source_persisted": false,
+  "reviewed_profile_checked_in_memory": {
+    "case_count": 19,
+    "profile_sha256": "ed7dd79fc476909b2f25dddda29c0439d5011a4df24625f62d23cc2765f001a7"
+  },
+  "source_or_worktree_edits": false,
+  "stacked": {
+    "applied": true,
+    "helper_sha256": "ae5e50719f93335f7a1f856706e773fa01ed1295ecc0f116f95f1e7627b85a17",
+    "python_syntax_valid": true
+  },
+  "standalone": {
+    "applied": true,
+    "helper_sha256": "72f04127f8d75a9b79606022736da4596a00b685cb28370c78762548f2b21d97",
+    "python_syntax_valid": true
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "status": "dormant_source_proposal_not_applied",
+  "reviewer": "c47_build_recovery",
+  "patch": "proposed-correctness-amendments/C47-narrow-production-export-artifacts.patch",
+  "patch_sha256": "9ec963255f6b6629903e8538b5032f0bde5d86aeff2c25ff0285d6269ee9ac14",
+  "before": {
+    "anonymous_cpp_verify.py": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+    "anonymous_cpp_metadata.py": "e81ef3cf02488ab469ac2432106400b96955325d39e3255681f79c4c0a60d39b"
+  },
+  "after": {
+    "anonymous_cpp_verify.py": "cbcb3eb306f30ec06ae316170d2191dc82e0b9ab2125a1667ad50eb7cdc50883",
+    "anonymous_cpp_metadata.py": "bc05cf942f0e68fde1838d66598643b91fc42622644505b8b881471f0db3a2a4"
+  },
+  "behavior": [
+    "C47 joins C31 in omitting only the broad .o result export suffix.",
+    "Default export_objects=True and Q19 object export remain unchanged.",
+    "Build record broad_object_export matches the selected invocation.",
+    "No selected input existence, command/resource audit, input hash, successful build or source identity rejection is changed.",
+    "The C31 archive export successfully captured6274inputs and compiled its direct contracts; actual C47 closure verification is still required."
+  ],
+  "evidence": [
+    "verification/C31-narrow-production-export-independent-review.json",
+    "verification/direct-capture-C31-1792738219665295894.json",
+    "verification/direct-run-C31-1792739858740946421.json"
+  ],
+  "actions": {
+    "live_helper_edits": false,
+    "builds": 0,
+    "native_runs": 0,
+    "rendered_repros": false
+  }
+}

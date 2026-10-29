@@ -1,0 +1,319 @@
+{
+  "actions": {
+    "live_helpers_or_production_changed": false,
+    "native_or_build_or_Git_runs": 0,
+    "new_generators_or_workloads_created": false,
+    "raw_payloads_saved": false
+  },
+  "actual_evidence": {
+    "direct_cases": 33,
+    "direct_checks": 1416,
+    "expanded37_actual_success_claimed": false,
+    "expected_guard_successes": 4,
+    "semantic_successes": 46,
+    "sql_records": 50
+  },
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "exact_remaining_unobserved_invariant": "For the final optimized shared-domain SQL sample, the outer reconstruction key and encoded inner key must still come from the same already-evaluated producer field; any intervening reducer must group the complete identity without recalculating an unstable producer aggregate. Existing final-plan observers do not bind those particular reducer lambdas and join-field positions. The new direct contracts bind this invariant through construction and initial lowering, not that final serialized graph.",
+  "expanded37_if_actual_passes": {
+    "does_not_prove": [
+      "Execution of the direct expressions as a complete SQL query.",
+      "Exact final SQL Switch/reducer/join field lineage after BuildPhysicalStageGraph, preparation and final peephole/compatibility lowering.",
+      "Universal correctness of untouched generic rewrites, arbitrary identity types, or frontend-rejected internal Semi/Only syntax."
+    ],
+    "existing33_and1416_retained": true,
+    "new_cases": 4,
+    "new_complete_checkpoints": [
+      8,
+      8,
+      8,
+      2
+    ],
+    "proves": [
+      "One actual scalar/grouped aggregate producer owns both reconstruction ports and exact IU rebinding pairs.",
+      "Complete key-only domain and matching nullable encoder inputs survive actual type annotation, pruning, inlining, stage assignment, aggregate propagation and liveness.",
+      "Actual row/block aggregation builders and BuildSwitch retain the same producer body, field ownership and key-only output mapping; the other port body remains unchanged.",
+      "Copied SOME producer is rejected before mutation while shared SOME construction is admitted."
+    ]
+  },
+  "interpretation": "This is a missing final-plan-specific observation, not another established production bug. The audited final generic transformations are unchanged by C31; requiring a general lineage engine to certify every such pass is broader than normal bounded verification of this fix. Keep every existing explicit final-plan proof flag false.",
+  "main_answer": "The original late-sharing failure is already supported by exact SQL and local evidence. The grouped nullable/keyless rejection is also part of C31, so a stage-order-only patch is insufficient for the grouped scope. A successful expanded37 run, together with the existing50 SQL observations and source composition audit, is a defensible finite correctness verification of the changed supported construction/lowering paths. It is not a proof of every final optimized SQL field edge.",
+  "new_production_bug_found": false,
+  "original_findings": [
+    {
+      "current_evidence": "Existing50 contains observed row/forced LEFT semantic and structural passes; original33 actual local contracts retain all1416 checks.",
+      "id": "stage_order",
+      "scope": "Residual reconstruction recreated sharing after copy expansion in no-channel-sharing mode."
+    },
+    {
+      "current_evidence": "Existing exact supported SQL bags plus local identity contracts; expanded four production pipeline cases remain actual-run pending at this assessment.",
+      "id": "grouped_identity_precondition",
+      "scope": "Valid left-family residual joins with missing/nullable metadata keys were rejected before the sharing failure; the original review explicitly grouped this with C31.",
+      "source": "rbo-review-20261021/reviewer-notes/r29.txt:11-13"
+    }
+  ],
+  "policy": "This assessment proposes a precise verification scope, not a silent oracle relaxation. Parent must independently review any admission/status wording; this task does not modify gates, cases or existing evidence.",
+  "production_source_bindings_revalidated": [
+    {
+      "lines": [
+        94,
+        226,
+        230,
+        254,
+        339
+      ],
+      "path": "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "329b129a4b4c58fa71a6e649c8e44786998c7982806e1a380b411ef72a2f05a2"
+    },
+    {
+      "lines": [
+        16,
+        103,
+        108
+      ],
+      "path": "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "6064c7c29f85923a02afa5be97e5e4d6f1dfe5e4e8a6bc1d0fd34c704bac980f"
+    },
+    {
+      "lines": [
+        7,
+        23,
+        33,
+        48,
+        56,
+        85
+      ],
+      "path": "ydb/core/kqp/opt/rbo/global_inlining.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "0949eba73647e64e39277111c28d523a83e589767a0b817461e055aa057da1ac"
+    },
+    {
+      "lines": [
+        106,
+        118,
+        136,
+        179,
+        205,
+        221,
+        236
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a"
+    },
+    {
+      "lines": [
+        111,
+        125,
+        136,
+        150
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "82cf05266e44fb8670009510dc46179faa2995e939a4a5333ebb63e63d62dcf5"
+    },
+    {
+      "lines": [
+        149,
+        150,
+        153
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo.h",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "fd5f01b23804b1a191073c18ac78e73be221dae491d74b082ab068e3894f947c"
+    },
+    {
+      "lines": [
+        500,
+        542
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "d17e17bb59e7f2ae23775bd5ba5c3b4fc9cdc4c338a6be183df768c90e502faf"
+    },
+    {
+      "lines": [
+        699,
+        701,
+        705,
+        745,
+        753,
+        761,
+        765
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "121c7897a70f4b535cd853b1964c909bca4e376dc89cccd83d727d7066f53e3a"
+    },
+    {
+      "lines": [
+        150,
+        813,
+        824
+      ],
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "dfaff3c1478f6eb4fd3bd39fa88cc05edd4f176142ce3b04b6199dded055e773"
+    },
+    {
+      "lines": [
+        63,
+        86,
+        100,
+        110,
+        270,
+        286
+      ],
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "1f5a0fead4fd48d92ae7135c9f5898d8efa0ed6ca95589519003dd279f369d8e"
+    },
+    {
+      "lines": [
+        881,
+        903,
+        952,
+        1029,
+        1054,
+        1132,
+        1197,
+        1290,
+        1486,
+        1531,
+        1538
+      ],
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "fdb9b801ed168150a67bbb69ec53a83d969a8231cff4a0af52e37983d9c09f15"
+    },
+    {
+      "lines": [
+        42,
+        51
+      ],
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "4a4b70640d1f203eed139e0e83b53bfd2ae89df655f9fc50803dd22587d4e9b9"
+    },
+    {
+      "lines": [
+        57,
+        65,
+        70,
+        90,
+        127
+      ],
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc"
+    },
+    {
+      "lines": [
+        35,
+        42,
+        58
+      ],
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "2b6dc81d287acc05fbd6887edab8796cdbf36c07a138a71eeb64534ff877fa1d"
+    },
+    {
+      "lines": [
+        137,
+        444,
+        533
+      ],
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "f11a39d6425b3dcb7888a427f46cd443f35d802db9046b4f1c0e14dba21f7e6a"
+    },
+    {
+      "lines": [
+        130,
+        137,
+        143,
+        191,
+        200
+      ],
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "aa418bdba1b88c9be06e885d9a2f0f5aa393ca688695d917d4928b7a7cac84bc"
+    },
+    {
+      "lines": [
+        74,
+        105,
+        109,
+        121,
+        125
+      ],
+      "path": "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85"
+    },
+    {
+      "lines": [
+        227
+      ],
+      "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb"
+    },
+    {
+      "lines": [
+        7,
+        43,
+        168,
+        178,
+        190,
+        193,
+        217,
+        224,
+        236,
+        246,
+        260,
+        265
+      ],
+      "path": "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667"
+    },
+    {
+      "lines": [
+        13,
+        61,
+        85,
+        95,
+        106,
+        133
+      ],
+      "path": "ydb/core/kqp/opt/rbo/rules/propagate_aggregate_through_stage.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "aec3c828e7bf8cbabbff051b95436f0fe314e3ce92fd421e580161cffd10aae1"
+    }
+  ],
+  "recommended_finite_closure": [
+    "Complete the current actual37 run with exact closure/generator provenance; all original33/1416 and new8/8/8/2 checkpoints remain mandatory. A compile/link/native failure is still a failure and cannot be replaced by this source assessment.",
+    "Combine that result with immutable exact50 SQL observations (46 semantic and4 conservative guard outcomes), the separately qualified bounded shared SQL observations, and the source-bound identity/lowering audit. No production revision change has occurred since those exact SQL runs.",
+    "Record the supported C31 bugfix as verified under this explicit evidence scope; retain exclusions for unsupported identity kinds, nonrepeatable copied producers, frontend-unavailable Semi/Only forms and zero-column end-to-end coverage.",
+    "Do not claim that the existing final-plan field observer passed. If a stronger final-SQL-lineage claim is retained as a separately required deliverable, scope it to one known shared aggregate-derived domain through final stage preparation and both reconstruction keys, using typed production APIs. It should be one bounded contract, not an arbitrary-AST parser or repeated wider SQL matrices."
+  ],
+  "references": {
+    "rbo-fixes-20261023/c31_combined_cpp_generator.py": "7d56fc9bcc877762fc09238f46fa39983e0634e0f89fca9a183860b3fe57455e",
+    "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": "7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6",
+    "rbo-fixes-20261023/cases/C31.json": "c44ecc6054406d2feb37a8eed5c0ad04b23a5837dbc49f52ef023fcd8b64ded3",
+    "rbo-fixes-20261023/verification/C31-changed-behavior-acceptance-scope-independent-review-20261028.json": "08fcf10d0df9738897e14dcf7d59047478fe701cb3746485d83bbd15a0763c41",
+    "rbo-fixes-20261023/verification/C31-identity-lowering-and-scope-source-audit-20261028.json": "0bd7974ff759647f7c7c7bba53a06fff9a76d75e76e3805f390b82f4523cfd3b",
+    "rbo-fixes-20261023/verification/C31-pipeline-changechild-owner-independent-review-20261028.json": "f952ba862ac2d0bed2a2513aea7daad7936bebdbea0a31380f1cd66afa8bed81",
+    "rbo-fixes-20261023/verification/C31-pipeline-const-pointer-independent-review-20261028.json": "421616b8ebf79e42b4b46c753b599ead2f0d6f719a5b55905518527cc9997858",
+    "rbo-fixes-20261023/verification/C31-shared-aggregate-pipeline-independent-review-20261028.json": "3a278030556f0f429c3577a2b924d800ceac298ae469efd1b820e3107c1c0803",
+    "rbo-fixes-20261023/verification/direct-run-C31-1793147369208959585.json": "4fdbc5752b63be1bec5c435cb59c9edabf41a8cf145b7b835b7d519dd2018900",
+    "rbo-fixes-20261023/verification/guarded-fixed-C31-24e1aae9a067-1792735900260575936.jsonl": "c8fb76b58c4f9c0b16abe5084bfde149cb6d6591fee3aa3b5def9176dd5a31a9",
+    "rbo-review-20261021/reviewer-notes/r29.txt": "a4b737f965c38ea22be050368e5fc114db391a284308544fa93391bdd2fd254a"
+  },
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "schema": "C31_finite_bugfix_closure_scope_assessment_v1",
+  "status": "source_assessment_no_gate_or_case_change"
+}

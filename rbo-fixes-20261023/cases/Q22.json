@@ -1,0 +1,50 @@
+{
+  "id": "Q22",
+  "title": "Focused scalar IN lowering expands large explicit collections linearly.",
+  "branch": "fix/new-rbo/q22-focused-scalar-in-lowering-expands-large-explicit-collections-linearly",
+  "commit": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.h",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp"
+  ],
+  "proposal_sha256": "efa8c1c35a023a1e3c9c90431673fbebfc9ae61c81066abcf96c19e023da4482",
+  "proposal": "proposed-quality-patches/Q22.patch",
+  "proposal_metadata": {
+    "id": "Q22",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_patch_not_applied",
+    "files": [
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.h",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.cpp",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp"
+    ],
+    "scope": "Route stages containing large explicit scalar IN collections through existing full physical peephole before focused lowering creates a linear comparison chain.",
+    "validation_required": [
+      "Independent ANSI/legacy truth tables across homogeneous/heterogeneous scalar tuples/lists, NULL and failed conversions",
+      "Empty/tiny collections stay on focused path; threshold boundary cases",
+      "Plan dictionary construction/Contains and absence of list-sized comparison OR",
+      "Invariant collection construction must not depend on row arguments; row-dependent collections must retain dependencies",
+      "Measure runtime lookup CPU, plan size, compile cost and peak memory separately"
+    ],
+    "apply_check_passed": true,
+    "production_edited": false,
+    "compiled": false,
+    "native_verified": false,
+    "scope_note": "Uses existing full-stage lowering rather than duplicating null/cast rules; compilation footprint may increase for qualifying stages.",
+    "integration_overlap": [
+      "C43 has a separate post-focused fallback; preserve both predicates without broadening this trigger"
+    ],
+    "independent_source_review": "No additional source blocker after review; native/build and stated topology checks remain required.",
+    "independently_reviewed_patch_sha256": "efa8c1c35a023a1e3c9c90431673fbebfc9ae61c81066abcf96c19e023da4482"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

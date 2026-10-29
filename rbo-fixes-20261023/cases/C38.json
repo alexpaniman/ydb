@@ -1,0 +1,60 @@
+{
+  "id": "C38",
+  "branch": "fix/new-rbo/c38-full-join-distribution",
+  "commit": "62bdb6bf7ed7b70851ed62c3d886fcc9737de15b",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp"
+  ],
+  "rationale": "Full and Exclusion joins cannot advertise either input key as the output partition key because null-extended unmatched rows can originate in different partitions. Leave output distribution unknown while retaining other metadata.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed candidate fecc1477007eeab40134d63fc6af5dfa0130b393 and verified metadata initialization clears inherited distribution before guard; no build/native run"
+  ],
+  "generators": [
+    "rbo-fixes-20261023/distribution_checks.py:recipes(n), names prefixed c38_"
+  ],
+  "expected_oracle": "Four-node Full join followed by grouping on nullable left keys has correct group multiplicity and totals with shuffle elimination enabled.",
+  "controls": [
+    "Unmatched rows on either side",
+    "Exclusion join",
+    "Inner/Left/Right family existing distribution behavior",
+    "Shuffle elimination disabled"
+  ],
+  "concerns": [
+    "Additional shuffle may be necessary for correctness; no benchmark claim.",
+    "Candidate reapplied as a fresh base-only commit."
+  ],
+  "generator_oracle": "Independent relational formulas plus legacy comparison under four-node execution.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C38",
+    "revision": "62bdb6bf7ed7b70851ed62c3d886fcc9737de15b",
+    "exit_code": 0,
+    "elapsed_seconds": 83.5,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4550656,
+      "peak_scope_usage_bytes": 43295862784,
+      "minimum_host_available_bytes": 108468334592,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 83.3
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/62bdb6bf7ed7b70851ed62c3d886fcc9737de15b-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 12,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C38-62bdb6bf7ed7-1792739007345552134.jsonl"
+  }
+}

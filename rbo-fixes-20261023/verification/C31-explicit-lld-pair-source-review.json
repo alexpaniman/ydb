@@ -1,0 +1,47 @@
+{
+  "status": "dormant_source_only_linker_pair_adapter",
+  "patch_path": "rbo-fixes-20261023/proposed-correctness-amendments/C31-explicit-lld-pair-artifacts.patch",
+  "patch_sha256": "101bfc42f960aa67d32c9b93c4f9cd07b0becb0fb8dad922eccaf67b0fe50fe4",
+  "before_sha256": "43d018319f33ad5828eb83ccaaab4fb90a17c0fe6a11d5319cf368bbf8372102",
+  "after_sha256": "f6b18cb732eb4467607b5103c15c7a01c7705155b4281e5fde405e65637db165",
+  "syntax_parse_passed": true,
+  "actual_graph_observation": {
+    "graph_path": "rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/production-graph.json",
+    "link_node_uid": "DsOEJz0VGkQzg1RxA5CmHg",
+    "link_command_argument_count": 1970,
+    "linker_flavors": [
+      "lld"
+    ],
+    "linker_paths": [
+      "$(LLD_ROOT-3107549726)/bin/ld.lld"
+    ],
+    "installed_linker_path": "/home/alexpaniman/.ya/tools/v4/9766798141/bin/ld.lld",
+    "installed_linker_is_file": true,
+    "installed_linker_resolved": "/home/alexpaniman/.ya/tools/v4/9766798141/bin/ld.lld"
+  },
+  "production_source": {
+    "path": "rbo-fixes-20261023/worktrees/aggregate/build/platform/lld/ya.make",
+    "linux_pair_lines": [
+      44,
+      48
+    ],
+    "sha256": "01bbd67637d60c593c6a956879ac59ef1f41b2f9699274322de630cb14667038"
+  },
+  "contracts": [
+    "Accept only one lld flavor plus one absolute linker path as the audited complementary pair.",
+    "The existing ld.lld basename and file-existence checks remain unchanged.",
+    "Duplicate and conflicting selector combinations still fail the existing ambiguity gate.",
+    "The explicit linker remains in receipt files and the selected LLD resource tree remains fingerprinted.",
+    "Compile/link arguments, output guards, environment transport and graph/build provenance remain unchanged."
+  ],
+  "verification": {
+    "native_runs": 0,
+    "compiler_runs": 0,
+    "mock_suites": 0,
+    "live_helper_edits": false,
+    "production_edits": false
+  },
+  "remaining": [
+    "Independent source review and actual metadata capture remain pending."
+  ]
+}

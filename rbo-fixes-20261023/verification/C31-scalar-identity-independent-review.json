@@ -1,0 +1,42 @@
+{
+  "id": "C31",
+  "reviewer": "quality_review",
+  "independent_of_patch_author": true,
+  "base": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+  "patch_sha256": "9ed0d81563d8dd825b28de0bbe71003d4b8263d92ce9ac1b8f90f3b8a7801f0b",
+  "status": "source_and_abstract_bag_contracts_passed_native_pending",
+  "source_contracts": 16,
+  "bag_comparisons": 4320,
+  "zero_column_comparisons": 480,
+  "empty_left_comparisons": 405,
+  "naive_duplicate_rejoin_mutations_rejected": 423,
+  "source_sha256": {
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb",
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp": "6064c7c29f85923a02afa5be97e5e4d6f1dfe5e4e8a6bc1d0fd34c704bac980f",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": "121c7897a70f4b535cd853b1964c909bca4e376dc89cccd83d727d7066f53e3a",
+    "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp": "5c4ce7925f8701818b97bff40d6e8c12eda32a09a7bb1f30782b8420173f19c8",
+    "yql/essentials/public/udf/udf_type_ops.h": "41c7214f60849bdfc8864f8d0182bb71154799e4ff0746a5082a1b3d37d9d412"
+  },
+  "reviewed_laws": [
+    "For each complete scalar left value with multiplicity m and k matching right rows, the domain produces k matches and reconstruction produces m*k rows.",
+    "LeftSemi and LeftOnly preserve m original occurrences based on existence; unmatched Left produces m padded rows.",
+    "The helper constant is added before Replicate; a zero-column empty bag remains empty under nonempty-key grouping.",
+    "Nullable unique identities retain their bag and encode only reconstruction keys; aggregate/domain deduplication is used only without key metadata.",
+    "Admitted fixed-width scalars, byte strings, ordinary date/time and Decimal have injective same-type StablePickle representations consistent with grouping equality. Optional encoding distinguishes absent and present values.",
+    "Keyless deduplication checks direct residual repeatability and recursively checks called subplans; producer copying retains existing guards.",
+    "Both insertion stages precede AssignStages and aggregate phase propagation.",
+    "New helper outputs and secondary IDs remain fresh; existing call captures are rebound with the secondary-port substitutions."
+  ],
+  "excluded_scope": [
+    "Keyless complete rows containing Float/Double, timezone scalars, Pg, opaque/containers, nested optional or bare Null.",
+    "New nullable unique identities outside the scalar whitelist.",
+    "Volatile/UDF keyless residual predicates or unproved referenced subplans.",
+    "Previously supported nonnullable unique-key types are unchanged, not newly certified by this review.",
+    "Actual zero-column direct-IR/native reachability, native serializer execution, duplicate bag semantics and sharing/staging remain pending."
+  ],
+  "compiled": false,
+  "native_verified": false,
+  "production_edited": false,
+  "generated_payloads_saved": false
+}

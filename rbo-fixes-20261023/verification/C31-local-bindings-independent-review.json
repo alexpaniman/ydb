@@ -1,0 +1,55 @@
+{
+  "schema": "independent_source_review_v1",
+  "reviewer": "/root/c35_compile_repair_review",
+  "finding": "C31",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "patch": "rbo-fixes-20261023/proposed-correctness-amendments/C31-local-bindings-artifacts.patch",
+  "patch_sha256": "ce99bd0d33a61d4a2818b6c0ec9350bd8543bf911c89e93e349c3e22aa12f1b8",
+  "candidate_generator_sha256": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+  "verdict": "approved_source_only_for_additional_local_binding_contracts",
+  "case_scope": {
+    "original_cases_preserved_at_original_indices": 24,
+    "additional_cases": 9,
+    "total": 33,
+    "join_families": 3,
+    "guard_rejections_preserved": 9
+  },
+  "contracts_checked": [
+    "Original cases and their rejection/positive assertions are retained. New equi-key, left-residual and correlated-capture shapes append after the original case index range.",
+    "IdentitySource checks an actual StablePickle map definition and its single direct Member input. CheckMember compares the Member row argument by expression-node pointer with that same TExpression lambda argument, then checks the expected IU.",
+    "Each reconstructed key resolves to a unique expected primary source and the exact secondary-port rename. Complete expected-source coverage is required. Nullable encoding must occur on both sides only for the designated nullable source; reconstruction EqualNulls must remain false.",
+    "The inner join must retain the original right operator, preserve every original equi-key pair and EqualNulls value, and carry no residual filter. The domain aggregate must be directly on the secondary port, while the original bag remains on the primary port.",
+    "The rewritten residual checks precise direct inputs and lambda Member bindings, including preservation of right-side IDs and renaming only the intended left-side ID.",
+    "The correlated subplan checks the original plan pointer, EXPR kind, call result binding, empty tuple, updated external dependencies, unchanged local IDs, preserved local expression-node identity and its local inputs. RebindInputs/RebindCaptures modify outer capture references and preserve local expression nodes in production.",
+    "Borrowed pointers/references remain owned by rewritten or capturedPlan intrusive pointers throughout the checks. GetLambda returns the existing Node, so direct row-argument pointer comparison is valid; no temporary lambda copy invalidates it.",
+    "The external projection preserves the full ordered ID/label entries and output membership. Original left/right output availability and Semi/Only right-output exclusion are checked; the zero-column projection checks expected arity.",
+    "TOpRoot, TJoinIUs.Contains, TOrderedIUs equality, TDependencyIUs accessors and TExpression APIs used by the added generator match the pinned C31 production signatures.",
+    "Only the C31 generator/profile are amended. The profile retains linked_production_local_contracts, exact revision/base, generator/rendered-source hashes and byte count. C47 and SQL/quality admission rules are unchanged."
+  ],
+  "profile_after": {
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "case_count": 33,
+    "generated_source_bytes": 157619,
+    "generated_source_sha256": "db908f12367b434770c9143a9e0698a0b7093f21cc291986bb884fbc1fce58a6",
+    "generator_sha256": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+    "module": "c31_identity_cpp_generator",
+    "profile": "rbo",
+    "proof_scope": "linked_production_local_contracts",
+    "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4"
+  },
+  "limitations": [
+    "No generated C++ or SQL was rendered, printed, saved, compiled or executed in this independent review. The authored generated-source hash/byte count will be enforced again by render_suite during actual anonymous execution.",
+    "These checks prove local logical-IR binding contracts only after actual linked native success. They do not prove SQL multiplicity, execution semantics of EqualNulls, physical sharing, aggregate-to-identity value lineage or sharing expansion.",
+    "Projection checks cover the local root wrapper and output availability; they do not execute full pipeline/export behavior or cover repeated external projection IDs.",
+    "Nested subplans, additional capture families and unsupported identity types remain outside these nine added profiles. Existing explicit scope limits remain required."
+  ],
+  "source_defect_established": false,
+  "actions": {
+    "live_generator_or_profile_edits": false,
+    "production_edits": false,
+    "build_runs": 0,
+    "native_runs": 0,
+    "mock_runs": 0,
+    "generated_cpp_or_sql_rendered": false
+  }
+}

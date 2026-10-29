@@ -1,0 +1,408 @@
+{
+  "status": "dormant_driver_integration_independent_review_required",
+  "production_revision_binding": "Bound to final independently reviewed C47 main-child amendment 54db45bef39b3515bd662daefe9d10c8757e74db; case and exact successful production receipt must agree.",
+  "patch": {
+    "path": "proposed-correctness-amendments/C47-covering-import-direct-driver-20261028.patch",
+    "sha256": "4f64ff7310a08559c44e95528bc2610a27265d5cff087d8f362aa9fb24a64b69"
+  },
+  "files": {
+    "correctness_cpp_contract.py": {
+      "before_sha256": "6102f53df8908c412e70b102b9f341aec242a6a9188e5a0b6fa96c6fd7f65c92",
+      "after_sha256": "49598993c191a5a9784cb57ccc5e8fc0b8719deb77071959dbab5b9da8572326"
+    },
+    "anonymous_cpp_verify.py": {
+      "before_sha256": "87f389a070db81db77983ebe816dd6f1696a3382d718365d22e2c9b7231d72eb",
+      "after_sha256": "c25be8ff86f651f726245a15ae1320d54a77bc0e266c8771e4556cc99735768d"
+    },
+    "correctness_cpp_profiles.json": {
+      "before_sha256": "672b472fd7bac647440ac855c0cdaad838f2f0bae1639888640d4280a385f5a2",
+      "after_sha256": "53c415c3b19f43132f79dfe2490ea5d5a246f9371629b9aa0ee054cf8ea20ca1"
+    },
+    "c47_combined_cpp_generator.py": {
+      "before_sha256": null,
+      "after_sha256": "1aeeec8491b4b054344cbf3704476044153e4c2409bd6a168d0ecfa7ce835fb2"
+    }
+  },
+  "case_count": 51,
+  "assertion_count": 796,
+  "vectors": [
+    {
+      "vector": "copy",
+      "module": "c47_lookup_copy_contract_generator",
+      "generator_sha256": "7e717869cb10b65043ade9032a170c3dfec96e8e341847c774245637f35033df",
+      "rendered_source_sha256": "e610ac774afe761407c33e1565ea9a74d93d5d6a7429e2fc0572dda8326a9d4c",
+      "case_count": 19,
+      "first_case_index": 0
+    },
+    {
+      "vector": "covering",
+      "module": "c47_covering_import_contract_generator",
+      "generator_sha256": "d19a363c250f6f61702e29360b50b613dbc42bf0f0b19c0eab3f5a39c608cee6",
+      "rendered_source_sha256": "83fe696c750b874b7addcb51971cf5f3814c523bacfc115e2571d07173d78483",
+      "case_count": 32,
+      "first_case_index": 19
+    }
+  ],
+  "case_assertions": [
+    {
+      "case_index": 0,
+      "vector": "copy",
+      "case": "plain_0_1_fresh",
+      "assertion_count": 17
+    },
+    {
+      "case_index": 1,
+      "vector": "copy",
+      "case": "plain_0_1_renamed",
+      "assertion_count": 18
+    },
+    {
+      "case_index": 2,
+      "vector": "copy",
+      "case": "plain_0_3_fresh",
+      "assertion_count": 25
+    },
+    {
+      "case_index": 3,
+      "vector": "copy",
+      "case": "plain_0_3_renamed",
+      "assertion_count": 26
+    },
+    {
+      "case_index": 4,
+      "vector": "copy",
+      "case": "plain_1_1_fresh",
+      "assertion_count": 17
+    },
+    {
+      "case_index": 5,
+      "vector": "copy",
+      "case": "plain_1_1_renamed",
+      "assertion_count": 18
+    },
+    {
+      "case_index": 6,
+      "vector": "copy",
+      "case": "plain_1_3_fresh",
+      "assertion_count": 25
+    },
+    {
+      "case_index": 7,
+      "vector": "copy",
+      "case": "plain_1_3_renamed",
+      "assertion_count": 26
+    },
+    {
+      "case_index": 8,
+      "vector": "copy",
+      "case": "plain_settings",
+      "assertion_count": 25
+    },
+    {
+      "case_index": 9,
+      "vector": "copy",
+      "case": "plain_ranges",
+      "assertion_count": 27
+    },
+    {
+      "case_index": 10,
+      "vector": "copy",
+      "case": "guard_join",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 11,
+      "vector": "copy",
+      "case": "guard_fetched_filter",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 12,
+      "vector": "copy",
+      "case": "guard_prefix",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 13,
+      "vector": "copy",
+      "case": "guard_source_read",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 14,
+      "vector": "copy",
+      "case": "guard_residual",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 15,
+      "vector": "copy",
+      "case": "guard_chained",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 16,
+      "vector": "copy",
+      "case": "guard_named_kind",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 17,
+      "vector": "copy",
+      "case": "input_limit",
+      "assertion_count": 2
+    },
+    {
+      "case_index": 18,
+      "vector": "copy",
+      "case": "input_unrepeatable_settings",
+      "assertion_count": 2
+    },
+    {
+      "case_index": 19,
+      "vector": "covering",
+      "case": "covered",
+      "assertion_count": 28
+    },
+    {
+      "case_index": 20,
+      "vector": "covering",
+      "case": "after_global_pruning",
+      "assertion_count": 31
+    },
+    {
+      "case_index": 21,
+      "vector": "covering",
+      "case": "copied_definitions",
+      "assertion_count": 37
+    },
+    {
+      "case_index": 22,
+      "vector": "covering",
+      "case": "shared_input_ownership",
+      "assertion_count": 29
+    },
+    {
+      "case_index": 23,
+      "vector": "covering",
+      "case": "preserved_read_state",
+      "assertion_count": 55
+    },
+    {
+      "case_index": 24,
+      "vector": "covering",
+      "case": "unique_index",
+      "assertion_count": 28
+    },
+    {
+      "case_index": 25,
+      "vector": "covering",
+      "case": "extra_demand",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 26,
+      "vector": "covering",
+      "case": "shared_lookup_edges",
+      "assertion_count": 14
+    },
+    {
+      "case_index": 27,
+      "vector": "covering",
+      "case": "different_value_type",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 28,
+      "vector": "covering",
+      "case": "different_optionality",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 29,
+      "vector": "covering",
+      "case": "missing_main_types",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 30,
+      "vector": "covering",
+      "case": "missing_index_types",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 31,
+      "vector": "covering",
+      "case": "incomplete_pk",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 32,
+      "vector": "covering",
+      "case": "reordered_pk",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 33,
+      "vector": "covering",
+      "case": "wrong_key_source",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 34,
+      "vector": "covering",
+      "case": "reject_null_keys",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 35,
+      "vector": "covering",
+      "case": "async_index",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 36,
+      "vector": "covering",
+      "case": "specialized_index",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 37,
+      "vector": "covering",
+      "case": "not_ready_index",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 38,
+      "vector": "covering",
+      "case": "unrelated_implementation",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 39,
+      "vector": "covering",
+      "case": "missing_implementation",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 40,
+      "vector": "covering",
+      "case": "spilling_enabled",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 41,
+      "vector": "covering",
+      "case": "join_lookup",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 42,
+      "vector": "covering",
+      "case": "fetched_filter",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 43,
+      "vector": "covering",
+      "case": "point_prefix",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 44,
+      "vector": "covering",
+      "case": "source_read_state",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 45,
+      "vector": "covering",
+      "case": "chained_lookup",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 46,
+      "vector": "covering",
+      "case": "residual_keys",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 47,
+      "vector": "covering",
+      "case": "olap_program",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 48,
+      "vector": "covering",
+      "case": "original_predicate",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 49,
+      "vector": "covering",
+      "case": "missing_read_settings",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 50,
+      "vector": "covering",
+      "case": "missing_main_metadata",
+      "assertion_count": 13
+    }
+  ],
+  "generated_source_sha256": "4c48c9a652f654be9a9b8f7d9646b6678928fee2a9b59b9b7580634dbaab9416",
+  "generated_source_bytes": 160442,
+  "dependencies": [
+    "C47-copy-generator-ordered-key-api-20261028.patch",
+    "C47-covering-import-direct-controls-20261028.patch"
+  ],
+  "native_executed": false,
+  "live_helpers_changed": false,
+  "generated_sources_persisted": false,
+  "metadata_validation": {
+    "path": "verification/C47-covering-import-direct-driver-metadata-checks-20261028.json",
+    "sha256": "125150bb2fb49442773a14e7658212675228a49888f535b3619f6f4f716edfe8",
+    "checks_passed": 274,
+    "test_generator_path": "proposed-correctness-amendments/C47-covering-import-driver/verify_metadata.py",
+    "test_generator_sha256": "63cbff367224512bcb871ccd45dc542b7fded3b3c50e23ce20c019ada3bb0207"
+  },
+  "composition": [
+    "The original copy19 and new covering32 standalone generator bytes are independently SHA-bound before evaluation. Each standalone generated source hash is checked in memory.",
+    "Both sets of generated helper and case functions are preserved byte-for-byte inside separate C++ namespaces. Includes remain at global scope; only their standalone mains are replaced with one 51-case driver.",
+    "Exact successful assertion counts are 249 for copy19 and 547 for covering32. Copy-loop counts are independently accounted for at widths 1 and 3.",
+    "The reviewed profile binds both component identities, exact ordered case names/assertion counts, combined source bytes/hash and combined generator hash.",
+    "Evidence requires the profile hash, separate component identities, exact vector hash and matching linked-production receipt. A passing row with fewer or more assertions is rejected.",
+    "One actual guarded compile/link/native sequence is retained; guard scopes, timeouts, cleanup, anonymous transport and production-version binding are unchanged.",
+    "The final fixed-only admission re-renders and rechecks component source identities as well as exact assertions. C31 profile and 33-case source remain unchanged."
+  ],
+  "remaining_requirements": [
+    "Independent source/API review of the corrected new32 generator and combined51 integration.",
+    "Apply at idle only after existing source-frozen work ends.",
+    "C47 case, profile, clean main-child branch and production closure must all bind final commit 54db45bef39b3515bd662daefe9d10c8757e74db.",
+    "Capture a successful exact-final-revision RBO closure with actual production version infrastructure and run the existing guarded direct execute CLI.",
+    "Require all51 direct controls with exact796 assertions plus separate existing12 SQL semantic checks and the unchanged covering structural assertion. No source-only native promotion."
+  ],
+  "execution_descriptor": {
+    "command": [
+      "python3",
+      "-B",
+      "rbo-fixes-20261023/anonymous_cpp_verify.py",
+      "execute",
+      "--bug",
+      "C47",
+      "--phase",
+      "fixed",
+      "--worktree",
+      "<final-C47-worktree>",
+      "--receipt",
+      "<exact-final-RBO-closure-receipt>"
+    ],
+    "lease": "Existing production_sources_frozen and direct_cpp_verification state; no overlapping build/query/direct verifier.",
+    "scope": "Direct local production contracts; semantic and optimization evidence remain separately required."
+  },
+  "corrected_direct32_report": {
+    "path": "verification/C47-covering-import-direct-source-preparation-20261028.json",
+    "sha256": "133a2efafee9a06c4dd6e7b19860cf534d40c4cb3f274d6ef0689a96973feaf9"
+  }
+}

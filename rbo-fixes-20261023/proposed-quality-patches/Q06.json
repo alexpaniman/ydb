@@ -1,0 +1,20 @@
+{
+  "id": "Q06",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_patch_only",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp"
+  ],
+  "scope": "Protect complete physical primary-key probes in the no-range index-selection path shared by CBO and execution. Other candidate ranking is unchanged.",
+  "validation_plan": [
+    "Both CBO and physical lookup keep complete base-PK target over incomplete secondary prefix",
+    "Partial-PK control remains eligible for covering secondary access",
+    "Composite and nullable physical keys; no-range eligibility; measure fan-out and selected target"
+  ],
+  "static_checks": [
+    "git apply --check against pinned baseline passed"
+  ],
+  "limits": [
+    "No compilation, native execution or plan-quality measurement yet"
+  ]
+}

@@ -1,0 +1,264 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -17,6 +17,7 @@
+ import subprocess
+ import sys
+ import time
++from types import ModuleType
+ 
+ from anonymous_cpp_guard import run_anonymous
+ from anonymous_cpp_metadata import (VERSION as CLOSURE_VERSION, MetadataError, digest_file, issue_receipt,
+@@ -207,15 +208,18 @@
+     return output.decode('utf-8', errors='strict'), record
+ 
+ 
++def _q19_object_path(receipt, stem):
++    matches = [path for path in receipt['files']
++               if Path(path).name in (stem + '.o', stem + '.pic.o', stem + '.abi_stable.o')]
++    if len(matches) != 1:
++        raise MetadataError('required_q19_production_object_is_ambiguous')
++    return matches[0]
++
++
+ def q19_wrapping(receipt, worktree):
+     files = receipt['files']
+-    def object_path(stem):
+-        matches = [path for path in files if Path(path).name in (stem + '.o', stem + '.pic.o', stem + '.abi_stable.o')]
+-        if len(matches) != 1:
+-            raise MetadataError('required_q19_production_object_is_ambiguous')
+-        return matches[0]
+-    definitions = object_path('kqp_column_statistics_utils.cpp')
+-    caller = object_path('kqp_rbo_transformer.cpp')
++    definitions = _q19_object_path(receipt, 'kqp_column_statistics_utils.cpp')
++    caller = _q19_object_path(receipt, 'kqp_rbo_transformer.cpp')
+     nm, readelf = _tool(receipt, 'llvm-nm'), _tool(receipt, 'llvm-readelf')
+     symbols_text, nm_record = _read_tool(receipt, [str(nm), '--defined-only', '--format=posix', definitions], worktree)
+     symbols = {}
+@@ -237,6 +241,7 @@
+         raise MetadataError('q19_actual_caller_relocations_not_confirmed')
+     return symbols, {'definition_object_sha256': files[definitions]['sha256'],
+                      'caller_object_sha256': files[caller]['sha256'],
++                     'request_symbols': dict(symbols),
+                      'request_symbol_sha256': {key: hashlib.sha256(value.encode()).hexdigest() for key, value in symbols.items()},
+                      'both_caller_relocations_verified': True, 'nm': nm_record, 'relocations': reloc_record,
+                      'inspection_tools': {str(tool): digest_file(tool) for tool in (nm, readelf)}}
+@@ -249,7 +254,11 @@
+     if bug in ('C31', 'C47'):
+         from correctness_cpp_contract import render_suite as render_correctness_suite
+         return render_correctness_suite(bug, revision)
+-    module = importlib.import_module(GENERATORS[bug])
++    if bug in PAIRED_DIRECT_BUGS:
++        module, generator_hash, _ = _current_pair_contract(bug)
++    else:
++        module = importlib.import_module(GENERATORS[bug])
++        generator_hash = None
+     if bug == 'Q27':
+         source = module.render_cpp_suite(worktree, revision)
+         count = len(module.specs())
+@@ -262,7 +271,7 @@
+         source = module.render_cpp_suite(bug, wrapper_symbols) if bug in ('Q18', 'Q19') else module.render_cpp_suite(bug)
+     if count < 1:
+         raise MetadataError('empty_generated_suite')
+-    return source.encode(), count, digest_file(module.__file__)['sha256']
++    return source.encode(), count, generator_hash or digest_file(module.__file__)['sha256']
+ 
+ 
+ def parse_verdicts(stdout, count, exit_code, bug):
+@@ -410,6 +419,11 @@
+     del source
+     verification_stage = 'compile'
+     try:
++        if args.bug in PAIRED_DIRECT_BUGS:
++            _, current_hash, vector = _current_pair_contract(args.bug)
++            if current_hash != generator_hash or len(vector['case_names']) != count:
++                raise MetadataError('direct_pair_generator_changed_before_compile')
++            evidence['direct_case_vector_sha256'] = _json_digest(vector)
+         if args.bug in ('C31', 'C47'):
+             from correctness_cpp_contract import profile_digest
+             evidence['direct_contract_profile_sha256'] = profile_digest(args.bug, revision)
+@@ -488,16 +502,149 @@
+             os.close(fd)
+ 
+ 
++PAIRED_DIRECT_BUGS = ('Q14', 'Q16', 'Q18', 'Q19', 'Q25', 'Q27', 'Q28')
++
++
++def _current_pair_contract(bug):
++    """Load the exact current adapter bytes, including its ordered coverage."""
++    if bug not in PAIRED_DIRECT_BUGS:
++        raise MetadataError('unknown_saved_direct_pair_contract')
++    name = GENERATORS[bug]
++    path = HERE / (name + '.py')
++    raw = path.read_bytes()
++    module = ModuleType(name)
++    module.__file__ = str(path)
++    exec(compile(raw, str(path), 'exec'), module.__dict__)
++    specifications = module.specs() if bug in ('Q27', 'Q28') else None
++    if bug == 'Q27':
++        names = ['q27_' + spec['shape'] + '_' + str(spec['depth']) for spec in specifications]
++    else:
++        names = [name for name in module.cases() if name.startswith(bug.lower() + '_')]
++    if (not names or any(not isinstance(name, str) or not name for name in names)
++        or len(set(names)) != len(names)
++        or specifications is not None and len(specifications) != len(names)):
++        raise MetadataError('invalid_current_direct_pair_coverage')
++    vector = {'case_names': names, 'specifications': specifications}
++    return module, hashlib.sha256(raw).hexdigest(), vector
++
++
++def _saved_pair_receipt(evidence, bug, revision):
++    """Validate saved source binding without requiring the old checkout HEAD."""
++    try:
++        raw = Path(evidence['closure_receipt_path']).read_bytes()
++        receipt = json.loads(raw)
++        profile = _closure_profile(bug)
++        target = 'yql/essentials/ast/ut' if profile == 'ast' else 'ydb/core/kqp/ut/rbo'
++        build, metadata = receipt.get('build', {}), receipt.get('metadata', {})
++        files = receipt.get('files')
++        worktree = receipt.get('worktree')
++        if (hashlib.sha256(raw).hexdigest() != evidence.get('closure_receipt_sha256')
++            or receipt.get('schema_version') != CLOSURE_VERSION or receipt.get('revision') != revision
++            or build.get('revision') != revision or type(build.get('exit_code')) is not int
++            or build['exit_code'] != 0 or build.get('profile') != profile or build.get('target') != target
++            or metadata.get('profile') != profile or metadata.get('target') != target
++            or not isinstance(files, dict) or not files
++            or not isinstance(worktree, str) or not Path(worktree).is_absolute()
++            or not Path(worktree).is_dir()):
++            raise MetadataError('saved_direct_pair_receipt_mismatch')
++        for identity in files.values():
++            if (not isinstance(identity, dict) or not isinstance(identity.get('sha256'), str)
++                or not re.fullmatch('[0-9a-f]{64}', identity['sha256'])
++                or type(identity.get('size_bytes')) is not int or identity['size_bytes'] < 0):
++                raise MetadataError('saved_direct_pair_input_identity_missing')
++        if build.get('build_record_version') is not None and (
++            build.get('build_record_version') != 'production_cpp_build_v2'
++            or build.get('revision_before') != revision or build.get('revision_after') != revision):
++            raise MetadataError('saved_direct_pair_build_source_mismatch')
++        # Immutable Git object lookup is sufficient here; the worktree may have
++        # been reused for another independently verified branch since execution.
++        actual = subprocess.check_output(['git', 'rev-parse', '--verify', revision + '^{commit}'],
++                                         cwd=worktree, text=True, stderr=subprocess.DEVNULL).strip()
++        if actual != revision:
++            raise MetadataError('saved_direct_pair_source_revision_unavailable')
++        return receipt
++    except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError) as exc:
++        raise MetadataError('saved_direct_pair_receipt_unavailable_or_invalid') from exc
++
++
++def _saved_q19_symbols(evidence, receipt):
++    """Use only symbols captured from the actual inspected production object."""
++    wrapping = evidence.get('wrapping')
++    if not isinstance(wrapping, dict) or wrapping.get('both_caller_relocations_verified') is not True:
++        raise MetadataError('missing_actual_q19_caller_relocation_proof')
++    symbols, hashes = wrapping.get('request_symbols'), wrapping.get('request_symbol_sha256')
++    if (not isinstance(symbols, dict) or set(symbols) != {'single', 'tuple'}
++        or not isinstance(hashes, dict) or set(hashes) != set(symbols)):
++        raise MetadataError('saved_q19_actual_wrapper_symbols_missing')
++    for key, symbol in symbols.items():
++        if (not isinstance(symbol, str) or not re.fullmatch(r'_Z[A-Za-z0-9_]+', symbol)
++            or 'AddStatRequest' not in symbol
++            or ('TMultiColumnStatistics' not in symbol if key == 'tuple' else
++                'TColumnStatistics' not in symbol or 'TMultiColumnStatistics' in symbol)
++            or hashes[key] != hashlib.sha256(symbol.encode()).hexdigest()):
++            raise MetadataError('saved_q19_wrapper_symbol_identity_mismatch')
++    for stem, key in (('kqp_column_statistics_utils.cpp', 'definition_object_sha256'),
++                      ('kqp_rbo_transformer.cpp', 'caller_object_sha256')):
++        path = _q19_object_path(receipt, stem)
++        if wrapping.get(key) != receipt['files'][path]['sha256']:
++            raise MetadataError('saved_q19_inspection_object_receipt_mismatch')
++    for key in ('nm', 'relocations'):
++        process = wrapping.get(key, {})
++        if (type(process.get('exit_code')) is not int or process['exit_code'] != 0
++            or process.get('cleanup_complete') is not True or process.get('watchdog_stopped') is not False
++            or process.get('stdout_overflow') is not False):
++            raise MetadataError('saved_q19_inspection_did_not_complete')
++    return symbols
++
++
++def _validate_saved_pair_contract(evidence, bug, revision, module, generator_hash, vector):
++    if (evidence.get('generator_sha256') != generator_hash
++        or type(evidence.get('case_count')) is not int
++        or evidence['case_count'] != len(vector['case_names'])
++        or evidence.get('direct_case_vector_sha256') != _json_digest(vector)):
++        raise MetadataError('saved_direct_pair_adapter_or_coverage_changed')
++    receipt = _saved_pair_receipt(evidence, bug, revision)
++    if bug == 'Q27':
++        source = module.render_cpp_suite(Path(receipt['worktree']), revision)
++    elif bug == 'Q19':
++        symbols = _saved_q19_symbols(evidence, receipt)
++        source = module.render_cpp_suite(bug, symbols)
++    elif bug in ('Q25', 'Q28'):
++        source = module.render_cpp_suite()
++    else:
++        source = module.render_cpp_suite(bug)
++    source = source.encode()
++    if (evidence.get('generated_source_sha256') != hashlib.sha256(source).hexdigest()
++        or type(evidence.get('generated_source_bytes')) is not int
++        or evidence['generated_source_bytes'] != len(source)):
++        raise MetadataError('saved_direct_pair_rendered_adapter_changed')
++
++
++def _validate_saved_pair_process(process, phase):
++    if (not isinstance(process, dict) or type(process.get('exit_code')) is not int
++        or process.get('watchdog_stopped') is not False
++        or process.get('cleanup_complete') is not True
++        or process.get('stdout_overflow') is not False
++        or process['exit_code'] not in ((0, 1) if phase == 'native' else (0,))):
++        raise MetadataError('incomplete_direct_pair_process_evidence')
++
++
+ def pair_direct(bug, before, after, case):
+     if bug in ('C31', 'C47', 'Q01', 'Q11', 'Q15'):
+         raise MetadataError('fixed_admission_requires_separately_paired_sql')
++    current_case = json.loads((HERE / 'cases' / (bug + '.json')).read_bytes())
++    if any(case.get(key) != current_case.get(key) for key in ('base', 'commit')):
++        raise MetadataError('saved_direct_pair_case_revision_changed')
++    module, generator_hash, vector = _current_pair_contract(bug)
+     def valid_digest(value):
+         return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
+     for evidence, phase, revision in ((before, 'baseline', case['base']), (after, 'fixed', case['commit'])):
+         if (evidence.get('schema_version') != 'anonymous_direct_cpp_v1' or evidence.get('bug') != bug
+                 or evidence.get('phase') != phase or evidence.get('revision') != revision
+                 or evidence.get('closure_provenance_verified') is not True
+-                or not evidence.get('cases') or evidence.get('generated_files_persisted') is not False):
++                or not evidence.get('cases') or evidence.get('generated_files_persisted') is not False
++                or evidence.get('query_semantics_verified') is not False
++                or evidence.get('quality_improvement_verified') is not False):
+             raise MetadataError('unmatched_direct_pair_provenance')
+         if (evidence.get('generator_module') != GENERATORS[bug]
+                 or type(evidence.get('case_count')) is not int or evidence['case_count'] <= 0
+@@ -511,12 +658,8 @@
+                     or evidence[key]['size_bytes'] <= 0):
+                 raise MetadataError('missing_direct_pair_binary_identity')
+         for phase_name in ('compile', 'link', 'native'):
+-            process = evidence.get(phase_name, {})
+-            if (process.get('watchdog_stopped') or process.get('cleanup_complete') is not True
+-                    or process.get('stdout_overflow') or process.get('exit_code') not in ((0, 1) if phase_name == 'native' else (0,))):
+-                raise MetadataError('incomplete_direct_pair_process_evidence')
+-        if bug == 'Q19' and (evidence.get('wrapping') or {}).get('both_caller_relocations_verified') is not True:
+-            raise MetadataError('missing_actual_q19_caller_relocation_proof')
++            _validate_saved_pair_process(evidence.get(phase_name), phase_name)
++        _validate_saved_pair_contract(evidence, bug, revision, module, generator_hash, vector)
+     if before.get('generator_sha256') != after.get('generator_sha256') or before.get('case_count') != after.get('case_count'):
+         raise MetadataError('direct_pair_generator_or_case_mismatch')
+     if bug != 'Q27' and before.get('generated_source_sha256') != after.get('generated_source_sha256'):
+@@ -537,10 +680,6 @@
+         regressions += sum(right['entries'] > left['entries'] or right['unique_visible_nodes'] != left['unique_visible_nodes']
+                            for left, right in zip(*records))
+     if bug == 'Q28':
+-        module = importlib.import_module(GENERATORS[bug])
+-        if (before['generator_sha256'] != digest_file(module.__file__)['sha256']
+-                or before['generated_source_sha256'] != hashlib.sha256(module.render_cpp_suite().encode()).hexdigest()):
+-            raise MetadataError('scheduler_generator_identity_changed')
+         specifications = module.specs()
+         if len(specifications) != count:
+             raise MetadataError('scheduler_specifications_changed')
+@@ -555,6 +694,8 @@
+             else:
+                 gains += all(right[key] < left[key] for key in counters)
+                 regressions += any(right[key] > left[key] for key in counters)
++    if digest_file(module.__file__)['sha256'] != generator_hash:
++        raise MetadataError('direct_pair_generator_changed_during_admission')
+     local = fixed_passes and gains > 0 and regressions == 0
+     return {'bug': bug, 'baseline_revision': case['base'], 'fixed_revision': case['commit'],
+             'status': 'paired_local_contracts_passed_query_semantics_pending' if local else 'paired_local_contracts_pending',

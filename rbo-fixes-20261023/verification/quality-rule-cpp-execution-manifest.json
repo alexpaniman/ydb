@@ -1,0 +1,16 @@
+{
+  "status": "generator_only_not_compiled_or_executed",
+  "cases": 72,
+  "Q14": "Calls actual ConvertOptimizedTree with Grace/ReverseBlock/Map and empty/ordered nonempty shuffle vectors; tests engaged-empty versus absent output directives.",
+  "Q16": "Calls actual width-limit rule across row/column/mixed/shared/unrelated sources, thresholds, widths and block modes; observes the real TypeCtx mutation.",
+  "source_transport": "Anonymous memfd compiler input, exactly as quality_cpp_contract_generator execution manifest.",
+  "batch_interface": "render_cpp_suite(Q14 or Q16); one translation unit per selected branch with numeric JSONL case verdicts",
+  "remaining": [
+    "Compile adapters against selected-branch dependencies",
+    "Guarded baseline/fixed native execution",
+    "Q14 downstream physical stage edges and multinode semantics",
+    "Q16 WindowFunctionsV2 unchanged-guard coverage"
+  ],
+  "production_sources_modified": false,
+  "rendered_sources_persisted": false
+}

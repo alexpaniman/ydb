@@ -1,0 +1,126 @@
+{
+  "actual_native_runtime_environment_bound": false,
+  "actual_runtime_file_behavior_verified": false,
+  "applied30_plan_sha256": "3d08b805f4ba60b5004108ff36b551a79c7c614703adcc69a7b04e33131cd98e",
+  "build_runs": 0,
+  "clean_application_after30_verified": true,
+  "comparative_timing_admission_approved": false,
+  "finding": "Q28",
+  "followup_requested_from": "anonymous_link_memory_review",
+  "graph_operations": 0,
+  "helper_after_sha256": "e047fa63bb6707c02ce165a2768a892a3a9a77f40cc6a8db75848055c442bc53",
+  "helper_before_sha256": "fce1a48f08006a3ab7d3872bd4d8bb47f87be918e3d02b53b9cc75a52f11c20b",
+  "live_helper_edits": false,
+  "metadata_assertions": 253,
+  "metadata_coverage": [
+    "Clean application onto disposable applied30 helper copies and exact after hash.",
+    "Eight successful mocked cold samples, one incomplete cold sample, and early-stop behavior.",
+    "Strict counter/flag/exit/cache/report parser rejection.",
+    "Compile/link/native guard and compile/link override-hash failures.",
+    "Input/executable/receipt/profile mutation rejection.",
+    "All fake descriptors closed on successful and rejected executions."
+  ],
+  "metadata_report": "verification/Q28-sdk-compilation-independent-metadata-20261028.json",
+  "metadata_report_sha256": "f35900e432c10644b66625560142608e0afde45dcb646809092b12fe8528b96a",
+  "module_sha256": "22c807e6780ef984ba7114b917c1d3d3e5f4914bdbd278817961e394472a75ee",
+  "native_runs": 0,
+  "optimizer_stage_timings_verified": false,
+  "patch": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+  "patch_sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483",
+  "pinned_source_files_checked": 15,
+  "production_defects_found": [],
+  "quality_improvement_verified": false,
+  "query_semantics_verified": false,
+  "remaining_limits": [
+    "No C++ compile, link, SDK server, socket, cgroup, or native file behavior was executed by this review.",
+    "Normal port-manager lock files and runtime temp directories exist; memfd workload transport alone does not prove all runtime-generated files are absent.",
+    "Eight shapes at 24 fixture rows are a transport pilot, not structural query-complexity scaling.",
+    "Query bags and final plans are deliberately not checked by this adapter; use the separate semantic module.",
+    "Actual direct26 counters, full stage-boundary semantics and matched structural timing samples remain separate required evidence."
+  ],
+  "rendered_queries_plans_cpp_or_results_persisted": false,
+  "required_harness_followup": [
+    {
+      "blocks": "Comparative timing admission; finish before accepting pilot execution as identity-bound.",
+      "detail": "compiler_environment=False retains the worker inherited environment. run_anonymous.environment_sha256 hashes only explicit override arguments, which are empty here. Caller profile/receipt hashes do not establish native environment or CPU affinity. Test redirection can also skip normal local-server initialization.",
+      "issue": "Actual native runtime environment is neither bound nor attested.",
+      "needed": "Use a Q28-specific dormant follow-up that hashes actual native environment/affinity, verifies transport/unchanged state, and rejects test redirection and loader/profile-output overrides without exposing values. Keep direct26 and shared guard policy unchanged.",
+      "references": [
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:278",
+        "anonymous_cpp_guard.py:63",
+        "anonymous_cpp_guard.py:119",
+        "ydb/core/testlib/test_client.cpp:433",
+        "ydb/core/testlib/test_client.cpp:456"
+      ]
+    },
+    {
+      "blocks": "Running the unchanged frozen eight-cell pilot under the RAM-only workload policy.",
+      "detail": "LocalFileConfig.Enable defaults true. TKikimrRunner supplies _KqpEnableSpilling only when that file service is enabled. SpillingEnabled reads that flag and RBO uses it in channel-sharing admission. Small row counts do not prove no workload data will spill. No native filesystem behavior has been observed.",
+      "issue": "Local file spilling is implicitly enabled; disabling it changes the intended shared-spilling compiler configuration.",
+      "needed": "Explicitly disable local file spilling for the non-spilling pilot cells. Keep q28_shared_spilling_control unexecuted and explicitly pending until an audited RAM-only service setup preserves its intended compiler configuration and actual file behavior is checked.",
+      "references": [
+        "ydb/core/protos/table_service_config.proto:95",
+        "ydb/core/kqp/ut/common/kqp_ut_common.cpp:148",
+        "ydb/core/kqp/provider/yql_kikimr_settings.cpp:239",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:609",
+        "ydb/core/kqp/proxy_service/kqp_proxy_service.cpp:386"
+      ]
+    }
+  ],
+  "reviewed_contracts": [
+    {
+      "contract": "SDK API and cold target sample",
+      "detail": "The pinned headers expose TSession::ExecuteQuery, Basic stats, optional GetStats/GetCompilation and unsigned cache/duration/CPU accessors. Execute and YqlV1 are defaults. Each target uses a fresh one-node TKikimrRunner, after schema/fixture setup. Success requires a present compilation message, from_cache false, positive counters, one result set and zero exit. This is target plan-cache coldness, not cold OS or untouched schema caches.",
+      "references": [
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:68",
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:97",
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:173",
+        "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/query.h:156",
+        "ydb/public/sdk/cpp/src/client/query/stats.cpp:104",
+        "ydb/public/sdk/cpp/src/client/query/stats.cpp:217"
+      ]
+    },
+    {
+      "contract": "Exact source/closure/dependency binding",
+      "detail": "Pinned main/fixed revision and independent-parent check are delegated to the existing verifier. Receipt profile and target are constrained to the RBO closure, validated before and after. Module and recursive generator/harness/config fingerprints, each input payload digest, generated object/executable identity, receipt bytes and compiler/link environment override hashes are bound. This does not fill the native inherited-environment gap.",
+      "references": [
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:211",
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:295",
+        "anonymous_cpp_verify.py:46",
+        "anonymous_cpp_metadata.py:569",
+        "quality_pairing.py:67"
+      ]
+    },
+    {
+      "contract": "Anonymous data transport and bounded serial execution",
+      "detail": "Adapter source, object, executable, configuration/schema/fixture/target inputs and report use memfds. Rendered SQL is not embedded in generated C++. Native stdout/stderr are redirected before runner creation; report is fixed-field bounded metadata. Input/executable digests are rechecked. The command is behind the existing serial lease. Compile/link/native each run serially in the existing guarded scope with thresholds 24/36/12 GiB, 36 GiB host reserve and scope MemoryMax threshold plus 4 GiB. Actual namespace/socket/temp/spill behavior remains native-pending.",
+      "references": [
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:22",
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:247",
+        "proposed-quality-amendments/q28_compilation_measurement_20261028.candidate.py:278",
+        "anonymous_cpp_guard.py:105",
+        "anonymous_cpp_guard.py:139"
+      ]
+    },
+    {
+      "contract": "No weakening of direct26 or optimization acceptance",
+      "detail": "Only anonymous_cpp_verify.main command dispatch changes. All other helper function ASTs match, Q28 still maps to quality_scheduler_cpp_checks and its 26 cases, and pilot schema cannot be a direct-rule record. Semantic/quality/stage-timing/scaling/full-admission flags remain false."
+    },
+    {
+      "contract": "Statistics scope",
+      "detail": "Fields are server-reported compilation wall and scoped CPU counters from the dedicated SDK protobuf, independent of new RBO plan JSON. They exclude startup, fixture execution and final target execution counters. The wall interval includes waits inside compilation but can exclude earlier parse/cache lookup and queue work; CPU is not exhaustive process or pure-RBO CPU. No per-stage or improved-performance claim is justified.",
+      "references": [
+        "ydb/core/grpc_services/rpc_kqp_base.cpp:61",
+        "ydb/core/kqp/compile_service/kqp_compile_actor.cpp:278",
+        "ydb/core/kqp/compile_service/kqp_compile_actor.cpp:493",
+        "verification/Q28-compilation-statistics-api-source-review-20261028.json"
+      ]
+    }
+  ],
+  "source_bindings_report": "verification/Q28-sdk-compilation-independent-source-bindings-20261028.json",
+  "source_bindings_report_sha256": "5a65af0023810fa39bdf6568f70b89157908f3cf84edaca2eccdaf11981bcfc0",
+  "source_preparation_sha256": "4d4177763dace29527891808c2ac1cb15af49ff89b80c84151a61eda3f084d8a",
+  "status": "independent_source_and_metadata_review_complete_followup_required_before_native",
+  "toolchain_runs": 0,
+  "unchanged_pilot_native_execution_approved": false
+}

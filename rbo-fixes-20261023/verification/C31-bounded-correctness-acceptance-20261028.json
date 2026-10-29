@@ -1,0 +1,24 @@
+{
+  "schema": "C31_bounded_correctness_acceptance_v1",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "status": "verified",
+  "direct_evidence": "verification/direct-run-C31-1793157890139265085.json",
+  "direct_evidence_sha256": "71ad8285f154555a6a011e544301d9df27b7868598dc0713652a049a0afa1641",
+  "direct_cases": 37,
+  "direct_checkpoints": 1442,
+  "SQL_evidence": "verification/guarded-fixed-C31-24e1aae9a067-1792735900260575936.jsonl",
+  "SQL_evidence_sha256": "c8fb76b58c4f9c0b16abe5084bfde149cb6d6591fee3aa3b5def9176dd5a31a9",
+  "SQL_semantic_successes": 46,
+  "SQL_expected_guard_outcomes": 4,
+  "scope_assessment": "verification/C31-finite-closure-scope-assessment-20261028.json",
+  "scope_root_review": "verification/C31-finite-closure-independent-root-review-20261028.json",
+  "final_SQL_field_lineage_verified": false,
+  "verification_scope": "Changed identity construction/admission, sharing stage order and initial row/block lowering; end-to-end SQL outcome obligations retained.",
+  "limitations": [
+    "Final serialized-plan lineage diagnostic remains unproved.",
+    "Unsupported identity kinds and nonrepeatable copied producers remain guarded.",
+    "Frontend-unavailable Semi/Only forms and zero-column end-to-end coverage remain excluded."
+  ],
+  "generated_workloads_persisted": false,
+  "accepted_unix_time": 1793158174.5763586
+}

@@ -1,0 +1,37 @@
+{
+  "finding": "F02",
+  "reviewer": "quality_review",
+  "review_kind": "independent_source_contract_review",
+  "base_revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "b1642d065e71d1dee50f90405e08a0b1db5680408f44e0010dc79f5ab73b98d0",
+  "verdict": "no_source_correctness_or_api_blocker_found_native_pending",
+  "checked_contracts": [
+    "Rule admission requires Undefined aggregation phase, rejects DistinctAll and normalizes only exact interval SUM arguments.",
+    "The rule is ordered before DISTINCT expansion, and the ordinary fixed-point stage will revisit aggregates introduced by later whole-partition expansion.",
+    "Fresh input IDs retain original input columns; fresh accumulator output IDs remove the original result bindings before the final Map restores them.",
+    "Trait copying retains Distinct and Unwrap flags; untouched traits and ordered group keys are preserved.",
+    "Interval and Interval64 convert exactly through Int64 into Decimal(35,0). This conversion is injective on valid values, preserving DISTINCT equivalence.",
+    "Optional input casts retain absence. Decimal-to-Int64 and Int64-to-interval final casts remain nullable for overflow; empty scalar and all-null aggregate output remains absent.",
+    "The conversion is applied before aggregate state splitting, so existing Decimal partial/final aggregation and merge schemas are reused without an interval state mismatch.",
+    "Constant-size rule metadata and a generated input map reused per source IU avoid repeated normalization; the replacement Decimal argument prevents a rule loop.",
+    "The existing cast implementation explicitly admits Int64-to-Decimal(35,0) without loss and makes Decimal-to-Int64 StrictCast nullable."
+  ],
+  "source_references": [
+    "yql/essentials/mount/lib/yql/aggregate.yqls",
+    "yql/essentials/core/yql_expr_type_annotation.cpp",
+    "yql/essentials/core/type_ann/type_ann_core.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+    "ydb/core/kqp/opt/rbo/rules/expand_whole_partition_window.cpp"
+  ],
+  "limitations": [
+    "Source review only; actual compiler, type transformer and row/block physical aggregation execution are pending.",
+    "Bounded physical window SUM is a separate F03 fix and is not covered by this normalization rule.",
+    "Final interval range overflow must remain an optional result; native controls must include cancellation after an out-of-range partial sum."
+  ],
+  "build_executed": false,
+  "native_executed": false,
+  "production_sources_edited": false,
+  "generated_reproductions_persisted": false
+}

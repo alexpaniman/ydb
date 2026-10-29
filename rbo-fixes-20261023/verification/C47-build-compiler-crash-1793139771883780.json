@@ -1,0 +1,23 @@
+{
+  "bug": "C47",
+  "revision": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+  "exit_code": 1,
+  "elapsed_seconds": 11465.7,
+  "target": "ydb/tests/tools/kqprun",
+  "memory": {
+    "scheduler_memory_threshold": "40GB",
+    "requested_cgroup_memory_max_gib": 72,
+    "requested_cgroup_memory_high_gib": 56,
+    "watchdog_min_host_available_gib": 36,
+    "watchdog_max_scope_usage_gib": 52,
+    "peak_group_rss_bytes": 4538368,
+    "peak_scope_usage_bytes": 18116554752,
+    "minimum_host_available_bytes": 86898700288,
+    "watchdog_stopped": false,
+    "explicit_build_workers": 8,
+    "scope_memory_accounting_available": false,
+    "scope_process_rss_available": true,
+    "elapsed_seconds": 11465.7
+  },
+  "diagnostic_sha256": "0eaccace790348e3bce82aa835523018a96932776479f7e310795cdd52052207"
+}

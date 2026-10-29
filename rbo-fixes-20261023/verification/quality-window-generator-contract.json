@@ -1,0 +1,11 @@
+{
+  "generator": "rbo-fixes-20261023/quality_window_checks.py",
+  "source_sha256": "93c895ea5699a5abcb074b24efeaebee1968e3881e0ab09176ec901e133b496a",
+  "cases": 51,
+  "builder_oracle_contract_checks": 1796,
+  "result": "pass",
+  "native_runs": 0,
+  "quality_improvement_verified": false,
+  "generated_inputs_saved": false,
+  "generated_result_payloads_saved": false
+}

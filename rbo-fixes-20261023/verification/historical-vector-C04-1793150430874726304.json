@@ -1,0 +1,18 @@
+{
+  "C03_expanded_control_vector_present": false,
+  "C41_fullsuite_build_bound": false,
+  "automatic_full_finding_promotion": false,
+  "bug": "C04",
+  "build_receipt_sha256": "94f8dbabdf2000345f9ae4b813383f9795c3ca13711a40f178e01e6caa90989c",
+  "checked_records": 4,
+  "exact_vector_passed": true,
+  "fullsuite_build_evidence": null,
+  "guard_sha256": "9603860574ce119b000b1ed5a4a2215bf8c380b77e1602f4adacf535bed74983",
+  "qualified_legacy_adapter_records": 0,
+  "qualified_status": "verified",
+  "remaining_qualifications": [
+    "Pg handling remains source-reviewed only; frontend rejection is not optimizer-native coverage."
+  ],
+  "revision": "69b7c53d2f5ad03f02256e03b972901bdab12eab",
+  "slice_sha256": "971c6e6edcaff7ade09be49a951f735b5e4b3fe5a5926c835975900ef0dbbaa1"
+}

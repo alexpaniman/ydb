@@ -1,0 +1,21 @@
+{
+  "quality_sum_checks": {
+    "generator_sha256": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+    "cases": 197,
+    "generator_contract_checks": 2364,
+    "algebra": {
+      "algebra_oracle_pass": true,
+      "checked_frames": 32000,
+      "seed": 173
+    }
+  },
+  "quality_partition_checks": {
+    "generator_sha256": "6e05ff277e5f75846efc58a6b61e837b86c55b54f4452a447a2caf7b0f84a5b7",
+    "cases": 12,
+    "generator_contract_checks": 144
+  },
+  "shape_contract_checks": 221,
+  "native_runs": 0,
+  "production_edited": false,
+  "generated_inputs_saved": false
+}

@@ -1,0 +1,50 @@
+{
+  "reviewer": "harness_provenance",
+  "review_kind": "oracle_source_review_and_bounded_field_mutation_checks",
+  "finding": "C26 accepted absent required COUNT/AVG outputs and did not bind the grouped output key.",
+  "source_sha256": "dce4b13ca0adf238cb78ae5d6caf1ec12e7899ac969a33de4717c7bde4c92973",
+  "prospective_source_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+  "patch": "proposed-correctness-amendments/C26-exact-result-fields-oracle.patch",
+  "patch_sha256": "0dbea1b8c13a30e621cc00d0c5486ad865cda351de8be528ca7dbf09001e1b23",
+  "expected_field_sets": {
+    "variance_control": [
+      "s"
+    ],
+    "varying": [
+      "c",
+      "s"
+    ],
+    "grouped": [
+      "k",
+      "c",
+      "s"
+    ],
+    "mixed_avg": [
+      "c",
+      "s",
+      "a"
+    ],
+    "other": [
+      "c",
+      "s"
+    ]
+  },
+  "value_contract": "Existing count and variance-family values retained; grouped key and mixed AVG are now mandatory and checked.",
+  "positive_variants_checked": 10,
+  "negative_field_mutations_checked": 6,
+  "previously_accepted_bad_mutations": 5,
+  "all_checks_passed": true,
+  "negative_categories": [
+    "missing required COUNT",
+    "missing required AVG",
+    "missing grouping key",
+    "wrong grouping key",
+    "unexpected output field",
+    "wrong AVG value"
+  ],
+  "active_helper_unchanged": true,
+  "actual_native_runs": 0,
+  "production_sources_edited": false,
+  "rendered_inputs_or_results_persisted": false,
+  "limitation": "Oracle-only checks in memory; the queued strict-receipt C26 native rerun remains required after idle-boundary application."
+}

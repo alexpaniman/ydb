@@ -1,0 +1,51 @@
+{
+  "status": "independently_approved_source_and_mocked_metadata_scope_actual_transport_pending",
+  "patch": {
+    "path": "proposed-correctness-amendments/C31-sealed-readonly-native-executable-20261028.patch",
+    "sha256": "ab0a639765b5b1f8fffa71b16c2b29e757c8ac8f7b57ec1ed130bbe86b31f1f7"
+  },
+  "author_source_report": {
+    "path": "verification/C31-readonly-executable-source-preparation-20261028.json",
+    "sha256": "a1e0f492d5185519fe5d05b5ed8234dc294456273ef66224e6d5940f7fa699cb"
+  },
+  "corrected_review_finding": {
+    "superseded_patch_sha256": "05fe84d358c45626ad08d6d6879e08c21994679cde0f5c3ef25c7e14245d4adb",
+    "bug": "The initial candidate rejected compiler_environment=True for executable memfds even though the existing direct caller retains that default; every direct native launch would be rejected before scope creation.",
+    "correction": "Remove the unrelated environment-policy rejection in parent and worker. Preserve the existing environment sanitization and all read-only/sealing requirements.",
+    "verification": "Both parent and worker policies are exercised; author also checks the actual execute-to-guard boundary with the retained default."
+  },
+  "source_conclusions": [
+    "After successful link, the existing guard has completed scope cleanup. Any noncomplete cleanup forces nonzero status; no live linker/worker writer is intentionally retained.",
+    "The parent helper adds immutable write/grow/shrink/seal seals and reopens the same device, inode and size as O_RDONLY|O_CLOEXEC. It replaces the owning mapping before closing the old writable descriptor.",
+    "SIGINT/SIGTERM are masked before acquisition and restored in finally. A pending cancellation is delivered after the old writer closes and the caller mapping owns the read-only descriptor; caller finally closes it.",
+    "Invalid descriptor identity, access mode, seals or interrupted validation closes the temporary descriptor and leaves the old owner for caller cleanup. Worker ownership is recorded immediately after open, before readlink validation.",
+    "The worker preserves read-only roles and independently checks the executable access and full seals before spawning. Existing output descriptors remain writable.",
+    "Executable digest is computed after sealing from the immutable same inode, and the scoped worker opens that still-owned parent descriptor. Existing production object/receipt checks and final native admission are unchanged.",
+    "AST comparison confirms unchanged guard signature/budgets, watch loop/final scope cleanup, worker spawn options, environment helper, direct guard calls, serial lease and admission function.",
+    "No generated input/output moves to a named file; no new processes or overlapping scopes are introduced."
+  ],
+  "independent_checks": {
+    "path": "verification/C31-readonly-executable-independent-metadata-20261028.json",
+    "sha256": "16788d1c0ab21c419e8dae320238a2e7220312390c8e21999a3fd16db4f397f9",
+    "checks_passed": 118,
+    "script": "proposed-correctness-amendments/C31-readonly-executable-independent-contracts-20261028.py",
+    "script_sha256": "d2ee54c1a08da5854a9c2ebc5deb812f0b13bfac06aabd458e816ea146b4e553"
+  },
+  "composition": {
+    "path": "verification/C31-C47-transport-driver-composition-review-20261028.json",
+    "sha256": "2efbde503fecd43b016d73ee6c07eebed1ddc94022577344eea295f34e22e801",
+    "C47_combined_mock_checks": 276,
+    "C47_exact_case_count": 51,
+    "C47_exact_assertions": 796,
+    "anonymous_cpp_verify_after_sha256": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873"
+  },
+  "scope_limits": [
+    "No actual OS executable launch, toolchain, build or database process was run.",
+    "Root neutral sealed-readonly memfd transport must pass under the unchanged guard before actual direct contracts.",
+    "C31 direct33 and C47 direct51 are still native pending; source approval is not correctness acceptance.",
+    "Q28 has a separate post-link path and must call this helper before its native pilot; current guard fails closed until that integration."
+  ],
+  "live_helpers_changed": false,
+  "production_sources_changed": false,
+  "payloads_or_rendered_workloads_persisted": false
+}

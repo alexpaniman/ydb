@@ -1,0 +1,243 @@
+{
+  "actual_native_correctness_verified": false,
+  "ancillary_vcs_metadata_dirty_marker_present": true,
+  "ancillary_vcs_metadata_matches_source_revision": false,
+  "ancillary_vcs_metadata_policy": "Preserve the exact graph-bound historical metadata, including stale/dirty strings. Those fields do not prove source identity; the clean worktree revision and existing receipt remain authoritative.",
+  "build_runs": 0,
+  "changes": [
+    "Adds one production-only replay adapter; it reads the exact receipt-bound graph with a bounded streaming selector, preserving the embedded metadata bytes.",
+    "Validates generation, C compilation, and link step shapes, source/tool/environment identities, original order, and equality of the reconstructed existing link with the immutable receipt.",
+    "Reuses the exact production script and formatter. An independently computed in-memory expected-source digest rejects fallback or different generation output.",
+    "Runs generation and C compilation through the existing serial guarded process helper with a 12 GiB threshold and unchanged 36 GiB host headroom. Compiler output is stdout to memfd; Python bytecode writes are disabled.",
+    "Seals metadata, source, and object. Inserts exactly one object descriptor at the original version-object position before linking, and rechecks its digest/seals and dependencies after link and native execution.",
+    "Adds required supplementary infrastructure evidence to C31/C47 fixed-contract admission. Existing closure receipts and their revision checks remain unchanged.",
+    "Leaves target resource objects unchanged; their benchmark resources are not implicated by the observed missing version API and are not automatically added."
+  ],
+  "clean_patch_application_verified": true,
+  "confirmed_problem": "The anonymous link adaptation strips every target-local object, including mandatory program-version infrastructure; guarded category-only observation reports eleven missing hidden declarations in that public API.",
+  "diagnosis_record": "verification/C31-link-category-refinement-1793143798810235303.json",
+  "diagnostic_text_or_symbol_names_persisted": false,
+  "existing_named_version_object_found": false,
+  "export_suffix_alone_sufficient_for_inline_version_object": false,
+  "files": {
+    "anonymous_cpp_verify.py": {
+      "after_sha256": "87f389a070db81db77983ebe816dd6f1696a3382d718365d22e2c9b7231d72eb",
+      "before_sha256": "fce1a48f08006a3ab7d3872bd4d8bb47f87be918e3d02b53b9cc75a52f11c20b"
+    },
+    "correctness_cpp_contract.py": {
+      "after_sha256": "6102f53df8908c412e70b102b9f341aec242a6a9188e5a0b6fa96c6fd7f65c92",
+      "before_sha256": "c7b6a2238442ab7c1a57a651b2c91be731d1d6dfe4b515ee56e682dc7ee34669"
+    },
+    "production_version_object.py": {
+      "after_sha256": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+      "before_sha256": null
+    }
+  },
+  "finding": "C31 harness dependency omission",
+  "generated_cpp_objects_executables_or_repros_persisted": false,
+  "graph_exports": 0,
+  "immutable_receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "inline_version_object_is_declared_graph_output": false,
+  "live_helper_edits": false,
+  "metadata_checks": 132,
+  "metadata_report_sha256": "7a439154cc91ba6a6df95b7c4fdeb5eb49cffb67f7f6c50790357c59a8625848",
+  "metadata_test_source_sha256": "76f7669d89dafc0680d8f1f70de9a087386148e4d38077f57c227bc7118c9091",
+  "minimal_guarded_execution": [
+    "Use the existing direct verifier command and immutable matching receipt after independently applying this patch at an idle boundary.",
+    "The direct execute path revalidates the closure and supplementary source dependencies, runs graph-derived production generation into memory, checks its exact expected digest, and compiles that source into the supplementary sealed memory object.",
+    "The standard guarded link then receives that object in its original position; only afterward is the native executable hashed and eligible to execute.",
+    "Do not recapture or overwrite the old receipt, borrow another target object, synthesize replacement API bodies, or launch a full rebuild for this replay."
+  ],
+  "native_runs": 0,
+  "necessary_transport_adaptations": [
+    "Production metadata/source/output paths become memfd descriptors.",
+    "Generation Python receives -B.",
+    "Original C source argument receives explicit -x c because a descriptor has no extension.",
+    "C output becomes stdout, with integrated assembly, no crash diagnostics and debug information disabled; other original compile flags remain."
+  ],
+  "patch": "proposed-correctness-amendments/C31-production-version-object-replay-20261028.patch",
+  "patch_sha256": "af0c861afcf3def464bd74707cc8e261f996c2783f92b9a1a5be3c844cba572d",
+  "production_dependency_bindings": {
+    "/home/alexpaniman/.ya/tools/v4/11635938717/INSTALLED": {
+      "ctime_ns": 1792204429113318774,
+      "device": 64769,
+      "inode": 1604324,
+      "mtime_ns": 1792204429113318774,
+      "resolved_path": "/home/alexpaniman/.ya/tools/v4/11635938717/INSTALLED",
+      "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+      "size_bytes": 1
+    },
+    "/home/alexpaniman/.ya/tools/v4/11635938717/bin/python3": {
+      "ctime_ns": 1792204429092318055,
+      "device": 64769,
+      "inode": 1604310,
+      "mtime_ns": 1792204429092318055,
+      "resolved_path": "/home/alexpaniman/.ya/tools/v4/11635938717/bin/python3",
+      "sha256": "edb1c47a9c18c846dd208774a7be309fde7e2d953a04efdfced8ce5ca8af34ad",
+      "size_bytes": 30882024
+    },
+    "/home/alexpaniman/.ya/tools/v4/11635938717/env": {
+      "ctime_ns": 1792204429097318226,
+      "device": 64769,
+      "inode": 1604311,
+      "mtime_ns": 1792204429097318226,
+      "resolved_path": "/home/alexpaniman/.ya/tools/v4/11635938717/env",
+      "sha256": "14c6975a52edb68c2943be754184c6ebbbeff5e97d57869f5e9dbcd497da7788",
+      "size_bytes": 121
+    },
+    "/home/alexpaniman/.ya/tools/v4/11635938717/lnk": {
+      "ctime_ns": 1792204429110318671,
+      "device": 64769,
+      "inode": 1604321,
+      "mtime_ns": 1792204429110318671,
+      "resolved_path": "/home/alexpaniman/.ya/tools/v4/11635938717/lnk",
+      "sha256": "01dc0717760e3ba7c3172a42b6a7638384d4c3ecf730b5a681c11eba771a1184",
+      "size_bytes": 15
+    },
+    "/home/alexpaniman/.ya/tools/v4/11635938717/meta.json": {
+      "ctime_ns": 1792204429099318295,
+      "device": 64769,
+      "inode": 1604314,
+      "mtime_ns": 1792204429099318295,
+      "resolved_path": "/home/alexpaniman/.ya/tools/v4/11635938717/meta.json",
+      "sha256": "d5b7e698206754c395e4a8971867c2879b086234ab5bd0a95423db2e57d65b0f",
+      "size_bytes": 457
+    },
+    "/home/alexpaniman/.ya/tools/v4/11635938717/resource_info.json": {
+      "ctime_ns": 1792204429105318500,
+      "device": 64769,
+      "inode": 1604318,
+      "mtime_ns": 1792204429105318500,
+      "resolved_path": "/home/alexpaniman/.ya/tools/v4/11635938717/resource_info.json",
+      "sha256": "2ac8d69cfe09a7f90480cd116351ac29853302adb57d3eaf01c5d4ee023444ef",
+      "size_bytes": 662
+    },
+    "/home/alexpaniman/.ya/tools/v4/11635938717/touch": {
+      "ctime_ns": 1792204429101318363,
+      "device": 64769,
+      "inode": 1604315,
+      "mtime_ns": 1792204429099318295,
+      "resolved_path": "/home/alexpaniman/.ya/tools/v4/11635938717/touch",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    "/home/alexpaniman/.ya/tools/v4/13899442575/bin/clang": {
+      "ctime_ns": 1792204419726997337,
+      "device": 64769,
+      "inode": 1602995,
+      "mtime_ns": 1792204419726997337,
+      "resolved_path": "/home/alexpaniman/.ya/tools/v4/13899442575/bin/clang",
+      "sha256": "f2120cf3ea6f41baf3a07f22142472bf8ac0f5dbd02e3f042affab60affa6e17",
+      "size_bytes": 190629216
+    },
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/proposed-correctness-amendments/production_version_object_20261028.candidate.py": {
+      "ctime_ns": 1793144403217927357,
+      "device": 64769,
+      "inode": 25334641,
+      "mtime_ns": 1793144403217927357,
+      "resolved_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/proposed-correctness-amendments/production_version_object_20261028.candidate.py",
+      "sha256": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+      "size_bytes": 17646
+    },
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/c_templates/svn_interface.c": {
+      "ctime_ns": 1792715668861911795,
+      "device": 64769,
+      "inode": 24380273,
+      "mtime_ns": 1792715668861911795,
+      "resolved_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/c_templates/svn_interface.c",
+      "sha256": "67cf50ae14f3696996285926ea41dd61d0b25130dcad9631cbce3d5d60809871",
+      "size_bytes": 3642
+    },
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/c_templates/svnversion.h": {
+      "ctime_ns": 1792715668861911795,
+      "device": 64769,
+      "inode": 24380274,
+      "mtime_ns": 1792715668861911795,
+      "resolved_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/c_templates/svnversion.h",
+      "sha256": "6bc7afd9af0d846973f8c6aae4d98ab3010bd133a51940f31f250a67176874a2",
+      "size_bytes": 1772
+    },
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/link_exe.py": {
+      "ctime_ns": 1792715668865911898,
+      "device": 64769,
+      "inode": 24380354,
+      "mtime_ns": 1792715668865911898,
+      "resolved_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/link_exe.py",
+      "sha256": "49becd515436d4b60c538500a74b88941739e5b40eb330b877b4167b24ebf11c",
+      "size_bytes": 2740
+    },
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/process_command_files.py": {
+      "ctime_ns": 1792715668866911924,
+      "device": 64769,
+      "inode": 24380379,
+      "mtime_ns": 1792715668866911924,
+      "resolved_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/process_command_files.py",
+      "sha256": "c50fa6ac2fa0f09e8220c1307c968f53a86991082e3f57a43fd8274e49d94d4e",
+      "size_bytes": 973
+    },
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/process_whole_archive_option.py": {
+      "ctime_ns": 1792715668866911924,
+      "device": 64769,
+      "inode": 24380381,
+      "mtime_ns": 1792715668866911924,
+      "resolved_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/process_whole_archive_option.py",
+      "sha256": "e327b208355294ce00460802545e48aa9eb1c4473c7ed2ff2596769cf49e24d5",
+      "size_bytes": 6430
+    },
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/thinlto_cache.py": {
+      "ctime_ns": 1792715668867911950,
+      "device": 64769,
+      "inode": 24380402,
+      "mtime_ns": 1792715668867911950,
+      "resolved_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/thinlto_cache.py",
+      "sha256": "5d52dbcabe60766e8f6beeb48d7d609aef7bfe2b0faac2c2f1f5e242783176a8",
+      "size_bytes": 868
+    },
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/vcs_info.py": {
+      "ctime_ns": 1792715668867911950,
+      "device": 64769,
+      "inode": 24380405,
+      "mtime_ns": 1792715668867911950,
+      "resolved_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/aggregate/build/scripts/vcs_info.py",
+      "sha256": "0ecb6a9481ed6484d2e366e5c1ba73d88b79cd858c2d4273ca690438a5efa6ea",
+      "size_bytes": 11570
+    }
+  },
+  "production_dependency_count": 16,
+  "receipt_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+  "remaining_limits": [
+    "No generation subprocess, C compiler, linker or native case executed in this preparation.",
+    "Independent review must approve graph parsing, production replay/dependency bindings, sealing, integration and fixed admission before application.",
+    "Actual compile/link success and source/object digest/seal transport remain guarded execution prerequisites.",
+    "The separate Q28 compilation pilot invokes its own link path and needs an explicit follow-up before it can use this infrastructure; direct26 remains unchanged.",
+    "Current exact graph format is recognized; different layouts fail closed for review."
+  ],
+  "source_plan_identity": {
+    "compile_argv_sha256": "06f121fb805129fde368f033bc32c656bff7f0231a3b73f5542c461c684256b1",
+    "expected_production_source": {
+      "sha256": "5d0593c4ce9c00282c234d4d496ba040abe1ba63e81edeb6e53a2e982bb793a8",
+      "size_bytes": 5351
+    },
+    "generate_argv_sha256": "2a815e7b22d1bb27d9c571406bc5f15b7248324fd88b2d87cb6b0cc836affefc",
+    "graph_sha256": "37bbc5a74beeb372e530f96a4ea83c6577529add7afa448b0840b715c447c93c",
+    "link_node_uid": "DsOEJz0VGkQzg1RxA5CmHg",
+    "metadata_strings_used_as_source_provenance": false,
+    "original_steps_sha256": "a572731e32a5b20a390bf5a1addcfc50f8a5b3b4841903d7d208e9d5c0f11db0",
+    "restored_input_position": 134,
+    "restored_link_argv_sha256": "946bbbb642f51372cb09797f52f90160235c082a684d6c4d1946c2b2dbce96ab",
+    "schema_version": "graph_bound_production_version_object_v1",
+    "target_resource_objects_changed": false,
+    "vcs_resource_bytes": 1543,
+    "vcs_resource_sha256": "8ef6f728fa6ab8197cd6a32856e34cc6069ab650886126cc88f5263db29671aa"
+  },
+  "source_references": [
+    "anonymous_cpp_metadata.py:406",
+    "build/ymake.core.conf:4249",
+    "build/ymake.core.conf:4265",
+    "build/conf/linkers/ld.conf:247",
+    "build/scripts/vcs_info.py:108"
+  ],
+  "status": "dormant_source_prepared_independent_review_and_native_pending",
+  "target_resource_object_scope": "Separate graph output for benchmark resources; not required by current category-only failure, not restored by this patch.",
+  "toolchain_runs": 0
+}

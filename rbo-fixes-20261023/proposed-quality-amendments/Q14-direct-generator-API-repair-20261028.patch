@@ -1,0 +1,28 @@
+--- a/rbo-fixes-20261023/quality_rule_cpp_generator.py
++++ b/rbo-fixes-20261023/quality_rule_cpp_generator.py
+@@ -32,7 +32,7 @@
+                   'auto right = std::make_shared<NOpt::TRBORelOptimizerNode>(TVector<TString>{"right"}, NKikimr::NKqp::TOptimizerStatistics{}, rhs)',
+                   'TVector<TJoinColumn> leftKeys{MakeCBOColumn("left", a), MakeCBOColumn("left", b)}',
+                   'TVector<TJoinColumn> rightKeys{MakeCBOColumn("right", c), MakeCBOColumn("right", d)}',
+-                  'auto tree = std::make_shared<TJoinOptimizerNode>(left, right, leftKeys, rightKeys, EJoinKind::InnerJoin, EJoinAlgoType::' + algo + ', false, false)']
++                  'auto tree = std::make_shared<TJoinOptimizerNode>(left, right, leftKeys, rightKeys, EJoinKind::InnerJoin, NKikimr::NKqp::EJoinAlgoType::' + algo + ', false, false)']
+     if left == '2':
+         statements.append('tree->ShuffleLeftSideBy = {leftKeys[1], leftKeys[0]}')
+     if right == '2':
+@@ -40,14 +40,14 @@
+     statements += ['auto converted = ConvertOptimizedTree(tree, {}, f.Pos)',
+                    'auto& result = CastOperator<TOpJoin>(*converted)']
+     body = ''.join(map(_line, statements))
+-    body += _check('result.Props.JoinAlgo == EJoinAlgoType::' + algo)
++    body += _check('result.Props.JoinAlgo == NKikimr::NKqp::EJoinAlgoType::' + algo)
+     if algo == 'MapJoin':
+         body += _check('!result.Props.LeftShuffleBy.has_value() && !result.Props.RightShuffleBy.has_value()')
+     else:
+         for side, size, expected in (('Left', left, ('b', 'a')), ('Right', right, ('d', 'c'))):
+             prop = 'result.Props.' + side + 'ShuffleBy'
+             body += _check(prop + '.has_value()')
+-            body += _check(prop + '->Size() == ' + size)
++            body += _check(prop + '->Items().size() == ' + size)
+             if size != '0':
+                 body += _check(prop + '->Items()[0] == ' + expected[0] + ' && ' + prop + '->Items()[1] == ' + expected[1])
+     return body

@@ -1,0 +1,54 @@
+--- a/rbo-fixes-20261023/quality_rule_cpp_generator.py
++++ b/rbo-fixes-20261023/quality_rule_cpp_generator.py
+@@ -11,7 +11,9 @@
+     return [*(f'q14_{algo}_{left}_{right}' for algo in ('GraceJoin', 'ReverseBlockJoin', 'MapJoin')
+               for left in (0, 2) for right in (0, 2)),
+             *(f'q16_{storage}_{width}_{threshold}_{mode}' for storage in ('row', 'column', 'mixed', 'shared', 'unrelated')
+-              for width in (0, 1, 3) for threshold in (0, 2) for mode in ('Auto', 'Disable'))]
++              for width in (0, 1, 3) for threshold in (0, 2) for mode in ('Auto', 'Disable')),
++            *(f'q16_window_{storage}_{enabled}_{threshold}_{mode}' for storage in ('row', 'column')
++              for enabled in ('false', 'true') for threshold in (0, 2) for mode in ('Auto', 'Disable'))]
+ 
+ 
+ def _line(statement):
+@@ -51,7 +53,27 @@
+     return body
+ 
+ 
++def _q16_window(case):
++    _, _, storage, enabled, threshold, mode = case.split('_')
++    body = _line('f.Config->SetEnableWindowFunctionsV2(' + enabled + ')')
++    body += _line('f.Config->SetDisableOlapBlocksOnColumnsLimit(' + threshold + ')')
++    body += _line('f.TypeCtx.BlockEngineMode = NYql::EBlockEngineMode::' + mode)
++    body += _line('const auto a = f.Id(), b = f.Id(), c = f.Id()')
++    body += _line('auto read = f.Read({a, b, c})')
++    if storage == 'column':
++        body += _line('read->StorageType = NYql::EStorageType::ColumnStorage')
++    body += _line('auto window = MakeIntrusive<TOpWindow>(read, f.Pos, TWindowIUs{}, TOrderedIUs<>{a}, TSortIUs{}, TOpWindowFrame{})')
++    body += _line('TDisableBlocksOnColumnsLimitRule rule')
++    body += _check('rule.QuickMatch(window)')
++    body += _check('rule.SimpleMatchAndApply(window, f.RboCtx, f.Props).Get() == window.Get()')
++    expected = 'Disable' if enabled == 'true' or mode == 'Disable' else 'Auto'
++    body += _check('f.TypeCtx.BlockEngineMode == NYql::EBlockEngineMode::' + expected)
++    return body
++
++
+ def _q16(case):
++    if case.startswith('q16_window_'):
++        return _q16_window(case)
+     _, storage, width_text, threshold, mode = case.split('_')
+     width = int(width_text)
+     body = _line('f.Config->SetDisableOlapBlocksOnColumnsLimit(' + threshold + ')')
+@@ -120,10 +142,9 @@
+ def execution_manifest():
+     return {'status': 'generator_only_not_compiled_or_executed', 'cases': len(cases()),
+             'Q14': 'Calls actual ConvertOptimizedTree with Grace/ReverseBlock/Map and empty/ordered nonempty shuffle vectors; tests engaged-empty versus absent output directives.',
+-            'Q16': 'Calls actual width-limit rule across row/column/mixed/shared/unrelated sources, thresholds, widths and block modes; observes the real TypeCtx mutation.',
++            'Q16': 'Calls actual width-limit rule across row/column/mixed/shared/unrelated sources, thresholds, widths and block modes; also preserves the WindowFunctionsV2 guard independently of storage/threshold; observes the real TypeCtx mutation.',
+             'source_transport': 'Anonymous memfd compiler input, exactly as quality_cpp_contract_generator execution manifest.',
+             'batch_interface': 'render_cpp_suite(Q14 or Q16); one translation unit per selected branch with numeric JSONL case verdicts',
+             'remaining': ['Compile adapters against selected-branch dependencies', 'Guarded baseline/fixed native execution',
+-                          'Q14 downstream physical stage edges and multinode semantics',
+-                          'Q16 WindowFunctionsV2 unchanged-guard coverage'],
++                          'Q14 downstream physical stage edges and multinode semantics'],
+             'production_sources_modified': False, 'rendered_sources_persisted': False}

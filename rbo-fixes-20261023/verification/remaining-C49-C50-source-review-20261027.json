@@ -1,0 +1,104 @@
+{
+  "review_kind": "independent_source_only",
+  "reviewer": "remaining_correctness_review",
+  "date": "2026-10-28",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "production_blockers_found": [],
+  "production_amendments_requested": [],
+  "build_or_native_executed": false,
+  "live_helpers_edited": false,
+  "rendered_reproductions_persisted": false,
+  "cases": {
+    "C49": {
+      "revision": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+      "single_parent_is_pinned_main": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+        "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_check_passed": true,
+      "diff_sha256": "d2b11af7bc82c1e7ba03f25eb306cd177f303b461b204618f0a738adea20a7e3",
+      "source_sha256": {
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp": "184a0a7d71d4897bdd42a3a467d6ae479e3fe02c1f3bff192f51976afc6b6cfa",
+        "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp": "1e8c91dba511279f050af213f33b0cbc842d545b47e924942e795af9032f6875"
+      },
+      "verdict": "no_additional_source_correctness_blocker_found_native_acceptance_pending",
+      "contracts": [
+        "Storage key metadata is all-or-none in primary-key order.",
+        "Noncovering rewrite retains exposed IDs and adds fresh IDs only for absent primary-key storage fields.",
+        "Physical lookup input-key order stays unchanged; internal fetched identity does not change final selected output.",
+        "Index selection occurs after initial pruning; intervening pruning is MapDefinitions-only, and reconstruction precedes final pruning."
+      ],
+      "source_refs": [
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:85",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:225",
+        "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp:704",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:718",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp:737",
+        "ydb/core/kqp/opt/rbo/global_pruning.cpp:67"
+      ],
+      "coverage_limits": [
+        "Current special driver schedules exactly partial-key and complete-key LEFT controls; case metadata lists additional controls that are not scheduled.",
+        "The special runner compares result bags but captures neither chosen noncovering index nor complete physical reconstruction identity.",
+        "Nullable identity restrictions and no-spilling sharing restrictions remain separate."
+      ],
+      "coverage_refs": [
+        "rbo-fixes-20261023/native_verify.py:319",
+        "rbo-review-20261021/partial_lookup_key_generator.py:64"
+      ]
+    },
+    "C50": {
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "single_parent_is_pinned_main": true,
+      "changed_paths": [
+        "ydb/core/kqp/opt/rbo/kqp_operator.h",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+      ],
+      "essentials_changed": false,
+      "diff_check_passed": true,
+      "diff_sha256": "f620e5f095281678736a6252cc8ddd825c8f2f67f896db0916570274fb90edd2",
+      "source_sha256": {
+        "ydb/core/kqp/opt/rbo/kqp_operator.h": "2f0fff7fc230f92ef405ab7d96afa7b4875d15519ea58e9a0751aaf7707b15db",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp": "679c84a75bbae282599d1c8dadba537353cc098f34d42dcbeae6711221294254",
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": "0871ccc05675193dfd37120a1245d4cc7a9012dc3f5a2e2732349da19b7f8bde"
+      },
+      "verdict": "no_additional_source_correctness_blocker_found_native_acceptance_pending",
+      "contracts": [
+        "Unequal paired key annotations trigger gather conservatively, including optional/container representation differences.",
+        "Gather forces supported Grace selection while retaining join kind and physical comparison/cast behavior.",
+        "Both inputs become plain UnionAll; task builder defaults to one destination and channel wiring requires one destination task.",
+        "All saved shuffle decisions and cached distribution facts are cleared; copied marker prevents join metadata recomputation from reviving hash partitioning."
+      ],
+      "source_refs": [
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp:15",
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp:148",
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp:369",
+        "ydb/core/kqp/opt/rbo/kqp_operator.h:153",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp:653",
+        "ydb/core/kqp/executer_actor/kqp_tasks_graph.cpp:4323",
+        "ydb/library/yql/dq/tasks/dq_connection_builder.h:95"
+      ],
+      "scheduled_profile_cases": 31,
+      "scheduled_repetitions": 2,
+      "coverage_limits": [
+        "Physical requirements in the profile are prose; the current module has no check_physical_ast or check_query_plan function, so native result success alone does not establish observed single-task placement or absence of stale distribution metadata.",
+        "Spilling is enabled in all profiles but small inputs do not empirically establish large shared-producer backpressure behavior.",
+        "The final public query-plan JSON does not expose original key annotations or ShuffledByColumns; those internal metadata claims require a direct operator contract or a carefully bounded downstream observation."
+      ],
+      "coverage_refs": [
+        "rbo-fixes-20261023/join_key_checks.py:127",
+        "rbo-fixes-20261023/join_key_checks.py:146",
+        "rbo-fixes-20261023/native_verify.py:117",
+        "rbo-fixes-20261023/native_verify.py:130",
+        "ydb/core/kqp/opt/rbo/kqp_operator.cpp:66",
+        "ydb/core/kqp/opt/rbo/kqp_operator.cpp:822"
+      ],
+      "optimization_costs": [
+        "All mixed-key input rows converge on one task; centralized network and memory cost is separate from correctness.",
+        "Query-wide clearing of saved shuffle decisions can introduce additional shuffles."
+      ]
+    }
+  }
+}

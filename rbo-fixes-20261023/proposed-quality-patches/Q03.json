@@ -1,0 +1,23 @@
+{
+  "id": "Q03",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_patch_only",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp"
+  ],
+  "scope": "Allow selective noncovering ordinary row indexes with uncovered residuals; fetch complete base PK and evaluate the entire residual after base-row lookup. Existing covered-filter placement is preserved.",
+  "validation_plan": [
+    "Selective ordinary index with uncovered residual selects range, PK lookup, then full residual; result hash matches oracle",
+    "Composite and nullable base PK, empty matches, all residual fields live, original predicate provenance retained",
+    "Covered residual stays below lookup; limited read, zero useful prefix and unsupported index families decline new path",
+    "Measure index rows and base fetches; conservative outer Filter(TableLookup) remains ineligible for join retargeting"
+  ],
+  "static_checks": [
+    "git apply --check against pinned baseline passed"
+  ],
+  "limits": [
+    "No compilation, native execution or plan-quality measurement yet",
+    "Does not split residual conjuncts or extend lookup-join right-side matching",
+    "Keep C30 ordinary-index guards and C47 imported-read settings when integrating"
+  ]
+}

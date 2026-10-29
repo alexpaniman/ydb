@@ -1,0 +1,30 @@
+--- a/rbo-fixes-20261023/c31_scope_observation.py
++++ b/rbo-fixes-20261023/c31_scope_observation.py
+@@ -29,7 +29,7 @@
+ _origin = _snapshot('c31_shared_origin_probe')
+ _fields = _snapshot('c31_shared_field_probe')
+ CASE_SPECIFIC_SCHEMA = True
+-GENERATOR_VERSION = 'c31_shared_scope_observation_v2'
++GENERATOR_VERSION = 'c31_shared_scope_observation_v3_capped_spill_storage'
+ CASES = ('c31_stability_float_domain__spilling__left',
+          'c31_stability_integer_domain__spilling__left')
+ _CALLABLES = frozenset(('DqPhyStage', 'TDqOutput', 'Switch', 'Map', 'OrderedMap',
+@@ -54,8 +54,18 @@
+ def metadata(case, n):
+     if case not in CASES:
+         raise ValueError('Unselected C31 profile')
++    if type(n) is not int or n != 24:
++        raise ValueError('C31 spill-storage observation is reviewed only at 24 rows')
+     value = _base.metadata(case, n)
+     value['generator_version'] = GENERATOR_VERSION
++    # Keep channel sharing enabled. A one-byte service limit rejects the
++    # reviewed channel and hash-aggregation blob formats before file creation.
++    # The node mask disables GraceJoin/WideSort and generic aggregation spills;
++    # new hash aggregation remains covered by its packed-batch minimum size.
++    value['table_service_overrides'].update({
++        'EnableSpillingNodes': 'None',
++        'SpillingServiceConfig': '{ LocalFileConfig { Enable: true MaxTotalSize: 1 } }',
++    })
+     return value
+ 
+ 

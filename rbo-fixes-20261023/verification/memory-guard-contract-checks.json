@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "checks": [
+    "normal",
+    "low_memory",
+    "monitor_failure",
+    "cancelled",
+    "sigterm",
+    "reader_start_failure",
+    "systemctl_timeout_falls_back_to_scope_members_and_group"
+  ],
+  "helper_sha256": "3ae29a09b0575462af047d0a035bbe18732a3ddc6006d4d9c4c50cb67b524ef1",
+  "scope": "Synthetic mocks only; no builds, native workloads, large allocations or real signals sent",
+  "limitations": [
+    "SIGKILL of the guard itself cannot execute Python cleanup; external host watchdog remains needed for uncatchable termination",
+    "Kernel-uninterruptible or inaccessible processes may prevent confirmation; cleanup_complete remains false rather than claiming success"
+  ]
+}

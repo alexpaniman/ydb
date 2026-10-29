@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "finding": "C47",
+  "reviewer": "c41_review",
+  "original_c47_commit": "92a3aebcaa4858c945c9a56e929b5d2d4a030b58",
+  "amended_c47_commit": "535684543d798106b01872b81fe4bbbdea72a4de",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch": "proposed-correctness-amendments/C47-copy-plain-index-lookups.patch",
+  "patch_sha256": "a9ea5ed33aa4587d76c201d61bb003aaaa30d9a981fe12895343695fbbee8fa1",
+  "production_changed_by_this_agent": false,
+  "purpose": "Allow imported ordinary noncovering index-read producers to be copied for shared consumers when channel spilling is unavailable.",
+  "admission_contract": [
+    "Only Strategy LookupRows with an empty JoinKind.",
+    "No fetched-row expression, prefix computation, SourceRead recovery expression, residual key pairs or chained lookup semantics.",
+    "CanDuplicateSubtree still recursively verifies every producer and referenced subplan; the added case does not bypass input limits, nonrepeatable settings, embedded OLAP programs or unsupported operators."
+  ],
+  "copy_contract": [
+    "The copied plain lookup starts with fresh physical properties and shares only immutable table metadata.",
+    "CopyColumns allocates or validates fresh fetched-column bindings using storage names; conflicting requested labels receive a fresh compatible IU.",
+    "LookupKeys is copied in its existing physical primary-key order with unchanged storage-name values.",
+    "The existing TLogicalCopyContext second pass invokes RenameUsedIUs to replace lookup key IDs with copied producer IDs after all definitions exist.",
+    "AllowNullKeys is copied explicitly; C47 imported nullable primary keys retain lookup behavior.",
+    "The existing C47 TOpRead copy preserves ReadSettings and RangeInfo; repeatability checks still inspect their computations."
+  ],
+  "source_evidence": [
+    "copy_logical_subtree.cpp: CanCopyTableLookup, IsRepeatable, TLogicalCopyContext::Run, CopyColumns, TOpTableLookup::CopyImpl",
+    "logical_renames.cpp:137 TOpTableLookup::RenameUsedIUs substitutes ordered key IDs without modifying storage names",
+    "kqp_operator.cpp:1047 plain lookup constructor initializes fresh properties; ComputeOutputIUs exposes fetched columns only",
+    "kqp_plan_conversion_utils.cpp: C47 explicit index import creates plain lookup and sets AllowNullKeys; shared import memoization introduces Replicate before optimization",
+    "rules/expand_replicate.cpp: CopyProducer maps the copied output IDs into the consumer port namespace"
+  ],
+  "scope_limits": [
+    "LookupJoinRows, automatic noncovering lookup nodes carrying SourceRead, prefix/chained lookup programs and nonrepeatable/limited producers remain excluded.",
+    "This is not a general materialization fallback and does not change spilling configuration.",
+    "The archived nullable/keyless residual-join identity restriction remains a distinct unverified concern."
+  ],
+  "checks": {
+    "patch_application_and_whitespace": true,
+    "direct_ir_adapter": {
+      "status": "generator_only_not_compiled_or_executed",
+      "case_count": 19,
+      "rendered_suite_sha256": "bda579bc80fb588b7dfc80d6f167c293e95642b4d18425363aa9f5cd5243c838",
+      "rendered_suite_bytes": 36457,
+      "required_interface": "C47 ReadSettings; pre-amendment C47 or amended C47",
+      "scope": "Copy/repeatability and IU/storage-key contracts; native query coverage is separate",
+      "production_calls": [
+        "CanDuplicateOperator",
+        "CanDuplicateSubtree",
+        "IOperator::Copy"
+      ]
+    },
+    "direct_ir_generator_sha256": "74e378d5b40ec2aea8289b4b1e7c83b3324a6b3499944dc592d419a0e8a66224",
+    "native_generator": "sharing_lifecycle_checks.py",
+    "native_generator_sha256": "52bc893a2810a3dbae30cd38366f91450381f55e9556c735302d30bc43fbed94",
+    "native_case_counts": {
+      "C31": 12,
+      "C47": 3
+    },
+    "positive_negative_row_oracle_checks": 90,
+    "compiled": false,
+    "native_executed": false,
+    "rendered_workloads_or_cpp_persisted": false
+  },
+  "integration": "harness_provenance owns native registration and AST evidence enforcement; root owns serial guarded builds/native verification."
+}

@@ -1,0 +1,31 @@
+{
+  "status": "reviewed_observer_applied_at_idle",
+  "patch": {
+    "path": "proposed-correctness-amendments/C31-lexical-switch-shape-observation-20261028.patch",
+    "sha256": "a280f0f8545fe8295b60b781c9a62d4b7fa6978129cdedfebbad7b378c20bdf2"
+  },
+  "review": "verification/C31-lexical-switch-independent-review-20261028.json",
+  "review_sha256": "696752b8e0cf90ef54eb65b8dc332df1dec4eb18656214a2881c1f06acf33687",
+  "files": {
+    "c31_scope_observation.py": {
+      "before_sha256": "60462c0206c58978416b3e75740de951cf8d809e690ec214013c43519874ac64",
+      "after_sha256": "5a3781ce5847e1f9670d9ae83363a20265992b1e73575d514480a5b2e091e73d"
+    },
+    "c31_switch_shape_observation.py": {
+      "before_sha256": null,
+      "after_sha256": "5839cb9e13b6dfd0987db6d426e2449b9737ea4193df514eba7b1003af48fce1"
+    },
+    "c31_shared_field_probe.py": {
+      "before_sha256": "da4de444927190d983c7068fa416c9b3371eb70f929c8a40073137c538dfa85e",
+      "after_sha256": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298"
+    }
+  },
+  "actual_observation_pending": true,
+  "cases": 2,
+  "rows": 24,
+  "all_lineage_admission_flags_remain_false": true,
+  "no_production_edits": true,
+  "applied_unix_time": 1793148164.690262,
+  "total_applied_helper_patches": 39,
+  "previous_batch": "verification/idle-correctness-artifacts-applied38-20261028.json"
+}

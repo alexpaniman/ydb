@@ -1,0 +1,46 @@
+{
+  "checks": [
+    {
+      "mode": "new",
+      "exit_code": 0,
+      "truncation_oracle_pass": false,
+      "ties_even_oracle_pass": true,
+      "semantic_oracle_pass": true
+    },
+    {
+      "mode": "legacy",
+      "exit_code": 0,
+      "truncation_oracle_pass": false,
+      "ties_even_oracle_pass": true,
+      "semantic_oracle_pass": true
+    }
+  ],
+  "binary_provenance_verified": true,
+  "unchanged_executable": true,
+  "generator_sha256": "0b67a0494ba5b4657a309931d14f0e4df4a47feee9e4157681a30d218b2fbf69",
+  "memory": {
+    "elapsed_seconds": 14.685,
+    "peak_scope_usage_bytes": 562098176,
+    "peak_group_rss_bytes": 562098176,
+    "minimum_host_available_bytes": 112759549952,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "watchdog_stopped": false,
+    "cleanup_complete": true,
+    "scope_membership_accounting_available": true,
+    "exit_code": 0,
+    "stdout_sha256": "fb2969bf3017e70db9a42d8f7dc1dec8f5ec6e25f6cb64c2d54ea7009a105ccc",
+    "stdout_bytes": 424,
+    "stdout_overflow": false,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "diagnostic_bytes": 0
+  },
+  "independent_arithmetic_checks": 3821,
+  "oracle_repaired": true,
+  "corrected_generator_sha256": "c48fc8c06ddc561788de2c28d578b794390649a1b323b87ddd3e11f9af66698e",
+  "source_evidence": [
+    "yql/essentials/public/decimal/yql_decimal.cpp:306",
+    "yql/essentials/minikql/comp_nodes/mkql_decimal_div.cpp"
+  ],
+  "production_patch_changed": false
+}

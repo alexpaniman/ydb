@@ -1,0 +1,27 @@
+{
+  "id": "Q29",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_patch_only",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp",
+    "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp"
+  ],
+  "scope": "Share fetched-filter reconstruction; deduplicate only alpha-equivalent total primitive comparisons with typed read-member bindings. Preserve original conjuncts and unsafe expressions.",
+  "validation_plan": [
+    "Compare fetched physical predicates before/after lowering; repeated safe comparison removed, newly introduced residual retained",
+    "Optional Boolean and NULL behavior, member/member and member/literal comparisons, distinct IU IDs, distinct literal types",
+    "Volatile, UDF, Ensure, cast, arithmetic and guarded expression controls retain evaluation count and order",
+    "Check ranged reads without recoverable provenance still reject; compare all supported lookup join kinds"
+  ],
+  "static_checks": [
+    "git apply --check against pinned baseline passed"
+  ],
+  "limits": [
+    "No compilation, native execution or plan-quality measurement yet",
+    "Construction-only optimization until physical occurrence/evaluation measurement confirms surviving duplication",
+    "Independent Q07 still needs to remove the CBO target fast return that bypasses filter eligibility",
+    "Integration must retain C47 imported-read restrictions"
+  ]
+}

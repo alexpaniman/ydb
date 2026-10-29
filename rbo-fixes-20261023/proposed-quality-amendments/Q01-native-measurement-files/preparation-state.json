@@ -1,0 +1,37 @@
+{
+  "temporary_root": "/var/tmp/q01-native-source-c6y88xn4",
+  "before_sha256": {
+    "native_verify.py": "cc467403ba5aca0dfc16ad56d92a47a46c5817ae86bc42ea633bb78aff0717c5",
+    "verify_series.py": "e2f8efe3383f129ccbbce6ee8047d57af2f6a1129f20126530d8a159fab1a508",
+    "anonymous_child_measurement.py": "99c8c9d0233475daf052aaeb1d4ad3d202906e058978dbf428d2088a92858cc1"
+  },
+  "final_temporary_root": "/var/tmp/q01-native-frozen-check-5t8mzqg0",
+  "patch": "proposed-quality-amendments/Q01-native-child-measurement-integration-20261028.patch",
+  "patch_sha256": "9fa07f8be32edb35da301d4212b1366d83f9419ce0faab1811052061c2859d0a",
+  "files": {
+    "anonymous_child_measurement.py": {
+      "before_sha256": "99c8c9d0233475daf052aaeb1d4ad3d202906e058978dbf428d2088a92858cc1",
+      "after_sha256": "082b44fd51a942d68f2d6f1d918765e01520287187747b7e422208f1ee8bede7"
+    },
+    "native_verify.py": {
+      "before_sha256": "cc467403ba5aca0dfc16ad56d92a47a46c5817ae86bc42ea633bb78aff0717c5",
+      "after_sha256": "a0abb05ec07f94dd3cb8a016616233073c044715e0a1f85e0088b2a5daaa4bd1"
+    },
+    "q01_measurement_metadata_contracts.py": {
+      "before_sha256": null,
+      "after_sha256": "3c9ccfe385843ea44d31b74fde3ee34f00cd1d3fce2818b5a29da117fc9190cb"
+    },
+    "q01_native_child_measurement.py": {
+      "before_sha256": null,
+      "after_sha256": "e2d724fba399450f1de945b8a62529b1f304f029e5ae3a39d35d8d2614ec62d4"
+    },
+    "quality_q01_scaling_checks.py": {
+      "before_sha256": null,
+      "after_sha256": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3"
+    },
+    "verify_series.py": {
+      "before_sha256": "e2f8efe3383f129ccbbce6ee8047d57af2f6a1129f20126530d8a159fab1a508",
+      "after_sha256": "cc07fc271efde3ed8f8377ef86f9560b484591503d7c0198d89e7ca7488d6265"
+    }
+  }
+}

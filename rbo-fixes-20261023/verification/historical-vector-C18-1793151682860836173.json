@@ -1,0 +1,18 @@
+{
+  "C03_expanded_control_vector_present": false,
+  "C41_fullsuite_build_bound": false,
+  "automatic_full_finding_promotion": false,
+  "bug": "C18",
+  "build_receipt_sha256": "797ccdff7eaa39e325ec85a4e4dca032de980b8cd12529433145d70fffa677cc",
+  "checked_records": 14,
+  "exact_vector_passed": true,
+  "fullsuite_build_evidence": null,
+  "guard_sha256": "530c3db732819d8634639dc5621ef53d230d17d75c413bd0e5f9208ac14f74ec",
+  "qualified_legacy_adapter_records": 0,
+  "qualified_status": "verified_new_parser_invariant",
+  "remaining_qualifications": [
+    "Only the new-parser pruning/multiplicity invariant is covered; legacy duplicate-empty-grouping-set compatibility remains unresolved."
+  ],
+  "revision": "ec25a7d3319c8e75ad3849a638f6830642097709",
+  "slice_sha256": "198b7889e5b7af886f7bbdaf02c91d39e2ff64c1532853d5c3132cc2b5948f0d"
+}

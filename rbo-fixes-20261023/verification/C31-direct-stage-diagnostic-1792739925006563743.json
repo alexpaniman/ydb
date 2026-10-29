@@ -1,0 +1,28 @@
+{
+  "errors": [
+    {
+      "category": "other_compiler_or_linker_error",
+      "identifiers": [],
+      "message_sha256": "454370f24705a83fe539b20a67ea9136dedfa890eae485a047596d2a3a9a67ce"
+    },
+    {
+      "category": "other_compiler_or_linker_error",
+      "identifiers": [],
+      "message_sha256": "875bb9696c975c010d9b3adf310ac9ef32ed588788ab942321fb07a1cf97ba06"
+    },
+    {
+      "category": "other_compiler_or_linker_error",
+      "identifiers": [],
+      "message_sha256": "7e7cadb28784509a88a021fb1e154541f8fed8f05eba222c1abbd5885d5711bb"
+    },
+    {
+      "category": "other_compiler_or_linker_error",
+      "identifiers": [],
+      "message_sha256": "b7a2babc5ac055347f20d1a8d978f52914d5ffdfb423c4b10785799a7ccd9c4d"
+    }
+  ],
+  "exit_code": 1,
+  "raw_diagnostics_persisted": false,
+  "generated_artifacts_persisted": false,
+  "observer_scope": "bounded_stderr_observation_only_no_command_or_contract_changes"
+}

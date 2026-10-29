@@ -1,0 +1,69 @@
+{
+  "schema": "first_quality_batch_idle59_v1",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "helper_ledger": 59,
+  "items": [
+    {
+      "bug": "Q08",
+      "revision": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+      "modules": [
+        "quality_statistics_checks"
+      ],
+      "case_owners": {
+        "q08_unit_input_control": "quality_statistics_checks",
+        "q08_nonunit_input": "quality_statistics_checks"
+      },
+      "profile_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "direct_prerequisite": false
+    },
+    {
+      "bug": "Q02",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "modules": [
+        "quality_window_checks"
+      ],
+      "case_owners": {
+        "q02_all_dead": "quality_window_checks",
+        "q02_partial": "quality_window_checks",
+        "q02_all_live_control": "quality_window_checks",
+        "q02_empty": "quality_window_checks"
+      },
+      "profile_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "direct_prerequisite": false
+    }
+  ],
+  "cases_per_phase": 6,
+  "rows": 24,
+  "argv": [
+    "python3",
+    "-B",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+    "--worktree",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+    "--quality-baseline-worktree",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/metadata",
+    "--bugs",
+    "Q08",
+    "Q02",
+    "--rows",
+    "24",
+    "--runner-only",
+    "--build-workers",
+    "8"
+  ],
+  "preconditions": [
+    "Integration native run ended and cleanup complete.",
+    "No sources or helpers edited during the batch.",
+    "Both independent branches are single children of pinned main."
+  ],
+  "current_binding_sha256": {
+    "native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "verify_series.py": "cc07fc271efde3ed8f8377ef86f9560b484591503d7c0198d89e7ca7488d6265",
+    "quality_pairing.py": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+    "quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89",
+    "anonymous_cpp_guard.py": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+    "binary_provenance.py": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c"
+  },
+  "quality_admission_granted": false,
+  "prepared_unix_time": 1793160873.1746
+}

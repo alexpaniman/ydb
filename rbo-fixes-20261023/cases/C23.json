@@ -1,0 +1,108 @@
+{
+  "id": "C23",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c23-null-grouping-key",
+  "commit": "030ea24b8e681a8242c7f4e7df2c0b0bd1725676",
+  "status": "verified_scoped",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+    "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp"
+  ],
+  "rationale": "Preserve bare Null grouping-set padding, encode bare Null hash keys as a constant Data value without removing key positions, and restore Null at phase outputs. Aggregate inputs retain their original types.",
+  "checks": [
+    "git diff --check passed",
+    "Root and c41_review independently checked key arity, runtime type gate, explicit DISTINCT mappings, per-phase restoration and unchanged aggregate argument types."
+  ],
+  "generator_cases": [
+    "bare_null_grouping"
+  ],
+  "verification_plan": "Bare-Null grouping-set check plus nullable/nonnullable key controls.",
+  "status_before_verification": "prepared_unverified",
+  "superseded_verifications": [
+    {
+      "commit": "9eda179893974bfabe793a15d697b989d9c344bf",
+      "build_verification": {
+        "bug": "C23",
+        "revision": "9eda179893974bfabe793a15d697b989d9c344bf",
+        "exit_code": 0,
+        "elapsed_seconds": 75.2,
+        "target": "ydb/tests/tools/kqprun",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 4603904,
+          "peak_scope_usage_bytes": 43326152704,
+          "minimum_host_available_bytes": 109262774272,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": true,
+          "elapsed_seconds": 74.7
+        },
+        "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+        "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/9eda179893974bfabe793a15d697b989d9c344bf-48c4f1872521cccc.json"
+      },
+      "native_verification": {
+        "checks": 4,
+        "checks_passed": false,
+        "evidence": "verification/guarded-fixed-C23-9eda17989397-1792728340983423957.jsonl"
+      },
+      "reason": "Padding fix exposed the separate Data-only physical hash-key requirement; both row and block paths rejected bare Null."
+    }
+  ],
+  "verification_limitation": "52 distinct C23-specific native checks pass, including bare Null grouping, DISTINCT, empty inputs, COUNT(NULL), row/block and distributed cases. Twelve additional duplicate-alias controls hit independent pre-lowering finding F01; their failures are retained and are not counted as C23 passes.",
+  "amendments": [
+    {
+      "patch": "proposed-correctness-amendments/C23-null-hash-key.patch",
+      "sha256": "ecb795e8698263c0c2bf14f30bf910c70f77a7f979f1641cde37bb0924d1c282",
+      "source_commit": "9eda179893974bfabe793a15d697b989d9c344bf",
+      "commit": "030ea24b8e681a8242c7f4e7df2c0b0bd1725676"
+    }
+  ],
+  "build_verification": {
+    "bug": "C23",
+    "revision": "030ea24b8e681a8242c7f4e7df2c0b0bd1725676",
+    "exit_code": 0,
+    "elapsed_seconds": 76.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4550656,
+      "peak_scope_usage_bytes": 43267588096,
+      "minimum_host_available_bytes": 109366104064,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 76.0
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/030ea24b8e681a8242c7f4e7df2c0b0bd1725676-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 48,
+    "checks_passed": false,
+    "evidence": "verification/guarded-fixed-C23-030ea24b8e68-1792728896493589944.jsonl"
+  },
+  "additional_generator_module": "null_grouping_checks",
+  "artifact_contracts": "verification/C23-null-hash-key-artifact-contracts.json",
+  "scoped_native_verification": {
+    "distinct_passing_checks": 52,
+    "separate_failing_controls": 12,
+    "separate_finding": "F01",
+    "evidence": [
+      "verification/guarded-fixed-C23-030ea24b8e68-1792728896493589944.jsonl",
+      "verification/guarded-fixed-C23-030ea24b8e68-1792729254225571601.jsonl"
+    ],
+    "isolation_evidence": "verification/C23-distinct-alias-import-isolation.json",
+    "failing_records_retained": true
+  }
+}

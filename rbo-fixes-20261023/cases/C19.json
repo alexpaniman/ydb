@@ -1,0 +1,65 @@
+{
+  "id": "C19",
+  "branch": "fix/new-rbo/c19-unordered-ranking",
+  "commit": "8c1af92732e2b672b9c9a3e0c9cf533eb2d8969c",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp"
+  ],
+  "rationale": "Use a false peer-change expression when a window has no ordering keys. Every row remains a peer, so rank and dense rank retain one while row numbering still increments. Ordered windows overwrite the expression with their existing comparison.",
+  "checks": [
+    "Inspected the accumulator initialization/update paths and existing candidate implementation.",
+    "git diff --check HEAD^ HEAD passed.",
+    "Implementation-only change; candidate test fixtures and build-file changes excluded.",
+    "No builds or native runs; coordinated validation pending."
+  ],
+  "generator_labels": [
+    "rank"
+  ],
+  "expected_oracle": "For each unordered partition, rank and dense rank are one for every row; row number covers one through partition cardinality.",
+  "controls": [
+    "Ordered ranking with ties and distinct keys",
+    "Partition boundaries and singleton partitions",
+    "Unordered rank/dense rank alongside row number"
+  ],
+  "concerns": [],
+  "source_candidate": "fix/unordered-window-rank implementation diff only",
+  "status_before_verification": "verification_in_progress",
+  "build_verification": {
+    "bug": "C19",
+    "revision": "8c1af92732e2b672b9c9a3e0c9cf533eb2d8969c",
+    "exit_code": 0,
+    "elapsed_seconds": 43.9,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4497408,
+      "peak_scope_usage_bytes": 42634379264,
+      "minimum_host_available_bytes": 109253484544,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 43.9
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/8c1af92732e2b672b9c9a3e0c9cf533eb2d8969c-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 2,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C19-8c1af92732e2-1792726379826280016.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Native execution and compilation pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

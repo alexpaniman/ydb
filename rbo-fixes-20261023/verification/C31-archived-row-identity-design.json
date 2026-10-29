@@ -1,0 +1,89 @@
+{
+  "finding": "C31",
+  "reviewer": "c41_review",
+  "status": "narrow_scalar_identity_artifact_ready_full_archived_acceptance_outstanding",
+  "reviewed_commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+  "source_path": "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp",
+  "source_sha256": "971a6579e1d70f66cb786a9c1658138a6a33506d10aebc4be1535526824d096a",
+  "human_readable_bug": "Residual predicates on left-family joins still require nonempty, nonnullable left unique keys. Valid derived inputs without such keys can be rejected even after the late-sharing lifecycle fix.",
+  "scope_provenance": "rbo-review-20261021/reviewer-notes/r29.txt explicitly groups this row-identity failure with C31 and requests a distinct fix. It is retained as outstanding acceptance, not counted as a newly native-confirmed finding.",
+  "distinction": "The existing C31 branch fixes creation of shared inputs after the clone pass. It does not remove either identity assertion in inline_join_filters. C47 ordinary noncovering lookup copying is a separate import/copy lifecycle repair.",
+  "source_evidence": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp",
+      "location": "TInlineJoinFiltersRule::SimpleMatchAndApply, reconstruction key checks",
+      "claim": "The exact reviewed branch still rejects empty KeyColumns and any nullable key before building reconstruction JoinKeys."
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "location": "MakeDomainProjection and MakeSubplanDomain",
+      "claim": "Existing domain machinery groups the secondary Replicate port while preserving the primary caller bag. Grouping keys retain their IU definitions."
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "location": "MakeNullSafeJoinKeys",
+      "claim": "Existing null-safe equality uses either native EqualNulls or fresh StablePickle maps. An identity repair should not accidentally select the native branch when its downstream join implementation cannot support it."
+    },
+    {
+      "path": "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp",
+      "location": "PackImpl, Float/Double and Dict branches",
+      "claim": "StablePickle normalizes floating representations and sorts unordered dictionaries. Generic Pickle preserves scalar floating bits but serializes dictionary iterator order, so neither is a universal exact-row identity without a type contract."
+    },
+    {
+      "path": "yql/essentials/utils/fp_bits.h",
+      "location": "TCanonizeFpBitsImpl<T,true>::Do",
+      "claim": "Canonicalization merges signed zero and NaN payload encodings. Such representation differences must not be silently discarded when complete rows can still be inspected by residual expressions."
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+      "location": "IsRepeatable, CanDuplicateOperator, CanDuplicateSubtree",
+      "claim": "Existing clone gates reject nondeterministic/UDF expressions and inspect referenced subplans; Window and unknown operators are not repeatable by default."
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/expand_replicate.cpp",
+      "location": "TExpandReplicateRule::MatchAndApply",
+      "claim": "Secondary consumers are cloned only when the entire producer is admitted. The primary retains the producer until copies are made."
+    },
+    {
+      "path": "ydb/core/kqp/runtime/kqp_stream_enumerate.cpp",
+      "location": "stream/flow wrappers",
+      "claim": "Enumeration assigns sequential identity for a single stream evaluation, but separate copies can enumerate in different orders. Adding enumeration requires an explicit once-only shared producer contract; the callable alone supplies no such planner guarantee."
+    }
+  ],
+  "narrow_local_design": {
+    "nullable_unique_keys": "Retain existing nonnullable key behavior. Encode nullable reconstruction key pairs into fresh nonoptional String IUs on both sides, with original old-left type evidence and explicit scalar encoding admission. Preserve original payload IDs, key order and subplan renames. No deduplication is needed when metadata proves uniqueness.",
+    "keyless_inputs": "For a narrowly admitted complete left-row type and repeatable residual predicates/called subplans, group the secondary Replicate port on all its complete left columns before the inner join/filter. Reconstruct against the untouched primary bag with null-safe identities. Reuse MakeDomainProjection rather than inventing an operator.",
+    "multiplicity_argument": "For each admitted complete left value with multiplicity m and k matching right rows, the domain produces one inner left value and k matches; reconstruction against the original bag produces m*k rows. Semi/only reconstruction preserves m rows according to existence. Joining the raw repeated left relation instead would multiply counts again.",
+    "initial_type_admission": "Scalar Bool, signed/unsigned integral, non-timezone date/time/interval, String/Utf8, and Decimal, optionally nullable, subject to direct grouping/encoding parity review. Do not silently generalize to Float/Double, Pg, timezone, containers, opaque or nested optional families.",
+    "predicate_admission": "Use the existing repeatability inspection for the join expression and referenced subplans. Deduplicating values changes the number of predicate evaluations, so volatile or externally observable predicates need an occurrence identity or existing block residual implementation instead.",
+    "empty_row_domain": "If pruning leaves zero left columns, a generated nonnull constant domain column is required because MakeDomainProjection rejects empty grouping keys. The primary bag must remain untouched except for this helper column.",
+    "copy_and_stage_contract": "Create the domain above the secondary port and leave the shared producer clone gates unchanged. Existing C31 early inlining keeps copyable producer graphs logical. Ensure any new aggregate is legal before AssignStages and physical aggregate propagation; no modification to Copy repeatability or essentials is justified."
+  },
+  "outstanding_acceptance": [
+    "Nullable unique keys, including all-null and multi-column combinations, on Left/LeftSemi/LeftOnly.",
+    "Keyless duplicate-preserving derived inputs, mixed matching/unmatched rows, empty left/right inputs and zero-column domain.",
+    "Block enabled/disabled, forced residual expansion, spilling enabled/disabled, and shared consumers.",
+    "Floating/composite/opaque complete left rows and volatile residual/correlated subplans require a separate proven identity contract; the narrowed design does not close these cases.",
+    "Native bag equality, fresh IU/subplan captures, helper-column liveness and physical sharing/copy shape must be verified before the identity acceptance is marked repaired.",
+    "The 108 zero-column/empty bag models do not prove actual zero-column planner reachability; domain_constant SQL still has named columns. A direct-IR zero-column adapter is now generated in memory by c31_identity_cpp_generator.py; its compilation/execution and full native query semantics are pending."
+  ],
+  "implementation_decision": "A one-file artifact implements the scoped scalar domain and nullable key repair, retaining existing producer clone gates. It has passed isolated-index apply and offline bag/admission contracts only. Root review, production amendment and native evidence remain pending; excluded cases and zero-column native reachability remain open.",
+  "new_native_failure_claim": false,
+  "native_or_build_executions": 0,
+  "production_files_changed": false,
+  "exact_reproductions_persisted": false,
+  "artifact": {
+    "path": "proposed-correctness-amendments/C31-scalar-row-identity.patch",
+    "sha256": "9ed0d81563d8dd825b28de0bbe71003d4b8263d92ce9ac1b8f90f3b8a7801f0b",
+    "generator": "c31_identity_patch_generator.py",
+    "base_commit": "3d6548a9d6168d93276ac6a780fcd803d009fc5e",
+    "files_changed": 1,
+    "added_lines": 97,
+    "removed_lines": 26,
+    "applied": false
+  },
+  "contract_report": "verification/C31-scalar-identity-artifact-contracts.json",
+  "native_generator": "c31_identity_checks.py",
+  "direct_IR_generator": "c31_identity_cpp_generator.py",
+  "direct_IR_generator_report": "verification/C31-identity-direct-IR-generator.json"
+}

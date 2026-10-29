@@ -1,0 +1,95 @@
+{
+  "id": "Q02",
+  "title": "Unused window results retain their complete execution pipeline.",
+  "branch": "fix/new-rbo/q02-unused-window-results-retain-their-complete-execution-pipeline",
+  "commit": "1b50d28716f74eb02571e7490181132b14c37bff",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified_semantics_quality_pending",
+  "files": [
+    "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp",
+    "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h"
+  ],
+  "proposal_sha256": "348ce403fadbd308472915423de834214f5047c2a48a2f59ff91d2869ee8268a",
+  "proposal": "proposed-quality-patches/Q02.patch",
+  "proposal_metadata": {
+    "id": "Q02",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_patch_not_applied",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_operator.h",
+      "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+      "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp"
+    ],
+    "scope": "Prune undemanded window definitions and their input dependencies; existing empty-window bypass removes all-dead windows.",
+    "validation_required": [
+      "Existing RBO liveness/copy/window tests",
+      "Native empty and nonempty all-dead and partially-live window semantics",
+      "Plan window/function/sort/shuffle counts and retained hidden input columns",
+      "Check global/local and protected-definition scopes"
+    ],
+    "apply_check_passed": true,
+    "production_edited": false,
+    "compiled": false,
+    "native_verified": false,
+    "independent_source_review": "No additional source blocker after review; native/build and stated topology checks remain required.",
+    "independently_reviewed_patch_sha256": "348ce403fadbd308472915423de834214f5047c2a48a2f59ff91d2869ee8268a"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Build and all 4 semantic checks pass. Optimization evidence is incomplete; preserve this pending status until the required structural checks pass.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "Q02",
+    "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+    "exit_code": 0,
+    "elapsed_seconds": 313.6,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4694016,
+      "peak_scope_usage_bytes": 43185324032,
+      "minimum_host_available_bytes": 90590855168,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 313.6
+    },
+    "diagnostic_sha256": "4586f9b5cbc9d6fb0214cb15bf15fb65757fb6fa05e6010d7d3e245c9ac941ea",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/1b50d28716f74eb02571e7490181132b14c37bff-0270cdce795d4724.json"
+  },
+  "quality_verification": {
+    "generator_modules": [
+      "quality_window_checks"
+    ],
+    "profile_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+    "required_generator_modules": [
+      "quality_window_checks"
+    ],
+    "required_profile_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+    "required_profile_case_count": 4,
+    "finding_profile_coverage_complete": true,
+    "paired_evidence": "verification/quality-paired-Q02-1b50d28716f7-1793162352080187176.jsonl",
+    "baseline_revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "baseline_evidence": "verification/quality-baseline-profile-1793161806501921035.jsonl",
+    "baseline_evidence_sha256": "ec6c45393ac38292da493ea2ab6ed2071ac3cbc9be0c3974b3b269d3c54aac13",
+    "paired_checks": 4,
+    "optimization_contract_passed": false,
+    "helper_ledger_at_execution": 59
+  },
+  "native_verification": {
+    "checks": 4,
+    "checks_passed": false,
+    "evidence": "verification/guarded-fixed-Q02-1b50d28716f7-1793162330132081306.jsonl",
+    "semantic_checks_passed": true
+  }
+}

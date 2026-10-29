@@ -1,0 +1,212 @@
+{
+  "id": "C41",
+  "branch": "fix/new-rbo/c41-preserve-mixed-query-results",
+  "commit": "c6a5904e300b925032913f51e6a19518ceb842c2",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/host/kqp_explain_prepared.cpp",
+    "ydb/core/kqp/opt/kqp_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_plan_to_json.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.h",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.h"
+  ],
+  "rationale": [
+    "Import original query blocks and mark result/effect ownership explicitly on each root.",
+    "Retain block boundaries in transaction order and place each block materialization directly before its execution, with correct transaction/result indices.",
+    "Build result channels only for result roots; effect sinks do not receive final gathering or narrowing.",
+    "Keep result bindings when the same transaction has effects; export and annotate the physical query directly instead of replacing overlapping nested containers.",
+    "Attach the RBO query plan to every physical transaction, and combine per-transaction runtime statistics by stage GUID before serializing the complete analysis plan.",
+    "Refresh final-query lambda dependency scopes and canonicalize expressions after direct export, preserving the prior host post-annotation invariants.",
+    "Use the standard local type/post-type annotation pipeline so constraint completion precedes final scope refresh and canonicalization; keep annotation restarts local to the exported physical query."
+  ],
+  "checks": [
+    "git diff --check passed",
+    "Source traced BuildKqlQuery and legacy DoBuildTxImpl result/effect coexistence contract",
+    "Read-only review of sink stage construction and materialization binding offsets",
+    "No builds or native execution by this agent",
+    "Compositional generator AST/import/schema and positive/negative semantic oracle checks passed at sizes 8,19,32; no native execution",
+    "Fingerprint-confirmed native diagnostic identified empty JSON plans on earlier transactions; diagnostic text was sanitized and generated inputs/results remained anonymous.",
+    "Amended C41 remains a single commit directly on pinned origin/main; git diff --check passed; no yql/essentials changes.",
+    "Final c6a5904e: unchanged full RBO suite348/348 and original12 semantic checks pass; exact-vector/receipt/guard/source acceptance passes."
+  ],
+  "generator_case_names": [
+    "c41_results_then_effect",
+    "c41_effect_then_results",
+    "c41_multiple_results_effect",
+    "c41_write_then_read_same_table",
+    "c41_materialized_blocks",
+    "c41_effect_only",
+    "c41_read_only"
+  ],
+  "expected_oracle_controls": [
+    "Every original read result retained in ordinal order with original labels and values.",
+    "Effects execute and later query blocks observe required writes.",
+    "Pure read and pure effect controls remain valid.",
+    "Materialized range parameters refer to their own block transaction."
+  ],
+  "concerns": [
+    "Multi-transaction plan-statistics source contracts independently reviewed; target semantic checks pass"
+  ],
+  "build_failure_assessment": {
+    "classification": "external_process_termination",
+    "compiler_exit_codes": [
+      -9,
+      -9
+    ],
+    "targets": [
+      "kqp_rbo_copy_ut.cpp.o",
+      "kqp_rbo_lowering_ut.cpp.o"
+    ],
+    "oom_confirmed": false,
+    "next": "memory-guarded runner-only build, fingerprinted native checks, then separate existing test suite"
+  },
+  "superseded_commits": [
+    "ddd3afcc0d22ef44eb5cff279ba4d3eb35a0b4b8",
+    "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+    "dd1d8cabb86258c4bcb998bd6b317b296bfdd251"
+  ],
+  "verification_history": [
+    {
+      "revision": "ddd3afcc0d22ef44eb5cff279ba4d3eb35a0b4b8",
+      "build": {
+        "bug": "C41",
+        "revision": "ddd3afcc0d22ef44eb5cff279ba4d3eb35a0b4b8",
+        "exit_code": 0,
+        "elapsed_seconds": 220.6,
+        "target": "ydb/tests/tools/kqprun",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "cgroup_memory_max_gib": 72,
+          "cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 32,
+          "watchdog_max_process_group_rss_gib": 52,
+          "peak_group_rss_bytes": 4538368,
+          "minimum_host_available_bytes": 43581239296,
+          "watchdog_stopped": false,
+          "elapsed_seconds": 220.6
+        },
+        "diagnostic_sha256": "bf6cff23d6bf1c64672aeb844b27488a40628489c956d851ecba4ee7d7f71bcf",
+        "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/ddd3afcc0d22ef44eb5cff279ba4d3eb35a0b4b8-48c4f1872521cccc.json"
+      },
+      "native": {
+        "checks": 12,
+        "checks_passed": false,
+        "evidence": "verification/fixed-C41-ddd3afcc0d22.jsonl",
+        "first_line": 13,
+        "last_line": 24
+      }
+    },
+    {
+      "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+      "build": {
+        "bug": "C41",
+        "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+        "exit_code": 10,
+        "elapsed_seconds": 2101.1,
+        "target": "ydb/tests/tools/kqprun ydb/core/kqp/ut/rbo -tA",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 4538368,
+          "peak_scope_usage_bytes": 43534659584,
+          "minimum_host_available_bytes": 64109776896,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": true,
+          "elapsed_seconds": 2101.0
+        },
+        "diagnostic_sha256": "493ce5371c729401ed142100dc2a8addf61e6393ca5d360f6b93a224aae914de"
+      },
+      "native": {
+        "checks": 12,
+        "checks_passed": true,
+        "evidence": "verification/fixed-C41-b71ac02fc35f.jsonl"
+      },
+      "fullsuite_failure": "verification/C41-fullsuite-failure-b71ac02f-20261028.json"
+    },
+    {
+      "revision": "dd1d8cabb86258c4bcb998bd6b317b296bfdd251",
+      "build": {
+        "bug": "C41",
+        "revision": "dd1d8cabb86258c4bcb998bd6b317b296bfdd251",
+        "exit_code": 10,
+        "elapsed_seconds": 1122.5,
+        "target": "ydb/tests/tools/kqprun ydb/core/kqp/ut/rbo -tA",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 4640768,
+          "peak_scope_usage_bytes": 45783482368,
+          "minimum_host_available_bytes": 91794620416,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": true,
+          "elapsed_seconds": 1122.3
+        },
+        "diagnostic_sha256": "e24e5e221fbbc071189ce80144896384794f0949151f35b924a264f446fa2d54"
+      },
+      "fullsuite_failure": "verification/C41-fullsuite-failure-dd1d8cab-20261028.json",
+      "outcomes": "verification/C41-fullsuite-sanitized-outcomes-dd1d8cab-20261028.json"
+    }
+  ],
+  "status_before_verification": "prepared_unverified",
+  "post_annotation_review": "verification/C41-final-query-standard-post-type-pipeline-independent-review-20261028.json",
+  "latest_fullsuite_failure": "verification/C41-fullsuite-failure-dd1d8cab-20261028.json",
+  "latest_fullsuite_outcomes": "verification/C41-fullsuite-sanitized-outcomes-dd1d8cab-20261028.json",
+  "build_verification": {
+    "bug": "C41",
+    "revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+    "exit_code": 0,
+    "elapsed_seconds": 765.5,
+    "target": "ydb/tests/tools/kqprun ydb/core/kqp/ut/rbo -tA",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4644864,
+      "peak_scope_usage_bytes": 45452574720,
+      "minimum_host_available_bytes": 94081253376,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 765.4
+    },
+    "diagnostic_sha256": "50ff62f9d670f1e98ec2079b2d7ded20ade4c6b78780fada954f3e1fc286a2c1",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/c6a5904e300b925032913f51e6a19518ceb842c2-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 12,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C41-c6a5904e300b-1793160250682599163.jsonl"
+  },
+  "exact_acceptance_evidence": "verification/C41-standard-pipeline-exact-acceptance-20261028.json",
+  "fullsuite_verification": {
+    "evidence": "verification/C41-fullsuite-pass-c6a5904e-20261028.json",
+    "sanitized_counts": "verification/C41-fullsuite-sanitized-success-c6a5904e-20261028.json",
+    "unit_tests_passed": 348,
+    "unit_tests_failed": 0,
+    "checks_unchanged": true
+  },
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Standard local type/post-type annotation now restores constraint completion, lambda scopes and canonicalization after direct physical-query export. The unchanged full RBO suite and original 12 semantic controls require rerun. Prior 208 constraint-state failures and one unclassified Explain failure remain preserved.",
+      "resolved_by": "verification/C41-standard-pipeline-exact-acceptance-20261028.json"
+    }
+  ],
+  "latest_fullsuite_failure_resolved_by": "verification/C41-standard-pipeline-exact-acceptance-20261028.json"
+}

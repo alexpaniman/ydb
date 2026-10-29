@@ -1,0 +1,74 @@
+--- a/ydb/core/kqp/opt/rbo/rules/push_ranges.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/push_ranges.cpp
+@@ -567,6 +567,7 @@
+     IPredicateRangeExtractor::TBuildResult lookupResult;
+     TVector<TString> lookupKeyColumns;
+     TVector<TString> lookupReadColumns;
++    bool lookupFilterOnIndex = true;
+ 
+     // Point prefixes are computed for every table the read can be redirected to, so a lookup join can
+     // choose the one which fits its keys best. Otherwise only the table chosen for the read gets one.
+@@ -620,13 +621,18 @@
+             }
+ 
+             const bool covering = IsCovering(*read, *indexMeta, props.InfoUnitRegistry);
++            const bool filterOnIndex = std::all_of(filterPhysical.begin(), filterPhysical.end(),
++                [&](const TString& col) { return indexMeta->Columns.contains(col); });
+             if (!covering) {
+                 if (read->Limit) {
+                     continue;
+                 }
+-                const bool evaluable = std::all_of(filterPhysical.begin(), filterPhysical.end(),
+-                                                   [&](const TString& col) { return indexMeta->Columns.contains(col); });
+-                if (!evaluable) {
++                // Uncovered residuals can run after fetching the base row. Restrict this
++                // new path to ordinary row indexes with a useful extracted key prefix.
++                if (!filterOnIndex && (read->GetTableStorageType() != NYql::EStorageType::RowStorage
++                    || GetStorageType(*indexMeta) != NYql::EStorageType::RowStorage || indexResult.UsedPrefixLen == 0
++                    || (index.Type != TIndexDescription::EType::GlobalSync
++                        && index.Type != TIndexDescription::EType::GlobalSyncUnique))) {
+                     continue;
+                 }
+             }
+@@ -648,7 +654,9 @@
+                 lookupIndexMeta = indexMeta;
+                 lookupResult = std::move(indexResult);
+                 lookupKeyColumns = std::move(indexKeyColumns);
+-                lookupReadColumns = BuildIndexReadColumns(mainMeta.KeyColumnNames, filterPhysical);
++                lookupFilterOnIndex = filterOnIndex;
++                lookupReadColumns = filterOnIndex ? BuildIndexReadColumns(mainMeta.KeyColumnNames, filterPhysical)
++                                                 : mainMeta.KeyColumnNames;
+                 chosenIndexMeta.Reset();
+             }
+         }
+@@ -681,12 +689,12 @@
+                                                 BuildTableCallable(*lookupIndexMeta, read->Pos, ctx), nullptr, nullptr,
+                                                 std::move(rangeInfo), std::nullopt, ESortDir::None, read->Props, read->Pos);
+ 
+-        TSubstitutions substitutions;
+-        for (const auto id : filter->GetFilterIUs(props)) {
+-            substitutions.Add(id, indexIds.at(props.InfoUnitRegistry.Get(id).GetColumnName()));
+-        }
+         TIntrusivePtr<IOperator> indexFilter = std::move(indexRead);
+-        if (!IsPrunedToTrue(lookupResult.PrunedLambda)) {
++        if (lookupFilterOnIndex && !IsPrunedToTrue(lookupResult.PrunedLambda)) {
++            TSubstitutions substitutions;
++            for (const auto id : filter->GetFilterIUs(props)) {
++                substitutions.Add(id, indexIds.at(props.InfoUnitRegistry.Get(id).GetColumnName()));
++            }
+             auto indexPredicate = TExpression(lookupResult.PrunedLambda, &ctx, &props).ApplyRenames(substitutions);
+             indexFilter = MakeIntrusive<TOpFilter>(std::move(indexFilter), filter->Pos, filter->Props, std::move(indexPredicate), true);
+         }
+@@ -705,6 +713,12 @@
+                 .Predicate = TExpression(originalLambda, &ctx, &props),
+                 .PointPrefixes = std::move(pointPrefixes),
+             };
++        }
++        if (!lookupFilterOnIndex && !IsPrunedToTrue(lookupResult.PrunedLambda)) {
++            // Keep the complete residual, its original IU bindings and conjunct order.
++            // The fetched output still contains every field of the original read.
++            return MakeIntrusive<TOpFilter>(lookup, filter->Pos, filter->Props,
++                TExpression(lookupResult.PrunedLambda, &ctx, &props), true);
+         }
+         return lookup;
+     }

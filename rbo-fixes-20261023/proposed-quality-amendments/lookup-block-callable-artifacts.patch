@@ -1,0 +1,12 @@
+diff --git a/rbo-fixes-20261023/quality_lookup_checks.py b/rbo-fixes-20261023/quality_lookup_checks.py
+--- a/rbo-fixes-20261023/quality_lookup_checks.py
++++ b/rbo-fixes-20261023/quality_lookup_checks.py
+@@ -322,7 +322,7 @@
+             'quality_improvement_verified': False}
+ 
+ 
+-_JOIN_CALLS = ('GraceJoinCore', 'GraceSelfJoinCore', 'MapJoinCore', 'DqBlockHashJoinCore', 'BlockMapJoinCore')
++_JOIN_CALLS = ('GraceJoinCore', 'GraceSelfJoinCore', 'MapJoinCore', 'BlockHashJoinCore', 'BlockMapJoinCore')
+ _CALLS = ('DqPhyStage', 'KqpRowsSourceSettings', 'KqpCnStreamLookup', 'KqpIndexLookupJoin',
+           'DqCnHashShuffle', 'DqCnBroadcast', 'DqCnUnionAll', 'DqCnMap', 'Ensure',
+           '==', '!=', '<', '<=', '>', '>=') + _JOIN_CALLS

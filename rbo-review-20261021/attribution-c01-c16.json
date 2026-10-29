@@ -1,0 +1,329 @@
+[
+  {
+    "id": "C01",
+    "title": "Typed join predicates are copied across unequal key types",
+    "primary_commit": {
+      "hash": "7c422d3d0bfc3cf2970974c6e3667d3749dbaeff",
+      "author": "Pavel Velikhov",
+      "date": "2026-07-09",
+      "subject": "[NEW RBO] Push constant condition on join key to both sides (#46050)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [
+      {
+        "hash": "4c737c01104e1151bd2a7e9b41350092a3c35a83",
+        "author": "Pavel Velikhov",
+        "date": "2026-08-13",
+        "subject": "[NEW OPTIMIZER] Fix bugs in join filter processing (#49829)",
+        "role": "same assumption added to simple-join-filter rule"
+      }
+    ],
+    "confidence": "source_traced",
+    "evidence": "The commit adds cross-side predicate copying through ApplyRenames without checking source/target key type equivalence. Parent lacks this block. The sibling rule later copies the same assumption. SSA migration changes representation, not the missing proof.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C02",
+    "title": "Volatile filters change aggregate values",
+    "primary_commit": {
+      "hash": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+      "author": "Denis Khalikov",
+      "date": "2026-10-09",
+      "subject": "[Optimizer] Push filter through aggregate (#55697)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [],
+    "confidence": "source_traced",
+    "evidence": "Introduces the filter-through-aggregate rule. Applicability checks unresolved subplans and key dependencies, but no volatility/evaluation-multiplicity restriction.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C03",
+    "title": "DISTINCT aggregates over grouping sets compute incorrect subtotals",
+    "primary_commit": {
+      "hash": "9589d9b27518163f55722b2c5c8ba98dadd02594",
+      "author": "Denis Khalikov",
+      "date": "2026-09-06",
+      "subject": "[Optimizer] Expand rollup in rbo rule (#52313)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [
+      {
+        "hash": "5d68400dca1ba7c8fdcbbe725dae4a9d300ea4bc",
+        "author": "Denis Khalikov",
+        "date": "2026-06-09",
+        "subject": "[Optimizer] Add distinct aggregation expander. (#42994)",
+        "role": "preexisting DISTINCT expansion involved in the interaction"
+      }
+    ],
+    "confidence": "interaction_source_traced",
+    "evidence": "Moves rollup/grouping-set expansion from frontend per-branch aggregation into the postorder rule stage containing DISTINCT expansion. The child DISTINCT now expands before grouping-set fanout. Prior frontend placement handled distinct at each grouping branch.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C04",
+    "title": "Filter fusion evaluates expressions on rows already rejected",
+    "primary_commit": {
+      "hash": "fd5a7114c92b6facae8018f0dd09ac057a08520c",
+      "author": "Pavel Velikhov",
+      "date": "2026-04-14",
+      "subject": "[NEW RBO] Join Filters support (#38005)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [],
+    "confidence": "source_traced",
+    "evidence": "The new fuse_filters rule constructs conjuncts from the top filter first and appends bottom-filter conjuncts. The reversed evaluation order is present at rule introduction; later cached-expression and SSA edits preserve it.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C05",
+    "title": "Scalar subquery validation runs for unrelated correlation keys",
+    "primary_commit": {
+      "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+      "author": "Denis Khalikov",
+      "date": "2026-09-02",
+      "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [],
+    "confidence": "source_traced",
+    "evidence": "The initial dependent-join implementation removes the demanded domain when all correlations bind to inner columns. The same change adds scalar per-group cardinality checks, allowing checks on unrelated inner domains.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C06",
+    "title": "Correlation can select the wrong row after a key type changes",
+    "primary_commit": {
+      "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+      "author": "Denis Khalikov",
+      "date": "2026-09-02",
+      "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [],
+    "confidence": "source_traced",
+    "evidence": "Introduces capture rebinding directly to an inner column without preserving the captured type, alongside StablePickle-based nullable-domain encoding. The complete mechanism precedes SSA migration.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C07",
+    "title": "Domain elimination admits matches forbidden by NaN equality",
+    "primary_commit": {
+      "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+      "author": "Denis Khalikov",
+      "date": "2026-09-02",
+      "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [],
+    "confidence": "source_traced",
+    "evidence": "Introduces elimination of the correlation equality after recording a binding. It restores only nullable-column existence checks, with no nonreflexive floating-point equality guard.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C08",
+    "title": "Empty correlated scalar aggregates skip their result expression",
+    "primary_commit": {
+      "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+      "author": "Denis Khalikov",
+      "date": "2026-09-02",
+      "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [],
+    "confidence": "source_traced",
+    "evidence": "Initial aggregate decorrelation restores missing domain rows only when countResults is nonempty. The count-only restoration guard already exists in this initial implementation.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C09",
+    "title": "IN subqueries ignore the requested NULL-semantics mode",
+    "primary_commit": {
+      "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+      "author": "Denis Khalikov",
+      "date": "2026-09-02",
+      "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [
+      {
+        "hash": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+        "author": "Pavel Velikhov",
+        "date": "2026-06-02",
+        "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+        "role": "YqlSelect IN reconstruction omits policy/settings"
+      }
+    ],
+    "confidence": "interaction_source_traced",
+    "evidence": "Exact observed legacy-mode failure combines a producer that omits IN policy with the later generic lowering that explicitly synthesizes ANSI three-valued results. No single introducing author is established for the complete symptom.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C10",
+    "title": "Nullable NaN is mistaken for NULL in IN handling",
+    "primary_commit": {
+      "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+      "author": "Denis Khalikov",
+      "date": "2026-09-02",
+      "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [],
+    "confidence": "source_traced",
+    "evidence": "Adds the nullable lookup null-test using negated self-equality. The parent generic lowering lacks this test; NaN is included by the new null-detection expression.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C11",
+    "title": "IN typing removes a necessary COALESCE fallback",
+    "primary_commit": {
+      "hash": "10b439a0132694280184769221ee276198980257",
+      "author": "Pavel Velikhov",
+      "date": "2025-12-28",
+      "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [
+      {
+        "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+        "author": "Denis Khalikov",
+        "date": "2026-09-02",
+        "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+        "role": "adds explicit nullable three-valued IN result production"
+      }
+    ],
+    "confidence": "interaction_source_traced",
+    "evidence": "Introduces plain Bool annotations for IN at both frontend sublink and RBO subplan levels. Later nullable mark-result lowering exposes the mismatch to COALESCE simplification. Attribute both sides of the type contract, not only the old Bool line.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C12",
+    "title": "Hidden grouping columns prevent DISTINCT from removing duplicates",
+    "primary_commit": {
+      "hash": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+      "author": "Denis Khalikov",
+      "date": "2025-11-21",
+      "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [
+      {
+        "hash": "acb952da1c40c0d5e591c6801fbb529e99fd01b1",
+        "author": "Denis Khalikov",
+        "date": "2026-05-29",
+        "subject": "[Optimizer] Fix distinct on top of aggregation (#41846)",
+        "role": "later duplicate-key cleanup preserves hidden-key inclusion"
+      }
+    ],
+    "confidence": "source_traced",
+    "evidence": "Adds all aggregation grouping keys to post-aggregate DISTINCT, including keys absent from the projected result. Later duplicate-key cleanup leaves that semantic inclusion intact.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C13",
+    "title": "Grouped result expressions are replaced by a bare grouping key",
+    "primary_commit": {
+      "hash": "fbe5541e63905ac791d36e2074c017745c0946eb",
+      "author": "Denis Khalikov",
+      "date": "2025-12-11",
+      "subject": "[NEW RBO] Refactor to support YqlSelect Aggregation (#30538)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [
+      {
+        "hash": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+        "author": "Denis Khalikov",
+        "date": "2025-11-21",
+        "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+        "role": "earlier PG-oriented whole-expression replacement"
+      },
+      {
+        "hash": "7c7f969926be7f5eeb680940880daa8d822912e5",
+        "author": "Denis Khalikov",
+        "date": "2026-09-13",
+        "subject": "[Optimizer] Fix order by groupby ref. (#52969)",
+        "role": "partial repair that retains the materialized-case defect"
+      }
+    ],
+    "confidence": "source_traced",
+    "evidence": "Extends the whole-expression replacement on any nested group reference to native YQL aggregates. The earlier PG-oriented implementation already had the pattern. The later group-reference fix repairs nonmaterialized expressions but leaves the materialized case.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C14",
+    "title": "Aggregates on different nested fields share the wrong input",
+    "primary_commit": {
+      "hash": "7cf095c620a4063f3134efa24ea49d876110852b",
+      "author": "Denis Khalikov",
+      "date": "2026-01-23",
+      "subject": "[NEW RBO] Eliminate pre aggregation map. (#32542)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [
+      {
+        "hash": "91f7c0b6130daba38e4f31f0e7bee82156ca8c9f",
+        "author": "Denis Khalikov",
+        "date": "2026-05-28",
+        "subject": "[Optimizer] Emit more optimal code for scalar aggregation. (#41727)",
+        "role": "removes forceOptional bypass that previously avoided some scalar collisions"
+      }
+    ],
+    "confidence": "source_traced",
+    "evidence": "Replaces fresh names for repeated aggregation inputs with reuse keyed only by member name. Parent generated a fresh column on name collision; this change skips a second preaggregation expression when its leaf name matches. Later scalar optional-state cleanup widens exposure.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C15",
+    "title": "A scalar subquery is evaluated outside its conditional guard",
+    "primary_commit": {
+      "hash": "a24651dc6c3bbe037a87ad8faf51438bc8f27a36",
+      "author": "Pavel Velikhov",
+      "date": "2025-11-01",
+      "subject": "[NEW RBO] Added support for scalar context (#28107)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [
+      {
+        "hash": "7ee9137a38b158fb733613e21e2d160003a7c324",
+        "author": "Denis Khalikov",
+        "date": "2026-09-02",
+        "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+        "role": "current per-group Ensure reimplementation preserves unconditional attachment"
+      }
+    ],
+    "confidence": "source_lineage_not_runtime_boundary",
+    "evidence": "Initial scalar-context lowering attaches a cardinality-checked subplan by cross join before the containing unary expression, without retaining its conditional guard. Current per-group Ensure lowering reimplements this architecture. Historic source proves the hoisting pattern, but the exact first failing modern-YQL query has not been bisected.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  },
+  {
+    "id": "C16",
+    "title": "Unresolved subqueries enter block-cross join filters too early",
+    "primary_commit": {
+      "hash": "e49db9c68f3d3438a6a257a02fecbb1360a85598",
+      "author": "Denis Khalikov",
+      "date": "2026-09-03",
+      "subject": "[Optimizer] Add support for cross join with filters (#52096)",
+      "role": "introducing mechanism"
+    },
+    "related_commits": [],
+    "confidence": "source_traced",
+    "evidence": "Adds the block-cross fast path that moves every non-equality conjunct into JoinFilters without excluding unresolved subplans. A later force-inlining flag condition narrows when this block runs; it does not create the missing subplan guard.",
+    "historical_runtime_bisection": false,
+    "reviewer": "root"
+  }
+]

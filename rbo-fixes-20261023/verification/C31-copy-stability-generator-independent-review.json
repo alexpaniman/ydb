@@ -1,0 +1,33 @@
+{
+  "status": "source_and_model_review_passed_native_reachability_pending",
+  "production_revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "generator": "c31_identity_checks.py",
+  "generator_sha256": "3ce09393f4169673ad98ef84dd0336eac0d67da888ad491e5f3a9a5b91408254",
+  "contract_sha256": "4d5b113d8c11690f2b5a8ab2976e80d2aa8f71b6dd3d1e91fe614c9e3af40174",
+  "checks": [
+    "Expected rejection uses the exact copied-values guard at the target request; unrelated failures, wrong request stage, crashes and unexpected success are rejected.",
+    "Guard profiles do not require an AST that cannot exist after rejection; successful controls require both row and physical evidence.",
+    "Small integral floating inputs make hidden SUM and conversion results reduction-order independent, separating guard reachability from numeric luck.",
+    "Integer SUM controls remain admitted and require two physical joins and retained producer aggregation.",
+    "Spilling metadata matches the production sharing decision: runner supplies the spilling query flag through the default-enabled local spilling service, and per-case query-service spilling toggles sharing.",
+    "Both input bags and nullable/composite identities are modeled independently of planner metadata."
+  ],
+  "rerun": {
+    "positive_row_checks": 396,
+    "negative_row_checks": 396,
+    "reduction_order_models": 170,
+    "physical_parser_contracts": 48,
+    "guard_verdict_contracts": 12
+  },
+  "limitations": [
+    "Domain UNION ALL can produce independent sharing. A multi-output Switch count alone does not establish that the reconstruction producer is the shared node; actual sanitized AST-origin review remains required.",
+    "No query was compiled or executed, and actual planner retention of the nested reduction remains unverified.",
+    "The separately prepared24-case direct IR adapter covers identity/local rule contracts, not the new aggregate stability path."
+  ],
+  "disposition": "Ready for guarded native execution; retain the exact shared-producer origin obligation before claiming complete C31 acceptance.",
+  "native_runs": 0,
+  "compiler_runs": 0,
+  "production_edits": false,
+  "active_helper_edits": false,
+  "generated_workloads_saved": false
+}

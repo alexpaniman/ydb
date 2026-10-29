@@ -1,0 +1,65 @@
+{
+  "files": {
+    "library/cpp/testing/common/network.cpp": {
+      "pinned_sha256": "3b92bc88b634ca84879aab2f6e3f6825788d74164c886c85070c84c2f4c6b8bd",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/grpc_services/rpc_kqp_base.cpp": {
+      "pinned_sha256": "bf9fba10ca340959a903dec5ec8523dc5ab49e11c5c0bb387407fb199c41bd8f",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/kqp/compile_service/kqp_compile_actor.cpp": {
+      "pinned_sha256": "cd9ba38a4a21dc1f81743ba0d595face005edddd4f320e4ea5df7a4bf8627ade",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/kqp/compile_service/kqp_compile_service.cpp": {
+      "pinned_sha256": "a63f66d62fe02c6c17e400b4ab249999e6e790d990d130ad1e0f3804cc73094e",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/kqp/ut/common/kqp_ut_common.cpp": {
+      "pinned_sha256": "92589cf8a3a3a6b3a7dab33f55127cfecff3b7f815a46d63d78f60ae7179af99",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/kqp/ut/common/kqp_ut_common.h": {
+      "pinned_sha256": "8d9e60923d127786f4110bff4d62e8660c93955a2724a6ca9b8b0eba2a60855e",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/kqp/ut/common/ya.make": {
+      "pinned_sha256": "fc3a65f53ab98e30f966c34f54cb859105390b8900d760c6ca472feee221b8e5",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/kqp/ut/rbo/ya.make": {
+      "pinned_sha256": "0c06da2e3f951e9d5e28467833bd15d6799fa6ea5402ea471380105df88c4c80",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/testlib/test_client.cpp": {
+      "pinned_sha256": "38213a9ae7c964f512fd4880dd079dbcb216a0b1ff76f337b31afc686a42726d",
+      "working_source_matches_pinned": true
+    },
+    "ydb/core/testlib/test_client.h": {
+      "pinned_sha256": "b9a645b6a2a5a468cf89fa67cbe063fd618d4af77b9f2ba47375d4ff44656c74",
+      "working_source_matches_pinned": true
+    },
+    "ydb/library/actors/testlib/test_runtime.cpp": {
+      "pinned_sha256": "11b6d60d9d88a939b0b1570270be8e0a8efaacd6c3c69e2aa3543930ea217b33",
+      "working_source_matches_pinned": true
+    },
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/client.h": {
+      "pinned_sha256": "e71441eb8e229c60afc37cac3fba26b3b8b2a4c1ea5f5e669d07d639327f2a15",
+      "working_source_matches_pinned": true
+    },
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/query.h": {
+      "pinned_sha256": "79d8dda4b244c25e25fcf1e71d97a80b3c62475270587f5dc7ae3ca3c1bbf716",
+      "working_source_matches_pinned": true
+    },
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/stats.h": {
+      "pinned_sha256": "cdbfeb5bb7df23b6c20ca953c67b5ae189848cf54158bb4e0c97c3f09651b083",
+      "working_source_matches_pinned": true
+    },
+    "ydb/public/sdk/cpp/src/client/query/stats.cpp": {
+      "pinned_sha256": "d6d94ec9617c55a33fecbc1d92bfaabe1e3434e7becb9c198a313d9e588b996b",
+      "working_source_matches_pinned": true
+    }
+  },
+  "revision": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2"
+}

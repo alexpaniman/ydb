@@ -1,0 +1,18 @@
+{
+  "mock_contracts_passed": true,
+  "assertions": 17,
+  "guard_sha256": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+  "actual_processes_started": 0,
+  "native_runs": 0,
+  "generated_inputs_saved": false,
+  "coverage": [
+    "completed scope after parent exit while readers drain",
+    "completed scope before launcher exit while readers drain",
+    "live or unknown scope despite exited parent",
+    "unknown scope with live parent",
+    "completion probe failure",
+    "startup grace",
+    "available zero membership accounting",
+    "host pressure, timeout and scope budget remain enforced"
+  ]
+}

@@ -1,0 +1,181 @@
+{
+  "reviewer": "c41_review",
+  "review_kind": "independent_exact_branch_source_prequeue_audit",
+  "findings": {
+    "C39": {
+      "verdict": "No introduced API or semantic blocker found; this remains an explicit rejection guard, not implementation of residual FULL joins.",
+      "contracts": [
+        "The residual guard runs before algorithm fallback and before physical key/input conversion, covering Map, Grace and ReverseBlock paths.",
+        "AssignStages enables block residual capability only for Inner, Left, LeftSemi and LeftOnly; unsupported physical residuals fail before rows can be emitted."
+      ],
+      "refs": [
+        "physical_conversion/kqp_rbo_physical_join_builder.cpp:554",
+        "rules/assign_stages.cpp:34"
+      ],
+      "limits": [
+        "Current FULL profile must satisfy its exact rejection token; successful controls cannot establish residual FULL support."
+      ],
+      "revision": "416834fa9b1e0fec89d663026e74f76ab6909314",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp": "54c8948db5db15d824fae5c3a3512ded6cda404721177dfb8813f415e2f6e288"
+      }
+    },
+    "C42": {
+      "verdict": "No introduced API, binding or optionality blocker found.",
+      "contracts": [
+        "Both set-operation edges receive fresh Just definitions only when the annotated output is optional and that input is required.",
+        "Bindings are copied before widening; memoized producer AST and its original output bindings remain unchanged.",
+        "Union creates fresh output IDs; intersect/except use widened IDs; final projection substitutions map original left IDs to actual final output IDs."
+      ],
+      "refs": [
+        "kqp_plan_conversion_utils.cpp:596",
+        "kqp_plan_conversion_utils.cpp:670"
+      ],
+      "limits": [
+        "Nested union/flat controls do not establish every intersect/except, empty-arm, shared-producer and optional-depth combination."
+      ],
+      "revision": "6eeadd50b057ceec10173d3fb1104b4a81ddbafe",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp": "7b14cd367245f748c24aa6f8e9b3709079f6b36fdb8618014bd7eaaa0a37134a"
+      }
+    },
+    "C43": {
+      "verdict": "No introduced API or lowering lifecycle blocker found.",
+      "contracts": [
+        "The fallback is entered only when a focused compatibility callable remains after the existing bounded lowering loop.",
+        "The original prepared stage vector remains available and is passed to the existing full peephole; abandoning partial rewrites preserves a coherent topological graph.",
+        "Full peephole uses the existing argument-type annotation, KqpProgram wrapping and stage-program replacement mechanism."
+      ],
+      "refs": [
+        "physical_conversion/kqp_rbo_physical_query_builder.cpp:182",
+        "physical_conversion/kqp_rbo_physical_query_builder.cpp:858",
+        "physical_conversion/kqp_rbo_physical_query_builder.cpp:1029",
+        "physical_conversion/kqp_rbo_compatibility.cpp:347"
+      ],
+      "limits": [
+        "This broadens optimization work only on unsupported focused expressions. Full-peephole interactions and performance remain native acceptance, not proved by source inspection."
+      ],
+      "revision": "fd7ba4678acdce0c5473cb765187abdde514a16e",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp": "d84d629ebdaf0948600bf251a79ec079029d81840c1e2f265cda4c1cfafd7107"
+      }
+    },
+    "C45": {
+      "verdict": "No introduced API or expression-binding blocker found.",
+      "contracts": [
+        "A direct Member is admitted only when its receiver is the current lambda row argument.",
+        "Nested receiver expressions use the existing complete-expression materialization path for window arguments and sort/partition keys.",
+        "The change does not alter function argument ordering or the downstream materialized-column interface."
+      ],
+      "refs": [
+        "kqp_rewrite_select.cpp:1150",
+        "kqp_rewrite_select.cpp:1252"
+      ],
+      "limits": [
+        "Nested argument, partition and ordering cases need fresh native values; source equality checks alone do not establish translator reachability."
+      ],
+      "revision": "6d8e86a79f5417c74d46a8314e3591d6e3b88eed",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp": "2fb98b9d94c6fdfdcf7c81f2f09827e8ef387b9fba28b86bfaa175ed132c28a9"
+      }
+    },
+    "C46": {
+      "verdict": "No introduced correctness/API blocker found for the routed compilation unit; reusable-host routing scope is a separate optimization caveat.",
+      "contracts": [
+        "The detector matches canonical five-child Kikimr Write settings with mode update; update_on and other writes do not match.",
+        "Routing happens after CompileExpr and before provider optimization; it reuses the selected AST rather than reparsing SQL.",
+        "IgnoreExpandPg is cleared alongside the optimizer flag, admitting legacy YqlSelect expansion."
+      ],
+      "refs": [
+        "ydb/core/kqp/host/kqp_host.cpp:123",
+        "ydb/core/kqp/host/kqp_host.cpp:1552",
+        "ydb/core/kqp/provider/yql_kikimr_datasink.cpp:346",
+        "ydb/core/kqp/provider/yql_kikimr_provider.cpp:961",
+        "ydb/core/kqp/provider/yql_kikimr_settings.h:205",
+        "yql/essentials/providers/common/config/yql_dispatch.h:719",
+        "ydb/core/kqp/compile_service/kqp_compile_actor.cpp:386"
+      ],
+      "limits": [
+        "SetEnableNewRBO mutates the protobuf base; registered-setting Restore does not restore that field. A reused host/config can retain legacy routing; ordinary compile-actor request scope mitigates this, and actual reused-host reachability remains unverified. Existing sampling routing has the same mechanism.",
+        "This branch routes UPDATE through legacy effect lowering; it does not implement native RBO conditional writes."
+      ],
+      "revision": "43cf0cc6ab0a627e42844759086ac020bd98925f",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_source_sha256": {
+        "ydb/core/kqp/host/kqp_host.cpp": "3cb2e1833e5b3a745018acf58b67a777a1619566c0886a0df9b09c88ad3ec1ab"
+      }
+    },
+    "C49": {
+      "verdict": "No introduced API, complete-key or hidden-binding lifecycle blocker found.",
+      "contracts": [
+        "ResolveStorageColumns returns either all primary-key components in metadata order or an empty key claim.",
+        "The noncovering rewrite fetches missing main-table key fields under fresh IUs; existing exposed bindings and physical lookup-key order remain unchanged.",
+        "Index selection precedes CBO; the only intervening pruning stage before residual inlining is MapDefinitions-only and does not prune fetched TableLookup columns.",
+        "Pruning II runs after reconstruction has made key bindings live; regular lookup output IDs are distinct from index-input lookup IDs."
+      ],
+      "refs": [
+        "kqp_rbo_compute_statistics.cpp:85",
+        "kqp_rbo_compute_statistics.cpp:222",
+        "rules/push_ranges.cpp:696",
+        "kqp_rbo_transformer.cpp:718",
+        "kqp_rbo_transformer.cpp:737",
+        "global_pruning.cpp:67"
+      ],
+      "limits": [
+        "Current special generator forces channel spilling and late inlining, avoiding the independent no-spill sharing lifecycle problem. Native execution must establish actual noncovering-index selection and complete-key reconstruction.",
+        "Nullable identity restrictions remain separate from the scoped nonnullable composite-key fix."
+      ],
+      "revision": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp": "184a0a7d71d4897bdd42a3a467d6ae479e3fe02c1f3bff192f51976afc6b6cfa",
+        "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp": "1e8c91dba511279f050af213f33b0cbc842d545b47e924942e795af9032f6875"
+      }
+    },
+    "C50": {
+      "verdict": "No introduced API, task-placement or distribution-invalidation blocker found.",
+      "contracts": [
+        "AssignStages requires types and GetIUType returns a raw annotation pointer, avoiding the checked-pointer deduction trap seen in C11.",
+        "Any unequal paired key annotation marks gather and forces Grace before physical capability selection.",
+        "Plain UnionAll inputs leave the KQP destination partition count at one; all source partitions feed that task.",
+        "KQP task channel wiring passes query spilling policy to UnionAll and spills multi-output source channels when enabled.",
+        "Query-wide cached shuffle decisions are cleared before stage assignment; copied GatherJoinInputs prevents later join metadata recomputation from inventing hash partitioning."
+      ],
+      "refs": [
+        "rules/assign_stages.cpp:15",
+        "rules/assign_stages.cpp:157",
+        "rules/assign_stages.cpp:366",
+        "kqp_rbo_rules.h:502",
+        "kqp_operator.h:279",
+        "kqp_stage_graph.cpp:84",
+        "ydb/core/kqp/executer_actor/kqp_tasks_graph.cpp:1474",
+        "ydb/core/kqp/executer_actor/kqp_tasks_graph.cpp:4323",
+        "ydb/library/yql/dq/tasks/dq_connection_builder.h:96",
+        "kqp_rbo_compute_statistics.cpp:648",
+        "kqp_operator.h:152"
+      ],
+      "limits": [
+        "Native multi-node, shared-producer and backpressure controls remain necessary. Source wiring is not empirical liveness evidence.",
+        "Gather centralizes memory/network work and invalidating all saved shuffle decisions can add shuffles elsewhere; these are optimization costs separate from correctness."
+      ],
+      "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/kqp_operator.h": "2f0fff7fc230f92ef405ab7d96afa7b4875d15519ea58e9a0751aaf7707b15db",
+        "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp": "679c84a75bbae282599d1c8dadba537353cc098f34d42dcbeae6711221294254",
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": "0871ccc05675193dfd37120a1245d4cc7a9012dc3f5a2e2732349da19b7f8bde"
+      }
+    }
+  },
+  "new_confirmed_correctness_blockers": [],
+  "production_amendments_requested": [],
+  "compiled": false,
+  "native_executed": false,
+  "additional_model_suites_run": false,
+  "production_or_active_helper_or_generator_edited": false,
+  "generated_reproductions_persisted": false
+}

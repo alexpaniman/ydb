@@ -1,0 +1,104 @@
+{
+  "schema": "C06_C50_empty_anti_boundary_independent_diagnosis_v1",
+  "status": "transport_boundary_gap_confirmed_no_production_mismatch_established",
+  "revision": "2bc207a991cc036e1a74616d7ea3e7df6137d8dd",
+  "evidence": {
+    "path": "verification/integration-C06-C50-2bc207a991cc-4366390bb07240379f07b9162a14ce3b-records.jsonl",
+    "sha256": "0d8b6a682f0abcec5d1cbb9707138ba69244adead244fd61e81ee42746312c87",
+    "records": 16,
+    "accepted_records": 12,
+    "preserved_failed_records": 4
+  },
+  "confirmed_facts": [
+    "Both failing left-anti families have an empty independent expected bag; the unchanged row oracle accepts the observed empty bag.",
+    "All four failed records explicitly retain observed_semantic_oracle_pass=true, integration_record_validation_pass=false and integration_validation_failure_type=ValueError.",
+    "Their output stream is empty, result_set_count=0 and result_set_boundaries_known=false. The outer integration validator correctly rejects missing result ownership/boundary evidence.",
+    "All twelve nonempty cases have one known result set and pass their original semantic oracle.",
+    "The actual bounded fixtures contain no NULL key values; their schema optionality alone does not demonstrate a null-value anti-join failure."
+  ],
+  "source_cause": "kqprun RowsJson writes only rows. An empty single result set and absence of result sets can therefore produce the same empty stream. parse_rows_output deliberately keeps the boundary unknown; the integration wrapper requires it to be known.",
+  "failure_retention": "SAFE_FIELDS filtering precedes the validation catch; observed oracle outcome and validation failure fields are subsequently added and are present in saved records. No retention repair is needed.",
+  "required_narrow_next_step": [
+    "Use a source-reviewed result transport that carries actual result-set metadata for the affected empty cells, while preserving original query/schema/fixture/settings and independent oracle.",
+    "Reject genuinely absent/ambiguous result output; do not infer a successful empty result from exit zero or blank bytes.",
+    "Run a fresh exact sixteen-record guarded integration vector and keep these original failures immutable."
+  ],
+  "not_claimed": [
+    "No C06/C50 production repair is justified by these four records.",
+    "No final physical distribution proof or independent-branch status promotion.",
+    "No native execution by this reviewer and no rendered workload/result payload persisted."
+  ],
+  "source_bindings": [
+    {
+      "path": "join_key_checks.py",
+      "sha256": "32c91d788fd03cbb7035ebfea624f0b62eb012992810944c7450b509020a1acb",
+      "lines": [
+        27,
+        82,
+        173,
+        206
+      ]
+    },
+    {
+      "path": "c06_c50_bounded_integration_checks.py",
+      "sha256": "d7dff3b1f4a20e2a2a3306bc9f969dfa77e048c824e9db9f2f9114e2072c0ca2",
+      "lines": [
+        185,
+        189,
+        198,
+        221,
+        230
+      ]
+    },
+    {
+      "path": "c06_c50_integration_runner.py",
+      "sha256": "1c18bbe841ccd90be8f7b5c8a3cfdc4dba56a1c5a3b6b59072ef4e79a3b007c9",
+      "lines": [
+        154,
+        168,
+        172
+      ]
+    },
+    {
+      "path": "native_verify.py",
+      "sha256": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b",
+      "lines": [
+        214,
+        228,
+        233
+      ]
+    },
+    {
+      "path": "verification_contract.py",
+      "sha256": "73a7608c2a8ea37395bd2336def4801a3aa77e607324376816fac996242cd952",
+      "lines": [
+        17,
+        42
+      ]
+    },
+    {
+      "path": "worktrees/metadata/ydb/tests/tools/kqprun/runlib/utils.cpp",
+      "sha256": "f575648dba38ed2876a8d5a5bbe9d0e2dcc1f59ebfb30b2c593accac7ffd69b6",
+      "lines": [
+        241,
+        243,
+        255
+      ]
+    },
+    {
+      "path": "worktrees/metadata/ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+      "sha256": "7c14e1724de571d9bc141b950b80074430cf067ba9a8932d2c87921fe364c466",
+      "lines": [
+        383,
+        405,
+        411,
+        435
+      ]
+    }
+  ],
+  "oracle_and_parser_metadata_checks": "Four saved failure envelopes checked against unchanged in-RAM oracle and parser behavior; all twelve passing boundary envelopes checked.",
+  "actual_native_runs": 0,
+  "live_edits": false,
+  "original_records_changed": false,
+  "integration_admitted": false
+}

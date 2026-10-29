@@ -1,0 +1,23 @@
+--- a/rbo-fixes-20261023/q28_compilation_measurement.py
++++ b/rbo-fixes-20261023/q28_compilation_measurement.py
+@@ -394,10 +394,10 @@
+             if direct._fd_digest(fds[response['descriptor']]) != response['content']:
+                 raise MetadataError('q28_measurement_link_response_changed')
+         verify_object(evidence['production_version_infrastructure'], fds)
++        evidence['native_executable_transport'] = direct._seal_native_executable(fds)
+         evidence['generated_executable'] = direct._fd_digest(fds['executable'])
+         if not evidence['generated_executable']['size_bytes']:
+             raise MetadataError('q28_measurement_executable_missing')
+-        os.fchmod(fds['executable'], 0o700)
+         stage = 'native'
+         for payload, descriptor in inputs:
+             verify_object(evidence['production_version_infrastructure'], fds)
+@@ -444,7 +444,7 @@
+         error.verification_stage = 'q28_compilation_pilot_' + stage
+         error.stage_evidence = {key: evidence[key] for key in
+             ('compile', 'link', 'generated_object', 'generated_executable', 'active_case', 'last_native',
+-             'runtime_identity', 'production_version_infrastructure') if key in evidence}
++             'runtime_identity', 'production_version_infrastructure', 'native_executable_transport') if key in evidence}
+         raise
+     finally:
+         for fd in fds.values():

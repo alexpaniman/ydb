@@ -1,0 +1,183 @@
+{
+  "schema": "optimization_OA04_OA07_source_proposal_v1",
+  "reviewer": "/root/c31_scope_completion",
+  "time_utc": "2026-10-27T20:34:53.410260+00:00",
+  "status": "dormant_source_patches_independently_approved_synthetic_and_native_checks_pending",
+  "findings": [
+    {
+      "id": "OA04",
+      "problem": "Required Q01 mixed, Q02 partially live and Q22 small-boundary profiles have no accepting physical contract.",
+      "change": "Add focused frame-fold removal, accumulator-width and paired strategy-preservation contracts. No cases are removed and parsing alone cannot satisfy the new checks."
+    },
+    {
+      "id": "OA07",
+      "problem": "SUM negative controls can bypass paired structure preservation; a Q29 positive can fail to improve while another positive promotes the batch.",
+      "change": "Require paired callable-shape equality for SUM controls and a strict positive comparison-node decrease for each Q29 positive case."
+    }
+  ],
+  "case_contracts": [
+    {
+      "case": "q01_rows_mixed",
+      "contract": "Use the existing nonempty frame-collector, zero Fold/Fold1 and boundary-access assertions; the profile combines COUNT with supported machine-integer SUM. The independent semantic oracle still checks every result.",
+      "quality_limit": "This is structural optimization evidence. It does not establish memory/latency/work scaling; OA05 remains separate."
+    },
+    {
+      "case": "q02_partial",
+      "contract": "Keep a real frame pipeline and exactly one retained optional-COUNT accumulator, with exact init/update field binding and a WinFrame queue shared with exactly one collector. Require a wider matching baseline state. A Fold1 count decrease is not required because all functions share one fold.",
+      "quality_limit": "Unresolved local lets, lambda block bodies, nonidentity frame maps, unknown fold inputs or queue bindings fail closed. Actual baseline/fixed AST observation is required before claiming this case has passed."
+    },
+    {
+      "case": "Q22 size-five boundary family",
+      "contract": "Require lowered SqlIn and a positive explicitly counted binary equality metric; pair against equal baseline equality counts and identical callable counts.",
+      "quality_limit": "Do not assume exact equality count five for nullable variants and do not require global Contains zero. These checks preserve the observed small-boundary strategy, not a per-row evaluation-count proof."
+    },
+    {
+      "case": "Q01 SUM negative controls",
+      "contract": "All SUM _control cases except the native positive require parsed baseline/fixed plans, the existing control assertion and identical nonempty typed callable maps.",
+      "quality_limit": "The native mixed-function positive remains on its existing optimization path. Structural preservation is separate from measured resource acceptance."
+    },
+    {
+      "case": "q29_primitive_residual and q29_optional_residual",
+      "contract": "Each positive separately requires integer comparison-node counters with baseline > fixed > 0, followed by its existing physical-target assertions.",
+      "quality_limit": "This is expression DAG reduction, not a runtime evaluation-frequency claim. Existing evaluation_count_verified=false is preserved."
+    }
+  ],
+  "parser_scope": {
+    "generic_parser_changed": false,
+    "q02_reader": "Only concrete nodes returned by existing parse_physical_graph are accepted; unresolved locals are not treated as matching placeholders.",
+    "q22_counter": "Binary unquoted == heads are counted explicitly because the generic callable regex excludes operator symbols."
+  },
+  "layering": {
+    "first": "proposed-quality-amendments/optimization-admission-guards.patch",
+    "first_patch_sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70",
+    "pairing_base_sha256": "d5bdd69e61be6928f08862f945422321c1cf32495ce892e501c82a000a194955",
+    "second": "proposed-quality-amendments/optimization-physical-pairing-contracts.patch",
+    "pairing_after_sha256": "92a3688c70e64d658950dfba5d0774ff84980024c477eb19acbd35ae329922be",
+    "later": "OA05 resource gate follows this pairing snapshot; OA10 remains a separate driver patch.",
+    "window_patch_base_sha256": "4304f9319e180234de339f369288ae48c6271ab2115aa6713f9ba245dbadaa72",
+    "window_patch_independent_of_pairing_order": true,
+    "quality_pairing_contracts_py_touched": false
+  },
+  "artifact_sha256": {
+    "optimization-physical-pairing-contracts.patch": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8",
+    "optimization-physical-pairing-candidate.py": "92a3688c70e64d658950dfba5d0774ff84980024c477eb19acbd35ae329922be",
+    "optimization-window-physical-contracts.patch": "fc97df50c74b413b7ec58ddac1b4bb788c850ab548265983b7751203ae8aac14",
+    "optimization-window-physical-contracts-candidate.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+  },
+  "generator_sources": {
+    "quality_window_checks.py": "4304f9319e180234de339f369288ae48c6271ab2115aa6713f9ba245dbadaa72",
+    "quality_sum_checks.py": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+    "quality_lookup_checks.py": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae"
+  },
+  "source_contracts": [
+    {
+      "finding": "Q01",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "lines": [
+        296,
+        952,
+        1645,
+        1694,
+        1714
+      ],
+      "sha256": "f272aab6c4cbbd90db7bf151899477bfab66b79a2abb8ef583030433f1fb5a95",
+      "contract": "COUNT and machine-integer SUM take prefix-boundary paths; the general Fold1 is referenced only by functions that remain on the fallback path."
+    },
+    {
+      "finding": "Q02",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "path": "ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp",
+      "lines": [
+        365
+      ],
+      "sha256": "ab79046e97ff5abffdc13311a1e629dedd8694f4a75651613d70f4bbf9c2eefe",
+      "contract": "Only live function definitions retain their arguments; partition/order dependencies remain when any function is live."
+    },
+    {
+      "finding": "Q02",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "path": "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+      "lines": [
+        40
+      ],
+      "sha256": "278fa0d9db785e9e4026fa4bf203f506015f8c186b3d6646e65b17d69c727825",
+      "contract": "WindowFuncs.RetainKeys removes dead function definitions and resets cached output IUs."
+    },
+    {
+      "finding": "Q02",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+      "lines": [
+        231,
+        497,
+        841,
+        1026,
+        1416
+      ],
+      "sha256": "475c6688bca99a6a84da780e1ddff8461d1937dda25cf249515e28abe86dd8df",
+      "contract": "Prepare enumerates retained functions. BuildFoldLambda emits an accumulator field for each function; optional COUNT uses AggrCountInit/AggrCountUpdate. One general Fold1 consumes WinFrame backed by the same QueueCreate as WinFramesCollector."
+    },
+    {
+      "finding": "Q22",
+      "revision": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.cpp",
+      "lines": [
+        131,
+        220,
+        361
+      ],
+      "sha256": "d112dc5ad9e04199b9e6cd2fd2c37d221a29e65676d9cebfdd47656414e66739",
+      "contract": "Focused small explicit collection lowering emits scalar equality comparisons; the additional large-collection peephole path activates only for size greater than five. Nullable forms wrap comparisons, so exact equality counts are observed rather than invented."
+    },
+    {
+      "finding": "Q22",
+      "revision": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp",
+      "lines": [
+        153
+      ],
+      "sha256": "f14bc67e5fe0a8247afe8342d779652c4544a93a18d2d8225967f5e953c4ac75",
+      "contract": "The new NeedsRboLargeSqlInLowering gate invokes the existing physical peephole path only for qualifying large collections."
+    },
+    {
+      "finding": "Q29",
+      "revision": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+      "lines": [
+        11,
+        175
+      ],
+      "sha256": "adaf0ed3dff4df24d075c69bf66e5b566ddd96742dd20464108438fbd260f9e7",
+      "contract": "Only matching total primitive comparisons are removed from fetched-row residuals; arithmetic/guard/other controls retain their original expression structure."
+    }
+  ],
+  "minimal_actual_evidence_needed": [
+    "For Q02, one baseline and one fixed anonymous observation of the unchanged q02_partial profile: capture only descriptor completeness, state widths, optional-count binding and queue association. If lexical locals prevent resolution, retain pending and review a separately scoped lexical adapter rather than relaxing checks.",
+    "For Q22, preserve all eight size-five combinations of ANSI/legacy, tuple/list and nullable/required. Obtain paired equality and callable counters with semantic oracles; do not infer nullable shapes from source alone.",
+    "For Q01, observe the mixed profile and all SUM negative controls against the same fixed/base workload and profile hashes. Require the existing direct/runtime prerequisites and the separate resource gate for full quality acceptance.",
+    "For Q29, obtain actual paired evidence for both primitive and optional positives; one positive cannot compensate for the other. Preserve unsafe-control pair checks supplied by the preceding admission patch."
+  ],
+  "execution": {
+    "python_ast_parse_passed": true,
+    "pairing_sequential_hunk_contexts_checked": true,
+    "imports": 0,
+    "generator_render_calls": 0,
+    "mock_runs": 0,
+    "native_runs": 0,
+    "build_runs": 0,
+    "graph_or_toolchain_jobs": 0,
+    "live_helper_or_production_edits": false,
+    "raw_cpp_sql_ast_rows_or_diagnostics_saved": false,
+    "case_status_changes": false,
+    "window_patch_hunk_contexts_checked": true
+  },
+  "review_amendments": [
+    "The independent reviewer identified that Python dict equality accepts Boolean/float counters equal to integer counters. The paired unchanged-shape predicate now checks exact nonnegative integer types on both baseline and fixed maps."
+  ],
+  "independent_review": {
+    "path": "verification/optimization-OA04-OA07-independent-review-20261027.json",
+    "sha256": "5779e6f8b6704f4d388531fba4a5761c63cb8a4f6b29b9272439b2ded56ec331",
+    "verdict": "approved_source_only_after_counter_type_amendment"
+  }
+}

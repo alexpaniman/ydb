@@ -1,0 +1,50 @@
+{
+  "status": "implemented_dormant_mock_tested_not_compiled_or_executed",
+  "entrypoint": "anonymous_cpp_verify.py",
+  "required_state": {
+    "phase": "direct_cpp_verification",
+    "production_sources_frozen": true,
+    "authorized_build_workers": 8
+  },
+  "serialization": "Refuses another verify_series.py/native_verify.py/anonymous_cpp_verify.py process; one direct lease and one compile/link/native stage at a time.",
+  "commands": [
+    "prepare --worktree PATH --bug Q27 --phase baseline|fixed [--resource RESOURCE=INSTALLED_PATH]",
+    "capture --worktree PATH --bug Q27 --phase baseline|fixed --build-record PATH [--resource RESOURCE=INSTALLED_PATH]",
+    "run --worktree PATH --bug Q27 --phase baseline|fixed --receipt PATH",
+    "pair --bug Q27 --baseline BASELINE_EVIDENCE_JSON --fixed FIXED_EVIDENCE_JSON"
+  ],
+  "workflow": "Select the exact clean case revision in an otherwise idle worktree before prepare; prepare exports a successful production closure and graph. If only graph adaptation failed, capture retries it without rebuilding. run creates source/object/executable memfds; pair compares sanitized local contract evidence. No command changes case verification status.",
+  "supported": {
+    "Q14": 12,
+    "Q15": 15,
+    "Q16": 60,
+    "Q18": 3,
+    "Q19": 6,
+    "Q25": 48,
+    "Q27": 20,
+    "Q28": 26
+  },
+  "special_scopes": {
+    "Q15": "Fixed-only helper admission; baseline is refused. Pass successful direct evidence through verify_series --quality-ir-evidence PATH for separately paired SQL quality.",
+    "Q27": "Source-extracted exact collector plus entry counter; not linked transformer integration.",
+    "Q19": "Inspect actual defined overloads and transformer relocations, then wrap both; exact three scripted dispatches must pass.",
+    "Q28": "Pinned-main-compatible linked production stage/rule contracts, paired baseline/fixed; 26 cases include same-build forced-conservative controls, candidate visits, rule matching and source output recomputation. Eligible cost assertions fail on baseline and pass on fixed; exclusions retain conservative counts. This is local scheduler quality evidence, separate from full query semantics."
+  },
+  "provenance": "Full successful exact-revision graph/target/export identity; streamed fingerprints of selected link inputs, generated headers, inspection objects, compiler/linker and used installed resources; rechecked after execution.",
+  "anonymous_io": "Source, object, executable and command manifest use memfds; integrated clang output uses stdout, LLD --no-mmap-output-file writes inherited executable descriptor. No source/object/executable/diagnostic file persists.",
+  "native_sql_guard": "invoke_native now uses same scoped helper with preserved native environment, 24GiB own-scope/36GiB host headroom, long bounded batch timeout, per-batch sanitized metrics and guarded evidence snapshots. Original JSONL remains unchanged.",
+  "remaining": [
+    "Actual production graph shape/resource resolution requires first guarded closure build.",
+    "Anonymous clang/LLD memfd transport is implemented but unexecuted.",
+    "Unknown nonempty link plugins or command wrappers fail closed and require source audit.",
+    "Q19 object relocations/wrapping and Q15 fixed-only admission have no native evidence yet.",
+    "Scope accounting/cancellation contracts here were mocked; no real processes were started.",
+    "Independent source review of new direct infrastructure is requested from c41_review.",
+    "Q14 downstream stage/multinode, Q16 WindowFunctionsV2 control, Q18 sketches/histograms and Q25 OLAP/evaluation-count edge coverage remain separate gaps.",
+    "Direct local contracts never alone establish full query semantics or full optimization quality.",
+    "Q28 production stage/counter contracts are generator/model checked only; neither paired build nor native cost or query execution has run."
+  ],
+  "real_builds": 0,
+  "real_compiler_linker_native_runs": 0,
+  "generated_translation_units_saved": false
+}

@@ -1,0 +1,14 @@
+{
+  "surviving_verification_pid": 3488388,
+  "old_tool_session": 65797,
+  "old_tool_session_reconnectable": false,
+  "build_survived": true,
+  "output_tail_process_survived": true,
+  "monitor_via": [
+    "verification/active-series.json",
+    "verification/active-memory.json",
+    "verification/C47-build.json"
+  ],
+  "no_duplicate_work_started": true,
+  "observed_unix_time": 1793134855.2942064
+}

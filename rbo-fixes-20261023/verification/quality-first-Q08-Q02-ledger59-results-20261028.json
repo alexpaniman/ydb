@@ -1,0 +1,113 @@
+{
+  "schema": "quality_first_batch_summary_v1",
+  "helper_ledger": 59,
+  "session": 92143,
+  "series_exit_code": 2,
+  "results": {
+    "Q08": {
+      "revision": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+      "status": "verified_quality",
+      "profile_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "paired_evidence": "verification/quality-paired-Q08-799af8215d79-1793162006710038031.jsonl",
+      "paired_sha256": "c2d2c8b0a31880cb75476ede313fee41ee36e5d712da6a9aa037dfc00782ac6e",
+      "record_count": 2,
+      "checks": [
+        {
+          "case": "q08_unit_input_control",
+          "semantic_oracle_pass": true,
+          "native_batch_guard_pass": true,
+          "quality_acceptance_pass": true,
+          "quality_improvement_verified": false,
+          "quality_pairing_reasons": [],
+          "structural_assertions": null,
+          "quality_assertions": {
+            "local_selectivity_applied_once": true,
+            "retained_filter_above_window": true
+          },
+          "result_set_boundaries_known": true
+        },
+        {
+          "case": "q08_nonunit_input",
+          "semantic_oracle_pass": true,
+          "native_batch_guard_pass": true,
+          "quality_acceptance_pass": true,
+          "quality_improvement_verified": true,
+          "quality_pairing_reasons": [],
+          "structural_assertions": null,
+          "quality_assertions": {
+            "input_was_previously_filtered": true,
+            "local_selectivity_applied_once": true,
+            "retained_filter_above_window": true
+          },
+          "result_set_boundaries_known": true
+        }
+      ],
+      "build_peak_gib": 40.24
+    },
+    "Q02": {
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "status": "verified_semantics_quality_pending",
+      "profile_sha256": "1593d74a45443d23a3625e6c5f9780294e7afedd3cf3442b9757cdac05224f7f",
+      "paired_evidence": "verification/quality-paired-Q02-1b50d28716f7-1793162352080187176.jsonl",
+      "paired_sha256": "c9e5477acdb1f1ca2c380909f5d33d6e088ef228b33ae89520c56ebb9a3794e9",
+      "record_count": 4,
+      "checks": [
+        {
+          "case": "q02_all_dead",
+          "semantic_oracle_pass": true,
+          "native_batch_guard_pass": true,
+          "quality_acceptance_pass": true,
+          "quality_improvement_verified": true,
+          "quality_pairing_reasons": [],
+          "structural_assertions": {
+            "unused_frame_state_removed": true
+          },
+          "quality_assertions": null,
+          "result_set_boundaries_known": true
+        },
+        {
+          "case": "q02_partial",
+          "semantic_oracle_pass": true,
+          "native_batch_guard_pass": true,
+          "quality_acceptance_pass": false,
+          "quality_improvement_verified": false,
+          "quality_pairing_reasons": [
+            "quality_metric_contract_incomplete"
+          ],
+          "structural_assertions": {
+            "only_live_optional_count_state_retained": false,
+            "retained_window_pipeline_present": true
+          },
+          "quality_assertions": null,
+          "result_set_boundaries_known": true
+        },
+        {
+          "case": "q02_all_live_control",
+          "semantic_oracle_pass": true,
+          "native_batch_guard_pass": true,
+          "quality_acceptance_pass": true,
+          "quality_improvement_verified": false,
+          "quality_pairing_reasons": [],
+          "structural_assertions": {},
+          "quality_assertions": null,
+          "result_set_boundaries_known": true
+        },
+        {
+          "case": "q02_empty",
+          "semantic_oracle_pass": true,
+          "native_batch_guard_pass": true,
+          "quality_acceptance_pass": false,
+          "quality_improvement_verified": false,
+          "quality_pairing_reasons": [
+            "fixed_optimization_contract_not_established"
+          ],
+          "structural_assertions": {},
+          "quality_assertions": null,
+          "result_set_boundaries_known": false
+        }
+      ],
+      "build_peak_gib": 40.22
+    }
+  },
+  "no_repros_persisted": true
+}

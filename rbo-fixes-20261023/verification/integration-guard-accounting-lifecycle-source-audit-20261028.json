@@ -1,0 +1,63 @@
+{
+  "schema": "integration_guard_accounting_lifecycle_source_audit_v1",
+  "status": "instantaneous_final_sample_overwrite_confirmed_no_saved_run_reclassification",
+  "artifacts": [
+    {
+      "path": "anonymous_cpp_guard.py",
+      "sha256": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819"
+    },
+    {
+      "path": "c06_c50_integration_runner.py",
+      "sha256": "b2b939a9eee061e745b59be8307619a1fbf5e2e4a1bef619e14d0d349083f406"
+    },
+    {
+      "path": "verification/integration-C06-C50-2bc207a991cc-fc51b723bdbc48d9b2a532613105df41-memory.json",
+      "sha256": "9af38537bac1034f0c5190fe06b5598654e49d9f979bb751be6d605bf01f2ec2"
+    },
+    {
+      "path": "verification/integration-C06-C50-2bc207a991cc-fc51b723bdbc48d9b2a532613105df41-summary.json",
+      "sha256": "ce54f733530f69e15924f16f0307dc0449db058c44e022976347a5a5997c291c"
+    }
+  ],
+  "source_locations": {
+    "anonymous_cpp_guard.py": [
+      203,
+      216,
+      219,
+      220,
+      222,
+      226,
+      259,
+      273
+    ],
+    "memory_safe_build.py": [
+      67,
+      116,
+      120,
+      129
+    ],
+    "c06_c50_integration_runner.py": [
+      312,
+      315,
+      318,
+      334
+    ]
+  },
+  "finding": "The guard overwrites its membership-availability flag on every poll. Its loop continues while output readers drain, so a collected completed scope can replace an earlier True with False. A separate stopped-scope check suppresses the watchdog and records scope_collection_after_completion=True. The integration validator still requires final membership availability=True, yielding a lifecycle-sensitive false rejection.",
+  "metadata_source_branch_checks": [
+    "Actual assignment/condition AST evaluated in RAM: an available active sample followed by unavailable stopped scope overwrites True to False while missing_accounting becomes False.",
+    "Unavailable active scope beyond startup grace remains missing_accounting=True; the existing watchdog reason is not relaxed.",
+    "Unavailable accounting during the existing initial ten-second grace remains distinct from completed-scope collection."
+  ],
+  "limits": [
+    "The saved final document is not a per-sample history and does not contain a cumulative membership-observation flag. Peak scope usage alone does not identify which accounting source supplied each sample.",
+    "The final False does not prove an unmonitored active interval; nor does this source audit supply historical monitoring evidence sufficient to bypass the strict validator.",
+    "No guard, caller, saved record, memory artifact or status was modified."
+  ],
+  "immediate_path": "Keep this run rejected by its unchanged guard contract. Complete the ordinary strict retry; if it passes, no guard patch is needed to close this integration task.",
+  "future_scope_if_needed": "Any later guard repair must separately record active-run accounting history and collection after proven completion, retain memory/headroom/timeout/cleanup checks, and require fresh evidence. Do not simply replace the instantaneous flag with an unconditional True or retroactively rewrite this run.",
+  "actual_native_runs": 0,
+  "live_edits": false,
+  "saved_run_accepted": false,
+  "patch_prepared": false
+}

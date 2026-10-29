@@ -1,0 +1,82 @@
+{
+  "id": "C21",
+  "rationale": "Use Decimal(35,0) to accumulate exact integral microseconds for Interval and Interval64, following the established aggregate traits. Convert each input through Int64, then divide and convert the average back through Int64 to the original interval type. Optional accumulator and frame-empty handling remain intact.",
+  "checks": [
+    "Compared state type and conversions with existing aggregate.yqls and aggregate type inference read-only.",
+    "Checked shared initialization/update and finalization paths across window frame implementations.",
+    "Parent commit matches pinned main.",
+    "git diff --check HEAD^ HEAD passed.",
+    "No builds or native runs; coordinated validation pending."
+  ],
+  "generator_labels": [
+    "win-interval"
+  ],
+  "expected_oracle": "Window interval AVG preserves interval result type and agrees with exact integral-microsecond averaging and existing aggregate semantics, including optional and empty frames.",
+  "controls": [
+    "Interval and Interval64",
+    "Positive and negative integral values, including values beyond exact Double integer precision",
+    "Nullable and all-null inputs",
+    "Running, whole-partition and bounded frames",
+    "Ordinary numeric and Decimal window AVG remain unchanged"
+  ],
+  "concerns": [
+    "Decimal accumulator has the same precision bound as the established aggregate implementation.",
+    "Independent native controls must verify conversion nullability and result types for both interval families."
+  ],
+  "branch": "fix/new-rbo/c21-window-interval-average",
+  "commit": "78462388619dee01bf57156839620936e70d7376",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h"
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C21",
+    "revision": "78462388619dee01bf57156839620936e70d7376",
+    "exit_code": 0,
+    "elapsed_seconds": 75.0,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4653056,
+      "peak_scope_usage_bytes": 43178680320,
+      "minimum_host_available_bytes": 109723967488,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 74.8
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/78462388619dee01bf57156839620936e70d7376-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 8,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C21-78462388619d-1792728097394293471.jsonl"
+  },
+  "superseded_native_verifications": [
+    {
+      "native_verification": {
+        "checks": 8,
+        "checks_passed": false,
+        "evidence": "verification/guarded-fixed-C21-78462388619d-1792727899514506566.jsonl"
+      },
+      "reason": "Decimal scale-zero control oracle incorrectly truncated; both optimizer modes and independent arithmetic confirmed ties-even rounding."
+    }
+  ],
+  "oracle_audit": "verification/C21-decimal-control-rounding-audit.json",
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Native execution and compilation pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

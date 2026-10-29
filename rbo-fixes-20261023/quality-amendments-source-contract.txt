@@ -1,0 +1,122 @@
+Q01 and Q15 amendment source contracts, 2026-10-23
+
+These are source-level proofs and generator contracts. They do not replace
+compilation, native result checks, paired plan evidence or measured work.
+No production source, rendered input, native result or physical plan was saved
+by this review. The parent owns the separate pinned-main branches.
+
+Q01 integer SUM
+
+Eligibility admits exactly required or singly optional Int8/Uint8/Int16/Uint16/
+Int32/Uint32/Int64/Uint64. GetSumResultType promotes signed input to Int64 and
+unsigned input to Uint64. Float, Double, Decimal, Interval, Null, nested Optional
+and PostgreSQL types are excluded by the source predicate.
+
+SafeCast nullability is proved by the type annotator, rather than inferred from
+the callable name. CastResult for identical data slots is Complete; the UDF
+cast table marks each admitted same-sign widening to Int64/Uint64 Complete.
+CastWrapper adds Optional only when the cast may fail and the requested target
+is not already Optional/Pg. Therefore required inputs produce required data.
+Optional-to-required CastResult adds MayFail once; this produces Optional<data>,
+which the amendment coalesces to a required typed zero before addition. The
+final Just creates one Optional in both paths. No nested Optional is introduced.
+Sources: yql_expr_type_annotation.cpp:1112-1157 and :1778-1825;
+type_ann_core.cpp:5807-5835; public/udf/udf_data_type.cpp cast table;
+GetSumResultType in yql_expr_type_annotation.cpp.
+
+The optional input counter is private queue/state data, not a public result.
+Its name is a function-index-specific base passed to GetTemporaryName.
+GetTemporaryName is pure base + fixed suffix and does not allocate a fresh name
+on each call. Existing name-registry unit assertions check repeated-call
+stability and separation from logical names and other temporary bases.
+Source: kqp_info_unit.h:GetTemporaryName and kqp_info_unit_ut.cpp temporary-name
+assertions. BuildOutputRowType, BuildChainLambda and BuildQueue pass the same
+general-frame flag; whole/running/suffix paths retain the default false.
+
+Both signed and unsigned integer addition/subtraction use modular arithmetic
+in interpreter and LLVM lowering. The interpreter SafeAdd/SafeSub first casts
+to unsigned; LLVM integer Add/Sub carry no overflow flags. Consequently prefix
+subtraction plus the first original contribution equals the ordered frame fold,
+including accumulator wrap. The auxiliary count distinguishes an all-null frame
+after an earlier nonnull prefix from a zero-valued nonempty sum. Empty frames
+are detected by the collector's existing optional first/last access.
+
+quality_sum_checks.py covers all eight admitted input slots, required/optional/
+all-null inputs, ROWS/RANGE, both directions, prior and overlapping frames,
+native row-number output, empty input, and unchanged running/whole/suffix
+controls. The independent expected result folds each frame directly with
+modular arithmetic. A separate randomized algebra model compares that fold
+against the prefix equation and saves only the seed, count and verdict.
+
+General SUM/native acceptance requires zero reachable Fold/Fold1, retained
+collector/boundary accesses, and a baseline frame fold. The special-frame
+controls compare callable shape with baseline; they do not assert that all
+window strategies use the general frame collector. Native signed/unsigned
+wrap, all-null-after-prefix and queue/public-layout checks remain required.
+
+Q15 same-stage window partition reuse
+
+The effective OptShuffleElimination setting gates the entire optimization.
+Starting at the next window input, the proof walks only Map and Filter within
+the same StageId. A Map-defined key is translated only when its expression is a
+direct member of that map's exact row argument. Nested member access, arithmetic
+and casts fail this test. Map output IDs are fresh by ComputeOutputIUs, so the
+definition lookup cannot silently overwrite a surviving child key. Positional
+replacement changes a private copy of the ordered key sequence.
+
+The walk must end at an earlier Window in the same stage, with exactly the same
+ordered nonempty translated keys. That window established the hash partition.
+Map/Filter preserve task placement, and direct aliases preserve value/type/hash.
+No logical distribution metadata is consulted. Sort, Limit, Replicate, joins,
+aggregates, exchange boundaries and computed keys stop the proof. Generalized
+subset/order equivalence is not claimed because downstream hash metadata must
+remain consistent, not merely current-window row colocation.
+
+quality_partition_checks.py is the amendment's acceptance profile. The original
+quality_window_checks.py intentionally retains the earlier direct-only profile:
+its intervening-filter case expects two shuffles. Use the new module for the
+amended branch. Positive cases compare one shuffle with a two-shuffle baseline;
+controls preserve disabled settings, different keys, key order, key subsets and
+keyless behavior. Retained row-number-dependent filters are checked in the
+physical graph. Alias/computed-map cases additionally require RBO IR admission
+evidence because other optimizer rules may canonicalize an alias away.
+Use 61 rows for native combined-key controls and four nodes, one case at a time.
+
+Remaining Q01 families
+
+MIN/MAX cannot be reconstructed from two scalar prefix minima/maxima after an
+old extremum leaves the frame. Existing Queue exposes push, pop-front, peek and
+range access, but no range-summary or aggregate-deque operation. Existing whole,
+running, suffix and peer helpers do not supply a generic sliding range summary.
+
+A two-stack aggregate queue is a plausible builder-only avenue, not a proven
+small fix. It needs exact frame entry/expiry streams, stable row ordinals and
+queue-generation lifetime handling, a type-specific associative combine proof,
+and an amortized complexity proof for the runtime representation. Ordinary
+List Skip returns a frozen view; appending/prepending to a frozen view copies
+the retained range. Repeated pop/push therefore cannot be assumed constant-time.
+A disciplined two-stack design may avoid that cost, but its transfer and frame
+delta behavior must be implemented and measured before claiming O(n) work.
+Sources: mkql_queue.cpp:TQueueResource/TQueueRange/TWinFrame and wrappers;
+computation/mkql_computation_node_list.h:TListRepresentation constructors,
+SkipFromBegin/SkipFromEnd; mkql_computation_node_holders.cpp:Prepend/Append.
+
+The combine operation must be AggrMin/AggrMax, not a generic language minimum.
+Floating aggregate minimum has explicit NaN handling and tie selection, unlike
+generic fmin; Decimal aggregate comparison has its own representation ordering.
+Signed zero, null skipping, equal strings/timezone values and special numeric
+values need the same selected result as the ordered existing implementation.
+This review has not proved a generic combine for all supported MIN/MAX slots.
+
+Floating SUM and AVG are order-sensitive. Prefix subtraction, inverse updates
+and balanced merging are not generally equivalent to the existing sequence of
+floating additions. Integer AVG also uses a floating accumulator, so it cannot
+inherit the integer SUM proof. Decimal/Interval SUM require separate overflow,
+sentinel and nullable-overflow proofs. Retaining their ordered Fold fallback is
+correct but leaves the reported frame-width cost open. A broader numeric
+equivalence policy must be explicit before using a non-equivalent algorithm.
+
+No essentials edits or new runtime primitive are required for the prepared
+integer SUM and transparent-wrapper changes. This audit does not claim that
+runtime changes are inherently necessary for every remaining family; it finds
+no already-proven narrow full-scope replacement in the current helpers.

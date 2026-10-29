@@ -1,0 +1,80 @@
+{
+  "admission_assessment": "No current automatic full-acceptance route found: SQL aggregation stays direct-pending, direct evidence is fixed-only local scope, and current case limitation retains shared-origin and unsupported-identity obligations. Scope would be overstated if a direct24 pass alone were promoted to full C31 acceptance.",
+  "artifact_sha256": {
+    "anonymous_cpp_verify.py": "3572a5468633bb6a67233aea292abc7c4af5285c79c2e7cdba0a25681ef586dd",
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_identity_cpp_generator.py": "30735cfee2bdd897668f3e0c29386674e010dc88873a3cf227b71f6ee7aa1b6c",
+    "c31_shared_origin_probe.py": "3cc2fbc03ddcb2b2c5fe5e07d5f5a3fb83277727cee6c970d35d1b599b4ae0ea",
+    "correctness_cpp_contract.py": "c7b6a2238442ab7c1a57a651b2c91be731d1d6dfe4b515ee56e682dc7ee34669",
+    "correctness_cpp_profiles.json": "d6bdfd489b3f01a98d980abfc174a4ee91628ff75639f0df39632de8068c2791",
+    "verification_contract.py": "50dd2432dc492f7a59fbd92281bcbb3fc42c033241597aab25904721546bc151"
+  },
+  "compile_source_assessment": "No concrete symbol/signature/type mismatch found against pinned public rule/operator/test-helper APIs. Actual anonymous compile/link/native execution remains required; source review is not compile evidence.",
+  "coverage": {
+    "current_sql_expected_guards": 4,
+    "current_sql_records": 50,
+    "current_sql_semantic_successes": 46,
+    "current_sql_shared_origin_pending": 2,
+    "direct_contract_count": 24,
+    "generator_hash_matches_profile": true,
+    "intended_guard_contracts": 9,
+    "join_kind_count": 3,
+    "rewrite_acceptance_contracts": 15,
+    "shape_count": 8
+  },
+  "execution": {
+    "compiler_runs": 0,
+    "generator_render_calls": 0,
+    "live_source_edits": false,
+    "mock_suites": 0,
+    "native_runs": 0,
+    "raw_cpp_sql_ast_or_rows_saved": false
+  },
+  "full_acceptance_still_requires": [
+    "Bind both reconstruction identity inputs to distinct output ports of the same evaluated producer and trace compared fields through aggregation results, UNION projections and any key encoding on the actual anonymous physical graph.",
+    "Obtain actual physical/execution coverage for applicable internal Semi/Only and zero-column behavior, not parser-rejected raw syntax or local IR shape alone.",
+    "Resolve the archived floating/composite/opaque identity and per-occurrence volatile scope, or keep it explicitly outstanding rather than calling all archived C31 behavior fixed."
+  ],
+  "pinned_production_source_sha256": {
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp": "6064c7c29f85923a02afa5be97e5e4d6f1dfe5e4e8a6bc1d0fd34c704bac980f",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp": "64cf50bada67a1e49ddf8eafedad9b8572f1dc7a3b3d679de2ae0218d25ae15a",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": "d5ef4e7aa7921d4dcab120f4d9d503d44442d1f5d068445eb6f3b0d27a5771af",
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa"
+  },
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "scoped_acceptance_requirements": [
+    "Successful guarded anonymous compile/link/native execution for every reviewed direct contract, bound to pinned production closure, exact generator/profile/source hashes, complete verdicts and cleanup.",
+    "Retain all 46 reachable SQL semantic results and four distinct expected guards as separate claims; preserve unavailable raw SEMI/ONLY frontend profiles.",
+    "Explicitly limit any verified_scoped designation to observed LEFT SQL behavior plus the enumerated local IR contracts, retaining two domain-spilling exact-origin obligations and archived unsupported cases as pending.",
+    "Do not treat local producer sharing or dormant topology observations as physical aggregate-to-identity lineage proof."
+  ],
+  "source_findings": [
+    {
+      "area": "identity pairing",
+      "classification": "coverage_gap",
+      "detail": "Local positive cases check key cardinality and side membership, encoder count, and logical hub identity. They do not prove each reconstruction key pair denotes the same original source column or that encoders are wired to the compared keys."
+    },
+    {
+      "area": "original keys and capture rebinding",
+      "classification": "coverage_gap",
+      "detail": "All generated joins start without equi-keys and accepted residuals do not depend on a left column or called subplan. Preservation of existing equi-key pairs, left residual renaming and accepted subplan captures is not exercised."
+    },
+    {
+      "area": "join-family execution",
+      "classification": "scope_limit",
+      "detail": "Local LeftSemi/LeftOnly/zero-column cases verify rewriting shape only. They do not establish physical compilation, output projection or query bag semantics for those forms."
+    },
+    {
+      "area": "nonrepeatable producer",
+      "classification": "scope_limit",
+      "detail": "The producer-guard case observes the unchanged logical producer and its nonduplicability. It does not run sharing expansion or stage admission and cannot prove runtime acceptance without spilling."
+    },
+    {
+      "area": "shared producer lineage",
+      "classification": "scope_limit",
+      "detail": "The live physical check recognizes a multi-output Switch but does not bind it to reconstruction keys. The separate dormant probe deliberately cannot grant exact origin or aggregate-value lineage proof."
+    }
+  ],
+  "status": "source_audit_complete_local_contracts_unexecuted"
+}

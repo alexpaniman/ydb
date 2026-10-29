@@ -1,0 +1,8 @@
+{
+  "reason": "restart_for_native_memory_guard",
+  "old_driver_exit_code": 130,
+  "guard_cleanup_reported_immediate_success": false,
+  "subsequent_process_audit": "No live compiler/build workload in prior verification scopes; remaining old scopes contain only preexisting cache services.",
+  "current_series_session": 62393,
+  "audit_unix_time": 1792726402.840886
+}

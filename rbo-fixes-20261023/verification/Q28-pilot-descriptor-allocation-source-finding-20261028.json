@@ -1,0 +1,26 @@
+{
+  "author_notified": true,
+  "finding": "Partial anonymous descriptor allocation could escape local cleanup ownership.",
+  "live_helper_edits": false,
+  "metadata_failure_observations": [
+    {
+      "phase": "initial allocation",
+      "unclosed_fake_descriptors": 1
+    },
+    {
+      "phase": "sample payload allocation",
+      "unclosed_fake_descriptors": 2
+    }
+  ],
+  "native_runs": 0,
+  "production_bug_or_successful_measurement_claim": false,
+  "real_descriptor_allocations": 0,
+  "rendered_queries_plans_generated_cpp_or_repros_persisted": false,
+  "requested_correction": "Allocate each descriptor by individual assignment inside the corresponding existing try/finally block, so ownership is recorded before another allocation can fail.",
+  "reviewed_patch_sha256": "898d12bcb2d9fdce96e3740f4cd5156ae70e14a2f28c92fa8b61a18ce09cd76a",
+  "scope": "Q28 SDK pilot; inherited allocation pattern discovered during third-patch cleanup review.",
+  "source_references": [
+    "proposed-quality-amendments/q28_compilation_measurement_version_replay_20261028.candidate.py:344",
+    "proposed-quality-amendments/q28_compilation_measurement_version_replay_20261028.candidate.py:407"
+  ]
+}

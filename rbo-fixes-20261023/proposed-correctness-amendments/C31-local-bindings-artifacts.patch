@@ -1,0 +1,213 @@
+--- a/rbo-fixes-20261023/c31_identity_cpp_generator.py
++++ b/rbo-fixes-20261023/c31_identity_cpp_generator.py
+@@ -10,7 +10,8 @@
+ def cases():
+     return ['c31_ir_' + shape + '__' + kind
+             for shape in ('zero', 'domain_nullable', 'unique_nullable', 'unique_control',
+-                          'reject_float', 'reject_volatile', 'reject_subplan', 'producer_guard')
++                          'reject_float', 'reject_volatile', 'reject_subplan', 'producer_guard',
++                          'equi_keys', 'left_residual', 'subplan_capture')
+             for kind in ('Left', 'LeftSemi', 'LeftOnly')]
+ 
+ 
+@@ -24,11 +25,108 @@
+ 
+ def _prelude():
+     includes = ('ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h',
+-                'ydb/core/kqp/opt/rbo/copy_logical_subtree.h', 'iostream', 'stdexcept', 'string_view')
++                'ydb/core/kqp/opt/rbo/copy_logical_subtree.h', 'iostream', 'stdexcept', 'string_view', 'utility')
+     text = ''.join('#include <' + value + '>\n' for value in includes)
+     text += 'using namespace NKikimr::NKqp;\nusing namespace NYql;\n'
+     text += 'static unsigned Checks = 0;\nstatic void Check(bool value) { ++Checks; if (!value) throw std::runtime_error("contract"); }\n'
++    text += r'''
++static void CheckMember(const TExpression& expression, const TExprNode* member, TInfoUnitId expected) {
++    const auto lambda = expression.GetLambda();
++    Check(lambda->ChildrenSize() == 2 && lambda->Child(0)->ChildrenSize() == 1);
++    Check(member && member->IsCallable("Member") && member->ChildrenSize() == 2);
++    Check(member->Child(0) == lambda->Child(0)->Child(0));
++    Check(GetMemberId(*member) == expected);
++}
++static std::pair<TInfoUnitId, bool> IdentitySource(IOperator& branch, TInfoUnitId key) {
++    if (branch.Kind != EOperator::Map) return {key, false};
++    const auto* element = CastOperator<TOpMap>(branch).GetMapElements().Find(key);
++    if (!element) return {key, false};
++    const auto& expression = element->GetExpression();
++    const auto body = expression.GetExpressionBody();
++    Check(body->IsCallable("StablePickle") && body->ChildrenSize() == 1);
++    const auto& inputs = expression.GetRawInputIUs();
++    Check(inputs.Size() == 1);
++    const auto source = *inputs.begin();
++    CheckMember(expression, body->Child(0), source);
++    return {source, true};
++}
++'''
+     return text
++
++
++def _binding_contract(shape, kind):
++    """Inspect actual rewritten bindings; no SQL or physical execution claim."""
++    zero = shape == 'zero'
++    unique = shape.startswith('unique_')
++    optional = shape in ('domain_nullable', 'unique_nullable')
++    body = _line('const auto& renames = secondaryPort->GetRebindings()')
++    body += _line('auto outerStream = reconstruction.GetLeftInput()')
++    body += _line('auto filteredStream = reconstruction.GetRightInput()')
++    if optional:
++        body += _check('outerStream->Kind == EOperator::Map && filteredStream->Kind == EOperator::Map')
++        body += _line('outerStream = CastOperator<TOpMap>(*outerStream).GetInput()')
++        body += _line('filteredStream = CastOperator<TOpMap>(*filteredStream).GetInput()')
++    body += _check('outerStream.Get() == primaryPort')
++    body += _check('filteredStream->Kind == EOperator::Filter')
++    body += _line('auto& residual = CastOperator<TOpFilter>(*filteredStream)')
++    body += _check('residual.GetInput()->Kind == EOperator::Join')
++    body += _line('auto& inner = CastOperator<TOpJoin>(*residual.GetInput())')
++    body += _check('inner.GetRightInput().Get() == right.Get()')
++    body += _check('inner.JoinKind == ' + json.dumps('Inner' if shape == 'equi_keys' else 'Cross'))
++    body += _check('inner.JoinFilters.empty() && reconstruction.JoinFilters.empty()')
++    body += _check('inner.JoinKeys.Items().size() == originalKeys.Items().size()')
++    body += 'for (const auto& before : originalKeys.Items()) Check(inner.JoinKeys.Contains({renames.At(before.first), before.second, before.EqualNulls}));\n'
++    if unique:
++        body += _check('inner.GetLeftInput().Get() == secondaryPort')
++    else:
++        body += _check('inner.GetLeftInput()->Kind == EOperator::Aggregate')
++        body += _line('auto& domain = CastOperator<TOpAggregate>(*inner.GetLeftInput())')
++        body += _check('domain.GetInput().Get() == secondaryPort')
++        body += _check('domain.GetKeyColumns().Unordered() == secondaryPort->GetOutputIUs()')
++    body += _line('TUnorderedIUs seenSources')
++    body += _line('const auto expectedSources = ' + ('originalIdentityKeys' if unique else 'primaryPort->GetInput()->GetOutputIUs()'))
++    body += 'for (const auto& key : reconstruction.JoinKeys.Items()) {\n'
++    body += 'const auto [source, outerEncoded] = IdentitySource(*reconstruction.GetLeftInput(), key.first);\n'
++    body += 'const auto [innerSource, innerEncoded] = IdentitySource(*reconstruction.GetRightInput(), key.second);\n'
++    body += 'Check(expectedSources.Contains(source)); Check(!seenSources.Contains(source)); seenSources.Add(source);\n'
++    body += 'Check(innerSource == renames.At(source)); Check(!key.EqualNulls);\n'
++    body += 'Check(outerEncoded == ' + ('(source == a)' if optional else 'false') + '); Check(innerEncoded == outerEncoded);\n}\n'
++    body += _check('seenSources == expectedSources')
++    body += _line('const auto& rewrittenPredicate = residual.GetFilterExpression()')
++    body += _line('const auto predicateBody = rewrittenPredicate.GetExpressionBody()')
++    body += _check('predicateBody->IsCallable(">") && predicateBody->ChildrenSize() == 2')
++    if shape == 'left_residual':
++        body += _check('rewrittenPredicate.GetRawInputIUs() == TUnorderedIUs{renames.At(b), r}')
++        body += _line('CheckMember(rewrittenPredicate, predicateBody->Child(0), renames.At(b))')
++        body += _line('CheckMember(rewrittenPredicate, predicateBody->Child(1), r)')
++    elif shape == 'subplan_capture':
++        body += _check('rewrittenPredicate.GetRawInputIUs() == TUnorderedIUs{binding, r}')
++        body += _line('CheckMember(rewrittenPredicate, predicateBody->Child(0), binding)')
++        body += _line('CheckMember(rewrittenPredicate, predicateBody->Child(1), r)')
++        body += _line('const auto& call = f.Props.Subplans.At(binding)')
++        body += _check('call.Plan.Get() == capturedPlan.Get() && call.Type == ESubplanType::EXPR')
++        body += _check('call.ResultIU && *call.ResultIU == capturedResult && call.Tuple.Items().empty()')
++        body += _check('call.DependentIUs == TUnorderedIUs{renames.At(a), r}')
++        body += _check('captures->GetDependencies().Keys() == TUnorderedIUs{localLeft, localRight}')
++        body += _check('captures->GetDependencies().At(localLeft).Outer == renames.At(a)')
++        body += _check('captures->GetDependencies().At(localRight).Outer == r')
++        body += _check('capturedPlan->GetMapElements().At(capturedResult).GetExpression().Node == originalLocalExpression')
++        body += _check('capturedPlan->GetMapElements().At(capturedResult).GetExpression().GetRawInputIUs() == TUnorderedIUs{localLeft, localRight}')
++        body += _check('rewrittenPredicate.GetInputIUs(false, true) == TUnorderedIUs{renames.At(a), r}')
++    else:
++        body += _check('rewrittenPredicate.GetRawInputIUs() == TUnorderedIUs{r}')
++        body += _line('CheckMember(rewrittenPredicate, predicateBody->Child(0), r)')
++        body += _check('predicateBody->Child(1)->IsCallable("Int32") && predicateBody->Child(1)->ChildrenSize() == 1')
++        body += _check('predicateBody->Child(1)->Child(0)->Content() == "0"')
++    body += _line('projection->SetInput(rewritten)')
++    body += _check('projection->GetColumns() == originalProjection')
++    body += _check('projection->GetOutputIUs() == originalOutputs')
++    body += _check('originalOutputs.IsSubsetOf(rewritten->GetOutputIUs())')
++    body += _check(('originalRightIUs.IsSubsetOf(rewritten->GetOutputIUs())' if kind == 'Left'
++                    else '!originalRightIUs.HasAny(rewritten->GetOutputIUs())'))
++    if zero:
++        body += _check('projection->GetColumns().Items().size() == ' + ('1' if kind == 'Left' else '0'))
++    return body
+ 
+ 
+ def _body(case):
+@@ -42,6 +140,8 @@
+     body = _line('NKikimr::NKqp::NTests::TIdTestContext f')
+     body += _line('f.Config->SetUseBlockHashJoin(false)')
+     body += _line('const auto a = f.Id("a"), b = f.Id("b"), r = f.Id("r")')
++    if shape == 'equi_keys':
++        body += _line('const auto s = f.Id("s")')
+     body += _line('TIntrusivePtr<IOperator> left = f.Read(TUnorderedIUs{' + ('' if zero else 'a,b') + '})')
+     if shape == 'producer_guard':
+         body += _line('const auto computed = f.Id("computed")')
+@@ -56,7 +156,7 @@
+     body += _line('left->Props.Metadata.emplace()')
+     if unique:
+         body += _line('left->Props.Metadata->KeyColumns = TOrderedIUs<>{a,b}')
+-    body += _line('auto right = f.Read({r})')
++    body += _line('auto right = f.Read({' + ('r,s' if shape == 'equi_keys' else 'r') + '})')
+     body += _line('f.SetType(*right)')
+     body += _line('auto predicate = MakeBinaryPredicate(">", f.Column(r), MakeConstant("Int32", "0", f.Pos, &f.ExprCtx))')
+     if shape == 'reject_volatile':
+@@ -68,7 +168,28 @@
+         body += _line('auto plan = MakeIntrusive<TOpMap>(f.Read({source}), f.Pos, std::move(elements))')
+         body += _line('f.Props.Subplans.Add(binding, plan, ESubplanType::EXPR, TOrderedIUs<>{}, result)')
+         body += _line('predicate = MakeBinaryPredicate(">", f.Column(binding), MakeConstant("Int32", "0", f.Pos, &f.ExprCtx))')
+-    body += _line('auto join = MakeIntrusive<TOpJoin>(left, right, f.Pos, ' + json.dumps(kind) + ', TJoinIUs{}, TVector<TExpression>{predicate})')
++    elif shape == 'left_residual':
++        body += _line('predicate = MakeBinaryPredicate(">", f.Column(b), f.Column(r))')
++    elif shape == 'subplan_capture':
++        body += _line('const auto binding = f.Id("binding"), localLeft = f.Id("localLeft"), localRight = f.Id("localRight"), capturedResult = f.Id("capturedResult")')
++        body += _line('TDependencyIUs dependencies')
++        body += _line('dependencies.Add(localLeft, TCapturedIU{a, f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Int32)})')
++        body += _line('dependencies.Add(localRight, TCapturedIU{r, f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Int32)})')
++        body += _line('auto captures = MakeIntrusive<TOpAddDependencies>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(dependencies))')
++        body += _line('TMapIUs capturedElements')
++        body += _line('capturedElements.Add(capturedResult, MakeBinaryPredicate("+", f.Column(localLeft), f.Column(localRight)))')
++        body += _line('auto capturedPlan = MakeIntrusive<TOpMap>(captures, f.Pos, std::move(capturedElements))')
++        body += _line('const auto originalLocalExpression = capturedPlan->GetMapElements().At(capturedResult).GetExpression().Node')
++        body += _line('f.Props.Subplans.Add(binding, capturedPlan, ESubplanType::EXPR, TOrderedIUs<>{}, capturedResult)')
++        body += _line('f.Props.Subplans.RefreshDependencies(binding)')
++        body += _check('f.Props.Subplans.At(binding).DependentIUs == TUnorderedIUs{a,r}')
++        body += _check('CanDuplicateSubtree(*capturedPlan, f.Props.Subplans)')
++        body += _line('predicate = MakeBinaryPredicate(">", f.Column(binding), f.Column(r))')
++    body += _line('TJoinIUs originalKeys')
++    if shape == 'equi_keys':
++        body += _line('originalKeys.Add({a, r, false})')
++        body += _line('originalKeys.Add({b, s, true})')
++    body += _line('auto join = MakeIntrusive<TOpJoin>(left, right, f.Pos, ' + json.dumps(kind) + ', originalKeys, TVector<TExpression>{predicate})')
+     body += _line('TInlineJoinFiltersRule rule')
+     body += _check('rule.QuickMatch(join)')
+     if rejected:
+@@ -88,6 +209,16 @@
+         body += 'catch (const std::exception& error) { refused = std::string_view(error.what()).find('
+         body += json.dumps(expected_reason) + ') != std::string_view::npos; } catch (...) {}\n'
+         return body + _check('refused')
++    body += _line('const auto originalLeftIUs = left->GetOutputIUs(), originalRightIUs = right->GetOutputIUs()')
++    if unique:
++        body += _line('const auto originalIdentityKeys = left->Props.Metadata->KeyColumns.Unordered()')
++    body += _line('TOrderedIUs<TString> originalProjection')
++    body += 'for (const auto id : originalLeftIUs) originalProjection.Append(id, ToString(id));\n'
++    if kind == 'Left':
++        body += 'for (const auto id : originalRightIUs) originalProjection.Append(id, ToString(id));\n'
++    body += _line('const auto originalOutputs = originalProjection.Unordered()')
++    body += _check('join->GetOutputIUs() == originalOutputs')
++    body += _line('auto projection = MakeIntrusive<TOpRoot>(join, f.Pos, originalProjection)')
+     body += _line('auto rewritten = rule.SimpleMatchAndApply(join, f.RboCtx, f.Props)')
+     body += _check('rewritten.Get() != join.Get() && rewritten->Kind == EOperator::Join')
+     body += _line('auto& reconstruction = CastOperator<TOpJoin>(*rewritten)')
+@@ -119,7 +250,7 @@
+         body += _check('unit.GetMapElements().Items().front().second.GetExpression().GetExpressionBody()->IsCallable("Uint64")')
+     else:
+         body += _check('primaryPort->GetInput().Get() == left.Get()')
+-    return body
++    return body + _binding_contract(shape, kind)
+ 
+ 
+ def render_cpp(case):
+--- a/rbo-fixes-20261023/correctness_cpp_profiles.json
++++ b/rbo-fixes-20261023/correctness_cpp_profiles.json
+@@ -6,10 +6,10 @@
+       "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+       "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+       "profile": "rbo",
+-      "generator_sha256": "30735cfee2bdd897668f3e0c29386674e010dc88873a3cf227b71f6ee7aa1b6c",
+-      "generated_source_sha256": "ae0de472c002603df91b823ee94769201f0d08a61712870c82cf5cb9fa63018f",
+-      "generated_source_bytes": 56211,
+-      "case_count": 24,
++      "generator_sha256": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
++      "generated_source_sha256": "db908f12367b434770c9143a9e0698a0b7093f21cc291986bb884fbc1fce58a6",
++      "generated_source_bytes": 157619,
++      "case_count": 33,
+       "proof_scope": "linked_production_local_contracts"
+     },
+     "C47": {

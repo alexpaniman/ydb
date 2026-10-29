@@ -1,0 +1,120 @@
+{
+  "id": "C11",
+  "branch": "fix/new-rbo/c11-preserve-in-result-type",
+  "commit": "d23472b33678121343af7ebc4f532c88e0488d51",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+    "ydb/core/kqp/opt/kqp_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_plan_props.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_plan_props.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "rationale": "Persist the original correctly annotated IN result type as explicit sublink metadata, honor it during KQP annotation, and retain it in the imported registry and graph copies. AddSubplanTypes now uses that contract before expression simplification. Hand-built entries infer the contract from lookup/collection types and mode.",
+  "checks": [
+    "git diff --check passed",
+    "Expression-node JSON parses",
+    "Reviewed original YQL nullable-IN contract without editing essentials",
+    "Reviewed both early plain-Bool loss points and registry copy propagation",
+    "Parent is the required main base",
+    "Working tree clean after commit",
+    "No build or native execution",
+    "Compositional generator syntax and oracle helpers checked at three fixture sizes; no native execution",
+    "GetTypeAnn checked-pointer deduction repaired and independently source-reviewed"
+  ],
+  "generator_module": "rbo-fixes-20261023/expression_checks.py",
+  "generator_cases": [
+    "c11_nullable_rhs_fallback",
+    "c11_nullable_lookup_fallback",
+    "c11_nonnullable_control",
+    "c11_exists_control"
+  ],
+  "expected_oracle_controls": [
+    "COALESCE fallback survives before generic IN materialization when unknown is possible",
+    "ANSI nullable RHS and nullable lookup both preserve optional result contract",
+    "Nonnullable IN and EXISTS retain Bool",
+    "Original type contract survives copied subplans"
+  ],
+  "concerns": [
+    "C09 independently fixes legacy runtime truth semantics; integrate both for complete mode-sensitive coverage",
+    "Common settings and copy scaffolding overlaps C09; preserve both original source settings and synthetic resultType metadata when merging"
+  ],
+  "status_before_verification": "prepared_unverified",
+  "superseded_commits": [
+    "01377607ad9f47a341d473c648285402e56deb96"
+  ],
+  "amendments": [
+    {
+      "patch": "proposed-correctness-amendments/C11-checked-type-pointer.patch",
+      "sha256": "84e1998e26f4d5f1df662e6f3e8c79f003348ec725134be037538ed6a4982801",
+      "source_commit": "01377607ad9f47a341d473c648285402e56deb96",
+      "commit": "d23472b33678121343af7ebc4f532c88e0488d51",
+      "checked_out_sources_edited": false
+    }
+  ],
+  "superseded_build_verifications": [
+    {
+      "bug": "C11",
+      "revision": "01377607ad9f47a341d473c648285402e56deb96",
+      "exit_code": 1,
+      "elapsed_seconds": 72.9,
+      "target": "ydb/tests/tools/kqprun",
+      "memory": {
+        "scheduler_memory_threshold": "40GB",
+        "requested_cgroup_memory_max_gib": 72,
+        "requested_cgroup_memory_high_gib": 56,
+        "watchdog_min_host_available_gib": 36,
+        "watchdog_max_scope_usage_gib": 52,
+        "peak_group_rss_bytes": 4636672,
+        "peak_scope_usage_bytes": 15531565056,
+        "minimum_host_available_bytes": 97784004608,
+        "watchdog_stopped": false,
+        "explicit_build_workers": 8,
+        "scope_memory_accounting_available": false,
+        "scope_process_rss_available": true,
+        "elapsed_seconds": 72.6
+      },
+      "diagnostic_sha256": "84d8599a02cbe7418ae0f6e0cd00c7b0e6e31d88c243983ec2873120d524ded7"
+    }
+  ],
+  "build_verification": {
+    "bug": "C11",
+    "revision": "d23472b33678121343af7ebc4f532c88e0488d51",
+    "exit_code": 0,
+    "elapsed_seconds": 262.6,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4595712,
+      "peak_scope_usage_bytes": 43277279232,
+      "minimum_host_available_bytes": 100280221696,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 262.3
+    },
+    "diagnostic_sha256": "8c7fc566570bef8c9fa3d39089f882a767e6f9bc50e1f075851e08b274d5ba1b",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/d23472b33678121343af7ebc4f532c88e0488d51-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 4,
+    "checks_passed": true,
+    "evidence": "verification/fixed-C11-d23472b33678.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Build/native verification pending coordination",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

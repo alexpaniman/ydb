@@ -1,0 +1,15 @@
+{
+  "reviewer": "/root",
+  "patch_sha256": "a9ea5ed33aa4587d76c201d61bb003aaaa30d9a981fe12895343695fbbee8fa1",
+  "commit": "535684543d798106b01872b81fe4bbbdea72a4de",
+  "source_verdict": "no_blocker_found_for_plain_lookup_scope",
+  "native_verified": false,
+  "compiled": false,
+  "contracts": [
+    "Copy accepts only default LookupRows without ID-bound auxiliary programs.",
+    "LookupColumns receive fresh registry copies; storage labels and input key ordering are preserved.",
+    "The second copy pass substitutes ordered input key IDs after producer definitions are allocated.",
+    "AllowNullKeys is retained; other nondefault lookup states are rejected.",
+    "Recursive repeatability and read-setting checks continue to reject unsafe producers."
+  ]
+}

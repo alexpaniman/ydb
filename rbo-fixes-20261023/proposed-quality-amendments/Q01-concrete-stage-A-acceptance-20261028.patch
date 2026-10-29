@@ -1,0 +1,852 @@
+diff --git a/rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py b/rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py
+--- a/rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py
++++ b/rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py
+@@ -23,9 +23,12 @@
+     primary = ['q01_scaling_' + family + '_w' + str(width)
+                for family in scaling.FAMILIES for width in scaling.WIDTHS]
+     check(len(primary) == 15)
++    boundaries = scaling.finite_profile_cases()[10:]
++    check(len(boundaries) == 5)
++    check(len(scaling.finite_profile_cases()) == 15)
+     for n in scaling.ROWS:
+         recipes = scaling.recipes(n)
+-        check(list(recipes) == primary + [scaling.SETUP_CASE])
++        check(list(recipes) == primary + [scaling.SETUP_CASE] + boundaries)
+         control_schema, control_seeds = scaling.schema_and_seeds(n, scaling.SETUP_CASE)
+         control_meta = scaling.metadata(scaling.SETUP_CASE, n)
+         check(control_meta['q01_observation_control'] is True)
+@@ -34,9 +37,9 @@
+         check(control_meta['resource_scaling_verified'] is False)
+         check(not re.search(r'\b(?:WINDOW|OVER)\b', recipes[scaling.SETUP_CASE]))
+         check(recipes[scaling.SETUP_CASE].endswith(' ORDER BY id'))
+-        for case in primary:
++        for case in primary + boundaries:
+             spec, query = scaling.cell(case, n), recipes[case]
+-            aggregates = (2 if spec['minmax'] else 0) + (3 if spec['collectors'] else 0)
++            aggregates = (2 if spec['minmax'] else 0) + (3 if spec['collectors'] else 0) + int(bool(spec.get('fallback')))
+             declarations = re.findall(r'\bWINDOW\s+([a-z_][a-z0-9_]*)\s+AS\s*\(', query)
+             references = re.findall(r'\bOVER\s+([a-z_][a-z0-9_]*)', query)
+             check(declarations == [scaling.WINDOW_NAME])
+@@ -58,7 +61,7 @@
+     # Required order and scalar types are part of the result contract. JSON
+     # encoding deliberately distinguishes integer values from bool/float.
+     n = scaling.ROWS[0]
+-    for case in primary + [scaling.SETUP_CASE]:
++    for case in primary + [scaling.SETUP_CASE] + boundaries:
+         rows = scaling.expected_rows(case, n)
+         check(scaling.check_rows(case, rows, n)['semantic_oracle_pass'] is True)
+         check(scaling.check_rows(case, list(reversed(rows)), n)['semantic_oracle_pass'] is False)
+@@ -69,6 +72,12 @@
+             check(scaling.check_rows(case, changed, n)['semantic_oracle_pass'] is False)
+         for key in ('resource_scaling_verified', 'quality_improvement_verified'):
+             check(scaling.check_rows(case, rows, n)[key] is False)
++        if scaling.specifications()[case].get('fallback'):
++            # Exact numeric fallback values remain checked, not only nullness.
++            index=next(i for i,row in enumerate(rows) if row['fallback'] is not None)
++            for value in (rows[index]['fallback']+1, rows[index]['fallback']+0.5, True, 'wrong'):
++                changed=[dict(row) for row in rows];changed[index]['fallback']=value
++                check(scaling.check_rows(case,changed,n)['semantic_oracle_pass'] is False)
+     for n in scaling.ROWS:
+         rows = scaling.expected_rows(scaling.SETUP_CASE, n)
+         check(len(rows) == n and all(row == {'id': i + 1} for i, row in enumerate(rows)))
+@@ -84,7 +93,7 @@
+             check(physical[key] is False)
+ 
+     return {'status': 'source_recipe_contracts_passed_native_unverified', 'assertions': count,
+-            'primary_profiles': 15, 'setup_control_profiles': 1, 'permitted_row_counts': len(scaling.ROWS),
++            'primary_profiles': 15, 'setup_control_profiles': 1, 'boundary_profiles': 5, 'permitted_row_counts': len(scaling.ROWS),
+             'generator_sha256': hashlib.sha256(Path(scaling.__file__).read_bytes()).hexdigest(),
+             'native_runs': 0, 'real_process_launches': 0, 'rendered_inputs_or_results_persisted': False,
+             'actual_frontend_and_physical_path_verified': False, 'resource_scaling_verified': False}
+diff --git a/rbo-fixes-20261023/quality_q01_concrete_contract.py b/rbo-fixes-20261023/quality_q01_concrete_contract.py
+new file mode 100644
+--- /dev/null
++++ b/rbo-fixes-20261023/quality_q01_concrete_contract.py
+@@ -0,0 +1,292 @@
++"""Stage A: closed finite-vector, path and raw-resource evidence checks.
++
++No processes run and no rendered input is written. This stage cannot grant
++optimization acceptance: the actual final lowering must first pass the path
++pilot, and the later measured contract must be bound at native dispatch.
++"""
++import hashlib
++import json
++import math
++from pathlib import Path
++
++import native_verify as native
++import anonymous_child_measurement as child_protocol
++import quality_pairing as pairing
++import quality_q01_scaling_checks as scaling
++from quality_range_runtime_contract import validate_fixed_runtime
++from verification_contract import record_verdict
++from optimizer_mode_contract import optimizer_mode_matches_record
++
++VERSION = 'q01_concrete_acceptance_stage_A_v1'
++REVISIONS = {'baseline': 'e8700d379b3b9c4fbaf68f36424e6bcf08314fd2',
++             'fixed': '3e2a57e559557a716bba6f42eccff44bbc2ed8d7'}
++ROOT = Path(__file__).resolve().parent
++GIB = 1024 ** 3
++BINARY_FIELDS = {'resolved_path', 'sha256', 'size_bytes', 'mtime_ns', 'ctime_ns', 'inode', 'device'}
++
++
++def digest(value):
++    return hashlib.sha256(value).hexdigest()
++
++
++def encoded(value):
++    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
++
++
++def require(value, reason):
++    if not value:
++        raise ValueError(reason)
++
++
++def integer(value, expected=None):
++    return type(value) is int and value >= 0 and (expected is None or value == expected)
++
++
++def hexdigest(value):
++    return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
++
++
++def workload(case, rows):
++    """Mirror the bound single-request driver's byte framing, in RAM only."""
++    meta = scaling.metadata(case, rows)
++    pragmas = dict(meta['pragmas'])
++    pragmas['YqlSelect'] = 'force'
++    query = ''.join('PRAGMA ' + key + '=' + native.g.quote(value) + '; '
++                    for key, value in pragmas.items()) + scaling.recipes(rows)[case] + ';'
++    schema, seeds = scaling.schema_and_seeds(rows, case)
++    settings = native.config_with((native.REVIEW / 'new.conf').read_text(), meta['table_service_overrides'])
++    return {'generator_sha256': digest(Path(scaling.__file__).read_bytes()),
++            'query_sha256': digest(query.encode()), 'schema_sha256': digest(schema.encode()),
++            'fixture_sha256': [digest((seed + ';').encode()) for seed in seeds],
++            'settings_sha256': digest(settings.encode()), 'validation_sha256': []}
++
++
++def manifest(rows, run_id):
++    require(type(rows) is int and rows in scaling.ROWS, 'unreviewed_row_count')
++    require(isinstance(run_id, str) and len(run_id) == 32
++            and all(c in '0123456789abcdef' for c in run_id), 'invalid_run_identity')
++    cases = scaling.finite_profile_cases()
++    require(len(cases) == len(set(cases)) == 15, 'finite_profile_vector_changed')
++    profiles = [{'case': case, 'cell': scaling.cell(case, rows), 'workload': workload(case, rows)}
++                for case in cases]
++    schedule = []
++    for ordinal, case in enumerate(cases):
++        for kind, indices in [('warmup', (0,)), ('measurement', range(5))]:
++            for index in indices:
++                phases = ('baseline', 'fixed') if (ordinal + index) % 2 == 0 else ('fixed', 'baseline')
++                schedule.extend({'case': case, 'phase': phase, 'kind': kind, 'index': index}
++                                for phase in phases)
++    return {'schema_version': VERSION, 'rows': rows, 'run_id': run_id, 'revisions': REVISIONS,
++            'profiles': profiles, 'schedule': schedule,
++            'profile_sha256': pairing.profile_fingerprint(['quality_q01_scaling_checks']),
++            'contract_sha256': digest(Path(__file__).read_bytes()),
++            'superseded_proposal_sha256': digest((ROOT / 'verification' /
++                'Q01-resource-scaling-admission-plan-20261027.json').read_bytes()),
++            'supersession_scope': 'finite_profile_design_only_existing_oracles_and_gate_unchanged',
++            'optimization_acceptance_enabled': False, 'canonical_SQL_cases_required': 652,
++            'direct_runtime_cases_required': 42}
++
++
++def _read_bound(path, expected):
++    require(hexdigest(expected), 'artifact_digest_missing')
++    raw = Path(path).read_bytes()
++    require(digest(raw) == expected, 'artifact_changed')
++    return json.loads(raw)
++
++
++def _guard_and_receipt(record, revision):
++    require(record.get('native_batch_guard_pass') is True, 'guard_missing')
++    memory = _read_bound(record['native_batch_memory_evidence'], record['native_batch_memory_sha256'])
++    require(integer(memory.get('exit_code'), 0) and memory.get('cleanup_complete') is True
++            and memory.get('watchdog_stopped') is False and memory.get('stdout_overflow') is False,
++            'guard_failed')
++    require(integer(memory.get('max_scope_gib'), 24) and integer(memory.get('min_host_available_gib'), 36)
++            and integer(memory.get('minimum_host_available_bytes'))
++            and memory['minimum_host_available_bytes'] >= 36 * GIB, 'guard_budget_changed')
++    for name in ('peak_scope_usage_bytes', 'peak_group_rss_bytes'):
++        require(integer(memory.get(name)) and memory[name] <= 24 * GIB, 'guard_peak_invalid')
++    receipt = _read_bound(record['build_receipt_path'], record['build_receipt_sha256'])
++    require(receipt.get('schema_version') == 'successful_runner_build_v1'
++            and receipt.get('revision') == revision and integer(receipt.get('build', {}).get('exit_code'), 0)
++            and 'ydb/tests/tools/kqprun' in receipt.get('build', {}).get('target', '').split(),
++            'receipt_revision_or_target')
++    actual, saved = record.get('binary_provenance'), receipt.get('binary')
++    require(isinstance(actual, dict) and isinstance(saved, dict)
++            and set(actual) == set(saved) == BINARY_FIELDS, 'binary_identity_fields')
++    require(hexdigest(actual['sha256']) and actual['size_bytes'] > 0
++            and all(integer(actual[k]) and integer(saved[k]) for k in BINARY_FIELDS - {'resolved_path', 'sha256'})
++            and all(actual[k] == saved[k] for k in BINARY_FIELDS - {'ctime_ns'}), 'binary_identity_changed')
++    require(isinstance(receipt.get('worktree'), str) and Path(receipt['worktree']).is_absolute()
++            and (Path(receipt['worktree']) / 'ydb/tests/tools/kqprun/kqprun').resolve()
++                == Path(actual['resolved_path']), 'receipt_worktree_binding')
++
++
++def _path(record, spec, phase):
++    witness = record.get('q01_path_witness', {})
++    require(witness.get('schema_version') == scaling.paths.VERSION and witness.get('complete') is True
++            and witness.get('path_pass') is True and hexdigest(witness.get('physical_ast_sha256'))
++            and witness['physical_ast_sha256'] == record.get('physical_ast', {}).get('physical_ast_sha256'),
++            'path_missing_or_unbound')
++    if spec['family'] == 'setup_scan':
++        route, keys = 'setup', {'setup_has_no_window_pipeline'}
++    elif phase == 'baseline':
++        route, keys = 'baseline_general', {'collector_owns_frame_views', 'baseline_same_queue_frame_fold'}
++    elif spec['kind'] == 'range' and spec['minmax']:
++        mixed = bool(spec['collectors'] or spec.get('fallback'))
++        route = 'fixed_range_mixed' if mixed else 'fixed_range_only'
++        keys = {'two_distinct_result_fields', 'same_input_and_minmax_operations',
++                'collector_branch_matches_recipe', 'result_members_owned_by_same_stream'}
++        if mixed:
++            keys |= {'same_stream_prepass_to_collector', 'same_bound_object',
++                     'collector_owns_frame_views', 'same_queue_fallback_policy'}
++        if spec['collectors']:
++            keys.add('same_queue_prefix_endpoint_outputs')
++    elif spec['minmax']:
++        route, keys = 'fixed_rows_stacks', {'collector_owns_frame_views', 'same_stream_two_stack_chain',
++                                          'same_queue_fallback_policy'}
++        if spec['collectors']:
++            keys.add('same_queue_prefix_endpoint_outputs')
++    else:
++        route, keys = 'fixed_existing_primitives', {'collector_owns_frame_views', 'eligible_frame_fold_removed',
++                                                   'same_queue_prefix_endpoint_outputs'}
++    require(witness['route'] == route and set(witness.get('checks', {})) == keys
++            and all(v is True for v in witness['checks'].values()), 'wrong_window_route')
++
++
++def _record(record, frozen, expected):
++    phase = expected['phase']
++    require(record.get('case') == expected['case'] and record.get('phase') == phase
++            and record.get('revision') == REVISIONS[phase] and record.get('mode') == 'new'
++            and record.get('query_syntax') == 'yql'
++            and optimizer_mode_matches_record(record, require_exclusive=True)
++            and integer(record.get('rows'), frozen['rows']) and integer(record.get('repetition'), 0)
++            and integer(record.get('node_count'), 1) and integer(record.get('exit_code'), 0)
++            and integer(record.get('row_count'), frozen['rows'])
++            and integer(record.get('result_set_count'), 1)
++            and record.get('result_set_boundaries_known') is True
++            and integer(record.get('setup_request_count'), 1)
++            and integer(record.get('target_request_count'), 1)
++            and integer(record.get('validation_request_count'), 0)
++            and record.get('target_results_checked') is True
++            and record.get('expected_rejection_configured') is False
++            and hexdigest(record.get('result_sha256'))
++            and record.get('generator_module') == 'quality_q01_scaling_checks'
++            and record.get('generator_version') == scaling.GENERATOR_VERSION
++            and record.get('generator_hash_source') == 'loaded_source_snapshot'
++            and record.get('quality_profile_sha256') == frozen['profile_sha256']
++            and record.get('verification_contract_version') == 'strict_results_and_request_boundaries_v1'
++            and record_verdict(record) == 'functional', 'record_identity_or_semantics')
++    profile = next(p for p in frozen['profiles'] if p['case'] == expected['case'])
++    require(all(record.get(k) == v for k, v in profile['workload'].items()), 'workload_identity_changed')
++    _guard_and_receipt(record, REVISIONS[phase])
++    _path(record, profile['cell'], phase)
++    identity = record.get('q01_measurement_identity', {})
++    require(identity.get('run_id') == frozen['run_id'] and identity.get('case') == expected['case']
++            and identity.get('phase') == phase and identity.get('revision') == REVISIONS[phase]
++            and identity.get('kind') == expected['kind'] and integer(identity.get('index'), expected['index'])
++            and integer(identity.get('rows'), frozen['rows']) and identity.get('mode') == 'new'
++            and identity.get('cell') == profile['cell'] and identity.get('workload') == profile['workload']
++            and identity.get('native_driver_sha256') == digest(Path(native.__file__).read_bytes())
++            and identity.get('dependency_source_sha256') == scaling.source_bindings()
++            and identity.get('executable_sha256') == record['binary_provenance']['sha256']
++            and identity.get('build_receipt_sha256') == record['build_receipt_sha256']
++            and identity.get('resource_design_sha256') == frozen['superseded_proposal_sha256'],
++            'measurement_coordinates_changed')
++    observation = record.get('q01_child_observation', {})
++    require(observation.get('schema_version') == 'q01_inherited_scope_child_observation_v1'
++            and observation.get('status') == 'raw_observation'
++            and observation.get('outer_memory_guard_verified') is True
++            and observation.get('outer_memory_guard_admission_pending') is False
++            and observation.get('outer_memory_guard_sha256') == record['native_batch_memory_sha256']
++            and observation.get('target_group_empty') is True and observation.get('local_cleanup_complete') is True
++            and observation.get('metric_scope') == 'whole_kqprun_lifetime_including_startup_schema_fixtures_and_target'
++            and observation.get('python_generation_and_result_oracle_included') is False,
++            'raw_measurement_scope_or_cleanup')
++    bindings = observation['bindings']
++    require(bindings.get('identity_sha256') == digest(encoded(identity))
++            and integer(bindings.get('timeout_seconds'), 120), 'measurement_identity_unbound')
++    require(all(hexdigest(bindings.get(k)) for k in ('inherited_environment_sha256',
++                'python_executable_sha256', 'udf_library_sha256', 'inherited_scope_sha256', 'command_sha256'))
++            and all(isinstance(bindings.get(k), str) and bindings[k] for k in ('linux_release', 'machine'))
++            and isinstance(bindings.get('cpu_affinity'), list) and bool(bindings['cpu_affinity'])
++            and all(integer(v) for v in bindings['cpu_affinity'])
++            and sorted(set(bindings['cpu_affinity'])) == bindings['cpu_affinity'], 'runtime_environment_binding')
++    for key, name in [('protocol_source_sha256', 'anonymous_child_measurement.py'),
++                      ('integration_source_sha256', 'q01_native_child_measurement.py'),
++                      ('outer_guard_source_sha256', 'anonymous_cpp_guard.py')]:
++        require(bindings.get(key) == digest((ROOT / name).read_bytes()), 'measurement_source_changed')
++    raw = observation['raw_child_report']
++    require(set(raw) == child_protocol.REPORT_KEYS
++            and isinstance(raw.get('nonce'), str) and len(raw['nonce']) == 32
++            and all(c in '0123456789abcdef' for c in raw['nonce'])
++            and raw.get('schema_version') == 'linux_wait4_one_child_v1'
++            and digest(encoded(raw)) == observation.get('report_sha256')
++            and integer(raw.get('exit_code'), 0) and integer(raw.get('wait_status'), 0)
++            and raw.get('termination_signal') is None and raw.get('core_dump_status_bit') is False
++            and integer(raw.get('guard_exit_code'), 0) and integer(raw.get('waited_pid'))
++            and raw['waited_pid'] > 0, 'child_terminal_record')
++    require(all(type(raw.get(k)) in (int, float) and math.isfinite(raw[k]) and raw[k] >= 0
++                for k in ('user_cpu_seconds', 'system_cpu_seconds'))
++            and math.isfinite(raw['user_cpu_seconds'] + raw['system_cpu_seconds'])
++            and integer(raw.get('linux_ru_maxrss_kib'))
++            and integer(observation.get('linux_ru_maxrss_bytes'))
++            and observation.get('linux_ru_maxrss_bytes') == raw['linux_ru_maxrss_kib'] * 1024,
++            'raw_metric_invalid')
++    return {'user_cpu_seconds': raw['user_cpu_seconds'], 'system_cpu_seconds': raw['system_cpu_seconds'],
++            'max_rss_bytes': observation['linux_ru_maxrss_bytes'],
++            'environment_identity': {k: bindings[k] for k in ('inherited_environment_sha256',
++                'python_executable_sha256', 'udf_library_sha256', 'linux_release', 'machine', 'cpu_affinity')}}
++
++
++def validate_stage_A(records, frozen, *, kind='pilot', runtime_evidence=None):
++    result = {'schema_version': VERSION, 'semantic_path_pass': False, 'allocation_snapshots_pass': False,
++              'raw_measurement_vector_pass': False, 'resource_scaling_verified': False,
++              'optimization_acceptance_pass': False, 'canonical_SQL_652_admitted': False,
++              'pilot_native_identity_and_protocol_pass': False,
++              'allocation_scope': 'fixed42_linked_RANGE_runtime_and_direct_outer_collector_only',
++              'path_scope': 'local_stream_queue_endpoint_and_stack_fold_topology_not_general_equivalence',
++              'reason': 'stage_A_requires_actual_path_before_measured_contract_binding'}
++    try:
++        require(frozen == manifest(frozen['rows'], frozen['run_id']), 'manifest_or_sources_changed')
++        require(kind in ('pilot', 'measurement'), 'unknown_stage')
++        expected = ([{'case': p['case'], 'phase': phase, 'kind': 'pilot', 'index': 0} for p in frozen['profiles']
++                     for phase in ('baseline', 'fixed')] if kind == 'pilot' else frozen['schedule'])
++        require(isinstance(records, list) and len(records) == len(expected), 'incomplete_finite_vector')
++        metrics = [_record(record, frozen, cell)
++                   for record, cell in zip(records, expected)]
++        require(len({str(Path(r['native_batch_memory_evidence']).resolve()) for r in records}) == len(records),
++                'single_cell_guard_slices_required')
++        require(len({r['q01_child_observation']['bindings']['inherited_scope_sha256'] for r in records}) == len(records)
++                and len({r['q01_child_observation']['raw_child_report']['nonce'] for r in records}) == len(records),
++                'distinct_scope_and_child_report_required')
++        require(all(m['environment_identity'] == metrics[0]['environment_identity'] for m in metrics),
++                'incompatible_measurement_environments')
++        result['semantic_path_pass'] = True
++        result['pilot_native_identity_and_protocol_pass'] = kind == 'pilot'
++        if runtime_evidence is not None:
++            result['allocation_snapshots_pass'] = validate_fixed_runtime(runtime_evidence, REVISIONS['fixed'])
++        if kind == 'measurement':
++            result.update(raw_measurement_vector_pass=True, raw_metrics=metrics)
++            comparisons = []
++            for profile in frozen['profiles']:
++                groups = {phase: [metric for cell,metric in zip(expected,metrics)
++                    if cell['case']==profile['case'] and cell['phase']==phase and cell['kind']=='measurement']
++                    for phase in ('baseline','fixed')}
++                require(all(len(values)==5 for values in groups.values()), 'incomplete_comparison_group')
++                cpu = {phase: [m['user_cpu_seconds']+m['system_cpu_seconds'] for m in values]
++                       for phase,values in groups.items()}
++                comparisons.append({'case':profile['case'],
++                    'measured_samples_per_phase':5,
++                    'total_child_CPU_seconds':cpu,
++                    'whole_child_peak_RSS_bytes':{phase:[m['max_rss_bytes'] for m in values]
++                                                   for phase,values in groups.items()},
++                    'fixed_all_total_CPU_below_baseline':max(cpu['fixed'])<min(cpu['baseline']),
++                    'baseline_all_total_CPU_below_fixed':max(cpu['baseline'])<min(cpu['fixed']),
++                    'observation_only_no_accepting_threshold':True})
++            result['finite_raw_comparisons'] = comparisons
++        result['manifest_sha256'] = digest(encoded(frozen))
++        result['measured_contract_dispatch_binding_present'] = False
++        result['required_next_stage'] = 'Freeze actual path-qualified measured contract; bind its digest at native dispatch and separately require complete canonical652 evidence before any optimization admission.'
++    except (OSError, ValueError, TypeError, KeyError, AttributeError, StopIteration, OverflowError):
++        result['reason'] = 'incomplete_or_inconsistent_stage_A_evidence'
++    return result
+diff --git a/rbo-fixes-20261023/quality_q01_path_checks.py b/rbo-fixes-20261023/quality_q01_path_checks.py
+new file mode 100644
+--- /dev/null
++++ b/rbo-fixes-20261023/quality_q01_path_checks.py
+@@ -0,0 +1,256 @@
++"""Closed, local window dataflow observations; raw ASTs remain in memory.
++
++An unknown final lowering is pending, never a successful count-based fallback.
++This observer proves a local producer/collector/field contract, not general AST
++equivalence or an amortized runtime bound.
++"""
++import hashlib
++
++import quality_window_checks as windows
++
++VERSION = 'q01_concrete_window_path_v1'
++_STREAM_CHILD = frozenset(('FromFlow', 'ToFlow', 'ToStream', 'Iterator',
++                          'Map', 'OrderedMap', 'ExpandMap', 'NarrowMap', 'Chain1Map'))
++
++
++def _inspect(spec, resolve, nodes):
++    def head(node):
++        node = resolve(node)
++        return node[0] if isinstance(node, list) and node and isinstance(node[0], str) else None
++
++    def atom(node):
++        node = resolve(node)
++        if not isinstance(node, str):
++            raise ValueError('non_atom_field')
++        return node.strip("'\"")
++
++    def stream_reaches(node, target):
++        seen = set()
++        while isinstance(node := resolve(node), list) and id(node) not in seen:
++            if node is target:
++                return True
++            seen.add(id(node))
++            if head(node) not in _STREAM_CHILD or len(node) < 2:
++                return False
++            node = node[1]
++        return False
++
++    def descendants(node):
++        seen, result, todo = set(), [], [node]
++        while todo:
++            value = resolve(todo.pop())
++            if not isinstance(value, list) or id(value) in seen:
++                continue
++            seen.add(id(value))
++            result.append(value)
++            todo.extend(value[1:] if head(value) else value)
++        return result
++
++    def frame_queue(node):
++        node = resolve(node)
++        if head(node) == 'WinFrame' and len(node) == 7:
++            return resolve(node[1])
++        return None
++
++    def member_outputs(map_node, names):
++        # Only direct output members owned by this map's own row argument.
++        # Nested lambdas and arbitrary expressions are deliberately excluded.
++        if head(map_node) not in ('Map', 'OrderedMap', 'ExpandMap', 'NarrowMap') or len(map_node) != 3:
++            return False
++        lam = resolve(map_node[2])
++        if head(lam) != 'lambda' or len(lam) < 3:
++            return False
++        args = resolve(lam[1])
++        if not isinstance(args, list) or len(args) != 1 or not isinstance(args[0], str):
++            return False
++        row = args[0]
++        result = set()
++        todo = list(lam[2:])
++        while todo:
++            value = resolve(todo.pop())
++            if not isinstance(value, list):
++                continue
++            if head(value) == 'Member' and len(value) == 3 and value[1] == row:
++                result.add(atom(value[2]))
++            elif head(value) == 'AsStruct':
++                for pair in value[1:]:
++                    pair = resolve(pair)
++                    if not isinstance(pair, list) or len(pair) != 2:
++                        return False
++                    todo.append(pair[1])
++            elif head(value) is None:
++                todo.extend(value)
++        return names <= result
++
++    def prefix_fields(map_node, queue):
++        """Identify direct outputs using two endpoints of this collector queue.
++
++        This recognizes the source builder's local arithmetic shape. It is not
++        a proof that every later primitive rewrite preserves the arithmetic.
++        Unknown peephole shapes are pending until the actual pilot is reviewed.
++        """
++        if head(map_node) not in ('Map', 'OrderedMap', 'ExpandMap', 'NarrowMap') or len(map_node) != 3:
++            return set()
++        lam = resolve(map_node[2])
++        if head(lam) != 'lambda' or len(lam) < 3:
++            return set()
++        args = resolve(lam[1])
++        if not isinstance(args, list) or len(args) != 1:
++            return set()
++        output = []
++        for value in lam[2:]:
++            value = resolve(value)
++            if head(value) == 'AsStruct':
++                output.extend(resolve(pair)[1] for pair in value[1:]
++                              if isinstance(resolve(pair), list) and len(resolve(pair)) == 2)
++            else:
++                output.append(value)
++        fields = set()
++        for expression in output:
++            expression = resolve(expression)
++            if head(expression) != 'IfPresent' or len(expression) != 5:
++                continue
++            first, last, arithmetic = map(resolve, expression[1:4])
++            if head(first) != 'Head' or len(first) != 2:
++                continue
++            first = resolve(first[1])
++            if frame_queue(first) is not queue or frame_queue(last) is not queue:
++                continue
++            if head(first[5]) != 'Bool' or head(last[5]) != 'Bool':
++                continue
++            if atom(resolve(first[5])[1]) != 'false' or atom(resolve(last[5])[1]) != 'true':
++                continue
++            if any(resolve(first[i]) != resolve(last[i]) for i in (1, 2, 3, 4, 6)):
++                continue
++            dependency = resolve(first[6])
++            if head(dependency) != 'DependsOn' or len(dependency) != 2 or dependency[1] != args[0]:
++                continue
++            if head(arithmetic) != 'lambda' or len(arithmetic) != 3:
++                continue
++            endpoint_args = resolve(arithmetic[1])
++            if not isinstance(endpoint_args, list) or len(endpoint_args) != 2:
++                continue
++            first_arg, last_arg = endpoint_args
++            def endpoint_member(value, owner):
++                value = resolve(value)
++                if head(value) == 'Coalesce' and len(value) == 3:
++                    value = resolve(value[1])
++                return atom(value[2]) if head(value) == 'Member' and len(value) == 3 and value[1] == owner else None
++            output_fields = set()
++            for value in descendants(arithmetic[2]):
++                if head(value) != '+' or len(value) != 3:
++                    continue
++                difference = resolve(value[1])
++                if head(difference) != '-' or len(difference) != 3:
++                    continue
++                left = endpoint_member(difference[1], last_arg)
++                right = endpoint_member(difference[2], first_arg)
++                if left is not None and left == right:
++                    output_fields.add(left)
++            if output_fields:
++                fields.add(frozenset(output_fields))
++        return fields
++
++    collectors = [n for n in nodes if head(n) == 'WinFramesCollector']
++    ranges = [n for n in nodes if head(n) == 'KqpRangeMinMax']
++    queues = [n for n in nodes if head(n) == 'QueueCreate']
++    if spec['family'] == 'setup_scan':
++        return {'setup_has_no_window_pipeline': not collectors and not ranges and not queues}, 'setup'
++    if len(collectors) > 1 or len(ranges) > 1:
++        raise ValueError('multiple_window_streams')
++    fallback = bool(spec.get('fallback'))
++    is_range_minmax = spec['kind'] == 'range' and spec['minmax']
++    checks = {}
++    if ranges:
++        node = ranges[0]
++        if not is_range_minmax or len(node) != 4:
++            raise ValueError('unexpected_range_operator')
++        mappings = resolve(node[3])
++        if not isinstance(mappings, list) or len(mappings) != 2:
++            raise ValueError('range_mapping_arity')
++        decoded = []
++        for mapping in mappings:
++            mapping = resolve(mapping)
++            if not isinstance(mapping, list) or len(mapping) != 3:
++                raise ValueError('range_mapping_shape')
++            decoded.append(tuple(atom(value) for value in mapping))
++        outputs = {row[1] for row in decoded}
++        checks['two_distinct_result_fields'] = len(outputs) == 2
++        checks['same_input_and_minmax_operations'] = (len({row[0] for row in decoded}) == 1
++                                                     and {row[2] for row in decoded} == {'min', 'max'})
++        mixed = bool(spec['collectors'] or fallback)
++        checks['collector_branch_matches_recipe'] = len(collectors) == len(queues) == int(mixed)
++        target = node
++        if mixed:
++            if len(collectors) != 1 or len(collectors[0]) != 4:
++                raise ValueError('mixed_collector_shape')
++            target = collectors[0]
++            checks['same_stream_prepass_to_collector'] = stream_reaches(target[1], node)
++            checks['same_bound_object'] = resolve(target[3]) is resolve(node[2])
++        checks['result_members_owned_by_same_stream'] = any(
++            len(n) >= 2 and stream_reaches(n[1], target) and member_outputs(n, outputs)
++            for n in nodes if head(n) in ('Map', 'OrderedMap', 'ExpandMap', 'NarrowMap'))
++        route = 'fixed_range_mixed' if mixed else 'fixed_range_only'
++    else:
++        if len(collectors) != 1:
++            raise ValueError('collector_not_unique')
++        route = 'baseline_general' if any(head(n) == 'Fold1' for n in nodes) else 'fixed_existing_primitives'
++        if is_range_minmax and not any(head(n) == 'Fold1' for n in nodes):
++            raise ValueError('range_optimization_path_absent')
++    if collectors:
++        collector = collectors[0]
++        if len(collector) != 4 or head(collector[2]) != 'QueueCreate':
++            raise ValueError('collector_queue_unresolved')
++        queue = resolve(collector[2])
++        frames = [n for n in nodes if frame_queue(n) is queue]
++        frame_folds = [n for n in nodes if head(n) == 'Fold1' and len(n) == 4
++                       and frame_queue(n[1]) is queue]
++        checks['collector_owns_frame_views'] = bool(frames)
++        chains = [n for n in nodes if head(n) == 'Chain1Map' and len(n) == 4
++                  and stream_reaches(n[1], collector)]
++        def stack_lambda(lam, update):
++            lam = resolve(lam)
++            if head(lam) != 'lambda' or len(lam) != 3 or len(resolve(lam[1])) != (2 if update else 1):
++                return False
++            folds = [n for n in descendants(lam[2]) if head(n) == 'Fold' and len(n) == 4
++                     and any(head(x) == 'Prepend' for x in descendants(n[3]))]
++            entering = [n for n in folds if (frame_queue(n[1]) is queue if not update else
++                        head(n[1]) == 'If' and any(frame_queue(x) is queue for x in descendants(n[1])))]
++            transfers = [n for n in folds if head(n[1]) == 'Nth'
++                         and not any(frame_queue(x) is queue for x in descendants(n[1]))]
++            return len(entering) == len(transfers) == 2
++        stacks = [chain for chain in chains if stack_lambda(chain[2], False) and stack_lambda(chain[3], True)]
++        if ranges:
++            checks['same_queue_fallback_policy'] = bool(frame_folds) == fallback
++        elif spec['kind'] == 'rows' and spec['minmax'] and stacks:
++            route = 'fixed_rows_stacks'
++            checks['same_stream_two_stack_chain'] = True
++            checks['same_queue_fallback_policy'] = bool(frame_folds) == fallback
++        elif frame_folds:
++            route = 'baseline_general'
++            checks['baseline_same_queue_frame_fold'] = True
++        else:
++            checks['eligible_frame_fold_removed'] = not any(head(n) == 'Fold1' for n in nodes)
++            if spec['minmax']:
++                checks['same_stream_two_stack_chain'] = False
++        if fallback and not frame_folds:
++            checks['fallback_retained'] = False
++        if spec['collectors'] and route != 'baseline_general':
++            checks['same_queue_prefix_endpoint_outputs'] = any(
++                len(n) >= 2 and stream_reaches(n[1], collector) and len(prefix_fields(n, queue)) >= 3
++                for n in nodes if head(n) in ('Map', 'OrderedMap', 'ExpandMap', 'NarrowMap'))
++    return checks, route
++
++
++def observe(spec, text):
++    result = {'schema_version': VERSION, 'physical_ast_sha256': hashlib.sha256(text.encode()).hexdigest(),
++              'complete': False, 'path_pass': False, 'checks': {}, 'route': 'unrecognized',
++              'resource_scaling_verified': False, 'optimization_acceptance_pass': False}
++    try:
++        resolve, nodes = windows.parse_physical_graph(text)
++        checks, route = _inspect(spec, resolve, nodes)
++        result.update(complete=True, checks=checks, route=route,
++                      path_pass=bool(checks) and all(value is True for value in checks.values()))
++    except (ValueError, KeyError, IndexError, TypeError, RecursionError):
++        result['reason'] = 'unsupported_or_incomplete_window_dataflow'
++    return result
+diff --git a/rbo-fixes-20261023/quality_q01_scaling_checks.py b/rbo-fixes-20261023/quality_q01_scaling_checks.py
+--- a/rbo-fixes-20261023/quality_q01_scaling_checks.py
++++ b/rbo-fixes-20261023/quality_q01_scaling_checks.py
+@@ -12,9 +12,10 @@
+ 
+ import generate_and_verify as g
+ import quality_window_checks as windows
++import quality_q01_path_checks as paths
+ 
+ CASE_SPECIFIC_SCHEMA = True
+-GENERATOR_VERSION = 'q01_shared_window_scaling_cells_v2'
++GENERATOR_VERSION = 'q01_concrete_window_cells_v3'
+ WIDTHS = (16, 128, 512)
+ ROWS = (2048, 4096, 8192, 16384, 32768)
+ FAMILIES = ('rows_collectors', 'rows_minmax', 'range_minmax', 'range_mixed', 'range_collectors')
+@@ -33,7 +34,28 @@
+                          'partition_count': None, 'kind': None,
+                          'minmax': False, 'collectors': False,
+                          'control_kind': 'matched_setup_scan'}
++    for family in ('rows_minmax', 'range_minmax', 'range_mixed'):
++        result['q01_scaling_' + family + '_suffix'] = dict(
++            family=family, frame_width=16, partition_count=3,
++            kind='range' if family.startswith('range_') else 'rows',
++            minmax=True, collectors=family == 'range_mixed',
++            upper_unbounded=True, control_kind='general_suffix')
++    for kind in ('rows', 'range'):
++        result['q01_scaling_' + kind + '_fallback'] = dict(
++            family=kind + '_fallback', frame_width=16, partition_count=3,
++            kind=kind, minmax=True, collectors=True,
++            fallback=True, control_kind='same_window_fallback')
+     return result
++
++
++def finite_profile_cases():
++    primary = ['q01_scaling_' + family + '_w' + str(width)
++               for family in ('rows_collectors', 'rows_minmax', 'range_minmax', 'range_mixed')
++               for width in (16, 512)]
++    return primary + ['q01_scaling_range_collectors_w512', SETUP_CASE] + [
++        'q01_scaling_' + family + '_suffix'
++        for family in ('rows_minmax', 'range_minmax', 'range_mixed')] + [
++        'q01_scaling_rows_fallback', 'q01_scaling_range_fallback']
+ 
+ 
+ def cell(case, n):
+@@ -57,7 +79,7 @@
+ def source_bindings():
+     # Both builder and AST interpretation dependencies affect the observation.
+     return {module.__name__: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
+-            for module in (g, windows)}
++            for module in (g, windows, paths)}
+ 
+ 
+ def _source():
+@@ -76,9 +98,13 @@
+             result[case] = g.select(['id'], g.derived(_source(), 's'), order='id')
+             continue
+         frame = spec['kind'].upper() + ' BETWEEN ' + str(spec['frame_width']) + ' PRECEDING AND 1 FOLLOWING'
++        if spec.get('upper_unbounded'):
++            frame = frame.rsplit(' AND ', 1)[0] + ' AND UNBOUNDED FOLLOWING'
+         aggregates = ([('MIN', 'v', 'lo'), ('MAX', 'v', 'hi')] if spec['minmax'] else [])
+         if spec['collectors']:
+             aggregates += [('COUNT', '*', 'c'), ('COUNT', 'v', 'cv'), ('SUM', 'v', 's')]
++        if spec.get('fallback'):
++            aggregates += [('MIN', 'CAST(v AS Double)', 'fallback')]
+         # Inline OVER clauses acquire distinct anonymous frontend names. One
+         # explicit name puts every aggregate into the same logical window.
+         fields = ['id'] + [g.alias(g.call(name, argument) + ' OVER ' + WINDOW_NAME, label)
+@@ -124,6 +150,8 @@
+             else:
+                 left = bisect_left(ids, identity - spec['frame_width'])
+                 right = bisect_right(ids, identity + 1)
++            if spec.get('upper_unbounded'):
++                right = len(ids)
+             while added < right:
+                 value = values[added]
+                 if value is not None:
+@@ -144,6 +172,11 @@
+             if spec['collectors']:
+                 count = counts[right] - counts[left]
+                 row.update(c=right - left, cv=count, s=sums[right] - sums[left] if count else None)
++            if spec.get('fallback'):
++                # Values are bounded exact integers even though the aggregate
++                # input/result is Double. RowsJson uses PREC_AUTO with no
++                # trailing decimal padding, so its parsed JSON token is int.
++                row['fallback'] = row['lo']
+             result.append(row)
+     return sorted(result, key=lambda row: row['id'])
+ 
+@@ -162,4 +195,5 @@
+     return {'physical_ast': summary, 'q01_scaling_family': spec['family'],
+             'quality_oracle_pass': False, 'resource_scaling_verified': False,
+             'quality_improvement_verified': False,
+-            'quality_pending_reason': 'raw_scaling_observation_has_no_admission_validator'}
++            'q01_path_witness': paths.observe(spec, text),
++            'quality_pending_reason': 'concrete_acceptance_stage_A_requires_actual_path_and_resource_review'}
+diff --git a/rbo-fixes-20261023/quality_range_runtime_contract.py b/rbo-fixes-20261023/quality_range_runtime_contract.py
+--- a/rbo-fixes-20261023/quality_range_runtime_contract.py
++++ b/rbo-fixes-20261023/quality_range_runtime_contract.py
+@@ -18,6 +18,28 @@
+ 
+ 
+ def _case_observations(record, spec):
++    for stem, delta in (('allocations', 'allocator_allocations'),
++                        ('offloads', 'allocator_offloads'),
++                        ('offloaded_bytes', 'allocator_offloaded_bytes'),
++                        ('peak_used', 'peak_used_delta'),
++                        ('peak_allocated', 'peak_allocated_delta')):
++        before = record['allocator_' + stem + '_before']
++        after = record['allocator_' + stem + '_after']
++        # Legacy peaks were sampled before graph invalidation; the new absolute
++        # after snapshot also includes release/invalidation. Keep that scope
++        # difference explicit instead of requiring cleanup to allocate nothing.
++        if after < before or (after - before < record[delta] if stem.startswith('peak_')
++                              else after - before != record[delta]):
++            return False
++    for stem in ('peak_used', 'peak_allocated'):
++        consumed = record['allocator_' + stem + '_after_consumption']
++        if (consumed - record['allocator_' + stem + '_before'] != record[stem + '_delta']
++                or consumed > record['allocator_' + stem + '_after']):
++            return False
++    if (record['allocator_peak_used_before'] < record['allocator_used_before']
++            or record['allocator_peak_used_after'] < record['allocator_used_after_release']
++            or record['allocator_peak_used_after_consumption'] < record['allocator_used_after_consumption']):
++        return False
+     cycles = 4 if spec['lifecycle'] == 'reset' else 1
+     complete = spec['lifecycle'] in ('complete', 'yield', 'reset')
+     limit = spec['lifecycle'] == 'limit'
+diff --git a/rbo-fixes-20261023/quality_range_runtime_cpp_generator.py b/rbo-fixes-20261023/quality_range_runtime_cpp_generator.py
+--- a/rbo-fixes-20261023/quality_range_runtime_cpp_generator.py
++++ b/rbo-fixes-20261023/quality_range_runtime_cpp_generator.py
+@@ -12,7 +12,9 @@
+                  'output_yields', 'peak_live_rows', 'allocator_allocations',
+                  'allocator_offloads', 'allocator_offloaded_bytes',
+                  'peak_used_delta', 'peak_allocated_delta', 'sampled_used_delta', 'cleanup_live_rows',
+-                 'limit_rejections', 'operator_instances', 'cycles')
++                 'limit_rejections', 'operator_instances', 'cycles',
++                 'allocator_used_before', 'allocator_used_after_release', 'allocator_peak_used_before', 'allocator_peak_used_after', 'allocator_peak_allocated_before', 'allocator_peak_allocated_after', 'allocator_allocations_before', 'allocator_allocations_after', 'allocator_offloads_before', 'allocator_offloads_after', 'allocator_offloaded_bytes_before', 'allocator_offloaded_bytes_after',
++                 'allocator_used_after_consumption', 'allocator_peak_used_after_consumption', 'allocator_peak_allocated_after_consumption')
+ 
+ 
+ def specs():
+@@ -81,6 +83,8 @@
+     ui64 BaselineUsed = 0, SampledUsed = 0;
+     ui64 LimitAttempts = 0, LimitRequiredDelta = 0;
+     ui64 LimitOffloads = 0;
++    ui64 UsedBefore = 0, UsedAfterRelease = 0, PeakUsedBefore = 0, PeakUsedAfter = 0, PeakAllocatedBefore = 0, PeakAllocatedAfter = 0, AllocationsBefore = 0, AllocationsAfter = 0, OffloadsBefore = 0, OffloadsAfter = 0, OffloadedBytesBefore = 0, OffloadedBytesAfter = 0;
++    ui64 UsedAfterConsumption = 0, PeakUsedAfterConsumption = 0, PeakAllocatedAfterConsumption = 0;
+     void Check(bool value) { ++Checks; Passed = Passed && value; }
+     void Sample() {
+         const ui64 used = TlsAllocState->GetUsed();
+@@ -293,8 +297,14 @@
+     auto& alloc = setup.Alloc.Ref();
+     const ui64 initialPeakUsed = alloc.GetPeakUsed(), initialPeakAllocated = alloc.GetPeakAllocated();
+     stats.BaselineUsed = alloc.GetUsed();
++    stats.UsedBefore = stats.BaselineUsed;
++    stats.PeakUsedBefore = initialPeakUsed;
++    stats.PeakAllocatedBefore = initialPeakAllocated;
+     const ui64 initialAllocations = alloc.GetAllocCount(), initialOffloads = alloc.GetOffloadedAllocCount();
+     const ui64 initialOffloadedBytes = alloc.GetOffloadedBytes();
++    stats.AllocationsBefore = initialAllocations;
++    stats.OffloadsBefore = initialOffloads;
++    stats.OffloadedBytesBefore = initialOffloadedBytes;
+     const ui64 cycles = spec.Lifecycle == 5 ? 4 : 1;
+     stats.Check(stats.Instances == 1);
+     for (ui64 cycle = 0; cycle < cycles; ++cycle) {
+@@ -350,6 +360,9 @@
+             if (spec.Lifecycle == 3) stats.Check(output == 0 && stats.LiveRows > 0);
+             stats.Check(stats.InputFetches - fetchesBefore <= spec.Rows * 3 + 3);
+         }
++        stats.UsedAfterConsumption = alloc.GetUsed();
++        stats.PeakUsedAfterConsumption = alloc.GetPeakUsed();
++        stats.PeakAllocatedAfterConsumption = alloc.GetPeakAllocated();
+         stats.PeakUsed = alloc.GetPeakUsed() - initialPeakUsed;
+         stats.PeakAllocated = alloc.GetPeakAllocated() - initialPeakAllocated;
+         stream = NUdf::TUnboxedValue();
+@@ -361,6 +374,12 @@
+         stats.Check(alloc.GetUsed() % TAlignedPagePool::POOL_PAGE_SIZE == usedBefore % TAlignedPagePool::POOL_PAGE_SIZE);
+         stats.Check(alloc.GetUsed() <= usedBefore + TAlignedPagePool::POOL_PAGE_SIZE);
+     }
++    stats.UsedAfterRelease = alloc.GetUsed();
++    stats.PeakUsedAfter = alloc.GetPeakUsed();
++    stats.PeakAllocatedAfter = alloc.GetPeakAllocated();
++    stats.AllocationsAfter = alloc.GetAllocCount();
++    stats.OffloadsAfter = alloc.GetOffloadedAllocCount();
++    stats.OffloadedBytesAfter = alloc.GetOffloadedBytes();
+     stats.Allocations = alloc.GetAllocCount() - initialAllocations;
+     stats.Offloads = alloc.GetOffloadedAllocCount() - initialOffloads;
+     stats.OffloadedBytes = alloc.GetOffloadedBytes() - initialOffloadedBytes;
+@@ -382,7 +401,23 @@
+          << ",\"peak_allocated_delta\":" << s.PeakAllocated << ",\"cleanup_live_rows\":" << s.LiveRows
+          << ",\"sampled_used_delta\":" << s.SampledUsed
+          << ",\"limit_rejections\":" << s.LimitRejections << ",\"operator_instances\":" << s.Instances
+-         << ",\"cycles\":" << s.Cycles << "}\n";
++         << ",\"cycles\":" << s.Cycles
++         << ",\"allocator_used_before\":" << s.UsedBefore
++         << ",\"allocator_used_after_release\":" << s.UsedAfterRelease
++         << ",\"allocator_peak_used_before\":" << s.PeakUsedBefore
++         << ",\"allocator_peak_used_after\":" << s.PeakUsedAfter
++         << ",\"allocator_peak_allocated_before\":" << s.PeakAllocatedBefore
++         << ",\"allocator_peak_allocated_after\":" << s.PeakAllocatedAfter
++         << ",\"allocator_allocations_before\":" << s.AllocationsBefore
++         << ",\"allocator_allocations_after\":" << s.AllocationsAfter
++         << ",\"allocator_offloads_before\":" << s.OffloadsBefore
++         << ",\"allocator_offloads_after\":" << s.OffloadsAfter
++         << ",\"allocator_offloaded_bytes_before\":" << s.OffloadedBytesBefore
++         << ",\"allocator_offloaded_bytes_after\":" << s.OffloadedBytesAfter
++         << ",\"allocator_used_after_consumption\":" << s.UsedAfterConsumption
++         << ",\"allocator_peak_used_after_consumption\":" << s.PeakUsedAfterConsumption
++         << ",\"allocator_peak_allocated_after_consumption\":" << s.PeakAllocatedAfterConsumption
++         << "}\n";
+ }
+ } // namespace
+ '''
+@@ -424,5 +459,6 @@
+                              'Allocator-limit rejection covers reserve accounting before allocation; std::vector allocation-failure injection is not included.',
+                              'Public allocator metrics are process-local MiniKQL accounting, not RSS.',
+                              'Peak deltas measure growth above the allocator prior high-water mark; sampled_used_delta measures observed runtime usage above its prepared-graph baseline. Neither is a query RSS bound.',
++                             'Absolute before snapshots follow graph/context preparation. Absolute consumption snapshots precede final-cycle stream release; after snapshots include stream release and graph invalidation, before graph/setup destruction; they retain historical allocator peaks rather than reset them.',
+                              'Mixed mode uses the real collector and frame length; full RBO lowering and other native functions remain SQL acceptance responsibilities.',
+                              'GetUsed modulo-page cleanup check assumes no unrelated offloaded allocations enter the fixture; native validation is still required.'])
+diff --git a/rbo-fixes-20261023/quality_spill_bounds.py b/rbo-fixes-20261023/quality_spill_bounds.py
+--- a/rbo-fixes-20261023/quality_spill_bounds.py
++++ b/rbo-fixes-20261023/quality_spill_bounds.py
+@@ -93,8 +93,8 @@
+  'rbo-fixes-20261023/quality_partition_checks.py': '6e05ff277e5f75846efc58a6b61e837b86c55b54f4452a447a2caf7b0f84a5b7',
+  'rbo-fixes-20261023/quality_partition_subset_checks.py': '4a7c8816c021df7388ec50fc873b4a76f9c61ed32d1b7a06b6e2fced88469f93',
+  'rbo-fixes-20261023/quality_range_minmax_checks.py': '2d2a23f017e76a67552260d7e15dcfe1e2b53be727ac92543ab99b32978eb390',
+- 'rbo-fixes-20261023/quality_range_runtime_contract.py': '1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973',
+- 'rbo-fixes-20261023/quality_range_runtime_cpp_generator.py': '0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e',
++ 'rbo-fixes-20261023/quality_range_runtime_contract.py': 'f980ebb5397d8f4b8067a73b96a460fc754f7ade276e607c5215cd1f35cf7d6d',
++ 'rbo-fixes-20261023/quality_range_runtime_cpp_generator.py': 'a1b35a293147dca72d7b009845fbbe53ed8eaf490da5f43ab65d3db196b9fd75',
+  'rbo-fixes-20261023/quality_rule_checks.py': '79928bb8b273843ea6c4dd575c11ea4aa8fe377741e5091d027193852eee236e',
+  'rbo-fixes-20261023/quality_scheduler_semantic_checks.py': 'f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7',
+  'rbo-fixes-20261023/quality_source_settings_checks.py': 'a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba',

@@ -1,0 +1,17 @@
+{
+  "patches": [
+    {
+      "patch": "C31-C47-pending-direct-admission.patch",
+      "sha256": "f340b9db8fc002ae347b44cdd3b0bb6bd3cb781f0ab6c5dd1338f31378413fb3",
+      "applied_at_idle_boundary": true
+    },
+    {
+      "patch": "C26-exact-result-fields-oracle.patch",
+      "sha256": "0dbea1b8c13a30e621cc00d0c5486ad865cda351de8be528ca7dbf09001e1b23",
+      "applied_at_idle_boundary": true
+    }
+  ],
+  "syntax_passed": true,
+  "behavioral_tests_run": false,
+  "native_pending": true
+}

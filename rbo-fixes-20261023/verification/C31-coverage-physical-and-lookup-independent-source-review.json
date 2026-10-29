@@ -1,0 +1,90 @@
+{
+  "reviewer": "c31_artifacts_recovery",
+  "review_kind": "independent_exact_artifact_source_review_after_restart",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-coverage-and-physical-artifacts.patch",
+      "sha256": "6c8896d4789eaaa7ea49dfb5ff7bea8edb1f16e031383e63c2a2724c5eea0b8f"
+    },
+    {
+      "path": "proposed-quality-amendments/lookup-block-callable-artifacts.patch",
+      "sha256": "08785b1e008e7d9acb69669a4ff82ad85bf6c276c8d3e8d6d00232d46c65ad69"
+    }
+  ],
+  "verdict": "source_and_artifact_checks_pass_actual_corrected_native_matrix_pending",
+  "preimages": {
+    "sharing_lifecycle_checks.py": "52bc893a2810a3dbae30cd38366f91450381f55e9556c735302d30bc43fbed94",
+    "c31_identity_checks.py": "3ce09393f4169673ad98ef84dd0336eac0d67da888ad491e5f3a9a5b91408254",
+    "quality_lookup_checks.py": "801d21e9f6b4594babdb1aeb9cd580982dd38f3775b2b186701c1e679b587c76"
+  },
+  "prospective_images": {
+    "sharing_lifecycle_checks.py": "c8e174548e2b645f1d81a514daf705957424b8f420e8a910cc57c3be52c6a001",
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "quality_lookup_checks.py": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae"
+  },
+  "coverage_counts_from_source": {
+    "identity_total": 84,
+    "stability_total": 48,
+    "identity_and_stability_active_left": 44,
+    "identity_and_stability_frontend_unavailable": 88,
+    "sharing_active_left": 4,
+    "sharing_frontend_unavailable": 8,
+    "unchanged_subsystem_controls": 2,
+    "active_sql_total": 50,
+    "frontend_unavailable_total": 96
+  },
+  "join_kind_ast_indices": {
+    "BlockHashJoinCore": 3,
+    "MapJoinCore": 3,
+    "GraceJoinCore": 3,
+    "GraceSelfJoinCore": 2,
+    "KqpIndexLookupJoin": 2
+  },
+  "source_sha256": {
+    "yql/essentials/core/dq_expr_nodes/dq_expr_nodes.json": "8cd5b734f97dbef8607ed3ee86b34a234819efc32a57794953471c94c88626b9",
+    "yql/essentials/core/expr_nodes/yql_expr_nodes.json": "4d81e5953e12badc691a5ce8f0996bc44f097e25ba1a503072f8e8dabb380479",
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json": "99ea408376a2c6c280db32d91d424575e2872c1f4cd3b255964885d17d2e9e5c",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp": "f11a39d6425b3dcb7888a427f46cd443f35d802db9046b4f1c0e14dba21f7e6a",
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667",
+    "yql/essentials/sql/v1/translation/sql_select_yql.cpp": "01c4d02f5cc327b557132eb8ba9073063f5f00a58d48928bb9e5a5ea07664eb4"
+  },
+  "source_references": [
+    "dq_expr_nodes.json:70-88: TDqBlockHashJoinCore matches actual BlockHashJoinCore; JoinKind child2.",
+    "yql_expr_nodes.json:1734-1750,1784-1818: Map/Grace JoinKind child2, GraceSelf child1.",
+    "kqp_expr_nodes.json:540-558: KqpIndexLookupJoin inherits JoinType child1.",
+    "kqp_rbo_physical_join_builder.cpp:355,438-493,687-700: actual MapJoinCore/BlockHashJoinCore/GraceJoinCore construction; reverse block mode retains JoinKind and selects BuildSide.",
+    "inline_join_filters.cpp:227-237,265: keyed residual reconstruction builds Inner then original Left.",
+    "sql_select_yql.cpp:985,997: explicit SEMI/ONLY rejected before forced frontend RBO import.",
+    "quality_window_checks.py:285-362: atom tokenization, binding resolution and reachable DAG node traversal."
+  ],
+  "contracts": [
+    "No production code changes; only artifact generators and plan summaries are changed.",
+    "All original recipe builders and semantic oracles remain; unavailable recipes cannot be selected by ordinary recipes enumeration.",
+    "Active SQL coverage is50:4 sharing LEFT,44 identity/stability LEFT,2 unchanged subsystem controls.",
+    "96 raw SEMI/ONLY builders remain explicitly unavailable and are not relabeled as runtime passes.",
+    "Known actual physical callable names replace wrapper-class names, and MapJoinCore is counted as a legitimate row implementation.",
+    "Join-kind extraction uses exact public child indices, accepts only known atom kinds and fails closed on malformed shapes.",
+    "Reconstruction plan checks are stronger: at least two physical joins plus Inner and Left kinds; retained block controls require BlockHashJoinCore and Left kind.",
+    "Prior no-Replicate, nullable identity encoding, domain aggregation, stability guard and sharing checks remain.",
+    "Lookup quality change only corrects the actual block hash callable name; it does not alter case generation or semantic/quality acceptance rules."
+  ],
+  "limitations": [
+    "Corrected active SQL matrix still requires fresh actual native execution.",
+    "Physical join counts/kinds describe targeted reconstruction shape; they are not an independent complete dataflow proof.",
+    "Domain spilling Switch origin remains explicitly pending native dataflow review; this amendment does not upgrade that claim.",
+    "Excluded SEMI/ONLY full query semantics are not established by local C++ contracts or by this source review.",
+    "Unsupported identity families and volatile residual predicates retain their existing scope limits."
+  ],
+  "validation": {
+    "ordinary_git_apply_check_on_temporary_copies": true,
+    "python_ast_parse_of_prospective_helpers": true,
+    "live_preimages_unchanged": true,
+    "generated_queries_or_rows_rendered": false,
+    "behavioral_or_mock_tests": 0,
+    "native_runs": 0,
+    "compiler_runs": 0,
+    "production_edits": false,
+    "live_helper_edits": false
+  }
+}

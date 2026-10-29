@@ -1,0 +1,47 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_verify.py
++++ b/rbo-fixes-20261023/anonymous_cpp_verify.py
+@@ -268,6 +268,20 @@
+             return {'sha256': h.hexdigest(), 'size_bytes': offset}
+         h.update(data)
+         offset += len(data)
++
++
++def _stdout_link_arguments(arguments):
++    """Bypass LLD's path writability probe without creating an output file."""
++    outputs = [index for index, value in enumerate(arguments) if value == '-o']
++    if (len(outputs) != 1 or outputs[0] + 1 >= len(arguments)
++        or arguments[outputs[0] + 1] != '@FD:executable@'
++        or arguments.count('@FD:executable@') != 1):
++        raise MetadataError('anonymous_link_output_transport_requires_audit')
++    adapted = list(arguments)
++    adapted[outputs[0] + 1] = '-'
++    return adapted, {'transport': 'stdout_to_executable_memfd',
++                     'original_argv_sha256': _json_digest(arguments),
++                     'adapted_argv_template_sha256': _json_digest(adapted)}
+ 
+ 
+ def _archive_response_arguments(arguments, fds, closure_files):
+@@ -350,10 +364,13 @@
+         link_argv = receipt['metadata']['link_argv'] + ([] if symbols is None else
+                     ['-Wl,--wrap=' + value for value in symbols.values()])
+         verification_stage = 'link'
++        link_argv, output_transport = _stdout_link_arguments(link_argv)
++        evidence['link_output_transport'] = output_transport
+         link_argv, archive_responses = _archive_response_arguments(link_argv, fds, receipt['files'])
+         evidence['link_archive_responses'] = archive_responses
+         link_record, _ = run_anonymous(link_argv, receipt['metadata']['link_cwd'], fds, timeout=args.link_timeout,
+-                                       max_scope_gib=36, environment=receipt['metadata']['link_environment'])
++                                       stdout_fd='executable', max_scope_gib=36,
++                                       environment=receipt['metadata']['link_environment'])
+         evidence['link'] = link_record
+         for response in archive_responses['responses']:
+             if _fd_digest(fds[response['descriptor']]) != response['content']:
+@@ -396,7 +413,7 @@
+         # Preserve sanitized process/hash evidence; rejected case verdicts are omitted.
+         exc.stage_evidence = {key: evidence[key] for key in
+                               ('compile', 'link', 'native', 'generated_object', 'generated_executable',
+-                               'link_archive_responses')
++                               'link_archive_responses', 'link_output_transport')
+                               if key in evidence}
+         raise
+     finally:

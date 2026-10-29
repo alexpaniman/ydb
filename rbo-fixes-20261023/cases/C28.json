@@ -1,0 +1,150 @@
+{
+  "id": "C28",
+  "branch": "fix/new-rbo/c28-distinct-after-window",
+  "commit": "5616e3ad461be8ae3f5716e1f3cfaae2580d2abb",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "rationale": "For result DISTINCT containing windows, retain ordinary window input construction, materialize selected result expressions, and deduplicate precisely that final visible tuple before ORDER BY.",
+  "checks": [
+    "Independent source and generator reviews passed.",
+    "Final identity projection restores one output field per selected column without reevaluating expressions.",
+    "Isolated-index patch application and diff checks passed; single pinned-main parent.",
+    "Memory-guarded relwithdebinfo build passed with8 authorized workers.",
+    "All32 exact-executable native checks pass, including original6 and26 expanded projection/window controls."
+  ],
+  "generator_labels": [
+    "c28_rank_distinct",
+    "c28_row_number_distinct",
+    "c28_window_expression_distinct",
+    "c28_multiple_windows",
+    "c28_window_nondistinct_control",
+    "c28_plain_distinct_control"
+  ],
+  "expected_oracle": "Deduplicate complete window result rows after calculating each window over the original input multiplicity; every result column exists before DISTINCT consumes it.",
+  "controls": [
+    "Ordered rank/dense rank with ties, avoiding independent C19/C20.",
+    "ROW_NUMBER to detect premature input deduplication.",
+    "Expressions containing a window result.",
+    "Multiple windows and result ORDER BY.",
+    "Nonwindow DISTINCT and nondistinct windows."
+  ],
+  "concerns": [
+    "Existing DISTINCT HAVING and grouping-sets guards are retained.",
+    "Independent grouped-result limitations C12/C13 are outside the nonwindow path changed here."
+  ],
+  "superseded_verification": [
+    {
+      "commit": "cf3d1399f717ebeef9dd6d2c6280f2a4c9f7effe",
+      "status": "native_failed",
+      "build_verification": {
+        "bug": "C28",
+        "revision": "cf3d1399f717ebeef9dd6d2c6280f2a4c9f7effe",
+        "exit_code": 0,
+        "elapsed_seconds": 101.4,
+        "target": "ydb/tests/tools/kqprun",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 4620288,
+          "peak_scope_usage_bytes": 43272318976,
+          "minimum_host_available_bytes": 109441724416,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": true,
+          "elapsed_seconds": 101.1
+        },
+        "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+        "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/cf3d1399f717ebeef9dd6d2c6280f2a4c9f7effe-48c4f1872521cccc.json"
+      },
+      "native_verification": {
+        "checks": 6,
+        "checks_passed": false,
+        "evidence": "verification/guarded-fixed-C28-cf3d1399f717-1792731748765300511.jsonl"
+      },
+      "reason": "Deferred DISTINCT alone still discarded raw window inputs before window construction; four of six native controls failed."
+    },
+    {
+      "commit": "18e12ec833db741848ac2bcf5a88b80f4cfdb6d3",
+      "status": "native_failed",
+      "build_verification": {
+        "bug": "C28",
+        "revision": "18e12ec833db741848ac2bcf5a88b80f4cfdb6d3",
+        "exit_code": 0,
+        "elapsed_seconds": 102.8,
+        "target": "ydb/tests/tools/kqprun",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 15626240,
+          "peak_scope_usage_bytes": 43241132032,
+          "minimum_host_available_bytes": 107276722176,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": true,
+          "elapsed_seconds": 102.8
+        },
+        "diagnostic_sha256": "2bb169cbbbd5fa86cb6c8cfbdb4a6aad73c875ecd0df2a3748a1e7963c9f47d1",
+        "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/18e12ec833db741848ac2bcf5a88b80f4cfdb6d3-48c4f1872521cccc.json"
+      },
+      "native_verification": {
+        "checks": 32,
+        "checks_passed": false,
+        "evidence": "verification/guarded-fixed-C28-18e12ec833db-1792732553709573814.jsonl"
+      },
+      "reason": "All6 original and2 ordered supplemental checks pass;24 unordered supplemental checks expose duplicate annotated output fields at terminal DISTINCT. Exact-receipt two-mode diagnostic confirms legacy passes."
+    }
+  ],
+  "amendment": {
+    "patch_sha256": "04ee66e48c1d4968739b9e7cd4958ff95c83272bb19557520046ebbf6ef0babc",
+    "source_review": "verification/C28-window-projection-independent-source-review.json",
+    "generator_review": "verification/C28-window-projection-generator-independent-review.json",
+    "generator_module": "window_distinct_projection_checks",
+    "generator_sha256": "437809c251fdb190110f656a78144f2160a28818daaf7a4695eb3d9f8f5d7bf4"
+  },
+  "output_boundary_amendment": {
+    "patch_sha256": "fd641503ab9a202e53985970e51e4b0192d1bf4abd737a14c7320ff368afbe37",
+    "independent_review": "verification/C28-distinct-output-projection-independent-review.json",
+    "native_diagnostic": "verification/C28-unordered-output-type-diagnostic.json"
+  },
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C28",
+    "revision": "5616e3ad461be8ae3f5716e1f3cfaae2580d2abb",
+    "exit_code": 0,
+    "elapsed_seconds": 108.7,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4755456,
+      "peak_scope_usage_bytes": 43287756800,
+      "minimum_host_available_bytes": 108007600128,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 108.5
+    },
+    "diagnostic_sha256": "a03a65e0a9fbc71a62f613529bf48b0ea39a683894840188103444dc63368d8c",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/5616e3ad461be8ae3f5716e1f3cfaae2580d2abb-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 32,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C28-5616e3ad461b-1792733023818693743.jsonl"
+  }
+}

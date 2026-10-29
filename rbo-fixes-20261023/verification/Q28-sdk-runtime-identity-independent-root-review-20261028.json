@@ -1,0 +1,28 @@
+{
+  "status": "source_metadata_approved_partial_transport_pilot_only",
+  "patches": [
+    {
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+      "sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483"
+    },
+    {
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-runtime-identity-20261028.patch",
+      "sha256": "8712ec3993b04acf34b404818f48714588628fd6418315adcaeb57a54168a9e8"
+    }
+  ],
+  "applies_after": "verification/idle-artifact-application-plan-20261028-applied30.json",
+  "independent_root_checks": 86,
+  "author_mock_checks_rerun": 379,
+  "four_production_sources_hash_verified_at_base_and_fixed": true,
+  "direct26_functions_unchanged": true,
+  "new_spilling_case_executed": false,
+  "native_runs": 0,
+  "live_edits": false,
+  "admission_flags_false": true,
+  "remaining": [
+    "Actual compilation and anonymous link including production version dependency repair.",
+    "Guarded native startup/SDK/environment attestation and expected non-payload temp infrastructure behavior.",
+    "Spilling-dependent eighth cell remains unexecuted.",
+    "No structural query scaling, pure RBO timing, semantic verdict or comparative timing acceptance claimed."
+  ]
+}

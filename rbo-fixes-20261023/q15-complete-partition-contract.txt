@@ -1,0 +1,171 @@
+Q15 partition-subset contract and conservative implementation, 2026-10-23
+
+Implementation status
+
+The base-relative Q15-subset-contract.patch now implements the shared helper,
+Window metadata override, stage choice and actual-connection recomputation
+described below. The admitted proof anchors are prior Windows and column
+Sources, through direct Map aliases and Filter. Explicit subset reuse, key
+order, duplicate keys and harmless extra computed partition keys are covered.
+Aggregate, Join, Replicate and the other producer extensions below remain
+conservative rejections; they are optional extensions to the implemented
+proof domain, not claims made by this patch. This choice avoids depending on
+C37/C38 or trusting unproved inherited distribution metadata.
+
+The artifact applies cleanly to the pinned base. Nineteen native case builders,
+fifteen anonymous C++ contracts and randomized placement-model checks are in
+quality_partition_subset_checks.py, quality_partition_cpp_checks.py and
+verification/q15-subset-artifact-contracts.json. These are generator/model
+checks only: the amendment has not been compiled or executed natively here.
+
+Original requirement
+
+The original finding says nonempty-key windows always shuffle, names adjacent
+compatible windows as an example, and asks for a proven partition-subset
+contract preserving hash function/type compatibility. Exact ordered-key reuse
+is therefore a useful bounded fix. Equality is stricter than the requested
+subset relation. General singleton propagation and speculative join-key
+equivalence are additional opportunities, not prerequisites for this contract.
+
+A self-contained fix is possible without depending on C37/C38 commits. It must
+include accurate Window metadata as part of Q15, because physical placement is
+visible to CBO before stage assignment. This overlaps the C37 override but does
+not require its branch: apply the same final override when combining the fixes.
+No yql/essentials changes are required.
+
+The important distinction is between the window's grouping keys W and the
+input's actual ordered hash key D. If D is a subset of W, all rows of a window
+partition are colocated. Keeping the input tasks preserves hash(D), not hash(W).
+The output metadata must advertise D in its original hash order and types.
+Advertising W while retaining hash(D) can break a downstream CBO shuffle
+elimination decision. Key-order permutations may be reused only while retaining
+the actual original hash order in metadata.
+
+Smallest complete contract for adjacent windows
+
+Put GetWindowPreservedShuffling in kqp_rbo_utils.{h,cpp} and share it between
+Window::ComputeMetadata and assign_stages.cpp. It returns the actual ordered
+hash key expressed using the current window's partition-key IUs, or no proof.
+Use the effective OptShuffleElimination gate in this one helper.
+
+Walk backward through Filter and append-only Map, translating each candidate
+window key through direct row-member aliases. A computed candidate key becomes
+unknown; it must not discard an independent direct key that is sufficient for
+the hash subset proof. The walk may cross only task-preserving wrappers.
+Initially stop at a prior Window. That window's metadata is trustworthy only
+because this same change supplies its correct ComputeMetadata override; do not
+read arbitrary input ShuffledByColumns as if every producer were trustworthy.
+
+For each actual upstream hash key, choose a matching translated window key.
+Every upstream key must match, including its original position and repeated
+occurrences. Return the selected current-window IUs in upstream hash order.
+Extra window keys, including computed ones, do not invalidate an otherwise
+complete proof. Missing keys, casts, nested-member extraction and unproved
+expression equivalence fail closed. Direct aliases preserve value and type.
+
+Window::ComputeMetadata first performs ordinary unary metadata propagation,
+then sets ShuffledByColumns to the preserved ordered key when proved, otherwise
+to its own partition keys; keyless windows clear the key claim. Thus downstream
+Map/Filter/aggregate metadata and CBO see the actual planned distribution.
+This change must exist before CBO, not as a late patch to the window alone.
+
+Stage assignment uses the same helper and the window's already-advertised
+distribution to choose Map versus HashShuffle. It must not silently introduce
+a new subset decision after CBO. A newly discoverable proof may be used only
+when its actual ordered key equals the already-advertised key. Otherwise keep
+the planned full-key shuffle. A previously advertised subset proof becoming
+invalid is an invariant failure to resolve, not permission to shuffle on a new
+key while preserving stale CBO directives.
+
+After stage assignment, metadata recomputation must inspect the actual Window
+input connection. A HashShuffle advertises its actual ordered Keys, a Map
+advertises the proved preserved keys, and a gather/unknown connection clears
+the hash claim. This avoids changing metadata after FinalizeJoinPhysicalProps
+has made additional upstream proofs discoverable. Re-running the pre-stage
+decision unconditionally after assignment would reintroduce stale metadata.
+
+Conservative producer extension to close ordinary safe-input cases
+
+The same proof can cover additional producers without trusting C37/C38 data:
+
+- Column-storage Source: seed from that read's own resolved storage partition
+  keys, in storage order. Validate that all fields are output. This is the
+  source metadata implementation's direct table fact, not inherited metadata.
+  Row-store and unresolved partitioning return unknown.
+- Aggregate: model the connection the existing assignment actually chooses.
+  An explicit shuffle proves its grouping key; Map reuse requires recursively
+  proved input keys that survive grouping. Translate DISTINCT output aliases
+  using the existing exact trait-input mapping. Computed aggregate outputs
+  cannot serve as aliases. Do not trust CanEliminateAggregateShuffle alone:
+  it can consume stale C37/C38 metadata on an independent main-based branch.
+- Grace/ReverseBlock join: use the actual retained side's effective ordered
+  shuffle keys, including explicit CBO directives. When that side uses Map,
+  recursively prove its input. Inner/left-family/right-family outputs must be
+  checked against the selected retained side. Full and Exclusion always return
+  unknown; their one-sided metadata is never consumed. Unknown algorithms stay
+  unknown. Map/Cross may propagate only their preserved left input.
+- Replicate: translate through exact port rebindings and preserve the producer
+  proof only across the actual task-preserving port connection. A shared Source
+  consumer using UnionAll needs a distinct singleton proof; conservatively
+  leave that case unknown in this change. Do not confuse port output IDs with
+  producer IDs or separate ports with independent producers.
+- Sort, Limit, parallel UnionAll, streaming lookup, arbitrary operators and
+  unproved stage boundaries return unknown in the hash proof. Some gather to a
+  single task, but adding a Singleton fact is separate optional work. A false
+  hash fact must not be fabricated to represent a gather.
+
+This is conservative distribution propagation, not a dependency on the old
+generic metadata chain. All newly admitted producer cases need an explicit
+source proof. The adjacent-window subset implementation closes the finding's
+explicit adjacent-window example. The implementation also proves column
+Sources; the remaining anchors would broaden reuse and require their own
+actual-connection proofs before admission. Unknown producer distributions
+continue to receive a valid explicit window-key shuffle.
+
+Planned/assigned agreement
+
+AssignStage only adds stages/connections and finalizes a previously undefined
+join algorithm. A known algorithm/explicit shuffle proof should not change.
+Unknown algorithms can become known after CBO; retain the already-planned
+window shuffle if a newly found narrower key differs. Physical propagation
+later can split aggregates and edit stage connections, so assigned Window
+metadata must follow the actual connection, not rerun a speculative decision.
+The proof should use per-invocation memoization for shared recursive producers;
+prior Window metadata is a proof boundary to avoid rewalking long window chains.
+No unversioned cross-rewrite cache should be introduced.
+
+Hash/type compatibility
+
+A Window has one input. Map preserves that input's tasks and hash function;
+PropagateHashFuncs already carries the producer function through Map and makes
+sibling join shuffles use the inherited function. Preserve the ordered key
+sequence, not merely an unordered membership set. Only direct aliases and
+retained group/join keys may be translated; reject changed types, optionality
+or value-producing casts unless separately proved. Cross-input equivalences,
+including outer-join equality FDs, are not a source of proof for this feature.
+
+Verification required before committing this proposal
+
+Use direct RBO IR cases plus native generated queries, keeping raw material in
+anonymous memory. Assert metadata both before CBO and after stage assignment:
+its key order and type must match the actual placement. Include a later join
+that consumes shuffle directives as well as a later aggregate. Test exact
+keys, strict input-key subsets, key-order permutations, missing input keys,
+aliases, extra computed keys, computed replacements of required keys, nullable
+keys, hash-function settings, source anchors, retained-side joins, Full and
+Exclusion controls, aggregate/DISTINCT mapping, shared ports and config off.
+Check chains of three or more windows, where the second preserves a strict
+subset and the third must consume that actual subset rather than the second's
+larger PARTITION BY list. Verify stage/metadata recomputation after physical
+aggregate splitting and undefined-to-finalized join algorithms.
+
+Positive cases require fewer hash-shuffle connections than baseline and equal
+results on multiple tasks. Negative/unknown cases must retain a valid shuffle.
+Type/hash declarations must be checked independently of result equality: one
+task or accidental hash collisions can hide a broken distribution claim.
+
+This document records the implemented artifact's proof domain and proposed
+optional producer extensions. It is not a native-verification claim. The
+committed branch remains unchanged until the parent applies the amendment;
+compile, direct production-helper contracts and native semantic/physical
+acceptance are still required before marking it verified.

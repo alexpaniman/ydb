@@ -1,0 +1,9 @@
+{
+  "status": "source_only_metadata_checks_passed_native_unverified",
+  "assertions": 760,
+  "cells": 75,
+  "oracle_selected_positions": 525,
+  "real_process_launches": 0,
+  "rendered_inputs_persisted": false,
+  "native_runs": 0
+}

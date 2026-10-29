@@ -1,0 +1,56 @@
+{
+  "schema": "C41_standard_pipeline_exact_vector_independent_review_v1",
+  "status": "source_binding_refresh_approved",
+  "revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "checks_passed": 300,
+  "review_scope": "Source/metadata-only binding refresh; no native/build/toolchain/Git commands or live edits. Read-only loose-object decoding verified commit parent and committed production-boundary blob.",
+  "checker_exact_three_literal_changes": true,
+  "all_function_and_class_ASTs_unchanged": true,
+  "original12_semantic_cells_unchanged": true,
+  "all178_suite_hashes_unchanged_and_current": true,
+  "all35_helper_pins_unchanged_and_current_before_after": true,
+  "ledger58_provenance_and_after_images_verified": true,
+  "production_boundary_verified_in_commit_and_worktree": true,
+  "fullsuite_and_case_specific_oracles_unchanged": true,
+  "original607_metadata_checks_repeated": false,
+  "reason_not_repeated": "Executable checker logic and vector/oracle definitions unchanged; review validates only declared binding refresh.",
+  "artifacts": [
+    {
+      "path": "verification/C41-amended-exact-vector-20261028.json",
+      "sha256": "c38aac3168417f57a49f8d8bdb92d92a2030efd4b2fa72ba1d3ecb8d0f804347"
+    },
+    {
+      "path": "proposed-correctness-amendments/c41_amended_exact_vector_check_20261028.py",
+      "sha256": "fbd7a0aa9268993dfd2a928dd590189bc791b316c35eed9e07a58ad841a3daf5"
+    },
+    {
+      "path": "verification/C41-standard-pipeline-exact-vector-20261028.json",
+      "sha256": "2986bdca21258973c08a5a30fcc7a62ceded15f5117f8ac4e674ba99a626b8e9"
+    },
+    {
+      "path": "proposed-correctness-amendments/c41_standard_pipeline_exact_vector_check_20261028.py",
+      "sha256": "007924f3ad50729f15fc574ee824b7e8a65e9fcd9d2835f395856f831942c0f8"
+    },
+    {
+      "path": "verification/C41-standard-pipeline-exact-vector-source-preparation-20261028.json",
+      "sha256": "45983c9b741b746406e6333fed15fde4241cf08416eb2004915522fbff5db891"
+    },
+    {
+      "path": "verification/C41-standard-post-type-amendment-applied-20261028.json",
+      "sha256": "9d99f8a80c5abc54bb2127d420d86884bbc84574cfd3f6859d2053792ebd8308"
+    },
+    {
+      "path": "verification/idle-C31-owner-repair-applied58-20261028.json",
+      "sha256": "2976407753a66adcc19880dbc8da95d1c5d60e49d722ea4a830948de81fc0f9a"
+    }
+  ],
+  "remaining_requirements": [
+    "Fresh unchanged full RBO suite success and original twelve semantic controls on exact amended receipt and guards.",
+    "Preserve historical13 successes and all prior C41 failures.",
+    "No runtime acceptance or full-finding promotion follows from this source review."
+  ],
+  "actual_native_execution": false,
+  "finding_verified": false,
+  "automatic_promotion": false
+}

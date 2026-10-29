@@ -1,0 +1,40 @@
+r30 metadata/statistics two-pass review (read-only repository work)
+
+Correctness findings
+
+1. NEW: Window operators preserve a distribution claim invalidated by their own repartition.
+   Severity: high; silent incorrect results.
+   Source: kqp_rbo_compute_statistics.cpp:122-129; kqp_operator.h:974-1006; rules/assign_stages.cpp:258-269.
+   TOpWindow inherits IUnaryOperator::ComputeMetadata and copies input ShuffledByColumns unchanged. Stage assignment then repartitions by the window's partition keys. When those keys do not preserve colocation of the previous shuffle keys, the output is no longer distributed as advertised.
+   Consumer: kqp_rbo_utils.cpp:45-57 accepts the obsolete property when the old keys are included in later GROUP BY keys; rules/assign_stages.cpp:249-250 chooses Map instead of the required Shuffle. Physical aggregate splitting also relies on this predicate (rules/propagate_aggregate_through_stage.cpp:116-117), so it does not repair the missing redistribution. Results can contain repeated group keys and incomplete aggregate values. A subsequent CBO join can also receive the stale property through rules/kqp_cbo_trees.cpp:294-310, although the aggregate path is the clearest verified consumer.
+   Reachability: retain a native window result or framed aggregate; whole-partition aggregate expansion does not remove these windows. Input distribution can come from a partitioned column-store read or earlier Grace join. DefaultEnableShuffleElimination is true (table_service_config.proto:420).
+   Fix direction: window metadata must reflect its own partitioning or conservatively clear incoming distribution; do not inherit physical placement across repartitioning.
+
+2. CONFIRMED existing r22/r23: Full outer join reports left-key distribution despite unmatched right rows.
+   Severity: high; silent incorrect grouping.
+   Source: kqp_rbo_compute_statistics.cpp:674-685.
+   Grace Full join follows the non-right-family path and reports left join columns as its distribution key. Unmatched right rows are partitioned by their original right key but all have null-extended left keys, so equal output left keys can inhabit different partitions. Aggregation on the advertised key eliminates the redistribution through kqp_rbo_utils.cpp:45-57 and rules/assign_stages.cpp:249-250, leaving separate partial groups. The configured Full join is supported by the Grace path; MapJoin applicability excludes OuterJoin, so the Grace case is sufficient.
+   Fix direction: Full joins must clear a side-specific output distribution unless an actual output expression valid for both unmatched sides is tracked.
+
+3. CONFIRMED existing r03: outer joins can label null-extended keys as unique and enable incorrect left join elimination.
+   Severity: high; row multiplicity can change.
+   Source: kqp_rbo_compute_statistics.cpp:49-56; rules/eliminate_left_join.cpp:37-43.
+   ComputeKeysAfterJoin selects the right key when the left join columns cover the left unique key, without accounting for a Left join producing many unmatched rows with the same null-extended right key. A subsequent Left join using NULL-equal key comparison can match these duplicate null keys. EliminateLeftJoin checks only key membership and unused right output; it then deletes a join that actually multiplies rows.
+   Fix direction: uniqueness proofs must distinguish preserved-side keys from null-extended-side keys, account for join kind, and match the NULL equality semantics used by the consumer.
+
+Verification
+- Second pass traced producers through concrete consumers, checked stage ordering, inspected the window class's inherited metadata implementation and whole-partition expansion exclusions, and checked the shuffle setting default.
+- Ran independent generated relational/distribution property models, 256 cases each for the three findings; all 256 per property violated the corresponding advertised invariant.
+- These were source-derived semantic model checks, NOT C++ unit tests or query-engine execution. No build was run under the parent review restriction.
+- Only aggregate verification counts were emitted. No generated witness rows, exact query repros, plans, or concrete reproduction cases were saved or displayed.
+
+Optimization quality (separate from wrong-result findings)
+A. Filter row/byte estimates repeatedly apply earlier selectivity: compute_statistics.cpp:394-408 copies already filtered estimates, then multiplies by new selectivity times the cumulative old Selectivity. This double counts prior reductions across surviving filter boundaries and can bias lookup/broadcast choices. Fix local row/byte multiplication independently from cumulative Selectivity tracking.
+B. ComputeAlisesForJoin at lines 25-31 deliberately drops all right aliases and uses only left aliases for the union. ComputeStatistics at lines 716-735 then misses right/composite hints and can apply a left-only hint to a larger joined result. This is acknowledged in a comment but still a quality defect in current behavior.
+C. Aggregate ERows is copied from input at lines 578-584, including scalar aggregation, so later CBO may treat a single-row scalar result as a large relation. Existing TODO indicates unimplemented estimation, not a new correctness defect.
+
+Not promoted
+- LogicalCard inaccuracies exist (Map loses precision, Limit inherits cardinality, empty-key distinct cardinality is overclaimed), but exhaustive opt-tree search found no semantic consumer beyond propagation/tracing. No current wrong-result finding is claimed from LogicalCard.
+- Standalone lookup metadata can keep partial storage keys, but lookup construction occurs after the left-join elimination stage; no direct same-pipeline elimination reachability was established, so this was not promoted.
+- Sorting metadata built from KeyColumns in the CBO context is questionable, but the FSM is explicitly EShuffle and only resolved shufflings initialize states; no current correctness impact from these sorting registrations was established.
+- No additional high-confidence distinct correctness findings found in second pass.

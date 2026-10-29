@@ -1,0 +1,231 @@
+{
+  "schema": "c31_constrained_field_probe_preparation_v1",
+  "reviewer": "/root/c31_scope_completion",
+  "time_utc": "2026-10-27T20:18:37.631080+00:00",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "status": "dormant_candidate_independently_approved_for_bounded_observation_actual_graph_pending",
+  "existing_sanitized_evidence": {
+    "path": "verification/guarded-fixed-C31-24e1aae9a067-1792735900260575936.jsonl",
+    "sha256": "c8fb76b58c4f9c0b16abe5084bfde149cb6d6591fee3aa3b5def9176dd5a31a9",
+    "profiles": [
+      {
+        "case": "c31_stability_float_domain__spilling__left",
+        "callables": {
+          "BlockHashJoinCore": 0,
+          "DqHashCombine": 0,
+          "DqHashFinalize": 0,
+          "DqPhyHashCombine": 7,
+          "DqPhyStage": 13,
+          "GraceJoinCore": 2,
+          "GraceSelfJoinCore": 0,
+          "MapJoinCore": 0,
+          "Replicate": 0,
+          "StablePickle": 2,
+          "Switch": 1,
+          "WideCombiner": 0,
+          "WideCombinerWithSpilling": 0,
+          "WideLastCombiner": 0
+        },
+        "physical_ast_sha256": "58c332b97748e3441e576eb8ca1c18a4953341a01495f1dae72f402fc5998b31",
+        "semantic_oracle_pass": true,
+        "structural_oracle_pass": true
+      },
+      {
+        "case": "c31_stability_integer_domain__spilling__left",
+        "callables": {
+          "BlockHashJoinCore": 0,
+          "DqHashCombine": 0,
+          "DqHashFinalize": 0,
+          "DqPhyHashCombine": 8,
+          "DqPhyStage": 10,
+          "GraceJoinCore": 2,
+          "GraceSelfJoinCore": 0,
+          "MapJoinCore": 0,
+          "Replicate": 0,
+          "StablePickle": 0,
+          "Switch": 2,
+          "WideCombiner": 0,
+          "WideCombinerWithSpilling": 0,
+          "WideLastCombiner": 0
+        },
+        "physical_ast_sha256": "960f5b95cd08a0bdbf42b9649613d7abcb20319e48bbccc4616104a4c739f473",
+        "semantic_oracle_pass": true,
+        "structural_oracle_pass": true
+      }
+    ]
+  },
+  "new_source_findings": [
+    "The earlier multibody repair is necessary but insufficient for exact field tracing. The existing parser records a let value without descending into that value to discover nested lexical block bindings.",
+    "The printer can serialize one wide lambda as either several direct bodies or one block containing local lets and a multi-value return. A sound field checker must retain lexical argument identity and return arity.",
+    "The actual saved counters constrain both selected profiles to two GraceJoinCore operations and DqPhyHashCombine aggregations. Map/block joins and generic WideCombiner variants are unnecessary for this first field proof."
+  ],
+  "candidate_claim": "candidate_complete_key_pair_lineage_observed, an observation only. It never changes the three established full-proof or admission fields.",
+  "proof_conditions": [
+    "The normalized graph contains exactly one Inner and one Left GraceJoinCore and both are reached through recognized stage programs; unsupported physical joins are rejected.",
+    "Every outer reconstruction key pair is mapped by exact wide key positions to two field tokens with the same terminal shared stage and source field, different consistent output ports, and identical direct or one-step StablePickle codec.",
+    "The outer-left identity covers every exposed shared source field exactly once and traverses no post-hub deduplication or Inner join.",
+    "Every outer-right identity field specifically passes through the Inner join LEFT output mapping, not merely through the same join somewhere.",
+    "The inner-left stream contains the complete original field set from its shared port, and a common key-only domain groups on exactly that full set with no extra, unknown or encoded keys.",
+    "A recognized domain has direct unique key selection, zero state outputs in init/update, correct argument arities, and a bijective finish over only those keys. Non-key reductions erase provenance.",
+    "Unknown scalar computation erases its output provenance. Unknown transport erases stream provenance. No generic ancestry or callable-presence fallback can produce a field token.",
+    "Terminal shared branches must be bijective direct Member maps over the same nonempty source field set; stage connections and output-port indices are resolved by node identity."
+  ],
+  "deliberate_limits": [
+    "The candidate stops at the shared producer. It does not bind the intended upstream SUM/MIN/cast/UNION result to a particular source field; aggregation_value_to_identity_binding_proved remains false.",
+    "Key-only domain value preservation relies on the exact-scalar identity rule contract and exact revision/generator binding. The printed AST alone does not establish every scalar type property.",
+    "This proves a candidate shared-field relation, not whole-query bag semantics or aggregation arithmetic. Existing semantic and direct-contract results retain their separate scope.",
+    "The lexical reader rejects repeated printed binding names, declarations, unsupported statements and ambiguous blocks rather than guessing. Legitimate printer variants may therefore reject conservatively.",
+    "Map/block/self joins, UNION or computations after the chosen hub, casts/optional unwraps on traced keys, non-bijective domain finishes and unknown wrappers are unsupported.",
+    "A conservative rejection on either actual graph must not be reported as a production failure. No native AST has yet been consumed by this candidate.",
+    "DqPhyHashCombine may be an intermediate partial reduction. The candidate does not validate connection partitioning or prove global domain uniqueness; candidate_complete_domain_count means complete zero-state key-vector/value provenance only."
+  ],
+  "why_full_proof_cannot_be_asserted_now": [
+    "Only existing sanitized shape counters are available; the actual two graphs are deliberately not persisted and have not been passed to this checker.",
+    "Independent source review approves bounded observation only. Actual graph validation, upstream aggregate-field coverage and applicable global domain uniqueness/bag obligations remain outstanding.",
+    "The upstream aggregate-result-to-hub-field coverage claim has no implemented witness yet. Shared key-pair provenance cannot silently stand in for that profile-coverage obligation."
+  ],
+  "minimal_next_action": "After independent review, install the dormant field module and wrapper amendment alongside the prior observation module. Run the same two existing profiles once through the parent-owned serial memory guard and exact C31 executable receipt. All probes consume the same anonymous AST and preserve the base verdict. Persist only nested sanitized observations and source/AST/config/executable hashes.",
+  "artifact_sha256": {
+    "C31-shared-field-probe-candidate.py": "da4de444927190d983c7068fa416c9b3371eb70f929c8a40073137c538dfa85e",
+    "C31-shared-field-probe-install.patch": "78f87b83b950062c605ce402b3828a2b0dbdddd56e19c1916fec638e5d179add",
+    "C31-scope-observation-field-wrapper.py": "3fdc8e7decc2db06c9a2adbec7544ae6a21f5867a575557efad06d40b4928f76",
+    "C31-scope-observation-field-wrapper.patch": "a42c6bcaa41f671aa16b6d9f53a98d85904166280be01fdc509389b4cf57f23a"
+  },
+  "wrapper_base_sha256": "e4ef67e09386b31fb2528e1754ac5b1b92cbe78710d1adf7b99ed0114be8929c",
+  "source_contracts": {
+    "yql/essentials/ast/yql_expr.cpp": {
+      "lines": [
+        1961,
+        1978,
+        2005,
+        2034,
+        2772
+      ],
+      "contract": "Printer assigns globally unique binding names, emits lexical lambda blocks when local lets exist, and permits multiple return values. The candidate resolves scope statements and lambda argument identities instead of flattening local returns into root returns.",
+      "sha256": "e33b2bf21861a4509b9fba3a0f1a12de56dcab76d1a4b3d2ac6471e24fbd41f9"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp": {
+      "lines": [
+        57,
+        66,
+        73,
+        87
+      ],
+      "contract": "Replicate output index defines Switch branch order; all selectors read input zero; branches are OrderedMap direct Member renames of the producer fields.",
+      "sha256": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h": {
+      "lines": [
+        60,
+        83,
+        112,
+        137
+      ],
+      "contract": "ExpandMap returns one field per wide output; NarrowMap binds each wide argument to its corresponding named output field.",
+      "sha256": "2b6dc81d287acc05fbd6887edab8796cdbf36c07a138a71eeb64534ff877fa1d"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_map_builder.cpp": {
+      "lines": [
+        15,
+        24,
+        84
+      ],
+      "contract": "WideMap preserves selected input columns and separately computes mapped expressions; unknown computed outputs must erase field provenance.",
+      "sha256": "c1aeeff4347b43fc957c15d292cb8b9ec43bb3a61afcd8a9788c1fb52860ade7"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_filter_builder.cpp": {
+      "lines": [
+        15,
+        64
+      ],
+      "contract": "WideFilter changes row admission but retains the wide input values.",
+      "sha256": "bc373d9f7a59f9e39eb3c82281f8c89dd9868354ee270ef2a25ecf484904b2cf"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp": {
+      "lines": [
+        507,
+        635,
+        666,
+        694,
+        728
+      ],
+      "contract": "GraceJoinCore child indices are input0/input1/kind2/keys3,4/renames5,6. Rename lists pair source-wide index with output-wide index. The candidate separately tags which join side supplied a field.",
+      "sha256": "f11a39d6425b3dcb7888a427f46cd443f35d802db9046b4f1c0e14dba21f7e6a"
+    },
+    "yql/essentials/core/expr_nodes/yql_expr_nodes.json": {
+      "lines": [
+        1784
+      ],
+      "contract": "Authoritative GraceJoinCore index and flags schema; the candidate rejects unsupported joins and nonempty flags.",
+      "sha256": "4d81e5953e12badc691a5ce8f0996bc44f097e25ba1a503072f8e8dabb380479"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp": {
+      "lines": [
+        881,
+        903,
+        952,
+        1029,
+        1198,
+        1486,
+        1531
+      ],
+      "contract": "DqPhyHashCombine receives input, memory limit, key/init/update/finish lambdas. A pure key-only domain has direct distinct key arguments, no state results, and a bijective finish over only keys.",
+      "sha256": "fdb9b801ed168150a67bbb69ec53a83d969a8231cff4a0af52e37983d9c09f15"
+    },
+    "ydb/library/yql/dq/expr_nodes/dq_expr_nodes.json": {
+      "lines": [
+        180,
+        198,
+        379
+      ],
+      "contract": "Authoritative stage/output and DqPhyHashCombine schemas.",
+      "sha256": "c97f43ffb9ffacabd419fd350d2cbe4cacfdbfd34d8972c942e693a0415228ac"
+    },
+    "ydb/library/yql/dq/type_ann/dq_type_ann.cpp": {
+      "lines": [
+        1520,
+        1545,
+        1568,
+        1584
+      ],
+      "contract": "Key args match input width; init args are keys plus inputs; update args add states; finish args are keys plus states.",
+      "sha256": "51ad4c96186f54c0d66fe527ac1eb7d9381b450e25a38e68ebbcfda737b392c8"
+    },
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp": {
+      "lines": [
+        227
+      ],
+      "contract": "MakeDomainProjection builds aggregation with only grouping keys and no aggregate traits.",
+      "sha256": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb"
+    },
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": {
+      "lines": [
+        11,
+        169,
+        184,
+        223,
+        225,
+        245
+      ],
+      "contract": "Keyless reconstruction requires exact-scalar complete-row identity, makes a key-only inner domain, uses original identity fields or matching StablePickle encodings, and reconstructs against the original outer bag.",
+      "sha256": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667"
+    }
+  },
+  "execution": {
+    "syntax_parse_passed": true,
+    "imports": 0,
+    "mock_runs": 0,
+    "generator_render_calls": 0,
+    "native_runs": 0,
+    "build_runs": 0,
+    "graph_or_toolchain_jobs": 0,
+    "live_edits": false,
+    "acceptance_changes": false,
+    "raw_cpp_sql_ast_rows_or_diagnostics_saved": false
+  },
+  "independent_review": {
+    "path": "verification/C31-constrained-field-probe-independent-review-20261027.json",
+    "sha256": "844fb74fb74d04058d2660e399a4f9b6c211cfe2abee41ad0228c91605dafd75",
+    "verdict": "approved_for_bounded_observation_only"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "assertions": 563,
+  "status": "metadata_only_passed",
+  "manifest_sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58",
+  "checker_sha256": "c532b97282b370c4398b7a0db158844614a8e2d564ff86bbdd7dd3ecf48c282f",
+  "native_runs": 0,
+  "builds": 0,
+  "synthetic_metadata_only": true,
+  "live_edits": false,
+  "rendered_workload_persistence": false
+}

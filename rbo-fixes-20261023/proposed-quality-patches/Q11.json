@@ -1,0 +1,21 @@
+{
+  "id": "Q11",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_not_applied",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/push_filter_through_union_all.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/rules/ya.make"
+  ],
+  "rationale": "Distribute proven total primitive predicates to UnionAll inputs before access-path rules; rebind by IU mapping with exact input/output types and fresh operators.",
+  "limits": "Decline partially pushed filters, unresolved subplans, volatile/fallible/unknown callables and optional-widening edges. Does not duplicate arbitrary residual expressions.",
+  "validation": "Plan-level branch ranges, indexes and OLAP filtering; independent row bag and ordered-union checks; volatile/error/unknown-type/correlated/shared-producer controls.",
+  "independent_source_review": {
+    "status": "reviewed_pending_compile_and_native",
+    "reviewer": "harness_provenance",
+    "production_edited": false,
+    "notes": "Confirmed public PartiallyPushedDown and mapping APIs. Exact input/output types avoid optional-widening substitution; total callable whitelist excludes volatile, UDF and fallible expressions. Restored separate doccomments. Requires native and plan checks."
+  },
+  "patch_sha256": "7f8386d00e932b6a30941a86fb5d1536c589140cfdc8528462efa062b65398c2"
+}

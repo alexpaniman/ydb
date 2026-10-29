@@ -1,0 +1,30 @@
+{
+  "status": "generator_only_not_compiled_or_executed",
+  "cases_per_revision": 20,
+  "source": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+  "source_function_sha256": {
+    "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2": "90997fb1c1113d41ab7820e28d2b3f9cbf2f8db1b736d03eb0c42d674700759a",
+    "72e17774d130a022ed4649c26c3db7656d83d971": "26fe24d491549ee3ba1adc644ae0b47b1446734711112d96883d1c8d9d36b3d8"
+  },
+  "generator_sha256": "7e7f04b3c85bcd59c225ed44a970c8453ef5a4a4adfc79ffe0e600229ce4093e",
+  "instrumentation": "One entry counter; original function body otherwise unchanged",
+  "acceptance": "Exact visible root identities, terminal boundaries, one edge-bounded traversal on fixed branch; compare shared-DAG entries against baseline and retain unshared control",
+  "limitations": [
+    "Source-extracted collector, not linked transformer object",
+    "Actual expression-node compile and execution pending",
+    "Full transformer/native integration pending"
+  ],
+  "rendered_sources_persisted": false,
+  "generated_suites": {
+    "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2": {
+      "bytes": 31515,
+      "sha256": "7b07a535c696ba7ecc6fb23aed01536233baee6bfa753ba116124a16860c7fee",
+      "generation_contract_passed": true
+    },
+    "72e17774d130a022ed4649c26c3db7656d83d971": {
+      "bytes": 32807,
+      "sha256": "5c920aa21d438ca1f8212f78f428942b4863f6805f61b3458a56188a76c39ef5",
+      "generation_contract_passed": true
+    }
+  }
+}

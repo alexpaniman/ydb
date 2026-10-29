@@ -1,0 +1,18 @@
+{
+  "C03_expanded_control_vector_present": false,
+  "C41_fullsuite_build_bound": false,
+  "automatic_full_finding_promotion": false,
+  "bug": "C05",
+  "build_receipt_sha256": "e53c876b604845b2f18fdf9467b388f6c676af6d2339fc37a384335c7190a5fd",
+  "checked_records": 4,
+  "exact_vector_passed": true,
+  "fullsuite_build_evidence": null,
+  "guard_sha256": "c526abced3a888f5a2e72cec79944bf9f5cd52e3def786b7b30723509e487a45",
+  "qualified_legacy_adapter_records": 2,
+  "qualified_status": "verified",
+  "remaining_qualifications": [
+    "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract."
+  ],
+  "revision": "bf6527096b7a594beb47e3b2e274079b184b8128",
+  "slice_sha256": "4dfe83f9dea27c1acbe5db1eada8fb0daa2fe1c6705e5d98e5f77af57586fcdd"
+}

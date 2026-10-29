@@ -1,0 +1,18 @@
+{
+  "patches": [
+    {
+      "after_sha256": "836054297fe6954e2bbab441f60e9cfd7d0673394a42f2b1aa4de9eb5e392136",
+      "before_sha256": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+      "path": "proposed-quality-amendments/Q28-anonymous-memfd-initialization-cleanup-20261028.patch",
+      "sha256": "758296f19b13896c8421e31420879168dc1b93b030646183cee4c533803bb10d",
+      "target": "rbo-fixes-20261023/anonymous_cpp_verify.py"
+    },
+    {
+      "after_sha256": "a6e1536cc3466f6b15a601a1c40c295dc4924e04b8c1d028c4e291cc925b89a1",
+      "before_sha256": "77b151edb0de8cfa0c73ea44f0e230513bfcc802d3d14ecaf51a512aafc06d96",
+      "path": "proposed-quality-amendments/Q28-depth-serial-release-admission-20261028.patch",
+      "sha256": "bb9a860ae89d5ff646ea9e05e4d8c067665f0f475fceaf1dd7740db91204072d",
+      "target": "rbo-fixes-20261023/q28_depth_verify.py"
+    }
+  ]
+}

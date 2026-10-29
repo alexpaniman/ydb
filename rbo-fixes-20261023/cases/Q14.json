@@ -1,0 +1,44 @@
+{
+  "id": "Q14",
+  "title": "ReverseBlockJoin loses the CBO's shuffle directives.",
+  "branch": "fix/new-rbo/q14-reverseblockjoin-loses-the-cbo-s-shuffle-directives",
+  "commit": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/kqp_cbo_trees.cpp"
+  ],
+  "proposal_sha256": "05564f749ff5f27a10124f398033415c4a76627843734f33a854abd8b5a0c74e",
+  "proposal": "proposed-quality-patches/Q14.patch",
+  "proposal_metadata": {
+    "id": "Q14",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_unbuilt_unverified",
+    "files": [
+      "ydb/core/kqp/opt/rbo/rules/kqp_cbo_trees.cpp"
+    ],
+    "summary": "Preserve CBO shuffle directives for ReverseBlockJoin using the same conversion as GraceJoin.",
+    "review": [
+      "Independent patch generated directly from pinned base; production worktrees unchanged.",
+      "No yql/essentials edits."
+    ],
+    "validation_plan": [
+      "Exercise absent/present-empty/nonempty shuffle directives independently on both sides.",
+      "Inspect generated connection kinds/columns and run four-node semantic controls.",
+      "Build existing join/RBO suites after applying."
+    ],
+    "limits": [
+      "Preserves only solver contracts; output distribution inference is unchanged.",
+      "Multi-node validation must account for separately fixed C37/C38 correctness defects."
+    ],
+    "apply_check_exit_code": 0,
+    "patch_sha256": "05564f749ff5f27a10124f398033415c4a76627843734f33a854abd8b5a0c74e"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

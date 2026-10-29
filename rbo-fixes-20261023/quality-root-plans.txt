@@ -1,0 +1,91 @@
+Read-only plans for Q05, Q11, Q12, Q13, Q21, Q27, Q28
+Pinned base: e8700d379b3b9c4fbaf68f36424e6bcf08314fd2
+Status: source inspected; none implemented or benchmarked.
+
+Q05: Row-store descending primary-key top-N
+CanPushSortToRowRead already runs under RequireTypes. Reject differing directions,
+but reject NullsFirst != Ascending only for an optional key type. Keep current
+prefix/range matching and the original final sort. Check nullable primary keys
+with both directions/null placement, nonnullable descending and compound keys,
+and non-prefix controls. Native counters must establish descending read pushdown;
+matching rows alone does not verify the optimization. No essentials change needed.
+
+Q11: Push effect-safe filters through UnionAll
+Add a logical rule before access-path enumeration. Translate union result IUs to
+each child's corresponding binding. Require identical types for referenced IUs in
+every branch initially; optional-widening cases remain above the union until a
+typed expression remapper exists. Reject unresolved subplans and nonrepeatable
+predicates. Preserve ordered-union property and residual conjuncts. Prefer fresh
+branch filters and a fresh union to avoid mutating a producer shared elsewhere.
+Use source-level branch mapping APIs; do not substitute same-spelled columns.
+Validate branch ranges/OLAP predicates in generated plans and independent row
+multisets. Controls include volatile predicates, optional widening, nested unions,
+shared producer, and branches with differing physical column order.
+
+Q12: Collect native OLAP predicates before full peephole
+The predicate collector recognizes Coalesce directly. Start from the already
+typed filter body; collect native predicates before ApplyPeephole expands JSON.
+Do not fabricate an unannotated wrapper and hand it to type-sensitive collector
+code. Preserve NULL-as-false filtering semantics in native lowering, and keep the
+existing later peephole path for remaining Apply candidates. Check JSON scalar
+and existence predicates separately, conjunctions with nonpushable terms, missing
+paths, SQL NULL and disabled native pushdown. Count native OLAP JSON operators
+versus generic evaluation, preserving semantic results. This needs collector
+type/Coalesce contract review before committing.
+
+Q13: Preserve explicitly authorized parallel OLAP write modes
+Derive write settings from the existing KQP settings parser and CanEnableStreamWrite
+contract; do not unconditionally enable streaming. Carry flags through TEffectOptions,
+copying, settings emission and stage assignment. Choose Map connection only for
+OLAP streaming or explicitly permitted inconsistent writes, matching legacy sink
+eligibility, same-table read exclusion and write mode restrictions. Ordinary OLTP
+keeps its current connection. Validate emitted sink flags and task topology plus
+persisted rows; include same-table reads, default settings and index controls.
+This requires checking how raw rewrite options preserve these settings before
+deciding the exact narrow change; simply changing the two false literals is unsafe.
+
+Q21: Remove positive offset-free LIMIT for EXISTS
+Only existence consumers permit dropping a limit. Recognize a proven positive
+Uint64 literal, with no offset, on the existence input before dependent binding.
+Do not simplify IN or scalar consumers, zero/unknown bounds, or offset bounds.
+Traverse only transparent projection/order wrappers proven not to affect demand;
+start with a directly exposed Limit if broader traversal has evaluation ambiguity.
+Check both EXISTS and NOT EXISTS and expression-position existence. Verify that
+dependent row-number work disappears and result multisets remain identical. Keep
+an explicit coverage limit if the first version only covers filter consumers.
+
+Q27: Mark every AST node visited on entry
+Use visited.insert(node).second as the initial return guard and remove redundant
+terminal inserts. Preserve stopping at KqpOpRoot and collecting YqlSelect. This is
+linear in reachable nodes/edges instead of unfolded DAG paths. Verify shared
+nonterminal DAG visit counts and exactly the same selected-root identity set.
+Do not claim SQL compilation speedup without demonstrating native reachability.
+
+Q28: Rewrite traversal and property invalidation
+Do not keep using borrowed iterator entries after any destructive rewrite. Rules
+can alter shared producers, registry entries and distant subplans, so unconditional
+continuation or local cache retention violates existing contracts. A safe worklist
+needs an explicit locality/property-preservation contract and owning references,
+with global fallback for unclassified rules. Start by profiling generated operator
+graphs and counting rule attempts/property computations, then classify a small
+set of local rules and validate against the original fixed-point algorithm. A
+whole-stage independent batch for a demonstrably local rule can be a bounded
+first implementation, but cannot be reported as solving every stage. Existing
+1000-match rejection and trace ordering must be assessed separately. Shared graph,
+subplan removal, operator replacement and changing rule eligibility are required
+stress controls. No safe narrow production patch selected yet.
+
+Follow-up source findings
+Q12: Legacy KqpPushOlapFilter collects the original typed OptionalIf predicate
+without first wrapping/peepholing it. The collector directly supports optional
+Compare and JsonExists. A narrow first patch can mirror that exact original-body
+path, retaining residual Apply lowering. Coalesce over conjunction is not handled
+as native conjunction by CoalesceCanBePushed, so wrapping the whole predicate first
+would itself lose partial pushdown. Preserve the final filter's null semantics.
+Q13: CanEnableStreamWrite permits OLAP outright and configured Datashard streaming.
+The legacy same-table exclusion examines already physical sources/lookups, so it
+cannot simply be called on a logical RBO subtree. Derive same-table reads from
+TOpRead/TOpTableLookup and referenced subplans or conservatively decline streaming
+when uncertain. Existing TEffectOptions.Settings already preserves upsert settings;
+BuildSettings can receive computed booleans rather than extending the expression
+schema merely for two flags. Avoid enabling modes for unsupported effect kinds.

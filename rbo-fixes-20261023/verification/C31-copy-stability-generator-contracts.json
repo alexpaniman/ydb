@@ -1,0 +1,34 @@
+{
+  "finding": "C31",
+  "status": "offline_generator_contracts_pass_native_pending",
+  "production_revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "patch_sha256": "dd0d5369f0f0ae42655582be6e79424276cac7cea4d4da9e6bbbd7eb5a1d2801",
+  "generator_sha256": "3ce09393f4169673ad98ef84dd0336eac0d67da888ad491e5f3a9a5b91408254",
+  "contract_generator_sha256": "4d5b113d8c11690f2b5a8ab2976e80d2aa8f71b6dd3d1e91fe614c9e3af40174",
+  "contracts": {
+    "case_profiles": 132,
+    "added_profiles": 48,
+    "guard_profiles": 12,
+    "shared_profiles": 12,
+    "rows_accepted": 396,
+    "row_mutations_rejected": 396,
+    "recipes_built_in_memory": 396,
+    "schemas_built_in_memory": 396,
+    "exact_float_order_models": 170,
+    "structural_parser_contracts": 48,
+    "strict_guard_verdict_contracts": 12
+  },
+  "native_guard": "Only the exact copied-values guard token at the target request counts as a guard. Unrelated failures and unexpected successful admission fail.",
+  "semantic_controls": "Float SUM inputs are small exact integers; independent bag results are invariant under all sampled reduction orders. Int64 SUM controls must remain admitted.",
+  "physical_controls": "Spill controls require aggregation, reconstruction joins and a reachable multi-output Switch. Block controls require residual-supporting block joins.",
+  "remaining_native_acceptance": [
+    "Actual planner reachability, result bags and exact guard admission remain pending guarded native execution.",
+    "Keyed producer has one intended reconstruction hub; domain UNION ALL can introduce additional sharing, so the exact Switch origin still needs sanitized native AST review.",
+    "These tests do not verify broader floating/composite identity support or volatile occurrence semantics.",
+    "The 24-case direct-IR adapter has separate contracts and does not yet test aggregate copy stability."
+  ],
+  "native_executed": false,
+  "compiled": false,
+  "production_sources_edited": false,
+  "generated_reproductions_persisted": false
+}

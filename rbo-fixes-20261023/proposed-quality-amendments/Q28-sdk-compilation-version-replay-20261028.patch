@@ -1,0 +1,115 @@
+--- a/rbo-fixes-20261023/q28_compilation_measurement.py
++++ b/rbo-fixes-20261023/q28_compilation_measurement.py
+@@ -10,7 +10,7 @@
+ from pathlib import Path
+ import re
+ 
+-VERSION = 'q28_sdk_compilation_pilot_runtime_bound_v2'
++VERSION = 'q28_sdk_compilation_pilot_version_replay_v3'
+ PROFILE = 'quality_scheduler_semantic_checks'
+ ROWS = 24
+ CASES = tuple('q28_' + name for name in (
+@@ -325,6 +325,7 @@
+     import anonymous_cpp_verify as direct
+     from anonymous_cpp_metadata import digest_file, verify_receipt, MetadataError
+     from quality_pairing import profile_fingerprint
++    from production_version_object import prepare_object, verify_object
+     if (args.command != 'measure-compilation' or args.bug != 'Q28'
+         or type(args.sample_index) is not int or not 0 <= args.sample_index < 64):
+         raise MetadataError('q28_compilation_pilot_arguments_rejected')
+@@ -340,8 +341,7 @@
+     runtime = _runtime_snapshot()
+     runtime_identity = _runtime_identity(runtime)
+     source = render_cpp().encode()
+-    fds = {'source': direct._memfd('q28-measurement-source', source), 'object': direct._memfd('q28-measurement-object'),
+-           'executable': direct._memfd('q28-measurement-executable', executable=True)}
++    fds = {}
+     evidence = dict(schema_version=VERSION, bug='Q28', phase=args.phase, revision=revision,
+         sample_index=args.sample_index, adapter_sha256=own_hash, profile_sha256=profile_hash,
+         closure_receipt_path=str(args.receipt.resolve()), closure_receipt_sha256=_hash(raw_receipt),
+@@ -356,12 +356,15 @@
+         timing_scope='server_reported_compilation_not_pure_optimizer_time',
+         runner_family='fresh_TKikimrRunner_per_sample_not_kqprun',
+         structural_query_scaling_measured=False, current_direct_26_contracts_unchanged=True)
+-    del source
+     stage = 'compile'
+     def process_ok(record):
+         return (record['exit_code'] == 0 and record['cleanup_complete'] is True
+                 and record['watchdog_stopped'] is False and record['stdout_overflow'] is False)
+     try:
++        fds['source'] = direct._memfd('q28-measurement-source', source)
++        fds['object'] = direct._memfd('q28-measurement-object')
++        fds['executable'] = direct._memfd('q28-measurement-executable', executable=True)
++        del source
+         compilation, _ = direct.run_anonymous(receipt['metadata']['compile_argv'], receipt['metadata']['compile_cwd'], fds,
+             stdout_fd='object', timeout=args.compile_timeout, environment=receipt['metadata']['compile_environment'])
+         evidence['compile'] = compilation
+@@ -370,8 +373,16 @@
+         evidence['generated_object'] = direct._fd_digest(fds['object'])
+         if not evidence['generated_object']['size_bytes']:
+             raise MetadataError('q28_measurement_object_missing')
++        stage = 'production_version_infrastructure'
++        try:
++            link_argv, version_evidence = prepare_object(receipt, args.receipt, args.worktree, fds,
++                timeout=args.compile_timeout)
++        except MetadataError as error:
++            evidence['production_version_infrastructure'] = getattr(error, 'production_version_evidence', {})
++            raise
++        evidence['production_version_infrastructure'] = version_evidence
+         stage = 'link'
+-        link_argv, output_transport = direct._stdout_link_arguments(receipt['metadata']['link_argv'])
++        link_argv, output_transport = direct._stdout_link_arguments(link_argv)
+         link_argv, archive_responses = direct._archive_response_arguments(link_argv, fds, receipt['files'])
+         evidence.update(link_output_transport=output_transport, link_archive_responses=archive_responses)
+         linking, _ = direct.run_anonymous(link_argv, receipt['metadata']['link_cwd'], fds, stdout_fd='executable',
+@@ -382,18 +393,22 @@
+         for response in archive_responses['responses']:
+             if direct._fd_digest(fds[response['descriptor']]) != response['content']:
+                 raise MetadataError('q28_measurement_link_response_changed')
++        verify_object(evidence['production_version_infrastructure'], fds)
+         evidence['generated_executable'] = direct._fd_digest(fds['executable'])
+         if not evidence['generated_executable']['size_bytes']:
+             raise MetadataError('q28_measurement_executable_missing')
+         os.fchmod(fds['executable'], 0o700)
+         stage = 'native'
+         for payload, descriptor in inputs:
++            verify_object(evidence['production_version_infrastructure'], fds)
+             _require_runtime_unchanged(runtime)
+             payload = dict(runtime_environment=runtime['environment'], runtime_affinity=runtime['affinity'], **payload)
+             evidence['active_case'] = descriptor['case']
+-            sample_fds = {'executable': fds['executable'], 'report': direct._memfd('q28-measurement-report')}
++            sample_fds = {'executable': fds['executable']}
+             try:
+-                sample_fds.update({key: direct._memfd('q28-' + key, value) for key, value in payload.items()})
++                sample_fds['report'] = direct._memfd('q28-measurement-report')
++                for key, value in payload.items():
++                    sample_fds[key] = direct._memfd('q28-' + key, value)
+                 command = ['@FD:executable@', '@FD:report@'] + ['@FD:' + key + '@' for key in payload]
+                 native, _ = direct.run_anonymous(command, args.worktree, sample_fds, timeout=args.native_timeout,
+                     max_scope_gib=12, compiler_environment=False, retain_stdout=0)
+@@ -401,6 +416,7 @@
+                 _require_runtime_unchanged(runtime)
+                 if native['watchdog_stopped'] or native['stdout_overflow'] or not native['cleanup_complete']:
+                     raise MetadataError('q28_measurement_native_guard_failed')
++                verify_object(evidence['production_version_infrastructure'], fds)
+                 for key, value in payload.items():
+                     if direct._fd_digest(sample_fds[key]) != {'sha256': _hash(value), 'size_bytes': len(value)}:
+                         raise MetadataError('q28_measurement_input_changed')
+@@ -413,6 +429,7 @@
+                     if key != 'executable':
+                         os.close(fd)
+         stage = 'final_provenance'
++        verify_object(evidence['production_version_infrastructure'], fds)
+         _require_runtime_unchanged(runtime)
+         verify_receipt(receipt, args.worktree, revision)
+         if (args.receipt.read_bytes() != raw_receipt or digest_file(__file__)['sha256'] != own_hash
+@@ -426,7 +443,8 @@
+     except MetadataError as error:
+         error.verification_stage = 'q28_compilation_pilot_' + stage
+         error.stage_evidence = {key: evidence[key] for key in
+-            ('compile', 'link', 'generated_object', 'generated_executable', 'active_case', 'last_native', 'runtime_identity') if key in evidence}
++            ('compile', 'link', 'generated_object', 'generated_executable', 'active_case', 'last_native',
++             'runtime_identity', 'production_version_infrastructure') if key in evidence}
+         raise
+     finally:
+         for fd in fds.values():

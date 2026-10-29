@@ -1,0 +1,10 @@
+{
+  "schema": "quality_spill_cap_independent_source_bindings_v1",
+  "source_report_sha256": "d1764cfe1a58b5f8a581722da87f1c682cb35b09f04f4c344364dc80cf7954a9",
+  "checks_passed": 735,
+  "source_images_verified": 720,
+  "base_and_fixed_revisions": 15,
+  "new_RBO_reads_compute_mask": false,
+  "native_invocations": 0,
+  "elapsed_seconds": 4.457
+}

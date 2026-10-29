@@ -1,0 +1,370 @@
+{
+  "C31_independent_review": {
+    "path": "verification/C31-shared-aggregate-pipeline-independent-review-20261028.json",
+    "sha256": "3a278030556f0f429c3577a2b924d800ceac298ae469efd1b820e3107c1c0803"
+  },
+  "after_images": {
+    "rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+    "rbo-fixes-20261023/c31_combined_cpp_generator.py": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+    "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+    "rbo-fixes-20261023/correctness_cpp_contract.py": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+    "rbo-fixes-20261023/correctness_cpp_profiles.json": "102d95f24ee88e8b38d0e1e0ee005423d7c61fa4d4293325ac6ee3988eb0f08d",
+    "rbo-fixes-20261023/native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b",
+    "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+    "rbo-fixes-20261023/q28_compilation_measurement.py": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c",
+    "rbo-fixes-20261023/quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+    "rbo-fixes-20261023/quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+  },
+  "base_applied_helper_count": 44,
+  "before_images": {
+    "rbo-fixes-20261023/anonymous_cpp_verify.py": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873",
+    "rbo-fixes-20261023/c31_combined_cpp_generator.py": null,
+    "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": null,
+    "rbo-fixes-20261023/correctness_cpp_contract.py": "49598993c191a5a9784cb57ccc5e8fc0b8719deb77071959dbab5b9da8572326",
+    "rbo-fixes-20261023/correctness_cpp_profiles.json": "53c415c3b19f43132f79dfe2490ea5d5a246f9371629b9aa0ee054cf8ea20ca1",
+    "rbo-fixes-20261023/native_verify.py": "a0abb05ec07f94dd3cb8a016616233073c044715e0a1f85e0088b2a5daaa4bd1",
+    "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": null,
+    "rbo-fixes-20261023/q28_compilation_measurement.py": null,
+    "rbo-fixes-20261023/quality_q01_scaling_checks.py": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3",
+    "rbo-fixes-20261023/quality_spill_bounds.py": null
+  },
+  "dependency_refresh": {
+    "all_dependencies": {
+      "rbo-fixes-20261023/anonymous_cpp_guard.py": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+      "rbo-fixes-20261023/anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf",
+      "rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+      "rbo-fixes-20261023/correctness_cpp_contract.py": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+      "rbo-fixes-20261023/memory_safe_build.py": "ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd",
+      "rbo-fixes-20261023/optimizer_mode_contract.py": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad",
+      "rbo-fixes-20261023/production_version_object.py": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+      "rbo-fixes-20261023/quality_join_shuffle_checks.py": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+      "rbo-fixes-20261023/quality_lookup_checks.py": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+      "rbo-fixes-20261023/quality_minmax_checks.py": "42d8fbf1f983b739448dc1c6e19432ac464ea9f4a4bf6343e0a10e573f4d74d4",
+      "rbo-fixes-20261023/quality_pairing.py": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+      "rbo-fixes-20261023/quality_partition_checks.py": "6e05ff277e5f75846efc58a6b61e837b86c55b54f4452a447a2caf7b0f84a5b7",
+      "rbo-fixes-20261023/quality_partition_subset_checks.py": "4a7c8816c021df7388ec50fc873b4a76f9c61ed32d1b7a06b6e2fced88469f93",
+      "rbo-fixes-20261023/quality_range_minmax_checks.py": "2d2a23f017e76a67552260d7e15dcfe1e2b53be727ac92543ab99b32978eb390",
+      "rbo-fixes-20261023/quality_range_runtime_contract.py": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+      "rbo-fixes-20261023/quality_range_runtime_cpp_generator.py": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+      "rbo-fixes-20261023/quality_rule_checks.py": "79928bb8b273843ea6c4dd575c11ea4aa8fe377741e5091d027193852eee236e",
+      "rbo-fixes-20261023/quality_scheduler_semantic_checks.py": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+      "rbo-fixes-20261023/quality_source_settings_checks.py": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba",
+      "rbo-fixes-20261023/quality_statistics_checks.py": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4",
+      "rbo-fixes-20261023/quality_statistics_cpp_contract.py": "7522d964569b2af5b9336a1003196d7efb633cdd705b5205ff059363300fe44d",
+      "rbo-fixes-20261023/quality_sum_checks.py": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+      "rbo-fixes-20261023/quality_union_cpp_contract.py": "3b7bd8de5d199f08519718b34d27fe73e96db3b626209011e763d37f7920a8fb",
+      "rbo-fixes-20261023/quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+      "rbo-fixes-20261023/verification_contract.py": "73a7608c2a8ea37395bd2336def4801a3aa77e607324376816fac996242cd952",
+      "rbo-review-20261021/generate_and_verify.py": "fa9f950e0d97e784574532f5092ee45ac8cabd8edfba91b9495bc81f8e9afaed",
+      "rbo-review-20261021/legacy.conf": "d8037a114c42f131af3ba9417fd81bb5bdd8a147b67fea3b6caff44bfecbd46a",
+      "rbo-review-20261021/new.conf": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d"
+    },
+    "binding_only_AST": true,
+    "candidate": "proposed-quality-amendments/quality_spill_bounds_composed_20261028.candidate.py",
+    "changed_dependencies": {
+      "rbo-fixes-20261023/anonymous_cpp_verify.py": {
+        "after": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+        "before": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873"
+      },
+      "rbo-fixes-20261023/correctness_cpp_contract.py": {
+        "after": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+        "before": "49598993c191a5a9784cb57ccc5e8fc0b8719deb77071959dbab5b9da8572326"
+      }
+    },
+    "dependency_count": 28,
+    "patch": "proposed-quality-amendments/Q-SQL-spill-cap-composed-dependency-refresh-20261028.patch"
+  },
+  "idle_checkpoints": {
+    "after_C31_step": {
+      "allowed_pause": "Root may run C31 direct37 here, then revalidate these source hashes at the next idle boundary before the remaining eight patches.",
+      "applied_helper_count": 45,
+      "exact_images": {
+        "rbo-fixes-20261023/anonymous_cpp_verify.py": "0bfd351056ce85d0ead9b8c8d6d342d47f162569654a065d1ce021ce9379f33c",
+        "rbo-fixes-20261023/c31_combined_cpp_generator.py": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+        "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+        "rbo-fixes-20261023/correctness_cpp_contract.py": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+        "rbo-fixes-20261023/correctness_cpp_profiles.json": "102d95f24ee88e8b38d0e1e0ee005423d7c61fa4d4293325ac6ee3988eb0f08d"
+      },
+      "remaining_start_index": 1
+    },
+    "final": {
+      "applied_helper_count": 53,
+      "exact_images": {
+        "rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+        "rbo-fixes-20261023/c31_combined_cpp_generator.py": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+        "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+        "rbo-fixes-20261023/correctness_cpp_contract.py": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+        "rbo-fixes-20261023/correctness_cpp_profiles.json": "102d95f24ee88e8b38d0e1e0ee005423d7c61fa4d4293325ac6ee3988eb0f08d",
+        "rbo-fixes-20261023/native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b",
+        "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+        "rbo-fixes-20261023/q28_compilation_measurement.py": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c",
+        "rbo-fixes-20261023/quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+      }
+    }
+  },
+  "limits": [
+    "C31 exact predecessor is source-approved; the binding-only refresh still requires independent review.",
+    "Q01 resource and Q28 timing/full-quality acceptance remain false.",
+    "The cap prevents reviewed payload writes; an attempted spill rejected by it remains a failed query.",
+    "Apply only at the root-owned idle source boundary; actual native outcomes remain pending."
+  ],
+  "live_application_performed": false,
+  "ordered_patches": [
+    {
+      "after_images": {
+        "rbo-fixes-20261023/anonymous_cpp_verify.py": "0bfd351056ce85d0ead9b8c8d6d342d47f162569654a065d1ce021ce9379f33c",
+        "rbo-fixes-20261023/c31_combined_cpp_generator.py": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+        "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+        "rbo-fixes-20261023/correctness_cpp_contract.py": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+        "rbo-fixes-20261023/correctness_cpp_profiles.json": "102d95f24ee88e8b38d0e1e0ee005423d7c61fa4d4293325ac6ee3988eb0f08d"
+      },
+      "already_applied_rule": "Skip only when every after-image matches at this exact step; reject mixed or unknown images.",
+      "apply_rule": "Apply only when every before-image matches, including absent new files.",
+      "before_images": {
+        "rbo-fixes-20261023/anonymous_cpp_verify.py": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873",
+        "rbo-fixes-20261023/c31_combined_cpp_generator.py": null,
+        "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": null,
+        "rbo-fixes-20261023/correctness_cpp_contract.py": "49598993c191a5a9784cb57ccc5e8fc0b8719deb77071959dbab5b9da8572326",
+        "rbo-fixes-20261023/correctness_cpp_profiles.json": "53c415c3b19f43132f79dfe2490ea5d5a246f9371629b9aa0ee054cf8ea20ca1"
+      },
+      "path": "proposed-correctness-amendments/C31-shared-aggregate-pipeline-contracts-20261028.patch",
+      "sha256": "73a8afb3e6914ad0ab944ab5585199322c3d2175aa664ce84be1d0d50a5e8f3b"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+        "rbo-fixes-20261023/quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53"
+      },
+      "already_applied_rule": "Skip only when every after-image matches at this exact step; reject mixed or unknown images.",
+      "apply_rule": "Apply only when every before-image matches, including absent new files.",
+      "before_images": {
+        "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": null,
+        "rbo-fixes-20261023/quality_q01_scaling_checks.py": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3"
+      },
+      "path": "proposed-quality-amendments/Q01-shared-window-setup-controls-20261028.patch",
+      "sha256": "a8527c634ad50e9066bf019f8d32af1aec805e9a9ad1eebebf907631ea93a93e"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+        "rbo-fixes-20261023/q28_compilation_measurement.py": "22c807e6780ef984ba7114b917c1d3d3e5f4914bdbd278817961e394472a75ee"
+      },
+      "already_applied_rule": "Skip only when every after-image matches at this exact step; reject mixed or unknown images.",
+      "apply_rule": "Apply only when every before-image matches, including absent new files.",
+      "before_images": {
+        "rbo-fixes-20261023/anonymous_cpp_verify.py": "0bfd351056ce85d0ead9b8c8d6d342d47f162569654a065d1ce021ce9379f33c",
+        "rbo-fixes-20261023/q28_compilation_measurement.py": null
+      },
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+      "sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/q28_compilation_measurement.py": "4e29a04b473601f61ba63a156c9c1068f8790325f7937b8e7cba722289713de7"
+      },
+      "already_applied_rule": "Skip only when every after-image matches at this exact step; reject mixed or unknown images.",
+      "apply_rule": "Apply only when every before-image matches, including absent new files.",
+      "before_images": {
+        "rbo-fixes-20261023/q28_compilation_measurement.py": "22c807e6780ef984ba7114b917c1d3d3e5f4914bdbd278817961e394472a75ee"
+      },
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-runtime-identity-20261028.patch",
+      "sha256": "8712ec3993b04acf34b404818f48714588628fd6418315adcaeb57a54168a9e8"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/q28_compilation_measurement.py": "5a7f8ebd901340e1c8f19ff1d8db8d2a27e8e0fd9b00c738e01c546f73d3daa7"
+      },
+      "already_applied_rule": "Skip only when every after-image matches at this exact step; reject mixed or unknown images.",
+      "apply_rule": "Apply only when every before-image matches, including absent new files.",
+      "before_images": {
+        "rbo-fixes-20261023/q28_compilation_measurement.py": "4e29a04b473601f61ba63a156c9c1068f8790325f7937b8e7cba722289713de7"
+      },
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-version-replay-20261028.patch",
+      "sha256": "4aabcde2409f4feb9d82c7b2908e7ffec334fd29ae9677402a104e366986a49f"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/q28_compilation_measurement.py": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c"
+      },
+      "already_applied_rule": "Skip only when every after-image matches at this exact step; reject mixed or unknown images.",
+      "apply_rule": "Apply only when every before-image matches, including absent new files.",
+      "before_images": {
+        "rbo-fixes-20261023/q28_compilation_measurement.py": "5a7f8ebd901340e1c8f19ff1d8db8d2a27e8e0fd9b00c738e01c546f73d3daa7"
+      },
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-readonly-executable-20261028.patch",
+      "sha256": "9c782adc11186b7a4c1712a666a3b39030de2df675e6b23bb01c8ec8b8e6494a"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/native_verify.py": "f00515a00a438b2549c0241d712fa34da3e996161d605d8cb04913410486f29f",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "6ac0b38adc4207800a853e06cfccfc4f167dd79663398eec8712a09fee4fbe91"
+      },
+      "already_applied_rule": "Skip only when every after-image matches at this exact step; reject mixed or unknown images.",
+      "apply_rule": "Apply only when every before-image matches, including absent new files.",
+      "before_images": {
+        "rbo-fixes-20261023/native_verify.py": "a0abb05ec07f94dd3cb8a016616233073c044715e0a1f85e0088b2a5daaa4bd1",
+        "rbo-fixes-20261023/quality_spill_bounds.py": null
+      },
+      "path": "proposed-quality-amendments/Q-SQL-reviewed-spill-payload-cap-20261028.patch",
+      "sha256": "9e70be28e44f600870ceb0db59bf4b990b1ddc5a22cd11a6af51dfdee1952e93"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "8baef78c55b538fcd874e7485bdae853a3f9e9f3de1a06d330c68a28c3650eac"
+      },
+      "already_applied_rule": "Skip only when every after-image matches at this exact step; reject mixed or unknown images.",
+      "apply_rule": "Apply only when every before-image matches, including absent new files.",
+      "before_images": {
+        "rbo-fixes-20261023/native_verify.py": "f00515a00a438b2549c0241d712fa34da3e996161d605d8cb04913410486f29f",
+        "rbo-fixes-20261023/quality_spill_bounds.py": "6ac0b38adc4207800a853e06cfccfc4f167dd79663398eec8712a09fee4fbe91"
+      },
+      "path": "proposed-quality-amendments/Q-SQL-spill-cap-production-revision-guard-20261028.patch",
+      "sha256": "b9393c041625cbf1b7f43d2d55aa6e7f440367a33f8f67b6ba68258423ebac54"
+    },
+    {
+      "after_images": {
+        "rbo-fixes-20261023/quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+      },
+      "already_applied_rule": "Skip only when the exact final guarded helper after-image matches.",
+      "apply_rule": "Apply only when the exact guarded helper before-image matches.",
+      "before_images": {
+        "rbo-fixes-20261023/quality_spill_bounds.py": "8baef78c55b538fcd874e7485bdae853a3f9e9f3de1a06d330c68a28c3650eac"
+      },
+      "path": "proposed-quality-amendments/Q-SQL-spill-cap-composed-dependency-refresh-20261028.patch",
+      "sha256": "3473d937079dcd9e3b139cfc0522be4007a0903e4f2383ad2711f0c0f0fb9d1d"
+    }
+  ],
+  "ordinary_semantic_and_quality_gates_unchanged": true,
+  "proposed_applied_helper_count": 53,
+  "quality_full_admission": false,
+  "schema_version": "quality_idle_helper_composition_v1",
+  "status": "source_prepared_pending_binding_refresh_independent_review",
+  "verification": {
+    "SQL_cells": 850,
+    "adapted_cells": 82,
+    "case_phase_pairs": 164,
+    "changed_dependency_negatives": 28,
+    "checks_passed": 1939,
+    "generated_SQL_CPP_fixture_or_plan_payloads_persisted": false,
+    "live_edits": false,
+    "native_build_toolchain_graph_runs": 0,
+    "stale_binding_negatives": 2,
+    "unchanged_cells": 768,
+    "vectors": {
+      "Q01:quality_minmax_checks": {
+        "case_count": 161,
+        "vector_sha256": "f3f7c83d88bd4f38d88746ae6cc37b7e47f70df55a69c0363933623c0f268714"
+      },
+      "Q01:quality_range_minmax_checks": {
+        "case_count": 282,
+        "vector_sha256": "f2c4adee23ad226f37b02b2fee140dec067c536b23eda0ca357cd8f5bbda095f"
+      },
+      "Q01:quality_sum_checks": {
+        "case_count": 197,
+        "vector_sha256": "e448ef3e057cc150fc613fb6639e43161da705d36c0133651f882e6ad34ce376"
+      },
+      "Q01:quality_window_checks": {
+        "case_count": 12,
+        "vector_sha256": "2878b757d1843b31af0bda39341f0f6df1e8ee24cc6b7006653fa14f6e010dfd"
+      },
+      "Q02:quality_window_checks": {
+        "case_count": 4,
+        "vector_sha256": "34588e24cd807146dc3225a88e2c443b5f5602b45808d05fd3a9612bd13158f9"
+      },
+      "Q03:quality_lookup_checks": {
+        "case_count": 5,
+        "vector_sha256": "fa91903d8b49140b2267b8bbe2c920d5fe14eb486ac51d35f2cef669ef2a370f"
+      },
+      "Q04:quality_lookup_checks": {
+        "case_count": 7,
+        "vector_sha256": "0bf91be0f9642be945642ef724dab53a39fe1a10ae26d5976df1406f46bc5059"
+      },
+      "Q05:quality_rule_checks": {
+        "case_count": 11,
+        "vector_sha256": "dabc815e5e1c6bfee3b329bef60e0677a62a6d6ea367a5cee8e23ed5523bd4b2"
+      },
+      "Q06:quality_lookup_checks": {
+        "case_count": 4,
+        "vector_sha256": "9c01ed8aae0c617dc66436b3c497c2f07e9bff03bf9b2a2c1c658bacb8e907eb"
+      },
+      "Q07:quality_lookup_checks": {
+        "case_count": 11,
+        "vector_sha256": "e360c567cac802e45d2b155712d0111e2207d4205034b66995f15c7647cb155b"
+      },
+      "Q08:quality_statistics_checks": {
+        "case_count": 2,
+        "vector_sha256": "1a9aa28dbca5317ba9a077061e920cc354e8f62bf534648b8e697325df95e8b9"
+      },
+      "Q09:quality_statistics_checks": {
+        "case_count": 3,
+        "vector_sha256": "277e060e53a75b31feea57a3fcd391830be2a5bf23f54ea634d90f7537d341b9"
+      },
+      "Q10:quality_window_checks": {
+        "case_count": 10,
+        "vector_sha256": "83e7fec84c4c52c0be002fd7bd59277ce3fe76de2e596f5acfb8dfd1745a3f9f"
+      },
+      "Q11:quality_union_checks": {
+        "case_count": 11,
+        "vector_sha256": "d9126723a4c0368a661a00fc9263852e4f24469f63c5304c9a5f60de832db238"
+      },
+      "Q12:quality_rule_checks": {
+        "case_count": 7,
+        "vector_sha256": "89b9f482ffb6a9391ac1082b9800076ee32727779e49c0c9f82d575f209d081e"
+      },
+      "Q13:quality_window_checks": {
+        "case_count": 3,
+        "vector_sha256": "ece7886d085d0d955e69c5d243f399ee007ac828cfaea0bb5dd688cc50403c80"
+      },
+      "Q14:quality_join_shuffle_checks": {
+        "case_count": 6,
+        "vector_sha256": "c96be465ae3b8743c04b1922733dfb6a1d69a833d9ca8aed90b2aef6ee70ef9b"
+      },
+      "Q15:quality_partition_subset_checks": {
+        "case_count": 19,
+        "vector_sha256": "5dd3d199515650101d65572aa36e5961c93023ff4621768275ff9f637fadac7e"
+      },
+      "Q17:quality_lookup_checks": {
+        "case_count": 5,
+        "vector_sha256": "d3699900ff172417b683c28e711cf8de8838bc8a03e7cc8a7608c3bf22af9d0a"
+      },
+      "Q20:quality_statistics_checks": {
+        "case_count": 3,
+        "vector_sha256": "93c967ef99db065acd9f927beda27fa0e490272a487e38dc934418a8f9d6a46f"
+      },
+      "Q21:quality_rule_checks": {
+        "case_count": 13,
+        "vector_sha256": "cf472c594a4afeb36caf5c795b9abb2875282e148b2ad37e597edda29c4bf636"
+      },
+      "Q22:quality_window_checks": {
+        "case_count": 25,
+        "vector_sha256": "245db093ed0be2feac9d0342886c12e5dff95816fb9e02ff529407ce2e825cd7"
+      },
+      "Q23:quality_lookup_checks": {
+        "case_count": 5,
+        "vector_sha256": "d26325cc7c4a855975b609a075e16c2db5b0813f5a668c70644de199d78f2e7e"
+      },
+      "Q24:quality_lookup_checks": {
+        "case_count": 5,
+        "vector_sha256": "ef7ad4849f34fa4b5c4f505531e978727f424cb9d2bd0299752a56f32556abe9"
+      },
+      "Q25:quality_map_semantic_checks": {
+        "case_count": 8,
+        "vector_sha256": "3b97fdec050906c94fe6b1da7ae32b74f1db89848d9f1b0127f5560aa6b980d2"
+      },
+      "Q26:quality_source_settings_checks": {
+        "case_count": 18,
+        "vector_sha256": "904b5ecd2447d3eb8521457539ebc8138760c2790798588cd5dd2a2e987684af"
+      },
+      "Q28:quality_scheduler_semantic_checks": {
+        "case_count": 8,
+        "vector_sha256": "60cd0229ba6a2c0fbd62d6e9319e392c5925829e08561eb6ad7848df1aa236bc"
+      },
+      "Q29:quality_lookup_checks": {
+        "case_count": 5,
+        "vector_sha256": "a0400eba6537780c43ce9e6004f537866001f081af2b0e28f6aa4377da054dc7"
+      }
+    }
+  }
+}

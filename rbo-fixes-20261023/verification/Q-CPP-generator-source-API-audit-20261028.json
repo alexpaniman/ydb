@@ -1,0 +1,175 @@
+{
+  "admission": {
+    "compiled": false,
+    "local_contracts_passed": false,
+    "quality_finding_fully_verified": false,
+    "quality_improvement_verified": false,
+    "query_semantics_verified": false,
+    "source_review_only": true
+  },
+  "audited_api_areas": {
+    "Q09": [
+      "Aggregate constructor, aggregation traits, phase values, optional statistics/cost fields and BuildOptimizerStatistics signatures match included headers. No additional source/API blocker identified."
+    ],
+    "Q11": [
+      "Union vector and binary constructors, input policy, const metadata access, filter expression APIs, primitive type construction, subplan insertion and rule signatures checked. Fixed-only admission remains unchanged; baseline lacks the newly introduced rule by design."
+    ],
+    "Q14": [
+      "Optimizer-node constructors, shuffle optionals and ordered collection view checked. TJoinColumn remains unchanged: its legacy namesake is nested in NYql::NDq and is not a verified ambiguity."
+    ],
+    "Q16": [
+      "Window and read constructors, mutable read column access and storage enum checked. SetEnableWindowFunctionsV2 is the actual inherited table-service config API; all 76 cells remain unchanged."
+    ],
+    "Q18": [
+      "Histogram/sketch complete definitions, public constructors, statistic-map fields and transformer constructor checked. The narrow private-access declaration adapter is retained; its dependency headers are included before the access macro."
+    ],
+    "Q19": [
+      "Both AddStatRequest wrapper parameter lists match actual declarations; future exception API accepts std::exception_ptr; TIssues::Size is a real API and remains unchanged. Actual mangled-symbol discovery and wrapping provenance remain mandatory."
+    ],
+    "Q20": [
+      "Hint construction, static configuration assignment, lineage metadata and ComputeJoinStatsV2 signature checked. Correct enum identity is required at all algorithm uses."
+    ],
+    "Q25": [
+      "Public map expression access/rebinding and C++20 requires fallback checked. Paired-IU collection has an allowed converting constructor to TJoinIUs; no speculative container substitution made."
+    ],
+    "Q27": [
+      "Pinned collector extraction, expression-child iteration and terminal/container APIs checked for both revisions. Its original-body extraction plus entry counter remains unchanged."
+    ],
+    "Q28": [
+      "Production-rule inheritance and virtual hooks, TMapElement forwarding methods, replicate ports, sort keys, subplans and stage constructor checked. All scheduler scenarios and counter assertions remain byte-identical aside from the storage argument qualification."
+    ]
+  },
+  "bindings": "Metadata report contains exact before/after generator/source hashes, per-case vectors/assertion counts where fixed, and 15 API-header fingerprints for baseline and all 10 fixed revisions.",
+  "candidate_files": {
+    "quality_rule_cpp_generator.py": {
+      "path": "proposed-quality-amendments/Q-CPP-API-repair-files-20261028/quality_rule_cpp_generator.py",
+      "sha256": "e732ca4705744697e0ff597ed930d6aa21403a9f3aa47f6dcede5f2d56ec2cca"
+    },
+    "quality_scheduler_cpp_checks.py": {
+      "path": "proposed-quality-amendments/Q-CPP-API-repair-files-20261028/quality_scheduler_cpp_checks.py",
+      "sha256": "b8d6342b555c2b2b69d0f5130112f3630cf5d6f2607b357831bc95645d30dcb7"
+    },
+    "quality_statistics_cpp_generator.py": {
+      "path": "proposed-quality-amendments/Q-CPP-API-repair-files-20261028/quality_statistics_cpp_generator.py",
+      "sha256": "89cd11f199a6d6dd91c95687759f7464b7db6a2046a5a34427e6ea0c1f72d044"
+    },
+    "quality_statistics_cpp_profiles.json": {
+      "path": "proposed-quality-amendments/Q-CPP-API-repair-files-20261028/quality_statistics_cpp_profiles.json",
+      "sha256": "36da9cc19f80a1a377b7a9bcf3a65ac05aa284e6d772b26ab596e4e9765c83ae"
+    }
+  },
+  "classification": "verification_infrastructure_only_not_production_findings",
+  "include_evidence": {
+    "both_join_algorithm_enums": "Test helper includes provider settings -> KQP CBO optimizer, and type annotation -> YQL statistics -> YQL cost function.",
+    "both_storage_enums": "KQP CBO statistics includes YQL statistics; both enum definitions are present.",
+    "limits": "Source inclusion paths were inspected without preprocessing. Generated dependency headers and full toolchain compilation remain native-stage checks.",
+    "transitive_namespace": "kqp_operator.h imports NYql inside NKikimr::NKqp; generators then use NKqp globally."
+  },
+  "integration_requirements": [
+    "Apply each patch only at an idle boundary. None touches production, yql/essentials, admission code or active helpers during this preparation.",
+    "Q20 patch includes quality_statistics_cpp_profiles.json. Both Q09/Q20 generator hashes change because the module is shared; Q09 rendered source and all profile coverage fields are unchanged.",
+    "Q14 and Q28 direct admission derive the generator and rendered-source hashes dynamically through _current_pair_contract. No static profile rewrite is needed; previous evidence with old hashes is intentionally rejected.",
+    "Q16 shares the Q14 generator hash, so prior Q16 records must not be relabelled even though its 76 generated cases are byte-identical.",
+    "Retain historical evidence. Generate fresh paired baseline/fixed evidence under the existing serial memory guard, exact production closure and source freeze.",
+    "Q28 direct26 remains separate from its seven-cell SDK pilot; no pilot/full-quality acceptance flags change."
+  ],
+  "limitations": [
+    "This source audit finds deterministic API blockers; it does not certify all generated translation units will compile or link.",
+    "Actual SDK/ABI/link closure, runtime behavior, assertion outcomes and optimization quality require the pending guarded verification."
+  ],
+  "metadata_contract": {
+    "checks": 400,
+    "path": "verification/Q-CPP-API-repair-metadata-contracts-20261028.json",
+    "script": "proposed-quality-amendments/Q-CPP-API-repair-metadata-contracts-20261028.py",
+    "script_sha256": "7b5416bb7c1c97206779a3c2334d5e97c1b9516386250d7832ae0d036e0afa98",
+    "sha256": "5d36b84543c17b91a7d6ef5bf3aff559ea8ae3e82cf3dc73e9fcb97a6e8e19ea"
+  },
+  "patches": {
+    "Q14": {
+      "path": "proposed-quality-amendments/Q14-direct-generator-API-repair-20261028.patch",
+      "sha256": "0759f720551f9b51a5e69247911ea6721ea2aee7888d402c48f14db4bd8a063b"
+    },
+    "Q20": {
+      "path": "proposed-quality-amendments/Q20-direct-generator-API-repair-20261028.patch",
+      "sha256": "702fad08d74bc1986baaad1fdd7fca09abe67ba6389188b391d10b77de488e9d"
+    },
+    "Q28": {
+      "path": "proposed-quality-amendments/Q28-direct-generator-API-repair-20261028.patch",
+      "sha256": "20c61c07c53e2ac88b030ff6437f80b4183350b65f3e423b9a791267121497c6"
+    }
+  },
+  "schema_version": "optimization_cpp_generator_source_api_audit_v1",
+  "scope": [
+    "Q09",
+    "Q11",
+    "Q14",
+    "Q16",
+    "Q18",
+    "Q19",
+    "Q20",
+    "Q25",
+    "Q27",
+    "Q28"
+  ],
+  "scope_case_count": 320,
+  "status": "dormant_source_repairs_ready_for_independent_review",
+  "validation": {
+    "build_runs": 0,
+    "compiler_runs": 0,
+    "generated_cpp_queries_plans_saved": false,
+    "live_edits": false,
+    "metadata_assertions_passed": 400,
+    "native_runs": 0,
+    "patches_applied_only_to_disposable_generator_copies": true,
+    "profile_corruption_rejected": true,
+    "stale_generator_hashes_rejected": true,
+    "unchanged_all_assertion_sites": true,
+    "unchanged_all_case_vectors": true
+  },
+  "verified_blockers": [
+    {
+      "all_case_vectors_and_assertions_preserved": true,
+      "finding": "Q14",
+      "problem": "The shuffle-width assertions call a size method absent from TOrderedIUs. The adapter cannot compile those checks.",
+      "repair": "Use the size of the public Items view for the existing cardinality assertion.",
+      "source_references": [
+        "ydb/core/kqp/opt/rbo/kqp_operator.h:132",
+        "ydb/core/kqp/opt/rbo/kqp_info_unit.h:247"
+      ]
+    },
+    {
+      "all_case_vectors_and_assertions_preserved": true,
+      "finding": "Q14",
+      "problem": "The generated join construction and algorithm assertion use an unqualified join-algorithm enum while both distinct NYql and NKqp definitions are visible.",
+      "repair": "Qualify only the two generator occurrences with NKikimr::NKqp.",
+      "source_references": [
+        "ydb/core/kqp/opt/cbo/cbo_optimizer_new.h:22",
+        "yql/essentials/core/yql_cost_function.h:18"
+      ]
+    },
+    {
+      "all_case_vectors_and_assertions_preserved": true,
+      "finding": "Q20",
+      "independent_source_confirmation": "q01_measurement_review confirmed transitive namespace lookup; no compiler was invoked.",
+      "problem": "The statistics adapter uses the same ambiguous join-algorithm enum. Its global NKqp using-directive also exposes NYql transitively through the included RBO headers.",
+      "repair": "Qualify only the three generator occurrences with NKikimr::NKqp, and update the exact statistics generator/source profile hashes.",
+      "source_references": [
+        "ydb/core/kqp/opt/rbo/kqp_operator.h:26",
+        "ydb/core/kqp/opt/cbo/cbo_optimizer_new.h:22",
+        "yql/essentials/core/yql_cost_function.h:18",
+        "ydb/core/kqp/opt/cbo/cbo_optimizer_new.h:260"
+      ]
+    },
+    {
+      "all_case_vectors_and_assertions_preserved": true,
+      "finding": "Q28",
+      "problem": "The synthetic read constructor uses an unqualified storage enum while distinct NYql and NKqp definitions are visible. The actual constructor requires NYql storage.",
+      "repair": "Qualify the one generated constructor argument with NYql.",
+      "source_references": [
+        "ydb/core/kqp/opt/rbo/kqp_operator.h:643",
+        "ydb/core/kqp/opt/cbo/kqp_statistics.h:33",
+        "yql/essentials/core/yql_statistics.h:32"
+      ]
+    }
+  ]
+}

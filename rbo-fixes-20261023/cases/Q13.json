@@ -1,0 +1,60 @@
+{
+  "id": "Q13",
+  "title": "Bulk OLAP writes cannot retain parallel streaming sinks.",
+  "branch": "fix/new-rbo/q13-bulk-olap-writes-cannot-retain-parallel-streaming-sinks",
+  "commit": "b0df3bf71706e6a13041e3dda141e13312130b97",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+  ],
+  "proposal_sha256": "4064e2e608990d889f9ee7d95d16dcf2d1ef49709f7491e0350675e294bd2921",
+  "proposal": "proposed-quality-patches/Q13.patch",
+  "proposal_metadata": {
+    "id": "Q13",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_not_applied",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_operator.h",
+      "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+      "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+    ],
+    "rationale": "Preserve parallel sink connections for eligible ordinary OLAP upserts using parsed authorization and the established streaming-write eligibility contract.",
+    "scope": [
+      "Only UpsertRows targeting a non-index OLAP table.",
+      "Requires enabled OLAP sinks and the legacy permitted query kinds.",
+      "Preserves explicit AllowInconsistentWrites; enables consistent streaming only when no same-table read is found.",
+      "Traverses logical children and referenced subplans, including source reads and table lookups; a raw EmptySource input conservatively disables consistent streaming.",
+      "Map is emitted only when the OLAP-specific helper proved StreamWrite; all other paths retain UnionAll.",
+      "Flags are computed at final stage assignment from existing copied Options.Settings, avoiding new mutable operator state."
+    ],
+    "limits": [
+      "Update/insert/delete/index effect kinds and non-upsert Mode, Inplace, IsUpdate, IsConditionalUpdate settings stay on their existing path.",
+      "Datashard streaming and explicit inconsistent writes on Datashard are outside Q13 scope.",
+      "Opaque custom/parameter input retains the existing consistent sink path; a separate proof can expand this conservatively later.",
+      "No source checkout changed, branch created, compilation or native test performed."
+    ],
+    "validation_required": [
+      "Build RBO and run existing write tests.",
+      "Compare sink StreamWrite/InconsistentWrite flags and Map versus UnionAll task topology for OLAP table-fed upserts.",
+      "Verify persisted bags across multi-partition input, defaults, batch settings and duplicate keys.",
+      "Verify self-read through Source, TableLookup and nested scalar subplan remains UnionAll unless explicit inconsistent writes authorize the legacy exception.",
+      "Verify disabled OLAP sink/query-kind gates, row-store, index effects and non-upsert modes retain their existing path.",
+      "Verify explicit inconsistent settings survive copying and yield the matching sink flag."
+    ],
+    "patch_sha256": "4064e2e608990d889f9ee7d95d16dcf2d1ef49709f7491e0350675e294bd2921",
+    "apply_check_pass": true,
+    "source_review": "Checked declaration and sole call site, original flag emission, legacy parser/eligibility/Map criteria, and logical subplan traversal. Pending independent review and native validation.",
+    "independent_source_review": "No additional source blocker after review; native/build and stated topology checks remain required.",
+    "independently_reviewed_patch_sha256": "4064e2e608990d889f9ee7d95d16dcf2d1ef49709f7491e0350675e294bd2921"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

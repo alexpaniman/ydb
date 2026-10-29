@@ -1,0 +1,819 @@
+{
+  "reviewed_revision": "f746f5a75ca7846d2bcc422142d9329ec0064f94",
+  "method": "Inspected relevant current source, blame, candidate diffs and parents; followed file moves and mechanical SSA changes. No sources were edited, and no builds, native executions, or historical runtime bisection were run for attribution. Git author metadata identifies authors of source changes, not personal fault, sole responsibility, or AI authorship. Feature support gaps and exposure changes are distinguished from source-traced mechanism introductions. No emails or reproduction inputs are retained.",
+  "items": [
+    {
+      "id": "C34",
+      "title": "Scalar tuple-valued aggregates are mistaken for AVG state",
+      "location": "physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:1312",
+      "attribution_status": "source_traced_mechanism_introduction",
+      "attributed_authors": [
+        "Denis Khalikov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "229509a8de178c904cef7c88b2d804f1d3088405",
+          "author": "Denis Khalikov",
+          "date": "2026-06-19",
+          "subject": "[Optimizer] Add support for avg aggregation with multi distinct (#43945)",
+          "role": "Introduces unqualified tuple-result decoding in empty-input aggregate output construction."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+          "author": "alexpaniman",
+          "date": "2026-09-29",
+          "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+          "role": "Later SSA refactor; parent already contains the tuple-decoding mistake."
+        }
+      ],
+      "source_evidence": [
+        "The parent CreateNothingForEmptyInput uses each aggregate result type directly. The introducing diff adds processTuple and invokes it for every tuple-valued output, asserts two elements, and replaces the type with its first element.",
+        "No aggregate-function or aggregation-phase check restricts this treatment to AVG state. Current physical_conversion/kqp_rbo_physical_aggregation_builder.cpp preserves this logic after the SSA rewrite."
+      ],
+      "confidence": "High for source introduction of the defective mechanism.",
+      "caveat": "No historical execution was performed; this identifies the semantic change, not a runtime-bisected first failing revision.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Denis Khalikov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C35",
+      "title": "Ordinary AVG uses an incompatible accumulator for intervals",
+      "location": "physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:63",
+      "attribution_status": "source_traced_feature_support_gap",
+      "attributed_authors": [
+        "Denis Khalikov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "7e555f7069e1f60ed69b301b6f9e862e14af99de",
+          "author": "Denis Khalikov",
+          "date": "2025-11-24",
+          "subject": "[KQP RBO] Add avg aggregation function (#29395)",
+          "role": "Initial new-RBO AVG lowering uses a Double accumulator for nondecimal inputs, including types needing different result semantics."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "1cfaa6f5aa1f8029a99d531afa4dfe485f3e83d1",
+          "author": "Denis Khalikov",
+          "date": "2026-01-02",
+          "subject": "[NEW RBO] Add PhysicalAggregationBuilder (#31657)",
+          "role": "Moves aggregation lowering into PhysicalAggregationBuilder; not the origin."
+        },
+        {
+          "hash": "5befc907cdb026adb06534adc8d97665ad83b20a",
+          "author": "Denis Khalikov",
+          "date": "2026-03-11",
+          "subject": "[NEW RBO] Add support for AVG aggregation on Decimals (#35710)",
+          "role": "Adds decimal-specific accumulator handling but preserves the generic Double fallback."
+        }
+      ],
+      "source_evidence": [
+        "The initial AVG addition in kqp_convert_to_physical.cpp builds ordinary and optional AVG states by converting values to Double. Its parent has no AVG implementation.",
+        "Following the implementation through extraction into physical_conversion/kqp_rbo_physical_aggregation_builder.cpp shows the same fallback. The later decimal support change does not add interval-compatible accumulation or finalization."
+      ],
+      "confidence": "High for an inherited accumulator support gap in AVG; historical end-to-end interval admission not established.",
+      "caveat": "This is a feature-support omission present in the earliest traced AVG lowering, rather than evidence that the decimal-support author newly broke intervals.",
+      "presentation_group": "lineage_or_candidate_only",
+      "source_introduction_authors": [],
+      "lineage_or_candidate_authors": [
+        "Denis Khalikov"
+      ],
+      "exposure_authors": [],
+      "presentation_note": "Keep out of established introducing-author totals. These names identify implementation lineage or a qualified source candidate; no historical regression boundary is proved."
+    },
+    {
+      "id": "C36",
+      "title": "Repeated ordinary ORDER BY keys fail physical type checking",
+      "location": "physical_conversion/kqp_rbo_physical_sort_builder.cpp:73",
+      "attribution_status": "source_traced_mechanism_introduction",
+      "attributed_authors": [
+        "Denis Khalikov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "ae5c21bc792f474584493f0942be1341efda0294",
+          "author": "Denis Khalikov",
+          "date": "2026-01-20",
+          "subject": "[NEW RBO] Add wide sort for physical plan generation (#32407)",
+          "role": "Switches physical ORDER BY construction to wide sorting and emits one physical key index per logical sort element without deduplication."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+          "author": "alexpaniman",
+          "date": "2026-09-29",
+          "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+          "role": "Rewrites identifier lookup for SSA while retaining repeated physical indices."
+        }
+      ],
+      "source_evidence": [
+        "The introducing diff creates physical_conversion/kqp_rbo_physical_sort_builder.cpp and its BuildSortKeysForWideSort loop, retaining each sort element even when it resolves to a repeated column index.",
+        "The same change replaces prior narrow sort construction with WideSort/WideTopSort. These physical operators reject repeated indices, explaining the currently verified valid-query rejection."
+      ],
+      "confidence": "High for the source change that introduces duplicate indices into wide sort.",
+      "caveat": "No old-revision runtime comparison was run; the attribution is to the offending wide-sort construction, not every earlier sorting implementation.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Denis Khalikov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C37",
+      "title": "Window repartitioning leaves stale distribution metadata and breaks later grouping",
+      "location": "kqp_operator.h:974; kqp_rbo_compute_statistics.cpp:121; rules/assign_stages.cpp:265; rules/assign_stages.cpp:249",
+      "attribution_status": "source_traced_feature_interaction",
+      "attributed_authors": [
+        "Denis Khalikov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+          "author": "Denis Khalikov",
+          "date": "2026-09-10",
+          "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+          "role": "Adds Window with inherited input metadata while assigning it a repartition by window keys."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "852eb1781df7c52e7430d28f940ea3ba196e3be0",
+          "author": "alexpaniman",
+          "date": "2026-08-31",
+          "subject": "[NEW RBO] Eliminate shuffles in aggregates (#51500)",
+          "role": "Preexisting consumer: aggregate shuffle elimination trusts distribution metadata."
+        },
+        {
+          "hash": "1fdceae385da9d885ecb9492507cf86362de993a",
+          "author": "alexpaniman",
+          "date": "2026-09-14",
+          "subject": "[NEW RBO] Use SE for the aggregates unconditionally (#53070)",
+          "role": "Broadens exposure by making aggregate shuffle elimination follow the general setting."
+        },
+        {
+          "hash": "04a2a1c50ede1819db281133d128fa16d75bfe4c",
+          "author": "Pavel Velikhov",
+          "date": "2025-12-03",
+          "subject": "[NEW RBO] Added metadata and statistics calculation to new RBO (#30009)",
+          "role": "Generic unary metadata copying predates Window and is valid for many other operators; not the Window defect introduction."
+        }
+      ],
+      "source_evidence": [
+        "The Window feature diff adds TOpWindow as an IUnaryOperator without a metadata override. The same feature assigns a shuffle by partition keys in rules/assign_stages.cpp.",
+        "The existing aggregate shuffle-elimination implementation can therefore consume the pre-window distribution inherited through IUnaryOperator, although the physical Window stage changed it.",
+        "The September SSA rewrite changes representation, not this missing operator-specific metadata invalidation."
+      ],
+      "confidence": "High for the source-traced Window/metadata-consumer interaction.",
+      "caveat": "The verified failure requires shuffle elimination and partitioned execution. The generic unary-copy author is not assigned the new Window bug solely because blame points at that shared line.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Denis Khalikov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C38",
+      "title": "Full outer joins advertise a false left-key distribution and break later grouping",
+      "location": "kqp_rbo_compute_statistics.cpp:674; rules/assign_stages.cpp:249; kqp_rbo_utils.cpp:45",
+      "attribution_status": "source_traced_multi_commit_interaction",
+      "attributed_authors": [
+        "alexpaniman"
+      ],
+      "primary_commits": [
+        {
+          "hash": "9293cd7151999a6fcb3498c0540dd087d18b5bd4",
+          "author": "alexpaniman",
+          "date": "2026-05-12",
+          "subject": "[NEW RBO] Enable Shuffle Elimination in new RBO (#37956)",
+          "role": "Introduces the false one-sided Grace-join distribution claim, treating Full like left-preserving joins."
+        },
+        {
+          "hash": "852eb1781df7c52e7430d28f940ea3ba196e3be0",
+          "author": "alexpaniman",
+          "date": "2026-08-31",
+          "subject": "[NEW RBO] Eliminate shuffles in aggregates (#51500)",
+          "role": "Adds the downstream aggregate consumer involved in the verified wrong grouping."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "1fdceae385da9d885ecb9492507cf86362de993a",
+          "author": "alexpaniman",
+          "date": "2026-09-14",
+          "subject": "[NEW RBO] Use SE for the aggregates unconditionally (#53070)",
+          "role": "Broadens aggregate consumer exposure through the general shuffle-elimination setting."
+        },
+        {
+          "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+          "author": "alexpaniman",
+          "date": "2026-09-29",
+          "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+          "role": "Preserves the one-sided Full-join premise during SSA/distribution representation changes."
+        }
+      ],
+      "source_evidence": [
+        "The shuffle-elimination metadata diff uses right keys only for Right/RightSemi/RightOnly and left keys otherwise; Full therefore acquires a left-key distribution despite unmatched right rows.",
+        "The parent lacks this distribution claim. Later aggregate shuffle elimination converts the false claim into a skipped required shuffle, producing the current grouping failure."
+      ],
+      "confidence": "High for both defective metadata origin and the later relevant consumer.",
+      "caveat": "The metadata defect and the verified downstream aggregation manifestation have different introduction points; no historical runtime bisection was performed.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "alexpaniman"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C39",
+      "title": "Full joins silently discard residual ON predicates when block joins are enabled",
+      "location": "rules/inline_join_filters.cpp:68; rules/assign_stages.cpp:42; physical_conversion/kqp_rbo_physical_join_builder.cpp:502",
+      "attribution_status": "source_traced_mechanism_with_earlier_precursor",
+      "attributed_authors": [
+        "Pavel Velikhov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "e687f7790e78179f93079bdbe2fcf42b3e5951b5",
+          "author": "Pavel Velikhov",
+          "date": "2026-08-20",
+          "subject": "[NEW OPTIMIZER] Disable join filter inlining (#50389)",
+          "role": "Introduces the exact global-block/equijoin bypass of residual-filter inlining without checking the final per-kind join capability."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "84b63212775a250475b6fe397aa428fe25b9eb70",
+          "author": "Pavel Velikhov",
+          "date": "2026-08-13",
+          "subject": "[NEW OPTIMIZIER] Temporarily disable join inlining for all join implementations (#49923)",
+          "role": "Earlier related bypass when equijoin conditions remain inside JoinFilters; exact exposure of this case not established."
+        },
+        {
+          "hash": "4382787158e5fcddd09e0de7cf6a153c7ca0329f",
+          "author": "alexpaniman",
+          "date": "2026-07-15",
+          "subject": "[NEW RBO] Show BlockHashJoin in explain (#46362)",
+          "role": "Existing capability boundary excludes Full from block joins; this is a support constraint, not itself the faulty predicate decision."
+        },
+        {
+          "hash": "7fb688ddeee2b43220828fdbf0c5b19985cab7e1",
+          "author": "Pavel Velikhov",
+          "date": "2026-10-04",
+          "subject": "[NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)",
+          "role": "Adds a force-inlining exception and scheduling changes to an already-existing bypass."
+        }
+      ],
+      "source_evidence": [
+        "The August 20 diff returns the join unchanged when block joins are globally enabled, the join is not a lookup, and equijoin keys are present. It does not test whether this JoinKind will actually use blocks.",
+        "Full selects scalar Grace under the existing capability rules, and that lowering has no residual predicate input. The retained condition is consequently dropped.",
+        "The earlier August 13 precursor checks equijoin conditions still inside the filter collection; the exact current extracted-key mechanism is explicit in the August 20 change."
+      ],
+      "confidence": "High for the exact present mechanism in e687f7790e78; only candidate status for an earlier first failing revision.",
+      "caveat": "Do not claim August 20 is necessarily the earliest runtime failure: the earlier precursor was not historically executed. The current failing configuration disables the later force-inlining exception.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Pavel Velikhov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C40",
+      "title": "Multiple JSON projections from one column fail compilation",
+      "location": "rules/push_olap_projection.cpp:97",
+      "attribution_status": "source_traced_mechanism_introduction",
+      "attributed_authors": [
+        "Denis Khalikov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "b3ff58ad07528b163a07711e7c151955c0113d2e",
+          "author": "Denis Khalikov",
+          "date": "2026-03-28",
+          "subject": "[Optimizer] Push olap projection for JSON_VALUE. (#36779)",
+          "role": "Initial OLAP JSON projection rule rejects the synthetic alias required for repeated extraction from one source column."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "4ecd29167f47546ae44a45f5e9549d2d4d1774c8",
+          "author": "Vladilen",
+          "date": "2026-09-22",
+          "subject": "Fix pushdown distinct (#52125)",
+          "role": "Later edit substitutes a named prefix constant for a string literal; it does not introduce the rejection."
+        }
+      ],
+      "source_evidence": [
+        "The initial rules/push_olap_projection.cpp diff already asserts that the collected column name does not contain the OLAP-projection synthetic prefix.",
+        "The collector can use that prefix to distinguish another extraction from the same underlying column. The subsequent constant-name cleanup leaves the original assertion semantics unchanged."
+      ],
+      "confidence": "High for original source introduction.",
+      "caveat": "Current line blame identifies Vladilen for the prefix-constant substitution, but the rejecting condition was written earlier by Denis Khalikov. No historical native run was performed.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Denis Khalikov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C41",
+      "title": "Mixed read and write statements lose result bindings and fail task construction",
+      "location": "physical_conversion/kqp_rbo_physical_query_builder.cpp:596; physical_conversion/kqp_rbo_physical_query_builder.cpp:636; kqp_rbo_transformer.cpp:507",
+      "attribution_status": "source_traced_mechanism_introduction",
+      "attributed_authors": [
+        "Pavel Velikhov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "6c5cba84ecf9ae08fd6b3c0c4d9eb3835f62cd04",
+          "author": "Pavel Velikhov",
+          "date": "2026-09-17",
+          "subject": "[NEW OPTIMIZER] Support multiple statements in a query (#53062)",
+          "role": "Expands the query builder from one root to multiple roots but aggregates their effect status into one effects-only decision."
+        }
+      ],
+      "related_commits": [],
+      "source_evidence": [
+        "The multiple-statement diff replaces Root with Roots in physical_conversion/kqp_rbo_physical_query_builder.cpp, ORs WithEffects across roots, and uses that combined condition to suppress result construction and bindings.",
+        "The parent single-root effect decision applied to the same root whose result was being built. Extending it to the whole root set makes an unrelated writing root suppress read-root output ownership."
+      ],
+      "confidence": "High for source-traced interaction introduced by multi-root support.",
+      "caveat": "The verified native path disables per-statement execution. No historical execution was run; dependencies beyond the observed lost result bindings were not separately attributed.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Pavel Velikhov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C42",
+      "title": "Nested unions do not consistently widen branch types",
+      "location": "kqp_plan_conversion_utils.cpp:598; kqp_rbo_type_ann.cpp:320; physical_conversion/kqp_rbo_physical_union_all_builder.cpp",
+      "attribution_status": "inherited_support_gap_and_incomplete_repair",
+      "attributed_authors": [
+        "Denis Khalikov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "dc0256d7f53f85ce480a1d458dd2ebe044877ef0",
+          "author": "Denis Khalikov",
+          "date": "2025-10-06",
+          "subject": "[KQP RBO] Add union all (#26359)",
+          "role": "Earliest traced union lowering combines branches without complete common-schema normalization."
+        },
+        {
+          "hash": "3c09db7992df63b34399a027303c9dd20ff292bb",
+          "author": "Denis Khalikov",
+          "date": "2026-05-26",
+          "subject": "[Optimizer] Proper handle union all with optional types (#41373)",
+          "role": "Adds nullable widening only for direct map branches, leaving nested union branches untreated."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "8c3d6d2ac4e605acc0fc6caa265be3795973633d",
+          "author": "Pavel Velikhov",
+          "date": "2026-06-09",
+          "subject": "[NEW OPTIMIZER] Added support for set operations (#42928)",
+          "role": "Extends set-operation support while preserving the direct-map normalization limitation."
+        },
+        {
+          "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+          "author": "alexpaniman",
+          "date": "2026-09-29",
+          "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+          "role": "Moves/rewrites the same limited branch normalization for SSA; not the original omission."
+        }
+      ],
+      "source_evidence": [
+        "Initial union conversion recursively lowers and combines the two inputs without inserting complete per-boundary schema normalization.",
+        "The nullable-union repair explicitly calls MaybeForceColumnToOptional only when the input directly matches TKqpOpMap. Its parent does not have complete normalization either, so this repair is incomplete rather than a demonstrated regression.",
+        "Nested set-operation inputs remain outside that guard through subsequent set-operation and SSA changes."
+      ],
+      "confidence": "High for the direct-map-only repair and its persistence; medium for treating the earliest union feature as the admission point of today's exact nested family.",
+      "caveat": "There is no proven good-to-bad revision for the present query family. Earlier frontend/type admission evolved; report an inherited support gap and incomplete repair, not a runtime-bisected regression.",
+      "presentation_group": "lineage_or_candidate_only",
+      "source_introduction_authors": [],
+      "lineage_or_candidate_authors": [
+        "Denis Khalikov"
+      ],
+      "exposure_authors": [],
+      "presentation_note": "Keep out of established introducing-author totals. These names identify implementation lineage or a qualified source candidate; no historical regression boundary is proved."
+    },
+    {
+      "id": "C43",
+      "title": "Focused physical lowering rejects supported composite expressions",
+      "location": "physical_conversion/kqp_rbo_compatibility.cpp:62; physical_conversion/kqp_rbo_compatibility.cpp:225; physical_conversion/kqp_rbo_compatibility.cpp:408",
+      "attribution_status": "source_traced_feature_support_gap",
+      "attributed_authors": [
+        "alexpaniman"
+      ],
+      "primary_commits": [
+        {
+          "hash": "d2b6c65e86707fad12e57b2a01de5073f56aaf43",
+          "author": "alexpaniman",
+          "date": "2026-09-01",
+          "subject": "[NEW RBO] Disable YQL peephole in new RBO (#51457)",
+          "role": "Introduces focused physical compatibility lowering with a checker that requires more composite lowering than the rewrite implements."
+        }
+      ],
+      "related_commits": [],
+      "source_evidence": [
+        "The change creates physical_conversion/kqp_rbo_compatibility.cpp and the path used when full stage peephole is disabled.",
+        "Its rewrite covers scalar and limited tuple operations, while its compatibility checker requires complex comparisons/membership to be eliminated. The feature addition therefore lacks recursive coverage for admitted composite expressions."
+      ],
+      "confidence": "High for the source-traced support gap in the new focused path.",
+      "caveat": "The verified failure is conditional on disabling EnableNewRBOPhysicalStagePeephole. No claim is made that the ordinary full-peephole path regressed or that all composites fail.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "alexpaniman"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C44",
+      "title": "Successful indexed INSERT can omit required index maintenance",
+      "location": "kqp_operator.cpp:1622; rules/assign_stages.cpp:324; ydb/core/kqp/query_compiler/kqp_query_compiler.cpp:1978",
+      "attribution_status": "source_traced_unsafe_admission_interaction",
+      "attributed_authors": [
+        "Pavel Velikhov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "344f8fd79c22a14511219b7c22a7aa7f15a56d30",
+          "author": "Pavel Velikhov",
+          "date": "2026-09-24",
+          "subject": "[NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)",
+          "role": "Changes indexed effect variants from rejection to ordinary base-table sink modes without generating nonsink index-maintenance effects."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "b7945c07c68c68df76db3d787246eb3f895200f6",
+          "author": "Pavel Velikhov",
+          "date": "2026-09-07",
+          "subject": "[NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)",
+          "role": "Creates earlier effects infrastructure, but BuildSettings still rejects indexed variants at that point."
+        },
+        {
+          "hash": "f4a8030ce54941922e5ccafd19b773e92e6cc298",
+          "author": "Vitaliy Filippov",
+          "date": "2026-09-16",
+          "subject": "Allow to update compact fulltext indexes without the global EnableIndexStreamWrite flag (#53237)",
+          "role": "Preexisting sink contract distinguishes stream-maintained indexes from compact sink-maintained families; not the new-RBO omission origin."
+        },
+        {
+          "hash": "eff90e896672ce0be15dbf4cd2a2b6dad782885c",
+          "author": "Nikita Vasilev",
+          "date": "2026-07-02",
+          "subject": "Refactoring for sinks query compiler (#45144)",
+          "role": "Earlier query-compiler refactor retains restricted sink maintenance; context only, not a defect attribution."
+        }
+      ],
+      "source_evidence": [
+        "In kqp_operator.cpp, the September 24 diff adds InsertRowsIndex and other indexed variants to the ordinary mode cases in BuildSettings. Its parent rejects those variants.",
+        "The resulting Effect still becomes an ordinary table sink, with no separate maintenance expansion for index families outside the sink contract.",
+        "The parent already has the compiler limitation: ordinary synchronous maintenance requires stream index writes, while compact families have dedicated sink support. Legacy explicitly supplies other maintenance effects."
+      ],
+      "confidence": "High for the source-traced transition from rejection to the verified unsafe successful lowering.",
+      "caveat": "Native evidence covers noncompact fulltext and ordinary synchronous indexes with stream writes disabled. The consumer's intentional capability boundary is not assigned blame for the producer's unsupported admission. No historical runtime bisection was performed.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Pavel Velikhov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C45",
+      "title": "Window expressions lose nested-field receivers",
+      "location": "kqp_rewrite_select.cpp:1143; kqp_rewrite_select.cpp:1253",
+      "attribution_status": "source_traced_feature_support_gap",
+      "attributed_authors": [
+        "Denis Khalikov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "11ebdccf532442bc91e1c664403a677d55b2fd2b",
+          "author": "Denis Khalikov",
+          "date": "2026-09-10",
+          "subject": "[Optimizer] Add initial support for window functions. (#52620)",
+          "role": "Initial Window import reduces Member expressions to their final field name without validating or preserving the receiver."
+        }
+      ],
+      "related_commits": [],
+      "source_evidence": [
+        "The initial Window feature adds ResolveWindowKeyColumn and window-call argument translation. Both recognize Member and retain its Name as if the receiver were the row itself.",
+        "A nested field receiver is therefore lost before argument/key binding. Current kqp_rewrite_select.cpp retains the same assumption."
+      ],
+      "confidence": "High for source introduction of the receiver-loss mechanism.",
+      "caveat": "Only valid-query rejection for nested window arguments is native-confirmed. Wrong-column binding and partition/order variants remain source-only consequences, and were not historically executed.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Denis Khalikov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [],
+      "presentation_note": "May appear in source-introduction grouping for the defective mechanism, with the stated interactions and no claim of historical runtime bisection."
+    },
+    {
+      "id": "C46",
+      "title": "Conditional UPDATE is rejected by table-effect translation",
+      "location": "kqp_rewrite_select.cpp:1678",
+      "attribution_status": "source_traced_feature_support_gap",
+      "attributed_authors": [
+        "Pavel Velikhov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "b7945c07c68c68df76db3d787246eb3f895200f6",
+          "author": "Pavel Velikhov",
+          "date": "2026-09-07",
+          "subject": "[NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)",
+          "role": "Initial table-effect importer accepts only an already-translated root as input, leaving normalized conditional-update inputs unsupported."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "344f8fd79c22a14511219b7c22a7aa7f15a56d30",
+          "author": "Pavel Velikhov",
+          "date": "2026-09-24",
+          "subject": "[NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)",
+          "role": "Broadens accepted input to a map over a root, but retains rejection of the conditional-update form; incomplete expansion, not a newly introduced rejection."
+        }
+      ],
+      "source_evidence": [
+        "The initial RewriteTableEffect implementation demands TKqpOpRoot for its input and otherwise rejects it.",
+        "The later Insert/Updates change adds a second accepted shape, Map(TKqpOpRoot), but still does not translate the normalized conditional-update input used by the verified failure.",
+        "The current rejecting line is therefore inherited incomplete import support, not evidence that the September 24 expansion regressed a previously supported form."
+      ],
+      "confidence": "High for the importer support gap; no proved good-to-bad historical query boundary.",
+      "caveat": "The initial feature was described as effects from SELECT, so author attribution identifies the narrow importer's history rather than claiming that conditional UPDATE was previously promised or working in new RBO.",
+      "presentation_group": "lineage_or_candidate_only",
+      "source_introduction_authors": [],
+      "lineage_or_candidate_authors": [
+        "Pavel Velikhov"
+      ],
+      "exposure_authors": [],
+      "presentation_note": "Keep out of established introducing-author totals. These names identify implementation lineage or a qualified source candidate; no historical regression boundary is proved."
+    },
+    {
+      "id": "C47",
+      "title": "Explicit secondary-index reads are not imported",
+      "location": "kqp_rewrite_select.cpp:1892",
+      "attribution_status": "inherited_source_kind_support_gap",
+      "attributed_authors": [
+        "Pavel Velikhov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "2805cf0cdbc875f908fabe74217de93cc490a5ad",
+          "author": "Pavel Velikhov",
+          "date": "2025-11-20",
+          "subject": "[NEW RBO] Add YqlSelect support (#28901)",
+          "role": "Adds YqlSelect support using the inherited base-table-only source importer; the missing explicit-index read branch remains."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "83f4fbe79d33d2c0e11fc3d26569cecc7e50f988",
+          "author": "Pavel Velikhov",
+          "date": "2025-05-08",
+          "subject": "New RBO prototype (#13704)",
+          "role": "Earliest implementation ancestry: the original prototype directly wraps sources as TKqlReadTableRanges."
+        },
+        {
+          "hash": "a7816a06aeb6251034bbe98f55aef1f773c68ddf",
+          "author": "Pavel Velikhov",
+          "date": "2025-09-26",
+          "subject": "Added support for CTEs, alias renames and graphs into new RBO (#24467)",
+          "role": "Adds CTE/source handling while retaining the base-table-only branch."
+        },
+        {
+          "hash": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+          "author": "Pavel Velikhov",
+          "date": "2026-06-02",
+          "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+          "role": "Makes the branch test and unsupported-source error explicit in the single-pass rewrite; not the original missing source kind."
+        }
+      ],
+      "source_evidence": [
+        "Current import handles TKqlReadTableRanges and translated roots/YqlSelect forms, but no TKqlReadTableIndexRanges branch.",
+        "The June single-pass rewrite makes that restriction explicit. Its parent already assumes non-subquery inputs are TKqlReadTableRanges.",
+        "Following the file move through YqlSelect support and earlier CTE changes reaches the May prototype, whose source importer also directly wraps TKqlReadTableRanges. No complete explicit-index importer removed by these commits was found."
+      ],
+      "confidence": "High for inherited missing source-kind support; medium for a precise end-to-end first affected SQL revision.",
+      "caveat": "This is not a proven regression introduced by the prototype, the file move, or the current error line. The feature admission point and earliest runtime failure were not historically bisected.",
+      "presentation_group": "lineage_or_candidate_only",
+      "source_introduction_authors": [],
+      "lineage_or_candidate_authors": [
+        "Pavel Velikhov"
+      ],
+      "exposure_authors": [],
+      "presentation_note": "Keep out of established introducing-author totals. These names identify implementation lineage or a qualified source candidate; no historical regression boundary is proved."
+    },
+    {
+      "id": "C48",
+      "title": "Indexed UPSERT is rejected when sink index maintenance is disabled",
+      "location": "kqp_rewrite_select.cpp:1792; ydb/core/kqp/opt/kqp_opt_kql.cpp:587",
+      "attribution_status": "source_traced_feature_support_gap",
+      "attributed_authors": [
+        "Pavel Velikhov"
+      ],
+      "primary_commits": [
+        {
+          "hash": "b7945c07c68c68df76db3d787246eb3f895200f6",
+          "author": "Pavel Velikhov",
+          "date": "2026-09-07",
+          "subject": "[NEW OPTIMIZER] Support INSERT/UPDATE/... from SELECT (#51243)",
+          "role": "Initial effects importer handles ordinary KqlUpsertRows but lacks KqlUpsertRowsIndex."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "344f8fd79c22a14511219b7c22a7aa7f15a56d30",
+          "author": "Pavel Velikhov",
+          "date": "2026-09-24",
+          "subject": "[NEW OPTIMIZER] Fix issues with Insert/Updates (#54028)",
+          "role": "Adds indexed modes in sink settings, but does not add the missing indexed-upsert importer branch."
+        }
+      ],
+      "source_evidence": [
+        "The original RewriteTableEffect implementation contains ordinary upsert and other effect cases followed by an unsupported-effect failure, without a KqlUpsertRowsIndex case.",
+        "The upstream effect representation legitimately uses KqlUpsertRowsIndex when stream index maintenance is disabled. This shape still does not reach a supported importer branch after the later sink-mode additions."
+      ],
+      "confidence": "High for the source-traced missing branch from initial DML support.",
+      "caveat": "This is a conditional support gap, not evidence of a historically working indexed-upsert path later being removed. No historical runtime bisection was performed.",
+      "presentation_group": "lineage_or_candidate_only",
+      "source_introduction_authors": [],
+      "lineage_or_candidate_authors": [
+        "Pavel Velikhov"
+      ],
+      "exposure_authors": [],
+      "presentation_note": "Keep out of established introducing-author totals. These names identify implementation lineage or a qualified source candidate; no historical regression boundary is proved."
+    },
+    {
+      "id": "C49",
+      "title": "Incomplete lookup keys make residual LEFT JOIN reconstruction mix different rows",
+      "location": "kqp_rbo_compute_statistics.cpp:225; rules/push_ranges.cpp:690; rules/inline_join_filters.cpp:109",
+      "attribution_status": "source_traced_metadata_defect_with_later_exposure",
+      "attributed_authors": [
+        "Yesdaulet Izenov",
+        "Pavel Velikhov",
+        "alexpaniman"
+      ],
+      "primary_commits": [
+        {
+          "hash": "93ac68420d538bc9659cec81f915458e05c6ac0a",
+          "author": "Yesdaulet Izenov",
+          "date": "2026-07-28",
+          "subject": "[NewRBO] Auto index select (#47915)",
+          "role": "Introduces noncovering TableLookup metadata that advertises only surviving primary-key components as a complete unique key."
+        },
+        {
+          "hash": "ace526f2d23b6c1a980cc3a01524467484aa4a3f",
+          "author": "Pavel Velikhov",
+          "date": "2026-08-15",
+          "subject": "[NEW OPTIMIZER] CBO picks lookup joins correctly (#50095)",
+          "role": "Exposure change: decouples key pruning from late residual inlining, permitting both together."
+        },
+        {
+          "hash": "2bef7dc5e9eba990c818bf9d40e9cf71ead97249",
+          "author": "alexpaniman",
+          "date": "2026-09-04",
+          "subject": "[NEW RBO][PERF] Prune columns early to speedup TypeAnn during subplan handling (#52139)",
+          "role": "Exposure change: adds unconditional early primary-key pruning before the later reconstruction consumer."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "d865a089d7dd678ad474a9eac95b1ba27b074675",
+          "author": "Pavel Velikhov",
+          "date": "2026-05-19",
+          "subject": "[NEW RBO] Fix inline join filters rule (#40392)",
+          "role": "Preexisting reconstruction consumer changes residual join reattachment to left metadata KeyColumns; it requires the producer's uniqueness contract."
+        },
+        {
+          "hash": "e771af8fddfdf18624496f497d6167a1e348102f",
+          "author": "alexpaniman",
+          "date": "2026-07-17",
+          "subject": "[NEW RBO] Inline join filters after CBO (#46665)",
+          "role": "Adds late inlining but originally protects required key columns when late inlining is enabled."
+        },
+        {
+          "hash": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+          "author": "alexpaniman",
+          "date": "2026-09-29",
+          "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+          "role": "Mechanically preserves the partial-key metadata omission during SSA migration."
+        },
+        {
+          "hash": "7fb688ddeee2b43220828fdbf0c5b19985cab7e1",
+          "author": "Pavel Velikhov",
+          "date": "2026-10-04",
+          "subject": "[NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)",
+          "role": "Later changes residual-inlining policy and scheduling; not the origin of false partial-key uniqueness."
+        }
+      ],
+      "source_evidence": [
+        "The July Auto index select diff creates TOpTableLookup::ComputeMetadata and appends each base primary-key component only if it appears in FetchColumns, then advertises the possibly incomplete list as KeyColumns. It also creates the noncovering lookup path.",
+        "The preexisting late-inlining consumer uses KeyColumns as the row identity for reattaching filtered matches. A strict subset of a composite key cannot establish that identity.",
+        "The July pipeline still derives pruneKeyColumnsEarly from the absence of late inlining. The August change replaces this protection with an independent setting; the September early-pruning stage unconditionally enables key pruning.",
+        "The SSA change rewrites lookup and key containers but does not add or remove the missing all-components completeness check."
+      ],
+      "confidence": "High for the July metadata defect and for the separate source exposure changes; no single runtime-bisected introduction for the entire chain.",
+      "caveat": "Do not assign the full current wrong-result chain to the metadata author alone, or to the SSA author based on last-line blame. Native confirmation covers LEFT reconstruction; semi/anti variants remain source-only and are not claimed observed.",
+      "presentation_group": "source_introduction",
+      "source_introduction_authors": [
+        "Yesdaulet Izenov"
+      ],
+      "lineage_or_candidate_authors": [],
+      "exposure_authors": [
+        "Pavel Velikhov",
+        "alexpaniman"
+      ],
+      "presentation_note": "Source introduction applies to the false partial-key metadata (Yesdaulet Izenov). Keep Pavel Velikhov and alexpaniman in separate pruning/exposure roles. A single introducing author for the full current wrong-result chain is not established."
+    },
+    {
+      "id": "C50",
+      "title": "Mixed numeric join keys can be shuffled before type normalization and lose matches",
+      "location": "rules/assign_stages.cpp:170; rules/assign_stages.cpp:181; physical_conversion/kqp_rbo_physical_join_builder.cpp:247",
+      "attribution_status": "separate_pipeline_mechanisms_with_uncertain_earliest_failure",
+      "attributed_authors": [
+        "Denis Khalikov",
+        "Filitov Mikhail"
+      ],
+      "primary_commits": [
+        {
+          "hash": "1d58575fc39a3d375a5dabb06fa51605e0986932",
+          "author": "Denis Khalikov",
+          "date": "2026-03-24",
+          "subject": "[NEW RBO] Add support to join on optional keys. (#36479)",
+          "role": "New RBO: introduces common-type preparation maps inside the consuming physical join, after existing original-key shuffle assignment."
+        },
+        {
+          "hash": "2fd81e982c1aca687358e605804ed873a28ff835",
+          "author": "Filitov Mikhail",
+          "date": "2026-05-14",
+          "subject": "[BHJ] remove filternullmembers (#40283)",
+          "role": "Legacy exposure candidate: disables upstream common-key remaps for block hash joins."
+        }
+      ],
+      "related_commits": [
+        {
+          "hash": "9293cd7151999a6fcb3498c0540dd087d18b5bd4",
+          "author": "alexpaniman",
+          "date": "2026-05-12",
+          "subject": "[NEW RBO] Enable Shuffle Elimination in new RBO (#37956)",
+          "role": "Current new-RBO shuffle lines have this blame, but original-key shuffle construction predates this change; not sufficient as origin."
+        },
+        {
+          "hash": "a7c82a1ebb7e95ba595f2db9836958a67d138563",
+          "author": "a-romanov",
+          "date": "2022-11-30",
+          "subject": "Make common keys type for hash join.",
+          "role": "Older legacy common-key handling normalizes upstream and is not the same late-normalization defect."
+        }
+      ],
+      "source_evidence": [
+        "The March new-RBO change adds common-key type computation and StrictCast preparation in the physical join builder. Stage assignment already constructs hash-shuffle connections from original logical keys; a cast inside the receiving stage cannot repair earlier partition selection.",
+        "Legacy DQ ordinarily pushes remapping lambdas into upstream stages and changes shuffle keys. The May block-join change adds an if-not-block guard around this upstream key-type preparation.",
+        "Current verification inherits block joins enabled for the legacy path. That makes the block-specific guard relevant to the observed shared symptom, but does not prove legacy scalar lowering has the same new-RBO design.",
+        "The new-RBO parent before March lacks the common-type preparation maps. Its behavior for every mixed numeric family was not executed, so an earlier wrong-result route cannot be excluded."
+      ],
+      "confidence": "High for the two source mechanisms; only candidate-level confidence for earliest legacy exposure and repository-wide first failure.",
+      "caveat": "The current wrong result is independently native-confirmed in both optimizers. Their common symptom is not proof of one shared introducing commit. No historical runtime or native algorithm-isolation bisection was performed; the legacy block-specific candidate must remain qualified.",
+      "presentation_group": "lineage_or_candidate_only",
+      "source_introduction_authors": [],
+      "lineage_or_candidate_authors": [
+        "Denis Khalikov",
+        "Filitov Mikhail"
+      ],
+      "exposure_authors": [],
+      "presentation_note": "Keep out of established introducing-author totals. These names identify implementation lineage or a qualified source candidate; no historical regression boundary is proved."
+    }
+  ]
+}

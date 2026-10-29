@@ -1,0 +1,50 @@
+r27: OLAP filter/projection/block-mode/inspection review
+Two passes completed. Repository was read only; no build was started. No exact query, input dataset, failing predicate witness, or reproduction case was saved or emitted.
+
+CORRECTNESS: actionable findings
+
+1. P1: Multiple JSON projections from the same source column fail compilation.
+Primary: ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp:95-98.
+Producer evidence: ydb/core/kqp/opt/physical/kqp_opt_phy_olap_filter.cpp:1014-1047.
+The collector deliberately creates a fresh projection alias after the first accepted JSON extraction from a given source column. The new RBO asserts that no alias exists instead of supporting it or declining the rewrite. Distinct JSON extraction outputs over one source column are valid and cannot generally be eliminated as duplicate expressions. The assertion is before the notSuitableToPushMembers check, so even cases the new liveness protection intends to skip can fail.
+Fix: reject duplicate-source candidates before alias creation until the RBO can allocate real IUs for synthetic projection outputs; preferable long-term implementation retains the original source and binds projection outputs separately.
+Verification: second pass traced collector creation, map-element iteration, and unconditional assertion. Not exercised through a compiled YDB binary.
+
+2. P1: JSON projection overwrites a source column still used elsewhere in the same accepted expression.
+Primary: ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp:75-83,98-106.
+Producer evidence: ydb/core/kqp/opt/physical/kqp_opt_phy_olap_filter.cpp:907-914.
+The collector accepts an expression containing exactly one pushable JSON_VALUE, even when other subexpressions also read its source JSON column. Member-use exclusion runs only for expressions rejected by the collector. The rule overwrites the original column with the extracted scalar and rewrites only the JSON_VALUE node, leaving the other raw-column uses bound to the replaced value and type. Result can be a type-annotation failure or changed values when remaining code accepts both representations. Protection for pass-through columns and separate copy elements does not inspect these uses within the successful candidate.
+Consumer evidence: kqp_rbo_type_ann.cpp:114-128 retypes the source using the projection output schema, confirming that the original column type really changes.
+Fix: determine all remaining dependencies after replacing the candidate and reject destructive overwrite whenever the source still occurs; separate output IUs remove this entire hazard.
+Verification: second pass checked liveness guards, collector contract, replacement scope, and read schema update. No YDB execution.
+
+3. P1: Mixed filter execution levels break nested Boolean predicates.
+Primary: ydb/core/kqp/opt/physical/kqp_opt_phy_olap_filter.cpp:855-900; negation at 83-90.
+New-RBO entry: ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp:132-135,174-193.
+The helper partitions conjunctions into ordinary filters and substring filters. An OR or XOR parent appends both partitions as independent operands, dropping the conjunction grouping of that child. NOT independently negates each partition and they are later applied sequentially. Both alter row inclusion. This helper is shared with the old physical optimizer, so this is an existing shared defect reached by new RBO, not established as newly introduced.
+Fix: only split execution levels across top-level conjunctions. Recombine both levels into one conjunction before applying OR/XOR/NOT, or keep the entire non-conjunctive subtree in one level.
+Verification: executable abstract-model sweep checked 768 generated Boolean states while checking source signatures corresponding to the implementation. Mismatch totals by outer operator: AND 0, OR 8, XOR 24, NOT 16. No witness states or predicates were printed or stored. Non-nullable substring predicates can reach level splitting; optional wrappers can mask it for other cases. The common NOT simplifiers do not generally distribute NOT over conjunctions. This is model/source validation, not an end-to-end YDB run.
+
+OPTIMIZATION QUALITY: separate findings
+
+4. P2: Full peephole lowering before collection prevents native JSON filter pushdown.
+Primary: rules/push_olap_filter.cpp:123-129.
+The initial unconditional peephole pass expands JSON_VALUE and JSON_EXISTS before the native predicate collector sees them. With scalar Apply enabled, the rule can use generic Json2 UDF evaluation over the full JSON value; with it disabled, otherwise supported native JSON filtering stays outside the column shard. Old physical pushdown collects native predicates first and preserves JSON work as external Apply arguments when lowering is needed (physical/kqp_opt_phy_olap_filter.cpp:1368-1376,1385-1387).
+Evidence: JsonValue/JsonExists are CommonStageRules at yql/essentials/core/peephole_opt/yql_opt_peephole_physical.cpp:9316-9317, so merely fixing WithFinalStageRules does not solve this.
+Fix: collect native predicates before full lowering, or preserve supported JSON nodes as external arguments before peephole.
+Verification: source pipeline order and lowering registration traced twice; no performance measurement.
+
+5. P2: The OLAP wide-LIMIT safeguard disables the block engine for unrelated row-store work.
+Primary: rules/disable_blocks_on_columns_limit.cpp:10-14,39-40.
+The new guard checks only Limit kind, width, and existing block mode. It no longer checks for a column-table source, and writes the query-wide BlockEngineMode setting. A wide row-store-only limit can therefore disable block processing across the query despite having no OLAP scan to protect.
+Comparison: old physical/kqp_opt_phy_limit.cpp:59-65 requires an OLAP read below the limit.
+Fix: restore storage applicability (and preferably measure the live physical row width rather than all available IUs).
+Verification: both rule guards and global context assignment compared. No performance measurement.
+
+SECOND-PASS DISPOSITIONS / DO NOT OVERSTATE
+
+- The inspection helper misses bare column atoms reached through unary/binary/ternary operands and visits an Apply's kernel lambda instead of its Args (kqp_olap_expr_inspection.cpp:133-149,178-181). That violates its dependency-reporting contract. Current pushed filters also retain OriginalPredicate, whose raw dependencies are unioned into GetRequiredColumns (kqp_operator.cpp:344-364), and projection operations retain explicit JSON-column nodes. Thus I did not establish a current user-query column-pruning failure and do not count it as a confirmed result bug. Fix the inspector before relying on it without OriginalPredicate.
+- push_olap_filter.cpp:71-76 constructs WithFinalStageRules=false settings but never passes them. This is confirmed dead configuration, but the native-JSON optimization issue above is in common rules and has a different fix. No independent correctness consequence established.
+- Coalescing nullable filter results to false preserves filter truth semantics; residual predicates are retained and wrapped into fresh single-row lambdas by TExpression. I did not find an independent NULL/residual-binding defect here.
+- Native JSON projection capability checks now reject explicit RETURNING, non-default error/empty behavior, nonconstant paths, and PASSING variables. Those cases were checked rather than counted as bugs.
+- Range pushdown is registered before OLAP filter/projection. Read replacements preserve range, original predicate, limit, and sort state. Projection wraps existing pushed filters so they consume the original JSON values before overwrite.

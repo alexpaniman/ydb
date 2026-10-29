@@ -1,0 +1,314 @@
+{
+  "status": "generators_prepared_native_not_run",
+  "input_policy": "Rendered inputs stay in memory only",
+  "recommended_n": 32,
+  "runner_contract": [
+    "CASE_SPECIFIC_SCHEMA=True",
+    "check_result_sets validates ownership",
+    "validation_queries/check_validation_results validates effect-only persistence"
+  ],
+  "fixture_revision": "homogeneous nullable seed arms; default ascending null ordering",
+  "cases": {
+    "c41_results_then_effect": {
+      "bug": "C41",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {
+        "EnablePerStatementQueryExecution": false
+      },
+      "plan_assertions": [
+        "Result bindings exist for every read root and no effect root",
+        "Transactions preserve original query-block order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c41_effect_then_results": {
+      "bug": "C41",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {
+        "EnablePerStatementQueryExecution": false
+      },
+      "plan_assertions": [
+        "Result bindings exist for every read root and no effect root",
+        "Transactions preserve original query-block order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c41_multiple_results_effect": {
+      "bug": "C41",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {
+        "EnablePerStatementQueryExecution": false
+      },
+      "plan_assertions": [
+        "Result bindings exist for every read root and no effect root",
+        "Transactions preserve original query-block order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c41_write_then_read_same_table": {
+      "bug": "C41",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {
+        "EnablePerStatementQueryExecution": false
+      },
+      "plan_assertions": [
+        "Result bindings exist for every read root and no effect root",
+        "Transactions preserve original query-block order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c41_materialized_blocks": {
+      "bug": "C41",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {
+        "EnablePerStatementQueryExecution": false
+      },
+      "plan_assertions": [
+        "Result bindings exist for every read root and no effect root",
+        "Transactions preserve original query-block order",
+        "If range materialization is selected, its binding refers to that block precompute transaction"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c41_effect_only": {
+      "bug": "C41",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {
+        "EnablePerStatementQueryExecution": false
+      },
+      "plan_assertions": [
+        "Result bindings exist for every read root and no effect root",
+        "Transactions preserve original query-block order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c41_read_only": {
+      "bug": "C41",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {
+        "EnablePerStatementQueryExecution": false
+      },
+      "plan_assertions": [
+        "Result bindings exist for every read root and no effect root",
+        "Transactions preserve original query-block order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_covering": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read",
+        "Covering access does not need a main-table lookup"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_noncovering": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read",
+        "Main-table lookup uses both physical primary-key fields in z,a order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_composite_primary_key": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read",
+        "Main-table lookup uses both physical primary-key fields in z,a order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_nullable_primary_key": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read",
+        "Main-table lookup uses both physical primary-key fields in z,a order"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_nullable_index_key": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read",
+        "Covering access does not need a main-table lookup"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_range_filter": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read",
+        "Covering access does not need a main-table lookup"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_alias_join": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_sorted_limit": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read",
+        "Covering access does not need a main-table lookup"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    },
+    "c47_main_table_control": {
+      "bug": "C47",
+      "deterministic": true,
+      "compare_legacy_hash": true,
+      "repetitions": 1,
+      "pragmas": [],
+      "flag_pragmas": [],
+      "table_service_overrides": {},
+      "plan_assertions": [
+        "Explicit VIEW retains an implementation-table read"
+      ],
+      "assertions": [
+        "Successful execution",
+        "Semantic oracle passes",
+        "New and legacy result hashes agree"
+      ]
+    }
+  }
+}

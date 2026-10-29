@@ -1,0 +1,26 @@
+{
+  "status": "dormant_source_only_rejected_stage_evidence",
+  "patch_sha256": "7c63a3095c1b60f23595d466e9224717ae0075a9be6a2c63c2700a489786778e",
+  "before_sha256": "3572a5468633bb6a67233aea292abc7c4af5285c79c2e7cdba0a25681ef586dd",
+  "after_sha256": "48515b54d5c8d96a38ce8755fdc732ec9817b2b8f5e58d7941b306c4d1e4d6f4",
+  "syntax_parse_passed": true,
+  "reason": "Existing execute discards accumulated sanitized process evidence if a post-run MetadataError rejects admission; the existing C31 failure does not identify whether the initial or final receipt check failed.",
+  "contracts": [
+    "Initial and final receipt rejections carry explicit stage names.",
+    "Only already-sanitized compile/link/native process records and anonymous object/executable hashes and sizes are retained.",
+    "Generated source, commands, raw diagnostics and case verdicts are not copied into rejection evidence.",
+    "The existing failure status, nonzero exit code and no_runtime_verdict_accepted remain unchanged.",
+    "Exception propagation and descriptor cleanup remain unchanged.",
+    "No source or execution success is inferred for the earlier failure."
+  ],
+  "verification": {
+    "native_runs": 0,
+    "compiler_runs": 0,
+    "mock_suites": 0,
+    "live_helper_edits": false,
+    "production_edits": false
+  },
+  "remaining": [
+    "Separate independent source review is required; this patch does not block the ctime comparison fix."
+  ]
+}

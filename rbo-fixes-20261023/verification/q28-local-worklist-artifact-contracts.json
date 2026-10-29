@@ -1,0 +1,107 @@
+{
+  "finding": "Q28",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "8a42b5698e16cbf3f4ef1824061657acf539f5416b995ac881d49ad050df192e",
+  "artifact_contracts_passed": true,
+  "source_contracts": {
+    "unknown_effect_defaults_to_conservative": true,
+    "shared_producer_boundary_documented": true,
+    "right_join_trace_behavior_preserved": true,
+    "only_three_rules_opt_in": true,
+    "only_output_property_admitted": true,
+    "owning_slots_checked": true,
+    "cbo_and_physical_excluded": true,
+    "canonical_subplan_slot_used": true,
+    "child_first_local_refresh": true,
+    "matched_root_output_contract_checked": true,
+    "dirty_region_requeued": true,
+    "fresh_conservative_pass_retained": true,
+    "match_ceiling_retained": true
+  },
+  "cpp_generator": {
+    "generator_cases": 26,
+    "generated_source_sha256": "fbdcb70df30c5a6779b6ae5d59e5f0de55427a598e5bed74bbd204336855f127",
+    "standard_numeric_jsonl": true,
+    "native_runs": 0,
+    "generated_source_saved": false,
+    "acceptance": "Actual candidate visits, production-rule attempts and source output-refresh counts have bounded local growth; excluded controls retain conservative work.",
+    "edge_contracts": [
+      "Kept versus removed top Map",
+      "Both Join children acquire Maps",
+      "Filter/Limit/Sort chains",
+      "Canonical Replicate slot versus raw shared slots",
+      "Active subplan root replacement",
+      "CBO/physical/property-demand fallback"
+    ],
+    "remaining_native_coverage": [
+      "All generated native contracts await compilation and execution.",
+      "RightSemi/RightOnly normalization remains covered by the prior Q28 profile."
+    ]
+  },
+  "model": {
+    "model_pass": true,
+    "seed": 2828,
+    "fixed_point_comparisons": 238,
+    "semantic_graph_checks": 160,
+    "unknown_effect_fallback_checks": 160,
+    "raw_shared_owner_fallback_checks": 24,
+    "right_join_chain_model_checks": 24,
+    "model_costs": [
+      {
+        "branches": 8,
+        "matches": 15,
+        "conservative_attempts": 1011,
+        "worklist_attempts": 263,
+        "conservative_output_visits": 732,
+        "worklist_output_visits": 138,
+        "conservative_candidate_visits": 512,
+        "worklist_candidate_visits": 138
+      },
+      {
+        "branches": 16,
+        "matches": 36,
+        "conservative_attempts": 3599,
+        "worklist_attempts": 527,
+        "conservative_output_visits": 3187,
+        "worklist_output_visits": 275,
+        "conservative_candidate_visits": 1811,
+        "worklist_candidate_visits": 275
+      },
+      {
+        "branches": 32,
+        "matches": 65,
+        "conservative_attempts": 11448,
+        "worklist_attempts": 1030,
+        "conservative_output_visits": 11349,
+        "worklist_output_visits": 536,
+        "conservative_candidate_visits": 5745,
+        "worklist_candidate_visits": 536
+      },
+      {
+        "branches": 64,
+        "matches": 149,
+        "conservative_attempts": 53617,
+        "worklist_attempts": 2145,
+        "conservative_output_visits": 50854,
+        "worklist_output_visits": 1119,
+        "conservative_candidate_visits": 26855,
+        "worklist_candidate_visits": 1119
+      }
+    ],
+    "native_runs": 0,
+    "native_cost_reduction_verified": false
+  },
+  "generator_sha256": "e32719455f2ea13b6cbd0b19772243c7d61f2497cfb9310c896515ecf642a00d",
+  "model_sha256": "830c9967f0639a33879ddc6279651924d3c49dc9957e134825dd73f037db22a6",
+  "compiled": false,
+  "native_runs": 0,
+  "generated_source_saved": false,
+  "production_edited": false,
+  "status": "architectural_step_prepared_partial_unverified",
+  "limits": [
+    "Model equivalence is not native equivalence.",
+    "Native generator assertions have not been compiled or run.",
+    "Unreviewed rules and global property analyses retain conservative scheduling.",
+    "Right-join semantic edge cases use the existing separate Q28 acceptance profile."
+  ]
+}

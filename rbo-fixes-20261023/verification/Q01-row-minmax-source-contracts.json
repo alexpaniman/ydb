@@ -1,0 +1,93 @@
+{
+  "id": "Q01",
+  "source_commit": "fcf071da437b3602ae63869477e74da02a166f92",
+  "status": "bounded_rows_minmax_amendment_proposed_native_pending",
+  "patch": "rbo-fixes-20261023/proposed-quality-amendments/Q01-row-minmax.patch",
+  "patch_sha256": "17f7f859cd0ea7192c5c34e6a368f01997bcec7afb22017d28361cc8510e5719",
+  "generator_sha256": "194f6906e69ebc633b952899f36848ff55dc605ce7beacef6513c31b50fd69ae",
+  "apply_check_passed": true,
+  "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "production_sources_modified": false,
+  "compiled": false,
+  "native_verified": false,
+  "model": {
+    "model_result_checks": 13392,
+    "model_associativity_checks": 8788,
+    "max_transfers_per_appended_item": 1.0,
+    "status": "model_only_not_native",
+    "complete_minmax_fix": false,
+    "range_entering_rows_api_resolved": false
+  },
+  "eligible_types": [
+    "Bool",
+    "Int8",
+    "Uint8",
+    "Int16",
+    "Uint16",
+    "Int32",
+    "Uint32",
+    "Int64",
+    "Uint64",
+    "Decimal",
+    "Interval",
+    "Interval64",
+    "Date",
+    "Datetime",
+    "Timestamp",
+    "Date32",
+    "Datetime64",
+    "Timestamp64",
+    "One Optional wrapper around the listed types"
+  ],
+  "eligible_frames": "ROWS with both bounds Preceding, CurrentRow or Following; MIN/MAX argument count exactly one.",
+  "source_contracts": [
+    "Queue rows receive one private partition-local absolute ordinal; the public output layout excludes it.",
+    "ROW frame endpoints advance monotonically, by at most one entering row per output after the first nonempty frame. The first frame is folded once; later entry reads use the existing constant-time single-element WinFrame form.",
+    "A previous endpoint of zero means no nonempty frame has been seen. Empty frames clear both stacks while retaining the high-water endpoint; clipped tails never insert an already seen row.",
+    "Every rear stack entry stores its ordinal, original optional scalar and chronological prefix summary. Transferring newest-to-oldest prepends an entry whose summary combines its raw value before the existing front summary. Final combination places front before rear.",
+    "Front expiry compares absolute ordinals against the first current-frame row. Each expired entry is visited once plus one stopping check per output. Front Skip is an O(1) direct-list slice.",
+    "Rear lists are only prepended or cleared. A transferred front is only skipped until empty, preventing a Prepend-after-Freezed copy cycle.",
+    "TListRepresentation copying transfers its Normal capability; HolderFactory Prepend preserves this transfer and uses geometric NewNormal growth. Head, length and direct-list iterator reads do not copy that representation.",
+    "Scalar MIN/MAX implementations select an existing value under a total order. Integer/date/interval ties have identical scalar bits; Decimal compares raw 128-bit encodings. Optional absence is the aggregate identity.",
+    "No aggregate arithmetic is regrouped by this amendment. Floating, composite, opaque, string/timezone and unlisted data slots retain existing behavior.",
+    "The final per-frame Fold1 omits only these eligible MIN/MAX definitions; other aggregate families and RANGE keep the previous path.",
+    "The input queue stores ordinary cumulative rows plus an ordinal, never persistent stack snapshots. Two-stack memory is bounded by the largest admitted ROWS frame, with geometric backing-buffer overhead."
+  ],
+  "references": [
+    "yql/essentials/minikql/computation/mkql_computation_node_list.h:95,220,297,399",
+    "yql/essentials/minikql/computation/mkql_computation_node_holders.cpp:170,192,3238,3325",
+    "yql/essentials/minikql/comp_nodes/mkql_queue.cpp:TQueueRange,TWinFrame",
+    "yql/essentials/minikql/mkql_core_win_frames_collector.h:UpdateAllRowsIntervals,UpdateAllRangeIncrementalsIntervals",
+    "yql/essentials/core/common_opt/yql_co_simple1.cpp:OptimizeInsert",
+    "yql/essentials/core/peephole_opt/yql_opt_peephole_physical.cpp:OptimizeSkip,ExpandAggrMinMax",
+    "yql/essentials/minikql/invoke_builtins/mkql_builtins_min.cpp:TMin,TDecimalAggrMin",
+    "yql/essentials/minikql/invoke_builtins/mkql_builtins_max.cpp:TMax,TDecimalAggrMax"
+  ],
+  "remaining_open": [
+    "RANGE MIN/MAX entering batches are not exposed by the allowed WinFrame API. Incremental handles return only the last boundary row.",
+    "QueueRange/QueuePeek are rejected when WindowNewPipeline is enabled, which is its default. Skip over WinFrame would walk the skipped rows because TQueueRange lacks SkipListImpl.",
+    "Unbounded-frame MIN/MAX and excluded value families retain existing paths; this is not complete MIN/MAX closure.",
+    "Floating/Decimal/Interval SUM and AVG remain outside this amendment."
+  ],
+  "native_required": [
+    "Compile/type-annotate anonymous generated plans against this exact source branch.",
+    "Required/optional/all-null scalar MIN/MAX, both functions together, and mixed COUNT/integer SUM/fallback aggregates.",
+    "Leading/trailing empty frames, clipped boundaries, current/following/preceding offsets, both sort directions, peer rows, multiple partitions and downstream filtering.",
+    "Private ordinal and stack fields cannot appear in the public result schema.",
+    "No reachable per-frame Fold1 for eligible MIN/MAX-only plans; Fold is allowed only for initial entry and one-time rear transfer.",
+    "Measure operations/allocations at fixed row count versus width and fixed width versus row count after all peephole passes.",
+    "Verify persistent-list storage remains bounded by frame width and input queue lookahead rather than total partition rows."
+  ],
+  "kqp_owned_runtime_extension_assessment": {
+    "possible_without_essentials_edit": true,
+    "existing_registration_points": [
+      "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+      "ydb/core/kqp/opt/kqp_type_ann.cpp:AnnotateKqpStreamEnumerate,AnnotateKqpStreamingAggregation",
+      "ydb/core/kqp/query_compiler/kqp_mkql_compiler.cpp:KqpStreamEnumerate and KqpStreamingAggregation callable registrations",
+      "ydb/core/kqp/runtime/kqp_compute.cpp:GetKqpBaseComputeFactory",
+      "ydb/core/kqp/compute_actor/kqp_compute_actor.cpp:KqpStreamEnumerate factory registration"
+    ],
+    "limitation": "A new RANGE-delta callable would need its own type/compiler/runtime contract and safe access to collector queue state. The current queue resource implementation is private to essentials; duplicating its layout or bypassing its deprecation checks is not a sound extension. A KQP-owned stream window operator could instead own collection and aggregation, but that expands scope materially and requires dedicated runtime validation.",
+    "implemented": false
+  }
+}

@@ -1,0 +1,80 @@
+diff --git a/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp b/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp
+index d3c49216944..b3892293b2b 100644
+--- a/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp
++++ b/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp
+@@ -7,6 +7,43 @@ namespace NKikimr::NKqp {
+ using namespace NYql;
+ using namespace NYql::NNodes;
+ 
++void MergeColumnStatistics(NYql::TOptimizerStatistics::TColumnStatMap& current,
++                           const NYql::TOptimizerStatistics::TColumnStatMap& incoming) {
++    for (const auto& [column, value] : incoming.Data) {
++        auto& stored = current.Data[column];
++        if (value.CountMinSketch) {
++            stored.CountMinSketch = value.CountMinSketch;
++        }
++        if (value.EqWidthHistogramEstimator) {
++            stored.EqWidthHistogramEstimator = value.EqWidthHistogramEstimator;
++        }
++        if (!value.Type.empty()) {
++            stored.Type = value.Type;
++        }
++        if (value.NumUniqueVals) {
++            stored.NumUniqueVals = value.NumUniqueVals;
++        }
++        if (value.HyperLogLog) {
++            stored.HyperLogLog = value.HyperLogLog;
++        }
++    }
++    for (const auto& [columns, value] : incoming.MultiData) {
++        auto& stored = current.MultiData[columns];
++        if (!value.Columns.empty()) {
++            stored.Columns = value.Columns;
++        }
++        if (!value.Types.empty()) {
++            stored.Types = value.Types;
++        }
++        if (value.EqHeightHistogram) {
++            stored.EqHeightHistogram = value.EqHeightHistogram;
++        }
++        if (value.CountMinSketch) {
++            stored.CountMinSketch = value.CountMinSketch;
++        }
++    }
++}
++
+ namespace {
+ 
+ struct TTableMeta {
+diff --git a/ydb/core/kqp/opt/kqp_column_statistics_utils.h b/ydb/core/kqp/opt/kqp_column_statistics_utils.h
+index 81521e3253a..0c3ccdb3b69 100644
+--- a/ydb/core/kqp/opt/kqp_column_statistics_utils.h
++++ b/ydb/core/kqp/opt/kqp_column_statistics_utils.h
+@@ -20,6 +20,9 @@ struct TColumnStatisticsResponse: public NYql::IKikimrGateway::TGenericResult {
+     THashMap<TString, NYql::TOptimizerStatistics::TColumnStatMap> ColumnStatisticsByTableName;
+ };
+ 
++void MergeColumnStatistics(NYql::TOptimizerStatistics::TColumnStatMap& current,
++                           const NYql::TOptimizerStatistics::TColumnStatMap& incoming);
++
+ struct TColumnStatisticsSharedState {
+     std::optional<TColumnStatisticsResponse> Response;
+ };
+diff --git a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+index b9391d430f1..0f6c071148d 100644
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+@@ -539,7 +539,12 @@ void TKqpNewRBOTransformer::ApplyColumnStatistics() {
+         YQL_CLOG(TRACE, ProviderKikimr) << "Can't load columns statistics for request: " << ss.Str();
+     } else {
+         for (auto&& [tableName, columnStatistics] : SharedState->Response->ColumnStatisticsByTableName) {
+-            TypeCtx.ColumnStatisticsByTableName.insert({std::move(tableName), new NYql::TOptimizerStatistics::TColumnStatMap(std::move(columnStatistics))});
++            auto& current = TypeCtx.ColumnStatisticsByTableName[tableName];
++            if (current) {
++                MergeColumnStatistics(*current, columnStatistics);
++            } else {
++                current = new NYql::TOptimizerStatistics::TColumnStatMap(std::move(columnStatistics));
++            }
+         }
+     }
+ }

@@ -1,0 +1,56 @@
+{
+  "reviewer": "harness_provenance",
+  "review_kind": "source_only_admission_classification_review",
+  "finding": "SQL-only acceptance currently omits required direct production-IR evidence for C31 and C47.",
+  "observed_effect": {
+    "C31": "A successful SQL batch containing expected safe rejections receives verified_guard and checks_passed=true without executing the pending zero-column/local identity contracts. The label is scoped to guards, but does not explicitly retain the direct-admission requirement.",
+    "C47": "Successful SQL controls receive verified and are included in completed_verified_cases although the copied-lookup local contracts remain uncompiled and unexecuted."
+  },
+  "reviewed_sources": {
+    "verification_contract.py": "f3fadf010766861f98082dfdd61741d49f972a2ee63839917ff6ad0403ec8c6e",
+    "verify_series.py": "41a63a26e2c8fb620407f1b996dc1f9d8114a2cf6e5c77cab879cd2307cb05fb",
+    "anonymous_cpp_verify.py": "1fc8186e29e8886878f7e67b59c9f202ad9b5d4f8f6c96987ae6299687e11068"
+  },
+  "prospective_patch": "proposed-correctness-amendments/C31-C47-pending-direct-admission.patch",
+  "patch_status": "prepared_dormant_standard_unified_diff_syntax_and_apply_check_passed",
+  "intended_behavior": [
+    "Successful C31/C47 SQL semantic/guard batches receive sql_checks_passed_direct_pending with overall acceptance false.",
+    "Per-batch SQL checks_passed remains true when every record is functional or an expected guard; separate finding_acceptance_passed and direct-local evidence fields stay false.",
+    "The serial queue continues after this pending state and returns a pending exit code after completing the requested batch.",
+    "Actual SQL failures still stop the queue and remain native_failed; execution-only results cannot satisfy these contracts.",
+    "The readable status explicitly identifies pending direct local contracts and scope review; the generic completed-verified list excludes this state.",
+    "Strict successful SQL receipts may resolve only the existing transient receipt/build limitations; unsupported identities, guard rejection behavior, sharing-origin review and other substantive scope limits remain untouched.",
+    "Direct local evidence alone cannot promote the case: whole-query evidence and explicit scope review must be reconciled separately after actual execution."
+  ],
+  "parent_coordination": "Parent agreed to the dormant gate, will apply only at an idle boundary, and will correct any intervening SQL-only statuses before reporting completed counts.",
+  "execution": {
+    "tests_or_mock_suites": 0,
+    "compiler_or_native_runs": 0,
+    "active_helpers_edited": false,
+    "production_sources_edited": false,
+    "generated_inputs_persisted": false
+  },
+  "patch_sha256": "f340b9db8fc002ae347b44cdd3b0bb6bd3cb781f0ab6c5dd1338f31378413fb3",
+  "patch_format_repair": {
+    "previous_patch_sha256": "b568af78f6c7062dbf60837966557fdd888674714f661f490e5d1d1a8ac27931",
+    "reason": "Manually truncated final hunk omitted normal trailing context; regenerated with difflib and verified normal git apply --check against temporary copies.",
+    "live_sources_edited": false
+  },
+  "source_hashes_at_regeneration": {
+    "verification_contract.py": "f3fadf010766861f98082dfdd61741d49f972a2ee63839917ff6ad0403ec8c6e",
+    "verify_series.py": "41a63a26e2c8fb620407f1b996dc1f9d8114a2cf6e5c77cab879cd2307cb05fb",
+    "refresh_status.py": "2495a0d80b0282eef40c15bba72540f0b1cdb6002b90a6ed0531d23e463ce99e"
+  },
+  "prospective_source_hashes": {
+    "verification_contract.py": "50dd2432dc492f7a59fbd92281bcbb3fc42c033241597aab25904721546bc151",
+    "verify_series.py": "ac16a3e9049127e845c8103f1673a4520b23a2e81e0f1d56e35098635b556249",
+    "refresh_status.py": "e9b5145db0f84d4853366dc6e510a01a9a8f73dfcb4aff9e840a08c6b8075c55"
+  },
+  "source_validation": {
+    "python_ast_parse_passed": true,
+    "standard_git_apply_check_passed": true,
+    "temporary_directory_removed": true,
+    "behavioral_tests_run": 0,
+    "native_runs": 0
+  }
+}

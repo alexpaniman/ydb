@@ -1,0 +1,129 @@
+{
+  "reviewer": "c41_review",
+  "review_kind": "independent_exact_branch_source_and_generator_scope_review",
+  "findings": {
+    "C32": {
+      "source_verdict": "No new production blocker found. The four-kind admission list exactly matches MapJoinCoreWrapper; unsupported forced-Map kinds fall back to Grace before stage wiring.",
+      "source_references": [
+        "rules/assign_stages.cpp:15",
+        "yql/essentials/core/type_ann/type_ann_join.cpp:382"
+      ],
+      "coverage_limits": [
+        "Current native profiles cover FULL/INNER/LEFT with one matched pair only. They detect the original unsupported FULL algorithm but do not test unmatched rows, empty sides, semi/only/exclusion variants, or physical algorithm identity."
+      ],
+      "suggestion": "Add generated unmatched FULL/empty-side and supported-kind controls with exact row bags and physical Grace-versus-Map evidence.",
+      "revision": "244c9fa808fb219eee19bf7a73dbed19602f303e",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_files": [
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+      ],
+      "generator_module": "subsystem_checks",
+      "generator_sha256": "39f11acf4eeae9c4b0e3ec82c17cd94847a7dd9d46dfd73be9f0023d0f0b1a28",
+      "native_profile_count": 3,
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": "7351fdea4c63d6c93d600c7eaf523a31ba1cafbb29b3b42f65df65b19be18a59"
+      }
+    },
+    "C33": {
+      "source_verdict": "No new production blocker found. The outer set-arm index is captured lexically; only arm zero appends final output names. Per-arm projections and nested wildcard loops retain separate bindings.",
+      "source_references": [
+        "kqp_rewrite_select.cpp:1805,1819,2301",
+        "ydb/tests/tools/kqprun/runlib/utils.cpp:241",
+        "ydb/public/lib/json_value/ydb_json_value.cpp:536"
+      ],
+      "coverage_limits": [
+        "Current two profiles compare different/same arm layouts but omit empty first arm, nested set-operation and positional write consumers."
+      ],
+      "suggestion": "Existing row-key order check is valid: RowsJson emits columns in result metadata order, and the parser preserves JSON insertion order.",
+      "revision": "b48c86eeb7c2f0ea14d052f107d04cf26330d885",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_files": [
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+      ],
+      "generator_module": "subsystem_checks",
+      "generator_sha256": "39f11acf4eeae9c4b0e3ec82c17cd94847a7dd9d46dfd73be9f0023d0f0b1a28",
+      "native_profile_count": 2,
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp": "1c7252d347ffe07dbe2604113420c383651c7ae32105624fbc13b9281265e91f"
+      }
+    },
+    "C34": {
+      "source_verdict": "No new production blocker found. Both the tuple-state detection and per-field rewriting are restricted to AVG, preserving tuple SOME/MIN/MAX even beside AVG.",
+      "source_references": [
+        "physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:1310,1332"
+      ],
+      "coverage_limits": [
+        "Confirmed current mixed-AVG oracle accepts a missing AVG output field; exact-field artifact prepared separately.",
+        "Tuple arity3 controls are useful, but arity2/nested/optional payloads and mixed Decimal AVG need further native acceptance before broad tuple-family claims."
+      ],
+      "suggestion": "Apply C34-strict-oracle-fields.patch;24 prospective positive/negative shape/value checks passed. No production amendment requested.",
+      "revision": "80b8d1dcee88c42a687c820600955953ec413c49",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_files": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp"
+      ],
+      "generator_module": "aggregate_checks",
+      "generator_sha256": "dce4b13ca0adf238cb78ae5d6caf1ec12e7899ac969a33de4717c7bde4c92973",
+      "native_profile_count": 10,
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp": "fa3bd823777be6c16f3c53fe3602d0129978e3aa75408a353163fd6bfca42efa"
+      }
+    },
+    "C35": {
+      "source_verdict": "No new production or API blocker found. Interval inputs widen through Int64 into Decimal(35,0), updates and final merges retain sum/count state, and final conversion restores the interval family after exact Decimal division.",
+      "source_references": [
+        "physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:80,87,254,650,818,1074",
+        "rules/expand_distinct_aggregation.cpp:65",
+        "yql/essentials/core/yql_expr_type_annotation.cpp:7160"
+      ],
+      "coverage_limits": [
+        "Current controls use row aggregation, one native node, and mostly small cardinalities; distributed merge and block admission remain additional acceptance.",
+        "C24/C26/C35 overlap in DISTINCT padding; C34 overlaps tuple empty-state handling and F02 is a separate SUM path.",
+        "The inherited Decimal(35,0) accumulation precision limit remains unchanged."
+      ],
+      "suggestion": "Current interval oracle uses ties-to-even; Decimal(18,2) controls are cast to Int64 and use truncation of their exact half-integral means, so they do not repeat the C21 Decimal(35,0) oracle mismatch.",
+      "revision": "461e53cf080ab7c2f213adcab4aee779b5c2ba0c",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_files": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+        "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp"
+      ],
+      "generator_module": "aggregate_window_checks",
+      "generator_sha256": "b9ac29432685d4bbfb102a0e6753163e9f9de9c65f11c20516220659cd51a3e5",
+      "native_profile_count": 15,
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp": "277a61ab4b76bd9033b7d08b4fd858114ab171a85056a288fa5e24ab2486ddc4",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h": "0f2bb7fba30c5a40e0887ae56ac4a693f2c6fb88a67d714fac5407adbf3e4291",
+        "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp": "967b15fa073e84232abcdc1ad001fa49d80c42bb5d4bcc275bd7860578242dac"
+      }
+    },
+    "C36": {
+      "source_verdict": "No new production blocker found. Both WideSort and WideTopSort consume the same deduplicated key vector; retaining the first physical position and direction preserves lexicographic ordering.",
+      "source_references": [
+        "physical_conversion/kqp_rbo_physical_sort_builder.cpp:66,103"
+      ],
+      "coverage_limits": [
+        "Current four profiles cover opposing repeated directions/full and limited sorts, but not nullable keys or distinct aliases rebound to one physical IU."
+      ],
+      "suggestion": "Add alias-rebinding and nullable full/top controls if extending acceptance; no production change requested.",
+      "revision": "49ca1046560e6edb6b2d616829833ef586e5822d",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "changed_files": [
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_sort_builder.cpp"
+      ],
+      "generator_module": "window_checks",
+      "generator_sha256": "c48fc8c06ddc561788de2c28d578b794390649a1b323b87ddd3e11f9af66698e",
+      "native_profile_count": 4,
+      "changed_source_sha256": {
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_sort_builder.cpp": "109d8896584d9a8098981734efd2a2e2d2276c978f509a8617e164686b12ddc1"
+      }
+    }
+  },
+  "confirmed_oracle_issue": "C34 mixed AVG field can be absent and still accepted; narrow artifact proposed, active generator unmodified.",
+  "production_amendments_requested": [],
+  "compiled": false,
+  "native_executed": false,
+  "production_or_active_generator_edited": false,
+  "generated_reproductions_persisted": false
+}

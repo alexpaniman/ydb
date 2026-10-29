@@ -1,0 +1,9 @@
+R40: Independent optimization-quality synthesis and challenge review
+
+Produced optimization-quality.txt with 29 separate actionable quality findings, explicitly separate from correctness and ordered by plausible impact. Source control flow and lowering construction were rechecked across lookup/ranges, statistics, CBO import, window physical lowering/liveness, DISTINCT expansion, stage assignment, OLAP predicates, source/effect settings, map flags, and transformer traversal. No native timing/plan run, build, repository edit, concrete reproduction query, or concrete input fixture was produced.
+
+Pass one reconciled earlier reviews and source evidence. Pass two challenged guard conditions, legacy comparisons, pipeline ordering, and possible later simplification. Qualified the focused-IN issue to expressions surviving prior folding, window quadratic work to general nonincremental frames, effect serialization to OLAP streaming/inconsistent modes, duplicate lookup predicates to construction-level evidence, and AST-DAG exponential behavior to source/model evidence with unmeasured native reachability.
+
+New interaction confirmations, not extra counts: unused windows can trigger global block disablement; same-argument multi-DISTINCT branches can duplicate a producer after Replicate expansion when sharing/spilling is disabled. No independently new correctness finding. Two statistics-fetch findings are explicitly shared with legacy.
+
+No speedup numbers, benchmark claims, or native runtime confirmation were inferred from the source review. Test/measurement suggestions retain only generated-input families and metric categories, with no exact cases.

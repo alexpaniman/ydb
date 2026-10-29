@@ -1,0 +1,78 @@
+{
+  "schema": "reviewed_idle_helper_application_v1",
+  "status": "applied_at_idle_after_C41_fullsuite_failure",
+  "applied_unix_time": 1793154563.461555,
+  "before_count": 44,
+  "total_applied_helper_patches": 53,
+  "previous_batch": "verification/idle-C31-wide-observation-applied44-20261028.json",
+  "composition": "verification/quality-idle53-source-composition-20261028.json",
+  "composition_sha256": "1bac7bb6118969b3d1b0c11fcd0215a3a1974ff66555250ffea4b4edda61544f",
+  "independent_review": "verification/quality-idle53-independent-composition-review-20261028.json",
+  "independent_review_sha256": "a57ecf677e4e878e47afff95383783c2d0a636f63154122cbb976e1e5c588d3a",
+  "ordered_patches": [
+    {
+      "path": "proposed-correctness-amendments/C31-shared-aggregate-pipeline-contracts-20261028.patch",
+      "sha256": "73a8afb3e6914ad0ab944ab5585199322c3d2175aa664ce84be1d0d50a5e8f3b"
+    },
+    {
+      "path": "proposed-quality-amendments/Q01-shared-window-setup-controls-20261028.patch",
+      "sha256": "a8527c634ad50e9066bf019f8d32af1aec805e9a9ad1eebebf907631ea93a93e"
+    },
+    {
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+      "sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483"
+    },
+    {
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-runtime-identity-20261028.patch",
+      "sha256": "8712ec3993b04acf34b404818f48714588628fd6418315adcaeb57a54168a9e8"
+    },
+    {
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-version-replay-20261028.patch",
+      "sha256": "4aabcde2409f4feb9d82c7b2908e7ffec334fd29ae9677402a104e366986a49f"
+    },
+    {
+      "path": "proposed-quality-amendments/Q28-sdk-compilation-readonly-executable-20261028.patch",
+      "sha256": "9c782adc11186b7a4c1712a666a3b39030de2df675e6b23bb01c8ec8b8e6494a"
+    },
+    {
+      "path": "proposed-quality-amendments/Q-SQL-reviewed-spill-payload-cap-20261028.patch",
+      "sha256": "9e70be28e44f600870ceb0db59bf4b990b1ddc5a22cd11a6af51dfdee1952e93"
+    },
+    {
+      "path": "proposed-quality-amendments/Q-SQL-spill-cap-production-revision-guard-20261028.patch",
+      "sha256": "b9393c041625cbf1b7f43d2d55aa6e7f440367a33f8f67b6ba68258423ebac54"
+    },
+    {
+      "path": "proposed-quality-amendments/Q-SQL-spill-cap-composed-dependency-refresh-20261028.patch",
+      "sha256": "3473d937079dcd9e3b139cfc0522be4007a0903e4f2383ad2711f0c0f0fb9d1d"
+    }
+  ],
+  "live_before_sha256": {
+    "rbo-fixes-20261023/anonymous_cpp_verify.py": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873",
+    "rbo-fixes-20261023/c31_combined_cpp_generator.py": null,
+    "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": null,
+    "rbo-fixes-20261023/correctness_cpp_contract.py": "49598993c191a5a9784cb57ccc5e8fc0b8719deb77071959dbab5b9da8572326",
+    "rbo-fixes-20261023/correctness_cpp_profiles.json": "53c415c3b19f43132f79dfe2490ea5d5a246f9371629b9aa0ee054cf8ea20ca1",
+    "rbo-fixes-20261023/native_verify.py": "a0abb05ec07f94dd3cb8a016616233073c044715e0a1f85e0088b2a5daaa4bd1",
+    "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": null,
+    "rbo-fixes-20261023/q28_compilation_measurement.py": null,
+    "rbo-fixes-20261023/quality_q01_scaling_checks.py": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3",
+    "rbo-fixes-20261023/quality_spill_bounds.py": null
+  },
+  "combined_after_sha256": {
+    "rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+    "rbo-fixes-20261023/c31_combined_cpp_generator.py": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+    "rbo-fixes-20261023/c31_shared_pipeline_cpp_generator.py": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+    "rbo-fixes-20261023/correctness_cpp_contract.py": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+    "rbo-fixes-20261023/correctness_cpp_profiles.json": "102d95f24ee88e8b38d0e1e0ee005423d7c61fa4d4293325ac6ee3988eb0f08d",
+    "rbo-fixes-20261023/native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b",
+    "rbo-fixes-20261023/q01_scaling_recipe_metadata_contracts.py": "bfdc528c201e25edf9399a8b39faa6ded20c3cb863b0d0ba78090c1e9bb4dd1c",
+    "rbo-fixes-20261023/q28_compilation_measurement.py": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c",
+    "rbo-fixes-20261023/quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+    "rbo-fixes-20261023/quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+  },
+  "production_sources_changed": false,
+  "generated_workloads_persisted": false,
+  "native_runs": 0,
+  "quality_admission": false
+}

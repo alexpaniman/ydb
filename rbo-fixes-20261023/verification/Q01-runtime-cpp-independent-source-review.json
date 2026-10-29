@@ -1,0 +1,58 @@
+{
+  "finding": "Q01",
+  "reviewer": "quality_review",
+  "review_kind": "independent_source_and_api_review",
+  "generator_module": "quality_range_runtime_cpp_generator",
+  "generator_sha256": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+  "source_commit": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+  "generated_source_sha256": "75823d8a078d57f3c56c7641f21690d39093967fe3fcbe059ceddca70d4c3fab",
+  "case_count": 42,
+  "generated_bytes": 19438,
+  "verdict": "no_source_or_api_blocker_found_native_validation_pending",
+  "checked_contracts": [
+    "TSetup<false> custom-factory construction, BuildGraph reset behavior and graph invalidation agree with the referenced public test APIs.",
+    "The generated factory resolves the linked production WrapKqpRangeMinMax callable rather than embedding a substitute implementation.",
+    "The source fixture, witness counters and captured factory state outlive every computation node and graph that references them.",
+    "The optional Int64 full-scan oracle and null-key frame membership match the collector boundary conventions for admitted finite and suffix frames.",
+    "Mixed mode constructs the real WinFramesCollector and WinFrame APIs; the collector cleans retained rows on Finish, supporting the zero-live-row expectation.",
+    "Repeated input yields, repeated Finish, cancellation before the first result, early cancellation after results and four reset cycles have separate generated cases.",
+    "Allocator limits are installed after input row construction but before production queue growth; trigger positions target capacities two, four and thirty-two.",
+    "The allocator increase-limit callback and limits are removed before cleanup; failed reserve accounting is checked independently from successful allocations.",
+    "Lifetime peak growth and sampled runtime usage are recorded as separate metrics with an explicit prepared-graph baseline.",
+    "Generated source remains in process memory, and this review stores only approved metadata, source hashes and verdicts."
+  ],
+  "source_evidence": [
+    {
+      "path": "yql/essentials/minikql/comp_nodes/ut/mkql_computation_node_ut.h",
+      "sha256": "1ab7f1bb4c1ea09ada53ef8edeeec1f2104bba39819f9ff564f35fd1e1f2c6f9"
+    },
+    {
+      "path": "yql/essentials/minikql/comp_nodes/mkql_queue.cpp",
+      "sha256": "c966ef6486135596034258598251dc417475a183fa90e75591d96dff96f59a35"
+    },
+    {
+      "path": "ydb/core/kqp/runtime/streaming/kqp_streaming_aggregation_ut.cpp",
+      "sha256": "e7a221d6313bd34a1262c8ffcb35bfd7c149039f4d170b15188a393c289ac5cb"
+    }
+  ],
+  "required_followup": [
+    "Compile and link the exact generator against the clean receipt-bound Q01 production runtime closure using the dormant fixed-only profile.",
+    "Execute all forty-two cases under the existing sequential memory guard and require every numeric case record, exit status and lifecycle contract.",
+    "Validate mixed collector, allocator-limit and graph-invalidation behavior in the actual runtime; source review is not execution evidence.",
+    "Pair separate SQL correctness and physical-plan evidence before granting complete Q01 optimization acceptance."
+  ],
+  "limitations": [
+    "Int64 payloads only; SQL typed coverage is separate.",
+    "Source fetch/allocation counters are measured, internal deque comparisons are not instrumented.",
+    "Allocator-limit rejection covers reserve accounting before allocation; std::vector allocation-failure injection is not included.",
+    "Public allocator metrics are process-local MiniKQL accounting, not RSS.",
+    "Peak deltas measure growth above the allocator prior high-water mark; sampled_used_delta measures observed runtime usage above its prepared-graph baseline. Neither is a query RSS bound.",
+    "Mixed mode uses the real collector and frame length; full RBO lowering and other native functions remain SQL acceptance responsibilities.",
+    "GetUsed modulo-page cleanup check assumes no unrelated offloaded allocations enter the fixture; native validation is still required."
+  ],
+  "compile_executed": false,
+  "native_executed": false,
+  "production_sources_edited": false,
+  "generated_sources_persisted": false,
+  "full_quality_verified": false
+}

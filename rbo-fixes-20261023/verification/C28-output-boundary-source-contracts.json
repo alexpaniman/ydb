@@ -1,0 +1,20 @@
+{
+  "finding": "C28",
+  "patch_sha256": "fd641503ab9a202e53985970e51e4b0192d1bf4abd737a14c7320ff368afbe37",
+  "base": "18e12ec833db741848ac2bcf5a88b80f4cfdb6d3",
+  "source_sha256": {
+    "ydb/core/kqp/opt/kqp_type_ann.cpp": "4f2ac8d903510cbff1981d25d9718e95cff602767fd5d8bc2a45371aa5438592",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp": "31a077f34dc8becaea25939b92ab76c2f95b219e3ab4060463ab4bb1adaeb37b",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp": "9d042b2e2f524a6b6f277b848235c11d5463ee677bf8ffc5b71ce4ce3f812e30"
+  },
+  "projection_row_schema_models_passed": 94,
+  "source_references": {
+    "aggregate_duplicate_type_fields": "kqp_type_ann.cpp:3338-3378",
+    "map_projecting_type_boundary": "kqp_type_ann.cpp:3019-3042",
+    "distinct_import_binding_excludes_keys": "kqp_plan_conversion_utils.cpp:758-786",
+    "map_rhs_bind_before_fresh_definitions": "kqp_plan_conversion_utils.cpp:435-466"
+  },
+  "compiled": false,
+  "native_executed": false,
+  "generated_inputs_saved": false
+}

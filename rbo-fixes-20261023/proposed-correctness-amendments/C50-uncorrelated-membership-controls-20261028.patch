@@ -1,0 +1,65 @@
+--- a/join_key_checks.py
++++ b/join_key_checks.py
+@@ -65,6 +65,12 @@
+         key = w._cast(key, 'Float')
+     elif side == 'right' and 'same_type' in label:
+         key = w._cast(key, 'Int64')
++    if 'uncorrelated' in label:
++        # These bounded fixtures contain no NULL key values. COALESCE makes
++        # the lookup/result annotations required, so NOT IN can use the
++        # simple anti-join route without nullable IN's separate contract.
++        typ = 'Int64' if side == 'left' or 'same_type' in label else 'Double'
++        key = g.call('COALESCE', key, g.typed(typ, 0))
+     fields = ['id', g.alias(key, 'k'), g.alias(w._mod('id', 3), 'p')]
+     if 'repeated_keys' in label and side == 'right':
+         fields.append(g.alias(w._cast('k', 'Float'), 'k2'))
+@@ -86,6 +92,13 @@
+         # Correlated existence supplies the admitted semantic route to these
+         # physical join families; keep same-type controls for decorrelation.
+         left_output = kind.startswith('LEFT ')
++        if 'uncorrelated' in label:
++            outer_side, inner_side = ('left', 'right') if left_output else ('right', 'left')
++            outer_key, inner_key = ('a.k', 'b.k') if left_output else ('b.k', 'a.k')
++            inner = g.select([inner_key], _input(label, inner_side))
++            condition = g.op(outer_key, 'NOT IN' if kind.endswith('ONLY') else 'IN', '(' + inner + ')')
++            return g.select([g.alias('a.id' if left_output else 'b.id', 'li' if left_output else 'ri')],
++                            _input(label, outer_side), where=condition)
+         outer_side, inner_side = ('left', 'right') if left_output else ('right', 'left')
+         inner = g.select([w._integer(1)], _input(label, inner_side), where=predicate)
+         condition = g.call('EXISTS', inner)
+@@ -114,6 +127,10 @@
+         'c50_left_semi', 'c50_left_anti', 'c50_right_semi', 'c50_right_anti',
+         'c50_left_semi_same_type_control', 'c50_left_anti_same_type_control',
+         'c50_right_semi_same_type_control', 'c50_right_anti_same_type_control',
++        'c50_left_semi_uncorrelated', 'c50_left_anti_uncorrelated',
++        'c50_right_semi_uncorrelated', 'c50_right_anti_uncorrelated',
++        'c50_left_semi_uncorrelated_same_type_control', 'c50_left_anti_uncorrelated_same_type_control',
++        'c50_right_semi_uncorrelated_same_type_control', 'c50_right_anti_uncorrelated_same_type_control',
+         'c50_nullable_inner', 'c50_nullable_left', 'c50_nullable_full', 'c50_nullsafe_inner',
+         'c50_int32_double_inner', 'c50_int_float_inner', 'c50_normalized_control', 'c50_same_type_control',
+         'c50_nullable_normalized_control', 'c50_composite_keys', 'c50_repeated_keys',
+@@ -129,7 +146,8 @@
+         raise ValueError('Unknown optimizer mode')
+     elimination = label.endswith('_se')
+     return {
+-        'generator_version': 'uniform_optional_fixture_exists_v3',
++        'generator_version': ('required_membership_controls_v4' if 'uncorrelated' in label
++                              else 'uniform_optional_fixture_exists_v3'),
+         'bug': 'C50', 'node_count': 1 if 'single_node' in label else 4,
+         'minimum_rows': 8, 'recommended_rows': 48, 'repetitions': 2,
+         'pragmas': [('YqlSelect', 'force' if mode == 'new' else 'disable'),
+@@ -194,8 +212,13 @@
+ 
+ 
+ def paired_controls():
+-    return {'c50_int_double_inner': ['c50_normalized_control', 'c50_same_type_control',
++    result = {'c50_int_double_inner': ['c50_normalized_control', 'c50_same_type_control',
+                                       'c50_int_double_inner_single_node', 'c50_int_double_inner_row'],
+             'c50_nullable_inner': ['c50_nullable_normalized_control'],
+             'c50_grouped_after_join_se': ['c50_grouped_after_join'],
+             'c50_join_chain_se': ['c50_join_chain']}
++    for direction in ('left', 'right'):
++        for kind in ('semi', 'anti'):
++            label = 'c50_' + direction + '_' + kind + '_uncorrelated'
++            result[label] = [label + '_same_type_control']
++    return result

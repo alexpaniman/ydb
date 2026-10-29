@@ -1,0 +1,45 @@
+{
+  "schema": "independent_source_review_v1",
+  "reviewer": "/root/c35_compile_repair_review",
+  "finding": "C31",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "probe": "rbo-fixes-20261023/c31_shared_origin_probe.py",
+  "probe_sha256": "3cc2fbc03ddcb2b2c5fe5e07d5f5a3fb83277727cee6c970d35d1b599b4ae0ea",
+  "probe_plan": "rbo-fixes-20261023/verification/C31-domain-spilling-origin-probe-plan.json",
+  "probe_plan_sha256": "6bb1ec9eea58229c9dfc34c37091879bda1637117d6328364c03572d1c429be4",
+  "declared_production_source_hashes_match": true,
+  "verdict": "approved_for_bounded_anonymous_topology_observation_only",
+  "source_contracts": [
+    "TDqOutput is the actual callable name, and Stage/Index are children 0/1; including the AST head gives positions 1/2, as used by the probe.",
+    "DqPhyStage Inputs/Program are children 0/1, and the probe checks program-argument count against input count. The production builder constructs connections and matching program arguments in stage order.",
+    "MapJoinCore, GraceJoinCore and BlockHashJoinCore all have left/right inputs at children 0/1 and JoinKind at child 2; probe AST positions 1/2/3 are correct.",
+    "BuildSwitch orders outputs by GetReplicateOutputIndex. Every branch selector reads input index 0 and each branch is an OrderedMap with direct Member renames; the probe checks the same alternating selector/lambda layout.",
+    "The accepted terminal hub must be one resolved stage node, with different valid ports reached from the Inner and outer Left left-input paths. The branch source-field sets must be identical and each branch projection must have unique output/source names.",
+    "The outer Left right-input path must contain the Inner join stage. An arbitrary Switch elsewhere in a UNION producer does not satisfy these relationships.",
+    "The dependency walk stops when a stage depends on multiple stage inputs. This prevents ordinary multi-input UNION reconvergence from being treated as one unary source path.",
+    "Observed topology can be true while all exact shared-value and complete-admission flags remain false; the code never promotes those flags."
+  ],
+  "missing_proof": [
+    "Dependencies are stage-input sets, not field-specific value lineage. They do not map reconstruction key columns to each terminal-port Member output.",
+    "The checker does not follow key-column positions through Map/ExpandMap/StablePickle, prove that both compared identities refer to the same already-evaluated field, or bind that field to the selected aggregate output.",
+    "It does not trace UNION arm projections, MIN/CAST results, or SUM finish/state lambdas. Independent downstream aggregate recomputation can therefore share the same earlier stage topology without satisfying value identity.",
+    "exact_shared_producer_origin_proved, aggregation_value_to_identity_binding_proved and full_shared_producer_contract_pass must remain false until a separately reviewed field-lineage proof is bound to the same revision/generator/physical-AST hash."
+  ],
+  "conservative_shape_limits": [
+    "All hub branches must expose identical nonempty source-field sets. Legitimate liveness-pruned projections with unequal sets are rejected.",
+    "The checker expects exactly two recognized joins and inter-stage paths. Fused-stage reconstruction, other physical join forms, or additional joins may be unsupported.",
+    "Generic lambda dependencies are conservative sets; parameter-sensitive dataflow is not reconstructed.",
+    "An unrelated malformed or non-projection terminal Switch can reject the whole graph. Such rejection is no correctness verdict on the production fix.",
+    "No native AST or generated workload was parsed or rendered during this source review. Actual bounded observation is still pending."
+  ],
+  "source_bug_requiring_patch_established": false,
+  "dormant_patch_proposed": false,
+  "global_copy_candidate_reviewed": false,
+  "actions": {
+    "production_or_live_helper_edits": false,
+    "build_runs": 0,
+    "native_runs": 0,
+    "mock_runs": 0,
+    "raw_plan_or_workload_persisted": false
+  }
+}

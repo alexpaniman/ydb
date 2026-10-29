@@ -1,0 +1,18 @@
+{
+  "status": "source_confirmed_patch_artifact_native_pending",
+  "finding": "Q18",
+  "commit": "6a76df72ad2d9d0af37ebc034fed5bca12de33f4",
+  "description": "The new merge helper definition binds to KQP optimizer statistics rather than the NYql statistics type declared by its header and used by the shared cache. This leaves the intended overload without a definition.",
+  "source_references": [
+    "ydb/core/kqp/opt/kqp_column_statistics_utils.cpp:MergeColumnStatistics definition",
+    "ydb/core/kqp/opt/kqp_column_statistics_utils.h:MergeColumnStatistics declaration",
+    "ydb/core/kqp/provider/yql_kikimr_settings.h:3",
+    "ydb/core/kqp/opt/cbo/kqp_statistics.h:TOptimizerStatistics::TColumnStatMap"
+  ],
+  "amendment": "rbo-fixes-20261023/proposed-quality-patches/Q18-qualify-shared-statistics-map.patch",
+  "patch_sha256": "bfd11f75f97e48109de0110bd6f972f06a0d91c1a5658f63694b78dd2163579c",
+  "production_source_edits": false,
+  "builds": false,
+  "native_runs": false,
+  "native_required": "Compile and link both cache-application and helper callers after qualification."
+}

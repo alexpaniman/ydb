@@ -1,0 +1,40 @@
+{
+  "schema_version": "independent_source_review_v1",
+  "recorded_unix_ns": 1793132503893055817,
+  "reviewer": "/root/fix_series_evidence_audit",
+  "issue": "OA10",
+  "verdict": "approved_source_only_pending_idle_application_and_contract_execution",
+  "patch": "proposed-quality-amendments/quality-baseline-evidence-binding.patch",
+  "patch_sha256": "0fd89fe863d1512e436ba820ad537ea250713216708256eb78691a9985588d30",
+  "requires_prior_patch_sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70",
+  "source_before_sha256": "2375b60d1f842e1a06f4516fe6270ca36eaac3ff143dbda1fd194943ca7c17ce",
+  "source_after_sha256": "4cd4d3bc248d382b0f345247fc4779aea272a7c5c905360376532a427b23a011",
+  "blockers": [],
+  "checks": [
+    "Both patch hashes match their declared proposal metadata.",
+    "Applied the prerequisite and OA10 patch in memory against unchanged live source; before/after SHA256 match the declared values.",
+    "All four preparation returns have exactly three elements; the sole driver caller unpacks records/artifact/error consistently.",
+    "No-quality and build-only paths return a null artifact but cannot reach quality metadata dereference; both failure paths return before fixed-case processing.",
+    "Successful artifact contains the actual guarded profile-augmented baseline records used for pairing, with an exact byte digest and unique path.",
+    "Every quality case records that immutable-run artifact path/digest; multi-case artifacts remain distinguishable by bug/case/repetition and per-record baseline hashes.",
+    "Paired baseline_record_sha256 computation, profile matching, semantic admission, direct IR gates, exact receipts and memory guards are unchanged.",
+    "Source parses successfully; no product or mocked execution performed."
+  ],
+  "return_site_count": 4,
+  "caller_count": 1,
+  "limitations": [
+    "Actual synthetic driver contracts and native use remain pending.",
+    "This patch supplies exact evidence traceability; it does not add baseline reuse or establish any new optimization verdict."
+  ],
+  "actions": {
+    "in_memory_patch_application": true,
+    "source_ast_parse": true,
+    "live_edits": false,
+    "imports_or_mock_runs": 0,
+    "native_runs": 0,
+    "builds": 0,
+    "graph_runs": 0,
+    "toolchain_runs": 0,
+    "raw_workload_or_AST_saved": false
+  }
+}

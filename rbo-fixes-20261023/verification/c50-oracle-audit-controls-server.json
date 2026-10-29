@@ -1,0 +1,75 @@
+{
+  "generator_sha256": "3b5c25b5ff5d7d25eeb12a50ffe641fab3556b53a29dfd07d6b65ef149869ee4",
+  "production_edited": false,
+  "records": [
+    {
+      "case": "c50_normalized_control",
+      "mode": "legacy",
+      "settings_sha256": "8c4848f6f65826c72e2dfe804af8e1ca465dc4076d18402ec329cbe07c74c6c9",
+      "query_sha256": "f1fae0f1d4b7271daac90c2912b602ef798a3e19a63145fd4162aefd1e1030cd",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "UseBlockHashJoin": true,
+        "DqHashOperatorsUseBlocks": false,
+        "DefaultEnableShuffleElimination": false,
+        "EnableQueryServiceSpilling": true,
+        "EnableSpillingInHashJoinShuffleConnections": true,
+        "EnableSpillingNodes": "All"
+      },
+      "exit_code": 0,
+      "row_count": 46,
+      "result_sha256": "b22bfbefcb81fb492beea2d3aa1089efd979f69b24384bbd375ff09d69867d2f",
+      "unordered_result_sha256": "d7cfc02761eead779712334ad378bd687c8cfcb40230f7153a0ca330f302a704",
+      "semantic_oracle_pass": true,
+      "audit": "C50 oracle/setup controls with local server permission",
+      "rows": 24
+    },
+    {
+      "case": "c50_int_double_inner_row",
+      "mode": "legacy",
+      "settings_sha256": "f16c3090b9f18535b16d8a82207172b236c63511accd8ef28c5b97472192fc29",
+      "query_sha256": "1437de63c1fc2c729ef3572bdc32135ed9319a872a6d7598343876a40979cef8",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "UseBlockHashJoin": false,
+        "DqHashOperatorsUseBlocks": false,
+        "DefaultEnableShuffleElimination": false,
+        "EnableQueryServiceSpilling": true,
+        "EnableSpillingInHashJoinShuffleConnections": true,
+        "EnableSpillingNodes": "All"
+      },
+      "exit_code": 0,
+      "row_count": 46,
+      "result_sha256": "f713a595741cad614ad6668e865576210e9e94c7106cd790cc86c8c5c97e5ff8",
+      "unordered_result_sha256": "d7cfc02761eead779712334ad378bd687c8cfcb40230f7153a0ca330f302a704",
+      "semantic_oracle_pass": true,
+      "audit": "C50 oracle/setup controls with local server permission",
+      "rows": 24
+    },
+    {
+      "case": "c50_int_double_inner_single_node",
+      "mode": "legacy",
+      "settings_sha256": "8c4848f6f65826c72e2dfe804af8e1ca465dc4076d18402ec329cbe07c74c6c9",
+      "query_sha256": "1437de63c1fc2c729ef3572bdc32135ed9319a872a6d7598343876a40979cef8",
+      "table_service_overrides": {
+        "EnableNewRBO": false,
+        "EnableFallbackToYqlOptimizer": false,
+        "UseBlockHashJoin": true,
+        "DqHashOperatorsUseBlocks": false,
+        "DefaultEnableShuffleElimination": false,
+        "EnableQueryServiceSpilling": true,
+        "EnableSpillingInHashJoinShuffleConnections": true,
+        "EnableSpillingNodes": "All"
+      },
+      "exit_code": 0,
+      "row_count": 28,
+      "result_sha256": "1b8e00447aaa3da6e8dd14e478bb16f18c1071bb77868091261c8111363c273a",
+      "unordered_result_sha256": "02dc93b34fb2e9b73c80113f77bb5bd0478ce1e8c013304449b2d400bca6be9a",
+      "semantic_oracle_pass": false,
+      "audit": "C50 oracle/setup controls with local server permission",
+      "rows": 24
+    }
+  ]
+}

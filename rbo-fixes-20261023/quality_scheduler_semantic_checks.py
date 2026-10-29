@@ -1,0 +1,300 @@
+"""Q28 end-to-end semantic controls and final-plan shape observations.
+
+Rendered workloads and plans stay in RAM. These bounded query families do not
+prove a local rule fired, expose RBO stage timings, or replace the separately
+bound 26-case production scheduler work-counter suite.
+"""
+from collections import Counter
+import hashlib
+import json
+
+import generate_and_verify as g
+
+CASE_SPECIFIC_SCHEMA = True
+VERSION = 'q28_stage_boundary_semantics_and_final_shape_v1'
+CASES = tuple('q28_' + name for name in (
+    'right_nullable_bag', 'nested_right_bag', 'right_map_dependencies',
+    'map_filter_sort_limit_control', 'conditional_guard_control',
+    'full_outer_nullable_control', 'shared_spilling_control',
+    'shared_copied_control'))
+
+
+def _validate(n, case=None):
+    if type(n) is not int or not 8 <= n <= 32:
+        raise ValueError('Scheduler semantic profiles require 8 to 32 rows per table')
+    if case is not None and case not in CASES:
+        raise ValueError('Unknown scheduler semantic profile')
+
+
+def _int(value):
+    return g.typed('Int64', value)
+
+
+def _source(n, side):
+    result = []
+    for index in range(1, n + 1):
+        if side == 'left':
+            key = None if index % 7 == 0 else index % 4
+        elif side == 'right':
+            key = None if index % 5 == 0 else 5 if index % 6 == 0 else index % 3
+        elif side == 'third':
+            key = None if index % 4 == 0 else 6 if index % 5 == 0 else index % 3
+        else:
+            raise ValueError('Unknown fixture side')
+        result.append({'id': index, 'k': key,
+                       'v': {'left': 10, 'right': 20, 'third': 30}[side] + index % 2})
+    return result
+
+
+def _tables(case):
+    if case in ('q28_map_filter_sort_limit_control', 'q28_conditional_guard_control'):
+        return (('sl', 'left'),)
+    if case == 'q28_nested_right_bag':
+        return (('sl', 'left'), ('sr', 'right'), ('st', 'third'))
+    return (('sl', 'left'), ('sr', 'right'))
+
+
+def schema_and_seeds(n, case):
+    _validate(n, case)
+    definition = '(id Int64 NOT NULL, k Int64, v Int64 NOT NULL, PRIMARY KEY (id))'
+    schema = ''.join('CREATE TABLE ' + table + ' ' + definition + ';' for table, _ in _tables(case))
+    seeds = []
+    for table, side in _tables(case):
+        values = [g.select([g.alias(_int(row['id']), 'id'),
+                            g.alias(g.call('Nothing', 'Int64?') if row['k'] is None else _int(row['k']), 'k'),
+                            g.alias(_int(row['v']), 'v')]) for row in _source(n, side)]
+        seeds.append('UPSERT INTO ' + table + ' ' + g.combine(values))
+    return schema, seeds
+
+
+def _outer(kind='RIGHT'):
+    return g.select([g.alias('l.k', 'left_key'), g.alias('r.k', 'right_key'),
+                     g.alias(g.call('COALESCE', 'l.v', _int(-1)), 'left_value'),
+                     g.alias(g.call('COALESCE', 'r.v', _int(-2)), 'right_value')],
+                    g.join('sl AS l', 'sr AS r', g.op('l.k', '=', 'r.k'), kind))
+
+
+def recipes(n):
+    _validate(n)
+    result = {'q28_right_nullable_bag': _outer()}
+    first = g.select([g.alias('l.k', 'left_key'), g.alias('r.k', 'right_key'),
+                      g.alias('l.v', 'left_value'), g.alias('r.v', 'right_value')],
+                     g.join('sl AS l', 'sr AS r', g.op('l.k', '=', 'r.k'), 'RIGHT'))
+    second = g.join(g.derived(first, 'p'), 'st AS t', g.op('p.right_key', '=', 't.k'), 'RIGHT')
+    result['q28_nested_right_bag'] = g.select(
+        ['p.left_key', 'p.right_key', g.alias('t.k', 'third_key'),
+         g.alias(g.call('COALESCE', 'p.left_value', _int(-1)), 'left_value'),
+         g.alias(g.call('COALESCE', 'p.right_value', _int(-2)), 'right_value'),
+         g.alias(g.op('t.v', '+', _int(1)), 'third_value')], second)
+    lower = g.select(['id', 'k', 'v', g.alias(g.op('v', '+', _int(1)), 'shifted')],
+                     'sl', where=g.op('id', '>', _int(0)))
+    left = g.select(['id', 'k', g.alias(g.op('shifted', '+', _int(1)), 'dependent'),
+                     g.alias(g.op('v', '+', _int(10)), 'independent')], g.derived(lower, 'lower_map'))
+    right = g.select(['k', g.alias(g.op('v', '+', _int(20)), 'mapped')], 'sr')
+    joined = g.join(g.derived(left, 'l'), g.derived(right, 'r'), g.op('l.k', '=', 'r.k'), 'RIGHT')
+    result['q28_right_map_dependencies'] = g.select(
+        [g.alias('l.k', 'left_key'), g.alias('r.k', 'right_key'),
+         g.alias(g.call('COALESCE', 'l.dependent', _int(-10)), 'dependent'),
+         g.alias(g.call('COALESCE', 'l.independent', _int(-11)), 'independent'),
+         g.alias(g.op('r.mapped', '+', _int(1)), 'right_value')], joined)
+    selected = g.select(['id', 'k', 'v'], 'sl', where=g.op('id', '>', _int(n // 3)),
+                        order='id', limit=n // 2)
+    copied = g.select(['id', g.alias('k', 'copied_key'), g.alias('v', 'copied_value')],
+                      g.derived(selected, 'limited'))
+    result['q28_map_filter_sort_limit_control'] = g.select(
+        ['copied_key', g.alias(g.op('copied_value', '+', _int(1)), 'value')], g.derived(copied, 'mapped'))
+    condition = g.op('id', '>', _int(n // 2))
+    guard = g.call('Ensure', 'id', condition, g.quote('scheduler conditional guard'))
+    guarded = g.select(['id', 'k', g.alias(g.call('IF', condition, guard, _int(0)), 'guarded')], 'sl')
+    result['q28_conditional_guard_control'] = g.select(
+        ['k', g.alias(g.op('guarded', '+', _int(1)), 'value')], g.derived(guarded, 'mapped'))
+    result['q28_full_outer_nullable_control'] = _outer('FULL')
+    shared = _outer()
+    arms = []
+    for branch, predicate in ((1, g.op(g.call('COALESCE', 'right_key', _int(-1)), '>=', _int(0))),
+                              (2, g.op('left_key', 'IS', 'NULL'))):
+        arms.append(g.select(['left_key', 'right_key',
+                              g.alias(g.op('left_value', '+', 'right_value'), 'value'),
+                              g.alias(_int(branch), 'branch')], '$q28_shared', where=predicate))
+    for case in ('q28_shared_spilling_control', 'q28_shared_copied_control'):
+        result[case] = '$q28_shared = (' + shared + '); ' + g.combine(arms)
+    if tuple(result) != CASES:
+        raise ValueError('Scheduler profile ordering changed')
+    return result
+
+
+def metadata(case, n):
+    _validate(n, case)
+    spilling = case == 'q28_shared_spilling_control'
+    return {'generator_version': VERSION,
+            'table_service_overrides': {'EnableFallbackToYqlOptimizer': False,
+                'EnableQueryServiceSpilling': spilling, 'EnableSpillingNodes': 'All' if spilling else 'None',
+                'EnableSpillingInHashJoinShuffleConnections': spilling,
+                'EnableKqpDataQueryStreamIdxLookupJoin': False, 'UseBlockHashJoin': False},
+            'pragmas': [('kikimr.CostBasedOptimizationLevel', '0'), ('kikimr.HashJoinMode', 'grace')],
+            'quality_requires_query_plan_evidence': True,
+            'node_count': 1, 'peak_native_concurrency': 1, 'repetitions': 1,
+            'additional_direct_ir_suite_required': 'quality_scheduler_cpp_checks:26',
+            'query_rule_reachability_proved': False, 'optimizer_stage_timing_available': False}
+
+
+def _pairs(left, right, kind):
+    # SQL equality never matches a missing optional key. Preserve row occurrences.
+    result, matched_left, matched_right = [], set(), set()
+    for li, a in enumerate(left):
+        for ri, b in enumerate(right):
+            if a['k'] is not None and b['k'] is not None and a['k'] == b['k']:
+                result.append((a, b)); matched_left.add(li); matched_right.add(ri)
+    if kind == 'FULL':
+        result.extend((a, None) for li, a in enumerate(left) if li not in matched_left)
+    if kind in ('RIGHT', 'FULL'):
+        result.extend((None, b) for ri, b in enumerate(right) if ri not in matched_right)
+    return result
+
+
+def expected_rows(case, n):
+    _validate(n, case)
+    left, right = _source(n, 'left'), _source(n, 'right')
+    if case == 'q28_map_filter_sort_limit_control':
+        selected = sorted((row for row in left if row['id'] > n // 3), key=lambda row: row['id'])[:n // 2]
+        return [{'copied_key': row['k'], 'value': row['v'] + 1} for row in selected]
+    if case == 'q28_conditional_guard_control':
+        return [{'k': row['k'], 'value': row['id'] + 1 if row['id'] > n // 2 else 1} for row in left]
+    pairs = _pairs(left, right, 'FULL' if case == 'q28_full_outer_nullable_control' else 'RIGHT')
+    if case == 'q28_nested_right_bag':
+        intermediate = [{'k': b['k'], 'left': a, 'right': b} for a, b in pairs]
+        output = []
+        for pair, third in _pairs(intermediate, _source(n, 'third'), 'RIGHT'):
+            a, b = (pair['left'], pair['right']) if pair else (None, None)
+            output.append({'left_key': a['k'] if a else None, 'right_key': b['k'] if b else None,
+                           'third_key': third['k'], 'left_value': a['v'] if a else -1,
+                           'right_value': b['v'] if b else -2, 'third_value': third['v'] + 1})
+        return output
+    output = []
+    for a, b in pairs:
+        lk, rk = a['k'] if a else None, b['k'] if b else None
+        lv, rv = a['v'] if a else -1, b['v'] if b else -2
+        if case == 'q28_right_map_dependencies':
+            output.append({'left_key': lk, 'right_key': rk, 'dependent': a['v'] + 2 if a else -10,
+                           'independent': a['v'] + 10 if a else -11, 'right_value': b['v'] + 21})
+        elif case.startswith('q28_shared_'):
+            for branch, keep in ((1, rk is not None and rk >= 0), (2, lk is None)):
+                if keep:
+                    output.append({'left_key': lk, 'right_key': rk, 'value': lv + rv, 'branch': branch})
+        else:
+            output.append({'left_key': lk, 'right_key': rk, 'left_value': lv, 'right_value': rv})
+    return output
+
+
+def check_rows(case, rows, n):
+    _validate(n, case)
+    canonical = lambda values: Counter(json.dumps(row, sort_keys=True, separators=(',', ':')) for row in values)
+    expected = expected_rows(case, n)
+    return {'semantic_oracle_pass': canonical(rows) == canonical(expected),
+            'independent_multiset_oracle': True, 'q28_expected_duplicate_groups': sum(value > 1 for value in canonical(expected).values()),
+            'query_rule_reachability_verified': False, 'direct_ir_contracts_verified': False,
+            'quality_acceptance_pass': False, 'quality_improvement_verified': False}
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('Duplicate query-plan key')
+        result[key] = value
+    return result
+
+
+def _nodes(root):
+    todo, count = [(root, 0)], 0
+    while todo:
+        node, depth = todo.pop()
+        count += 1
+        if not isinstance(node, dict) or count > 4096 or depth > 64:
+            raise ValueError('Query plan outside bounded profile')
+        children = node.get('Plans', [])
+        if not isinstance(children, list) or any(not isinstance(child, dict) for child in children):
+            raise ValueError('Malformed plan children')
+        operators = node.get('Operators', [])
+        if not isinstance(operators, list) or any(not isinstance(item, dict) for item in operators):
+            raise ValueError('Malformed plan operators')
+        yield node, operators, depth
+        todo.extend((child, depth + 1) for child in children)
+
+
+def check_query_plan(case, text, n):
+    _validate(n, case)
+    result = {'query_plan_sha256': hashlib.sha256(text.encode()).hexdigest(), 'query_plan_parsed': False,
+              'q28_final_plan_profile_complete': False, 'q28_profile_version': VERSION,
+              'q28_profile_scope': 'final_plan_shape_and_cbo_tree_counts_only',
+              'optimizer_compilation_timing_available': False, 'optimizer_stage_timing_available': False,
+              'logical_stage_boundary_execution_observed': False, 'query_rule_reachability_verified': False,
+              'shared_producer_identity_verified': False, 'direct_scheduler_work_counts_verified': False,
+              'quality_acceptance_pass': False, 'quality_improvement_verified': False}
+    try:
+        document = json.loads(text, object_pairs_hook=_unique_object)
+        if not isinstance(document, dict) or not isinstance(document.get('SimplifiedPlan'), dict) or not isinstance(document.get('Plan'), dict):
+            raise ValueError('Expected new RBO simplified and execution plans')
+        simplified = list(_nodes(document['SimplifiedPlan']))
+        execution = list(_nodes(document['Plan']))
+        stats = document['SimplifiedPlan'].get('OptimizerStats')
+        if not isinstance(stats, dict):
+            raise ValueError('Missing CBO tree counters')
+        total, optimized = stats.get('CBOTreesTotal'), stats.get('CBOTreesOptimized')
+        if type(total) is not int or type(optimized) is not int or not 0 <= optimized <= total:
+            raise ValueError('Invalid CBO tree counters')
+        categories = ('Map', 'Filter', 'Join', 'Sort', 'TopSort', 'Limit', 'Aggregate', 'UnionAll',
+                      'TableFullScan', 'TableRangeScan', 'TableLookup', 'IndexLookupJoin', 'ResultSet')
+        shapes = Counter(node.get('Node Type') if node.get('Node Type') in categories else 'Other'
+                         for node, _, _ in simplified)
+        joins, tables = Counter(), Counter()
+        for _, operators, _ in simplified:
+            for operator in operators:
+                if 'JoinKind' in operator:
+                    kind = operator['JoinKind']
+                    if kind not in ('Inner', 'Left', 'Right', 'Full', 'Exclusion', 'LeftOnly', 'RightOnly', 'LeftSemi', 'RightSemi', 'Cross'):
+                        raise ValueError('Unknown final join kind')
+                    joins[kind] += 1
+                if 'Table' in operator:
+                    table = operator['Table']
+                    if table not in ('sl', 'sr', 'st'):
+                        raise ValueError('Unexpected source table')
+                    tables[dict(_tables(case)).get(table, 'unexpected')] += 1
+        expected_roles = {side for _, side in _tables(case)}
+        if set(tables) != expected_roles:
+            raise ValueError('Incomplete target source profile')
+        stage_guids, definitions, references = set(), set(), []
+        for node, _, _ in execution:
+            if 'StageGuid' in node:
+                guid = node['StageGuid']
+                if not isinstance(guid, str) or not guid or guid in stage_guids:
+                    raise ValueError('Malformed stage definition')
+                stage_guids.add(guid)
+            if 'Subplan Name' in node:
+                name = node['Subplan Name']
+                if not isinstance(name, str) or not name.startswith('CTE ') or name[4:] in definitions:
+                    raise ValueError('Malformed shared stage definition')
+                definitions.add(name[4:])
+            if 'CTE Name' in node:
+                name = node['CTE Name']
+                if not isinstance(name, str) or not name:
+                    raise ValueError('Malformed shared stage reference')
+                references.append(name)
+        if not stage_guids or any(name not in definitions for name in references):
+            raise ValueError('Incomplete execution stage graph')
+        needs_join = len(expected_roles) > 1
+        minimum_joins = 2 if case == 'q28_nested_right_bag' else int(needs_join)
+        if sum(joins.values()) < minimum_joins:
+            raise ValueError('Intended join family absent')
+        right_normalized = needs_join and not any(joins[kind] for kind in ('Right', 'RightOnly', 'RightSemi'))
+        result.update(query_plan_parsed=True, q28_final_plan_profile_complete=True,
+                      q28_final_node_counts=dict(sorted(shapes.items())), q28_final_join_kind_counts=dict(sorted(joins.items())),
+                      q28_source_role_occurrences=dict(sorted(tables.items())), q28_simplified_node_occurrences=len(simplified),
+                      q28_simplified_max_depth=max(depth for _, _, depth in simplified),
+                      q28_execution_stage_definitions=len(stage_guids), q28_shared_stage_reference_occurrences=len(references),
+                      q28_cbo_trees_total=total, q28_cbo_trees_optimized=optimized,
+                      q28_final_right_join_absent=right_normalized,
+                      q28_final_normalization_required=case not in ('q28_full_outer_nullable_control', 'q28_map_filter_sort_limit_control', 'q28_conditional_guard_control'))
+    except (ValueError, TypeError, KeyError, RecursionError):
+        result['q28_profile_rejected'] = True
+    return result

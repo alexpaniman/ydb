@@ -1,0 +1,57 @@
+{
+  "status": "independently_approved_source_and_metadata_scope_actual_observation_pending",
+  "patch": {
+    "path": "proposed-correctness-amendments/C31-lexical-switch-shape-observation-20261028.patch",
+    "sha256": "a280f0f8545fe8295b60b781c9a62d4b7fa6978129cdedfebbad7b378c20bdf2"
+  },
+  "source_preparation": {
+    "path": "verification/C31-lexical-switch-shape-source-preparation-20261028.json",
+    "sha256": "6c8552b2d274fc63506c911eea2768f90ed4af9a65d2cfe59ba976f533afc8ef"
+  },
+  "review_finding_fixed": {
+    "classification": "verification_helper_traversal_cost_not_production_bug",
+    "bug": "The shared lexical parser bounded normalization but repeatedly expanded tuple aliases during its reachability walk, allowing excessive traversal work on small graphs.",
+    "fix": "Deduplicate tuple object identities before expansion, alongside the existing callable-node identity set.",
+    "evidence": "A bounded in-memory metadata probe confirmed the original disproportionate work; independent checks now confirm linear traversal with unchanged reachable node sets.",
+    "no_exact_graph_or_workload_persisted": true
+  },
+  "approved_behavior": [
+    "The existing two domain/spilling profiles and integer24-row admission remain unchanged.",
+    "Query sharing stays enabled; EnableSpillingNodes=None and the one-byte enabled local spill service cap remain unchanged. Query rejection cannot become semantic success.",
+    "Schema/fixtures/queries/row oracle are delegated to the same source snapshots. The metadata, recipe and existing inventory functions are byte-equivalent by AST.",
+    "Callable/kind names are allowlisted; unknown names collapse to fixed categories. Arity/key widths use bounded buckets; chain depth and mapping field inspection are bounded. No field/symbol/value text leaves the observer.",
+    "Lexical argument classification uses actual object identity, including branch versus foreign arguments and own-row versus foreign-row members.",
+    "The observer input hash must equal the base AST hash. The wrapper records the new observer and patched lexical helper snapshots; composition uses the same helper module object.",
+    "The four lineage/proof flags are always false in the observer, and the wrapper rejects any attempted promotion. Existing semantic and structural results are preserved.",
+    "Every currently reachable lexical-parser _Reject reason is a fixed internal literal. Other parser exceptions produce a fixed category, so exception details do not expose graph content.",
+    "Root ownership retains all reachable tuples while the visited-identity set is used; tuple IDs cannot be recycled during traversal. Existing proof logic is unchanged.",
+    "Join child positions agree with the pinned expression-node APIs and all three reported production source hashes were checked."
+  ],
+  "validation": {
+    "author_metadata_checks_rerun": 1086,
+    "independent_checks": 227,
+    "independent_report": {
+      "path": "verification/C31-lexical-switch-independent-contracts-20261028.json",
+      "sha256": "72c3e0ee73c276884430a6f54e240234c82d22aebc8b32b38d077586af388bac"
+    },
+    "independent_script": {
+      "path": "proposed-correctness-amendments/C31-lexical-switch-independent-contracts-20261028.py",
+      "sha256": "00f267b489115d03d448ece2071ac64db5f0bf4a736caaa1ab327ec47561f5d3"
+    },
+    "clean_source_patch_application": "passed in author metadata checks",
+    "native_or_toolchain_execution": false,
+    "live_helpers_changed": false,
+    "rendered_workload_or_graph_persistence": false
+  },
+  "after_images": {
+    "c31_scope_observation.py": "5a3781ce5847e1f9670d9ae83363a20265992b1e73575d514480a5b2e091e73d",
+    "c31_switch_shape_observation.py": "5839cb9e13b6dfd0987db6d426e2449b9737ea4193df514eba7b1003af48fce1",
+    "c31_shared_field_probe.py": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298"
+  },
+  "remaining": [
+    "Apply only in the root-authorized idle helper window.",
+    "Run only the two existing24-row observations through the existing guarded anonymous route.",
+    "New counters describe lexical shape only; actual optimized wrapper shape and complete shared-field lineage remain unproved until separate evidence.",
+    "Do not relabel the old observation rejections or use this inventory to grant semantic/full-lineage acceptance."
+  ]
+}

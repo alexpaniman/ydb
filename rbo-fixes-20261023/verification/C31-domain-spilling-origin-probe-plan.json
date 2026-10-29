@@ -1,0 +1,36 @@
+{
+  "author": "c31_artifacts_recovery",
+  "status": "prepared_unexecuted_scope_limited",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "probe": "c31_shared_origin_probe.py",
+  "probe_sha256": "3cc2fbc03ddcb2b2c5fe5e07d5f5a3fb83277727cee6c970d35d1b599b4ae0ea",
+  "plan": "C31-domain-spilling-origin-probe-plan.txt",
+  "plan_sha256": "2166005cf3e785ce5ab0088ac3493ec322694f58085b28447ad963d7321291fe",
+  "source_sha256": {
+    "yql/essentials/core/dq_expr_nodes/dq_expr_nodes.json": "8cd5b734f97dbef8607ed3ee86b34a234819efc32a57794953471c94c88626b9",
+    "ydb/core/kqp/opt/rbo/kqp_stage_graph.cpp": "f0664a13885b2fea185ef64c6c41df594353f8b031aa0b1e9d15bf7637768702",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp": "aa418bdba1b88c9be06e885d9a2f0f5aa393ca688695d917d4928b7a7cac84bc",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_union_all_builder.cpp": "9ee5892275424d22894f93faf155088a8acba4b6ba0bbacf366b696c91250b05",
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667"
+  },
+  "proof_boundary": {
+    "stage_port_topology_only": true,
+    "value_to_identity_lineage_proved": false,
+    "full_admission_possible": false,
+    "independent_review_pending": true
+  },
+  "requested_first_native_records": 2,
+  "actual_native_records": 0,
+  "source_syntax_parse_passed": true,
+  "mock_suites_executed": 0,
+  "production_or_live_helper_edits": false,
+  "raw_plan_or_workload_persisted": false,
+  "separate_candidate_artifact_observation": {
+    "file": "aggregate_copy_stability_checks.py",
+    "line": 233,
+    "current_output_callable": "DqOutput",
+    "schema_output_callable": "TDqOutput",
+    "live_fix_applied": false
+  }
+}

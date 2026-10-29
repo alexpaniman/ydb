@@ -1,0 +1,11 @@
+{
+  "diagnostic_sha256": "46507324a8dfa9cf7b20bb565838e5173c9f9644e7899b7b0e3e754511ef2b17",
+  "structural_diagnostics": [
+    "Failed to execute query, reason:",
+    "<main>: Error: library/cpp/json/json_reader.cpp:427: Offset: 0, Code: 1, Error: The document is empty."
+  ],
+  "case": "c41_effect_then_results",
+  "exit_code": 1,
+  "semantic_oracle_pass": false,
+  "provenance_verified": true
+}

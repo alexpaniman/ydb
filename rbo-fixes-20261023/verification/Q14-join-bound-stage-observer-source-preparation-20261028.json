@@ -1,0 +1,112 @@
+{
+  "acceptance_integration": "This patch only installs the module. It does not add AUTO/PROFILES acceptance or change direct-IR admission. Both quality_acceptance_pass and quality_improvement_verified remain false. pair_observations only reports one bounded pair; the owner must independently derive current generator/profile hashes and require the exact six-case vector before combining it with the separate twelve direct Q14 CBO contracts.",
+  "active_build_source_freeze_respected": true,
+  "apply_after": "verification/idle-artifact-application-plan-20261028-complete.json",
+  "apply_check": "git apply --check --whitespace=error-all passed",
+  "assertions_passed": 304,
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "candidate_sha256": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+  "case_count": 6,
+  "configured_nodes": 4,
+  "configured_table_partitions": 4,
+  "idle_stack_patch_count_verified": 26,
+  "idle_stack_sha256": "379973d8b93b403b9a46fcddaaea09164ce6084ad4f81e013e3058d3b909183b",
+  "independent_review_correction": "Reject local block/let/return stage-program forms, expression bindings colliding with lambda arguments, stage/enclosing-lambda argument shadowing, duplicate bindings/arguments and unresolved argument aliases. No global resolver is allowed to reinterpret an admitted lambda argument. Distinct ordinary nested lambda parameters remain supported. The shared parser is unchanged.",
+  "installed_generator": "quality_join_shuffle_checks.py",
+  "lexical_rejection_controls": [
+    "dead_local_dependency",
+    "dead_local_join",
+    "local_let_without_block",
+    "global_argument_collision",
+    "nested_stage_argument_shadow",
+    "nested_local_argument_shadow",
+    "duplicate_argument",
+    "duplicate_binding",
+    "unbound_argument"
+  ],
+  "limits": [
+    "No actual SQL parser, optimizer, native engine, compiler, graph export or build was executed.",
+    "The ReverseBlock algorithm is encouraged by supported size hints, not forced by an unsupported JoinType spelling. Actual BlockHashJoinCore BuildSide Left must be observed or the cell stays pending.",
+    "The candidate checks generated physical AST rather than aggregate JSON plan counters; unknown connections, nonzero output ports, nested joins, extra predicates and ambiguous sources are rejected.",
+    "Four configured nodes and four partitions do not prove all four nodes executed nonempty tasks; no task-placement or performance claim is made.",
+    "The narrow LEFT same-type profile avoids the separate FULL/mixed-type C37/C38 conditions. Other join kinds and distributions remain outside this extension.",
+    "Direct ConvertOptimizedTree identity contracts remain necessary and separate; this candidate cannot promote Q14 by itself.",
+    "Local block/let/return and shadowing forms are intentionally unsupported and stay pending; this may reject native formatter shapes until independently reviewed rather than counting dead expressions as live join evidence."
+  ],
+  "live_sources_modified": false,
+  "meaningful_semantic_controls": [
+    "duplicate join matches",
+    "unmatched LEFT rows",
+    "two same-type non-primary-key columns",
+    "multiset multiplicity"
+  ],
+  "native_executions": 0,
+  "observer_version": "q14_join_bound_stage_edges_v2",
+  "ordered_case_vector": [
+    "q14_reverse_chain_on",
+    "q14_reverse_chain_off",
+    "q14_grace_chain_on",
+    "q14_grace_chain_off",
+    "q14_reverse_single_on_control",
+    "q14_reverse_single_off_control"
+  ],
+  "paired_observation_contract": "Require matching baseline/fixed workload and current generator/profile fingerprints, executable provenance, exclusive new RBO configuration, successful semantic bags and typed intended join-edge shapes. Only ReverseBlock chain with shuffle elimination enabled changes its outer-left connection from HashShuffle to Map; all five controls retain exact descriptors. Source origins, physical key permutation, hash options and build side remain checked.",
+  "patch": "proposed-quality-amendments/Q14-join-bound-stage-controls-20261028.patch",
+  "patch_sha256": "df2606e3d073b7accd33edac09f26d54f736d5152f94e2907c96279e9506a251",
+  "peak_native_concurrency": 1,
+  "pending_route": [
+    "Install this separate patch only after the active build ends and the ordered twenty-six-artifact stack is applied.",
+    "Run the existing native adapter against independently built pinned baseline and Q14 revision, loading quality_join_shuffle_checks with rows24 and new mode; existing verify_series extra-generator path can collect paired semantics while quality remains pending.",
+    "Require all six baseline/fixed observations with current fingerprints and passing bag semantics; unknown selection/topology must remain pending.",
+    "Combine those observations with the separate current twelve-case direct CBO contract pair in an explicitly reviewed admission route. No whole-finding verification is claimed now."
+  ],
+  "previous_idle_stack_patch_count_verified": 16,
+  "rendered_queries_or_plans_persisted": false,
+  "rendered_query_sha256": {
+    "q14_grace_chain_off": "eafc39d211000a675f523cd1d2a0021f8b474d6aa30dbe1c76e02a65abfc3c8a",
+    "q14_grace_chain_on": "eafc39d211000a675f523cd1d2a0021f8b474d6aa30dbe1c76e02a65abfc3c8a",
+    "q14_reverse_chain_off": "eafc39d211000a675f523cd1d2a0021f8b474d6aa30dbe1c76e02a65abfc3c8a",
+    "q14_reverse_chain_on": "eafc39d211000a675f523cd1d2a0021f8b474d6aa30dbe1c76e02a65abfc3c8a",
+    "q14_reverse_single_off_control": "2ff936b04618ad6393121666cc1facb8cd43a51ee1723a773ea1d355b62685f9",
+    "q14_reverse_single_on_control": "2ff936b04618ad6393121666cc1facb8cd43a51ee1723a773ea1d355b62685f9"
+  },
+  "replayed_against_current_stack_helper_images": [
+    "verification_contract.py",
+    "quality_window_checks.py",
+    "quality_pairing.py"
+  ],
+  "revision": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd",
+  "rows": 24,
+  "setup_corrections": [
+    "CBO level4 is required for row sources because level2 returns before CBO.",
+    "Physical stage Outputs is optional; absent and empty are supported, annotated outputs rejected."
+  ],
+  "source_checks_added_after_independent_review": 19,
+  "source_checks_sha256": "adcc3bf79927ae467d41eba83e603a10276648ae80f11349b1e422dd4e6fa451",
+  "source_refs": [
+    "ydb/core/kqp/opt/rbo/rules/apply_cbo.cpp:95",
+    "ydb/core/kqp/opt/rbo/rules/kqp_cbo_trees.cpp:455",
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp:149",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp:246",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp:438",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_query_builder.cpp:730",
+    "ydb/library/yql/dq/expr_nodes/dq_expr_nodes.json:70",
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json:90"
+  ],
+  "status": "source_only_checks_passed_native_pending",
+  "superseded_patch_sha256": "e413d24a83eadc89f4048b3f3c790c9ce980092fa6341890e0cfd81dd4d4530c",
+  "synthetic_physical_ast_sha256": {
+    "q14_grace_chain_off_baseline": "a8b00013e1d3236c34c3476495fa00cb5d6b34c1439860f80c1832590e4683c5",
+    "q14_grace_chain_off_fixed": "a8b00013e1d3236c34c3476495fa00cb5d6b34c1439860f80c1832590e4683c5",
+    "q14_grace_chain_on_baseline": "952efadd907436480b61909ee04d12fec73cd4f8ff4982697da5688ce55e1186",
+    "q14_grace_chain_on_fixed": "952efadd907436480b61909ee04d12fec73cd4f8ff4982697da5688ce55e1186",
+    "q14_reverse_chain_off_baseline": "94449957c7ac970b730ade68d14e305d82a1e7cf51aa70578b35572ebdd64120",
+    "q14_reverse_chain_off_fixed": "94449957c7ac970b730ade68d14e305d82a1e7cf51aa70578b35572ebdd64120",
+    "q14_reverse_chain_on_baseline": "94449957c7ac970b730ade68d14e305d82a1e7cf51aa70578b35572ebdd64120",
+    "q14_reverse_chain_on_fixed": "d78ba3cd941b9cee34ffc7ab9d58d66a4248d51182addb9b51f75c6a4ae2c708",
+    "q14_reverse_single_off_control_baseline": "513d2c5e39dd2db0ef57f175bf6a4655fc22d678334cfed0013e7882d90592a4",
+    "q14_reverse_single_off_control_fixed": "513d2c5e39dd2db0ef57f175bf6a4655fc22d678334cfed0013e7882d90592a4",
+    "q14_reverse_single_on_control_baseline": "513d2c5e39dd2db0ef57f175bf6a4655fc22d678334cfed0013e7882d90592a4",
+    "q14_reverse_single_on_control_fixed": "513d2c5e39dd2db0ef57f175bf6a4655fc22d678334cfed0013e7882d90592a4"
+  }
+}

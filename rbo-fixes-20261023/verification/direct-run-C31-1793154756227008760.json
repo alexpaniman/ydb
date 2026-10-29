@@ -1,0 +1,59 @@
+{
+  "bug": "C31",
+  "case_count": 37,
+  "closure_provenance_verified": true,
+  "closure_receipt_path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/cpp-closures/24e1aae9a067-1792736142124693334/receipt.json",
+  "closure_receipt_sha256": "cf6d36fef2b9a1276904ef16d801a2f9762dfa70d7126362a24324838bbc98e6",
+  "compile": {
+    "cleanup_complete": true,
+    "diagnostic_bytes": 2006,
+    "diagnostic_sha256": "cfc3b1ccbf42c287d297d75296e150fb74b9293c5627d0d20b2fed4c922ae180",
+    "elapsed_seconds": 23.69,
+    "environment_sha256": "cd64c3bec61e31898ad530ad9ca7b66444cbfb16c0784903b937a7c640ec27f5",
+    "exit_code": 1,
+    "max_scope_gib": 24,
+    "min_host_available_gib": 36,
+    "minimum_host_available_bytes": 108022333440,
+    "peak_group_rss_bytes": 2069377024,
+    "peak_scope_usage_bytes": 2069630976,
+    "scope_collection_after_completion": false,
+    "scope_membership_accounting_available": true,
+    "stdout_bytes": 0,
+    "stdout_overflow": false,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "watchdog_stopped": false
+  },
+  "direct_case_vector_sha256": "1bb6295dcfc9d322a553d5e9d216287a9ace0a01dc310e74844a905a77d0fea4",
+  "direct_contract_profile_sha256": "a4fd096e49b52cca5085321598a9d29f31d76dc51dd929472e517ea52a41e3ef",
+  "direct_contract_vectors": [
+    {
+      "case_count": 33,
+      "first_case_index": 0,
+      "generator_sha256": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9",
+      "module": "c31_identity_cpp_generator",
+      "rendered_source_sha256": "59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d",
+      "vector": "identity"
+    },
+    {
+      "case_count": 4,
+      "first_case_index": 33,
+      "generator_sha256": "e222345eb70b71b1de31f58e37b14ec444782b34c97331002fbcff2008c99187",
+      "module": "c31_shared_pipeline_cpp_generator",
+      "rendered_source_sha256": "61393ab1ed47147c6ba026e29c27f77d3723867a2b71fe751b1b703ffd5ebf39",
+      "vector": "pipeline"
+    }
+  ],
+  "generated_files_persisted": false,
+  "generated_source_bytes": 186812,
+  "generated_source_sha256": "565e7046e8729c1c87ce9b831f06d7aed4bafd592d120acba894e913fe3a0095",
+  "generator_module": "c31_combined_cpp_generator",
+  "generator_sha256": "605f1f1d2fd286af2fed2eeb39209c11ffa353ac88ecacac0a5ef9ac83833ad1",
+  "phase": "fixed",
+  "proof_scope": "linked_production_local_contracts",
+  "quality_improvement_verified": false,
+  "query_semantics_verified": false,
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "schema_version": "anonymous_direct_cpp_v1",
+  "status": "anonymous_compile_failed",
+  "wrapping": null
+}

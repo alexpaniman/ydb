@@ -1,0 +1,35 @@
+{
+  "reviewer": "root",
+  "status": "approved_source_and_metadata_contracts_temporary_acceptance_gate",
+  "issue": "OA05",
+  "bug": "Q01",
+  "patch": "proposed-quality-amendments/Q01-resource-scaling-admission-gate.patch",
+  "patch_sha256": "c1a800815db08f4bcb2dbb86fccf39c1ec44ffb2763e14b5991a1d3590c27368",
+  "requires_pairing_patch_sha256": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8",
+  "after": {
+    "quality_pairing.py": "900f69f107f1c6124c3da3e6395559670d165d2c60783f3767bc4166b13d47c9",
+    "quality_pairing_contracts.py": "198a6aaf828cf9d04a3d6b6461b5a173044a69b42350472da411bce12715ea34"
+  },
+  "checks": [
+    "Q01 per-case paired structural contracts and observed work removal remain separately visible.",
+    "Full quality acceptance and measured resource-scaling flags are forced false until a separate reviewed measurement admission replaces this temporary gate.",
+    "Self-reported scaling booleans cannot bypass the gate.",
+    "Semantic failures still yield native_failed; missing baseline/provenance/profile/IR requirements remain enforced.",
+    "Other findings are unchanged; six prepared metadata assertions exercise semantics preservation and no Boolean bypass.",
+    "Temporary stacked application and Python syntax parsing passed."
+  ],
+  "limits": [
+    "Stacked metadata assertions pass; actual resource/native measurements remain pending.",
+    "No resource/CPU/allocation measurements have been collected.",
+    "This gate is incomplete task work, not a Q01 fix or acceptance result; the bound measurement plan must be implemented and run before full Q01 quality acceptance."
+  ],
+  "plan": "verification/Q01-resource-scaling-admission-plan-20261027.json",
+  "live_helper_edits": false,
+  "builds": 0,
+  "native_runs": 0,
+  "metadata_contracts": {
+    "evidence": "verification/stacked-quality-metadata-contracts-20261027.json",
+    "assertions": 97,
+    "native_runs": 0
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "Q26",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_unbuilt_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.h",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp"
+  ],
+  "summary": "Propagate configured sequential-read concurrency into row-table source settings, preserving unset and explicit zero.",
+  "review": [
+    "Independent patch generated directly from pinned base; production worktrees unchanged.",
+    "No yql/essentials edits."
+  ],
+  "validation_plan": [
+    "Inspect anonymous typed source settings for unset, positive and zero values.",
+    "Verify ordinary/sorted/limited row-source controls; system views must omit this datashard setting.",
+    "Verify column-store unsorted Limit retains SequentialInFlight=1.",
+    "Build physical-conversion and existing RBO suites."
+  ],
+  "limits": [
+    "System views intentionally excluded because they have no datashard partition concurrency.",
+    "No general latency improvement claimed; resource/concurrency benchmarking follows settings verification."
+  ],
+  "apply_check_exit_code": 0,
+  "patch_sha256": "b43009ca4b6e8aa2cd8e19bed95b4e71af83a326d69a32bfae942241248183e4"
+}

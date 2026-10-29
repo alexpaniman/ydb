@@ -1,0 +1,116 @@
+{
+  "finding": "C31",
+  "reviewer": "c41_review",
+  "reviewed_branch_commit": "add2cf0b3d838963596676c952622e6995b9abf6",
+  "status": "Remaining archived row-identity acceptance is explicit; no new implementation or native failure claimed.",
+  "fixed_scope_under_verification": "Late-sharing lifecycle plus nullable scalar unique keys and deduplicated complete scalar-row domains for repeatable residual predicates. The native queue, not this source design, determines acceptance.",
+  "outstanding_cases": [
+    "Float/Double identity, including signed zero and NaN payloads.",
+    "Fixed composite, nested optional, timezone and bare-Null identities.",
+    "Lists, dictionaries, Pg and opaque/resource values.",
+    "Keyless volatile predicates or correlated subplans whose evaluation count is observable.",
+    "Nonrepeatable producer sharing when spilling is unavailable.",
+    "Actual zero-column query acceptance remains separate from the direct-IR generator."
+  ],
+  "candidate_extensions": [
+    {
+      "case": "Float/Double and fixed Struct/Tuple/Optional values",
+      "classification": "Potentially solvable inside new RBO with a narrow serialization-domain extension, but not by widening the current whitelist.",
+      "mechanism": [
+        "Produce raw Pickle String identities before the Replicate hub.",
+        "Group the secondary domain on those String identities, not on the original floating/composite columns.",
+        "Unpickle domain payloads using the exact original type into fresh IUs and rebind the inner join, residual expressions and subplan captures to those IUs.",
+        "Reconstruct the primary bag using serialized identity columns. Keep original primary payload definitions untouched."
+      ],
+      "proof_obligations": [
+        "Raw Pickle preserves signed-zero and NaN bits; StablePickle canonicalizes them and is not a substitute for exact row identity.",
+        "Use a recursive explicit persisted fixed-value type admission, initially excluding lists/dicts/Pg/resources.",
+        "Add a local identity-copy-stability condition. Existing CanDuplicateAggregation intentionally ignores floating reduction/order differences, so two cloned producers can have equal-looking but different raw results. Do not weaken the existing global repeatability gate or assume byte stability from it.",
+        "For every accepted type verify Unpickle(Pickle(value)) preserves all observations allowed by admitted residual expressions, not merely SQL equality.",
+        "Maintain nonempty zero-column domain handling, original bag multiplicities, and absent optional encodings."
+      ],
+      "limits": "No artifact or native proof yet. Source tables show a viable building block, not a complete acceptance claim."
+    },
+    {
+      "case": "Bare Null, nested Optional, timezone and fixed scalar containers",
+      "classification": "Potentially solvable with encoded domain keys and exact payload reconstruction.",
+      "reason": "Raw packing includes optional presence, timezone IDs, tuple/struct field order and variant tags. Grouping on the original values can still collapse distinctions or use unsupported hash keys; encoded String grouping is the coherent repair."
+    },
+    {
+      "case": "Lists and dictionaries",
+      "classification": "Requires additional contracts; not a safe small whitelist change.",
+      "reason": "Packing lists consumes iterators and may force previously lazy evaluation. Nonstable dictionary packing uses iterator order; stable packing sorts but canonicalizes nested floats. These representations do not establish a universal observation-preserving, clone-stable identity."
+    },
+    {
+      "case": "Volatile predicates and called subplans over duplicate left rows",
+      "classification": "Value-domain deduplication fundamentally cannot preserve per-occurrence evaluation count. A different execution mechanism is required.",
+      "alternatives": [
+        "An occurrence ID assigned once before sharing could work, but KqpStreamEnumerate currently guarantees only a counter per stream/flow/list evaluation; it is not globally unique across tasks and copies can reorder rows. It needs planner ownership, distribution and no-copy guarantees.",
+        "When block joins are already enabled and supported, a generated equal constant key could route a left-family non-equi join through the existing residual-capable block implementation. This must preserve explicit configuration/forced-inlining policy, type eligibility and cost/stage behavior; it is not a solution for disabled or unsupported block execution.",
+        "A KQP-owned row residual join lowering could evaluate each original pair directly, but would require new buffering/spilling/resource and evaluation-count tests. Reusing the current cross-join materialization blindly would increase OOM risk and is not a small verified fix."
+      ]
+    },
+    {
+      "case": "Opaque/resource values",
+      "classification": "Existing Pickle admission rejects nonpersistable values. Preserve occurrences through a compatible join implementation or explicit once-only identity; do not claim serialized support."
+    }
+  ],
+  "source_evidence": [
+    {
+      "source": "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp:686",
+      "contract": "Float/Double packing canonicalizes bits only in the Stable template; ordinary Pickle preserves the raw representation."
+    },
+    {
+      "source": "yql/essentials/utils/fp_bits.h:74",
+      "contract": "Stable canonicalization merges signed-zero encodings and NaN payloads."
+    },
+    {
+      "source": "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp:724",
+      "contract": "Timezone packing stores the timezone identifier as well as the temporal value."
+    },
+    {
+      "source": "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp:778",
+      "contract": "Optional presence is encoded separately and nested optionals recurse."
+    },
+    {
+      "source": "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp:805",
+      "contract": "List packing traverses list contents; this is not merely a constant-time identity read."
+    },
+    {
+      "source": "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp:841",
+      "contract": "Struct/tuple fields are packed in their type-defined order."
+    },
+    {
+      "source": "yql/essentials/minikql/computation/mkql_computation_node_pack.cpp:859",
+      "contract": "Nonstable dictionaries follow iterator order; stable dictionaries may sort entries."
+    },
+    {
+      "source": "yql/essentials/core/type_ann/type_ann_core.cpp:6037",
+      "contract": "Pickle requires persistability and returns nonoptional String; Unpickle accepts an explicit persistable target type and returns exactly that type."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp:16",
+      "contract": "CanDuplicateAggregation deliberately ignores input type and reduction order; it is not a byte-stability guarantee for serialized floating identity."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/rules/expand_replicate.cpp:58",
+      "contract": "Without retained sharing, secondary consumers receive independently evaluated admitted producer copies."
+    },
+    {
+      "source": "ydb/core/kqp/runtime/kqp_stream_enumerate.cpp:31",
+      "contract": "The flow counter belongs to a computation evaluation; stream and list iterators have separate counters. There is no cross-task uniqueness or shared-producer planner contract."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp:385",
+      "contract": "Existing block join lowering builds residual filter lambdas; ordinary row fallback does not offer the same general residual interface."
+    },
+    {
+      "source": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp:107",
+      "contract": "Existing row cross join materializes the right relation. Extending it to outer residual joins requires explicit resource behavior rather than assuming scalability."
+    }
+  ],
+  "acceptance_policy": "These outstanding cases remain part of archived C31 scope. They are neither counted as fixed nor relabeled away. A future restricted extension can add proven cases, but remaining families retain explicit outstanding acceptance.",
+  "build_or_native_executions": 0,
+  "production_sources_or_branches_changed": false,
+  "exact_reproductions_persisted": false
+}

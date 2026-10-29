@@ -1,0 +1,19 @@
+{
+  "id": "Q18",
+  "status": "earlier_source_review_reassessed_compile_and_native_still_pending",
+  "earlier_report": "verification/quality-independent-review-statistics-settings.json",
+  "earlier_report_sha256": "45874b737cb5b6880c73a7741d062aa14230b460ca35e8914c0145065924bc5d",
+  "earlier_review_missed": "Unqualified TOptimizerStatistics in the helper definition resolved to the distinct KQP statistics map while its declaration and callers used the NYql map.",
+  "found_by": "c41_review independent generator/API audit",
+  "corrected_commit": "f27cc1474705c540c5a64c2700f19eb4df749f54",
+  "both_definition_parameters_explicitly_nyql": true,
+  "corrected_source_sha256": "e2b6ef11bc893d6891744b655fef2b244c1656f76c7069228031fc58ec20029c",
+  "production_sources_edited_by_this_agent": false,
+  "builds": 0,
+  "native_runs": 0,
+  "generator_changes": [
+    "Include complete TKqlTransformContext before its intrusive pointer temporary/destruction.",
+    "Use only existing ApplyColumnStatistics for Q18 baseline/fixed contracts; new MergeColumnStatistics is reached through production application on the fixed branch."
+  ],
+  "limitation": "Header/definition source contracts now agree; actual compilation and native cache/async matrices remain required."
+}

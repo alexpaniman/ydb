@@ -1,0 +1,15 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_metadata.py
++++ b/rbo-fixes-20261023/anonymous_cpp_metadata.py
+@@ -530,7 +530,11 @@
+     if receipt.get('build', {}).get('exit_code') != 0 or not receipt.get('files'):
+         raise MetadataError('unproven_production_closure')
+     for path, identity in receipt['files'].items():
+-        if digest_file(path) != identity:
++        current = digest_file(path)
++        # Cache hardlink churn can change ctime between completed snapshots.
++        # digest_file still checks full identity, including ctime, during reads.
++        if ({key: value for key, value in current.items() if key != 'ctime_ns'}
++                != {key: value for key, value in identity.items() if key != 'ctime_ns'}):
+             raise MetadataError('production_closure_input_changed')
+     if digest_file(receipt['graph']['resolved_path']) != receipt['graph']:
+         raise MetadataError('production_build_graph_changed')

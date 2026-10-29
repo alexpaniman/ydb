@@ -1,0 +1,2096 @@
+{
+  "schema": "C41_fullsuite_sanitized_outcomes_v1",
+  "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+  "reports": [
+    {
+      "trace_sha256": "f8af1255f37495f6bff1e7dc40c499e2cd20278b7e3e599cc54d4bcf6cf0c948",
+      "counts": {
+        "good": 255,
+        "crashed": 87,
+        "fail": 6
+      },
+      "events": {
+        "chunk-event": 16,
+        "subtest-finished": 348
+      },
+      "failures": [
+        {
+          "test": [
+            "KqpRboGlobalIUs",
+            "ExpandReplicateExecutesSharedSubqueries"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainStageConnections"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "InsertSelectColumnOrder+Distinct"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "FilterPushdownThroughJoin"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainReadRowsHints"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExpressionSubquery"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainScalarSubquery"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "InsertSelectColumnOrder-Distinct"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "InlineJoinFiltersAfterCBOChangesJoinTree"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "JoinFiltersOnClauseOuterJoins"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "MixedDistinctAggregationBeforeHashShuffle+ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "LiteralRangeWithParameters"
+          ],
+          "status": "fail",
+          "seconds": 2.482279,
+          "comment_sha256": "8d0a274f6b46bba1d34efe58c544a9fdc0890344cae36be66f418170a78e7dbe",
+          "comment_bytes": 3688,
+          "source_locations": [
+            "util/system/backtrace.cpp:284",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp:3663",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp:3680",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp:457"
+          ],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": true,
+            "crashed": false,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "MapJoin"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "LeftJoins"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "LeftJoinInequalityOnClause"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "MixedDistinctAggregationBeforeHashShuffle-ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "MapAliasCleanupSemanticRenameAndDeadSortKey"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "PropagateTopSortThroughStages"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "PushConstantConditionOnJoinKeyBothSides"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "MultiConsumer+ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "PropagateAggregateThroughStages"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "PropagateLimitThroughStages"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "PushFilterThroughAggregateOnLeftJoinInput+ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "PushFilterBeforeInlining"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ReplicateBranchPushdown-ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "RangePushdown+ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "Rollup"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "RollupGrouping"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "PushFilterThroughAggregateOnLeftJoinInput-ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ScalarAggregatesWithoutUsedResults"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ReplicateBranchPushdown+ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationSingleJoinColumnShardHashCompatibility"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationThreeJoinsHashFuncCompatibility"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationColumnShardHashPreservedInPhysicalAst"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationCompositeSourceSubsetKeyExecute"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationMixedHashFuncCompatibility"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationTPCHQ5CompositeJoinKeys"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationSimpleJoin"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationThreeJoinsColumnShardHashCompatibility"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationSimpleJoinKeysBothSides"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "SetOps"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ShuffleEliminationTwoJoinsHashFuncCompatibility"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "TPCDS_14"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "TPCH_YQL"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "SysViewNodes+NewRbo"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "WindowAggregates-ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "WholePartitionWindowAsAggregateJoin+WindowFunctionsV2"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "WindowFunctions-ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "TPCH_YQL_CBO4_ColumnLineageMapping"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "TPCH_9"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "TPCH_YDB_PERF"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "WindowAggregates+ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "TPCDS_YQL"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "WindowFunctions+ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboLookupJoin",
+            "IndexLookupJoinChains+PhysicalStagePeephole"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboOlap",
+            "BlockChannelAuto"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboLookupJoin",
+            "LookupJoinByNonCoveringIndexNullablePk"
+          ],
+          "status": "fail",
+          "seconds": 0.679149,
+          "comment_sha256": "1a67ad0bdef9934d27cbd06f5954a9856b8761bd4601b93cce9d42e6bfd2770a",
+          "comment_bytes": 6145,
+          "source_locations": [
+            "util/system/backtrace.cpp:284",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:28",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:779",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:780"
+          ],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": true,
+            "crashed": false,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboLookupJoin",
+            "LookupJoinByNonCoveringIndexWithConstPrefix+AllPointPrefixes+CoveringPredicateIndex"
+          ],
+          "status": "fail",
+          "seconds": 0.681694,
+          "comment_sha256": "fc1c0db4ab095a867dfb84500e42b3a2168c2e833e712e75b823fd159f060b68",
+          "comment_bytes": 5861,
+          "source_locations": [
+            "util/system/backtrace.cpp:284",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:28",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:563",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:564"
+          ],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": true,
+            "crashed": false,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboOlap",
+            "AggregateNoPushdown"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboLookupJoin",
+            "LookupJoinByIndexWithConstPrefix-AllPointPrefixes"
+          ],
+          "status": "fail",
+          "seconds": 0.879775,
+          "comment_sha256": "b1711cc9d044781f2ae97bc5a2f41de53713e772649c4da8bec5923769e644f8",
+          "comment_bytes": 4937,
+          "source_locations": [
+            "util/system/backtrace.cpp:284",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:28",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:393"
+          ],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": true,
+            "crashed": false,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboLookupJoin",
+            "LookupJoinByNonCoveringIndexWithConstPrefix+AllPointPrefixes-CoveringPredicateIndex"
+          ],
+          "status": "fail",
+          "seconds": 0.677254,
+          "comment_sha256": "c696d14c440c2d726f35377d3fe7681fcfdabcb6ccc9a8ff81c2060652aaba02",
+          "comment_bytes": 5867,
+          "source_locations": [
+            "util/system/backtrace.cpp:284",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:28",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:563",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:564"
+          ],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": true,
+            "crashed": false,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboLookupJoin",
+            "LookupJoinByIndexWithConstPrefix+AllPointPrefixes"
+          ],
+          "status": "fail",
+          "seconds": 2.486853,
+          "comment_sha256": "c3354c09133475fa74ebae8e690b2d92b2341f7d0078239906278257aaee3ba9",
+          "comment_bytes": 4934,
+          "source_locations": [
+            "util/system/backtrace.cpp:284",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:28",
+            "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp:393"
+          ],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": true,
+            "crashed": false,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboOlap",
+            "ExplainSharedStageOnce+Analyze"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboOlap",
+            "OlapFilterPeephole"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboOlap",
+            "OlapPerfQueries"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboOlap",
+            "ExplainSharedStageOnce-Analyze"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "AggregateKeyColumnsNotLeakedToInputMap"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "AliasesRenames"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "CommonConjunctExtractionFeedsJoinKey"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ClickBench_YQL"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ComputedEqualityFeedsJoinKey"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "BlockHashJoinCrossWithJoinFilters+UseBlockHashJoin+UseBlockHashJoinForCross"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "BlockHashCombine+ColumnStore"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "BasicHashJoin+UseBlockHashJoin"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "Decorrelation-ColumnStore-EqualNullsJoinKeys"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainAggregate"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "DecorrelationEqualNullsJoinKeys+EqualNullsJoinKeys"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "DecorrelationEqualNullsJoinKeys-EqualNullsJoinKeys"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "CorrelatedSubquery"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "Decorrelation-ColumnStore+EqualNullsJoinKeys"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "Decorrelation+ColumnStore+EqualNullsJoinKeys"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainAnalyze"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "DistinctShuffleEliminationTPCHQ4-CompositePartitionKey"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "Explain"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "DistinctShuffleEliminationTPCHQ4+CompositePartitionKey"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "Decorrelation+ColumnStore-EqualNullsJoinKeys"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "CorrelatedScalarSubqueryCBO4KeepsOuterJoinKey"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "CorrelatedScalarAggregateReuseDoesNotDuplicateVisibleColumns"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainAnalyzeScalarSubquery"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainJoin"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainOriginalRowsHints"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainExpressionPrintingJoinPredicate"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        },
+        {
+          "test": [
+            "KqpRboYql",
+            "ExplainAnalyzeMultipleSelectTPCDS23"
+          ],
+          "status": "crashed",
+          "seconds": 0,
+          "comment_sha256": "72383b9b401ee216882e3bac1795c982eda83f488aa097d6e0e79c47d608bd79",
+          "comment_bytes": 74,
+          "source_locations": [],
+          "categories": {
+            "SIGSEGV": false,
+            "SIGABRT": false,
+            "timeout": false,
+            "assertion": false,
+            "crashed": true,
+            "signal 6": false,
+            "exit code": false,
+            "column": false,
+            "unsupported": false
+          }
+        }
+      ]
+    }
+  ],
+  "raw_diagnostics_copied": false,
+  "cause_verified": false
+}

@@ -1,0 +1,87 @@
+C50: mixed numeric keys must be normalized before hash exchange
+Read-only design, 2026-10-23. No production edits, builds, native runs or exact
+query inputs were produced for this design. Shared legacy symptom remains outside
+the permitted new-RBO-only source scope.
+
+SOURCE-CONFIRMED ORDERING
+rules/assign_stages.cpp: regular joins take JoinKeys or CBO Left/RightShuffleBy
+and construct TShuffleConnection on those information units.
+physical_conversion/kqp_rbo_physical_join_builder.cpp: PrepareJoinKeys later picks
+JoinDryKeyType (preserved-side joins) or JoinCommonDryKeyType (other joins), creates
+StrictCast remaps, then PrepareJoinSide runs those maps inside the receiving join
+stage. Equal numeric values can therefore hash under different input types before
+normalization. A one-node result cannot validate this contract.
+
+RECOMMENDED DESIGN
+Introduce a logical normalization rule after all joins have been extracted and
+decorrelated, with type information, before CBO distribution reasoning. A suitable
+initial insertion point is after Index selection rules and before Prepare for CBO
+in kqp_rbo_transformer.cpp; evaluate whether type-dependent index-join selection
+needs its original key IDs, because the later physical index rewrite must retain
+that eligibility or deliberately bypass normalization for the already-selected
+lookup algorithm. This placement requires validation, not an unconditional claim
+that every index path is unchanged.
+
+Factor the common-key type decision out of PrepareJoinKeys into a shared new-RBO
+helper, preserving join kind, preserved side, EqualNulls and nullable-key behavior.
+For each differing key representation, add an additive Map on each required input,
+with fresh generated IUs for converted keys. Preserve original columns for payload,
+residual predicates and consumers; change only the matching JoinKeys entries.
+Deduplicate conversion definitions by original IU and target type (not original IU
+alone); one source key may participate in comparisons requiring different common
+types. Preserve key-pair order and EqualNulls flags.
+
+The expression type after StrictCast can remain optional when a conversion can
+fail. Both shuffle sides must expose the same actual key representation, including
+optional/container structure; merely asking for the same cast target is insufficient.
+Do not unwrap failed casts on preserved outer/anti rows. Reuse the existing join's
+null filtering policy, or prove a new pre-shuffle filter is legal for that exact
+join side. Null-safe keys need explicit controls so failed conversions cannot turn
+into spurious matches against an original null. A shared helper should describe
+both comparison conversion and normalized exchange-key type.
+
+Fresh normalized IUs prevent accidentally treating a distribution on an original
+key as a distribution on its cast result. Distribution proofs must identify ordered
+normalized key IDs plus their type/hash identity; cast equivalence is not a
+hash-preserving copy. Existing ShuffledByColumns records IDs only. Ensure lineage
+and CBO equality closure cannot erase the distinction between a copied key and a
+representation-changing conversion. If that cannot be established narrowly, retain
+fresh IDs and conservatively reject elimination for any converted key.
+
+Add a late invariant before Assign stages: every shuffled join's chosen left/right
+keys must have compatible ordered normalized representations. Later logical/CBO
+rewrites must not reintroduce mismatches. A late fallback normalization is possible,
+but it must clear all affected CBO LeftShuffleBy/RightShuffleBy decisions, including
+ancestors whose proofs depended on a changed descendant distribution. Clearing only
+the directly edited join is not sufficient.
+
+IMPORTANT EXISTING INVALIDATION GAP
+FinishLogicalRewrite/InvalidateProperties clears output IUs, metadata, statistics,
+logical analysis and types, but deliberately leaves LeftShuffleBy/RightShuffleBy
+physical decisions intact. A rule placed after CBO cannot rely on normal invalidation
+to remove obsolete shuffle hints. Prefer normalization before CBO; otherwise implement
+explicit proof invalidation or conservatively clear all such hints in that query
+when any representation changes. The latter is a correctness fallback with a separate
+optimization cost, not the final preferred quality outcome.
+
+SCOPE AND AFFECTED CONTRACTS
+Likely files: new-RBO key-type helper declaration/implementation; normalization rule;
+rule registration; physical join builder reuse; shuffle-elimination proof guard;
+build declarations if a new file is used. No edits under yql/essentials are needed.
+Map placement must remain on the producing side of exchange after stage assignment.
+Map/broadcast joins do not need matching shuffle hashes but should retain comparison
+semantics. Avoid forcing additional conversion work on already identical keys.
+Do not reuse stats or uniqueness from the original IU for a lossy cast without proof.
+
+COMPOSITIONAL VERIFICATION PLAN
+Use generated keyed tables with integral and floating families, matching numerically
+equal domains, disjoint controls, duplicates, nullable values and values outside the
+opposite domain. Execute one-node and four-node variants with explicit common-type
+input controls, original result-column type checks and independently derived match
+multiplicities. Exercise inner, left outer, semi, anti and supported full/right shapes;
+composite and repeated source keys; chains feeding aggregation/windows/another join;
+shuffle elimination enabled/disabled; block/row join variants. Use anonymous inputs
+and retain only generator definitions, config requirements, verdicts and digests.
+Plan evidence must prove normalization is in the source stage before ShuffleBy and
+that eliminated shuffles carry the same normalized type/hash identity. Comparing only
+new RBO against legacy is inadequate because the baseline defect affects both.

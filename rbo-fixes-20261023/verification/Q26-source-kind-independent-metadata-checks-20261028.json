@@ -1,0 +1,11 @@
+{
+  "assertions_passed": 624,
+  "patch_sha256": "ccfdac0c0d4328c243cab9e45697ab1039e09d82036c637cfe95e02d62a6f655",
+  "module_sha256": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba",
+  "paired_helper_sha256": "838f5513dd26682268a9a2d9b36812d72b3d5eec0437a43ffca0d9553968a685",
+  "temporary_stack_application_passed": true,
+  "native_runs": 0,
+  "queries_rendered": false,
+  "production_plans_used": false,
+  "metadata_or_expected_rows_persisted": false
+}

@@ -1,0 +1,112 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_rules.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_rules.h
+@@ -393,6 +393,16 @@
+ /**
+  * Push ranges to read.
+  */
++// Choose a covering row index for a bounded sort without a filter predicate.
++class TSelectIndexForTopSortRule: public ISimplifiedRule {
++public:
++    TSelectIndexForTopSortRule()
++        : ISimplifiedRule("Select index for top sort", ERuleProperties::RequireParents | ERuleProperties::RequireTypes) {}
++
++    bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
++    TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) override;
++};
++
+ class TPushRangesRule: public ISimplifiedRule {
+ public:
+     TPushRangesRule(NYql::EStorageType applicableTableType)
+--- a/ydb/core/kqp/opt/rbo/rules/push_ranges.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/push_ranges.cpp
+@@ -499,6 +499,80 @@
+ }
+ 
+ } // anonymous namespace
++
++bool TSelectIndexForTopSortRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
++    return input->Kind == EOperator::Sort && input->GetChild(0)->Kind == EOperator::Source;
++}
++
++TIntrusivePtr<IOperator> TSelectIndexForTopSortRule::SimpleMatchAndApply(
++    const TIntrusivePtr<IOperator>& input, TRBOContext& rboCtx, TPlanProps& props) {
++    const auto sort = CastOperator<TOpSort>(input);
++    const auto read = CastOperator<TOpRead>(sort->GetInput());
++    auto& kqpCtx = rboCtx.KqpCtx;
++    auto& ctx = rboCtx.ExprCtx;
++    if (kqpCtx.Config->IsAutoIndexSelectionDisabled() || !sort->IsTopSort()
++        || !TCoUint64::Match(sort->LimitCond->GetExpressionBody().Get())
++        || read->GetTableStorageType() != NYql::EStorageType::RowStorage
++        || read->RangeInfo || read->OriginalPredicate || read->Limit || read->OlapFilterLambda
++        || read->SortDir != ESortDir::None || read->Parents.size() > 1) {
++        return input;
++    }
++    const auto& keys = sort->GetSortElements().Items();
++    if (keys.empty()) {
++        return input;
++    }
++    TVector<TString> sortColumns;
++    const bool ascending = keys.front().second.Ascending;
++    for (const auto& [id, order] : keys) {
++        const auto* type = read->GetIUType(id, ctx);
++        // Match the existing row TopSort pushdown contract. Q05 separately relaxes
++        // the NULL-placement check for nonoptional keys in both locations.
++        if (!type || RemoveOptionalType(type)->GetKind() == ETypeAnnotationKind::Pg
++            || order.Ascending != ascending || order.NullsFirst != ascending) {
++            return input;
++        }
++        sortColumns.push_back(props.InfoUnitRegistry.Get(id).GetColumnName());
++    }
++    const auto table = TKqpTable(read->GetTable());
++    if (table.PathId().Value().empty() || !table.SysView().Value().empty()) {
++        return input;
++    }
++    const auto* desc = FindTable(kqpCtx, table.Path().StringValue());
++    if (!desc || !desc->Metadata || desc->Metadata->Kind != EKikimrTableKind::Datashard
++        || SortMatchesKeyOrder(sortColumns, desc->Metadata->KeyColumnNames, 0)) {
++        return input;
++    }
++    TIntrusivePtr<TKikimrTableMetadata> selected;
++    TString selectedName;
++    for (const auto& index : desc->Metadata->Indexes) {
++        if ((index.Type != TIndexDescription::EType::GlobalSync
++            && index.Type != TIndexDescription::EType::GlobalSyncUnique)
++            || index.State != TIndexDescription::EIndexState::Ready) {
++            continue;
++        }
++        const auto implementation = desc->Metadata->GetIndexMetadata(index.Name).first;
++        if (!implementation || implementation->Kind != EKikimrTableKind::Datashard
++            || !implementation->SysView.empty() || !FindTable(kqpCtx, implementation->Name)
++            || !IsCovering(*read, *implementation, props.InfoUnitRegistry)
++            || !SortMatchesKeyOrder(sortColumns, implementation->KeyColumnNames, 0)) {
++            continue;
++        }
++        if (!selected || index.Name < selectedName) {
++            selected = implementation;
++            selectedName = index.Name;
++        }
++    }
++    if (!selected) {
++        return input;
++    }
++    auto indexedRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(),
++        BuildTableCallable(*selected, read->Pos, ctx), nullptr, nullptr, std::nullopt, std::nullopt,
++        ESortDir::None, read->Props, read->Pos);
++    // Retain the sort and limit; the existing stage rule installs the ordered
++    // bounded storage read while preserving the final global ordering.
++    return MakeIntrusive<TOpSort>(indexedRead, sort->Pos, sort->Props, sort->GetSortElements(),
++        sort->LimitCond, sort->GetSortPhase());
++}
+ 
+ bool TPushRangesRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
+     return input->Kind == EOperator::Filter &&
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+@@ -716,6 +716,7 @@
+ 
+     TVector<std::unique_ptr<IRule>> indexSelectionRules;
+     indexSelectionRules.emplace_back(std::make_unique<TPushRangesRule>(NYql::EStorageType::RowStorage));
++    indexSelectionRules.emplace_back(std::make_unique<TSelectIndexForTopSortRule>());
+     RBO.AddStage(std::make_unique<TRuleBasedStage>("Index selection rules", std::move(indexSelectionRules)));
+ 
+     // CBO stages.

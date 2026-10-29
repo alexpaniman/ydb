@@ -1,0 +1,15 @@
+{
+  "reviewer": "root",
+  "artifact_sha256": "c3d922a2e49f0dafb56a52c1543adaca8667b9fb6d4b7a541901009a9578c079",
+  "status": "repair_required_before_application",
+  "finding": "Runtime admission flag is added to generator metadata but is absent from native evidence returned by check_physical_ast; SQL pairing could therefore skip the required runtime evidence.",
+  "source_trace": [
+    "native_verify.run_generated copies selected metadata fields only and merges check_physical_ast output into records.",
+    "quality_pairing.pair_quality_records gates additional admission only when the evidence record carries additional_ir_admission_required.",
+    "Q15 explicitly publishes that flag from its physical oracle; the proposed Q01 change does not."
+  ],
+  "required_fix": "Publish the flag from both Q01 physical oracles and test propagation through the actual native-record construction and pairing path.",
+  "actual_compiles": 0,
+  "actual_native_runs": 0,
+  "production_edited": false
+}

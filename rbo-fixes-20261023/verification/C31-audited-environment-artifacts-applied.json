@@ -1,0 +1,16 @@
+{
+  "patch_sha256": "ce9d17477cc17d280d2313538995fa0b7143a816ac1ee49f5de26fb2a3ecd8c9",
+  "review_sha256": "fb3df6f721cc986e40df198d5be38071a37752c13386d53dced5574c85316b5a",
+  "before": {
+    "anonymous_cpp_metadata.py": "c22714482e7ba4f46285b0e0d2d9a9d669e6c2cbf98375641c12ca8246997d23",
+    "anonymous_cpp_guard.py": "b4962d3004296d2936558c4c5164868a021d4a246458c18713b913047ae862cc",
+    "anonymous_cpp_verify.py": "c325983afe2f30f31c3dc20ca7d8e7c90334acd398a21f61182bf0bfe5d77739"
+  },
+  "after": {
+    "anonymous_cpp_metadata.py": "43d018319f33ad5828eb83ccaaab4fb90a17c0fe6a11d5319cf368bbf8372102",
+    "anonymous_cpp_guard.py": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+    "anonymous_cpp_verify.py": "3572a5468633bb6a67233aea292abc7c4af5285c79c2e7cdba0a25681ef586dd"
+  },
+  "actual_capture_pending": true,
+  "actual_compile_link_native_pending": true
+}

@@ -1,0 +1,58 @@
+{
+  "status": "existing_control_coverage_confirmed_strict_receipt_rerun_pending",
+  "evidence": "rbo-fixes-20261023/verification/fixed-C44-329c771f34f9.jsonl",
+  "evidence_sha256": "f12aeeb77d8cae1f697b483930e05d89c667a3368b0068c06525a19a4d1193be",
+  "records": [
+    {
+      "case": "c44_sink_disabled_guard",
+      "exit_code": 1,
+      "correctness_guard_observed": true,
+      "semantic_oracle_pass": false,
+      "base_table_oracle_pass": null,
+      "index_table_oracle_pass": null,
+      "result_set_ownership_pass": null,
+      "validation_request_count": 1,
+      "generator_version": "separate_write_validation_v3"
+    },
+    {
+      "case": "c44_sink_disabled_fallback",
+      "exit_code": 0,
+      "correctness_guard_observed": null,
+      "semantic_oracle_pass": true,
+      "base_table_oracle_pass": true,
+      "index_table_oracle_pass": true,
+      "result_set_ownership_pass": true,
+      "validation_request_count": 1,
+      "generator_version": "separate_write_validation_v3"
+    },
+    {
+      "case": "c44_sink_enabled_control",
+      "exit_code": 0,
+      "correctness_guard_observed": null,
+      "semantic_oracle_pass": true,
+      "base_table_oracle_pass": true,
+      "index_table_oracle_pass": true,
+      "result_set_ownership_pass": true,
+      "validation_request_count": 1,
+      "generator_version": "separate_write_validation_v3"
+    }
+  ],
+  "findings": [
+    "Existing no-fallback guard case observes the exact rejection at the target request.",
+    "Existing fallback-enabled case successfully validates the base and index contents through a separate subsequent read request.",
+    "Existing sink-enabled control successfully validates the base and index contents.",
+    "The final validation request checks exact result-set ownership as well as both row multisets."
+  ],
+  "actions": [
+    "Keep the existing three controls and rerun against a matching successful executable receipt.",
+    "Do not add duplicate controls or broaden the change beyond the requested guard behavior."
+  ],
+  "limitations": [
+    "Existing records predate strict executable receipts and remain withheld from final acceptance.",
+    "The existing simple synchronous-index fixture does not enumerate every admitted index class."
+  ],
+  "native_runs": 0,
+  "compiler_runs": 0,
+  "new_generators_added": false,
+  "active_helpers_edited": false
+}

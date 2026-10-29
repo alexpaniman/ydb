@@ -1,0 +1,260 @@
+{
+  "status": "frozen_dormant_generator_independent_review_required_native_pending",
+  "generator": {
+    "path": "proposed-correctness-amendments/C47-covering-import-after-pruning/c47_covering_import_contract_generator.py",
+    "sha256": "d19a363c250f6f61702e29360b50b613dbc42bf0f0b19c0eab3f5a39c608cee6",
+    "patch": "proposed-correctness-amendments/C47-covering-import-direct-controls-20261028.patch",
+    "patch_sha256": "3a923193506e0c968eea4bbb44ebfb16e1a801e05623af0daa03afb5873aa1c1"
+  },
+  "production_patch_sha256": "39736f6f917dcb09a5edc726eb7618bd14228f0c93c39ab5324bfeef33a0702d",
+  "execution_manifest": {
+    "path": "verification/C47-covering-import-direct-execution-manifest-20261028.json",
+    "sha256": "ae0cd82a3d65a662c0fe77a170202d957cd163f7e6d5f4e8f809bab7b9cf7bce"
+  },
+  "coverage": {
+    "positive": [
+      "covered",
+      "after_global_pruning",
+      "copied_definitions",
+      "shared_input_ownership",
+      "preserved_read_state",
+      "unique_index"
+    ],
+    "negative": [
+      "extra_demand",
+      "shared_lookup_edges",
+      "different_value_type",
+      "different_optionality",
+      "missing_main_types",
+      "missing_index_types",
+      "incomplete_pk",
+      "reordered_pk",
+      "wrong_key_source",
+      "reject_null_keys",
+      "async_index",
+      "specialized_index",
+      "not_ready_index",
+      "unrelated_implementation",
+      "missing_implementation",
+      "spilling_enabled",
+      "join_lookup",
+      "fetched_filter",
+      "point_prefix",
+      "source_read_state",
+      "chained_lookup",
+      "residual_keys",
+      "olap_program",
+      "original_predicate",
+      "missing_read_settings",
+      "missing_main_metadata"
+    ],
+    "case_count": 32,
+    "planned_assertions": 547
+  },
+  "actual_API_setup": [
+    "TIdTestContext owns the actual configuration, table registry, expression context, function registry and TRBOContext.",
+    "GetOrAddTable registers main and implementation table descriptions; real TKikimrTableDescription::Load fills column annotations from metadata. Missing-type controls deliberately skip Load.",
+    "Index metadata uses the actual immutable TIndexDescription constructor, complete ordered base PK and index implementation vector; no metadata mocks or private-field access.",
+    "Each test calls normal TRuleBasedStage::RunStage with the production rule; demand and parent edges are computed by the real stage. One control runs actual whole-plan pruning first.",
+    "The private-copy control uses IOperator::Copy then checks rewritten fetched IDs remain separate from source IDs and old definitions.",
+    "Positive replacement typing uses a temporary root containing the real replacement Read and the moved plan registry. This tests actual Read typing while avoiding arbitrary Map-lambda type annotation with the test helper null transformer.",
+    "No production-rule implementation is duplicated. Assertions inspect result identity, typed fields, optionality, exact definition IDs, aliases, unchanged source/lookup fields and retained Read state."
+  ],
+  "limits": [
+    "Python generation/source metadata checks passed; no C++ compile, link, native process or database query was run.",
+    "The range/settings case checks preservation of IR metadata and expression identity. It does not execute the range expression or claim native range semantics.",
+    "Excluded-shape controls are local production-IR admission controls; they do not claim every marker combination is independently SQL-reachable.",
+    "The existing 12 SQL semantic checks, failing covering physical assertion, and 19 copy contracts remain independent requirements.",
+    "Combined51 driver/profile integration is prepared separately and awaiting independent review; no live acceptance gate has changed."
+  ],
+  "old_19_copy_contracts": {
+    "coverage_unchanged": true,
+    "separate_API_repair_patch": "proposed-correctness-amendments/C47-copy-generator-ordered-key-api-20261028.patch",
+    "patch_sha256": "e0e65ce613aadb1c659800a4d289492273ccd81f92752c6206e613450b6cf206"
+  },
+  "metadata_validation": {
+    "checks_passed": 88,
+    "checks": [
+      "exact_32_distinct_cases",
+      "six_positive_controls",
+      "exact_ordered_case_vector",
+      "exact_total_assertions",
+      "generated_suite_deterministic",
+      "exact_function_vector",
+      "production_rule_implementation_not_copied",
+      "real_stage_call_per_case",
+      "real_pruning_control",
+      "real_copy_control",
+      "real_read_typing_per_positive",
+      "real_metadata_loading",
+      "private_results_differ_from_existing_nodes",
+      "source_and_lookup_ownership_unchanged_checks",
+      "all_negative_results_are_original_node",
+      "alias_names_preserved",
+      "nullability_checked_after_real_typing",
+      "full_read_state_preservation",
+      "no_invalid_ordered_key_size_api",
+      "invalid_selection_rejected_19",
+      "invalid_selection_rejected_20",
+      "invalid_selection_rejected_21",
+      "single_control_covered",
+      "assertion_binding_covered",
+      "single_control_after_global_pruning",
+      "assertion_binding_after_global_pruning",
+      "single_control_copied_definitions",
+      "assertion_binding_copied_definitions",
+      "single_control_shared_input_ownership",
+      "assertion_binding_shared_input_ownership",
+      "single_control_preserved_read_state",
+      "assertion_binding_preserved_read_state",
+      "single_control_unique_index",
+      "assertion_binding_unique_index",
+      "single_control_extra_demand",
+      "assertion_binding_extra_demand",
+      "single_control_shared_lookup_edges",
+      "assertion_binding_shared_lookup_edges",
+      "single_control_different_value_type",
+      "assertion_binding_different_value_type",
+      "single_control_different_optionality",
+      "assertion_binding_different_optionality",
+      "single_control_missing_main_types",
+      "assertion_binding_missing_main_types",
+      "single_control_missing_index_types",
+      "assertion_binding_missing_index_types",
+      "single_control_incomplete_pk",
+      "assertion_binding_incomplete_pk",
+      "single_control_reordered_pk",
+      "assertion_binding_reordered_pk",
+      "single_control_wrong_key_source",
+      "assertion_binding_wrong_key_source",
+      "single_control_reject_null_keys",
+      "assertion_binding_reject_null_keys",
+      "single_control_async_index",
+      "assertion_binding_async_index",
+      "single_control_specialized_index",
+      "assertion_binding_specialized_index",
+      "single_control_not_ready_index",
+      "assertion_binding_not_ready_index",
+      "single_control_unrelated_implementation",
+      "assertion_binding_unrelated_implementation",
+      "single_control_missing_implementation",
+      "assertion_binding_missing_implementation",
+      "single_control_spilling_enabled",
+      "assertion_binding_spilling_enabled",
+      "single_control_join_lookup",
+      "assertion_binding_join_lookup",
+      "single_control_fetched_filter",
+      "assertion_binding_fetched_filter",
+      "single_control_point_prefix",
+      "assertion_binding_point_prefix",
+      "single_control_source_read_state",
+      "assertion_binding_source_read_state",
+      "single_control_chained_lookup",
+      "assertion_binding_chained_lookup",
+      "single_control_residual_keys",
+      "assertion_binding_residual_keys",
+      "single_control_olap_program",
+      "assertion_binding_olap_program",
+      "single_control_original_predicate",
+      "assertion_binding_original_predicate",
+      "single_control_missing_read_settings",
+      "assertion_binding_missing_read_settings",
+      "single_control_missing_main_metadata",
+      "assertion_binding_missing_main_metadata",
+      "new_generator_patch_applies",
+      "new_generator_after_image_exact"
+    ],
+    "generated_source_persisted": false,
+    "native_processes_started": false,
+    "live_helpers_changed": false
+  },
+  "api_source_bindings": [
+    {
+      "path": "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/provider/yql_kikimr_gateway.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "cc5d380b501f9df12decb211549f272af47a2a1c1071d53b1debc0a72a6edd14",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/provider/yql_kikimr_provider.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "ae6a203b40cb577997aca4f70b497acebf423f5d67af4e417581b4c81c5d0505",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/provider/yql_kikimr_provider.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "ee2fc4a03d21d09aab950aa0d6994d6891444fd2c080bd03d1b022e5faab7472",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/provider/yql_kikimr_settings.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "98316543a4138417a80063f6ae2a22fbec10933de96bb00ece3a2a93ca819c30",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/common/kqp_yql.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "d64f44f32871327e19abfbb6aad79fd47b847b4fe29eb96c222f723c1512c5da",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_operator.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "5207796ab13bfdc56bf98715c340b509db2b36b0bed21a41d11835b4c7612910",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_info_unit.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo.h",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "fd5f01b23804b1a191073c18ac78e73be221dae491d74b082ab068e3894f947c",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "82cf05266e44fb8670009510dc46179faa2995e939a4a5333ebb63e63d62dcf5",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "dfaff3c1478f6eb4fd3bd39fa88cc05edd4f176142ce3b04b6199dded055e773",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/global_pruning.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "df253e54767b6adb18efdfb5bacceb68f0b55307fc255166b4bd1afdea634d2d",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+      "revision": "ebbd0e0aef616c8c3a54d3f92d7c2403e7a1c837",
+      "sha256": "448c03b663bb752dd81acbbb3aca35b0f6978a13f5ed82c7c5b839e3d3daad7a",
+      "also_verified_at_revision": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    }
+  ],
+  "review_correction": {
+    "finding": "Unqualified EStorageType is ambiguous with NYql and NKqp both imported.",
+    "fix": "Qualify the TOpRead constructor argument as NYql::EStorageType::RowStorage.",
+    "previous_generator_sha256": "3e6b4defa96a9a8dfc13a9d22bd238e1473f22051b9867835ce35b94e5642457",
+    "case_names_and_assertions_unchanged": true,
+    "second_finding": "The settings defaulted equality is unavailable because its sorting base has no equality.",
+    "second_fix": "Parse once and explicitly compare sorting, item-limit expression identity, ForcePrimary and SequentialInFlight in one assertion."
+  },
+  "combined_driver_report": "verification/C47-covering-import-direct-driver-source-preparation-20261028.json"
+}

@@ -1,0 +1,68 @@
+{
+  "schema": "quality_spill_revision_guard_source_review_v1",
+  "prepared_by": "/root/q01_measurement_review",
+  "prepared_at_utc": "2026-10-28T01:39:35.353116+00:00",
+  "status": "frozen_dormant_followup_independent_review_required",
+  "predecessor": {
+    "patch_sha256": "9e70be28e44f600870ceb0db59bf4b990b1ddc5a22cd11a6af51dfdee1952e93",
+    "review": "verification/Q-SQL-spill-cap-independent-root-review-20261028.json",
+    "review_sha256": "7674c7987f9c15c7a30fb126e57e4665808cf06e8e3c1d20e76ef01b00b04d9b"
+  },
+  "patch": "proposed-quality-amendments/Q-SQL-spill-cap-production-revision-guard-20261028.patch",
+  "patch_sha256": "b9393c041625cbf1b7f43d2d55aa6e7f440367a33f8f67b6ba68258423ebac54",
+  "before_images": {
+    "quality_spill_bounds.py": "6ac0b38adc4207800a853e06cfccfc4f167dd79663398eec8712a09fee4fbe91",
+    "native_verify.py": "f00515a00a438b2549c0241d712fa34da3e996161d605d8cb04913410486f29f"
+  },
+  "after_images": {
+    "quality_spill_bounds.py": "8baef78c55b538fcd874e7485bdae853a3f9e9f3de1a06d330c68a28c3650eac",
+    "native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b"
+  },
+  "issue_closed": "The first cap adapter bound workload generators and settings but relied on external case/receipt checks that could admit a future production revision outside the reviewed serializer set.",
+  "guard": "After normal successful verify_build_receipt, before preflight or target enumeration, issue an immutable scope for pinned main in baseline or the exact affected fixed revision. Re-read and hash the same receipt, bind its revision/worktree/runner identity to the already verified provenance, and require that scope plus the matching runner path for every affected cell.",
+  "scope_binding": [
+    "14 audited fixed revisions plus one pinned main; no prefix/ancestor/general main-child acceptance",
+    "Exact phase and requested affected finding IDs",
+    "Existing successful receipt bytes/hash and complete seven-field binary identity, with existing permitted completed-snapshot ctime difference",
+    "Exact runner path used by run_generated; same policy record includes revision, phase, receipt hash and runner hash"
+  ],
+  "call_paths": {
+    "normal_verify_series": "invoke_native runs native_verify.main; main verifies receipt, creates scope before the separate legacy preflight, and forwards it to every target run_generated call.",
+    "Q14_extra_module": "Uses the same main path. Manual run_generated on an affected Q14 cell without a validated scope fails before recipe/schema/fixture construction.",
+    "other_manual_calls": "Affected cells require the typed scope and matching runner; a dict, missing scope, wrong finding/revision/phase/path does not adapt. Nonspilling unaffected cells remain unchanged.",
+    "Q01_scaling_pilot": "Current dedicated scaling/setup profiles do not enable spilling. Main still pins Q01 to the audited revision when it is selected; this adds no resource acceptance.",
+    "Q28_SDK_pilot": "Separate measure-compilation path does not call run_generated or this cap adapter. Its seven nonspilling cases remain under its existing closure/runtime identity rules; shared_spilling_control remains explicitly unexecuted. This patch does not enable or claim SDK shared-control coverage."
+  },
+  "preserved": [
+    "Original82-cell source/metadata/row/mode guards",
+    "All block/shuffle/channel-sharing settings and one-byte cap",
+    "No acceptance, timeout, process guard or oracle changes",
+    "Original frozen cap patch unchanged",
+    "Historical live native helper unchanged"
+  ],
+  "dependency_composition": "Pending C31 combined direct helper and Q28 SDK helper changes may alter frozen transitive bindings. Refresh those exact hashes only in a separately reviewed composition amendment; this followup does not pre-authorize changed dependencies.",
+  "validation": {
+    "metadata_checks": 2064,
+    "case_phase_pairs": 164,
+    "actual_native_preparation_prefix_checked": true,
+    "negative_classes": [
+      "baseline/fixed inversion",
+      "unknown revision",
+      "wrong affected finding",
+      "wrong runner path",
+      "unverified provenance",
+      "receipt hash mismatch",
+      "binary identity mismatch",
+      "missing or untyped scope",
+      "unbound manual Q14",
+      "unknown spilling profile"
+    ],
+    "metadata_report": "verification/Q-SQL-spill-revision-guard-metadata-contracts-20261028.json",
+    "metadata_report_sha256": "c359d623d9686e0de59291f7b3a98d9119d2df1af6dea5452420b16194c0d183",
+    "script_sha256": "d02929a8f343f52a33b204e9472b271f3d0eb94d9d8afda032fdc261596138ae",
+    "ordered_temporary_patch_composition": true,
+    "native_build_toolchain_graph_calls": 0,
+    "live_edits": false,
+    "rendered_workload_payloads_persisted": false
+  }
+}

@@ -1,0 +1,14 @@
+diff --git a/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp b/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp
+--- a/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp
++++ b/ydb/core/kqp/opt/kqp_column_statistics_utils.cpp
+@@ -7,8 +7,8 @@
+ using namespace NYql;
+ using namespace NYql::NNodes;
+ 
+-void MergeColumnStatistics(TOptimizerStatistics::TColumnStatMap& current,
+-                           const TOptimizerStatistics::TColumnStatMap& incoming) {
++void MergeColumnStatistics(NYql::TOptimizerStatistics::TColumnStatMap& current,
++                           const NYql::TOptimizerStatistics::TColumnStatMap& incoming) {
+     for (const auto& [column, value] : incoming.Data) {
+         auto& stored = current.Data[column];
+         if (value.CountMinSketch) {

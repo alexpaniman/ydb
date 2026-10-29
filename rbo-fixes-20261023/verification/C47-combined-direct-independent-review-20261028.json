@@ -1,0 +1,376 @@
+{
+  "status": "source_and_metadata_approved_native_pending",
+  "production_revision": "54db45bef39b3515bd662daefe9d10c8757e74db",
+  "independent_assertions": 843,
+  "author_driver_checks_rerun": 274,
+  "source_report_sha256": "133a2efafee9a06c4dd6e7b19860cf534d40c4cb3f274d6ef0689a96973feaf9",
+  "driver_report_sha256": "e6404e22556ddaede6a98a00512eb9cd9f693ec85b1bbd5723de97b1fa5af0c9",
+  "patches": [
+    {
+      "path": "proposed-correctness-amendments/C47-covering-import-direct-controls-20261028.patch",
+      "sha256": "3a923193506e0c968eea4bbb44ebfb16e1a801e05623af0daa03afb5873aa1c1"
+    },
+    {
+      "path": "proposed-correctness-amendments/C47-covering-import-direct-driver-20261028.patch",
+      "sha256": "4f64ff7310a08559c44e95528bc2610a27265d5cff087d8f362aa9fb24a64b69"
+    }
+  ],
+  "case_count": 51,
+  "assertion_count": 796,
+  "vectors": [
+    {
+      "vector": "copy",
+      "module": "c47_lookup_copy_contract_generator",
+      "generator_sha256": "7e717869cb10b65043ade9032a170c3dfec96e8e341847c774245637f35033df",
+      "rendered_source_sha256": "e610ac774afe761407c33e1565ea9a74d93d5d6a7429e2fc0572dda8326a9d4c",
+      "case_count": 19,
+      "first_case_index": 0
+    },
+    {
+      "vector": "covering",
+      "module": "c47_covering_import_contract_generator",
+      "generator_sha256": "d19a363c250f6f61702e29360b50b613dbc42bf0f0b19c0eab3f5a39c608cee6",
+      "rendered_source_sha256": "83fe696c750b874b7addcb51971cf5f3814c523bacfc115e2571d07173d78483",
+      "case_count": 32,
+      "first_case_index": 19
+    }
+  ],
+  "case_assertions": [
+    {
+      "case_index": 0,
+      "vector": "copy",
+      "case": "plain_0_1_fresh",
+      "assertion_count": 17
+    },
+    {
+      "case_index": 1,
+      "vector": "copy",
+      "case": "plain_0_1_renamed",
+      "assertion_count": 18
+    },
+    {
+      "case_index": 2,
+      "vector": "copy",
+      "case": "plain_0_3_fresh",
+      "assertion_count": 25
+    },
+    {
+      "case_index": 3,
+      "vector": "copy",
+      "case": "plain_0_3_renamed",
+      "assertion_count": 26
+    },
+    {
+      "case_index": 4,
+      "vector": "copy",
+      "case": "plain_1_1_fresh",
+      "assertion_count": 17
+    },
+    {
+      "case_index": 5,
+      "vector": "copy",
+      "case": "plain_1_1_renamed",
+      "assertion_count": 18
+    },
+    {
+      "case_index": 6,
+      "vector": "copy",
+      "case": "plain_1_3_fresh",
+      "assertion_count": 25
+    },
+    {
+      "case_index": 7,
+      "vector": "copy",
+      "case": "plain_1_3_renamed",
+      "assertion_count": 26
+    },
+    {
+      "case_index": 8,
+      "vector": "copy",
+      "case": "plain_settings",
+      "assertion_count": 25
+    },
+    {
+      "case_index": 9,
+      "vector": "copy",
+      "case": "plain_ranges",
+      "assertion_count": 27
+    },
+    {
+      "case_index": 10,
+      "vector": "copy",
+      "case": "guard_join",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 11,
+      "vector": "copy",
+      "case": "guard_fetched_filter",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 12,
+      "vector": "copy",
+      "case": "guard_prefix",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 13,
+      "vector": "copy",
+      "case": "guard_source_read",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 14,
+      "vector": "copy",
+      "case": "guard_residual",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 15,
+      "vector": "copy",
+      "case": "guard_chained",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 16,
+      "vector": "copy",
+      "case": "guard_named_kind",
+      "assertion_count": 3
+    },
+    {
+      "case_index": 17,
+      "vector": "copy",
+      "case": "input_limit",
+      "assertion_count": 2
+    },
+    {
+      "case_index": 18,
+      "vector": "copy",
+      "case": "input_unrepeatable_settings",
+      "assertion_count": 2
+    },
+    {
+      "case_index": 19,
+      "vector": "covering",
+      "case": "covered",
+      "assertion_count": 28
+    },
+    {
+      "case_index": 20,
+      "vector": "covering",
+      "case": "after_global_pruning",
+      "assertion_count": 31
+    },
+    {
+      "case_index": 21,
+      "vector": "covering",
+      "case": "copied_definitions",
+      "assertion_count": 37
+    },
+    {
+      "case_index": 22,
+      "vector": "covering",
+      "case": "shared_input_ownership",
+      "assertion_count": 29
+    },
+    {
+      "case_index": 23,
+      "vector": "covering",
+      "case": "preserved_read_state",
+      "assertion_count": 55
+    },
+    {
+      "case_index": 24,
+      "vector": "covering",
+      "case": "unique_index",
+      "assertion_count": 28
+    },
+    {
+      "case_index": 25,
+      "vector": "covering",
+      "case": "extra_demand",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 26,
+      "vector": "covering",
+      "case": "shared_lookup_edges",
+      "assertion_count": 14
+    },
+    {
+      "case_index": 27,
+      "vector": "covering",
+      "case": "different_value_type",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 28,
+      "vector": "covering",
+      "case": "different_optionality",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 29,
+      "vector": "covering",
+      "case": "missing_main_types",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 30,
+      "vector": "covering",
+      "case": "missing_index_types",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 31,
+      "vector": "covering",
+      "case": "incomplete_pk",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 32,
+      "vector": "covering",
+      "case": "reordered_pk",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 33,
+      "vector": "covering",
+      "case": "wrong_key_source",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 34,
+      "vector": "covering",
+      "case": "reject_null_keys",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 35,
+      "vector": "covering",
+      "case": "async_index",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 36,
+      "vector": "covering",
+      "case": "specialized_index",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 37,
+      "vector": "covering",
+      "case": "not_ready_index",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 38,
+      "vector": "covering",
+      "case": "unrelated_implementation",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 39,
+      "vector": "covering",
+      "case": "missing_implementation",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 40,
+      "vector": "covering",
+      "case": "spilling_enabled",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 41,
+      "vector": "covering",
+      "case": "join_lookup",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 42,
+      "vector": "covering",
+      "case": "fetched_filter",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 43,
+      "vector": "covering",
+      "case": "point_prefix",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 44,
+      "vector": "covering",
+      "case": "source_read_state",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 45,
+      "vector": "covering",
+      "case": "chained_lookup",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 46,
+      "vector": "covering",
+      "case": "residual_keys",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 47,
+      "vector": "covering",
+      "case": "olap_program",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 48,
+      "vector": "covering",
+      "case": "original_predicate",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 49,
+      "vector": "covering",
+      "case": "missing_read_settings",
+      "assertion_count": 13
+    },
+    {
+      "case_index": 50,
+      "vector": "covering",
+      "case": "missing_main_metadata",
+      "assertion_count": 13
+    }
+  ],
+  "generated_source_sha256": "4c48c9a652f654be9a9b8f7d9646b6678928fee2a9b59b9b7580634dbaab9416",
+  "generated_source_bytes": 160442,
+  "resolved_generator_issues": [
+    "Qualified NYql::EStorageType avoids ambiguity with the transitively included NKikimr::NKqp enum.",
+    "Explicit read-setting field comparisons avoid deleted default equality on a base without equality."
+  ],
+  "source_findings": [
+    "All 19 existing copy contracts preserve their functions and meanings; only the reviewed ordered-key API spelling changed.",
+    "All 32 covering controls call the real production rule through normal stage traversal; six replacements and 26 declines are asserted.",
+    "Real loaded metadata supplies value types and optionality; positive outputs are typed with the actual Read typer.",
+    "Shared source and duplicate consumer edges are checked through real parent-edge computation; replacements preserve distinct definition identities.",
+    "Global pruning removes the unused mapped output before the covering stage; the normal local liveness pass supplies current demand.",
+    "Full ordered primary keys, index identity/state/type, read settings/ranges/limit/sort, no-spill boundary and excluded lookup forms are represented.",
+    "Combined component functions remain byte-identical in separate namespaces; one driver invokes each once.",
+    "Exact source/component/vector/profile hashes and assertion counts reject omissions, short-circuited success and stale 19-case evidence.",
+    "Production-version validation, closure receipt checks, serial compile/link/native sequence, existing scopes/timeouts/cleanup and anonymous transport remain unchanged."
+  ],
+  "limits": [
+    "Source and mocked transport checks do not establish C++ compilation or native correctness.",
+    "Range controls check IR and expression identity, not runtime range evaluation.",
+    "Excluded local IR markers are admission controls, not independent SQL-reachability claims.",
+    "51 direct contracts remain separate from the existing 12 SQL semantic samples and unchanged covering physical assertion.",
+    "The driver patch shares anonymous_cpp_verify.py with the pending C31 read-only executable transport repair; apply/rebase reviewed changes without dropping either."
+  ],
+  "native_executed": false,
+  "build_or_toolchain_executed": false,
+  "live_helpers_changed": false,
+  "generated_sources_persisted": false,
+  "query_semantics_verified": false,
+  "quality_improvement_verified": false
+}

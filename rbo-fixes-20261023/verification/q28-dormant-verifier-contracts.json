@@ -1,0 +1,13 @@
+{
+  "mock_contracts_passed": true,
+  "assertions": 29,
+  "case_count": 26,
+  "generator_sha256": "e32719455f2ea13b6cbd0b19772243c7d61f2497cfb9310c896515ecf642a00d",
+  "verifier_sha256": "3dcd3fea2d0299d5694804f5abc319f915ba227b8c7347a07efab2c66c907c04",
+  "generated_source_sha256": "fbdcb70df30c5a6779b6ae5d59e5f0de55427a598e5bed74bbd204336855f127",
+  "compiled": false,
+  "native_runs": 0,
+  "production_edited": false,
+  "generated_source_saved": false,
+  "synthetic_evidence_saved": false
+}

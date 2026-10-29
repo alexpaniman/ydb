@@ -1,0 +1,48 @@
+{
+  "schema_version": "dormant_patch_proposal_v1",
+  "recorded_unix_ns": 1793132988933162185,
+  "issue": "OA05",
+  "status": "source_only_temporary_fail_closed_gate_not_applied_or_executed",
+  "patch": "proposed-quality-amendments/Q01-resource-scaling-admission-gate.patch",
+  "patch_sha256": "c1a800815db08f4bcb2dbb86fccf39c1ec44ffb2763e14b5991a1d3590c27368",
+  "prerequisite_patches": [
+    {
+      "path": "proposed-quality-amendments/optimization-admission-guards.patch",
+      "sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70"
+    },
+    {
+      "path": "proposed-quality-amendments/optimization-physical-pairing-contracts.patch",
+      "sha256": "c3c32a5a75355829ffb9e8e600a0ef6bf940282113da9f2a4646b26b8fcf5ff8"
+    }
+  ],
+  "source_before_sha256": {
+    "quality_pairing.py": "92a3688c70e64d658950dfba5d0774ff84980024c477eb19acbd35ae329922be",
+    "quality_pairing_contracts.py": "a4e1a0780338b56ea6e0c17d66a66dd22bff74b011d17e5399342777f27bc1f9"
+  },
+  "source_after_sha256": {
+    "quality_pairing.py": "900f69f107f1c6124c3da3e6395559670d165d2c60783f3767bc4166b13d47c9",
+    "quality_pairing_contracts.py": "198a6aaf828cf9d04a3d6b6461b5a173044a69b42350472da411bce12715ea34"
+  },
+  "measurement_plan": "verification/Q01-resource-scaling-admission-plan-20261027.json",
+  "measurement_plan_sha256": "4f5cf34f70cf9a651b579017dee36afbfe907e0903530f9624300c2cfab4e596",
+  "behavior": [
+    "Every Q01 pair retains per-record structural acceptance/improvement observations separately.",
+    "Q01 full quality acceptance remains pending until a separately implemented and reviewed resource-admission validator is supported by actual bound measurements.",
+    "Incoming allocation/scaling booleans cannot bypass the gate.",
+    "Existing semantic, required-profile, direct-runtime and non-Q01 gates remain in force."
+  ],
+  "contract_assertions_added": 6,
+  "source_ast_parse_passed": true,
+  "tests_executed": false,
+  "actions": {
+    "live_edits": 0,
+    "builds": 0,
+    "native_runs": 0,
+    "graph_runs": 0,
+    "toolchain_runs": 0,
+    "generated_product_inputs": 0
+  },
+  "restack_notes": [
+    "Rechecked unchanged OA05 patch in memory after OA04/OA07 correction that validates callable-counter types on both baseline and fixed maps."
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "id": "C40",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c40-decline-conflicting-olap-projections",
+  "commit": "a3f2d982416508ada71d8e63fcc097631a3dbe12",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp"
+  ],
+  "rationale": "Keep unsupported multiple projections per source field or map expression in compute; retain existing single-projection pushdown.",
+  "checks": [
+    "git diff --check passed"
+  ],
+  "verification_plan": "Native multiple-JSON projection and single-projection controls; existing OLAP tests.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C40",
+    "revision": "a3f2d982416508ada71d8e63fcc097631a3dbe12",
+    "exit_code": 0,
+    "elapsed_seconds": 83.7,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4481024,
+      "peak_scope_usage_bytes": 42701078528,
+      "minimum_host_available_bytes": 108087902208,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 83.7
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/a3f2d982416508ada71d8e63fcc097631a3dbe12-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 2,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C40-a3f2d9824165-1792739295559073621.jsonl"
+  }
+}

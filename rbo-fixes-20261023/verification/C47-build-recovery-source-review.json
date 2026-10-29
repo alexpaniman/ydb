@@ -1,0 +1,63 @@
+{
+  "status": "source_confirmed_compile_mismatch_dormant_patch_prepared",
+  "reviewer": "c47_build_recovery",
+  "bug": "C47",
+  "revision": "535684543d798106b01872b81fe4bbbdea72a4de",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "worktree_head_checked": "535684543d798106b01872b81fe4bbbdea72a4de",
+  "tracked_worktree_clean": true,
+  "reviewed_changed_files": [
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+    "ydb/core/kqp/opt/rbo/rules/propagate_limit_through_stage.cpp",
+    "ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_olap_filter.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+    "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp"
+  ],
+  "finding": {
+    "category": "rvalue_reference_argument_mismatch",
+    "location": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp:1882",
+    "description": "The index-import path creates a const intrusive pointer and passes it as an lvalue to the sole TExprContext::ChangeChild overload, which accepts a non-const rvalue pointer reference.",
+    "declaration": "yql/essentials/ast/yql_expr.h:2970",
+    "repair": "Make the local pointer movable and move it into its only consuming ChangeChild call.",
+    "ownership_review": "The pointer is local, used only at this call after initialization, and the reconstructed expression retains the moved child; no later read or mutation of the moved local occurs.",
+    "actual_compiler_confirmation": "pending_root_build"
+  },
+  "patch": "proposed-correctness-amendments/C47-move-lowered-lookup-keys.patch",
+  "patch_sha256": "5a277db00d610e5ecc59fd16cec9d833b38adfbe0696be7e96c22d4b8e78dc57",
+  "production_source_before_sha256": "fa21db60b0a50da400ac32005517e2846694a843e88f6b095b03507714289c39",
+  "production_source_after_sha256": "03a710e90476a21a18a12e8428887662daad9583bed21437abcfccb9d4c2757c",
+  "other_source_checks": [
+    "NOpt::KqpRewriteIndexRead is declared in NKikimr::NKqp::NOpt and accepts a const TKqpOptimizeContext reference matching RewriteSelect.",
+    "The RBO library already links the logical optimizer library; no new PEERDIR is required for the lowering helper.",
+    "TKqpReadTableSettings has Parse overloads for read-ranges base nodes and name/value settings lists, and exposes ItemsLimit, IsSorted and IsReverse used by the new import/export code.",
+    "ExistingTable is already called with Table().Path() in existing logical and nearby RBO code.",
+    "The extended TOpRead constructor signature and initializer order match all changed reconstruction/copy call sites.",
+    "TOpTableLookup copy code accesses its own private Columns member and existing public plain-lookup state; lookup key and column container APIs match declarations.",
+    "The first ChangeChild receives a temporary new-list pointer and already matches the consuming API.",
+    "The trailing optional IndexRead expression node child and builder/import calls follow the existing optional-child node schema pattern."
+  ],
+  "additional_confirmed_compile_defects": [],
+  "limitations": [
+    "Source review does not prove this is the only build failure; root must rerun the actual guarded build.",
+    "Native explicit-index SQL checks and 19 direct lookup-copy contracts remain required.",
+    "No semantic runtime success or complete C47 acceptance is claimed."
+  ],
+  "actions": {
+    "builds": 0,
+    "native_runs": 0,
+    "live_source_edits": false,
+    "branch_edits": false,
+    "essentials_edits": false,
+    "rendered_repros_written": false
+  },
+  "patch_application_preflight_passed": true
+}

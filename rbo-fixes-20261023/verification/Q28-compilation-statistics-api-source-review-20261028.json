@@ -1,0 +1,344 @@
+{
+  "adapter_implemented": false,
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "build_runs": 0,
+  "closure_feasibility": {
+    "finding": "The existing rbo test target depends on ut/common, which already links query SDK. The current Q28 direct adapter selects that production closure. A separate anonymous timing adapter can use those symbols without adding production dependencies; this remains source feasibility, not a link-success claim.",
+    "references": [
+      "ydb/core/kqp/ut/rbo/ya.make:22",
+      "ydb/core/kqp/ut/common/ya.make:29",
+      "rbo-fixes-20261023/anonymous_cpp_metadata.py:30",
+      "rbo-fixes-20261023/anonymous_cpp_verify.py:38"
+    ],
+    "separation": "Keep any future timing adapter and its evidence separately fingerprinted. Do not replace the existing 26-case scheduler generator/admission record."
+  },
+  "conclusion": "A small anonymous adapter can obtain actual server-reported compilation wall time, CPU time and cache status through the existing query SDK in the RBO test closure, independently of new-RBO plan JSON. Production edits are unnecessary for this data path. Native linking/execution remains unverified, and these counters are neither pure RBO time nor complete request latency.",
+  "coordination": "Sibling remaining_correctness_review owns the Q28 semantic/profile generator and final-plan observer. This report only covers compilation-statistics APIs and measurement limits.",
+  "current_checkout_files_different_from_pinned_sources": [
+    "ydb/core/kqp/session_actor/kqp_session_actor.cpp"
+  ],
+  "data_path": [
+    {
+      "observation": "Reply writes uncached compilation elapsed wall time and the CompileCpuTime accumulator.",
+      "reference": "ydb/core/kqp/compile_service/kqp_compile_actor.cpp:492"
+    },
+    {
+      "observation": "SaveAndCheckCompileResult assigns compile response statistics to query state.",
+      "reference": "ydb/core/kqp/session_actor/kqp_query_state.cpp:139"
+    },
+    {
+      "observation": "Pinned-source FillSystemViewQueryStats copies compilation duration/CPU/cache when CompileResult exists, independently from total query/worker CPU.",
+      "reference": "ydb/core/kqp/session_actor/kqp_session_actor.cpp:3205"
+    },
+    {
+      "observation": "TKqpQueryStats::ToProto serializes the dedicated Compilation message.",
+      "reference": "ydb/core/kqp/session_actor/kqp_query_stats.cpp:252"
+    },
+    {
+      "observation": "The dedicated protobuf is attached independently of SerializeAnalyzePlan.",
+      "reference": "ydb/core/kqp/session_actor/kqp_session_actor.cpp:3269"
+    },
+    {
+      "observation": "FillQueryStats maps the dedicated compilation fields into Ydb.TableStats.QueryStats. Its total CPU field separately includes execution, worker and compilation CPU.",
+      "reference": "ydb/core/grpc_services/rpc_kqp_base.cpp:61"
+    },
+    {
+      "observation": "Final generic-query response invokes FillQueryStats independently of plan JSON.",
+      "reference": "ydb/core/grpc_services/query/rpc_execute_query.cpp:459"
+    },
+    {
+      "observation": "SDK constructs TExecStats from exec_stats; buffered execution retains the latest final stats at line190.",
+      "reference": "ydb/public/sdk/cpp/src/client/query/impl/exec_query.cpp:96"
+    }
+  ],
+  "direct_request_reference": "ydb/public/sdk/cpp/src/client/query/client.cpp:981: TSession::ExecuteQuery forwards the request and applies session-status interception; use this direct API rather than RetryQuery.",
+  "exact_api_route": [
+    {
+      "api": "NKikimr::NKqp::TKikimrSettings(appConfig).SetWithSampleTables(false).SetNodeCount(1); TKikimrRunner(settings)",
+      "purpose": "Create one bounded actual server; finish startup and setup before the target request.",
+      "reference": "ydb/core/kqp/ut/common/kqp_ut_common.h:144"
+    },
+    {
+      "api": "TKikimrRunner::GetQueryClient(); TQueryClient::GetSession(); NQuery::TSession::ExecuteQuery(query, TTxControl::NoTx(), settings)",
+      "purpose": "Submit sibling-generated SQL held only in RAM; use one request, not a retry wrapper.",
+      "references": [
+        "ydb/core/kqp/ut/common/kqp_ut_common.h:262",
+        "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/client.h:201"
+      ]
+    },
+    {
+      "api": "NQuery::TExecuteQuerySettings::StatsMode(NQuery::EStatsMode::Basic)",
+      "purpose": "Collect dedicated compilation statistics with minimal execution-statistics detail; keep settings identical across revisions.",
+      "reference": "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/query.h:156"
+    },
+    {
+      "api": "TExecuteQueryResult::GetStats()->GetCompilation()",
+      "purpose": "Require successful final result, present stats and present optional compilation message.",
+      "references": [
+        "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/client.h:409",
+        "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/stats.h:160"
+      ]
+    },
+    {
+      "api": "NQuery::TCompilationStats::IsFromCache(), GetDurationUs(), GetCpuTimeUs()",
+      "purpose": "Export exactly the cache boolean and two unsigned microsecond counters; missing statistics are not zero samples.",
+      "references": [
+        "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/stats.h:98",
+        "ydb/public/sdk/cpp/src/client/query/stats.cpp:104"
+      ]
+    }
+  ],
+  "finding": "Q28",
+  "generated_sql_cpp_or_plans_persisted": false,
+  "graph_exports": 0,
+  "kqprun_output_limit": {
+    "finding": "stats-mode controls collection, but TQueryMeta retains AST, plan and total query duration. script-plan-file and script-statistics expose plan-derived data, not the separate compilation submessage. No existing CLI switch found that exports that submessage. full-proto result format is result-set output, not the complete query response.",
+    "invalid_substitutes": [
+      "runner process wall time",
+      "total query duration",
+      "total query CPU",
+      "execution task CPU sums",
+      "in-progress CPU usage derived from plan JSON"
+    ],
+    "references": [
+      "ydb/tests/tools/kqprun/kqprun.cpp:517",
+      "ydb/tests/tools/kqprun/kqprun.cpp:716",
+      "ydb/tests/tools/kqprun/kqprun.cpp:723",
+      "ydb/tests/tools/kqprun/src/ydb_setup.cpp:118",
+      "ydb/tests/tools/kqprun/src/ydb_setup.cpp:1023",
+      "ydb/tests/tools/kqprun/src/ydb_setup.h:20",
+      "ydb/tests/tools/kqprun/runlib/utils.cpp:65",
+      "ydb/tests/tools/kqprun/runlib/utils.cpp:241"
+    ]
+  },
+  "live_edits": false,
+  "metric_limits": [
+    "The counters cover compiler accounting across phases, not only RBO or the changed rules. They cannot identify a dominant optimizer stage.",
+    "Wall time begins at StartCompilation (kqp_compile_actor.cpp:278) and ends at Reply. It includes waits/metadata work within that interval but excludes runner startup, client transport and compile-service queue time before the interval.",
+    "With EnableAstCache, the service can run a separate PARSE/cache lookup before COMPILE (kqp_compile_service.cpp:615). Those earlier phases are not necessarily included. Query state assigns one CompileStats response rather than proving aggregate timing across split statements or retries; restrict samples to one generated read-only statement and reject failures/retries.",
+    "CPU is the existing CompileCpuTime accumulator, scoped at StartCompilationWithSettings (line320) and continuation handling (line587). It is not exhaustive process CPU: initial Continue at316 and final response processing are outside those scopes. Label it server-reported compilation CPU, not complete optimizer CPU.",
+    "Public CompilationStats has no per-stage fields or UsedNewRbo flag. Enforce new RBO enabled, fallback disabled, and the existing configuration/plan proof separately.",
+    "Cache-hit responses set FromCache=true with default timing counters (kqp_compile_service.cpp:1039). Zero alone cannot distinguish missing, cached or very short work; require optional-message presence and explicit cache state and treat zero timings as uninformative for a speed claim.",
+    "Fresh-runner measurements include cold metadata effects inside compilation. Warm-metadata measurements need a separately validated cache invalidation route; this report does not assume cache size0 or new-session cache bypass.",
+    "Explain and Full/Profile collect extra diagnostics. Samples with different modes cannot be compared as the same workload. Explain alone proves no result semantics.",
+    "The anonymous adapter has not been implemented, linked or executed. Actual successful compilation-stat return and cache controls still need native verification. No production speedup is claimed.",
+    "Using one SELECT and avoiding RetryQuery prevents an explicit SDK retry loop, but the public compilation submessage does not prove absence of internal recompile attempts; do not claim it aggregates every attempt without additional native evidence."
+  ],
+  "narrow_measurement_route": [
+    "Consume the sibling Q28 case/schema/fixture generator through inherited memfds or RAM; do not create another semantic generator or persist rendered SQL.",
+    "Use one fresh isolated runner and one target compilation per process/sample. Complete startup, schema, fixtures and session creation first; no process stopwatch is used as compilation evidence.",
+    "Prefer normal Execute with Basic stats for a small read-only target. Pass returned rows to the existing independent semantic oracle separately; only the compilation submessage supplies timing. If Full is needed to match the sibling structural run, keep that mode identical across both revisions and label it.",
+    "Explain with Basic stats is a non-executing alternative: Explain always reports stats at rpc_execute_query.cpp:151, while Basic explicitly enables session stats collection. Explain also requests AST/diagnostics, so label its samples separately and retain independent execution semantics.",
+    "Require IsFromCache=false for every cold compilation sample. Generic query RPC unconditionally requests keep_in_cache=true at rpc_execute_query.cpp:303, and NQuery settings offer no Table-client KeepInQueryCache equivalent. Fresh sessions, changed comments and assumed cache-size-zero behavior are not valid cache-bypass proofs.",
+    "A disposable repeated query can provide a cache-hit negative control if the statement is cacheable. Require the actual true flag; missing hits stay pending and never count as cheaper compilation.",
+    "Match query/schema/fixture/config/execution-mode hashes across exact baseline and fixed revisions, and retain production closure/executable provenance. Run one native server at a time under existing memory/process-group guards and the serial verification slot; never overlap the active build.",
+    "Emit only case/repetition/phase/revision, provenance/workload hashes, stats presence, cache flag, compilation duration_us/cpu_time_us, success and independent semantic flags. Do not serialize stats ToString(), AST/plan/meta, generated SQL or raw issues.",
+    "Keep server/compiler diagnostics in anonymous bounded memory or discarded by the existing guard; TKikimrSettings::SetLogCapture and TCapturedLog exist at kqp_ut_common.h:148 and:49. Never print captured logs or unsanitized issue messages. Capture structured measurements separately from startup output.",
+    "Use repeated paired uncached measurements to describe overall server compilation-accounting trends and regressions. Retain direct scheduler work counters and sibling final-plan semantics separately. This report proposes no automatic quality acceptance or performance threshold."
+  ],
+  "native_runs": 0,
+  "pinned_api_checks_passed": true,
+  "pinned_source_reference_anchors": {
+    "ydb/core/grpc_services/query/rpc_execute_query.cpp": {
+      "FillQueryStats(*response.mutable_exec_stats(), kqpResponse)": [
+        459
+      ],
+      "bool NeedReportStats": [
+        151
+      ],
+      "cachePolicy->set_keep_in_cache(true)": [
+        303
+      ]
+    },
+    "ydb/core/grpc_services/rpc_kqp_base.cpp": {
+      "if (kqpStats.HasCompilation())": [
+        61
+      ]
+    },
+    "ydb/core/kqp/compile_service/kqp_compile_actor.cpp": {
+      "stats.CpuTimeUs =": [
+        493
+      ],
+      "stats.DurationUs =": [
+        492
+      ],
+      "void HandleCompile(": [
+        587
+      ],
+      "void StartCompilation(": [
+        278
+      ],
+      "void StartCompilationWithSettings(": [
+        320
+      ]
+    },
+    "ydb/core/kqp/compile_service/kqp_compile_service.cpp": {
+      "ECompileActorAction::PARSE": [
+        615,
+        674
+      ],
+      "void ReplyFromCache(": [
+        1039
+      ]
+    },
+    "ydb/core/kqp/session_actor/kqp_query_state.cpp": {
+      "CompileStats = ev->Stats": [
+        139
+      ]
+    },
+    "ydb/core/kqp/session_actor/kqp_query_state.h": {
+      "bool ReportStats() const": [
+        689
+      ]
+    },
+    "ydb/core/kqp/session_actor/kqp_query_stats.cpp": {
+      "NKqpProto::TKqpStatsQuery TKqpQueryStats::ToProto": [
+        252
+      ]
+    },
+    "ydb/core/kqp/session_actor/kqp_session_actor.cpp": {
+      "response->MutableQueryStats()->Swap(&stats)": [
+        3269
+      ],
+      "void FillSystemViewQueryStats": [
+        3205
+      ]
+    },
+    "ydb/core/kqp/ut/common/kqp_ut_common.h": {
+      "NYdb::NQuery::TQueryClient GetQueryClient": [
+        262
+      ],
+      "TKikimrSettings& SetNodeCount": [
+        144
+      ],
+      "TKikimrSettings& SetWithSampleTables": [
+        146
+      ]
+    },
+    "ydb/core/kqp/ut/common/ya.make": {
+      "ydb/public/sdk/cpp/src/client/query": [
+        29
+      ]
+    },
+    "ydb/core/kqp/ut/rbo/ya.make": {
+      "ydb/core/kqp/ut/common": [
+        22
+      ]
+    },
+    "ydb/public/api/protos/ydb_query_stats.proto": {
+      "message CompilationStats": [
+        35
+      ],
+      "message QueryStats": [
+        41
+      ]
+    },
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/client.h": {
+      "class TExecuteQueryResult": [
+        399
+      ],
+      "const std::optional<TExecStats>& GetStats()": [
+        359,
+        409
+      ]
+    },
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/query.h": {
+      "enum class EExecMode": [
+        32
+      ],
+      "enum class EStatsMode": [
+        46
+      ],
+      "struct TExecuteQuerySettings": [
+        156
+      ]
+    },
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/stats.h": {
+      "class TCompilationStats": [
+        98
+      ],
+      "std::optional<TCompilationStats> GetCompilation": [
+        160
+      ]
+    },
+    "ydb/public/sdk/cpp/src/client/query/client.cpp": {
+      "TAsyncExecuteQueryResult TSession::ExecuteQuery": [
+        981,
+        991
+      ]
+    },
+    "ydb/public/sdk/cpp/src/client/query/impl/exec_query.cpp": {
+      "if (const auto& st = part.GetStats())": [
+        190
+      ],
+      "if (self->Response_.has_exec_stats())": [
+        96
+      ]
+    },
+    "ydb/public/sdk/cpp/src/client/query/stats.cpp": {
+      "TCompilationStats::TCompilationStats": [
+        104
+      ],
+      "std::optional<TCompilationStats> TExecStats::GetCompilation": [
+        217
+      ]
+    },
+    "ydb/tests/tools/kqprun/kqprun.cpp": {
+      "AddLongOption(\"script-plan-file\"": [
+        716
+      ],
+      "AddLongOption(\"script-statistics\"": [
+        723
+      ],
+      "AddLongOption(\"stats-mode\"": [
+        517
+      ]
+    },
+    "ydb/tests/tools/kqprun/runlib/utils.cpp": {
+      "void TStatsPrinter::PrintInProgressStatistics": [
+        65
+      ]
+    },
+    "ydb/tests/tools/kqprun/src/ydb_setup.cpp": {
+      "meta.TotalDuration = TDuration::MicroSeconds(deserializedMeta.exec_stats().total_duration_us())": [
+        1023
+      ],
+      "void FillQueryMeta": [
+        118
+      ]
+    },
+    "ydb/tests/tools/kqprun/src/ydb_setup.h": {
+      "struct TQueryMeta": [
+        20
+      ]
+    }
+  },
+  "pinned_source_sha256": {
+    "ydb/core/grpc_services/query/rpc_execute_query.cpp": "0aefdcb31fc0923c269a40592058248955566a982554eaca811ea633dda13ced",
+    "ydb/core/grpc_services/rpc_kqp_base.cpp": "bf9fba10ca340959a903dec5ec8523dc5ab49e11c5c0bb387407fb199c41bd8f",
+    "ydb/core/kqp/compile_service/kqp_compile_actor.cpp": "cd9ba38a4a21dc1f81743ba0d595face005edddd4f320e4ea5df7a4bf8627ade",
+    "ydb/core/kqp/compile_service/kqp_compile_service.cpp": "a63f66d62fe02c6c17e400b4ab249999e6e790d990d130ad1e0f3804cc73094e",
+    "ydb/core/kqp/session_actor/kqp_query_state.cpp": "8368faceca9ffcb8a2176ad4daa52a6f347de6a0f8e6b0e0b9c55dec6f5867ae",
+    "ydb/core/kqp/session_actor/kqp_query_state.h": "bb24f36c22546cece8574da7e78c37b003b6f448dce7e03fe6947e50ff1c6274",
+    "ydb/core/kqp/session_actor/kqp_query_stats.cpp": "ba4cc230ecd225685715d2b640a4743983f60e7c65adbd290309fc383a16df10",
+    "ydb/core/kqp/session_actor/kqp_session_actor.cpp": "21adbad37560aa5ae10def40d0fe84e6867d578fe5e79da51b77a81353236aea",
+    "ydb/core/kqp/ut/common/kqp_ut_common.h": "8d9e60923d127786f4110bff4d62e8660c93955a2724a6ca9b8b0eba2a60855e",
+    "ydb/core/kqp/ut/common/ya.make": "fc3a65f53ab98e30f966c34f54cb859105390b8900d760c6ca472feee221b8e5",
+    "ydb/core/kqp/ut/rbo/ya.make": "0c06da2e3f951e9d5e28467833bd15d6799fa6ea5402ea471380105df88c4c80",
+    "ydb/public/api/protos/ydb_query_stats.proto": "e75e3f7e67707fb5a55ca87b79892aab882cf67ad5bf8a2572270bb2e85d7630",
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/client.h": "e71441eb8e229c60afc37cac3fba26b3b8b2a4c1ea5f5e669d07d639327f2a15",
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/query.h": "79d8dda4b244c25e25fcf1e71d97a80b3c62475270587f5dc7ae3ca3c1bbf716",
+    "ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/query/stats.h": "cdbfeb5bb7df23b6c20ca953c67b5ae189848cf54158bb4e0c97c3f09651b083",
+    "ydb/public/sdk/cpp/src/client/query/client.cpp": "93493521db9b38d642df36393e10f6cf2ba10fcd9c61a42088e5e93df2cb0bb9",
+    "ydb/public/sdk/cpp/src/client/query/impl/exec_query.cpp": "61b8754bb5a6c764ae1aa6c38665812b6cc01697af881693d741a1a405e88ee7",
+    "ydb/public/sdk/cpp/src/client/query/stats.cpp": "d6d94ec9617c55a33fecbc1d92bfaabe1e3434e7becb9c198a313d9e588b996b",
+    "ydb/tests/tools/kqprun/kqprun.cpp": "c706050a14132739899130cd5a97fdb0ed0445790d8dc7cd9859fb2b2d4a8cce",
+    "ydb/tests/tools/kqprun/runlib/utils.cpp": "f575648dba38ed2876a8d5a5bbe9d0e2dcc1f59ebfb30b2c593accac7ffd69b6",
+    "ydb/tests/tools/kqprun/src/ydb_setup.cpp": "b9e908d29b8743ef617e178b727e1bffd766aaf2afc46b26ace1c155be9aefbb",
+    "ydb/tests/tools/kqprun/src/ydb_setup.h": "e54e6f080f2bc3da6f2c6dce0bcf53376ee70a630a1e276a384fec463d535e41"
+  },
+  "revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+  "source_files_checked": 22,
+  "status": "source_supported_adapter_route_native_pending",
+  "toolchain_runs": 0
+}

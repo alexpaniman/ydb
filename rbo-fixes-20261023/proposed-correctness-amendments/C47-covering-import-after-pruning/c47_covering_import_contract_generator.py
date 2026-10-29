@@ -1,0 +1,345 @@
+"""Dormant direct controls for the actual C47 covering-import production rule.
+
+Generated C++ stays in memory. Table descriptions are loaded through production
+APIs; the original 19 copy contracts remain a separate coverage vector.
+"""
+import hashlib
+import json
+
+VERSION = 'c47_covering_import_production_contracts_v1'
+_POSITIVE = ('covered', 'after_global_pruning', 'copied_definitions',
+             'shared_input_ownership', 'preserved_read_state', 'unique_index')
+_NEGATIVE = ('extra_demand', 'shared_lookup_edges', 'different_value_type',
+             'different_optionality', 'missing_main_types', 'missing_index_types',
+             'incomplete_pk', 'reordered_pk', 'wrong_key_source', 'reject_null_keys',
+             'async_index', 'specialized_index', 'not_ready_index', 'unrelated_implementation',
+             'missing_implementation', 'spilling_enabled', 'join_lookup',
+             'fetched_filter', 'point_prefix', 'source_read_state', 'chained_lookup',
+             'residual_keys', 'olap_program', 'original_predicate', 'missing_read_settings',
+             'missing_main_metadata')
+
+
+def cases():
+    return list(_POSITIVE + _NEGATIVE)
+
+
+def _line(text):
+    return text + ';\n'
+
+
+def _check(text):
+    return _line('Check(' + text + ')')
+
+
+def _prelude():
+    result = ''.join('#include <' + name + '>\n' for name in (
+        'ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h',
+        'ydb/core/kqp/opt/rbo/copy_logical_subtree.h',
+        'ydb/core/kqp/common/kqp_yql.h',
+        'iostream', 'stdexcept'))
+    result += 'using namespace NYql;\nusing namespace NYql::NNodes;\nusing namespace NKikimr::NKqp;\n'
+    result += 'static unsigned Checks = 0;\nstatic void Check(bool v) { ++Checks; if (!v) throw std::runtime_error("contract"); }\n'
+    result += r'''
+struct TControl {
+    NTests::TIdTestContext F;
+    const TString MainPath = "/Root/control_main";
+    const TString IndexPath = "/Root/control_main/control_index/indexImplTable";
+    TIntrusivePtr<TKikimrTableMetadata> Main = MakeIntrusive<TKikimrTableMetadata>();
+    TIntrusivePtr<TKikimrTableMetadata> Index = MakeIntrusive<TKikimrTableMetadata>();
+    TKikimrTableDescription* MainDesc = nullptr;
+    TKikimrTableDescription* IndexDesc = nullptr;
+    TVector<TInfoUnitId> Keys;
+    TVector<TInfoUnitId> Fetched;
+    TIntrusivePtr<TOpRead> Read;
+    TIntrusivePtr<TOpTableLookup> Lookup;
+
+    TExprNode::TPtr Table(const TString& path) {
+        return Build<TKqpTable>(F.ExprCtx, F.Pos).Path().Build(path)
+            .PathId().Build("1:1").SysView().Build("").Version().Build("1").Done().Ptr();
+    }
+
+    explicit TControl(const TString& variant) {
+        F.Config->SetEnableQueryServiceSpilling(variant == "spilling_enabled");
+        Main->DoesExist = Index->DoesExist = true;
+        Main->Cluster = Index->Cluster = "ut";
+        Main->Name = MainPath;
+        Index->Name = IndexPath;
+        Main->Kind = Index->Kind = EKikimrTableKind::Datashard;
+        Main->Columns.emplace("pk_first", TKikimrColumnMetadata("pk_first", 1, "Int32", true));
+        Main->Columns.emplace("pk_second", TKikimrColumnMetadata("pk_second", 2, "Int32", false));
+        Main->Columns.emplace("indexed", TKikimrColumnMetadata("indexed", 3, "Int32", false));
+        Main->Columns.emplace("uncovered", TKikimrColumnMetadata("uncovered", 4, "Utf8", false));
+        Main->KeyColumnNames = {"pk_first", "pk_second"};
+        for (const auto& name : TVector<TString>{"pk_first", "pk_second", "indexed"}) {
+            Index->Columns.emplace(name, Main->Columns.at(name));
+        }
+        Index->KeyColumnNames = {"indexed", "pk_first", "pk_second"};
+        auto kind = variant == "async_index" ? TIndexDescription::EType::GlobalAsync
+            : variant == "specialized_index" ? TIndexDescription::EType::GlobalJson
+            : variant == "unique_index" ? TIndexDescription::EType::GlobalSyncUnique
+            : TIndexDescription::EType::GlobalSync;
+        auto state = variant == "not_ready_index" ? TIndexDescription::EIndexState::NotReady
+                                                  : TIndexDescription::EIndexState::Ready;
+        Main->Indexes.emplace_back("control_index", TVector<TString>{"indexed"}, TVector<TString>{},
+            kind, state, 1, 1, 1, TIndexDescription::TSpecializedIndexDescription{});
+        Main->ImplTables.push_back(variant == "missing_implementation" ? nullptr : Index);
+        if (variant == "unrelated_implementation") {
+            auto other = MakeIntrusive<TKikimrTableMetadata>();
+            other->Name = "/Root/unrelated/indexImplTable";
+            Main->ImplTables.front() = other;
+        }
+        if (variant == "different_value_type") Index->Columns.at("indexed").Type = "Int64";
+        if (variant == "different_optionality") Index->Columns.at("indexed").NotNull = true;
+        MainDesc = &F.Tables->GetOrAddTable("ut", "/Root", MainPath);
+        IndexDesc = &F.Tables->GetOrAddTable("ut", "/Root", IndexPath);
+        MainDesc->Metadata = Main;
+        IndexDesc->Metadata = Index;
+        if (variant != "missing_main_types" && !MainDesc->Load(F.ExprCtx)) throw std::runtime_error("main metadata");
+        if (variant != "missing_index_types" && !IndexDesc->Load(F.ExprCtx)) throw std::runtime_error("index metadata");
+        if (variant == "missing_main_metadata") MainDesc->Metadata = nullptr;
+        for (const auto& name : TVector<TString>{"pk_first", "pk_second"}) {
+            Keys.push_back(F.Props.InfoUnitRegistry.Add(TInfoUnit("scan_alias", name)));
+        }
+        for (const auto& name : TVector<TString>{"pk_first", "pk_second", "indexed", "uncovered"}) {
+            Fetched.push_back(F.Props.InfoUnitRegistry.Add(TInfoUnit("fetched_alias", name)));
+        }
+        TUnorderedIUs sourceColumns{Keys[0], Keys[1]};
+        TOpTableLookup::TLookupKeys keyMap;
+        if (variant == "wrong_key_source") {
+            auto wrong = F.Props.InfoUnitRegistry.Add(TInfoUnit("scan_alias", "indexed"));
+            sourceColumns.Add(wrong);
+            keyMap.Append(Keys[0], "pk_first");
+            keyMap.Append(wrong, "pk_second");
+        } else if (variant == "reordered_pk") {
+            keyMap.Append(Keys[1], "pk_second");
+            keyMap.Append(Keys[0], "pk_first");
+        } else {
+            keyMap.Append(Keys[0], "pk_first");
+            if (variant != "incomplete_pk") keyMap.Append(Keys[1], "pk_second");
+        }
+        Read = MakeIntrusive<TOpRead>("scan_alias", sourceColumns, NYql::EStorageType::RowStorage,
+            Table(IndexPath), nullptr, nullptr, std::nullopt, std::nullopt,
+            ESortDir::None, TPhysicalOpProps{}, F.Pos,
+            variant == "missing_read_settings" ? nullptr : F.ExprCtx.NewList(F.Pos, {}));
+        Lookup = MakeIntrusive<TOpTableLookup>(Read, F.Pos, Table(MainPath),
+            TUnorderedIUs{Fetched[0], Fetched[1], Fetched[2], Fetched[3]}, keyMap);
+        Lookup->AllowNullKeys = variant != "reject_null_keys";
+        if (variant == "join_lookup") { Lookup->Strategy = ELookupStrategy::LookupJoinRows; Lookup->JoinKind = "Left"; }
+        if (variant == "fetched_filter") Lookup->FetchedRowFilter = MakeBinaryPredicate("==", F.Column(Fetched[0]), F.Column(Fetched[0]));
+        if (variant == "point_prefix") Lookup->Prefix.emplace();
+        if (variant == "source_read_state") Lookup->SourceRead = TOpTableLookup::TSourceRead{F.Column(Fetched[0]), {}};
+        if (variant == "chained_lookup") Lookup->KeysFromInputLookup = true;
+        if (variant == "residual_keys") Lookup->ResidualJoinKeys.Add(Keys[0], Fetched[0]);
+        if (variant == "olap_program") Read->OlapFilterLambda = F.Column(Keys[0]).GetLambda();
+        if (variant == "original_predicate") Read->OriginalPredicate = MakeBinaryPredicate("==", F.Column(Keys[0]), F.Column(Keys[0]));
+    }
+};
+'''
+    return result
+
+
+def _body(case):
+    if case not in cases():
+        raise ValueError('Unknown C47 covering-rule contract')
+    positive = case in _POSITIVE
+    b = _line('TControl c(' + json.dumps(case) + ')')
+    b += _line('auto& f = c.F')
+    b += _line('auto originalRead = c.Read')
+    b += _line('auto originalLookup = c.Lookup')
+    b += _line('auto read = c.Read')
+    b += _line('auto lookup = c.Lookup')
+    b += _line('auto outputs = c.Fetched')
+    if case == 'copied_definitions':
+        b += _line('TSubstitutions renames')
+        b += _line('auto copied = lookup->Copy(f.Props, renames)')
+        b += _check('!!copied && copied->Kind == EOperator::TableLookup')
+        b += _line('lookup = CastOperator<TOpTableLookup>(copied)')
+        b += _line('read = CastOperator<TOpRead>(lookup->GetInput())')
+        for i in range(4):
+            b += _line(f'outputs[{i}] = renames.At(c.Fetched[{i}])')
+            b += _check(f'outputs[{i}] != c.Fetched[{i}]')
+        b += _check('read.Get() != originalRead.Get() && lookup.Get() != originalLookup.Get()')
+        b += _check('!lookup->GetColumns().HasAny(originalLookup->GetColumns())')
+    if case == 'preserved_read_state':
+        b += _line('read->Limit = MakeConstant("Uint64", "7", f.Pos, &f.ExprCtx).GetExpressionBody()')
+        b += _line('read->SortDir = ESortDir::Desc')
+        b += _line('TKqpReadTableSettings settings')
+        b += _line('settings.SetSorting(ERequestSorting::DESC)')
+        b += _line('settings.SetItemsLimit(read->Limit)')
+        b += _line('settings.ForcePrimary = true')
+        b += _line('settings.SequentialInFlight = 2')
+        b += _line('read->ReadSettings = settings.BuildNode(f.ExprCtx, f.Pos).Ptr()')
+        b += _line('TOpRead::TRangeInfo range')
+        b += _line('range.ComputeNode = f.ExprCtx.NewCallable(f.Pos, "AsList", {})')
+        b += _line('range.LiteralRange = f.ExprCtx.NewCallable(f.Pos, "KqlKeyRange", {f.ExprCtx.NewList(f.Pos, {}), f.ExprCtx.NewList(f.Pos, {})})')
+        b += _line('range.KeyColumns = {"indexed", "pk_first", "pk_second"}')
+        b += _line('range.UsedPrefixLen = 1')
+        b += _line('range.PointPrefixLen = 1')
+        b += _line('range.ExpectedMaxRanges = 2')
+        b += _line('range.MainTable = c.MainPath')
+        b += _line('TOpRead::TPointPrefix prefix')
+        b += _line('prefix.Table = c.IndexPath')
+        b += _line('prefix.Points = range.ComputeNode')
+        b += _line('prefix.PointsItemType = f.ExprCtx.MakeType<TStructExprType>(TVector<const TItemExprType*>{})')
+        b += _line('prefix.Columns = {"indexed"}')
+        b += _line('prefix.ExpectedMaxPoints = 2')
+        b += _line('range.PointPrefixes.push_back(prefix)')
+        b += _line('read->RangeInfo = range')
+    wanted = [0, 1] if case == 'shared_input_ownership' else [0, 1, 2]
+    if case == 'extra_demand':
+        wanted.append(3)
+    b += _line('TUnorderedIUs demanded{' + ','.join(f'outputs[{i}]' for i in wanted) + '}')
+    b += _line('TIntrusivePtr<IOperator> plan = lookup')
+    if case == 'after_global_pruning':
+        b += _line('TMapIUs definitions')
+        b += _line('TVector<TInfoUnitId> mapped')
+        for i in range(4):
+            b += _line(f'mapped.push_back(f.Id("projection_{i}"))')
+            b += _line(f'definitions.Add(mapped[{i}], f.Column(outputs[{i}]))')
+        b += _line('auto map = MakeIntrusive<TOpMap>(lookup, f.Pos, std::move(definitions))')
+        b += _line('plan = map')
+        root_ids = [f'mapped[{i}]' for i in wanted]
+    elif case in ('shared_lookup_edges', 'shared_input_ownership'):
+        b += _line('TVector<TInfoUnitId> merged')
+        for i in wanted:
+            b += _line(f'merged.push_back(f.Id("result_{i}"))')
+        bindings = ','.join('{merged['+str(j)+'],outputs['+str(i)+'],'+('outputs['+str(i)+']' if case == 'shared_lookup_edges' else 'c.Keys['+str(i)+']')+'}' for j,i in enumerate(wanted))
+        b += _line('auto mergedPlan = f.Union(lookup, ' + ('lookup' if case == 'shared_lookup_edges' else 'read') + ', {'+bindings+'})')
+        b += _line('plan = mergedPlan')
+        root_ids = [f'merged[{j}]' for j in range(len(wanted))]
+    else:
+        root_ids = [f'outputs[{i}]' for i in wanted]
+    b += _line('TOrderedIUs<TString> resultColumns')
+    for i, uid in enumerate(root_ids):
+        b += _line(f'resultColumns.Append({uid}, "result_{i}")')
+    b += _line('auto root = f.Root(plan, std::move(resultColumns))')
+    b += _line('auto& props = root->PlanProps')
+    if case == 'after_global_pruning':
+        b += _check('map->GetMapElements().Keys().Size() == 4')
+        b += _line('TGlobalPruningStage pruning("direct global demand control")')
+        b += _line('pruning.RunStage(*root, f.RboCtx)')
+        b += _check('map->GetMapElements().Keys().Size() == 3')
+        b += _check('!map->GetMapElements().Keys().Contains(mapped[3])')
+    b += _line('root->RecomputeOutputIUsSubtree()')
+    b += _line('root->ComputeParents()')
+    b += _line('const auto beforeReadColumns = read->GetColumns()')
+    b += _line('const auto beforeFetched = lookup->GetColumns()')
+    b += _line('const auto beforeKeys = lookup->LookupKeys')
+    b += _line('const auto beforeLookupTable = lookup->Table')
+    b += _line('const auto beforeStrategy = lookup->Strategy')
+    b += _line('const auto beforeKind = lookup->JoinKind')
+    b += _line('const auto beforeAllowNull = lookup->AllowNullKeys')
+    b += _line('const auto beforeFilter = lookup->FetchedRowFilter ? lookup->FetchedRowFilter->Node : nullptr')
+    b += _line('const auto beforePrefix = lookup->Prefix.has_value()')
+    b += _line('const auto beforeSourceRead = lookup->SourceRead.has_value()')
+    b += _line('const auto beforeChained = lookup->KeysFromInputLookup')
+    b += _line('const auto beforeResidual = lookup->ResidualJoinKeys')
+    b += _line('const auto beforeSettings = read->ReadSettings')
+    b += _line('const auto beforeTable = read->TableCallable')
+    b += _line('const auto beforeLimit = read->Limit')
+    b += _line('const auto beforeRange = read->RangeInfo')
+    b += _line('const auto beforeSort = read->SortDir')
+    b += _line('const auto beforeAlias = read->Alias')
+    b += _line('const auto beforeRegistrySize = props.InfoUnitRegistry.Size()')
+    b += _check('lookup->Parents.size() == ' + ('2' if case == 'shared_lookup_edges' else '1'))
+    if case == 'shared_input_ownership':
+        b += _check('read->Parents.size() == 2')
+    b += _line('TVector<std::unique_ptr<IRule>> rules')
+    b += _line('rules.emplace_back(std::make_unique<TUseCoveringImportedIndexRule>())')
+    b += _line('TRuleBasedStage stage("direct covering import control", std::move(rules))')
+    b += _line('stage.RunStage(*root, f.RboCtx)')
+    access = 'map->GetInput()' if case == 'after_global_pruning' else ('mergedPlan->GetInput(0)' if case in ('shared_input_ownership', 'shared_lookup_edges') else 'root->GetInput()')
+    b += _line('auto result = ' + access)
+    b += _check('props.InfoUnitRegistry.Size() == beforeRegistrySize')
+    b += _check('read->GetColumns() == beforeReadColumns')
+    b += _check('lookup->GetColumns() == beforeFetched && lookup->LookupKeys == beforeKeys')
+    b += _check('lookup->Table.Get() == beforeLookupTable.Get() && lookup->Strategy == beforeStrategy && lookup->JoinKind == beforeKind')
+    b += _check('lookup->AllowNullKeys == beforeAllowNull && lookup->KeysFromInputLookup == beforeChained')
+    b += _check('(lookup->FetchedRowFilter ? lookup->FetchedRowFilter->Node.Get() : nullptr) == beforeFilter.Get()')
+    b += _check('lookup->Prefix.has_value() == beforePrefix && lookup->SourceRead.has_value() == beforeSourceRead')
+    b += _check('lookup->ResidualJoinKeys == beforeResidual')
+    b += _check('read->ReadSettings.Get() == beforeSettings.Get() && read->TableCallable.Get() == beforeTable.Get()')
+    b += _check('read->Limit.Get() == beforeLimit.Get() && read->SortDir == beforeSort && read->Alias == beforeAlias')
+    b += _check('read->RangeInfo.has_value() == beforeRange.has_value()')
+    if positive:
+        b += _check('result.Get() != lookup.Get() && result.Get() != read.Get() && result->Kind == EOperator::Source')
+        b += _line('auto replacement = CastOperator<TOpRead>(result)')
+        b += _check('replacement->GetColumns() == demanded')
+        b += _check('props.InfoUnitRegistry.Get(outputs[0]).GetAlias() == \"fetched_alias\"')
+        b += _check('props.InfoUnitRegistry.Get(outputs[0]).GetColumnName() == \"pk_first\"')
+        b += _check('!replacement->GetColumns().HasAny(beforeReadColumns)')
+        b += _check('replacement->TableCallable.Get() == beforeTable.Get() && replacement->Alias == beforeAlias')
+        b += _check('replacement->Limit.Get() == beforeLimit.Get() && replacement->SortDir == beforeSort')
+        b += _check('replacement->ReadSettings.Get() == beforeSettings.Get()')
+        b += _check('replacement->RangeInfo.has_value() == beforeRange.has_value()')
+        b += _check('!replacement->Props.Metadata && !replacement->Props.Statistics && !replacement->Props.StageId')
+        if case == 'preserved_read_state':
+            for obj in ('read', 'replacement'):
+                for expr in ('ComputeNode.Get() == beforeRange->ComputeNode.Get()', 'LiteralRange.Get() == beforeRange->LiteralRange.Get()',
+                             'KeyColumns == beforeRange->KeyColumns', 'UsedPrefixLen == beforeRange->UsedPrefixLen',
+                             'PointPrefixLen == beforeRange->PointPrefixLen', 'ExpectedMaxRanges == beforeRange->ExpectedMaxRanges',
+                             'MainTable == beforeRange->MainTable', 'PointPrefixes.size() == 1',
+                             'PointPrefixes[0].Table == beforeRange->PointPrefixes[0].Table',
+                             'PointPrefixes[0].Points.Get() == beforeRange->PointPrefixes[0].Points.Get()',
+                             'PointPrefixes[0].PointsItemType == beforeRange->PointPrefixes[0].PointsItemType',
+                             'PointPrefixes[0].Columns == beforeRange->PointPrefixes[0].Columns',
+                             'PointPrefixes[0].ExpectedMaxPoints == beforeRange->PointPrefixes[0].ExpectedMaxPoints'):
+                    b += _check(obj+'->RangeInfo->'+expr)
+            b += _line('const auto parsedSettings = TKqpReadTableSettings::Parse(TCoNameValueTupleList(replacement->ReadSettings))')
+            b += _check('parsedSettings.GetSorting() == settings.GetSorting() && parsedSettings.ItemsLimit.Get() == settings.ItemsLimit.Get() && parsedSettings.ForcePrimary == settings.ForcePrimary && parsedSettings.SequentialInFlight == settings.SequentialInFlight')
+        if case == 'shared_input_ownership':
+            b += _check('mergedPlan->GetInput(1).Get() == read.Get()')
+        if case == 'copied_definitions':
+            b += _check('originalLookup->GetInput().Get() == originalRead.Get()')
+            b += _check('!replacement->GetColumns().HasAny(originalLookup->GetColumns())')
+        # Type just the production replacement through the public root API.
+        # The fixture's null transformer does not type arbitrary Map lambdas.
+        b += _line('TOrderedIUs<TString> typeColumns')
+        for j,i in enumerate(wanted):
+            b += _line(f'typeColumns.Append(outputs[{i}], "typed_{j}")')
+        b += _line('auto typeRoot = MakeIntrusive<TOpRoot>(replacement, f.Pos, std::move(typeColumns))')
+        b += _line('typeRoot->PlanProps = std::move(root->PlanProps)')
+        b += _check('typeRoot->ComputeTypes(f.RboCtx) == IGraphTransformer::TStatus::Ok')
+        for i in wanted:
+            name = ('pk_first','pk_second','indexed','uncovered')[i]
+            b += _line(f'const auto* type{i} = replacement->GetIUType(outputs[{i}], f.ExprCtx)')
+            b += _check(f'type{i} && IsSameAnnotation(*type{i}, *c.MainDesc->GetColumnType("{name}"))')
+        b += _check('replacement->GetIUType(outputs[1], f.ExprCtx)->IsOptionalOrNull()')
+        b += _check('!replacement->GetIUType(outputs[0], f.ExprCtx)->IsOptionalOrNull()')
+    else:
+        b += _check('result.Get() == lookup.Get()')
+        if case == 'shared_lookup_edges':
+            b += _check('mergedPlan->GetInput(1).Get() == lookup.Get()')
+    return b
+
+
+def specs():
+    return [{'case_index':i, 'case':case, 'replacement_expected':case in _POSITIVE,
+             'assertion_count':_body(case).count('Check(')} for i,case in enumerate(cases())]
+
+
+def render_cpp_suite(selected=None):
+    selected = cases() if selected is None else list(selected)
+    if not selected or len(set(selected)) != len(selected) or any(case not in cases() for case in selected):
+        raise ValueError('Expected distinct covering-rule contracts')
+    source = _prelude()
+    for i,case in enumerate(selected):
+        source += 'static void Case'+str(i)+'() {\n'+_body(case)+'}\n'
+    source += 'int main() { unsigned failures = 0;\n'
+    for i in range(len(selected)):
+        source += '{ const auto before = Checks; bool passed = true; try { Case'+str(i)+'(); } catch (...) { passed = false; ++failures; }\n'
+        source += 'std::cout << '+json.dumps('{"case_index":'+str(i)+',"checks_executed":')+' << (Checks-before) << '+json.dumps(',"passed":')+' << (passed ? "true" : "false") << '+json.dumps('}\n')+'; }\n'
+    return source+'return failures ? 1 : 0; }\n'
+
+
+def execution_manifest():
+    source = render_cpp_suite()
+    return {'generator_version':VERSION, 'status':'source_prepared_not_compiled_or_executed',
+            'case_count':len(cases()), 'exact_case_assertions':specs(),
+            'rendered_suite_sha256':hashlib.sha256(source.encode()).hexdigest(),
+            'rendered_suite_bytes':len(source.encode()),
+            'production_calls':['TRuleBasedStage::RunStage/TUseCoveringImportedIndexRule',
+                                'TGlobalPruningStage::RunStage', 'IOperator::Copy',
+                                'TKikimrTableDescription::Load', 'TOpRoot::ComputeTypes'],
+            'existing_19_copy_contract_vector':'separate; same cases and meanings',
+            'admission':'Direct local rule evidence only; existing SQL and physical assertions remain required.'}

@@ -1,0 +1,62 @@
+diff --git a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp
+--- a/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp
++++ b/ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp
+@@ -124,6 +124,17 @@
+     return false;
+ }
+ 
++const TDataExprType* GetIntervalType(const TTypeAnnotationNode* type) {
++    if (type->GetKind() == ETypeAnnotationKind::Optional) {
++        type = type->Cast<TOptionalExprType>()->GetItemType();
++    }
++    if (type->GetKind() != ETypeAnnotationKind::Data) {
++        return nullptr;
++    }
++    const auto* data = type->Cast<TDataExprType>();
++    return IsDataTypeInterval(data->GetSlot()) ? data : nullptr;
++}
++
+ bool IsDecimal(const TTypeAnnotationNode* type) {
+     if (type->IsOptionalOrNull()) {
+         type = type->Cast<TOptionalExprType>()->GetItemType();
+@@ -515,12 +526,20 @@
+     }
+ 
+     if (func.Function == "sum") {
+-        // clang-format off
+-        auto casted = MakeOptional(Ctx.Builder(Pos)
+-            .Callable("SafeCast")
+-                .Add(0, value)
+-                .Add(1, BuildSumCastTarget(argument))
+-            .Seal().Build(), isOptional);
++        TExprNode::TPtr sumInput;
++        if (GetIntervalType(InputItemType(argument))) {
++            // Match the SUM traits: retain a wide state until the frame result
++            // is finalized, so an out-of-range partial sum can still cancel.
++            auto intType = Ctx.NewCallable(Pos, "DataType", {Ctx.NewAtom(Pos, "Int64")});
++            auto decimalType = Ctx.NewCallable(Pos, "DataType", {
++                Ctx.NewAtom(Pos, "Decimal"), Ctx.NewAtom(Pos, "35"), Ctx.NewAtom(Pos, "0")});
++            sumInput = Ctx.NewCallable(Pos, "StrictCast", {value, std::move(intType)});
++            sumInput = Ctx.NewCallable(Pos, "StrictCast", {std::move(sumInput), std::move(decimalType)});
++        } else {
++            sumInput = Ctx.NewCallable(Pos, "SafeCast", {value, BuildSumCastTarget(argument)});
++        }
++        auto casted = MakeOptional(std::move(sumInput), isOptional);
++        // clang-format off
+         return update
+             ? Ctx.Builder(Pos)
+                 .Callable("AggrAdd")
+@@ -716,6 +735,13 @@
+     const auto& func = *Window.GetWindowFuncs().Find(column);
+     auto result = func.Kind == EWindowFuncKind::Aggregate && func.Function == "avg" ? BuildAverage(func, std::move(accumulator))
+                                                                                    : std::move(accumulator);
++    if (func.Kind == EWindowFuncKind::Aggregate && func.Function == "sum") {
++        if (const auto* intervalType = GetIntervalType(InputItemType(func.Arguments.Items().front()))) {
++            auto intType = Ctx.NewCallable(Pos, "DataType", {Ctx.NewAtom(Pos, "Int64")});
++            result = Ctx.NewCallable(Pos, "StrictCast", {std::move(result), std::move(intType)});
++            result = Ctx.NewCallable(Pos, "StrictCast", {std::move(result), ExpandType(Pos, *intervalType, Ctx)});
++        }
++    }
+     return IsNonOptionalAggregate(column) ? Ctx.NewCallable(Pos, "Unwrap", {std::move(result)}) : result;
+ }
+ 

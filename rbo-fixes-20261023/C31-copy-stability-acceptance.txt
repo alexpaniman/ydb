@@ -1,0 +1,32 @@
+C31 — copied producer values must stay identical during residual-join reconstruction
+
+The scalar identity repair also needs a producer-stability check. A floating
+aggregate can change with reduction order, and a later cast can hide that
+aggregate behind an ordinary integer or string output. Copying the producer
+can then make the preserved left row disagree with the copy used to evaluate
+matches. A stable unique key does not prevent a copied non-key value from
+changing the residual predicate.
+
+The narrow amendment checks upstream aggregates and referenced subplans before
+creating reconstruction sharing that will later be expanded into copies. It
+allows count and integral sum, restricts min/max/distinct and grouping keys to
+the existing exact scalar types, and rejects unsafe reductions. The existing
+spilling path can keep one shared producer evaluation. Deduplicated residual
+subplans receive the stronger check even when the input itself is shared.
+
+This is a safety amendment to the C31 repair, not a separately closed finding.
+It does not change the general copy policy or add support for broader identity
+types, volatile occurrence semantics, or lazy structured values.
+
+The independent source review passed. The generator now has 132 C31 profiles:
+the original 84 identity profiles and 48 producer-stability profiles. Twelve
+new cases demand the exact intended rejection; twelve test shared execution.
+The remaining new profiles cover stable integral reductions and retained block
+join predicates. Rejection is reported separately from successful query
+semantics, and unrelated compilation failures do not count as guard success.
+
+Actual compilation and native acceptance of this amendment are pending. A
+reachable multi-output Switch is required for the sharing controls, but the
+domain UNION can introduce additional sharing; exact reconstruction-hub origin
+still needs a sanitized native graph review. Unsupported broader C31 identity
+scope remains outstanding.

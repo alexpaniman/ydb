@@ -1,0 +1,83 @@
+diff --git a/anonymous_cpp_verify.py b/anonymous_cpp_verify.py
+--- a/anonymous_cpp_verify.py
++++ b/anonymous_cpp_verify.py
+@@ -23,7 +23,8 @@
+                                     production_build_arguments, source_revision, verify_receipt)
+ 
+ HERE = Path(__file__).resolve().parent
+-GENERATORS = {'Q01': 'quality_range_runtime_cpp_generator', 'Q14': 'quality_rule_cpp_generator', 'Q16': 'quality_rule_cpp_generator',
++GENERATORS = {'C31': 'c31_identity_cpp_generator', 'C47': 'c47_lookup_copy_contract_generator',
++              'Q01': 'quality_range_runtime_cpp_generator', 'Q14': 'quality_rule_cpp_generator', 'Q16': 'quality_rule_cpp_generator',
+               'Q15': 'quality_partition_cpp_checks',
+               'Q18': 'quality_cpp_contract_generator', 'Q19': 'quality_cpp_contract_generator',
+               'Q25': 'quality_map_contract_generator', 'Q27': 'quality_ast_collection_generator',
+@@ -39,7 +40,7 @@
+ 
+ 
+ def _expected_revision(bug, phase, worktree):
+-    if bug in ('Q01', 'Q15') and phase != 'fixed':
++    if bug in ('C31', 'C47', 'Q01', 'Q15') and phase != 'fixed':
+         raise MetadataError('new_runtime_or_helper_requires_fixed_only_admission')
+     case = json.loads((HERE / 'cases' / (bug + '.json')).read_text())
+     parent = subprocess.check_output(['git', 'rev-parse', case['commit'] + '^'], cwd=worktree, text=True).strip()
+@@ -182,6 +183,9 @@
+ 
+ 
+ def render_suite(bug, worktree, revision, wrapper_symbols=None):
++    if bug in ('C31', 'C47'):
++        from correctness_cpp_contract import render_suite as render_correctness_suite
++        return render_correctness_suite(bug, revision)
+     module = importlib.import_module(GENERATORS[bug])
+     if bug == 'Q27':
+         source = module.render_cpp_suite(worktree, revision)
+@@ -199,6 +203,9 @@
+ 
+ 
+ def parse_verdicts(stdout, count, exit_code, bug):
++    if bug in ('C31', 'C47'):
++        from correctness_cpp_contract import parse_verdicts as parse_correctness_verdicts
++        return parse_correctness_verdicts(stdout, count, exit_code)
+     if bug == 'Q01':
+         from quality_range_runtime_contract import parse_verdicts as parse_runtime_verdicts
+         return parse_runtime_verdicts(stdout, count, exit_code)
+@@ -286,6 +293,9 @@
+                                 'source_extracted_helper' if args.bug == 'Q27' else 'linked_production_local_contracts')}
+     del source
+     try:
++        if args.bug in ('C31', 'C47'):
++            from correctness_cpp_contract import profile_digest
++            evidence['direct_contract_profile_sha256'] = profile_digest(args.bug, revision)
+         compile_record, _ = run_anonymous(receipt['metadata']['compile_argv'], receipt['metadata']['compile_cwd'], fds,
+                                           stdout_fd='object', timeout=args.compile_timeout)
+         evidence['compile'] = compile_record
+@@ -322,6 +332,9 @@
+             raise MetadataError('generator_changed_during_direct_verification')
+         if args.receipt.read_bytes() != raw_receipt:
+             raise MetadataError('production_closure_receipt_changed_during_verification')
++        if args.bug in ('C31', 'C47') and evidence['status'] == 'direct_local_contracts_passed':
++            if not validate_fixed_admission(evidence, args.bug, revision):
++                raise MetadataError('incomplete_fixed_correctness_cpp_admission')
+         return evidence, 0 if evidence['status'] == 'direct_local_contracts_passed' else 2
+     finally:
+         for fd in fds.values():
+@@ -329,7 +342,7 @@
+ 
+ 
+ def pair_direct(bug, before, after, case):
+-    if bug in ('Q01', 'Q15'):
++    if bug in ('C31', 'C47', 'Q01', 'Q15'):
+         raise MetadataError('fixed_admission_requires_separately_paired_sql')
+     def valid_digest(value):
+         return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
+@@ -406,7 +419,10 @@
+ 
+ 
+ def validate_fixed_admission(evidence, bug, revision):
+-    """Accept only complete native fixed-only Q15 contracts for SQL admission."""
++    """Validate fixed local contracts; query semantics require separate evidence."""
++    if bug in ('C31', 'C47'):
++        from correctness_cpp_contract import validate_fixed_local_contracts
++        return validate_fixed_local_contracts(evidence, bug, revision)
+     if bug == 'Q01':
+         from quality_range_runtime_contract import validate_fixed_runtime
+         return validate_fixed_runtime(evidence, revision)

@@ -1,0 +1,28 @@
+R34 physical-source review — two passes complete
+
+Scope: physical_conversion/kqp_rbo_physical_source_builder.cpp; source/read settings; range representations; logical-to-storage naming; OLAP block layout, empty rows and row counts; SysView lowering; related type annotation and runtime source construction. No repository edits, builds or native runner executions.
+
+NEW CONFIRMED CORRECTNESS FINDINGS
+None. This scope adds no new native-verified issue to the main list.
+
+SOURCE-VERIFIED OPTIMIZATION / CONFIGURATION ISSUE
+Q34-1 (P3): New-RBO row reads ignore MaxSequentialReadsInFlight.
+Location: ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp:50-56 and 71-79. The builder constructs fresh read settings with sorting and an optional top-N limit, but never propagates the configured source concurrency limit. In the legacy path, ydb/core/kqp/opt/physical/kqp_opt_phy_source.cpp:314-316 explicitly assigns this setting. The new builder does not receive the optimizer configuration, and the repository-wide RBO search finds no later forwarding of MaxSequentialReadsInFlight.
+Impact: an explicitly configured cap on concurrent sequential shard reads ceases to affect new-RBO plans. This can change latency and resource usage for large scans. No wrong query result established; no runtime benchmark performed.
+Fix direction: forward the applicable source-read settings into the new builder and preserve the configured concurrency cap.
+
+LATENT CONTRACT DEFECT, NOT PROMOTED AS A CURRENT QUERY BUG
+The OLAP inspection helper inspects KqpOlapApply.Lambda but not KqpOlapApply.Args (kqp_olap_expr_inspection.cpp around 178). The physical filter builder replaces source members with value parameters and stores actual column references in Args (physical/kqp_opt_phy_olap_filter.cpp:750-784). Thus the inspector alone can miss apply-only source dependencies. Current filter pushdown also preserves OriginalPredicate, whose dependencies keep those columns alive in TOpRead::GetRequiredColumns (kqp_operator.cpp:344-360); that masks this issue on the reviewed construction path. Do not add a supported-query correctness finding without a reachable path lacking that fallback. An eventual fix should inspect actual OLAP arguments and avoid interpreting nested value-field names as table columns.
+
+CHALLENGE PASS / REJECTED HYPOTHESES
+1. OLAP output column permutation: rejected. Storage field names are sorted and deduplicated before wide indexes are built, matching the struct type's lexical layout; each logical alias independently maps back to its storage position.
+2. Empty OLAP projection loses row counts: rejected. A storage-only primary-key carrier is explicitly added, then removed by the narrow map. The caller supplies that carrier when logical columns are empty.
+3. Multiple logical IDs reading one storage field cause duplicate storage-schema fields: rejected by the deduplication and alias mapping above.
+4. SysView stage needs the legacy single-partition setting: not a bug on the traced path. The dedicated runtime SysView source task builder creates exactly one task; the new builder already chooses the dedicated source category.
+5. Unsorted row Read.Limit dropped: no currently reachable producer found. Plain limit pushdown targets OLAP only; row top-N pushdown supplies SortDir, so the builder's conditional limit assignment is consistent with current producers.
+6. Nullable OLAP primary-key top-N ignores NullsFirst: not promoted. Nullable primary keys require an opt-in setting, SQL grammar currently has no explicit NULLS FIRST/LAST support, and the current SQL translator hard-codes a placeholder null-order annotation; actual descending physical order and storage order agree. A lower-level explicit null-order contract needs its own investigation, not a claim of native SQL wrong results here.
+7. Repeated OLAP filter pushdown overwrites a prior filter: rejected. Suitability requires no existing OlapFilterLambda.
+8. Source literal range bypasses required computation: rejected for the reviewed representation. BuildLiteralRange accepts only literal/null/parameter bounds and only row-storage sources select it; general ranges still follow the existing precompute path.
+
+VERIFICATION
+Source and consumer tracing completed in two passes. A standalone abstract model exercised 50,000 randomized storage-field layouts with reordered names, duplicate aliases, and empty logical projections; zero failures. This verifies the indexing construction only, not the engine. Only aggregate outcome was printed; generated values were not persisted. Existing native source regressions and main-suite evidence remain owned by the root review.

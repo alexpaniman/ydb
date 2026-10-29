@@ -1,0 +1,153 @@
+{
+  "schema": "c31_scope_completion_source_review_v1",
+  "reviewer": "/root/c31_scope_completion",
+  "time_utc": "2026-10-27T19:25:17.376851+00:00",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "verdict": "source_review_complete_actual_shared_value_lineage_pending",
+  "new_production_bug_established": false,
+  "original_vs_archived_scope": [
+    {
+      "scope": "original_final_C31",
+      "source": "rbo-review-20261021/bugs.json",
+      "problem": "Late residual reconstruction creates sharing after copy expansion when block joins and channel spilling are disabled.",
+      "fix": "Run required residual reconstruction before sharing expansion.",
+      "remaining_claim": "Keep acceptance tied to the original stage-lifecycle controls and exact executable evidence; do not require broad unsupported-type feature work to prove this lifecycle correction."
+    },
+    {
+      "scope": "archived_identity_precondition_grouped_under_C31",
+      "source": "rbo-review-20261021/reviewer-notes/r29.txt:11",
+      "problem": "Nullable unique keys and relations without known keys were rejected before reconstruction, independently of the late-sharing stage ordering.",
+      "current_fix": "Admit exact scalar keyless row domains, supported nullable identity encoding and zero-column logical identity; guard unstable copies and unsupported domains.",
+      "remaining_claim": "Broad floating/composite/opaque keyless identities and per-occurrence volatile keyless predicates remain unimplemented support goals. They are explicit guarded exclusions, not silently claimed solved and not evidence that the original late-sharing bug persists."
+    },
+    {
+      "scope": "shared_value_proof_for_newly_admitted_scalar_domain",
+      "problem": "Both reconstruction identities must denote the same evaluated producer value when aggregate output can vary between independent evaluations.",
+      "remaining_claim": "The two spilling-domain profiles already have semantic/physical presence evidence, but require exact field-to-shared-port lineage. This is a real verification obligation of the added scalar-domain fix."
+    },
+    {
+      "scope": "retracted_post_CBO_lookup_candidate",
+      "source": "verification/C31-sharing-lifecycle-reassessment.json",
+      "problem": "A retained block residual supposedly becomes Lookup and introduces late sharing.",
+      "disposition": "Source proof rejects this ordinary pipeline path; do not revive it without new reachable evidence."
+    },
+    {
+      "scope": "import_time_noncovering_index_copy",
+      "disposition": "Separate C47 follow-up. Existing import-time TableLookup sharing is not late C31 reconstruction sharing."
+    }
+  ],
+  "guard_matrix": [
+    {
+      "input": "keyless complete-row identity",
+      "behavior": "Every output field must satisfy HasExactScalarIdentity; keyless predicates and referenced subplans must be repeatable, and referenced subplan reductions must be stable."
+    },
+    {
+      "input": "optional or Null unique-key identity",
+      "behavior": "HasExactScalarIdentity is required, then supported optional values use StablePickle. Optional Float/Double, nested optional, bare Null and opaque/container types fail the whitelist."
+    },
+    {
+      "input": "nonoptional known unique-key identity",
+      "behavior": "The existing key type is not subject to the new scalar whitelist. Its validity is not newly certified by that whitelist. Keyed residuals are not subject to the keyless predicate-repeatability gate."
+    },
+    {
+      "input": "any producer when channel spilling is disabled",
+      "behavior": "HasStableJoinFilterReductions recursively checks aggregate grouping keys, reductions and referenced producer subplans before copying. Float/Double grouping keys are rejected even for COUNT-only aggregates."
+    },
+    {
+      "input": "producer when channel spilling is enabled",
+      "behavior": "The no-spill copy-stability gate is skipped; same evaluated producer/value lineage is required. Separate keyless field/subplan restrictions still apply."
+    }
+  ],
+  "float_identity_source_disposition": {
+    "derived_nonoptional_unique_float_possible": true,
+    "metadata_evidence": "TOpAggregate::ComputeMetadata at kqp_rbo_compute_statistics.cpp:480-507 can declare grouping or deduplication keys unique without a type whitelist; table primary-key type limits do not rule out derived Float/Double uniqueness.",
+    "no_spill_scope": "HasStableJoinFilterReductions at inline_join_filters.cpp:51-66 rejects Float/Double grouping representatives before independent copies, including COUNT-only grouping.",
+    "spilling_scope": "Known nonoptional Float/Double identities can bypass the scalar-domain whitelist; source equality must be assessed on the same evaluated producer value.",
+    "map_join": "mkql_map_join.cpp uses dictionary Contains/Lookup. Dictionary comparison through CompareKeys/CompareFloats and specialized TFloatEquals treats NaN as equal to NaN; GetFloatHash supplies a consistent NaN hash.",
+    "grace_join": "mkql_grace_join.cpp:221 clears packed integer storage, then :293-297 writes Float/Double values into it. mkql_grace_join_imp.cpp:594 onward compares packed key words. Identical already-evaluated bits compare equal. Different NaN payloads or signed-zero representatives are not newly certified equivalent by this statement.",
+    "block_join": "dq_block_hash_join.cpp:97 packs through the block layout converter. block_layout_converter.cpp:130,735 marks floating fields; tuple.cpp:32-43 canonicalizes zero and NaN before packed-key comparison; scalar and SIMD pack paths invoke canonicalization. Packed keys are compared through TTupleLayout::KeysEqual.",
+    "candidate_disposition": "No NaN self-equality production bug established. IEEE scalar equality alone would have produced an incorrect bug report. Existing physical shared-value proof remains necessary, particularly for packed-bit representatives.",
+    "limits": "Source-only conclusion. No native Float/Double identity workload was created or executed, and no general equivalence guarantee for opaque/composite identities is claimed."
+  },
+  "verifier_issue": {
+    "classification": "conservative_false_negative_in_dormant_topology_probe",
+    "problem": "The probe uses a single-body lambda parser throughout general program traversal; valid ExpandMap wide projections have multiple lambda bodies.",
+    "source_contract": "BuildExpandMapForNarrowInput in kqp_rbo_physical_convertion_utils.h:60 emits multiple Member bodies; yql_expr.cpp:2005 serializes them as multiple lambda children. Local bindings can instead produce a block body at :1979.",
+    "patch": "proposed-correctness-amendments/C31-origin-multibody-traversal.patch",
+    "patch_sha256": "7381c1073d25bec5b6f1b9077f2b6636ab0e4a014f56401145bc2118ff3b71c7",
+    "live_probe_sha256": "3cc2fbc03ddcb2b2c5fe5e07d5f5a3fb83277727cee6c970d35d1b599b4ae0ea",
+    "expected_probe_after_sha256": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "change": "General traversal accepts all lambda bodies; stage programs and direct projection checks remain single-body. It does not add block-scope resolution or field lineage and never changes any full-proof flag.",
+    "review_required_before_install": true,
+    "applied": false
+  },
+  "dormant_observation_module": {
+    "candidate": "proposed-correctness-amendments/C31-scope-observation-generator.py",
+    "candidate_sha256": "e4ef67e09386b31fb2528e1754ac5b1b92cbe78710d1adf7b99ed0114be8929c",
+    "installation_patch": "proposed-correctness-amendments/C31-scope-observation-install.patch",
+    "installation_patch_sha256": "8c2343caae6cf3572c9002948a6881f568b0513d57fac018bbe419454c53866e",
+    "target": "c31_scope_observation.py",
+    "syntax_checked": true,
+    "installed_or_imported": false,
+    "purpose": "Delegate only the existing two domain-spilling profiles, retain the original physical verdict, bind frozen dependency hashes, and record an allowlisted shape inventory plus conservative topology observation.",
+    "privacy": "No new workload strings or rendered expressions are stored. Observation outputs only hashes, approved callable names, counters, fixed join-kind labels and Boolean checks.",
+    "cannot_grant_acceptance": true,
+    "review_required_before_install": true
+  },
+  "minimal_actual_next_probe": {
+    "cases": [
+      "c31_stability_float_domain__spilling__left",
+      "c31_stability_integer_domain__spilling__left"
+    ],
+    "mode": "new",
+    "rows": 24,
+    "driver": "native_verify.py with --cases and --generator-module c31_scope_observation; execute through the existing parent-owned serial memory guard and exact C31 executable receipt after independent artifact review.",
+    "workload_policy": "Use the existing generators and anonymous AST/SQL/result memfds. Keep all generated material in memory and persist only sanitized evidence.",
+    "record_binding": [
+      "revision",
+      "exact executable receipt",
+      "case/query/config hashes",
+      "wrapper/base/parser/probe source hashes",
+      "physical AST hash",
+      "memory guard verdict"
+    ],
+    "evidence_merge": "Append observation evidence. Preserve the existing 50-record semantic/guard batch and its distinct scope; do not overwrite it with only the two observations.",
+    "expected_limit": "Topology false is a conservative shape rejection, not proof of a production bug. All three full shared-value proof flags remain false."
+  },
+  "proposed_field_proof_after_observation": [
+    "Resolve actual lexical scopes, stage arguments, TDqOutput ports and wide-column positions. Do not rely on stage-wide aggregation token presence.",
+    "Trace every compared reconstruction key through value-preserving transports, direct maps and join output renames to distinct ports of one terminal Switch. Follow both key encoders, if present, and require matching codec and source field.",
+    "Recognize the inner domain as pure key-only deduplication, prove complete key-field coverage, and reject any unproved reducer or value computation downstream of the shared hub.",
+    "Require both compared fields to reach the same already-evaluated source field of that hub. This sufficient strategy can treat the upstream producer calculation as opaque for identity, avoiding an unnecessary general symbolic SUM evaluator.",
+    "Separately bind the intended aggregate result to an identity field for profile coverage. If the actual hub is upstream of that reduction, or a post-hub recomputation occurs, retain failure and trace the required aggregate/UNION field mapping instead.",
+    "Obtain independent review of the complete field proof and bind its result to the same actual AST/revision/generator hashes before changing any full-proof flag."
+  ],
+  "source_sha256": {
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp": "fce89a7e7f349a93b8784b2fcefd6b897fa4de9f13ea809028a3309d47337d55",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h": "2b6dc81d287acc05fbd6887edab8796cdbf36c07a138a71eeb64534ff877fa1d",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_join_builder.cpp": "f11a39d6425b3dcb7888a427f46cd443f35d802db9046b4f1c0e14dba21f7e6a",
+    "yql/essentials/ast/yql_expr.cpp": "e33b2bf21861a4509b9fba3a0f1a12de56dcab76d1a4b3d2ac6471e24fbd41f9",
+    "yql/essentials/public/udf/udf_type_ops.h": "41c7214f60849bdfc8864f8d0182bb71154799e4ff0746a5082a1b3d37d9d412",
+    "yql/essentials/minikql/computation/mkql_computation_node_holders.h": "bca7a9b17df152a8a5baa0d8f64c091a80f3c626b6d998beb3c75c00e598243e",
+    "yql/essentials/minikql/comp_nodes/mkql_map_join.cpp": "e12fbb95faff2e7c55debebf4a1fa5cdced9544c223341f6746d645d5a8845c4",
+    "yql/essentials/minikql/comp_nodes/mkql_grace_join.cpp": "1ac00d32680f63440f39c5652dd3b4263503363ad38929c86794b2d10d7271e7",
+    "yql/essentials/minikql/comp_nodes/mkql_grace_join_imp.cpp": "85264c95b2e26f051a04f818585c3e04c7035e94d197d8ba248fe6cd61ae6da1",
+    "ydb/library/yql/dq/comp_nodes/dq_block_hash_join.cpp": "c317a9e05d218d1597c62c20e8ba091ac2d1ab20c8f278347c96fab3255bcfd8",
+    "ydb/library/yql/dq/comp_nodes/hash_join_utils/block_layout_converter.cpp": "7390c83cc4e6042c80d901755e708da39d2036f72e3623a9eeb6bc723156146d",
+    "ydb/library/yql/dq/comp_nodes/hash_join_utils/tuple.cpp": "582cca5a92206e11c24078034d3e3e846e207f928656654c8124b3517619e8c4",
+    "ydb/library/yql/dq/comp_nodes/hash_join_utils/tuple_simd_impl.h": "cd44b130ee2eb2b07611e7bca86d83b74b31542bce8e0418e349b2d5bd8b9b90",
+    "ydb/library/yql/dq/comp_nodes/hash_join_utils/page_hash_table.h": "53c4ae323b2b0df471d20e3b926bcb883f56f0ca848612d5306d1756d766d5e0"
+  },
+  "execution": {
+    "compiler_runs": 0,
+    "native_runs": 0,
+    "mock_runs": 0,
+    "generator_render_calls": 0,
+    "production_edits": false,
+    "live_helper_edits": false,
+    "raw_cpp_sql_ast_rows_or_diagnostics_saved": false,
+    "dormant_artifacts_only": true
+  }
+}

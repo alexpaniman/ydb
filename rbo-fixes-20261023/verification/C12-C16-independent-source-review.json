@@ -1,0 +1,64 @@
+{
+  "status": "source_review_complete_native_pending",
+  "production_source_edits": false,
+  "builds": false,
+  "native_runs": false,
+  "cases": {
+    "C12": {
+      "commit": "68356618882bee6b367ac24f5536883c2cb14609",
+      "source_contracts": [
+        "Selected grouping keys are already registered by ProcessAggregations; deleting hidden keys from result DISTINCT preserves projection identity.",
+        "C12 and C13 must be integrated for non-injective expressions of grouped values; the independent branches address different defects."
+      ],
+      "new_confirmed_blocker": false
+    },
+    "C13": {
+      "commit": "71378e72b8ce2770e83abac301d701b744a6c603",
+      "source_contracts": [
+        "Post-aggregate group references now bind to the post-aggregate row.",
+        "Only direct group references substitute the physical key at final projection; wrapped expressions retain their computed result alias."
+      ],
+      "new_confirmed_blocker": false
+    },
+    "C14": {
+      "commit": "c128b7c1bd99c1c7199e3ad2b00d061b7f3a2b6f",
+      "source_contracts": [
+        "IsExpression returns false only for Member, so the added HeadPtr receiver comparison is reached only on a well-formed Member.",
+        "Nested aggregate receivers retain their entire expression and receive a generated input column."
+      ],
+      "new_confirmed_blocker": false
+    },
+    "C15": {
+      "commit": "3a9521680600ea2f5bcdb2ea0736e8d2cdb5df5d",
+      "source_contracts": [
+        "Replacements match only Members of the consuming expression row argument, preserving conditional placement.",
+        "Map and Filter implement ApplyReplaceMap; conversion rejects subqueries in Limit, Sort and Join-filter expressions.",
+        "Missing correlated count defaults to zero; joined scalar value remains optional.",
+        "Arbitrary errors inside scalar subquery projections can still occur before demand; this known limitation is separate from cardinality checking."
+      ],
+      "new_confirmed_blocker": false
+    },
+    "C16": {
+      "commit": "473f0a46d6145fb93e940140030f0ae21e83972e",
+      "source_contracts": [
+        "The block cross-join special path declines every predicate set containing an unresolved subplan.",
+        "Normal classification includes unresolved binding IDs, retaining their predicates above the join until inlining."
+      ],
+      "new_confirmed_blocker": false
+    }
+  },
+  "unconfirmed_followups": [
+    {
+      "id": "followup_grouped_constant_distinct",
+      "within_original_79": false,
+      "verified_bug": false,
+      "description": "Constant selected values combined with grouping and result DISTINCT appear to be materialized before grouping, where the grouped output may no longer expose their generated binding.",
+      "source": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+      "references": [
+        "ProcessAggregations distinctAll branch without group references",
+        "BuildAggregationPipeline grouping then result DISTINCT"
+      ],
+      "relationship": "Pre-existing path outside the C12 hidden-key removal; no regression or additional bug claimed until native reachability is verified."
+    }
+  ]
+}

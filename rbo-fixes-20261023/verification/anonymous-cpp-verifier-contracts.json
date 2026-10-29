@@ -1,0 +1,30 @@
+{
+  "status": "mocked_contracts_passed",
+  "assertions": 134,
+  "compiler_processes_started": 0,
+  "linker_processes_started": 0,
+  "native_processes_started": 0,
+  "production_builds_started": 0,
+  "generated_cpp_sources_persisted": false,
+  "files": {
+    "anonymous_cpp_guard.py": "cb31bdb87f985618815f089ab64991c7759fc3f5bddd726a3168f02b0676d235",
+    "anonymous_cpp_metadata.py": "25347b8dcaa25c4b36ae3d69873e25c31dd4830317fd15b704e76f604b1befeb",
+    "anonymous_cpp_verify.py": "13cfcd3e7e4422d2f7353522cb14eb6b158d5c709d5fd864182d5a5535502547",
+    "anonymous_cpp_contracts.py": "9d2dc9a214ef44e483f58332e7a9f9681c5d15474bd7dfd235ec687a826a6133"
+  },
+  "remaining": [
+    "Actual production graph shape/resource resolution requires first guarded closure build.",
+    "Anonymous clang/LLD memfd transport is implemented but unexecuted.",
+    "Unknown nonempty link plugins or command wrappers fail closed and require source audit.",
+    "Q19 object relocations/wrapping and Q15 fixed-only admission have no native evidence yet.",
+    "Scope accounting/cancellation contracts here were mocked; no real processes were started.",
+    "Independent source review of new direct infrastructure is requested from c41_review."
+  ],
+  "amendment": "Independent review fixes: bind linker auxiliary input files and suppress compiler-only inherited output controls; active SQL-native environment behavior is unchanged.",
+  "primary_source_references": [
+    "https://raw.githubusercontent.com/llvm/llvm-project/release/20.x/lld/ELF/Driver.cpp",
+    "https://github.com/llvm/llvm-project/blob/main/clang/tools/driver/driver.cpp",
+    "https://raw.githubusercontent.com/llvm/llvm-project/release/20.x/clang/lib/Driver/ToolChains/Clang.cpp",
+    "https://clang.llvm.org/docs/UsersManual.html"
+  ]
+}

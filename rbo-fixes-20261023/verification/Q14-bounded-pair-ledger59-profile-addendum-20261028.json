@@ -1,0 +1,62 @@
+{
+  "all28_spill_dependencies_remain_required": true,
+  "application_prerequisite": "Root next-idle application only after integration16, with exact current bindings rechecked.",
+  "applied": false,
+  "candidate_after_images": {
+    "quality_join_shuffle_checks.py": "2d817f9ba3fc4af3c0306910ce65a3b3640d5ecbe7ae3b14db7fdff6a10190cc",
+    "quality_spill_bounds.py": "d30060f032eb45ab346a6cb9193c9bc89d30679b5e173cf0cd73a3ea131e40da"
+  },
+  "canonical_path_profile_bindings": {
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_child_measurement.py": "082b44fd51a942d68f2d6f1d918765e01520287187747b7e422208f1ee8bede7",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_guard.py": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_metadata.py": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/binary_provenance.py": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/correctness_cpp_contract.py": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/memory_safe_build.py": "ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/optimizer_mode_contract.py": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/production_version_object.py": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/q01_native_child_measurement.py": "e2d724fba399450f1de945b8a62529b1f304f029e5ae3a39d35d8d2614ec62d4",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/q28_compilation_measurement.py": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_join_shuffle_checks.py": "2d817f9ba3fc4af3c0306910ce65a3b3640d5ecbe7ae3b14db7fdff6a10190cc",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_pairing.py": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_q01_scaling_checks.py": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_range_runtime_contract.py": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_range_runtime_cpp_generator.py": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_source_settings_checks.py": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_spill_bounds.py": "d30060f032eb45ab346a6cb9193c9bc89d30679b5e173cf0cd73a3ea131e40da",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_statistics_checks.py": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_statistics_cpp_contract.py": "7522d964569b2af5b9336a1003196d7efb633cdd705b5205ff059363300fe44d",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_union_cpp_contract.py": "3b7bd8de5d199f08519718b34d27fe73e96db3b626209011e763d37f7920a8fb",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification_contract.py": "73a7608c2a8ea37395bd2336def4801a3aa77e607324376816fac996242cd952",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/correlation_oracle_generator.py": "01df4ffff02830784e8aad4d4b072f671f89b8b3a8772a1e0949899551cdb2b9",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/generate_and_verify.py": "fa9f950e0d97e784574532f5092ee45ac8cabd8edfba91b9495bc81f8e9afaed",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/legacy.conf": "d8037a114c42f131af3ba9417fd81bb5bdd8a147b67fea3b6caff44bfecbd46a",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/new.conf": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+    "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/partial_lookup_key_generator.py": "6b1c97b7d675d2a5a8ebc3f0bc2c3bbc08a341e6209e25e989612f8dde745911"
+  },
+  "closure_change_since_preparation": {
+    "native_verify.py": {
+      "after": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+      "before": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b"
+    }
+  },
+  "current59_canonical_after_profile_sha256": "eb4592523e1e5a660b02e3cbf467e6fd9a69538bd3df1f6a9648b32b559df17f",
+  "historical_preparation_profile_sha256": "338f92351c753d5de572d2646c27035372ef283b551ca7d47fcc1043d735993a",
+  "native_verification": false,
+  "parent_ledger": "verification/idle-integration-empty-witness-applied59-20261028.json",
+  "parent_ledger_sha256": "e98ce6b888a551bc2dabf01c74b393584030a8b970c04034c18f5116726c6de1",
+  "patch": "proposed-quality-amendments/Q14-bounded-pair-configuration-20261028.patch",
+  "patch_sha256": "7969cd26b2f1caa3a036b34f9ed650a3e701624ad2e1dcea25741599f724670e",
+  "required_before_images": {
+    "quality_join_shuffle_checks.py": "25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc",
+    "quality_spill_bounds.py": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+  },
+  "review": "verification/Q14-bounded-pair-configuration-independent-review-20261028.json",
+  "review_sha256": "2b3178c5f785118faa44553f4d8a50be8739d1321f5ab217a51106f781abad91",
+  "schema": "Q14_ledger59_profile_binding_addendum_v1",
+  "source_policy_rows_revisions_gates_unchanged": true,
+  "status": "dormant_source_composition_only_native_pending"
+}

@@ -1,0 +1,49 @@
+{
+  "after_sha256": {
+    "anonymous_cpp_guard.py": "7264f1c5a1b1d1fc38b7e487aa856c31440e30a07d9f35d165ff9e21229f8768",
+    "anonymous_cpp_metadata.py": "43d018319f33ad5828eb83ccaaab4fb90a17c0fe6a11d5319cf368bbf8372102",
+    "anonymous_cpp_verify.py": "3572a5468633bb6a67233aea292abc7c4af5285c79c2e7cdba0a25681ef586dd"
+  },
+  "before_sha256": {
+    "anonymous_cpp_guard.py": "b4962d3004296d2936558c4c5164868a021d4a246458c18713b913047ae862cc",
+    "anonymous_cpp_metadata.py": "c22714482e7ba4f46285b0e0d2d9a9d669e6c2cbf98375641c12ca8246997d23",
+    "anonymous_cpp_verify.py": "c325983afe2f30f31c3dc20ca7d8e7c90334acd398a21f61182bf0bfe5d77739"
+  },
+  "execution": {
+    "compiler_runs": 0,
+    "live_helper_edits": false,
+    "mock_suites": 0,
+    "native_runs": 0,
+    "production_edits": false
+  },
+  "graph_basis": {
+    "basis": "Author bounded inspection plus existing root audit; reviewer did not reparse the large graph.",
+    "observed_tool_root_argument_counts": {
+      "compile": 2,
+      "link": 0
+    },
+    "selected_link_command_file_marker_pairs": 1,
+    "selected_response_file_reference_counts": {
+      "compile": 0,
+      "link": 0
+    }
+  },
+  "limitations": [
+    "This source review does not establish actual metadata capture, anonymous compilation, linking or C31 contract success.",
+    "The separate C31 shared-producer origin probe remains scope-limited and is not promoted by this review."
+  ],
+  "live_preimages_unchanged_at_review": true,
+  "patch_sha256": "ce9d17477cc17d280d2313538995fa0b7143a816ac1ee49f5de26fb2a3ecd8c9",
+  "resolved_review_issue": "The original artifact audited raw arguments before response expansion; the reviewed revision rejects selected raw response-file references.",
+  "reviewed_contracts": [
+    "Nonempty graph environment admits exactly the five audited Linux keys with the observed value shapes; unknown keys, nonempty CPATH/LIBRARY_PATH/SDKROOT and unresolved resource placeholders reject.",
+    "Expanded compile/link environments are retained in metadata and transported through the anonymous manifest; execute checks their canonical JSON hashes in process evidence.",
+    "The guard restricts allowed keys and rejects NUL/nonstring values; environment clearing remains, and forced LC_ALL/TMPDIR are applied after overrides.",
+    "Default empty environment preserves existing native-query behavior, including compiler_environment=False calls.",
+    "TOOL_ROOT exclusion follows validation of selected raw arguments, cwd and environment; only the two exact prefix-map argument forms are admitted.",
+    "Selected raw response-file references now reject before TOOL_ROOT omission, closing the original raw-versus-expanded argument audit gap.",
+    "Recursive hashing retains real CLANG, LLD and SDK resources referenced in arguments or environment, plus explicitly selected compiler/linker and existing captured inputs."
+  ],
+  "status": "approved_independent_source_review_only",
+  "temporary_apply_and_syntax_pass": true
+}

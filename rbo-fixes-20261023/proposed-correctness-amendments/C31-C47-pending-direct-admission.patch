@@ -1,0 +1,71 @@
+diff --git a/verification_contract.py b/verification_contract.py
+--- a/verification_contract.py
++++ b/verification_contract.py
+@@ -150,6 +150,12 @@
+     verdicts = [record_verdict(record) for record in records]
+     if not verdicts or 'failure' in verdicts:
+         return False, 'native_failed'
++    # These SQL batches do not execute the separate production-IR contracts.
++    # Direct evidence and the recorded scope limits require separate review.
++    if bug in ('C31', 'C47'):
++        if any(verdict not in ('functional', 'guard') for verdict in verdicts):
++            return False, 'native_failed'
++        return False, 'sql_checks_passed_direct_pending'
+     if bug == 'C02':
+         for case in {r['case'] for r in records if 'nonvacuous_group_observed' in r}:
+             if not any(r.get('nonvacuous_group_observed') for r in records if r['case'] == case):
+diff --git a/verify_series.py b/verify_series.py
+--- a/verify_series.py
++++ b/verify_series.py
+@@ -191,6 +191,7 @@
+     if baseline_error:
+         return baseline_error
+     pending_quality = False
++    pending_direct = False
+     for bug in args.bugs:
+         case_path = HERE / 'cases' / (bug + '.json')
+         case = json.loads(case_path.read_text())
+@@ -277,19 +278,30 @@
+             success, case['status'] = summarize_verification(records, bug)
+         case['native_verification'] = {'checks': len(records), 'checks_passed': success,
+                                        'evidence': str(evidence.relative_to(HERE))}
++        direct_pending = case['status'] == 'sql_checks_passed_direct_pending'
++        pending_direct |= direct_pending
++        if bug in ('C31', 'C47'):
++            case['native_verification'].update(
++                checks_passed=bool(records) and all(
++                    record_verdict(item) in ('functional', 'guard') for item in records),
++                finding_acceptance_passed=False,
++                direct_local_contracts_required=True,
++                direct_local_contracts_verified=False)
+         if bug.startswith('Q'):
+             case['native_verification']['semantic_checks_passed'] = bool(records) and all(record_verdict(item) == 'functional' for item in records)
+-        if success:
++        if success or direct_pending:
+             clear_resolved_transient_limit(case, records)
+         case_path.write_text(json.dumps(case, indent=2) + '\n')
+         emit({'bug': bug, 'step': 'complete', 'status': case['status'], 'checks': len(records)})
++        if direct_pending:
++            continue
+         if not success:
+             for item in records:
+                 if record_verdict(item) == 'failure':
+                     emit(item)
+             if not bug.startswith('Q') or case['status'] == 'native_failed':
+                 return 1
+-    return 2 if pending_quality else 0
++    return 2 if pending_quality or pending_direct else 0
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/refresh_status.py b/refresh_status.py
+--- a/refresh_status.py
++++ b/refresh_status.py
+@@ -17,6 +17,7 @@
+ status_labels = {
+     'verified': 'Semantic checks passed',
+     'verified_scoped': 'Fix-specific semantic checks passed; separate failing controls remain tracked',
++    'sql_checks_passed_direct_pending': 'SQL semantic/guard checks passed; direct local contracts and scope review pending',
+     'verified_guard': 'Guard checks passed; see validation limits',
+     'verified_new_parser_invariant': 'New-parser invariant checks passed; compatibility limit remains',
+     'prepared_unverified': 'Prepared; build and runtime verification pending',

@@ -1,0 +1,61 @@
+{
+  "id": "Q25",
+  "title": "Map fusion drops the request to continue pushing definitions.",
+  "branch": "fix/new-rbo/q25-map-fusion-drops-the-request-to-continue-pushing-definitions",
+  "commit": "1300a777c320158fe82cd9416b355165dbe73ecd",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_global_ut.cpp"
+  ],
+  "proposal_sha256": "4ec6b4d689ef7cf277f8408ed3d8274efa578d76c513e8ccaef81f689005f4be",
+  "proposal": "proposed-quality-patches/Q25.patch",
+  "proposal_metadata": {
+    "id": "Q25",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_unbuilt_unverified",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_operator.h",
+      "ydb/core/kqp/opt/rbo/kqp_operator.cpp",
+      "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+      "ydb/core/kqp/opt/rbo/rules/push_map_elements_through_input.cpp",
+      "ydb/core/kqp/opt/rbo/rules/push_olap_projection.cpp",
+      "ydb/core/kqp/ut/rbo/kqp_rbo_global_ut.cpp"
+    ],
+    "summary": "Store Map push intent per definition so fusion, partial reconstruction, expression rewrites and copies preserve only the intended movement eligibility.",
+    "review": [
+      "No global OR of map flags: unmarked lower definitions remain unmarked after fusion.",
+      "Through-input pushdown checks each definition; kept and pushed maps retain the flags through value copying.",
+      "Logical copy copies per-definition values before rebinding; SetMapElementExpression preserves the flag through rename/type-annotation/replacement.",
+      "OLAP projection reconstruction preserves the surviving definition intent.",
+      "The existing UT is adjusted only to the explicit marking API; no new exact workload/repro is embedded.",
+      "Independent base-relative artifact only; no production checkout edits or builds."
+    ],
+    "validation_plan": [
+      "Operator-level checks: marked top over unmarked bottom and reversed flags, all-moved/partially-kept/none-moved cases, logical copies and definition rebinding.",
+      "Confirm only marked definitions cross Filter/Join; unmarked erroring expressions retain demand placement.",
+      "Run outer-join preservation controls, scalar-cardinality demand controls from C15, and existing global RBO unit suite.",
+      "Count surviving/pushed marked definitions and verify native semantics before claiming optimization recovery."
+    ],
+    "limits": [
+      "Six files are required because push intent is definition state and the old public map-wide field is used by an existing unit test.",
+      "This preserves the existing rule safety/side conditions; it does not authorize a broader class of expression movement.",
+      "Q25 and C40 may overlap in the OLAP projection rewrite; integrate flags with the C40 fallback without dropping either fix.",
+      "Native semantic verification and compile remain required."
+    ],
+    "apply_check_exit_code": 0,
+    "patch_sha256": "4ec6b4d689ef7cf277f8408ed3d8274efa578d76c513e8ccaef81f689005f4be"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

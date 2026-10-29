@@ -1,0 +1,138 @@
+{
+  "Q14": {
+    "interface": "ConvertOptimizedTree then AssignStage",
+    "matrix": {
+      "algorithm": [
+        "Grace",
+        "ReverseBlock",
+        "Map"
+      ],
+      "left_shuffle": [
+        "absent",
+        "empty",
+        "nonempty"
+      ],
+      "right_shuffle": [
+        "absent",
+        "empty",
+        "nonempty"
+      ]
+    },
+    "required_observations": [
+      "typed ordered keys preserved",
+      "Map versus Shuffle edges",
+      "four-node row oracle"
+    ]
+  },
+  "Q16": {
+    "interface": "TDisableBlocksOnColumnsLimitRule with observed TypeCtx.BlockEngineMode",
+    "matrix": {
+      "storage": [
+        "row",
+        "column",
+        "mixed",
+        "unrelated_column_root"
+      ],
+      "width": [
+        0,
+        1,
+        3
+      ],
+      "threshold": [
+        0,
+        2
+      ],
+      "blocks_initially_enabled": [
+        false,
+        true
+      ]
+    },
+    "required_observations": [
+      "actual mode before/after",
+      "visited shared subtree",
+      "WindowFunctionsV2 guard unchanged"
+    ]
+  },
+  "Q18": {
+    "interface": "MergeColumnStatistics and ApplyColumnStatistics",
+    "matrix": {
+      "field_kind": [
+        "count_min_sketch",
+        "width_histogram",
+        "type",
+        "ndv_zero",
+        "hll_zero",
+        "tuple_columns",
+        "tuple_types",
+        "height_histogram",
+        "tuple_sketch"
+      ],
+      "cache": [
+        "absent",
+        "existing_same_column",
+        "existing_other_column"
+      ],
+      "repeat": [
+        1,
+        2
+      ]
+    },
+    "required_observations": [
+      "stored pointer identity",
+      "incoming fields installed",
+      "absent fields preserved"
+    ],
+    "sql_reachable": false
+  },
+  "Q19": {
+    "interface": "statistics future completion and ApplyColumnStatistics",
+    "matrix": {
+      "response_order": [
+        "success_error",
+        "error_success",
+        "success_warning",
+        "all_success",
+        "all_error"
+      ],
+      "future_exception": [
+        false,
+        true
+      ]
+    },
+    "required_observations": [
+      "all issues retained",
+      "successful fields applied on uncached table",
+      "future exception propagated"
+    ],
+    "sql_reachable": false
+  },
+  "Q25": {
+    "interface": "Map definition state through fusion/copy/rebinding/pushdown",
+    "matrix": {
+      "top_marked": [
+        false,
+        true
+      ],
+      "bottom_marked": [
+        false,
+        true
+      ],
+      "movement": [
+        "all",
+        "partial",
+        "none"
+      ],
+      "boundary": [
+        "Filter",
+        "Join",
+        "Map"
+      ]
+    },
+    "required_observations": [
+      "per-definition flag identity",
+      "only marked definitions move",
+      "unmarked erroring expressions retain demand",
+      "outer-join null preservation"
+    ]
+  }
+}

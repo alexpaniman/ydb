@@ -1,0 +1,102 @@
+{
+  "status": "source_prepared_metadata_contracts_passed_native_pending",
+  "case_count": 18,
+  "ordered_case_vector": [
+    "q26_unset_ordinary",
+    "q26_unset_sorted_limit",
+    "q26_unset_sysview_control",
+    "q26_unset_column_ordinary_control",
+    "q26_unset_column_unsorted_limit_control",
+    "q26_unset_column_sorted_limit_control",
+    "q26_zero_ordinary",
+    "q26_zero_sorted_limit",
+    "q26_zero_sysview_control",
+    "q26_zero_column_ordinary_control",
+    "q26_zero_column_unsorted_limit_control",
+    "q26_zero_column_sorted_limit_control",
+    "q26_positive_ordinary",
+    "q26_positive_sorted_limit",
+    "q26_positive_sysview_control",
+    "q26_positive_column_ordinary_control",
+    "q26_positive_column_unsorted_limit_control",
+    "q26_positive_column_sorted_limit_control"
+  ],
+  "matrix": {
+    "row_cases": 6,
+    "sysview_cases": 3,
+    "column_cases": 9,
+    "setting_values": [
+      "unset",
+      0,
+      4
+    ]
+  },
+  "metadata_assertions_passed": 937,
+  "rendered_query_sha256": {
+    "q26_unset_ordinary": "77141745f00ba7cb76142eff983be56ae0678d8a2754527213447392cd6bc4e8",
+    "q26_unset_sorted_limit": "55ffcdcf563cb178da3cb42be404660b3be6a24fef8604b6e0659f3250e3e18d",
+    "q26_unset_sysview_control": "f076b12a320c776fa74dd3fdc4f92c79c4b92102d862108736ae139d3542e5f1",
+    "q26_unset_column_ordinary_control": "7f9fa3cc9ac91ad472ed81a03e2afcb276c38bac642c844c1b05687f4df8ef85",
+    "q26_unset_column_unsorted_limit_control": "07b0e1e5ac51e717bfdab4ef820c78170ae751031cdc27775b84a72ece9e4fad",
+    "q26_unset_column_sorted_limit_control": "6886919e38e2bed54dec097c7007ce9ae45fe4e785cbc86faf660bb3c429c491",
+    "q26_zero_ordinary": "77141745f00ba7cb76142eff983be56ae0678d8a2754527213447392cd6bc4e8",
+    "q26_zero_sorted_limit": "55ffcdcf563cb178da3cb42be404660b3be6a24fef8604b6e0659f3250e3e18d",
+    "q26_zero_sysview_control": "f076b12a320c776fa74dd3fdc4f92c79c4b92102d862108736ae139d3542e5f1",
+    "q26_zero_column_ordinary_control": "7f9fa3cc9ac91ad472ed81a03e2afcb276c38bac642c844c1b05687f4df8ef85",
+    "q26_zero_column_unsorted_limit_control": "07b0e1e5ac51e717bfdab4ef820c78170ae751031cdc27775b84a72ece9e4fad",
+    "q26_zero_column_sorted_limit_control": "6886919e38e2bed54dec097c7007ce9ae45fe4e785cbc86faf660bb3c429c491",
+    "q26_positive_ordinary": "77141745f00ba7cb76142eff983be56ae0678d8a2754527213447392cd6bc4e8",
+    "q26_positive_sorted_limit": "55ffcdcf563cb178da3cb42be404660b3be6a24fef8604b6e0659f3250e3e18d",
+    "q26_positive_sysview_control": "f076b12a320c776fa74dd3fdc4f92c79c4b92102d862108736ae139d3542e5f1",
+    "q26_positive_column_ordinary_control": "7f9fa3cc9ac91ad472ed81a03e2afcb276c38bac642c844c1b05687f4df8ef85",
+    "q26_positive_column_unsorted_limit_control": "07b0e1e5ac51e717bfdab4ef820c78170ae751031cdc27775b84a72ece9e4fad",
+    "q26_positive_column_sorted_limit_control": "6886919e38e2bed54dec097c7007ce9ae45fe4e785cbc86faf660bb3c429c491"
+  },
+  "queries_persisted": false,
+  "plans_persisted": false,
+  "native_runs": 0,
+  "build_runs": 0,
+  "toolchain_executions": 0,
+  "limits": [
+    "Native SysView and column-store execution is not yet confirmed in this kqprun build.",
+    "Actual physical descriptor reachability and paired preservation still require native baseline/fixed runs.",
+    "No throughput or latency improvement is claimed."
+  ],
+  "production_source_refs": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+    "ydb/core/kqp/opt/rbo/rules/propagate_limit_through_stage.cpp",
+    "ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp",
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp:10627"
+  ],
+  "canonical_integration": "AUTO[Q26] now requires source_settings; the exact eighteen-case owner vector and full imported generator fingerprint are enforced by the existing sixteen-patch admission stack. Partial statistics-only profiles cannot accept Q26.",
+  "paired_contract": "Both revisions require one typed source of expected kind and identity; identical callable counters, projection and all non-Sequential settings. Baseline row Sequential must be absent; fixed row unset/zero/positive must be absent/0/4. SysView omits Sequential on both. Column unsorted Limit requires Uint64 limit3, no sort and Sequential1 on both; other column controls omit Sequential on both.",
+  "patch": "proposed-quality-amendments/Q26-source-kind-controls-20261028.patch",
+  "patch_sha256": "ccfdac0c0d4328c243cab9e45697ab1039e09d82036c637cfe95e02d62a6f655",
+  "candidate_module_sha256": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba",
+  "apply_after": "verification/idle-artifact-application-plan-20261027.json",
+  "live_source_edits": false,
+  "superseded_patch_sha256": "0fb900e7cb09381745988910dbb88a38349520c0efae40574380fa992c2590d4",
+  "source_correction": "Ordinary row ORDER BY has no LimitCond, so CanPushSortToRowRead rejects pushdown: its storage Sorted flag remains false, as do ordinary column and SysView source settings.",
+  "metadata_assertions_reexecuted_after_source_correction": true,
+  "superseded_patch_hashes": [
+    "9cbf71ae0949f17387b102b48aa98e658b616088dbcb3d1a321e7aee3b595abc"
+  ],
+  "order_oracle_review_correction": "Independent review requires exact row-list equality for both row ORDER BY shapes and column sorted_limit; unordered column controls retain a bag oracle.",
+  "ordered_result_negative_controls": {
+    "metadata_assertions_passed": 36,
+    "reversed_rows_rejected_in_cases": [
+      "q26_unset_ordinary",
+      "q26_unset_sorted_limit",
+      "q26_unset_column_sorted_limit_control",
+      "q26_zero_ordinary",
+      "q26_zero_sorted_limit",
+      "q26_zero_column_sorted_limit_control",
+      "q26_positive_ordinary",
+      "q26_positive_sorted_limit",
+      "q26_positive_column_sorted_limit_control"
+    ],
+    "result_order_checked_flag": true
+  },
+  "metadata_assertions_passed_before_order_refinement": 901
+}

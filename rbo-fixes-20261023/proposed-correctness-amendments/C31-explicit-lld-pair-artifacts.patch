@@ -1,0 +1,17 @@
+--- a/rbo-fixes-20261023/anonymous_cpp_metadata.py
++++ b/rbo-fixes-20261023/anonymous_cpp_metadata.py
+@@ -455,7 +455,13 @@
+     # unchanged resource include tree or C++ runtime archive.
+     compiler = Path(compile_args[0]).resolve()
+     linker = compiler.parent / 'ld.lld'
+-    requested_linkers = [arg.split('=', 1)[1] for arg in link_args if arg.startswith(('-fuse-ld=', '--ld-path='))]
++    linker_flavors = [arg.split('=', 1)[1] for arg in link_args if arg.startswith('-fuse-ld=')]
++    linker_paths = [arg.split('=', 1)[1] for arg in link_args if arg.startswith('--ld-path=')]
++    # Linux production flags specify both the LLD flavor and its resource path.
++    if linker_flavors == ['lld'] and len(linker_paths) == 1 and Path(linker_paths[0]).is_absolute():
++        requested_linkers = linker_paths
++    else:
++        requested_linkers = linker_flavors + linker_paths
+     if len(requested_linkers) != 1 or (requested_linkers[0] != 'lld' and Path(requested_linkers[0]).name != 'ld.lld'):
+         raise MetadataError('anonymous_link_requires_explicit_lld_driver_selection')
+     if requested_linkers[0] != 'lld':

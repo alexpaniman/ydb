@@ -1,0 +1,884 @@
+{
+  "automatic_full_finding_promotion": false,
+  "expected_worktree": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+  "fullsuite_target": [
+    "ydb/tests/tools/kqprun",
+    "ydb/core/kqp/ut/rbo",
+    "-tA"
+  ],
+  "installed_ledger": {
+    "count": 57,
+    "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/idle-C31-const-repair-applied57-20261028.json",
+    "sha256": "3cce0e79be966ab48fad4851fe9a3e0a18e783fa1e2aeef44170925f910e2b21"
+  },
+  "items": [
+    {
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "bug": "C41",
+      "cells": [
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "fa5d24957e5e456062a455b13464c07df62f9d15528a9160df7ac1eb891758cf",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": [
+              "28be06e13113b9742e4a0516ddeca657e9f8be0a7561f82bdde7d015dbb55a8c"
+            ]
+          },
+          "case": "c41_effect_only",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "effect_persistence_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": false,
+            "validation_request_count": 1,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "0e23cf74661a301a9edae6adf85b7f7e93d7367fd65b5864463e5e78a5d8e2f7",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_effect_then_results",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "b327de4a6afc2426dee707b514f68461e8ba0e79a37b0ab01241298a3315da68",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_empty_first_result",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 2,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "029062d22897335cf7c9fb2c7fb02d704604258af73469ffe6f8bcf361e83235",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_empty_last_result",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 2,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [],
+            "query_sha256": "a3bf60f5e456859f89f00b6f09efa1ef23b93f0ecd286a2033878cedf6983664",
+            "schema_sha256": "cb15f600986537ad71d805d5dbd229c6d83d848a7c9d519df9df4dde7d8ebd4f",
+            "settings_sha256": "88a3570668536c90a82b5766f6a0d037c5b81fb0229ad20234d887dce8118f3e",
+            "validation_sha256": [
+              "6df10fb0b268e6fcf12893765b4b30a4ab368b5dfec6d681474c63569e0629dd"
+            ]
+          },
+          "case": "c41_indexed_effect_blocks",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "effect_persistence_pass": true,
+            "index_extra_row_count": 0,
+            "index_table_oracle_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "target_results_checked": false,
+            "validation_request_count": 1,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [],
+            "query_sha256": "a3bf60f5e456859f89f00b6f09efa1ef23b93f0ecd286a2033878cedf6983664",
+            "schema_sha256": "cb15f600986537ad71d805d5dbd229c6d83d848a7c9d519df9df4dde7d8ebd4f",
+            "settings_sha256": "a03bfaf7cbc5d714dbe9781ec0365bcb42e9a2128f1600c301393999e2fb8ac0",
+            "validation_sha256": [
+              "6df10fb0b268e6fcf12893765b4b30a4ab368b5dfec6d681474c63569e0629dd"
+            ]
+          },
+          "case": "c41_indexed_effect_sequence",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "effect_persistence_pass": true,
+            "index_extra_row_count": 0,
+            "index_table_oracle_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "target_results_checked": false,
+            "validation_request_count": 1,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "6c99ff62accb93fc15262e019cd76872b39df08072dbeff610b2bddbf1e6fa0e",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_materialized_blocks",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 2,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "bc3e1cb96cb83f4a0d07b6a70e6e972c13608f8e9ad0861da49b3f6a99ca7c20",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_multiple_effects",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "0af51d46dc41cbaae420dfe7d7368f72f6df5a5b2fc9774ad9703249b49dd1dc",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_multiple_results_effect",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 2,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "751add969dede416020eae3f5562234f17e3e82149046dedea050f42de3c08ff",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_read_only",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "b88cba0b5f407127ea9d1b8877efa0feefc4f9176d7683305d3b8172a8f5e072",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_results_then_effect",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        },
+        {
+          "bindings": {
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "query_sha256": "6bbcdae80d8efdf5e746ca42d50571941c22773ceff2e701c30f6c04754f26d3",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "validation_sha256": []
+          },
+          "case": "c41_write_then_read_same_table",
+          "expected_outcome": "functional",
+          "fallback_requested": false,
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "mode": "new",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1,
+            "result_set_ownership_pass": true
+          },
+          "required_record_fields": {
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "expected_rejection_configured": false,
+            "quality_evidence_required": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "target_results_checked": true,
+            "validation_request_count": 0,
+            "verification_contract_version": "strict_results_and_request_boundaries_v1"
+          }
+        }
+      ],
+      "expected_generator_case_count": 12,
+      "expected_record_count": 12,
+      "expected_status": "verified",
+      "fullsuite_build_required": true,
+      "remaining_qualifications": [],
+      "revision": "dd1d8cabb86258c4bcb998bd6b317b296bfdd251",
+      "rows": 24
+    }
+  ],
+  "old_historical13_evidence_untouched": true,
+  "original_manifest": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/historical-rerun-exact-vector-20261028.json",
+  "original_manifest_sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58",
+  "prepared_unix_ns": 1793156836539364219,
+  "purpose": "C41_amended_revision_only_exact_rerun",
+  "required_production_boundary": {
+    "path": "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "sha256": "429479d060ca8197be45e672dd3034834f3c842d8f5cde29a0c14dae00f2ed8b"
+  },
+  "rows": 24,
+  "schema_version": "historical_exact_vectors_v1",
+  "source_bindings": [
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/access_effect_checks.py",
+      "sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_child_measurement.py",
+      "sha256": "082b44fd51a942d68f2d6f1d918765e01520287187747b7e422208f1ee8bede7"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_guard.py",
+      "sha256": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_metadata.py",
+      "sha256": "83c14f54667d8316a04361a166bedaf9da09a45c0b35322aee445eb1aa9dadbf"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_verify.py",
+      "sha256": "0ee20f0c2c31f3e36e9002373d501a9f465c9cdcbabec1d56d64d439fec2c60d"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/binary_provenance.py",
+      "sha256": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/correctness_cpp_contract.py",
+      "sha256": "bd414815039456e1845193ff123fcc3be793a73059e4eee674ecb9cdb4bb435a"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/memory_safe_build.py",
+      "sha256": "ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/native_verify.py",
+      "sha256": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/optimizer_mode_contract.py",
+      "sha256": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/production_version_object.py",
+      "sha256": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/proposed-correctness-amendments/historical_rerun_vector_check_20261028.py",
+      "sha256": "c532b97282b370c4398b7a0db158844614a8e2d564ff86bbdd7dd3ecf48c282f"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/q01_native_child_measurement.py",
+      "sha256": "e2d724fba399450f1de945b8a62529b1f304f029e5ae3a39d35d8d2614ec62d4"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/q28_compilation_measurement.py",
+      "sha256": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_pairing.py",
+      "sha256": "622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_q01_scaling_checks.py",
+      "sha256": "786e4d126ddbdc49d6af92f4d3eef177fe7fed98e07caff13919bde39355ba53"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_range_runtime_contract.py",
+      "sha256": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_range_runtime_cpp_generator.py",
+      "sha256": "0a3e2f1f1b56a03d85bc80f3ce5626a825a5808527402fa96218951d1f068e2e"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_source_settings_checks.py",
+      "sha256": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_spill_bounds.py",
+      "sha256": "7cda7ec6c03b18d4a78a152dfc8f53f3fcbbe5487d5df316ac351d0b8e33bc89"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_statistics_checks.py",
+      "sha256": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_statistics_cpp_contract.py",
+      "sha256": "7522d964569b2af5b9336a1003196d7efb633cdd705b5205ff059363300fe44d"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_union_cpp_contract.py",
+      "sha256": "3b7bd8de5d199f08519718b34d27fe73e96db3b626209011e763d37f7920a8fb"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/quality_window_checks.py",
+      "sha256": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/C41-final-query-post-annotation-independent-review-20261028.json",
+      "sha256": "28a924b64925ea706427650c631db2088b7bdd4da7fa1a00cc9e836de429ce35"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/C41-post-annotation-amendment-applied-20261028.json",
+      "sha256": "af8538e5c2f1186d8cd0fb8667fd5913e921b1ea065e53c3e54204c3bd5c48ba"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/historical-rerun-exact-vector-20261028.json",
+      "sha256": "c0540b03972fb3a187bfff74e7932e44fccf64aea625896337638525ac8ffe58"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/idle-C31-const-repair-applied57-20261028.json",
+      "sha256": "3cce0e79be966ab48fad4851fe9a3e0a18e783fa1e2aeef44170925f910e2b21"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification_contract.py",
+      "sha256": "73a7608c2a8ea37395bd2336def4801a3aa77e607324376816fac996242cd952"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+      "sha256": "cc07fc271efde3ed8f8377ef86f9560b484591503d7c0198d89e7ca7488d6265"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/correlation_oracle_generator.py",
+      "sha256": "01df4ffff02830784e8aad4d4b072f671f89b8b3a8772a1e0949899551cdb2b9"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/generate_and_verify.py",
+      "sha256": "fa9f950e0d97e784574532f5092ee45ac8cabd8edfba91b9495bc81f8e9afaed"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/legacy.conf",
+      "sha256": "d8037a114c42f131af3ba9417fd81bb5bdd8a147b67fea3b6caff44bfecbd46a"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/new.conf",
+      "sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/partial_lookup_key_generator.py",
+      "sha256": "6b1c97b7d675d2a5a8ebc3f0bc2c3bbc08a341e6209e25e989612f8dde745911"
+    }
+  ],
+  "status": "metadata_only_not_native_acceptance",
+  "suite_source_bindings": {
+    "ydb/core/kqp/ut/rbo/data/schema/clickbench.sql": "7ad4cae5abf5a732a13ae3773bd135fb411213a8087a06694200d2ab0d1921a0",
+    "ydb/core/kqp/ut/rbo/data/schema/tpcds.sql": "de90a49b9cae42971681eb41f347f13b1b4797f470245c12a54862b67b4e4595",
+    "ydb/core/kqp/ut/rbo/data/schema/tpch.sql": "0fe050eccc67002cc40ec871b4bf41d818faecd1bb380fe2a87f8275087ba397",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q1.yql": "359b1b817c54730fb510ed5a9e12f8aa59a6b8df0ba5c666d7ab53f510b0d123",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q10.yql": "6c9c7233d8db69ac32e6d37600cb65bca7fdaf21ff734ea1b02dbab98182dabb",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q11.yql": "cf9cdd001900d54d73351f5bfcf92a0fec26d007158a044cbc9b42d19799fdeb",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q12.yql": "96d839900114e0ad5e9117bff6d1c69d5266742ec4e9350a51a00b956ca08065",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q13.yql": "afc639e585f7761d6529865e2c865968777a186dfe8d6062290a41934d24315f",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q14.yql": "65c94ca3d8c6c2d6158327c38b58a619a875a3ab0ac7e655e76e87127dabc208",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q15.yql": "750e9be44aa60cce448088768c06e7ec053588cfb84340c95997f7c85c79650c",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q16.yql": "0aec0af08fb9fc0bb75413e438a501c092b1a29b1efe6691213b1c40d5b6e6ce",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q17.yql": "a6047dd3f3dbe038420c179c9382673d0c5d8ec8d1b7cc1f531c8ec09b6b0ef4",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q18.yql": "ac2adf2b6367feb093444291b6c8de2a0a7130fe630269d1fa96b2c5034ffe26",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q19.yql": "b745261434283f855230513298b8b115cf52ad908f41a41683db1bc9cf3d8eed",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q2.yql": "57b3b446de09210de7cde591214ed136e3fbdd0c43ea4da7e9ed7cb8b37aa5fa",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q20.yql": "9b199cf40914f8721c9e75053a4bc97c0c906f21d482cb3de9e6b33d44926d5d",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q21.yql": "1595dbaaae06a50008e0efb302338c1cd7f11c896be9a0c9775bf110b9c7a3df",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q22.yql": "bb3e11632bc28c2b630600a91d68c90ba59a52811cc5fd413574d531829174dc",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q23.yql": "86f4ae97a4583b9c35f3b3d6a212ade2de3e9308c9af6b4fe2ff76ea8fc53a0b",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q24.yql": "862d232d5ed7067f6186f9e8369edea7831bb13de54d60d2bbf15fe684ffee27",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q25.yql": "1205224539c56268f452c7356c495e4ef82a34838815fb92898237b964686e49",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q26.yql": "6c9841fd27733db95ba66efe7a2aa4e08807745b174d0706ef87c33d4bb06e28",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q27.yql": "b81c187ac1eff8beb4b5a371279211676fc93095900893b0a8a2a39ae56fe463",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q28.yql": "d5dba18382a3420398f4c050c7895ff5a324bce6542dd8cee53832dbbeebb19e",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q29.yql": "11e06289d8a3382578edbd4d0000556bab01798405fbf8ceb2415143c754ced2",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q3.yql": "593501de9fb8b1e3d38f6257841477e579db753bc087114301bc99ec916d6255",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q30.yql": "8a7a525dab45a70db12485483cf63fb14c9320c52dffc04431242367d45b1d81",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q31.yql": "097deb985611a83ab8f4f9bcc5c39b74f071596edea9ef47553a2d56aba77b9c",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q32.yql": "eb1b22f3e0eeb22982577655cb0f9c07e6e04ef2207bf7499bff941d2cd2f3da",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q33.yql": "b31184f9ec7097e1268452f7177fedc855b188d9ceb6c5dc66e112996bf8eb43",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q34.yql": "b17db2065bc275d39e403717d16f50124b69d813fbeb398634f093d8cf26f08a",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q35.yql": "226f8a7ca2d0b3404c43f4b807e836595763e88fdaca3fdf1ce50971a5c7f3cf",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q36.yql": "2810043df93262423d8c2a67f28a9a26ca9eb57b57ca4020c64bea698912d323",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q37.yql": "22150d04c83e3cbff81aa1e97814dc2040ec6d0bde8a28d013bf199a563ee429",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q38.yql": "2fb7e31494ed6adb1906dbe45da6da7821a032327dcf4b89cb18b56d23a2e841",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q39.yql": "67d8a03e4c1f9cac9d0fb290256c7c633f67ca3ca42ebbae100e40fb494f4616",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q4.yql": "41c8612ced8316147e2ba7a5c52c21015efb848f58c0b1febd4dc1fe0308a6a3",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q40.yql": "3c8e64d0ec86767bfd4f31cc59810e95d522185d59b007534d2554fd6ce26cea",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q41.yql": "c1c62f8053b12fc82a6e9b4bfc0002146cbeb390b13610e6eaf030e1a51b006d",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q42.yql": "4ebf85e0c5151eaf0fdbce91da3a8582d12bf36af21a7c3720b10e1d780e002e",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q43.yql": "59361efac8f57c39255a7d76e8892d05e0f4570a14acc9fe312bb7fdab6b9506",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q5.yql": "2f6024478af38041d80b1132737650728e3a39e1d5c7990de13060c093ee6132",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q6.yql": "d6dd9b4b4df9b45da348c4ed3b127d0acb89edc912883a107e30d56b1f085a4d",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q7.yql": "9200738b8877dc4014a1040fc389d59c3403054ef9627b79f96bf3e8e5d6cf48",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q8.yql": "08c02632ca9d89c019b5d045059daac53128d8f57646d111e6fb06aed9fa0321",
+    "ydb/core/kqp/ut/rbo/data/yql-clickbench/q9.yql": "addfc93f741937b1dc939873c5771962fc9e96b74d7a3ab7e2e38dd94aafffbb",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q1.yql": "404528cc0169f7fd70a32a556d0b1d51de091d417d958c870d7da3da903c7b1d",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q10.yql": "1006f15f9e7a788a158d0e284f25058eaf122fdf3a0ad9d2426033c6bca2ab50",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q11.yql": "4aa27d77009f0ab9452aab8b78f183a6174b9773329d92a0f645fc241abb41d7",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q12.yql": "1138f97818e1e906008390e251b4fe96e9e834448e5d96f67b8dff138a6055b8",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q13.yql": "25ce03dad25e146522d61d61ff214623469800b2654b0f6fb46d0611038898d6",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q14.yql": "922079051369439c6c978e38ef29174011ada5ff900441a3ebd2ec678d528ad9",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q15.yql": "aca6120819bda6f1070eccc792aa7b28f38ed5f474772e4ff4c43b6f4fc6d6ef",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q16.yql": "847f860c3a0d2281fd58c49026fae9a7f1dd7b9b8ddb2c5ecba1677608be8fdd",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q17.yql": "66779962a003ca39f1e721fec6eb279b20a6ab77c920821c9831a9abd3b3bb52",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q18.yql": "19cd2b562b8771e598ac8d1fcb681f4443c9a5200b5a5461375d304cd6ceebe7",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q19.yql": "c614e6937669f45adea0ca1d41d966740f61fed3274f2a959f605f6c26ed6f36",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q2.yql": "5ba84910fbcac9d8c4d6abdd2589efe46c0048b737a167a95f356e3bb1e6ac08",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q20.yql": "21782b532440af00c101a60e792e9cc124dd3b42244399754917426a1f6b517b",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q21.yql": "5e63956df9c97c195e26056950e1a001bee56b66229dd40f9d34ecc9fa4210f2",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q22.yql": "1d26bfefbca40244611dab92208281f9876929c3507758f9b8dff323249fea2a",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q23.yql": "c2f8fcaec72906c067ad8e0541fcac47f5915e20d6688494b924973218654175",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q24.yql": "6de555efab0f8e8984173f3ab7346972a05617f6c3b03516fb3f19d4e09a3878",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q25.yql": "86c42b2976610a8c73989c27917c1592f306a614442e4c77659f1ea9599eda16",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q26.yql": "079c654ddd264e03a4d866696978042388b6668c629e69d92166ece003231273",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q27.yql": "c609d7e497cbb5221f7e957631e8b9eb01ada3f58569bc28b582a38ba8f98d14",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q28.yql": "32ac523deacff050a3ca4227c8a3cf9eed355ef37607ff2ec842700819b96e3c",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q29.yql": "b0b6f06609f8070c692bdd91552c0a1fc1173eb18fbf00987d9395848c635a8a",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q3.yql": "e9829f18eabeab5d929a4620d859f771f1abff192ea1ea9deacf41f77b3080ad",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q30.yql": "b38a076897c2723ce5d9fa31073b89e5d2ae35769d7274e999d14cc7b9168e24",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q31.yql": "58676f1f5121db63d0f759610abdef69af92f8a39d75ebadbc474c3644ef7c98",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q32.yql": "6bd566cb7c465f089206bd79d08d5d97780bcf3ff1c31578d62e8a163eaff856",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q33.yql": "7af2cba3b8a6c36607a606eb04dcdbb2b73f824cec1bb8496a4795aa46d73adc",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q34.yql": "b6bbcbe2eee480161441bff309be9790e99f4089f9cb24f685bf78b7ec45bd77",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q35.yql": "810975c9cb37f16a64e971e723a2c0281134782c87c410d702791ae2fc031592",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q36.yql": "97404f4fb4d6d5cbfdf3226d7c996316283a307e10d76256fd88a82bec162f8c",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q37.yql": "f83aea8c767e4ca7618aaf12f81125d6fc0af51279a91ac50adeb47c2be22222",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q38.yql": "1e949d8623b4bf2f40ac4bc31b134c1d9dfbc8b30a5b833e7b0542a259327ac0",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q39.yql": "25d044c0d8d9239dfdef98914de0d239aefc500dbc41d56ea9a3680fe22477a4",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q4.yql": "c6ff05ccc529cc9199a20b5a3e0090be30d84dffabffe727fec8f3d12e8ab20f",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q40.yql": "446ed11ec39337e53be16ad20e56384211580fd5a6e965b9811b67773d9d2173",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q41.yql": "5b30fc3f88b5a0fc6c980da0004ee9ccafb791285b5c69bd95d0f31939b79235",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q42.yql": "938c48c4b4ef6fbf5278c7cc1de3493b76a4b8883cda6258604f7628172fb97a",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q43.yql": "5a8d939e529fc242487ee73f6f2423b52c4425ac682430535e8ea46b4176b55d",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q44.yql": "358f19d326980797c336e551925b7649a26d4db5cfcf703469049074de1d863a",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q45.yql": "f121aaa438e7bd39d29b3b155a8111deb0cd788007ef67110a7de4c215780ac3",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q46.yql": "a39806a2492b2d4ac47cfdbe5c1b59016874d7a2e5a667cf287e4ee22cfc3001",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q47.yql": "43bccfff09fb56502c1e21fb4d618059c2dedb79606034334c315653bf2b9cbd",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q48.yql": "d0233bd095fa18b871af2f1ea228abe2a51848391937b341b65d0c6b56f12a5e",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q49.yql": "bb006f59fe89c0b91310b0ada54fc220f2dece27215bdf4f07e55da9442b9744",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q5.yql": "bbe44d7c2e22cf9f24576768f234c86cd3c20fe53a00b51c30e8dab4bfcde553",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q50.yql": "3ad6a01a35936feac9507bbfdaea53bebdaa105b126733ac011d06f8a6db09dc",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q51.yql": "e2db57faa3987fa84a4948f5f1db4c7ce8475bab89e8e8f921905fbd81255d24",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q52.yql": "091ebb719a79c080ebbd3d7b6fed1bb4a8b60e6e72d7f8d230719ab38ee913be",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q53.yql": "5ab3fe94ea885acc0d5156327321520965374ed85dcca3ebd67061c9f4105c0e",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q54.yql": "af0fb17f69670a016c9b3f1154da56dd59feef82cd84df360ffc8723b805d1ee",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q55.yql": "3754f5c294d7c2ddd5057e9359c48314c88f543da6d97019582d55cbb33d93f3",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q56.yql": "ab32db2f7ad0f6a667bfdaaf018a64ff5020271f2fddb6651dde1dea05d321e7",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q57.yql": "f02abc399c5b051f6c55f0677d7106039a16e009dfadd410ba944ae58d98e747",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q58.yql": "6455927e9bfcdf34c4c83fec214123659d0e93c5feb1799dfadf5c786b93dac2",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q59.yql": "2736d99f7e7eff9d840693f0c8059afc53c57ff95be4fa5386a5591108645e5a",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q6.yql": "28607e49e2ce37020de954efbd3a0d428f253fb1fbc2292c2ea92262d1f5fda2",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q60.yql": "d7030414232048ab630b3920643ba54d64531e14ab447a7bded0da0edc78cfb9",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q61.yql": "38981e001427517346d6fab714f16ecb869fa49d04b1fb252fda71818874ab7c",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q62.yql": "cdec7ff794bbe9525ca3eb21fb6359f1919a5705d68032e21e9e0acd5833e8f0",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q63.yql": "9e4599e52e4da63eac846f27d872196a2d912776fad9101e8490cec0839a46ed",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q64.yql": "ef257f0ec3e612cb44b790ba570e0c586eb0dae92d7cd042f2caf13a88698ab4",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q65.yql": "ff8f28a91115f6287fcf657eb72260e4781ee894fe79cc0f52fdcf2d4cb9c10c",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q66.yql": "de3b532f662dd2330886104990ce35c9c74c8b54b3d5cb718e7449ca164671fb",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q67.yql": "52a1b762b89ac9750cfb02e23747c2c61d0723cd507b26199e417a3675dbcc46",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q68.yql": "2a5b5cd1d5d70a17c00b2704678aff73fe7cef5575ef8699994378c3106d72a7",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q69.yql": "b6f3ed5a4fe23226dfb908b5f86836d1d30ed24d8a7c385a5d843bfbaefcc5d1",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q7.yql": "cf3b6c3b3bc5f5774daf76fed276ec14a746c218945b82f7d74f862bcd1ee429",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q70.yql": "cd5923f1379e86774652a31c66f714baa8d4f22adf7105d9799fb8a2698304e2",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q71.yql": "10bc41c488eb976dbb9a78fbba1d1cb739ddaf389809b696d238000ab0b3453f",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q72.yql": "67877d1d8ef0655515d93d90330164bd756a29182162eea079ae4c4fa38599cb",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q73.yql": "237a70b68ec8ae37cdcf38567bd9c921c81be2edae05c495afefaa6b83cf46be",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q74.yql": "8094c1489976923540cab95330f9f3bb8c3877401d7ddddd4be5854447e4a498",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q75.yql": "fd1ceb8265268d91c38f4b9ceaf609fed3519caea1e057f16d12677eb5e1e255",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q76.yql": "dc14c2c96627192e7b2ccdd1db3d2a05a652d426786c7ec48f0f41bd415c0faa",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q77.yql": "c78c8da8724f9c78d9fc30d4122649ed9daedf33c8ae8a6d48b70551411bae21",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q78.yql": "963f518c8429b1196c513d1f279a5ada0fb5c3a7a5e013ef9c30f983560c4e0e",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q79.yql": "50fadabc9ee6ea8ae654b54a1fe8d922690a4aa58ab4fd120217877efc1e4932",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q8.yql": "6fcf96f84c29da3ce5caa4164d56f751d3a8d057dfa3e695b9644dce21e0afb1",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q80.yql": "d76dc0558cf157d10244334e1512cedfcd67d43d68f1bc4a5ff2f7e39ae6590d",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q81.yql": "eaeef3c7bfba63a22651f344113c8904a1b0694a248f47fda0fc78dcd6cbf4af",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q82.yql": "e2498dbb8c8c90835ca5e9d837a49f91b55b30e2766c765e13f3fbf52a8f44ed",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q83.yql": "5bdb3ae71753cb580e0642d2f0205dd07ce8aba75a6f14f688c697675f43121e",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q84.yql": "e4f9c2fcc156f9cc0b170b349233aff5b3c159b2337761817d2b239830e23e28",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q85.yql": "a473006f18fe27707d2ef99ae8b6f271a7cac9430338d95a6c5c3265e19b47bb",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q86.yql": "3746cfaa6c752470c29b409888d01ef725320f35551f35cf07db27e8a95c265e",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q87.yql": "94c10a5057c6962a73f2aeea2652a65bc76c3d71ca1186923ce7f665e73caf2c",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q88.yql": "2d9aacc723a98375c66114f3d185d839f1f228fb78d332f25f79730adc8181ee",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q89.yql": "edf6f494135d0cc8dd01f12c498c951cb164a400aeb4930df7699192142c8b9d",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q9.yql": "1fb72d7d20b28932cc568baedff2209dbf9126e6aa27cb0e01b30662399e7b66",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q90.yql": "53fd5dc3cbad7dcb0d1a90e33029c5220bfafd21f1d171c5880914f99f44fcd9",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q91.yql": "f19da83ca83ea1b54aaa8cc60daeb879be8538dfb2ec92f7c839e9303700ce96",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q92.yql": "5ccc1efa64d4b4e3446d779797109f989975418d417a97239df80d36992cdc66",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q93.yql": "9be058af7c79fce6297474607123e15ec83fbbbbd4a51f9597e798ce993d9810",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q94.yql": "ca6c75fc7b23d4c98f1a8d0be24b22a36528df102f74d4aed7e061916d1531e2",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q95.yql": "ba4bec7a73a33a73c622e08899950622704275b8a5d48e5b41f47096d6e063df",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q96.yql": "1e4b175040ca38c14fb47fac1158a4f90b067c89fe48c9c1a32fb0caf512b9aa",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q97.yql": "cea941efbf7df266a8a4dcc04adadcd7b3746347e1f550e63570f419b8f19b19",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q98.yql": "cd5354b962a3a0174e9f13679bc3b842dd13c16de595a0165e3f373bb65ed0e3",
+    "ydb/core/kqp/ut/rbo/data/yql-tpcds/q99.yql": "468223a6b02261da03f4f47284c49d1baf5ae3fb7d59a1d4898e5e5fd5a8efb6",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/include.yql": "39397c24bec7507f8e3ff09ac8ec1d66a34dd7cd22092352f06b2aff37169ad8",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q1.yql": "bb6e73c4cd8d2d822eee9f27a262db1e838945222b782f31da400c83b98e1076",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q10.yql": "9cbe18ed679d028d5ad7efafab7d289165c476c73d483fb14f4e53b604ba3e2b",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q11.yql": "a8ea104618556c4d2b6b719a0040fe8ecb889a80339140c954834b3528969cd1",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q12.yql": "771164af237016435c2c516400aa89d13d9732486d3307dbbd2f8c5762df6190",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q13.yql": "c49e98ed6cd9b53512d508a729ca1b5d99bcf8a0ab1cfe994d44f10538fb14ee",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q14.yql": "2b781e7161cdae8fb6c28d50af1166e7da1f3a969eef9b595b66c008d88fe4bf",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q15.yql": "0e5cda364c984e440e699581c9b3a79564fd6a8233e48eb72bfb487654c8acbc",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q16.yql": "6b0815b91cbce91353421891403893c7e1c656858631d0fa5139f4e670bed641",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q17.yql": "e56136ff2aa6090cf84db685ccf1cc7967f9b4437f0c30e02df9ad0fe8d0127c",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q18.yql": "f9464bd4f1c3e218faad6cf0bde0f61caada2eb464a31a1ef411d278224f1ebc",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q19.yql": "d61a1dc006bf62bcffbc5febe18ee5ddeb83488a0a96efbdbc5d8a30fc3d1882",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q2.yql": "6882ac997e43ee5151e7872ac489cbe687bbeb072b68ab164b0488c47914bfc4",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q20.yql": "2cff4bfd21caf4f7f348fd3648a2123ddc6540b23c49e13ababe7e02421e2443",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q21.yql": "a087b55fb7e299395ecf2fe84a4876fa620049e81c31a8a08641fff62d26cc34",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q22.yql": "26db40611c4b45dea77a1ffef8706af95f9d33fa0806a6f5c853d0fc5c70cf2d",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q3.yql": "834b218785053455356a11fa92baa4079e4f508362668e8bc8a57601e01c055c",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q4.yql": "fe55ef4a9fe7606b4e3b1a0235efc9231737b56144d5538491b1d8646bf80599",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q5.yql": "05d0283249e0c426b4af4737e09fcda592527799df42d2b9bf91c6d837c5e469",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q6.yql": "8f78c0ef21fb310063c9b3a18f5267a74d632030569e239ce588916ad023fe17",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q7.yql": "3f2dcd609798a4c76ffcb075817aa69b3e6ab5cf84584db95445db051b8fb3a0",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q8.yql": "ea3eb86e87c113c70dbb809c004c406ebc1e763d71c181f1f04555304fdae88c",
+    "ydb/core/kqp/ut/rbo/data/yql-tpch/q9.yql": "466cc7cb923ddc782da0483570a9c5748a6b2b6990da05d1739b0a1efb736d14",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_compatibility_ut.cpp": "7130b8ea949051189afa8f4377fc2728cc952b1b8abc9632698f88ce0ee8492e",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_copy_ut.cpp": "a6c3827f0a2a6da9ba83b7e45d44d86b0dd6655cf607035eed92415af3ae40bb",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_decorrelation_ut.cpp": "d4f589b9f3c7fc9261302db3acaf211d4868a3ca858ecf623d62fb865e6e064f",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_global_ut.cpp": "6605fabed64524f01bdbd37aa3876775234f6e4cec2c00917a163649baa68c97",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_lookup_join_ut.cpp": "5e37c605b3c368a6423f7324651bc5e78502ddc20bce10aefd848de7f10037ec",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_lowering_ut.cpp": "58b20da1fc6721b2d717891b86d12471d0040337f2735c21a1a91a29fb0383ba",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_olap_ut.cpp": "93d941a262566a245d8629ca0eede70c7bda252a71e0943ccc5bfb3836da8b57",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp": "d74563bbe47346f31f0a78282ac4edbfae006d23ad08ed598cb62b55f81b5fc0",
+    "ydb/core/kqp/ut/rbo/ya.make": "0c06da2e3f951e9d5e28467833bd15d6799fa6ea5402ea471380105df88c4c80"
+  },
+  "suite_source_scope": "Existing RBO suite sources/configuration/data, same bytes in metadata, verify and aggregate worktrees at preparation. Exact production revision and clean source are independently required by build receipt.",
+  "total_expected_finding_records": 12
+}

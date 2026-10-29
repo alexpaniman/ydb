@@ -1,0 +1,53 @@
+{
+  "id": "F02",
+  "title": "Interval SUM uses an unsuitable physical accumulator",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/f02-normalize-interval-sums",
+  "commit": "1c4fd440a12e3a6a8267f119b1e25b603b5282c9",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/rules/normalize_interval_sum.cpp",
+    "ydb/core/kqp/opt/rbo/rules/ya.make"
+  ],
+  "rationale": "Normalize interval SUM to exact Decimal before aggregate state splitting; retain each original result binding and apply interval range checks only at finalization.",
+  "generator_modules": [
+    "interval_sum_checks"
+  ],
+  "checks": [
+    "Independent source/API review and abstract arithmetic contracts passed. Actual compilation and runtime validation remain pending."
+  ],
+  "verification_limitation": "All88 targeted checks pass on this independent branch, including ordinary/DISTINCT interval aggregation, nullable/empty inputs, final overflow and intermediate cancellation, row/block execution and multi-node controls. Physical-window paths use separate F03.",
+  "source_attribution_limitation": "Introducing source diffs reviewed; historical native bisection has not been performed.",
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "F02",
+    "revision": "1c4fd440a12e3a6a8267f119b1e25b603b5282c9",
+    "exit_code": 0,
+    "elapsed_seconds": 118.6,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 14602240,
+      "peak_scope_usage_bytes": 43307433984,
+      "minimum_host_available_bytes": 99631591424,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 118.2
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/1c4fd440a12e3a6a8267f119b1e25b603b5282c9-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 88,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-F02-1c4fd440a12e-1792730882080212102.jsonl"
+  }
+}

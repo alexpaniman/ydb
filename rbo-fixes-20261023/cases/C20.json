@@ -1,0 +1,131 @@
+{
+  "id": "C20",
+  "rationale": "Carry the requested ANSI ranking flag through import, preserve nullable result typing in legacy mode, and use an optional legacy rank state that advances only on non-null keys. Null keys retain the previous state, matching existing legacy ranking semantics; ANSI state remains unchanged.",
+  "checks": [
+    "Compared optional legacy rank transitions with existing yql_opt_window implementation read-only.",
+    "Validated expr-node JSON syntax.",
+    "Reviewed native ranking through chain, frame and result-extraction paths.",
+    "Parent commit matches pinned main.",
+    "git diff --check HEAD^ HEAD passed.",
+    "No builds or native runs; coordinated validation pending.",
+    "Root independently checked AnnotateOpSortElement result typing, the optional flag default, IR parity and native diagnostic direction; no essentials change.",
+    "Amended branch compiled and all eight targeted native ranking checks passed, bound to the exact executable receipt under the memory guard."
+  ],
+  "generator_labels": [
+    "nullable-rank"
+  ],
+  "expected_oracle": "Both result nullability and rank/dense-rank values match the requested mode. Legacy null keys preserve prior state; ANSI includes null peers in ranking.",
+  "controls": [
+    "Legacy and ANSI modes over nullable key",
+    "Null keys before and after non-null keys in sort order",
+    "All-null and non-null partitions",
+    "Rank and dense rank with ties and gaps",
+    "Nonnullable key and row-number controls",
+    "Mixed ranking and aggregate window functions"
+  ],
+  "concerns": [
+    "Generated expr-node accessors require coordinated compilation.",
+    "Frontend rejects legacy compound keys containing nullables; this fix preserves that restriction.",
+    "Independent branch does not include C19 unordered-ranking fix; validate ordered nullable-key cases first."
+  ],
+  "branch": "fix/new-rbo/c20-nullable-rank-mode",
+  "commit": "5f9ef7674522a3df8d13b3d6080d82224a9fba83",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+    "ydb/core/kqp/opt/kqp_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_window_builder.h"
+  ],
+  "status_before_verification": "prepared_unverified",
+  "superseded_verifications": [
+    {
+      "commit": "a58be05380f395cb3a55d0490f5871a5f308f06b",
+      "build_verification": {
+        "bug": "C20",
+        "revision": "a58be05380f395cb3a55d0490f5871a5f308f06b",
+        "exit_code": 0,
+        "elapsed_seconds": 821.0,
+        "target": "ydb/tests/tools/kqprun",
+        "memory": {
+          "scheduler_memory_threshold": "40GB",
+          "requested_cgroup_memory_max_gib": 72,
+          "requested_cgroup_memory_high_gib": 56,
+          "watchdog_min_host_available_gib": 36,
+          "watchdog_max_scope_usage_gib": 52,
+          "peak_group_rss_bytes": 4554752,
+          "peak_scope_usage_bytes": 43492626432,
+          "minimum_host_available_bytes": 97697013760,
+          "watchdog_stopped": false,
+          "explicit_build_workers": 8,
+          "scope_memory_accounting_available": false,
+          "scope_process_rss_available": true,
+          "elapsed_seconds": 820.8
+        },
+        "diagnostic_sha256": "fd7a8c355622a07d6b53250dd0f84a885fd34386ca896b9edc815295743b3bd5",
+        "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/a58be05380f395cb3a55d0490f5871a5f308f06b-48c4f1872521cccc.json"
+      },
+      "native_verification": {
+        "checks": 8,
+        "checks_passed": false,
+        "evidence": "verification/guarded-fixed-C20-a58be05380f3-1792727226163622559.jsonl"
+      },
+      "reason": "Native results exposed a missing nullable rank annotation in the expression operator handler."
+    }
+  ],
+  "amendments": [
+    {
+      "patch": "proposed-correctness-amendments/C20-annotate-legacy-rank.patch",
+      "sha256": "96f5da8e34a76b234d643529dd8004a75de4c50dede9ec931a1b4ec68ae4b7bf",
+      "reason": "Match expression operator result nullability to the preserved ranking mode and already-annotated sort expression."
+    }
+  ],
+  "build_verification": {
+    "bug": "C20",
+    "revision": "5f9ef7674522a3df8d13b3d6080d82224a9fba83",
+    "exit_code": 0,
+    "elapsed_seconds": 77.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4542464,
+      "peak_scope_usage_bytes": 43267604480,
+      "minimum_host_available_bytes": 109624942592,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 76.9
+    },
+    "diagnostic_sha256": "4eeaaaa5b8e28c5f7d343c53f328d327d848fb3daf766f13734d9947f82f72d6",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/5f9ef7674522a3df8d13b3d6080d82224a9fba83-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 8,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C20-5f9ef7674522-1792727788070131074.jsonl"
+  },
+  "resolved_verification_limitations": [
+    {
+      "limitation": "The initial build passed but three nullable legacy controls failed expression type consistency. The missing AnnotateOpWindow nullability annotation is repaired; rebuilding and rerunning the amended branch is required.",
+      "resolved_by": "amended_branch_build_and_eight_receipt_bound_guarded_native_checks"
+    }
+  ],
+  "independent_source_review": "verification/C20-annotation-independent-source-review.json",
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Native execution and compilation pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

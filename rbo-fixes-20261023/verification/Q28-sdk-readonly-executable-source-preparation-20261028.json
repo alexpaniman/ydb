@@ -1,0 +1,69 @@
+{
+  "kind": "source_preparation_native_pending",
+  "patch": "proposed-quality-amendments/Q28-sdk-compilation-readonly-executable-20261028.patch",
+  "patch_sha256": "9c782adc11186b7a4c1712a666a3b39030de2df675e6b23bb01c8ec8b8e6494a",
+  "module_before_sha256": "5a7f8ebd901340e1c8f19ff1d8db8d2a27e8e0fd9b00c738e01c546f73d3daa7",
+  "module_after_sha256": "bacb3f2b89a203ab3715a5e87e9dc1ca50d70d2baf7e5823c6692a1cc73b7e3c",
+  "generated_cpp_sha256": "d8237e5c10705e5c0e69e1b8fc3f76c5f5906d9e01c5871b10dc5a73cb2485ec",
+  "reviewed_version_helper_sha256": "55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9",
+  "depends_on": [
+    {
+      "patch": "proposed-quality-amendments/Q28-sdk-compilation-pilot-20261028.patch",
+      "sha256": "9269565adb8713961c864208020b41c0f58dadb1440d347b5834a9fa4bfd8483"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q28-sdk-compilation-runtime-identity-20261028.patch",
+      "sha256": "8712ec3993b04acf34b404818f48714588628fd6418315adcaeb57a54168a9e8"
+    },
+    {
+      "patch": "proposed-quality-amendments/Q28-sdk-compilation-version-replay-20261028.patch",
+      "sha256": "4aabcde2409f4feb9d82c7b2908e7ffec334fd29ae9677402a104e366986a49f"
+    },
+    {
+      "patch": "proposed-correctness-amendments/C31-sealed-readonly-native-executable-20261028.patch",
+      "sha256": "ab0a639765b5b1f8fffa71b16c2b29e757c8ac8f7b57ec1ed130bbe86b31f1f7"
+    }
+  ],
+  "change": "Use reviewed direct._seal_native_executable on the owner map after successful link and version-object verification, before executable digest and before any per-sample borrow. Remove redundant later fchmod; retain sanitized handoff evidence on failure.",
+  "ownership": {
+    "owner": "execute_measurements local fds map",
+    "borrowers": "each sample_fds receives only the new read-only executable FD; sample finally never closes the borrowed executable",
+    "final_cleanup": "outer finally closes source, object, production version object and new executable owner",
+    "interruptions": "helper handles acquisition/identity/ownership handoff; Q28 outer finally remains active during helper invocation"
+  },
+  "unchanged": {
+    "generated_cpp": true,
+    "parser_and_measurement_acceptance": true,
+    "workload_and_runtime_identity": true,
+    "receipt_and_profile_rechecks": true,
+    "seven_cold_samples_only": true,
+    "shared_spilling_pending": true,
+    "direct26_generator_and_gate": true,
+    "native_limits_12GiB_and_host36GiB": true,
+    "no_new_quality_or_semantic_admission": true
+  },
+  "validation": {
+    "metadata_assertions": 985,
+    "mock_scenarios": 29,
+    "metadata_script": "proposed-quality-amendments/Q28-readonly-executable-metadata-contracts-20261028.py",
+    "metadata_script_sha256": "6f80066e3b5f009d1a52e43164ff55d73a33ea4cd6c70f5f9c3c8880735ac1d8",
+    "metadata_report": "verification/Q28-readonly-executable-metadata-contracts-20261028.json",
+    "clean_stack_application": true,
+    "native_or_build_or_toolchain_execution": false,
+    "live_edits": false,
+    "rendered_payload_persistence": false,
+    "applied_reviewed_baseline": {
+      "anonymous_cpp_verify_sha256": "4b4636dd8a448c279257b698d4c32e8b88cdd0f7956d6769a15f19e99b0f7873",
+      "anonymous_cpp_guard_sha256": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819",
+      "composition_review": "verification/C31-C47-transport-driver-composition-review-20261028.json",
+      "composition_review_sha256": "2efbde503fecd43b016d73ee6c07eebed1ddc94022577344eea295f34e22e801"
+    },
+    "concurrent_change_detected_on_previous_rerun": "One metadata rerun rejected a concurrent root helper application at its final live hash check. The rerun is now pinned to the independently reviewed applied transport plus C47 driver baseline; no original native records or production sources changed."
+  },
+  "integration_notes": [
+    "Depends on reviewed three Q28 patches and corrected C31 sealed-read-only transport patch; current C31 version helper is already present in the live source snapshot.",
+    "Temporary application requires exact reviewed applied C31 transport plus C47 combined driver hashes, then cleanly applies the three Q28 patches and this fourth patch. No already-applied transport patch is reapplied.",
+    "Native environment/affinity, cache, compilation scope and partial-pilot limitations remain unchanged.",
+    "Actual transport/native samples and full optimizer quality remain unverified."
+  ]
+}

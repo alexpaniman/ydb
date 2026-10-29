@@ -1,0 +1,1798 @@
+[
+  {
+    "id": "C01",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+        "anchor": 165,
+        "lines": [
+          {
+            "commit": "7c422d3d0bfc3cf2970974c6e3667d3749dbaeff",
+            "original_line": 158,
+            "line": 162,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Push constant condition on join key to both sides (#46050)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": ""
+          },
+          {
+            "commit": "7c422d3d0bfc3cf2970974c6e3667d3749dbaeff",
+            "original_line": 159,
+            "line": 163,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Push constant condition on join key to both sides (#46050)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "        // Check if left constant condition on the left key can be pushed to right side"
+          },
+          {
+            "commit": "7c422d3d0bfc3cf2970974c6e3667d3749dbaeff",
+            "original_line": 160,
+            "line": 164,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Push constant condition on join key to both sides (#46050)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "        for (const auto& expr : pushLeft) {"
+          },
+          {
+            "commit": "7c422d3d0bfc3cf2970974c6e3667d3749dbaeff",
+            "original_line": 161,
+            "line": 165,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Push constant condition on join key to both sides (#46050)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "            if (expr.MaybeConstantCondition()) {"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 165,
+            "line": 166,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "                auto iu = *expr.GetInputIUs().begin();"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 166,
+            "line": 167,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "                if (auto it = std::find_if(join->JoinKeys.Items().begin(), join->JoinKeys.Items().end(), [&iu](const auto& cond)"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 167,
+            "line": 168,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "                    {return iu == cond.first;}); it != join->JoinKeys.Items().end()) {"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 168,
+            "line": 169,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "                    auto rightExpr = expr.ApplyRenames({{iu, it->second}});"
+          }
+        ]
+      },
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+        "anchor": 72,
+        "lines": [
+          {
+            "commit": "4c737c01104e1151bd2a7e9b41350092a3c35a83",
+            "original_line": 63,
+            "line": 69,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW OPTIMIZER] Fix bugs in join filter processing (#49829)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+            "code": ""
+          },
+          {
+            "commit": "4c737c01104e1151bd2a7e9b41350092a3c35a83",
+            "original_line": 64,
+            "line": 70,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW OPTIMIZER] Fix bugs in join filter processing (#49829)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+            "code": "        // Check if left constant condition on the left key can be pushed to right side"
+          },
+          {
+            "commit": "4c737c01104e1151bd2a7e9b41350092a3c35a83",
+            "original_line": 65,
+            "line": 71,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW OPTIMIZER] Fix bugs in join filter processing (#49829)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+            "code": "        for (const auto& expr : pushLeft) {"
+          },
+          {
+            "commit": "4c737c01104e1151bd2a7e9b41350092a3c35a83",
+            "original_line": 66,
+            "line": 72,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW OPTIMIZER] Fix bugs in join filter processing (#49829)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+            "code": "            if (expr.MaybeConstantCondition()) {"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 73,
+            "line": 73,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+            "code": "                auto iu = *expr.GetInputIUs().begin();"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 74,
+            "line": 74,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+            "code": "                if (auto it = std::find_if(join->JoinKeys.Items().begin(), join->JoinKeys.Items().end(), [&iu](const auto& cond)"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 75,
+            "line": 75,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+            "code": "                    {return iu == cond.first;}); it != join->JoinKeys.Items().end()) {"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 76,
+            "line": 76,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_simple_join_filter.cpp",
+            "code": "                    auto rightExpr = expr.ApplyRenames({{iu, it->second}});"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C02",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+        "anchor": 51,
+        "lines": [
+          {
+            "commit": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+            "original_line": 48,
+            "line": 48,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Push filter through aggregate (#55697)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+            "code": "    TVector<TExpression> remainingFilters;"
+          },
+          {
+            "commit": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+            "original_line": 49,
+            "line": 49,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Push filter through aggregate (#55697)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+            "code": ""
+          },
+          {
+            "commit": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+            "original_line": 50,
+            "line": 50,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Push filter through aggregate (#55697)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+            "code": "    for (const auto& conj : conjuncts) {"
+          },
+          {
+            "commit": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+            "original_line": 51,
+            "line": 51,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Push filter through aggregate (#55697)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+            "code": "        if (!ReferencesUnresolvedSubplan(conj, props) && conj.GetInputIUs(false, true).IsSubsetOf(keys.Keys())) {"
+          },
+          {
+            "commit": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+            "original_line": 52,
+            "line": 52,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Push filter through aggregate (#55697)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+            "code": "            pushedFilters.push_back(aggregate->IsDistinctAll() ? conj.ApplyRenames(keys) : conj);"
+          },
+          {
+            "commit": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+            "original_line": 53,
+            "line": 53,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Push filter through aggregate (#55697)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+            "code": "        } else {"
+          },
+          {
+            "commit": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+            "original_line": 54,
+            "line": 54,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Push filter through aggregate (#55697)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+            "code": "            remainingFilters.push_back(conj);"
+          },
+          {
+            "commit": "a4765c75f7555f86bf61a63d6214a4c1a6dd16dc",
+            "original_line": 55,
+            "line": 55,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Push filter through aggregate (#55697)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_through_aggregate.cpp",
+            "code": "        }"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C03",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+        "anchor": 35,
+        "lines": [
+          {
+            "commit": "5d68400dca1ba7c8fdcbbe725dae4a9d300ea4bc",
+            "original_line": 31,
+            "line": 32,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add distinct aggregation expander. (#42994)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+            "code": ""
+          },
+          {
+            "commit": "5d68400dca1ba7c8fdcbbe725dae4a9d300ea4bc",
+            "original_line": 32,
+            "line": 33,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add distinct aggregation expander. (#42994)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+            "code": "    // Split into distinct and original aggregation."
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 34,
+            "line": 34,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+            "code": "    // Group without traits: identity DISTINCT traits would redefine the input IDs."
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 35,
+            "line": 35,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+            "code": "    distinctKeys.AppendMissing(aggTraits.Input);"
+          },
+          {
+            "commit": "5d68400dca1ba7c8fdcbbe725dae4a9d300ea4bc",
+            "original_line": 39,
+            "line": 36,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add distinct aggregation expander. (#42994)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+            "code": ""
+          },
+          {
+            "commit": "5d68400dca1ba7c8fdcbbe725dae4a9d300ea4bc",
+            "original_line": 40,
+            "line": 37,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add distinct aggregation expander. (#42994)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+            "code": "    const TIntrusivePtr<IOperator> distinctAggregation ="
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 38,
+            "line": 38,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+            "code": "        MakeIntrusive<TOpAggregate>(aggregate->GetInput(), TAggregationIUs{}, distinctKeys, EOpPhase::Undefined,"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 39,
+            "line": 39,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp",
+            "code": "                                    /*distinctAll=*/false, pos);"
+          }
+        ]
+      },
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+        "anchor": 100,
+        "lines": [
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 97,
+            "line": 97,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+            "code": "        inputsByOutput.Add(output).Inputs.reserve(groupingSets.size());"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 98,
+            "line": 98,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+            "code": "    }"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 99,
+            "line": 99,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+            "code": ""
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 100,
+            "line": 100,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+            "code": "    const auto sourceInput = aggregate->GetInput();"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 101,
+            "line": 101,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+            "code": "    auto hub = groupingSets.size() > 1"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 102,
+            "line": 102,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+            "code": "        ? TReplicate::Create(sourceInput, aggregate->Pos, registry)"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 103,
+            "line": 103,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+            "code": "        : TIntrusivePtr<TReplicate>{};"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 104,
+            "line": 104,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/expand_grouping_sets.cpp",
+            "code": "    for (const auto& groupKeys : groupingSets) {"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C04",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+        "anchor": 28,
+        "lines": [
+          {
+            "commit": "fd5a7114c92b6facae8018f0dd09ac057a08520c",
+            "original_line": 20,
+            "line": 25,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Join Filters support (#38005)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+            "code": ""
+          },
+          {
+            "commit": "fd5a7114c92b6facae8018f0dd09ac057a08520c",
+            "original_line": 21,
+            "line": 26,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Join Filters support (#38005)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+            "code": "    auto bottomFilter = CastOperator<TOpFilter>(topFilter->GetInput());"
+          },
+          {
+            "commit": "fd5a7114c92b6facae8018f0dd09ac057a08520c",
+            "original_line": 22,
+            "line": 27,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Join Filters support (#38005)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+            "code": ""
+          },
+          {
+            "commit": "56648c087197d62097753338027dd2db6978f2cf",
+            "original_line": 32,
+            "line": 28,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Cache which subplans Filters and Maps depend on (#46953)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+            "code": "    auto conjunctions = topFilter->GetFilterExpression().SplitConjunct();"
+          },
+          {
+            "commit": "56648c087197d62097753338027dd2db6978f2cf",
+            "original_line": 33,
+            "line": 29,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Cache which subplans Filters and Maps depend on (#46953)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+            "code": "    auto bottomConjunctions = bottomFilter->GetFilterExpression().SplitConjunct();"
+          },
+          {
+            "commit": "fd5a7114c92b6facae8018f0dd09ac057a08520c",
+            "original_line": 29,
+            "line": 30,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Join Filters support (#38005)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+            "code": ""
+          },
+          {
+            "commit": "fd5a7114c92b6facae8018f0dd09ac057a08520c",
+            "original_line": 30,
+            "line": 31,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Join Filters support (#38005)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+            "code": "    conjunctions.insert(conjunctions.end(), bottomConjunctions.begin(), bottomConjunctions.end());"
+          },
+          {
+            "commit": "fd5a7114c92b6facae8018f0dd09ac057a08520c",
+            "original_line": 31,
+            "line": 32,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Join Filters support (#38005)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp",
+            "code": ""
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C05",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+        "anchor": 435,
+        "lines": [
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 296,
+            "line": 432,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        newBody = MakeIntrusive<TOpFilter>(newBody, filter->Pos, MakeConjunction(restConjuncts, props.PgSyntax));"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 297,
+            "line": 433,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    }"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 298,
+            "line": 434,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": ""
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 299,
+            "line": 435,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    // If nothing remaining we can return map/filter."
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 464,
+            "line": 436,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    auto remainingDependencies = MissingDomainColumns(dependentJoin->Dependencies, captures.MappedIUs());"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 465,
+            "line": 437,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    if (remainingDependencies.Items().empty()) {"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 466,
+            "line": 438,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        RebindConsumers(*dependentJoin, boundColumns, props.Subplans);"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 302,
+            "line": 439,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        return newBody;"
+          }
+        ]
+      },
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+        "anchor": 43,
+        "lines": [
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 30,
+            "line": 40,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    auto checkedIU = props.InfoUnitRegistry.AddGenerated(\"checked_scalar\");"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 31,
+            "line": 41,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    TMapIUs valueElements;"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 36,
+            "line": 42,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    // Emit ensure."
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 33,
+            "line": 43,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    valueElements.Add(checkedIU, MakeEnsure(MakeColumnAccess(valueStateIU, pos, &ctx.ExprCtx, &props), atMostOne,"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 38,
+            "line": 44,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "                                            \"Scalar subquery returned more than one row\"));"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 39,
+            "line": 45,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    return std::make_pair(MakeIntrusive<TOpMap>(aggregate, pos, valueElements), checkedIU);"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 40,
+            "line": 46,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "}"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 41,
+            "line": 47,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": ""
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C06",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+        "anchor": 421,
+        "lines": [
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 446,
+            "line": 418,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    TMapIUs bindingElements;"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 447,
+            "line": 419,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    for (const auto iu : captures.Keys()) {"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 284,
+            "line": 420,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        const auto& source = bindings.at(iu);"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 449,
+            "line": 421,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        bindingElements.Add(iu, MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props));"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 286,
+            "line": 422,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": ""
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 287,
+            "line": 423,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        // Special case for optional column."
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 452,
+            "line": 424,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        if (IsNullableIU(correlatedInput, source, ctx.ExprCtx)) {"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 289,
+            "line": 425,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "            restConjuncts.push_back(MakeUnaryCallable(\"Exists\", MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props)));"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C07",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+        "anchor": 398,
+        "lines": [
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 261,
+            "line": 395,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "            }"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 262,
+            "line": 396,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        }"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 263,
+            "line": 397,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": ""
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 264,
+            "line": 398,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        if (binding && bindings.emplace(binding->first, binding->second).second) {"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 265,
+            "line": 399,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "            continue;"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 266,
+            "line": 400,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        }"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 267,
+            "line": 401,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        // Keep rest."
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 268,
+            "line": 402,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        restConjuncts.push_back(conj);"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C08",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+        "anchor": 543,
+        "lines": [
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 410,
+            "line": 540,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        }"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 411,
+            "line": 541,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    }"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 412,
+            "line": 542,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": ""
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 571,
+            "line": 543,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    if (countResults.Empty()) {"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 414,
+            "line": 544,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "        return newAggregate;"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 415,
+            "line": 545,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    }"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 416,
+            "line": 546,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": ""
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 417,
+            "line": 547,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp",
+            "code": "    return RestoreEmptyGroupCounts(dependentJoin, newAggregate, countResults, ctx, props);"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C09",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+        "anchor": 1592,
+        "lines": [
+          {
+            "commit": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+            "original_line": 1031,
+            "line": 1589,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            // clang-format on"
+          },
+          {
+            "commit": "a2c4b2ce52510ee77d0425f2580806bb2e330160",
+            "original_line": 1017,
+            "line": 1590,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add rule to merge union all (#48093)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "        } else if (sublinkType == \"any\") {"
+          },
+          {
+            "commit": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+            "original_line": 1033,
+            "line": 1591,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            // clang-format off"
+          },
+          {
+            "commit": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+            "original_line": 1034,
+            "line": 1592,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            newNode = Build<TKqpInSublink>(ctx, node->Pos())"
+          },
+          {
+            "commit": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+            "original_line": 1035,
+            "line": 1593,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                .Subquery(newSubquery)"
+          },
+          {
+            "commit": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+            "original_line": 1036,
+            "line": 1594,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                .OuterType(sublink->Child(2))"
+          },
+          {
+            "commit": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+            "original_line": 1037,
+            "line": 1595,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                .InLambda(sublink->Child(3))"
+          },
+          {
+            "commit": "d568eb8afcecb4517a87464ccbfdd69e5d19259c",
+            "original_line": 1038,
+            "line": 1596,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Single pass rewrite select (#41065)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                .Done().Ptr();"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C10",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+        "anchor": 243,
+        "lines": [
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 240,
+            "line": 240,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+            "code": "            if (IsNullableIU(leftInput, subplanEntry.Tuple.Items()[0], ctx.ExprCtx)) {"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 241,
+            "line": 241,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+            "code": "                auto lookupColumn = column(subplanEntry.Tuple.Items()[0]);"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 226,
+            "line": 242,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+            "code": "                auto lookupIsNull = MakeNegation(MakeBinaryPredicate(\"Coalesce\", MakeBinaryPredicate(\"==\", lookupColumn, lookupColumn), falseConst));"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 227,
+            "line": 243,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+            "code": "                unknownTerms.push_back(MakeBinaryPredicate(\"And\", lookupIsNull, MakeBinaryPredicate(\"Coalesce\", column(nonEmptyIU), falseConst)));"
+          },
+          {
+            "commit": "f45dabf569f7b37fd5b50843212f9440f204daac",
+            "original_line": 184,
+            "line": 244,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Generic decorellation of IN/EXISTS subqueries (#42760)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+            "code": "            }"
+          },
+          {
+            "commit": "f45dabf569f7b37fd5b50843212f9440f204daac",
+            "original_line": 185,
+            "line": 245,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Generic decorellation of IN/EXISTS subqueries (#42760)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+            "code": ""
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 230,
+            "line": 246,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+            "code": "            auto unknown = unknownTerms[0];"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 231,
+            "line": 247,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp",
+            "code": "            for (size_t i = 1; i < unknownTerms.size(); i++) {"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C11",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+        "anchor": 191,
+        "lines": [
+          {
+            "commit": "10b439a0132694280184769221ee276198980257",
+            "original_line": 98,
+            "line": 188,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+            "code": "        } else {"
+          },
+          {
+            "commit": "10b439a0132694280184769221ee276198980257",
+            "original_line": 99,
+            "line": 189,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+            "code": "            if (!props.PgSyntax) {"
+          },
+          {
+            "commit": "10b439a0132694280184769221ee276198980257",
+            "original_line": 100,
+            "line": 190,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+            "code": "                subplanType = ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Bool);"
+          },
+          {
+            "commit": "10b439a0132694280184769221ee276198980257",
+            "original_line": 101,
+            "line": 191,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+            "code": "            } else {"
+          },
+          {
+            "commit": "10b439a0132694280184769221ee276198980257",
+            "original_line": 102,
+            "line": 192,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+            "code": "                subplanType = ctx.ExprCtx.MakeType<TPgExprType>(NYql::NPg::LookupType(\"bool\").TypeId);"
+          },
+          {
+            "commit": "10b439a0132694280184769221ee276198980257",
+            "original_line": 103,
+            "line": 193,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+            "code": "            }"
+          },
+          {
+            "commit": "10b439a0132694280184769221ee276198980257",
+            "original_line": 104,
+            "line": 194,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+            "code": "        }"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 195,
+            "line": 195,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp",
+            "code": "        auto newType = ctx.ExprCtx.MakeType<TItemExprType>(ctx.ExprCtx.GetIndexAsString(iu), subplanType);"
+          }
+        ]
+      },
+      {
+        "path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+        "anchor": 2887,
+        "lines": [
+          {
+            "commit": "bc813629e1f86486cd6119bed2179e9b3abc8806",
+            "original_line": 2493,
+            "line": 2884,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Fixed a bug with IN subqueries (#36548)",
+            "original_path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+            "code": "        }"
+          },
+          {
+            "commit": "bc813629e1f86486cd6119bed2179e9b3abc8806",
+            "original_line": 2494,
+            "line": 2885,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Fixed a bug with IN subqueries (#36548)",
+            "original_path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+            "code": "    }"
+          },
+          {
+            "commit": "bc813629e1f86486cd6119bed2179e9b3abc8806",
+            "original_line": 2495,
+            "line": 2886,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Fixed a bug with IN subqueries (#36548)",
+            "original_path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+            "code": ""
+          },
+          {
+            "commit": "10b439a0132694280184769221ee276198980257",
+            "original_line": 2423,
+            "line": 2887,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Support uncorrelated simple IN and EXISTS predicates (#31204)",
+            "original_path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+            "code": "    node->SetTypeAnn(ctx.MakeType<TDataExprType>(EDataSlot::Bool));"
+          },
+          {
+            "commit": "bc813629e1f86486cd6119bed2179e9b3abc8806",
+            "original_line": 2502,
+            "line": 2888,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Fixed a bug with IN subqueries (#36548)",
+            "original_path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+            "code": ""
+          },
+          {
+            "commit": "a24651dc6c3bbe037a87ad8faf51438bc8f27a36",
+            "original_line": 2239,
+            "line": 2889,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Added support for scalar context (#28107)",
+            "original_path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+            "code": "    return TStatus::Ok;"
+          },
+          {
+            "commit": "a24651dc6c3bbe037a87ad8faf51438bc8f27a36",
+            "original_line": 2240,
+            "line": 2890,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Added support for scalar context (#28107)",
+            "original_path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+            "code": "}"
+          },
+          {
+            "commit": "a24651dc6c3bbe037a87ad8faf51438bc8f27a36",
+            "original_line": 2241,
+            "line": 2891,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Added support for scalar context (#28107)",
+            "original_path": "ydb/core/kqp/opt/kqp_type_ann.cpp",
+            "code": ""
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C12",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+        "anchor": 1484,
+        "lines": [
+          {
+            "commit": "acb952da1c40c0d5e591c6801fbb529e99fd01b1",
+            "original_line": 1038,
+            "line": 1481,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Fix distinct on top of aggregation (#41846)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            distinctSet.insert(key.GetFullName());"
+          },
+          {
+            "commit": "acb952da1c40c0d5e591c6801fbb529e99fd01b1",
+            "original_line": 1039,
+            "line": 1482,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Fix distinct on top of aggregation (#41846)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "        }"
+          },
+          {
+            "commit": "acb952da1c40c0d5e591c6801fbb529e99fd01b1",
+            "original_line": 1040,
+            "line": 1483,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Fix distinct on top of aggregation (#41846)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": ""
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 770,
+            "line": 1484,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "        for (const auto& key : aggTraits.KeyColumns) {"
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 771,
+            "line": 1485,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            const auto colName = key.GetFullName();"
+          },
+          {
+            "commit": "acb952da1c40c0d5e591c6801fbb529e99fd01b1",
+            "original_line": 1043,
+            "line": 1486,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Fix distinct on top of aggregation (#41846)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            if (!distinctSet.contains(colName)) {"
+          },
+          {
+            "commit": "b70a0ef5ce8dda7d779bb9b2d1e0868aa2c115c6",
+            "original_line": 922,
+            "line": 1487,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Add support for HAVING. (#33329)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                const auto distinctAggTraits = BuildAggregationTraits(colName, \"distinct\", colName, ctx, pos);"
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 744,
+            "line": 1488,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                distinctAggregationTraitsPostAggregate.AggTraitsList.push_back(distinctAggTraits);"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C13",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+        "anchor": 2278,
+        "lines": [
+          {
+            "commit": "7c7f969926be7f5eeb680940880daa8d822912e5",
+            "original_line": 2049,
+            "line": 2275,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Fix order by groupby ref. (#52969)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            const bool hasWindowCall = !CollectWindowCalls(body).empty();"
+          },
+          {
+            "commit": "7c7f969926be7f5eeb680940880daa8d822912e5",
+            "original_line": 2050,
+            "line": 2276,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Fix order by groupby ref. (#52969)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            // Aggregations are materialized earlier. Keep any expression around a nested group reference."
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 843,
+            "line": 2277,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            auto aggColName = columnName;"
+          },
+          {
+            "commit": "7c7f969926be7f5eeb680940880daa8d822912e5",
+            "original_line": 2052,
+            "line": 2278,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Fix order by groupby ref. (#52969)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            if (aggregation || distinctAll || hasWindowCall || isDirectGroupRef) {"
+          },
+          {
+            "commit": "fbe5541e63905ac791d36e2074c017745c0946eb",
+            "original_line": 1005,
+            "line": 2279,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Refactor to support YqlSelect Aggregation (#30538)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                if (groupRef) {"
+          },
+          {
+            "commit": "fbe5541e63905ac791d36e2074c017745c0946eb",
+            "original_line": 1006,
+            "line": 2280,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Refactor to support YqlSelect Aggregation (#30538)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                    aggColName = GetColumnNameFromGroupRef(groupRef, groupByKeysExpressionsMap);"
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 847,
+            "line": 2281,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                }"
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 848,
+            "line": 2282,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": ""
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C14",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+        "anchor": 1034,
+        "lines": [
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 662,
+            "line": 1031,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                    // Here we want to get just a column name for aggregation."
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 663,
+            "line": 1032,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                    // For example: f(a) -> map(a -> a) -> f(a)."
+          },
+          {
+            "commit": "eb6e51d778d672e68a71e69ebffc28ba65bc375b",
+            "original_line": 762,
+            "line": 1033,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add support for distinct on expression (#42232)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                    // This is needed to simplify logic for translation from YqlSelect to KqpOp."
+          },
+          {
+            "commit": "e654da9fb4dc56d3ce85e2435d2c2c6f4757aa6d",
+            "original_line": 736,
+            "line": 1034,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Fixes to column tables (#30071)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                    exprBody = GetMember(aggInput);"
+          },
+          {
+            "commit": "e654da9fb4dc56d3ce85e2435d2c2c6f4757aa6d",
+            "original_line": 737,
+            "line": 1035,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Fixes to column tables (#30071)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                    Y_ENSURE(exprBody, \"Aggregation input is not a member\");"
+          },
+          {
+            "commit": "e654da9fb4dc56d3ce85e2435d2c2c6f4757aa6d",
+            "original_line": 738,
+            "line": 1036,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Fixes to column tables (#30071)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                    auto member = TCoMember(exprBody);"
+          },
+          {
+            "commit": "3861f7db0d4d3e5049064552fcdc14a227d30c78",
+            "original_line": 834,
+            "line": 1037,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Add support for inner join and left join processing YqlSelect. (#30683)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                    aggColName = TInfoUnit(member.Name().StringValue());"
+          },
+          {
+            "commit": "2805cf0cdbc875f908fabe74217de93cc490a5ad",
+            "original_line": 627,
+            "line": 1038,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Add YqlSelect support (#28901)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                }"
+          }
+        ]
+      },
+      {
+        "path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+        "anchor": 1067,
+        "lines": [
+          {
+            "commit": "7cf095c620a4063f3134efa24ea49d876110852b",
+            "original_line": 1036,
+            "line": 1064,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Eliminate pre aggregation map. (#32542)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            // Adds a column into pre aggregation map in following cases:"
+          },
+          {
+            "commit": "7cf095c620a4063f3134efa24ea49d876110852b",
+            "original_line": 1037,
+            "line": 1065,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Eliminate pre aggregation map. (#32542)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            // 1) It's an expression: f(a + 1) => map(b : a + 1) -> f(b);"
+          },
+          {
+            "commit": "91f7c0b6130daba38e4f31f0e7bee82156ca8c9f",
+            "original_line": 896,
+            "line": 1066,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Emit more optimal code for scalar aggregation. (#41727)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            // 2) It's a unique column name: (f(a), g(a)) => map(a) -> (f(a), g(a));"
+          },
+          {
+            "commit": "91f7c0b6130daba38e4f31f0e7bee82156ca8c9f",
+            "original_line": 897,
+            "line": 1067,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Emit more optimal code for scalar aggregation. (#41727)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            if (isExpression || !aggregationUniqueColNames.contains(aggColName.GetFullName())) {"
+          },
+          {
+            "commit": "91f7c0b6130daba38e4f31f0e7bee82156ca8c9f",
+            "original_line": 898,
+            "line": 1068,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Emit more optimal code for scalar aggregation. (#41727)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "                expressionsMapPreAgg.push_back({aggColName, exprLambda, false});"
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 672,
+            "line": 1069,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            }"
+          },
+          {
+            "commit": "3861f7db0d4d3e5049064552fcdc14a227d30c78",
+            "original_line": 838,
+            "line": 1070,
+            "author": "Denis Khalikov",
+            "subject": "[NEW RBO] Add support for inner join and left join processing YqlSelect. (#30683)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": "            aggregationUniqueColNames.insert(aggColName.GetFullName());"
+          },
+          {
+            "commit": "64e5e4146c6b27f5391eb19fbc9e4d8187893698",
+            "original_line": 689,
+            "line": 1071,
+            "author": "Denis Khalikov",
+            "subject": "[KQP RBO] Add multiple aggregations in expressions (#29314)",
+            "original_path": "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+            "code": ""
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C15",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+        "anchor": 43,
+        "lines": [
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 30,
+            "line": 40,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    auto checkedIU = props.InfoUnitRegistry.AddGenerated(\"checked_scalar\");"
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 31,
+            "line": 41,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    TMapIUs valueElements;"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 36,
+            "line": 42,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    // Emit ensure."
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 33,
+            "line": 43,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    valueElements.Add(checkedIU, MakeEnsure(MakeColumnAccess(valueStateIU, pos, &ctx.ExprCtx, &props), atMostOne,"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 38,
+            "line": 44,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "                                            \"Scalar subquery returned more than one row\"));"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 39,
+            "line": 45,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    return std::make_pair(MakeIntrusive<TOpMap>(aggregate, pos, valueElements), checkedIU);"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 40,
+            "line": 46,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "}"
+          },
+          {
+            "commit": "7ee9137a38b158fb733613e21e2d160003a7c324",
+            "original_line": 41,
+            "line": 47,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add initial support for decorrelation based Neumann work. (#51876)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": ""
+          }
+        ]
+      },
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+        "anchor": 129,
+        "lines": [
+          {
+            "commit": "4618f442ba05c33332fd2463982cbc499b622f23",
+            "original_line": 84,
+            "line": 126,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Refactored optimizer rules (#34160)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": ""
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 116,
+            "line": 127,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "        attachSubplanResult(leftJoin, rightResIU);"
+          },
+          {
+            "commit": "2badd4f0a04e53b0b1608f3361a3a2893c3d2d9e",
+            "original_line": 95,
+            "line": 128,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Fix nested correlated subqueries (#36342)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    }"
+          },
+          {
+            "commit": "4618f442ba05c33332fd2463982cbc499b622f23",
+            "original_line": 91,
+            "line": 129,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Refactored optimizer rules (#34160)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    // Otherwise we assume an uncorrelated supbplan"
+          },
+          {
+            "commit": "4618f442ba05c33332fd2463982cbc499b622f23",
+            "original_line": 93,
+            "line": 130,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Refactored optimizer rules (#34160)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "    else {"
+          },
+          {
+            "commit": "7c9c1d30c5425dd6c813181660a7de52341a42d5",
+            "original_line": 131,
+            "line": 131,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer][Decorrelation] Push DJ through sort/limit. (#54942)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "        auto [checkedInput, checkedResIU] = MakeAtMostOneRowPerGroup(subplan, {}, subplanResIU, subplanResType, subplan->Pos, ctx, props);"
+          },
+          {
+            "commit": "4618f442ba05c33332fd2463982cbc499b622f23",
+            "original_line": 102,
+            "line": 132,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW RBO] Refactored optimizer rules (#34160)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": ""
+          },
+          {
+            "commit": "026a4acc33c26deef68af9c271412cc5ff1095f8",
+            "original_line": 122,
+            "line": 133,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Migrate RBO to ID-based SSA columns (#54404)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp",
+            "code": "        TMapIUs renameElements;"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C16",
+    "locations": [
+      {
+        "path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+        "anchor": 88,
+        "lines": [
+          {
+            "commit": "e49db9c68f3d3438a6a257a02fecbb1360a85598",
+            "original_line": 92,
+            "line": 85,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add support for cross join with filters (#52096)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "    const bool usingBlockCrossJoin = ctx.KqpCtx.Config->GetUseBlockHashJoin() && ctx.KqpCtx.Config->GetUseBlockHashJoinForCross();"
+          },
+          {
+            "commit": "7fb688ddeee2b43220828fdbf0c5b19985cab7e1",
+            "original_line": 86,
+            "line": 86,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "    const bool forceInlining = ctx.KqpCtx.Config->GetEnableInlineJoinFiltersAfterCBO();"
+          },
+          {
+            "commit": "7fb688ddeee2b43220828fdbf0c5b19985cab7e1",
+            "original_line": 87,
+            "line": 87,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": ""
+          },
+          {
+            "commit": "7fb688ddeee2b43220828fdbf0c5b19985cab7e1",
+            "original_line": 88,
+            "line": 88,
+            "author": "Pavel Velikhov",
+            "subject": "[NEW OPTIMIZER] Changed the behaviour of InlineJoinFilters flag (#55008)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "    if (join->JoinKind == \"Cross\" && usingBlockCrossJoin && !forceInlining) {"
+          },
+          {
+            "commit": "56648c087197d62097753338027dd2db6978f2cf",
+            "original_line": 102,
+            "line": 89,
+            "author": "alexpaniman",
+            "subject": "[NEW RBO] Cache which subplans Filters and Maps depend on (#46953)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "        auto conjuncts = filter->GetFilterExpression().SplitConjunct();"
+          },
+          {
+            "commit": "e49db9c68f3d3438a6a257a02fecbb1360a85598",
+            "original_line": 95,
+            "line": 90,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add support for cross join with filters (#52096)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "        // If all not equal - we cannot rewrite cross to inner, just adding them as join filters."
+          },
+          {
+            "commit": "e49db9c68f3d3438a6a257a02fecbb1360a85598",
+            "original_line": 96,
+            "line": 91,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add support for cross join with filters (#52096)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "        const bool containsEquiJoinCondition = AnyOf(conjuncts, [](const TExpression& conjunct) {"
+          },
+          {
+            "commit": "e49db9c68f3d3438a6a257a02fecbb1360a85598",
+            "original_line": 97,
+            "line": 92,
+            "author": "Denis Khalikov",
+            "subject": "[Optimizer] Add support for cross join with filters (#52096)",
+            "original_path": "ydb/core/kqp/opt/rbo/rules/push_filter_into_join.cpp",
+            "code": "            return conjunct.MaybeEquiJoinCondition();"
+          }
+        ]
+      }
+    ]
+  }
+]

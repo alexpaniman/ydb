@@ -1,0 +1,70 @@
+{
+  "id": "Q28",
+  "title": "Every successful rule restarts traversal and recomputes global properties.",
+  "branch": "fix/new-rbo/q28-every-successful-rule-restarts-traversal-and-recomputes-global-properties",
+  "commit": "8089888107b179ca5c08f145f70564bd4637daa6",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_operator.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h"
+  ],
+  "proposal_sha256": "8a42b5698e16cbf3f4ef1824061657acf539f5416b995ac881d49ad050df192e",
+  "proposal": "proposed-quality-amendments/Q28-local-worklist.patch",
+  "proposal_metadata": {
+    "id": "Q28",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "architectural_step_proposed_partial_unverified",
+    "patch_sha256": "8a42b5698e16cbf3f4ef1824061657acf539f5416b995ac881d49ad050df192e",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_rbo.h",
+      "ydb/core/kqp/opt/rbo/kqp_operator.h",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "ydb/core/kqp/opt/rbo/kqp_rbo.cpp"
+    ],
+    "apply_check_passed": true,
+    "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "compiled": false,
+    "native_verified": false,
+    "production_edited": false,
+    "scope": "Explicit bounded-region worklist and local output-IU refresh for right-join and Map-push stages.",
+    "remaining_limits": [
+      "All unreviewed rule effects retain full conservative restart/invalidation.",
+      "No incremental types, metadata, statistics, parents or liveness.",
+      "Opaque CBO, physical stages and distinct raw owning slots reject the worklist.",
+      "A fresh final conservative pass remains mandatory.",
+      "Trace plan serialization costs are unchanged."
+    ]
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "The scoped worklist and local output invalidation are implemented for three reviewed rules in two complete stages. Actual compilation, native semantics, excluded-effect controls and paired optimizer-work measurements remain pending. Unclassified rule effects and logical-boundary global analyses intentionally retain conservative invalidation.",
+  "superseded_proposals": [
+    {
+      "commit": "b0f9cce768aee439d02e621791eaa8d680067b79",
+      "proposal": "proposed-quality-patches/Q28.patch",
+      "proposal_sha256": "eed2226f8e448a47b95e0e5ad0d1bb733411036718768757ef0f0b83a47a5439"
+    }
+  ],
+  "implementation_scope_complete": true,
+  "independent_source_review": "verification/Q28-local-worklist-independent-source-review.json",
+  "artifact_contract_evidence": "verification/q28-local-worklist-artifact-contracts.json",
+  "acceptance_definition": "q28-acceptance-definition.txt",
+  "superseded_commits": [
+    "567d22ff15c8036cbc9741e0bb29daa6c140f0c1"
+  ],
+  "map_fusion_depth_amendment": {
+    "old_revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+    "source_review": "verification/Q28-map-fusion-refresh-depth-independent-review-20261028.json",
+    "required_additional_fixed_controls": 4,
+    "original26_required": true,
+    "native_verified": false,
+    "exact_binding_refresh_pending": true
+  }
+}

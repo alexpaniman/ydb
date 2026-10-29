@@ -1,0 +1,88 @@
+{
+  "id": "C09",
+  "branch": "fix/new-rbo/c09-preserve-in-null-semantics",
+  "commit": "1525ba0d79efbdae93eb658a6ab75daa5371f411",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/expr_nodes/kqp_expr_nodes.json",
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_plan_props.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_plan_props.h",
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp",
+    "ydb/core/kqp/opt/rbo/rules/inline_generic_in_exists_subplan.cpp"
+  ],
+  "rationale": "Carry the original sublink settings into an explicit IN call contract through import and graph copies. Generic legacy lowering ignores RHS NULL items but returns unknown for a NULL lookup even when RHS is empty; ANSI keeps its three-valued nonempty statistics.",
+  "checks": [
+    "git diff --check passed",
+    "Expression-node JSON parses",
+    "Reviewed source frontend mode encoding and legacy scalar IN semantics read-only",
+    "Reviewed registry copy propagation and unchanged EXISTS/simple-IN controls",
+    "Parent is the required main base",
+    "No build or native execution",
+    "Compositional generator syntax and oracle helpers checked at three fixture sizes; no native execution"
+  ],
+  "generator_module": "rbo-fixes-20261023/expression_checks.py",
+  "generator_cases": [
+    "c09_legacy_null_rhs",
+    "c09_ansi_null_rhs",
+    "c09_legacy_null_lookup_empty",
+    "c09_ansi_null_lookup_empty",
+    "c09_matching_control"
+  ],
+  "expected_oracle_controls": [
+    "Legacy present nonmatch ignores NULL RHS entries",
+    "ANSI present nonmatch with NULL RHS remains unknown",
+    "Legacy NULL lookup is unknown even for empty RHS",
+    "ANSI empty RHS is false for NULL lookup",
+    "Matches remain true in both modes"
+  ],
+  "concerns": [
+    "C11 independently preserves return typing before simplification; fallback-sensitive expression contexts require integration",
+    "TInSubplanSettings scaffolding is shared with the independent C11 branch; integrate source settings and ResultType assignments together"
+  ],
+  "build_verification": {
+    "bug": "C09",
+    "revision": "1525ba0d79efbdae93eb658a6ab75daa5371f411",
+    "exit_code": 0,
+    "elapsed_seconds": 2608.8,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4554752,
+      "peak_scope_usage_bytes": 43231436800,
+      "minimum_host_available_bytes": 62604914688,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 2608.6
+    },
+    "diagnostic_sha256": "2437576b0745bd052029d77b985a8bf8fa57a641c8f41d3a8d65ecfb9dc165c3",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/1525ba0d79efbdae93eb658a6ab75daa5371f411-48c4f1872521cccc.json"
+  },
+  "status_before_verification": "verification_waiting_for_memory",
+  "native_verification": {
+    "checks": 5,
+    "checks_passed": true,
+    "evidence": "verification/fixed-C09-1525ba0d79ef.jsonl"
+  },
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Build watchdog stopped at the 52GiB scoped RSS budget; no native verdict. Smaller worker-count exception is pending.",
+      "resolved_by": "subsequent_guarded_build_and_native_verification"
+    }
+  ],
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Build/native verification pending coordination",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

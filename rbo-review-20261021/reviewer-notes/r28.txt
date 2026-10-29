@@ -1,0 +1,40 @@
+R28: CBO construction, expansion, conversion, provider applicability. Two-pass read-only review.
+
+No repository edits, builds, concrete repro queries, or concrete repro data. Verification below means source/control-flow verification, not engine execution. Parent will perform generated tests separately.
+
+CORRECTNESS
+
+1. Native null-safe joins can receive an inapplicable lookup algorithm and fail compilation. High confidence, source-complete control-flow chain; independently corroborated by R29 per parent.
+   CBO provider kqp_rbo_cbo.cpp:224-228 permits LookupJoin without inspecting EqualNulls on either key vector. The detailed matcher checks storage, source column lineage and key prefixes but not null-safe semantics. Conversion stores the chosen algorithm at rules/kqp_cbo_trees.cpp:452. The actual lookup rewrite explicitly refuses EqualNulls at rules/rewrite_join_to_index_lookup_join.cpp:154. The ordinary Join therefore survives with LookupJoin selected. rules/assign_stages.cpp:42-45 only enables block execution for GraceJoin, ReverseBlockJoin or MapJoin, so this surviving LookupJoin loses block execution. physical_conversion/kqp_rbo_physical_join_builder.cpp:554 asserts that EqualNulls requires block execution, before the fallback to GraceJoin at 565-568. Valid native null-safe plans can therefore abort compilation depending on CBO's algorithm choice.
+   Fix direction: a shared applicability contract between provider and rewrite, including key semantics; normalize any unsupported chosen algorithm before deriving stage/block/shuffle properties.
+
+2. CBO preparation moves non-repeatable expressions across cardinality-changing operators without a semantic guard. High confidence on rule behavior; engine execution not performed.
+   rules/pull_up_map_over_cbo.cpp:21-49 checks join kind and referenced IDs but never expression repeatability. It moves a Map over inner/left/cross joins when map outputs are unused by the join. A volatile value that belonged to one input row can consequently be evaluated separately for every joined copy. The filter branch can also suppress formerly evaluated effectful expressions. rules/expand_cbo_tree.cpp:87-96,114-121,143-145 lifts arbitrary filters across inner joins, similarly changing volatile predicate evaluation granularity. These are valid relational rewrites only under a repeatability/effect assumption that the code does not enforce. copy_logical_subtree.cpp:9-14 already recognizes NonDeterministicBase, Udf, ScriptUdf and SqlCall as non-repeatable for copying; equivalent restrictions are absent here.
+   Fix direction: preserve evaluation boundaries for nondeterministic/effectful expressions; share a conservative repeatability check instead of checking only referenced columns. Test maps and predicates independently.
+
+3. Shuffle equivalences are activated across null-extending joins without restricting them to matched rows. Source chain verified; end-to-end wrong-result implication requires generated-engine validation.
+   rules/kqp_cbo_trees.cpp:272-277 adds an equivalence for every ordinary equality key from every join kind; only EqualNulls keys are excluded. cbo/solver/kqp_opt_join_hypergraph.h:592-606 attaches both equivalence directions to edges without checking join kind. cbo/solver/kqp_opt_dphyp_solver.h:835 onward and kqp_opt_join_cost_based.cpp:521 propagate these as unconditional distribution facts after the join. An outer join's retained-side key and null-extended key do not have equal values for unmatched rows. A later null-safe consumer can require the null-extended key's actual distribution, so treating the retained-side distribution as equivalent can omit a required shuffle. rules/kqp_cbo_trees.cpp:455-457 exports skipped-shuffle directives directly, and rules/assign_stages.cpp:153-168 trusts them.
+   Fix direction: only activate valid join-kind-specific equivalences; represent conditional/null-rejecting facts separately or conservatively omit equivalences across null extension. Verify later null-safe consumers, not only ordinary equality joins.
+
+OPTIMIZATION QUALITY (separate from correctness)
+
+4. ReverseBlockJoin loses CBO shuffle directives during conversion. Definite source fact; downstream wrong-result implication is unverified and must not be presented as confirmed.
+   CBO explicitly plans ReverseBlockJoin distribution (cbo/solver/kqp_opt_join_cost_based.cpp:475-502, kqp_opt_dphyp_solver.h:754-758). rules/kqp_cbo_trees.cpp:455 copies the chosen shuffle columns/skipped sides only for GraceJoin. ReverseBlockJoin is consequently re-shuffled on default join-key order by stage assignment. This loses shuffle elimination, can change selected ordering, and contradicts the costed plan. A parent's still-retained skipped-shuffle decisions could make the mismatch a correctness issue; needs generated validation.
+   Fix direction: preserve shuffle directives for every physical hash algorithm that consumes them, including ReverseBlockJoin.
+
+5. Lookup costing does not match actual rewrite eligibility beyond EqualNulls.
+   Provider kqp_rbo_cbo.cpp:169-209 lacks query-kind/enablement checks, supported join-kind restriction, duplicate physical-key detection, and actual key-type compatibility from rules/rewrite_join_to_index_lookup_join.cpp:134-166 and 74-125. Rejected rewrites fall back to a hash join in physical_conversion/kqp_rbo_physical_join_builder.cpp:565-568, so enumeration can choose a join order using lookup costs while executing a much more expensive algorithm. In shuffle-aware plans the provider models preservation of the left distribution while hash fallback redistributes; that secondary correctness consequence is not validated here.
+   Fix direction: share one complete lookup eligibility routine, or reject/recost the candidate before committing CBO output.
+
+PASS 2: checks that did not produce additional findings
+- Initial tree construction and expansion refuse residual JoinFilters; construction of merged joins does not lose a supported residual predicate because the guard excludes it first.
+- Outer-filter lift is restricted to Inner joins, preventing the straightforward null-extension/filter relocation bug.
+- Map pull-up rejects the nullable side of outer joins and checks both join keys and residual predicates for moved definitions.
+- Semi/anti left-side map pull-up preserves surviving IDs; right-side maps are blocked.
+- ConvertJoinTree/ConvertOptimizedTree preserve EqualNulls on both paired keys and validate symmetry on return.
+- BuildCBOLeaves uses boundary edges, not operator pointer alone; distinct ports have disjoint IUs. Operator output recomputation enforces disjoint join input namespaces, so the leaf-ID map is valid under established invariants.
+- Relation names are deduplicated including synthetic names; the shuffle-context alias map stays in the same unique IU-based relation namespace.
+- Packed TreeNodes remain postorder through concatenation/addition; boundary extraction and conversion use that ordering consistently.
+- CBO fallback with Undefined algorithm intentionally leaves RBO algorithm unset; stage assignment supplies the default. This differs from the invalid explicit LookupJoin case above.
+- Free/correlated dependencies are visible to map-use checks through GetUsedIUs and the decorrelation stage runs before packing.
+- No further distinct confirmed bug found in second pass through assigned files.

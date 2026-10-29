@@ -1,0 +1,37 @@
+{
+  "status": "source_api_scan_complete_unexecuted",
+  "reviewer": "c47_build_recovery",
+  "revision": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+  "generator": "c47_lookup_copy_contract_generator.py",
+  "generator_sha256": "74e378d5b40ec2aea8289b4b1e7c83b3324a6b3499944dc592d419a0e8a66224",
+  "expected_contracts": 19,
+  "production_source_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": "5207796ab13bfdc56bf98715c340b509db2b36b0bed21a41d11835b4c7612910",
+    "ydb/core/kqp/opt/rbo/kqp_info_unit.h": "d02eff86662814f161fd7951401bede2ec83f4c2915da153d8e9fcb48bad5d81",
+    "ydb/core/kqp/opt/rbo/kqp_expression.h": "14dee1559fc90aef3c9ee49d5edf21b4ce1a67fb44485a97241abfdf95af621f",
+    "ydb/core/kqp/opt/rbo/copy_logical_subtree.h": "f3feb777830dd61f403655ec2cc764fb2f1db29ce836851fc758e99af6574af3",
+    "ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h": "e87f86017bb05237b756e39ff32514b385150365bcf1c64aba672728f22d59aa"
+  },
+  "checks": [
+    "TIdTestContext::Read, Id, Column and Constant match the generator call signatures.",
+    "All front/back accesses apply to TVector values populated with one or three entries; no map-front access appears.",
+    "LookupKeys is TOrderedIUs<TString>; Items returns ordered entries supporting index access and preserving physical key-label pairs.",
+    "GetExpressionBody returns TExprNode::TPtr, so assigning the constant expression body to Read.Limit is type-correct.",
+    "Lookup constructors and all guarded state fields exist; the plain constructor defaults match the expected non-join contracts.",
+    "GetKind, GetColumns, GetInput, Copy, rename lookup and repeatability APIs used by the generator exist with matching signatures.",
+    "The compiler repair changes only RewriteSelect ownership at a ChangeChild call; it does not alter any generator API."
+  ],
+  "findings": [],
+  "limitations": [
+    "This scan does not replace compilation or execution of all19 actual linked production-copy contracts.",
+    "Local copy/repeatability/identity contracts remain separate from explicit-index SQL semantics."
+  ],
+  "actions": {
+    "render_calls": 0,
+    "builds": 0,
+    "native_runs": 0,
+    "mock_runs": 0,
+    "live_edits": false,
+    "repros_saved": false
+  }
+}

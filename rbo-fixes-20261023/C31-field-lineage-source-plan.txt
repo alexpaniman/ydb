@@ -1,0 +1,26 @@
+C31 constrained field-lineage candidate
+
+Prepared only: no live helper or production edits, generated workload, native run or acceptance change.
+
+The existing sanitized evidence gives a narrow target. Both selected spilling-domain profiles contain one Inner and one Left GraceJoinCore, with DqPhyHashCombine reductions. The floating profile has one shared Switch and two identity encoders; the integer control has two Switch nodes and no encoders. The new candidate supports these row-join forms and rejects other join implementations.
+
+The candidate resolves lexical let bindings and lambda blocks into node identities. This is necessary because the printer permits local bindings and multi-value returns. It then follows exact wide-column positions and named-field projections through stages, direct maps, key encoders and Grace output renames. Unknown computation destroys provenance.
+
+The candidate Boolean requires every reconstruction key pair to reach the same source field of one terminal shared producer through different ports. It also requires complete field coverage, matching identity codecs, the right identities to come specifically from the Inner join's left output, and a common domain with exactly the full key tuple. A domain is accepted only if its key extractor is a direct selection, init/update produce no state, and finish returns a bijection of its keys. Extra or unknown domain keys are rejected.
+
+This candidate observation does not grant any existing full-proof flag. The upstream producer is intentionally opaque: its SUM/MIN/cast/UNION result still needs a field-bound coverage witness. The candidate also relies on the exact production rule's scalar-domain restriction for value-preserving grouping. Those two limits are explicit in every result.
+
+A further distinction is essential: DqPhyHashCombine can be an intermediate partial reduction. The candidate's complete-domain count establishes the complete zero-state key vector and its value provenance. It does not validate connection partitioning, global domain uniqueness or bag semantics. Independent source review approved bounded observation with that limitation retained.
+
+Dormant artifacts under proposed-correctness-amendments:
+
+- C31-shared-field-probe-candidate.py and C31-shared-field-probe-install.patch: install target c31_shared_field_probe.py after review.
+- C31-scope-observation-field-wrapper.py and C31-scope-observation-field-wrapper.patch: amend the prior observation module to run both probes on the same anonymous AST, retain the original verdict, check every full-proof flag remains false and bind dependency hashes.
+
+Next action after independent review is the same two-profile bounded anonymous run, with the exact C31 executable receipt and existing serial memory guard. No new workload or broader test matrix is necessary for the first observation. Preserve the original 50-record batch and append these observations.
+
+An actual shape rejection calls for a narrow source-backed handler or a retained limitation. It is not a production bug. Do not weaken the token, domain, join-side or complete-field checks to turn a rejection into a pass.
+
+To close upstream aggregate coverage after observing the actual graph, select the same shared source field reached by the identity keys and resolve its producing map/UNION slot. Follow the corresponding aggregate finish argument to its state lane, then its init/update inputs. This needs exact argument and output-slot matching; stage-wide presence of an aggregation callable or Double type is insufficient. It does not require a general symbolic evaluator for aggregation arithmetic.
+
+Source bindings, immutable candidate hashes and detailed limitations: verification/C31-constrained-field-probe-source-preparation.json.

@@ -1,0 +1,64 @@
+{
+  "status": "source_review_only",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "reviews": {
+    "Q05": {
+      "verdict": "no_source_semantic_blocker_found",
+      "guards": [
+        "Rule requires types before applying.",
+        "Only ETypeAnnotationKind::Data may ignore null placement; Optional, Pg and unknown remain guarded.",
+        "Direction uniformity, storage kind, key-prefix matching, constant limit, range-prefix checks and retained final sort are unchanged."
+      ],
+      "applicability": "Expands only null-order eligibility for proven required data keys.",
+      "native_checks_pending": [
+        "Required versus optional compound primary keys",
+        "Explicit null placement and mixed direction controls",
+        "Non-prefix sort and pushed-limit plan checks"
+      ],
+      "apply_check_pass": true,
+      "patch_sha256": "048defc897eae2a1a107d4172b505c6406003c86d44b0b0f2dc0f3b96f3cd79a"
+    },
+    "Q12": {
+      "verdict": "no_source_semantic_blocker_found_native_validation_required",
+      "guards": [
+        "CollectPredicates directly accepts typed optional Compare and JsonExists, as does established KqpPushOlapFilter.",
+        "Original argument identity and type annotation are retained.",
+        "SplitForPartialPushdown still separates conjunctions while OR/NOT/XOR require whole-subtree pushability.",
+        "Residual Apply candidates still run ApplyPeephole and unsupported residuals retain original expressions.",
+        "Native operators, predicate merge and final residual filter construction are unchanged."
+      ],
+      "applicability": "Restores native JSON predicates that the eager whole-predicate peephole erased.",
+      "native_checks_pending": [
+        "SQL NULL and JSON null/missing paths",
+        "JSON error/empty behavior",
+        "Mixed native and nonpushable conjunctions",
+        "Optional boolean predicates with NOT/OR and disabled scalar Apply",
+        "Native JSON operator counts versus generic Apply"
+      ],
+      "apply_check_pass": true,
+      "patch_sha256": "5f89c24870408420e49f9e42f3bc6310411009bb072ba139581cd1b7e0d927a9"
+    },
+    "Q21": {
+      "verdict": "no_source_semantic_blocker_found",
+      "guards": [
+        "Only EXISTS consumers invoke the helper; IN and scalar consumers are unchanged.",
+        "Accepts only direct Limit chain nodes with a single Uint64 literal atom, successful ui64 parsing, positive count and no offset.",
+        "Bypasses consumer-local intrusive pointers without mutating the shared subplan entry.",
+        "Does not move across map, sort or other expression evaluation wrappers.",
+        "HasFreeCorrelation is recomputed on the selected subtree."
+      ],
+      "applicability": "Positive direct LIMIT cannot change the emptiness of a finite EXISTS input. Both simple semi/anti and generic mark-style consumer paths are covered.",
+      "native_checks_pending": [
+        "Correlated EXISTS and NOT EXISTS empty/nonempty cases",
+        "Generic boolean consumer and repeated subplan consumers",
+        "Zero, unknown/parameter and offset limits stay intact",
+        "No row-numbering stage on eligible limit targets"
+      ],
+      "apply_check_pass": true,
+      "patch_sha256": "b3f046166faa98328e034ad69ef3f868c4afe8ba118573bb075b841b631301ad"
+    }
+  },
+  "production_edits": false,
+  "compiled": false,
+  "native_verified": false
+}

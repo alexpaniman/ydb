@@ -1,0 +1,71 @@
+{
+  "id": "C15",
+  "branch": "fix/new-rbo/c15-check-demanded-scalar-values",
+  "commit": "3a9521680600ea2f5bcdb2ea0736e8d2cdb5df5d",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/rules/inline_scalar_subplan.cpp"
+  ],
+  "rationale": "Join scalar value and row-count state, then replace each scalar reference with its cardinality Ensure inside the original consuming expression. Preserve IF/COALESCE placement and accept zero-row correlated matches using an absent-count default of zero.",
+  "checks": [
+    "git diff --check passed",
+    "Source trace: imported sublinks receive per-expression fresh bindings; replacements target only Members of the expression row argument",
+    "Source trace: count/value bindings remain demanded by rewritten consumer; ordinary zero/one/multiple-row scalar semantics preserved",
+    "Generator syntax checked only; no build or native execution"
+  ],
+  "generators": [
+    "rbo-fixes-20261023/metadata_checks.py:recipes(n), prefix c15_"
+  ],
+  "generator_config": "metadata_checks.py:CONFIG_NEEDS",
+  "generator_oracle": "metadata_checks.py:semantic_oracle; EXPECTED_FAILURES lists controls that must reject with scalar cardinality category",
+  "expected_oracle": "Unused scalar branches execute successfully; demanded or partially demanded multirow branches still reject; zero-row values are NULL and one-row values survive.",
+  "controls": [
+    "Correlated and uncorrelated branches",
+    "IF and COALESCE",
+    "Actually demanded multirow error",
+    "Mixed demanded and undemanded outer rows",
+    "Zero and one inner row"
+  ],
+  "concerns": [
+    "Patch addresses the verified cardinality-validation hoist. Arbitrary errors inside subquery projections are still potentially evaluated before branch demand; broader conditional subplan execution would require demand propagation and effects-aware barriers.",
+    "C15 overlaps C05 validation placement but branches remain independently based."
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C15",
+    "revision": "3a9521680600ea2f5bcdb2ea0736e8d2cdb5df5d",
+    "exit_code": 0,
+    "elapsed_seconds": 74.0,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4550656,
+      "peak_scope_usage_bytes": 43245916160,
+      "minimum_host_available_bytes": 108011208704,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": false,
+      "elapsed_seconds": 74.0
+    },
+    "diagnostic_sha256": "4bb8e6dd0dab678e0dfcbcac572f7bfaf42bf483070182e8fb76fc2c2bb09198",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/3a9521680600ea2f5bcdb2ea0736e8d2cdb5df5d-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 8,
+    "checks_passed": true,
+    "evidence": "verification/fixed-C15-3a9521680600.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Native baseline/fixed verification pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

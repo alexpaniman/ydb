@@ -1,0 +1,66 @@
+{
+  "status": "predefined_category_only_link_diagnosis",
+  "bug": "C31",
+  "exit_code": 1,
+  "guard_limits_unchanged": true,
+  "observations": [
+    {
+      "diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "diagnostic_bytes": 0,
+      "capture_complete": true,
+      "category_counts": {
+        "undefined hidden symbol": 0,
+        "undefined symbol": 0,
+        "duplicate symbol": 0,
+        "version script": 0,
+        "symbol not defined": 0,
+        "incompatible": 0,
+        "architecture": 0,
+        "unknown file": 0,
+        "unable to find library": 0,
+        "out of range": 0,
+        "section type": 0,
+        "cannot preempt": 0,
+        "compression": 0,
+        "decompression": 0,
+        "linker command failed": 0,
+        "unable to create": 0,
+        "cannot open": 0,
+        "failed to write": 0
+      },
+      "program_version_api_referenced_count": 0,
+      "program_version_api_source": "build/scripts/c_templates/svnversion.h",
+      "program_version_api_source_sha256": "6bc7afd9af0d846973f8c6aae4d98ab3010bd133a51940f31f250a67176874a2",
+      "raw_diagnostics_or_symbol_names_persisted": false
+    },
+    {
+      "diagnostic_sha256": "21148863caeb24655e9da1839172f3d37943ae87b1530c1755704f4e732bd34c",
+      "diagnostic_bytes": 8233,
+      "capture_complete": true,
+      "category_counts": {
+        "undefined hidden symbol": 11,
+        "undefined symbol": 0,
+        "duplicate symbol": 0,
+        "version script": 0,
+        "symbol not defined": 0,
+        "incompatible": 0,
+        "architecture": 0,
+        "unknown file": 0,
+        "unable to find library": 0,
+        "out of range": 0,
+        "section type": 0,
+        "cannot preempt": 0,
+        "compression": 0,
+        "decompression": 0,
+        "linker command failed": 1,
+        "unable to create": 0,
+        "cannot open": 0,
+        "failed to write": 0
+      },
+      "program_version_api_referenced_count": 11,
+      "program_version_api_source": "build/scripts/c_templates/svnversion.h",
+      "program_version_api_source_sha256": "6bc7afd9af0d846973f8c6aae4d98ab3010bd133a51940f31f250a67176874a2",
+      "raw_diagnostics_or_symbol_names_persisted": false
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "claim_boundary": {
+    "bounded_integration_semantics_only": true,
+    "file_scope": "The reviewed bound concerns serialized payload-file writes. Service setup may create empty directories/metadata; no claim of zero filesystem activity is made.",
+    "final_internal_distribution_proof": false,
+    "native_spill_observation_claimed": false,
+    "shared_backpressure_proof": false,
+    "standalone_fix_admission_changed": false,
+    "unchanged_configuration": false
+  },
+  "configuration_delta": {
+    "EnableSpillingNodes": {
+      "after": "None",
+      "before": "All"
+    },
+    "SpillingServiceConfig": {
+      "after": "{ LocalFileConfig { Enable: true MaxTotalSize: 1 } }",
+      "before": "unset by recipe"
+    },
+    "generator_version": "c06_c50_bounded_integration_v1",
+    "preserved": [
+      "EnableQueryServiceSpilling=true",
+      "EnableSpillingInHashJoinShuffleConnections=true",
+      "UseBlockHashJoin=true",
+      "DqHashOperatorsUseBlocks=false",
+      "EnableNewRBO=true",
+      "EnableFallbackToYqlOptimizer=false",
+      "all original pragmas and nodes/repetitions"
+    ]
+  },
+  "live_or_production_changes": false,
+  "new_module": "c06_c50_bounded_integration_checks.py",
+  "new_module_sha256": "b9ed14d8ef837ed8569adc9184a317fa096aa32051632dfc30aefb4339d3956e",
+  "original_fix_branches_unchanged": true,
+  "original_independent_review": {
+    "path": "verification/C06-C50-integration-independent-source-review-20261028.json",
+    "sha256": "530fb5c69460669e57836114a016ab5c9924476095308cf5ba867784c2698516"
+  },
+  "original_source_preparation": {
+    "path": "verification/C06-C50-integration-source-preparation-20261028.json",
+    "sha256": "17473d3cb4501754409d61c1ca225f147a8a1041f0ff0a55f752ba52832d0fa5"
+  },
+  "patch": "proposed-correctness-amendments/C06-C50-bounded-integration-generator-20261028.patch",
+  "patch_sha256": "75ea46631d821354dde8ca87aee6d9845a612c09626fb6fefb52e62b24ae15a6",
+  "remaining": [
+    "independent wrapper/source/API/metadata review",
+    "separate minimal dedicated runner source review against these init/validation APIs",
+    "fresh exact integration build/receipt and guarded16-record run at root-released idle time",
+    "refresh exact helper bindings if native_verify/guard sources change in another reviewed composition before application"
+  ],
+  "required_dedicated_runner_api": [
+    "Acquire the existing global serial execution lease after the historical queue releases. Use the existing24GiB whole-batch scope guard and36GiB host-headroom requirement; do not call the ordinary fixed-C50 admission route.",
+    "Root creates a separately identified integration revision with exact tree138b36fd19ebf6d44f37aa3c73585e9c8be6ff5d and the two unchanged independent diffs, then issues a fresh successful kqprun executable receipt. This preparation created no Git object, branch or checkout.",
+    "Inside the guarded dedicated runner, load native_verify and this new module from exact reviewed byte snapshots; set driver.g.BINARY to the integration executable and the usual matching UDF path. Call initialize_integration(worktree, receipt, driver) before requesting any metadata or recipes. Plain main-helper enumeration fails closed without this initialization.",
+    "The initializer verifies the exact entire Git tree,52 audited production file digests, a fresh existing verify_build_receipt result, the loaded driver hash and actual driver runner path. It returns a sanitized integration identity. Every subsequent wrapper call rechecks source snapshots, receipt bytes, executable/current-source identity and driver binding.",
+    "Run only required_record_vector() in its exact16-record order using the unchanged native_verify.run_generated implementation. Attach phase=integration, exact revision/provenance and integration_scope; invoke validate_record after each result. Preserve failures as false verdicts.",
+    "Save evidence under a fresh integration-only filename, preserving all old failures and original branch/case statuses. Attach the outer guard evidence/hash to every record, then require validate_complete to pass. It rejects missing, duplicated or reordered records, bad memory evidence, fingerprints, config or provenance.",
+    "The dedicated runner source itself remains to be prepared and reviewed before execution; this install patch adds only the bounded generator and cannot launch a native process."
+  ],
+  "schema": "c06_c50_bounded_integration_source_preparation_v1",
+  "snapshot_binding": {
+    "checked_source_files": 14,
+    "driver": "Caller must supply the audited native_verify module loaded from a source snapshot and already point its runner at the verified executable; module identity and runner path are rechecked before every metadata/workload/oracle request.",
+    "exact_loaded_recipe_snapshots": [
+      "join_key_checks.py",
+      "window_checks.py",
+      "rbo-review-20261021/generate_and_verify.py"
+    ],
+    "local_snapshot_loader": "Only those three exact paths may load through the local import adapter; it does not change global import hooks or caches. Every module is compiled from bytes hashed before execution.",
+    "provenance_helper": "binary_provenance.py is also loaded from bound bytes at initialization."
+  },
+  "source_comparison": {
+    "additional_file_images_compared": 144,
+    "base_tree_hash_algorithm_self_check": true,
+    "checks_passed": 158,
+    "combined_production_bindings": 52,
+    "exact_expected_integration_tree": "138b36fd19ebf6d44f37aa3c73585e9c8be6ff5d",
+    "inherited_spill_audit_file_images": 720,
+    "path": "verification/C06-C50-bounded-spill-production-source-comparison-20261028.json",
+    "sha256": "560c8365e4c66f6039d953f72d2bb1be2c147db13e165b1c6bbe0c89b746f514"
+  },
+  "source_reachability_audit": [
+    {
+      "path": "ydb/tests/tools/kqprun/src/ydb_setup.cpp",
+      "references": "GetServerSettings sets the requested NodeCount; GetServerSettings base copies the same AppConfig. test_client.cpp:659-662 calls SetupProxies for each static node, and1521-1524 passes the shared TableServiceConfig to each local KQP proxy.",
+      "subject": "all four static nodes"
+    },
+    {
+      "path": "ydb/core/kqp/proxy_service/kqp_proxy_service.cpp",
+      "references": "386-399 passes LocalFileConfig.Enable and MaxTotalSize to a node-local service and registers its node-local actor ID.",
+      "subject": "each node local service cap"
+    },
+    {
+      "path": "ydb/tests/tools/kqprun/kqprun.cpp",
+      "references": "1068-1083 supplies _KqpEnableSpilling=true when local file service is enabled. The wrapper preserves query-service and hash-shuffle connection flags; None is the compute-node mask and does not disable service/channel eligibility.",
+      "subject": "channel-sharing admission stays enabled"
+    },
+    {
+      "path": "ydb/library/yql/dq/actors/spilling/spilling_file.cpp",
+      "references": "445 onward checks nonzero MaxTotalSize against blob size before adding size and opening a new file part. One byte is deliberate; zero means unlimited.",
+      "subject": "write bound before payload-file creation"
+    },
+    {
+      "path": "ydb/library/yql/dq/comp_nodes/hash_join_utils/spilled_storage.cpp",
+      "references": "Inherited720-image review proves packed page header minimum8 bytes and match bitmap minimum4. Current code is byte-identical in base,C06,C50; block joins stay enabled and are not treated as disabled by None.",
+      "subject": "new hash join paths remain covered"
+    },
+    {
+      "path": "ydb/library/yql/dq/common/dq_serialized_batch.cpp",
+      "references": "Inherited source proof covers channel formats minimum20/36 bytes and scalar aggregate serialized state minimum2. All serializer/service sources are unchanged in the exact combined tree.",
+      "subject": "correlation-domain and shared-channel serialization"
+    },
+    {
+      "path": "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+      "references": "C50 adds exact-type gather selection, nonparallel UnionAll inputs and stale distribution-hint clearing. No spill service, serializer, writer, compute-mask or channel-sharing guard change. The other four combined files are independently pinned and contain only the reviewed C06/C50 changes.",
+      "subject": "only overlap with spill proof"
+    }
+  ],
+  "status": "frozen_dormant_generator_pending_independent_review_and_dedicated_guarded_runner",
+  "validation": {
+    "Git_mutations": 0,
+    "builds": 0,
+    "live_helper_or_production_edits": 0,
+    "metadata_checks": 644,
+    "mocked_success_is_not_native_evidence": true,
+    "native_runs": 0,
+    "patch_disposable_apply_check": true,
+    "rendered_workload_or_result_artifacts_persisted": false,
+    "report": "verification/C06-C50-bounded-integration-metadata-contracts-20261028.json",
+    "sha256": "9982e7e1458c3b563584bd33dd2cef394c02501c727bda19fd6a825a1be1862d"
+  },
+  "workload_contract": {
+    "delegated_schema_query_fixture_and_duplicate_sensitive_bag_oracle_unchanged": true,
+    "deliberately_changed_settings_slots": 16,
+    "node_count": 4,
+    "optimizer_mode": "new",
+    "original_cases": 8,
+    "original_failure_records_immutable": true,
+    "record_vector_path": "verification/C06-C50-bounded-integration-record-vector-20261028.json",
+    "record_vector_sha256": "6ddccba5e9a74ee5b3f0768255d46570755f18578b859176ce1d48fc91c18a47",
+    "records": 16,
+    "repetitions": 2,
+    "rows": 24,
+    "unchanged_query_schema_fixture_slots": 48
+  }
+}

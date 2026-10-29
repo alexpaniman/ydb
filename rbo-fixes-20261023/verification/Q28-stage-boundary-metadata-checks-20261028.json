@@ -1,0 +1,36 @@
+{
+  "actual_plans_used": false,
+  "actual_query_results_used": false,
+  "assertions_passed": 701,
+  "builds": 0,
+  "checks": [
+    "Exact prerequisite patch hashes and sequential temporary application",
+    "Canonical Q28 profile resolves exactly eight case owners",
+    "Duplicate-sensitive bags reject missing, extra, changed, type-confused and unexpected-column rows",
+    "Independent nullable RIGHT-join cardinality cross-check",
+    "Outer and shared controls have nonvacuous duplicate and unmatched-row groups",
+    "Bounded input sizes and single-runner settings",
+    "Closed final-plan parser rejects missing counters, unexpected sources, malformed children, duplicate stage definitions, unresolved shared references and duplicate JSON keys",
+    "Execution CPU and unbound Compilation fields never become optimizer or stage timing",
+    "Final-plan summaries do not satisfy generic quality acceptance or claim direct work-counter proof"
+  ],
+  "generated_queries_or_plans_persisted": false,
+  "generator_sha256": "f98339c76ca2fc2c87cdef6e013fd09b726ed75d395c4ab60eaf19980bb975d7",
+  "graphs": 0,
+  "maximum_expected_result_rows": 1000,
+  "metadata_check_generator_sha256": "c18584ed3437ef55b9281d35604e36b5f3b8e0c7dc92f3a90f40657e724b2c1d",
+  "native_runs": 0,
+  "patch_sha256": "64d76c5b4dfbb817fdf1c221965aad78af44beffca655b7b040e018361347fd2",
+  "production_or_live_helper_edits": false,
+  "profile_count": 8,
+  "queries_rendered_only_in_ram": true,
+  "row_sizes_checked": [
+    8,
+    12,
+    24,
+    32
+  ],
+  "schema_version": "q28_stage_boundary_metadata_preparation_v1",
+  "temporary_26_stack_plus_candidate_application": true,
+  "toolchain_runs": 0
+}

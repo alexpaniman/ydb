@@ -1,0 +1,41 @@
+{
+  "id": "Q17",
+  "title": "Covering lookup indexes are rejected when outputs use implicit primary-key columns.",
+  "branch": "fix/new-rbo/q17-covering-lookup-indexes-are-rejected-when-outputs-use-implicit-primary-key",
+  "commit": "a5a23189d946a8bd772e10279bc44e270648ec02",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp"
+  ],
+  "proposal_sha256": "4e422bf93bc9ff6273d769c23d66afba33e8974f0fa3ab1a66d7168d9e8784fb",
+  "proposal": "proposed-quality-patches/Q17.patch",
+  "proposal_metadata": {
+    "id": "Q17",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_patch_only",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp"
+    ],
+    "scope": "Use ready ordinary index implementation metadata for covering columns and physical key prefixes, including implicit base primary keys. Specialized/async indexes are excluded.",
+    "validation_plan": [
+      "Implicit composite PK output plus declared payload uses one covering lookup",
+      "Missing payload remains noncovering/ineligible in the no-range path",
+      "Overlapping index/PK columns, readiness, async and specialized families",
+      "Compare selected target and fetched column counts; semantic row controls"
+    ],
+    "static_checks": [
+      "git apply --check against pinned baseline passed"
+    ],
+    "limits": [
+      "No compilation, native execution or plan-quality measurement yet"
+    ]
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

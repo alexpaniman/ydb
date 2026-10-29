@@ -1,0 +1,21 @@
+{
+  "after_image_count": 14,
+  "application_requirement": "Apply all eight patches serially at an idle boundary, with exact per-step images, then verify all final hashes and profiles before any native invocation. Intermediate dependency pins are not executable states.",
+  "artifacts": {
+    "proposed-quality-amendments/quality-idle60-composition-20261028/prepare_composition.py": "e1932df625463585f3f2b430412ce2be7b142ae8010e4e3e2c443ecb2b55efbc",
+    "proposed-quality-amendments/quality-idle60-composition-20261028/verify_composition.py": "08a0d4a358a2488f525cabfb30a10157456d23e253978db7b33ffb054e57d46c",
+    "verification/quality-idle60-composed-metadata-checks-20261028.json": "94b53b22cfb74eaa9ae8bb6a29061b8bdf2f4f9e9f433862b5299510e99a1664",
+    "verification/quality-idle60-ordered-source-composition-20261028.json": "76b66904ad0033bd74d20780578b0c0151d3351a2b1ac8f039f2cfadc269b95f"
+  },
+  "before_execution": "Fresh applicable receipts and evidence remain required. Source and mock success does not admit any optimization finding. Existing actual evidence keeps original profile hashes.",
+  "composed_metadata_checks": 570,
+  "live_native_build_Git_mutation": false,
+  "native59_unchanged": true,
+  "new_Q28_revision": "8089888107b179ca5c08f145f70564bd4637daa6",
+  "ordered_patch_count": 8,
+  "profile_labels": 28,
+  "required_before_ledger": 59,
+  "schema": "quality_idle60_frozen_review_package_v1",
+  "source_checks": 187,
+  "status": "dormant_pending_two_independent_reviews"
+}

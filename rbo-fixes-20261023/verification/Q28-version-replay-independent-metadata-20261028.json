@@ -1,0 +1,115 @@
+{
+  "assertions": 737,
+  "build_runs": 0,
+  "combined_dispatcher_sha256": "4dd347ff4ac7f89334943f9d4708438cf85e8850db35875c3117068725aae0d9",
+  "live_helper_edits": false,
+  "native_runs": 0,
+  "rendered_queries_or_cpp_or_repros_persisted": false,
+  "reviewed_patch_sha256": "4aabcde2409f4feb9d82c7b2908e7ffec334fd29ae9677402a104e366986a49f",
+  "scenarios": {
+    "allocation_1": {
+      "fake_descriptors_closed": 0,
+      "fake_native_calls": 0
+    },
+    "allocation_10": {
+      "fake_descriptors_closed": 9,
+      "fake_native_calls": 0
+    },
+    "allocation_11": {
+      "fake_descriptors_closed": 10,
+      "fake_native_calls": 0
+    },
+    "allocation_12": {
+      "fake_descriptors_closed": 11,
+      "fake_native_calls": 0
+    },
+    "allocation_13": {
+      "fake_descriptors_closed": 12,
+      "fake_native_calls": 1
+    },
+    "allocation_14": {
+      "fake_descriptors_closed": 13,
+      "fake_native_calls": 1
+    },
+    "allocation_15": {
+      "fake_descriptors_closed": 14,
+      "fake_native_calls": 1
+    },
+    "allocation_16": {
+      "fake_descriptors_closed": 15,
+      "fake_native_calls": 1
+    },
+    "allocation_17": {
+      "fake_descriptors_closed": 16,
+      "fake_native_calls": 1
+    },
+    "allocation_2": {
+      "fake_descriptors_closed": 1,
+      "fake_native_calls": 0
+    },
+    "allocation_3": {
+      "fake_descriptors_closed": 2,
+      "fake_native_calls": 0
+    },
+    "allocation_4": {
+      "fake_descriptors_closed": 3,
+      "fake_native_calls": 0
+    },
+    "allocation_5": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "allocation_6": {
+      "fake_descriptors_closed": 5,
+      "fake_native_calls": 0
+    },
+    "allocation_7": {
+      "fake_descriptors_closed": 6,
+      "fake_native_calls": 0
+    },
+    "allocation_8": {
+      "fake_descriptors_closed": 7,
+      "fake_native_calls": 0
+    },
+    "allocation_9": {
+      "fake_descriptors_closed": 8,
+      "fake_native_calls": 0
+    },
+    "cold_rejected": {
+      "fake_descriptors_closed": 12,
+      "fake_native_calls": 1
+    },
+    "final_changed": {
+      "fake_descriptors_closed": 59,
+      "fake_native_calls": 7
+    },
+    "link_cancelled": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "native_cancelled": {
+      "fake_descriptors_closed": 12,
+      "fake_native_calls": 1
+    },
+    "normal": {
+      "fake_descriptors_closed": 59,
+      "fake_native_calls": 7
+    },
+    "postlink_changed": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "prepare_cancelled": {
+      "fake_descriptors_closed": 4,
+      "fake_native_calls": 0
+    },
+    "profile_changed": {
+      "fake_descriptors_closed": 59,
+      "fake_native_calls": 7
+    }
+  },
+  "source_preparation_sha256": "75a391250dc297ad96881ddfc48221d3de1cd5acec4b7a1718dd37f67fe75118",
+  "source_sha256": "b9337b161b2d051e42a9d4e6e145cd5f5b2ce4a5408cb158638cc3519b05a571",
+  "status": "independent_metadata_passed_native_pending",
+  "toolchain_runs": 0
+}

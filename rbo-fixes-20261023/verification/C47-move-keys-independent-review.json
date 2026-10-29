@@ -1,0 +1,11 @@
+{
+  "reviewer": "root",
+  "status": "approved_source_only",
+  "patch_sha256": "5a277db00d610e5ecc59fd16cec9d833b38adfbe0696be7e96c22d4b8e78dc57",
+  "checks": [
+    "ChangeChild requires TExprNode::TPtr&&; the const local cannot bind to that overload.",
+    "The nonconst local has a single consuming use and no accesses after the move.",
+    "Existing std::move use and includes support the repair; no expression ordering or key ordering changes."
+  ],
+  "actual_build_native_pending": true
+}

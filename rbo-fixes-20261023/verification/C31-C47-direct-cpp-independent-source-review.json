@@ -1,0 +1,41 @@
+{
+  "reviewer": "c41_review",
+  "review_kind": "independent_dormant_correctness_cpp_integration_source_and_mock_review",
+  "verdict": "no_new_source_or_acceptance_blocker_found_actual_toolchain_pending",
+  "exact_hashes": {
+    "proposed-correctness-amendments/C31-C47-direct-cpp-verifier.patch": "0873070e30ca7aec2b1846c9d5b2a2b73662c5d10c8f2e37745c92a4b4961e7f",
+    "correctness_cpp_contract.py": "c7b6a2238442ab7c1a57a651b2c91be731d1d6dfe4b515ee56e682dc7ee34669",
+    "correctness_cpp_profiles.json": "d6bdfd489b3f01a98d980abfc174a4ee91628ff75639f0df39632de8068c2791",
+    "verify_correctness_cpp_integration.py": "e5b701be7fde0070723ef0f180e1e788dfb29dec8daac98fe89bd9479bec5dfc",
+    "anonymous_cpp_verify.py": "ab5efbf9bed8d22900e822fa45b684e1ad2da3d3121f47abfedf68778b92aef2",
+    "anonymous_cpp_guard.py": "b4962d3004296d2936558c4c5164868a021d4a246458c18713b913047ae862cc",
+    "anonymous_cpp_metadata.py": "c9704027fa2b3b0205f9d141040a2edb0cfaf259c14a8b7e16055d38b3bd87cf"
+  },
+  "contracts": [
+    "Only C31/C47 registration, fixed-only routing and post-run acceptance are added to the existing verifier.",
+    "Baseline preparation and paired direct evidence paths reject these cases.",
+    "Manifest matches exact main-based production revisions, reviewed generator hashes, generated source hashes/sizes and closed numeric case counts.",
+    "Generator evaluation uses the exact bytes checked against the reviewed manifest, avoiding stale import-cache rendering.",
+    "Generated source, object and executable remain anonymous memfds; added code does not persist source/IR/result payloads.",
+    "Existing receipt verification runs before and after actual execution; receipt bytes and generator bytes are checked again before success.",
+    "Fixed acceptance requires successful build provenance, actual compile/link/native records, nonempty object/executable hashes, complete cleanup and no watchdog/output overflow.",
+    "Every expected case is present exactly once; duplicate JSON keys, bool-as-int indices/counts/exit codes and unexpected fields reject.",
+    "Evidence explicitly keeps query_semantics_verified and quality_improvement_verified false, and no original case status is automatically promoted.",
+    "Existing serial-slot work-state/source-freeze admission and resource bounds remain unchanged."
+  ],
+  "mocked_contracts": {
+    "assertions": 129,
+    "mocked_toolchain_phases": 6,
+    "actual_compiler_runs": 0,
+    "actual_native_runs": 0
+  },
+  "limitations": [
+    "The first real RBO closure build and link extraction can still expose unavailable archive members, platform flags or constructor/API issues; mocks do not demonstrate compile feasibility.",
+    "C31 direct contracts cover the current24 identity/admission cases, not new aggregate-copy stability or broader floating/composite/volatile identity scope.",
+    "C47 direct contracts use the amended ReadSettings API and therefore provide fixed-only local evidence, never pinned-main query equivalence.",
+    "Domain reconstruction sharing origin still requires actual physical graph inspection in the separate SQL/native acceptance."
+  ],
+  "production_sources_edited": false,
+  "active_helpers_edited": false,
+  "generated_reproductions_persisted": false
+}

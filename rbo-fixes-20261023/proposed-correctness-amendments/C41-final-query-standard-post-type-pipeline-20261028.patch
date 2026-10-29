@@ -1,0 +1,32 @@
+diff --git a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+@@ -10,7 +10,7 @@
+ #include <util/generic/string.h>
+ #include <util/system/env.h>
+ 
+-#include <yql/essentials/core/yql_expr_csee.h>
++#include <yql/essentials/core/services/yql_transform_pipeline.h>
+ #include <yql/essentials/core/yql_expr_optimize.h>
+ #include <yql/essentials/utils/log/log.h>
+ 
+@@ -460,12 +460,13 @@
+     // The optimizer exports the complete physical query. Replacing nested result
+     // tuples would confuse their ownership with the enclosing query's effects.
+     // Final stage rebuilding can replace lambdas while reusing their bodies.
+-    // Restore completion and canonicalization on the final closed query.
+-    const auto status = UpdateCompletness(output, output, ctx);
+-    if (status != TStatus::Ok) {
+-        return status;
+-    }
+-    return EliminateCommonSubExpressions(output, output, ctx, false, *TypeCtx.ColumnOrderStorage);
++    // Complete constraints before restoring scopes and canonicalizing the closed query.
++    // Keep annotation restarts local: this output is no longer a query-block list.
++    auto finalTypeAnnotation = TTransformationPipeline(&TypeCtx)
++        .AddTypeAnnotationTransformer()
++        .AddPostTypeAnnotation()
++        .Build(false);
++    return InstantTransform(*finalTypeAnnotation, output, ctx);
+ } catch (const std::exception& e) {
+     ctx.AddError(ExceptionToIssue(e, ctx.GetPosition(input->Pos())));
+     return TStatus::Error;

@@ -1,0 +1,57 @@
+{
+  "finding": "C28",
+  "reviewer": "c41_review",
+  "review_kind": "independent_exact_artifact_source_review",
+  "base_revision": "cf3d1399f717ebeef9dd6d2c6280f2a4c9f7effe",
+  "pinned_main": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "patch_sha256": "04ee66e48c1d4968739b9e7cd4958ff95c83272bb19557520046ebbf6ef0babc",
+  "verdict": "no_source_correctness_or_api_blocker_found_compile_and_native_pending",
+  "contracts": [
+    "only_rewrite_select_source_changes",
+    "result_calls_detected_before_processing",
+    "distinct_input_preparation_disabled_only_for_result_windows",
+    "final_scalar_expressions_materialize_normally",
+    "grouping_sets_guard_preserved",
+    "pipeline_preserves_original_api",
+    "no_changed_map_shadow_contract",
+    "final_dedup_keys_only_selected_columns",
+    "window_selected_projection_distinct_sort_order",
+    "nonwindow_distinct_pipeline_retained",
+    "having_distinct_original_limit_retained",
+    "collector_stops_nested_selects",
+    "additive_import_rejects_shadowing",
+    "frontend_distinct_hidden_order_rejected"
+  ],
+  "source_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp": "026f5d5afe7750add360e5c127242ac268b309455ab8ac47840e0c0d6abf33cd",
+    "ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp": "31a077f34dc8becaea25939b92ab76c2f95b219e3ab4060463ab4bb1adaeb37b",
+    "yql/essentials/core/type_ann/type_ann_sql.cpp": "4f1e347af73a210cd82e17e96be017b5d032147e2b88e77b1a184a35fc2036c3"
+  },
+  "resulting_source_sha256": "9d042b2e2f524a6b6f277b848235c11d5463ee677bf8ffc5b71ce4ce3f812e30",
+  "source_references": {
+    "window_detection": "kqp_rewrite_select.cpp:854-872 on pinned main",
+    "map_projection_and_import_binding": "kqp_rewrite_select.cpp:369-427; kqp_plan_conversion_utils.cpp:435-466",
+    "logical_aggregation_and_window_preservation": "kqp_rewrite_select.cpp:936-990, 2214-2264 on original C28",
+    "final_projection_and_order": "kqp_rewrite_select.cpp:2267-2460 on original C28",
+    "frontend_hidden_sort_rejection": "yql/essentials/core/type_ann/type_ann_sql.cpp:4915 on pinned main"
+  },
+  "review_notes": [
+    "The amendment removes the previous defer-only implementation, avoiding early DISTINCT pre-map definitions and their loss of raw window keys.",
+    "Effective DISTINCT is false only for processing result-window queries; ordinary scalar result expressions then use the normal final evaluation path.",
+    "Window calls and enclosing result expressions materialize before final projecting Map, and only that visible tuple defines DISTINCT equality.",
+    "Ordinary aggregation and grouping-key preservation remain before windows; normal nondistinct and nonwindow DISTINCT paths retain their existing logic.",
+    "The original DISTINCT HAVING and grouping-sets unsupported guards remain, rather than accidentally expanding unsupported scope.",
+    "Final ORDER BY runs after result DISTINCT. Frontend type checking rejects hidden extra ORDER BY fields for DISTINCT queries.",
+    "Duplicate output label disambiguation occurs before finalProjection is used as the deduplication key set.",
+    "Existing group-reference, alias, and independent aggregate limitations are not changed or counted fixed."
+  ],
+  "pending_native_acceptance": [
+    "Original four failing window DISTINCT profiles plus nondistinct and nonwindow controls.",
+    "Hidden window inputs, selected ordinary expressions/constants, duplicate values with differing hidden keys, multiple windows, and visible-alias ORDER BY.",
+    "Grouped aggregate/window interactions where otherwise supported; independent C12/C13/F01 behavior must be distinguished."
+  ],
+  "compiled": false,
+  "native_executed": false,
+  "production_sources_edited": false,
+  "generated_reproductions_persisted": false
+}

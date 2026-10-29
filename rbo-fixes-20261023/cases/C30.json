@@ -1,0 +1,70 @@
+{
+  "id": "C30",
+  "branch": "fix/new-rbo/c30-route-insert-revert",
+  "commit": "d3f07e4572af7719c1846c38fc3a8200e9c2ebd6",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/host/kqp_host.cpp"
+  ],
+  "rationale": "Route Kikimr insert_revert writes to existing conditional write lowering before execution. The legacy prechecks suppress the whole input for existing-key or duplicate-input conflicts.",
+  "checks": [
+    "git diff --check passed",
+    "Independent parent verified exactly pinned base",
+    "Source trace: YqlSelect registered to ExpandSqlSelect, gated by IgnoreExpandPg; legacy host pipeline runs common optimization",
+    "No builds or native execution"
+  ],
+  "generators": [
+    "rbo-fixes-20261023/write_checks.py:recipes(n), prefix c30_"
+  ],
+  "generator_config": "write_checks.py:metadata(case,n)",
+  "expected_oracle": "Conflicts succeed without changing table contents; conflict-free input is inserted.",
+  "controls": [
+    "Existing-key conflict",
+    "Mixed fresh and conflicting input",
+    "Duplicate input keys",
+    "Conflict-free revert and ordinary insert",
+    "Per-statement write ownership"
+  ],
+  "concerns": [
+    "This is scoped optimizer routing, not native RBO effect support. The selected compilation unit uses the legacy optimizer even when error fallback is disabled.",
+    "Existing YqlSelect AST is expanded in place by the legacy common optimizer; SQL text is never reparsed, preserving the selected statement boundary."
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C30",
+    "revision": "d3f07e4572af7719c1846c38fc3a8200e9c2ebd6",
+    "exit_code": 0,
+    "elapsed_seconds": 160.3,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4476928,
+      "peak_scope_usage_bytes": 42779742208,
+      "minimum_host_available_bytes": 108572205056,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 159.9
+    },
+    "diagnostic_sha256": "80b4c3912410d6ac2068de0b6812aae95372bb7a64d5b1daf7cedf6274531897",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/d3f07e4572af7719c1846c38fc3a8200e9c2ebd6-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 7,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C30-d3f07e4572af-1792733423986541236.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Compilation and native baseline/fixed verification remain pending.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+diff --git a/aggregate_checks.py b/aggregate_checks.py
+--- a/aggregate_checks.py
++++ b/aggregate_checks.py
+@@ -108,13 +108,14 @@
+             return rows[0]['c'] == 1 and nan
+         return rows[0]['c'] == (0 if absent else 1) and rows[0]['s'] == (None if absent else 0) and ('a' not in rows[0] or rows[0]['a'] == 1)
+     if case.startswith('c34_'):
+-        if len(rows) != 1:
++        expected_columns = {'v', 'a'} if case.endswith('_mixed_avg') else {'v'}
++        if len(rows) != 1 or set(rows[0]) != expected_columns:
+             return False
+         value = rows[0]['v']
+         if case.endswith('_empty'):
+             return value is None
+         expected_ids = [1] if case.startswith('c34_min_') else [n] if case.startswith('c34_max_') else range(1, n + 1)
+-        return isinstance(value, list) and len(value) == 3 and value[0] in expected_ids and value[1] == 1 and value[2] == value[0] + 1 and ('a' not in rows[0] or rows[0]['a'] == 1)
++        return isinstance(value, list) and len(value) == 3 and value[0] in expected_ids and value[1] == 1 and value[2] == value[0] + 1 and (not case.endswith('_mixed_avg') or rows[0]['a'] == 1)
+     raise KeyError(case)
+ 
+ 

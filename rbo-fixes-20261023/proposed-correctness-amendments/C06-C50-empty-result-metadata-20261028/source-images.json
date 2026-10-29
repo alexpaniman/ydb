@@ -1,0 +1,15 @@
+{
+  "after": {
+    "c06_c50_bounded_integration_checks.py": "6f40673cc6e1a8169185302d7895c46a40f45cb46f13dc4dad2afbb7104d60fd",
+    "c06_c50_integration_runner.py": "b2b939a9eee061e745b59be8307619a1fbf5e2e4a1bef619e14d0d349083f406",
+    "native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77"
+  },
+  "before": {
+    "c06_c50_bounded_integration_checks.py": "d7dff3b1f4a20e2a2a3306bc9f969dfa77e048c824e9db9f2f9114e2072c0ca2",
+    "c06_c50_integration_runner.py": "1c18bbe841ccd90be8f7b5c8a3cfdc4dba56a1c5a3b6b59072ef4e79a3b007c9",
+    "native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b"
+  },
+  "patch": "proposed-correctness-amendments/C06-C50-empty-result-metadata-20261028.patch",
+  "patch_sha256": "1f36ac8729e1c4d80d1222613556bd7d7edf0608328702b344eda6bf4a8187df",
+  "schema": "c06_c50_empty_result_transport_candidate_v1"
+}

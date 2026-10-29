@@ -1,0 +1,92 @@
+{
+  "id": "C04",
+  "branch": "fix/new-rbo/c04-preserve-filter-evaluation-order",
+  "commit": "69b7c53d2f5ad03f02256e03b972901bdab12eab",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/rules/fuse_filters.cpp"
+  ],
+  "rationale": "Fuse adjacent predicates with an explicit lazy conditional. Normalize the inner filter result to nonnullable Bool, so both false and NULL reject the row before evaluating the outer predicate. Normalize Pg booleans using annotated types. Return a new filter so mutation reporting and property invalidation observe the rewrite.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed expression row rebinding, filter type annotation, common If optimization, and block-laziness handling",
+    "Verified commit parent is the specified main base",
+    "No build or native execution"
+  ],
+  "generator_cases": [
+    "c04_false_guard",
+    "c04_null_guard",
+    "c04_nonthrowing",
+    "c04_three_levels"
+  ],
+  "expected_oracle_controls": [
+    "Rejected inner-filter rows never evaluate a fallible outer predicate",
+    "Nullable inner-filter NULL and false cases are both rejected before outer evaluation",
+    "Rows accepted by both predicates match legacy values and multiplicities",
+    "Bool, Optional Bool, and Pg boolean predicates retain filter semantics",
+    "Rewrite reaches a fixed point and reports a changed operator"
+  ],
+  "concerns": [
+    "An explicit conditional preserves the evaluation boundary and can reduce later extraction of individual conjuncts; check plan quality separately.",
+    "Generator syntax and oracle helpers checked; native path reachability remains unverified."
+  ],
+  "generator_module": "rbo-fixes-20261023/logical_checks.py",
+  "build_verification": {
+    "bug": "C04",
+    "revision": "69b7c53d2f5ad03f02256e03b972901bdab12eab",
+    "exit_code": 0,
+    "elapsed_seconds": 136.0,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 15671296,
+      "peak_scope_usage_bytes": 43180752896,
+      "minimum_host_available_bytes": 74674536448,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 135.6
+    },
+    "diagnostic_sha256": "d9d965f23fe952b37569dfd881d17de227d3b307619344b27752b914d2a7478e",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/69b7c53d2f5ad03f02256e03b972901bdab12eab-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 4,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C04-69b7c53d2f5a-1793150409177182549.jsonl"
+  },
+  "verification_limitation": "Bool and Optional Bool paths passed native checks. Pg handling is source-reviewed only: the pinned-main host rejects Pg syntax before optimizer entry.",
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Build/native verification is pending root coordination.",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ],
+  "status_before_verification": "verified",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "94f8dbabdf2000345f9ae4b813383f9795c3ca13711a40f178e01e6caa90989c"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C04-1793150430874726304.json",
+    "coverage_evidence_sha256": "b98cc1ce1b7410d7d946026bf02b88933cf646d91b737e41fb1823ef58e5fb5b",
+    "remaining_qualifications": [
+      "Pg handling remains source-reviewed only; frontend rejection is not optimizer-native coverage."
+    ]
+  }
+}

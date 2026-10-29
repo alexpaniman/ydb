@@ -1,0 +1,270 @@
+{
+  "status": "generator_source_checked_actual_compile_native_pending",
+  "generator_sha256": "30735cfee2bdd897668f3e0c29386674e010dc88873a3cf227b71f6ee7aa1b6c",
+  "cases": 24,
+  "zero_column_real_rule_cases": 3,
+  "volatile_and_subplan_guard_cases": 6,
+  "producer_repeatability_guard_cases": 3,
+  "generated_suite_sha256": "ae0de472c002603df91b823ee94769201f0d08a61712870c82cf5cb9fa63018f",
+  "generated_suite_bytes": 56211,
+  "generated_units": [
+    {
+      "case": "c31_ir_zero__Left",
+      "generated_source_sha256": "29e8c4cee771802c64aa7f5a4558cd6cad9584a7ad78344a7b2ddfbca1c6ec9b",
+      "generated_bytes": 3397,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_zero__LeftSemi",
+      "generated_source_sha256": "5fb9bc8f5464cb8294693c1be4550848c7005711d92927bfbddf772d5a22634b",
+      "generated_bytes": 3405,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_zero__LeftOnly",
+      "generated_source_sha256": "d5019703b2e65a97fb2239d4cecfd29ba13c77fb7c433b1b5f95b0ca1e4ab32e",
+      "generated_bytes": 3405,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_domain_nullable__Left",
+      "generated_source_sha256": "d4875a0f75c94d5b995f3b6e5fd10fc0b2377782a972b11992ad0e93ea57100d",
+      "generated_bytes": 3116,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_domain_nullable__LeftSemi",
+      "generated_source_sha256": "7ebeb13ac9ca6a507ef79a449c17bd23dc1ebdf775fd78223a378a1ddd078e40",
+      "generated_bytes": 3124,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_domain_nullable__LeftOnly",
+      "generated_source_sha256": "fc5962b3e9bc95657007798af8162542fae5d624cc2ce978095034b504f6dd2b",
+      "generated_bytes": 3124,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_unique_nullable__Left",
+      "generated_source_sha256": "e2ec09f0121f0081e77d2b8b27022d79863f4ebe68d446a2cb0ce406c9bf4368",
+      "generated_bytes": 3171,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_unique_nullable__LeftSemi",
+      "generated_source_sha256": "2ad6d6a48aa2c6e79181c06420573dadfbe65ac807a334a8d677916f7a683cf0",
+      "generated_bytes": 3179,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_unique_nullable__LeftOnly",
+      "generated_source_sha256": "e654c592b28b1cef9d45891db5d320401b42ec616d16132b618569fe664281aa",
+      "generated_bytes": 3179,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_unique_control__Left",
+      "generated_source_sha256": "0d20a347aaaa14b9557c1d5751ba8ee01429ad59d3931c91065100dde6e50be2",
+      "generated_bytes": 3153,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_unique_control__LeftSemi",
+      "generated_source_sha256": "e4eff206453e4bed9cbaa91817894d1c6ee5fcf321bdc2e5389ff90ce3a4f4da",
+      "generated_bytes": 3161,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_unique_control__LeftOnly",
+      "generated_source_sha256": "dde389dfdc64f387c11541b4d1d32ab91d63a50608e70dfc6b7d9f0ae478f8ab",
+      "generated_bytes": 3161,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_float__Left",
+      "generated_source_sha256": "2f57ea36b8e810d762a5a01e05f303858c5e490036d9b625cc7af36de0d4aa47",
+      "generated_bytes": 1961,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_float__LeftSemi",
+      "generated_source_sha256": "bf34e3d5fda42883a21b7ca37fa3356e6094a9f66ed075d19df2cca6c60a1600",
+      "generated_bytes": 1965,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_float__LeftOnly",
+      "generated_source_sha256": "88709f7b321f42ae0dc4f215c099cea5579a4e6c23e530b6272ec09a4be42e47",
+      "generated_bytes": 1965,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_volatile__Left",
+      "generated_source_sha256": "4fd01dbc581a846da1a9392abe17c8076c09e926e8de05c2850706758c8de432",
+      "generated_bytes": 1637,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_volatile__LeftSemi",
+      "generated_source_sha256": "0378aee1f845d56f42138cc6a79515b50f2fcfd40b78827e90d45a57c84b7227",
+      "generated_bytes": 1641,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_volatile__LeftOnly",
+      "generated_source_sha256": "a78e503d196cb8acb0d00d005056beea7b3ae9d5ccd953c00c3bc61ad5d40c17",
+      "generated_bytes": 1641,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_subplan__Left",
+      "generated_source_sha256": "057207abf2e4edc3214384f3ba27a07de528d476fb0d21b324cc57659f6fe7fc",
+      "generated_bytes": 2105,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_subplan__LeftSemi",
+      "generated_source_sha256": "acd58ea178aa4db73adc3a1db79393f06e3b8cac17613212104c3f3c60e21d10",
+      "generated_bytes": 2109,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_reject_subplan__LeftOnly",
+      "generated_source_sha256": "98f68f97359660667e86cbc99d0c0411a8da6d0978772c8172199cddc1276ef2",
+      "generated_bytes": 2109,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_producer_guard__Left",
+      "generated_source_sha256": "d14bae69556d525a4cabf1c1f942fa32b6aae1eb3816c49dc3bfaee66e5c6ef0",
+      "generated_bytes": 3284,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_producer_guard__LeftSemi",
+      "generated_source_sha256": "65b3db42d264ac8f067e4e158d8206e5ffefa0d4b186aae0f63a3df12a62be1b",
+      "generated_bytes": 3292,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    },
+    {
+      "case": "c31_ir_producer_guard__LeftOnly",
+      "generated_source_sha256": "d0f77ce782d6e7cf006c5da819995e691fa902a8e08301e77f7d836c4933c5c8",
+      "generated_bytes": 3292,
+      "production_rule_called": true,
+      "native_or_compile_run_performed": false,
+      "generated_source_saved": false,
+      "full_query_semantics_verified": false,
+      "baseline_compatible": "Same existing public rule/operator APIs on pinned main and amended C31"
+    }
+  ],
+  "native_or_compile_executions": 0,
+  "generated_source_persisted": false,
+  "full_query_semantics_verified": false,
+  "limitations": [
+    "Only generator/source API inspection; no actual C++ compilation yet.",
+    "Zero-column shape invokes the real production rule in the generated adapter; complete query zero-column result semantics remain pending.",
+    "Direct local contracts must not be counted as paired full-query acceptance."
+  ],
+  "source_API_correction": "TMapIUs values are TMapElement even on pinned main; inspect each value through GetExpression(). Corrected before compilation or execution.",
+  "independent_review_corrections": [
+    "Expected rejections verify fixture preconditions and match the specific production guard message only in RAM; unrelated exceptions fail.",
+    "Individual and suite rendering both emit numeric per-case JSONL compatible with parse_verdicts."
+  ],
+  "format_contracts": {
+    "per_case_numeric_verdicts": 24,
+    "specific_guard_matches": 9,
+    "single_case_outputs": 24
+  }
+}

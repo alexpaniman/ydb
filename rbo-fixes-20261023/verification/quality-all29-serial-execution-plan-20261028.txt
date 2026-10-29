@@ -1,0 +1,53 @@
+Source-only serial plan for Q01–Q29; no commands executed.
+Pinned main: e8700d379b3b9c4fbaf68f36424e6bcf08314fd2
+Current installed stack: 44 patches. The three reviewed API repairs are installed. Five dormant patches remain: Q01 shared-window/setup and the four Q28 SDK-pilot patches.
+Finish the correctness queue first. Keep one process scope, frozen sources, 8 authorized build workers and existing memory guards. No yql/essentials edits.
+
+Finding | direct cases/policy | SQL cases/records per phase | modules
+Q01 | 42/fixed_only | 652/652 | quality_window_checks,quality_sum_checks,quality_minmax_checks,quality_range_minmax_checks
+Q02 | none | 4/4 | quality_window_checks
+Q03 | none | 5/5 | quality_lookup_checks
+Q04 | none | 7/7 | quality_lookup_checks
+Q05 | none | 11/11 | quality_rule_checks
+Q06 | none | 4/4 | quality_lookup_checks
+Q07 | none | 11/11 | quality_lookup_checks
+Q08 | none | 2/2 | quality_statistics_checks
+Q09 | 38/paired_baseline_and_fixed | 3/3 | quality_statistics_checks
+Q10 | none | 10/10 | quality_window_checks
+Q11 | 19/fixed_only | 11/11 | quality_union_checks
+Q12 | none | 7/7 | quality_rule_checks
+Q13 | none | 3/3 | quality_window_checks
+Q14 | 12/paired_baseline_and_fixed | 6/6 | quality_join_shuffle_checks
+Q15 | 15/fixed_only | 19/19 | quality_partition_subset_checks
+Q16 | 76/paired_baseline_and_fixed | 0/0 | no SQL profile
+Q17 | none | 5/5 | quality_lookup_checks
+Q18 | 3/paired_baseline_and_fixed | 0/0 | no SQL profile
+Q19 | 6/paired_baseline_and_fixed | 0/0 | no SQL profile
+Q20 | 72/paired_baseline_and_fixed | 3/3 | quality_statistics_checks
+Q21 | none | 13/13 | quality_rule_checks
+Q22 | none | 25/25 | quality_window_checks
+Q23 | none | 5/5 | quality_lookup_checks
+Q24 | none | 5/5 | quality_lookup_checks
+Q25 | 48/paired_baseline_and_fixed | 8/11 | quality_map_semantic_checks
+Q26 | none | 18/18 | quality_source_settings_checks
+Q27 | 20/paired_baseline_and_fixed | 0/0 | no SQL profile
+Q28 | 26/paired_baseline_and_fixed | 8/8 | quality_scheduler_semantic_checks
+Q29 | none | 5/5 | quality_lookup_checks
+
+Serial order:
+1. At idle, verify applied hashes; install the reviewed dormant patches only for their pilot lanes and freeze new fingerprints.
+2. Prepare one pinned-main rbo closure and run Q09,Q14,Q16,Q18,Q19,Q20,Q25,Q28 baselines serially. Q27 has a separate ast closure. Every finding retains its own evidence.
+3. On separate independent fixed revisions run the paired direct suites and pair their evidence. Run fixed-only Q11,Q15,Q01 suites; never request baseline direct admission for them.
+4. Run the 10 canonical profiles without enabled query spilling (87 cases per phase), supplying fixed Q09/Q11/Q20 admission records. Q25 extra has 8 cases/11 records and stays separate. Defer the other 12 canonical profiles (97 cases), Q14 extra6 and the whole Q01 canonical 652 lane until their spilling cells have reviewed no-payload-persistence setup. Preserve every complete vector. Concrete argv templates and required receipts are in the JSON plan.
+5. Only after the relevant source/path prerequisites, collect raw Q01 child measurements and the seven-case Q28 SDK compilation pilot. Neither is an accepting performance test.
+
+Important limits:
+82 cells across Q01,Q03,Q04,Q06,Q07,Q10,Q14,Q15,Q17,Q21,Q23,Q24,Q28,Q29 enable query/channel spilling without an established local payload bound. Their entire SQL lanes are contingent on reviewed setup. This is not evidence that any spill happened; small inputs alone do not prove no payload files. No cells are silently dropped.
+Q01 has no accepting resource validator. Shared named-window/setup controls are dormant; suffix/fallback resource cells, allocation evidence and actual mixed-pipeline reachability remain required. Child CPU/RSS includes startup/loading/compilation; it excludes Python generation/oracle and the separate preflight.
+Q14 direct 12 plus six four-node shape/bag controls remain separate; use the existing exact edge observer for all six. No generic complete-quality gate exists.
+Q15 must use partition_subset 19, not old partition 12 or window 7. Q26 must use source_settings 18, not old statistics 6.
+Q25 retains four repetitions of its volatile control (11 records total). Its independent C15-tagged control stays visible if it fails; do not stack fixes or weaken it.
+Q16/Q18/Q19/Q27 currently have only direct local checks, so full query-quality status remains pending.
+Q28 direct 26 is scoped to three rules/two stages. SQL 8 supplies bag/final-plan observations. SDK 7/8 records server compilation counters only; shared spilling, stage timing and scaling/full-quality admission remain pending.
+Existing baseline evidence is reusable only with exact unchanged revisions, receipt bytes, current generators/workloads/profile and complete vectors. verify_series has no baseline-reuse switch and builds/runs its baseline per invocation.
+No thresholds, acceptance logic, live helpers, cases or production sources were changed.

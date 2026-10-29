@@ -1,0 +1,21 @@
+{
+  "status": "independent_source_rereview_pass_unexecuted",
+  "generator_sha256": "e32719455f2ea13b6cbd0b19772243c7d61f2497cfb9310c896515ecf642a00d",
+  "verifier_sha256": "3dcd3fea2d0299d5694804f5abc319f915ba227b8c7347a07efab2c66c907c04",
+  "resolved_findings": [
+    "Q28-generator-baseline-semantic-gate",
+    "Q28-current-specification-binding"
+  ],
+  "source_contracts": [
+    "Run now executes first- and second-pass result and IU checks before publishing nonzero work counters; a baseline semantic failure leaves zero counters and pairing rejects it.",
+    "Initial traversal counters are captured in locals, so running second-pass semantics before cost assertions does not change the measured first-pass work.",
+    "Second-pass attempt count is captured separately and preserves the final fixed-point bound.",
+    "RunScenario already withholds counters until its semantic assertions pass.",
+    "pair_direct binds evidence generator and rendered-source hashes to the current module before reading its specifications.",
+    "Existing proof boundary remains local contracts only; query semantics and full optimization quality remain pending."
+  ],
+  "mock_assertions_rerun": 29,
+  "native_runs": 0,
+  "compiler_runs": 0,
+  "active_helpers_edited_by_reviewer": false
+}

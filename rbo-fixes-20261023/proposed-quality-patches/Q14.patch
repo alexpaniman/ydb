@@ -1,0 +1,12 @@
+--- a/ydb/core/kqp/opt/rbo/rules/kqp_cbo_trees.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/kqp_cbo_trees.cpp
+@@ -452,7 +452,8 @@
+             res->Props.JoinAlgo = join->JoinAlgo;
+         }
+ 
+-        if (join->JoinAlgo == NKikimr::NKqp::EJoinAlgoType::GraceJoin) {
++        if (join->JoinAlgo == NKikimr::NKqp::EJoinAlgoType::GraceJoin ||
++            join->JoinAlgo == NKikimr::NKqp::EJoinAlgoType::ReverseBlockJoin) {
+             res->Props.LeftShuffleBy = ConvertCBOColumnsToRBO(join->ShuffleLeftSideBy);
+             res->Props.RightShuffleBy = ConvertCBOColumnsToRBO(join->ShuffleRightSideBy);
+         }

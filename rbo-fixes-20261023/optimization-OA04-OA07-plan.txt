@@ -1,0 +1,19 @@
+Prepared fixes for optimization-verification gaps OA04 and OA07
+
+These are dormant verifier changes. No production files, live helpers, case statuses or acceptance results changed.
+
+1. Q01 mixed COUNT/SUM had no physical acceptance contract. Its integer SUM is supported by the prefix implementation, so the candidate requires the existing frame collector and boundary accesses with no remaining frame fold. Resource scaling remains separately pending under OA05.
+
+2. Q02 partially live windows had no accepting contract. Counting folds is insufficient because several functions share one fold. The candidate instead requires one surviving optional-COUNT accumulator with exact init/update field binding, backed by a frame queue shared with its collector. Paired baseline state must be wider. Unknown lexical bindings and unsupported printed shapes remain pending.
+
+3. Q22 small-list boundary cases had no accepting contract. The candidate requires lowered membership and actual scalar equality evidence, then preserves the baseline equality/callable counts. It explicitly counts symbolic comparison heads. It does not assume five surviving comparisons for nullable cases or globally forbid dictionary work.
+
+4. Q01 SUM negative controls could pass from parsing alone. Pairing now requires unchanged typed callable counts for every SUM control except the native positive case.
+
+5. Q29 could accept the whole batch when only one intended positive improved. Both primitive and optional residual cases now need their own strict reduction in positive comparison-node counts. Unsafe-control preservation remains enforced by the preceding admission patch.
+
+Apply order after review: optimization-admission-guards.patch, then optimization-physical-pairing-contracts.patch, then the separately owned OA05 resource gate. The independent optimization-window-physical-contracts.patch supplies the new physical descriptors. OA10 remains a separate driver change.
+
+Before claiming verification, run the unchanged cases through the existing bounded anonymous pipeline with exact baseline/fixed receipts and profile hashes. The first Q02 observation must establish whether the existing parser resolves its real frame state and queue bindings. If it does not, retain pending and review a narrow lexical adapter; do not accept matching unresolved placeholders. Keep all eight Q22 size-five boundary combinations, all SUM controls and both Q29 positives.
+
+Immutable hashes, exact source commits and limits: verification/optimization-OA04-OA07-source-proposal-20261027.json.

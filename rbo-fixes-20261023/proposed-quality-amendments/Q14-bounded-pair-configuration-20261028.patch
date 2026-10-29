@@ -1,0 +1,54 @@
+--- a/quality_join_shuffle_checks.py
++++ b/quality_join_shuffle_checks.py
+@@ -408,6 +408,24 @@
+     return result
+ 
+ 
++def _bounded_pair_configuration_matches(record, case, phase, revision, generator_sha256):
++    """Reconstruct the reviewed bounded configuration from its saved receipt."""
++    from types import SimpleNamespace
++    from quality_spill_bounds import bound_quality_spill_metadata, validated_quality_spill_scope
++    try:
++        scope = validated_quality_spill_scope(('Q14',), phase, revision, record)
++        module = SimpleNamespace(__name__='quality_join_shuffle_checks', __file__=__file__,
++                                 _verification_source_sha256=generator_sha256)
++        expected = bound_quality_spill_metadata(
++            module, case, 'new', record['rows'], metadata(case, record['rows']),
++            scope=scope, runner=scope.runner)
++        return all(json.dumps(record.get(field), sort_keys=True, separators=(',', ':'))
++                   == json.dumps(expected[field], sort_keys=True, separators=(',', ':'))
++                   for field in ('table_service_overrides', 'spill_payload_file_policy'))
++    except (OSError, ValueError, TypeError, KeyError, AttributeError):
++        return False
++
++
+ def pair_observations(before, after, base, revision, generator_sha256, profile_sha256):
+     """Check one bounded pair against owner-computed current source fingerprints.
+ 
+@@ -432,12 +450,14 @@
+                or record.get('generator_version') != VERSION
+                or type(record.get('node_count')) is not int or record['node_count'] != 4
+                or type(record.get('rows')) is not int or not 8 <= record['rows'] <= 128
+-               or record.get('table_service_overrides') != metadata(case, record['rows'])['table_service_overrides']
+                or not optimizer_mode_matches_record(record, require_exclusive=True)
+                or record_verdict(record) != 'functional' or not _digest(record.get('physical_ast_sha256'))
+                or record.get('independent_four_node_bag_oracle') is not True for record in (before, after))
+         or any(record.get('q14_stage_observer_version') != VERSION
+                or record.get('physical_ast_parsed') is not True for record in (before, after))):
++        return False
++    if not all(_bounded_pair_configuration_matches(record, case, phase, selected_revision, generator_sha256)
++               for record, phase, selected_revision in ((before, 'baseline', base), (after, 'fixed', revision))):
+         return False
+     b, a = before.get('q14_join_inputs'), after.get('q14_join_inputs')
+     if not shape_contract(case, b, False) or not shape_contract(case, a, True):
+--- a/quality_spill_bounds.py
++++ b/quality_spill_bounds.py
+@@ -86,7 +86,7 @@
+  'rbo-fixes-20261023/memory_safe_build.py': 'ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd',
+  'rbo-fixes-20261023/optimizer_mode_contract.py': '50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad',
+  'rbo-fixes-20261023/production_version_object.py': '55eb36ef4d02f70c7ef232e3cbf2411ce04166068862f42dfeeaa7bea50678a9',
+- 'rbo-fixes-20261023/quality_join_shuffle_checks.py': '25ed55c058ae4446dd36ebd729e01da220e740f428fb4cd537c032d37831f2bc',
++ 'rbo-fixes-20261023/quality_join_shuffle_checks.py': '2d817f9ba3fc4af3c0306910ce65a3b3640d5ecbe7ae3b14db7fdff6a10190cc',
+  'rbo-fixes-20261023/quality_lookup_checks.py': '477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae',
+  'rbo-fixes-20261023/quality_minmax_checks.py': '42d8fbf1f983b739448dc1c6e19432ac464ea9f4a4bf6343e0a10e573f4d74d4',
+  'rbo-fixes-20261023/quality_pairing.py': '622ec792339d50b26e6fcc0de7a8698caddcd179d20c1ec90c9dd7df08b052c5',

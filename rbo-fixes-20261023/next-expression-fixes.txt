@@ -1,0 +1,192 @@
+Read-only design review: C09-C14
+Baseline: e8700d379b3b9c4fbaf68f36424e6bcf08314fd2
+Status: design only; no production edits, branch changes, builds, or native runs.
+All proposed edits are in ydb/. The yql/essentials references below were read only
+to establish the language contract; no edits there are necessary or authorized.
+
+C09: carry and honor the requested IN semantics
+
+Confirmed loss points:
+- ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp, RewriteSublinks, approximately 1592:
+  TKqpInSublink retains Subquery, OuterType, and InLambda but drops source child 5.
+- ydb/core/kqp/expr_nodes/kqp_expr_nodes.json, TKqpInSublink: no settings child.
+- ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.cpp, PlanConverter::ConvertExpression,
+  approximately 206-232: registry import retains tuple/result IDs, but no IN mode.
+- ydb/core/kqp/opt/rbo/kqp_plan_props.h/.cpp, TSubplanEntry and TSubplans::Add:
+  registry has no field for this semantic property.
+- ydb/core/kqp/opt/rbo/copy_logical_subtree.cpp, TLogicalCopyContext::Run,
+  approximately 154-165: a copied call is registered from explicit fields. Any
+  new semantic property must be forwarded here; adding only a struct field loses
+  it when a subplan is copied.
+- rules/inline_generic_in_exists_subplan.cpp, approximately 101-113 and 197-257:
+  nullable inputs always choose ANSI unknown/nonempty statistics.
+
+Established contract:
+YqlSubLink's optional sixth child contains ansiIn or warnNoAnsiIn. Absence of
+ansiIn is legacy mode, including the warning/default route. SQL translation
+select_yql.cpp and SqlSubLinkWrapper already preserve this distinction.
+Legacy: NULL RHS elements do not make an otherwise unmatched present lookup
+unknown. A NULL lookup is unknown even for an empty RHS.
+ANSI: a match wins; absent a match, RHS NULL makes the result unknown; a NULL
+lookup is unknown only when RHS is nonempty. Empty RHS yields false.
+EXISTS stays two-valued in both modes. NOT is applied to the resulting truth
+value and must not turn unknown into true.
+
+Candidate narrow branch:
+1. Append an optional Settings child to TKqpInSublink and copy source child 5
+   in RewriteSublinks (use an empty list if absent).
+2. Import an explicit IN mode into TSubplanEntry; extend Add/constructor and
+   logical copying to retain it. For manually constructed logical plans, retain
+   their current intended ANSI default; SQL import must explicitly pass the
+   source mode. Do not infer the mode from PgSyntax or a global pragma later.
+3. In generic inlining, generate RHS-null/nonempty statistics only for ANSI
+   nullable IN. Legacy should use matched, guarded by real lookup-null testing
+   when lookup is nullable; no RHS-null unknown term and no empty-RHS exception
+   for a NULL lookup. Do not route legacy nullable unmatched values through the
+   existing final raw mark-column fallback, which also represents a failed
+   match as NULL.
+4. The simple positive-IN semi-join remains valid for filter truth semantics.
+   Keep the existing conservative nullable NOT-IN guard initially. Relaxing it
+   for legacy nonnullable lookups is an optional separate optimization, not
+   needed for this correctness fix.
+
+Verification matrix, without input text: explicit ANSI and legacy; absent mode;
+present/NULL lookup; empty RHS, nonempty nonmatching RHS, NULL-only RHS, matched
+value plus NULL; correlated and uncorrelated calls; copied calls. C09 should be
+tested in predicate contexts independently. Complete nullable expression tests
+also require the C11 type-contract fix below; do not claim late lowering alone
+fixes an already simplified expression.
+
+C10: test NULL presence independently of equality
+
+Location: rules/inline_generic_in_exists_subplan.cpp, approximately 240-243.
+The nullable lookup path computes nullness from negated coalesced self-equality.
+A present NaN fails equality with itself, which makes this an invalid presence
+test. Replace lookupIsNull with MakeUnaryCallable("HasNull", lookupColumn).
+This preserves recursive optional scalar presence semantics and distinguishes
+NaN from NULL. Focused lowering already handles scalar HasNull in
+physical_conversion/kqp_rbo_compatibility.cpp, ExpandScalarHasNull (approximately
+309-341), recursively through optional layers. No essentials edit is needed.
+An Exists-based check is sufficient only for a single optional layer; HasNull
+better matches the IN type contract for recursively optional scalar values.
+Keep the existing nonempty gating for ANSI null lookups and the real comparison
+used to find matches. Do not make NaN equal to itself to repair null detection.
+Controls: present nullable NaN, ordinary present value, NULL, and empty/nonempty
+RHS, including NOT and an explicit null observer. Test C10 under explicit ANSI
+to isolate it from C09. C11 is still required for fallback-sensitive contexts.
+
+C11: preserve the IN call result contract before simplification
+
+The earliest original YQL contract is already correct:
+- yql/essentials/core/type_ann/type_ann_sql.cpp, SqlSubLinkWrapper, roughly
+  5680-5790, computes nullable IN from lookup HasOptionalOrNull plus ansiIn and
+  IsSqlInCollectionItemsNullable(lookupType, collectionItemType).
+- SqlInWrapper in type_ann_core.cpp, roughly 7496-7514, agrees.
+The regression is introduced in ydb after that annotation:
+- opt/kqp_type_ann.cpp, AnnotateSublinkBase, roughly 2840-2889, updates the IN
+  comparison lambda but then assigns every boolean sublink plain Bool.
+- opt/rbo/kqp_rbo_type_ann.cpp, AddSubplanTypes, roughly 169-200, again assigns
+  every non-scalar subplan plain Bool for YQL.
+An intervening peephole can therefore remove a COALESCE before mark lowering.
+
+Preferred independent narrow branch:
+1. Preserve the original annotated YqlSubLink return type as explicit KQP
+   metadata during RewriteSublinks, before reconstructing TKqpInSublink.
+   A named resultType entry containing ExpandType in an optional Settings child
+   is one compact option; a dedicated ResultType child is also sound. Do not
+   rely on SetTypeAnn alone, since later annotation/invalidation can replace it.
+2. AnnotateSublinkBase must validate/use that immutable IN call result type,
+   rather than defaulting it to Bool. Retain normal input/comparison checking.
+   EXISTS remains Bool; the scalar-subquery path remains unchanged.
+3. ConvertExpression captures the corrected node type into a clearly named
+   CallResultType property on TSubplanEntry (distinct from ResultIU, which is
+   the producer's compared value). AddSubplanTypes uses this property for IN.
+   Forward the property in TLogicalCopyContext::Run and registry construction.
+4. For hand-built logical IN entries without an explicit imported type, derive
+   the contract from lookup/producer types and the declared mode. Do not fall
+   back unconditionally to Bool or make every IN Optional<Bool>, since both can
+   change valid schemas or eliminate needed fallback behavior.
+5. Check type equality/narrowing after materialization. A proven nonnullable
+   result may safely simplify a fallback later; a semantic NULL-producing call
+   must never be presented as Bool before that proof.
+
+Shared scaffolding with C09: both independent branches may append the same
+optional Settings child. Prefer that common shape so integration has one
+metadata container holding source settings and resultType. C09 changes runtime
+mode handling; C11 changes the preserved return contract. The commits must each
+start at the common base and the overlapping constructor/import/copy hunks need
+an explicit integration review. A C11 branch can carry source settings as part
+of the metadata container without claiming the C09 runtime bug is fixed.
+
+Required acceptance checks: nullable RHS with nonnullable lookup under ANSI;
+nullable lookup; nonnullable controls retain Bool; EXISTS retains Bool; fallback
+and null-observer expressions retain their meaning across KQP annotation,
+registry import, copies, and generic inlining. Check explicit ANSI on the
+independent C11 branch, then both modes after integrating C09. Do not count a
+late-stage-only patch as a complete C11 fix.
+
+C12: DISTINCT must use only selected values
+
+Location: kqp_rewrite_select.cpp, ProcessAggregationsInResultItems, roughly
+1483-1499. After each result expression has registered its DISTINCT input, the
+function appends every original GROUP BY key. Hidden grouping keys therefore
+participate in duplicate elimination.
+Candidate minimal branch: remove that blanket append block. Selected direct
+group keys already register their own traits through ProcessAggregations;
+materialized aggregate outputs already register resultColName. Keep upstream
+group keys available while evaluating selected expressions, but do not add
+them to the DISTINCT key list unless a selected result requires that value.
+Controls: hidden group keys, visible group keys, aliases, multiple selected
+aggregate expressions, and a plain grouped query without DISTINCT. Compound
+selected group expressions additionally exercise C13 and must be evaluated as
+an integration control, not mistaken for a C12-only failure.
+
+C13: preserve complete grouped expressions at both materialization sites
+
+Two independent collapse sites must be covered in this branch:
+1. kqp_rewrite_select.cpp, RewriteSelect's processResultColumn lambda, roughly
+   2271-2296: aggColName is overridden with the first group reference whenever
+   any nested group reference exists. Change that override to isDirectGroupRef
+   only. For an aggregate/window/DISTINCT materialized compound expression,
+   consume the materialized result column; do not replace it with a nested key.
+   The ordinary nonmaterialized path should continue using ReplaceGroupRefs.
+2. ProcessAggregations, DISTINCT-without-aggregate branch, roughly 1115-1140:
+   it also selects the first nested group reference as the entire DISTINCT
+   value. Restrict the direct-key fast path to body identity. For a compound
+   grouped expression, replace group-reference nodes recursively, materialize
+   the complete expression in the post-aggregate map under resultColName, and
+   register that result as the DISTINCT input/output. It must not be evaluated
+   in the pre-aggregate map against unavailable group result bindings.
+For aggregate-containing post-map lambdas, use ReplaceGroupRefs on the rewritten
+whole lambda when needed; this makes grouped references resolve explicitly to
+the translator's group-key names while retaining surrounding operations.
+Verify mixed aggregate/key arithmetic, conditional/fallback expressions,
+DISTINCT compound group expressions, direct grouped columns, and ordinary
+nonmaterialized grouped expressions. Window-containing materialization should
+retain its existing post-window placement; C28 is a separate ordering defect.
+
+C14: distinguish a row member from a nested member expression
+
+Location: kqp_rewrite_select.cpp, ProcessAggregations, roughly 1017-1068.
+IsExpression only tests whether the root callable is Member, then the simple
+path deduplicates by its last field name. Different nested receivers collide.
+Candidate minimal branch: add/use a direct-row-member predicate comparing the
+Member receiver pointer to the current lambda's row argument. Only that exact
+shape may reuse a named direct column. Every nested/computed receiver follows
+the existing expression path, preserves the complete aggInput tree, receives
+a fresh generated input binding, and is not deduplicated by its final field
+name. This also covers HAVING via the shared ProcessAggregations function.
+Repeated direct-column aggregates retain current deduplication. Repeated
+nested expressions can use a future structural-equality deduplication, but
+unsafe name-based sharing is not a correctness-preserving optimization.
+Controls: different nested receivers with the same leaf name and different
+values; deeper member chains; aggregate and HAVING uses; direct-member sharing;
+distinct aggregate inputs. Coordinate the direct-row-member helper with C45's
+window receiver fix when integrating. Avoid changing global IsExpression
+behavior blindly: GROUP BY and DISTINCT have separate binding/materialization
+contracts and need their own traced checks if touched.
+
+Recommended implementation order: C10 and C12 are the smallest isolated edits;
+C14 is local to aggregate input classification; C13 needs both materialization
+sites; C09/C11 need coordinated metadata contracts and copy propagation.
+No runtime correctness claim is made by this design note.

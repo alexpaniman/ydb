@@ -1,0 +1,14 @@
+diff --git a/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp b/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
+--- a/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp
+@@ -2422,6 +2422,10 @@
+                 distinctKeys.emplace_back(column);
+             }
+             setItemPtr = BuildAggregate(setItemPtr, distinctTraits, distinctKeys, /*distinct=*/true, ctx, node->Pos());
++            // Keep the selected-result boundary after DISTINCT as on the
++            // ordinary path: its keys and result traits share column names.
++            setItemPtr = BuildAggregateExpressionMap(setItemPtr, {},
++                BuildExpressionsFromColumns(distinctKeys, ctx, node->Pos()), ctx, node->Pos());
+         }
+ 
+         if (sort) {

@@ -1,0 +1,52 @@
+{
+  "schema": "independent_source_review_v1",
+  "reviewer": "/root/c35_compile_repair_review",
+  "finding": "C31",
+  "artifact": "rbo-fixes-20261023/proposed-correctness-amendments/C31-explicit-lld-pair-artifacts.patch",
+  "artifact_sha256": "101bfc42f960aa67d32c9b93c4f9cd07b0becb0fb8dad922eccaf67b0fe50fe4",
+  "helper_source_before_sha256": "43d018319f33ad5828eb83ccaaab4fb90a17c0fe6a11d5319cf368bbf8372102",
+  "helper_source_after_sha256": "f6b18cb732eb4467607b5103c15c7a01c7705155b4281e5fde405e65637db165",
+  "verdict": "approved_source_only_for_observed_linux_lld_pair",
+  "changed_scope": [
+    "anonymous_cpp_metadata.py:455 linker selection recognition only"
+  ],
+  "contracts_checked": [
+    "The added success path requires exactly one flavor selector, whose value is lld, and exactly one linker-path selector whose value is absolute.",
+    "The existing subsequent basename check still requires ld.lld and the selected path must identify a file.",
+    "Duplicated equals-form flavor or path selectors and mixed conflicting flavor/path values miss the new success path and fail the unchanged single-selection gate.",
+    "The patch does not modify link_argv or strip either driver selector. The actual compiler invocation still uses both production arguments in their original order.",
+    "The explicit absolute linker path becomes the selected linker and is inserted into files. issue_receipt digests that exact file, resolves any symlink, captures file identity, and verify_receipt rechecks it before and after anonymous execution.",
+    "The selected LLD resource remains used by the link command and is retained in resource-tree fingerprinting; this patch does not change TOOL_ROOT exclusion.",
+    "Production build/platform/lld/ya.make:44-48 emits the same complementary Linux selector pair.",
+    "No changes occur in compile/link template adaptation, no-disk-emission checks, anonymous output descriptors, --no-mmap-output-file, environment transport, TMPDIR, diagnostic hashing, or guard cleanup."
+  ],
+  "selector_analysis_scope": "Equals-form selectors used by the observed production command. Existing single-selector fallbacks are preserved; this review does not claim a general Clang driver-option parser.",
+  "source_references": [
+    "anonymous_cpp_metadata.py:29",
+    "anonymous_cpp_metadata.py:319",
+    "anonymous_cpp_metadata.py:368",
+    "anonymous_cpp_metadata.py:453",
+    "anonymous_cpp_metadata.py:500",
+    "anonymous_cpp_metadata.py:523",
+    "anonymous_cpp_verify.py:271",
+    "anonymous_cpp_verify.py:311",
+    "anonymous_cpp_guard.py:67",
+    "worktrees/aggregate/build/platform/lld/ya.make:44"
+  ],
+  "actual_graph_observation_evidence": "verification/C31-explicit-lld-pair-source-review.json",
+  "actual_graph_independently_reparsed": false,
+  "limitations": [
+    "Actual graph details were taken from the adapter author's bounded read-only inspection record and corroborated with the Linux build source; this reviewer did not reload the large graph during the active guarded build.",
+    "Metadata capture must still pass against the actual successful closure build and installed linker. No compiler, linker, native, or mock execution was performed in this review.",
+    "This adapter enables accurate linker binding; it does not establish C31 runtime correctness or replace the pending direct contract checks."
+  ],
+  "actions": {
+    "live_helper_edits": false,
+    "production_edits": false,
+    "branches_modified": false,
+    "compiler_runs": 0,
+    "native_runs": 0,
+    "mock_runs": 0,
+    "repros_written_or_rendered": false
+  }
+}

@@ -1,0 +1,213 @@
+{
+  "acceptance_scope_coordination": {
+    "generator_declared_domain_controls": true,
+    "review_agent": "q01_measurement_review",
+    "separate_reconstruction_scope": "The same commit also adds keyless-domain and nullable-key reconstruction across modes; passing spilling profiles may exercise that expanded reconstruction scope.",
+    "shared_statement": "A source-level explanation and passing bounded rows do not convert absent reducer/input lineage evidence into full proof. Acceptance-scope assessment of the actual production diff remains separate.",
+    "stage_order_change": "The new earlier inlining stage is restricted to no-channel-spilling mode."
+  },
+  "actions": {
+    "build_runs": 0,
+    "compiler_runs": 0,
+    "gates_changed": false,
+    "historical_evidence_relabelled": false,
+    "live_edits": false,
+    "native_runs": 0,
+    "observer_redesigns": 0,
+    "patches_prepared": 0,
+    "raw_graph_query_cpp_inputs_saved": false
+  },
+  "admission": {
+    "aggregation_value_to_identity_binding_proved": false,
+    "candidate_complete_key_pair_lineage_observed": false,
+    "exact_shared_producer_origin_proved": false,
+    "full_shared_producer_contract_pass": false
+  },
+  "established_facts": [
+    "The previously unclassified wrapper is WideFromBlocks in all observed projected branches.",
+    "All observed NarrowMap structure values are exact references to their own two scalar lambda arguments; output names and source arguments form a local bijection.",
+    "Only the direct identity branch is shown to return the exact Switch branch argument. The projected branch input chain stops at DqPhyHashCombine.",
+    "The float profile has one projected branch and one identity branch; the integer profile has three projected branches across two switches and one identity branch.",
+    "Both bounded executions pass their existing semantic and structural oracles, guard and binary-provenance checks. They retain false full-lineage flags."
+  ],
+  "evidence": {
+    "path": "verification/guarded-C31-wide-observation-1793149460058563909.jsonl",
+    "records": [
+      {
+        "binary_provenance_verified": true,
+        "case": "c31_stability_float_domain__spilling__left",
+        "exact_identity_branch_count": 1,
+        "existing_field_rejection": "switch_projection",
+        "full_flags": {
+          "aggregation_value_to_identity_binding_proved": false,
+          "candidate_complete_key_pair_lineage_observed": false,
+          "exact_shared_producer_origin_proved": false,
+          "full_shared_producer_contract_pass": false
+        },
+        "input_chain_heads": {
+          "0:FromFlow": 1,
+          "1:NarrowMap": 1,
+          "2:ToFlow": 1,
+          "3:WideFromBlocks": 1,
+          "4:FromFlow": 1,
+          "5:DqPhyHashCombine": 1
+        },
+        "input_chain_terminal": {
+          "same_branch_argument": 1,
+          "unsupported_shape": 1
+        },
+        "native_batch_guard_pass": true,
+        "own_scalar_argument_count": 2,
+        "physical_ast_sha256": "4b224f89b2e4d7ffbfa6a69babbde66bb788969fbbb9b4a1626fae7dffbac688",
+        "projected_branch_count": 1,
+        "projection_argument_counts": {
+          "2": 1
+        },
+        "semantic_oracle_pass": true,
+        "structural_oracle_pass": true,
+        "switches": 1
+      },
+      {
+        "binary_provenance_verified": true,
+        "case": "c31_stability_integer_domain__spilling__left",
+        "exact_identity_branch_count": 1,
+        "existing_field_rejection": "switch_projection",
+        "full_flags": {
+          "aggregation_value_to_identity_binding_proved": false,
+          "candidate_complete_key_pair_lineage_observed": false,
+          "exact_shared_producer_origin_proved": false,
+          "full_shared_producer_contract_pass": false
+        },
+        "input_chain_heads": {
+          "0:FromFlow": 3,
+          "1:NarrowMap": 3,
+          "2:ToFlow": 3,
+          "3:WideFromBlocks": 3,
+          "4:FromFlow": 3,
+          "5:DqPhyHashCombine": 3
+        },
+        "input_chain_terminal": {
+          "same_branch_argument": 1,
+          "unsupported_shape": 3
+        },
+        "native_batch_guard_pass": true,
+        "own_scalar_argument_count": 6,
+        "physical_ast_sha256": "bb58ff813ffa27216f14c03ccd7d83dcd108196c566643212a5813c951830274",
+        "projected_branch_count": 3,
+        "projection_argument_counts": {
+          "2": 3
+        },
+        "semantic_oracle_pass": true,
+        "structural_oracle_pass": true,
+        "switches": 2
+      }
+    ],
+    "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+    "rows": 24,
+    "sha256": "089968b36ba0892496347533876216bc3e1978a86890babff5207b17c6965de4"
+  },
+  "main_conclusion": "The actual outer projection is now characterized, but the observations do not support extending complete shared-value lineage proof. Every projected branch reaches a DqPhyHashCombine boundary before the observer reaches the Switch branch input.",
+  "narrow_lineage_support_decision": {
+    "actual_key_only_domain_recognized": false,
+    "complete_shared_field_lineage_supported_by_current_evidence": false,
+    "conditional_source_supported_rule": "Only an exact key-only reducer with direct distinct input-key arguments, empty init/update state, a complete key-only finish permutation, validated block layout, exact branch-input identity and the existing exact-scalar-domain precondition could preserve the required domain field provenance. Current counters do not establish those conditions.",
+    "outer_projection_ownership_characterized": true,
+    "safe_to_add_block_wrapper_as_generic_identity": false,
+    "safe_to_add_reducer_as_generic_identity": false
+  },
+  "schema_version": "c31_actual_wide_observation_source_assessment_v1",
+  "source_bindings": {
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp": {
+      "line": 699,
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "The earlier inlining stage is added only when channel spilling is disabled.",
+      "sha256": "121c7897a70f4b535cd853b1964c909bca4e376dc89cccd83d727d7066f53e3a"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp": {
+      "line": 270,
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Aggregate lowering invokes TransformStageOutput with GetReplicateOutputIndex.",
+      "sha256": "1f5a0fead4fd48d92ae7135c9f5898d8efa0ed6ca95589519003dd279f369d8e"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp": {
+      "lines": [
+        881,
+        903,
+        952,
+        1029,
+        1486
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "All aggregates use the same block transport and NarrowMap projection envelope; key/init/update/finish lambdas determine whether output is keys or aggregate state.",
+      "sha256": "fdb9b801ed168150a67bbb69ec53a83d969a8231cff4a0af52e37983d9c09f15"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h": {
+      "line": 138,
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "The actual new-RBO aggregation builder directly names DqPhyHashCombine.",
+      "sha256": "4a4b70640d1f203eed139e0e83b53bfd2ae89df655f9fc50803dd22587d4e9b9"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h": {
+      "line": 35,
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "TransformStageOutput applies aggregation to one selected Switch branch while preserving the others.",
+      "sha256": "2b6dc81d287acc05fbd6887edab8796cdbf36c07a138a71eeb64534ff877fa1d"
+    },
+    "ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.cpp": {
+      "line": 227,
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "MakeDomainProjection is key-only grouping with no aggregation traits and retained key identities.",
+      "sha256": "db38cac537fa8ec5c38aa2432f542bbdb09aa9cc1a6e56e5252f0a15f05aadfb"
+    },
+    "ydb/core/kqp/opt/rbo/rules/inline_join_filters.cpp": {
+      "lines": [
+        168,
+        178,
+        217
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Shared producer ports and optional key-only domain are distinct from aggregate state generation; domain reconstruction is introduced when key metadata is empty.",
+      "sha256": "7f9a927046ed5d6479dfac3f1c8bc6248f18498dc57212d3d2e60d95818ae667"
+    },
+    "ydb/core/kqp/opt/rbo/rules/propagate_aggregate_through_stage.cpp": {
+      "lines": [
+        13,
+        24,
+        109
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Aggregation over a replicate port can be pushed into the producer stage; operator kind is not a source-read barrier.",
+      "sha256": "aec3c828e7bf8cbabbff051b95436f0fe314e3ce92fd421e580161cffd10aae1"
+    },
+    "ydb/library/yql/dq/type_ann/dq_type_ann.cpp": {
+      "line": 1465,
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Hash-combine output is derived from finish-handler output; block output includes an auxiliary row-count scalar.",
+      "sha256": "51ad4c96186f54c0d66fe527ac1eb7d9381b450e25a38e68ebbcfda737b392c8"
+    },
+    "yql/essentials/core/type_ann/type_ann_blocks.cpp": {
+      "lines": [
+        1210,
+        1288
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "WideFromBlocks removes the block row-count component; it is not a literal unchanged-width row-layout wrapper.",
+      "sha256": "15cdb19bba6f42e0f92f1578040ff3464c5766fa4457527b524b13db9acf7c0d"
+    }
+  },
+  "source_interpretation": [
+    "The new-RBO physical aggregation builder itself emits the exact observed FromFlow/NarrowMap/ToFlow/WideFromBlocks/FromFlow/DqPhyHashCombine envelope when blocks are enabled.",
+    "That envelope is shared by key-only grouping and stateful aggregation. The local NarrowMap bijection preserves reducer output positions; it does not identify those values with the reducer inputs.",
+    "Aggregate stage propagation and TransformStageOutput explain why the reduction can occur inside a Switch branch. This is compatible with the source pipeline and is not by itself a production bug.",
+    "MakeDomainProjection has empty aggregation traits and retained key identities, so a narrowly bounded proof could recognize that exact reducer form if its actual key/init/update/finish lambdas and input identity were available.",
+    "Stateful reductions require different reasoning. Reclassifying DqPhyHashCombine as a transparent projection would be unsound."
+  ],
+  "status": "source_assessment_complete_no_changes",
+  "unresolved_actual_graph_facts": [
+    "Which observed reducers are the key-only domain projections versus stateful producer reductions.",
+    "Whether each reducer input resolves through the supported wrappers to the exact intended shared branch argument.",
+    "Exact key extractor positions, empty-versus-nonempty init/update state and finish-handler key/state selection.",
+    "Complete shared producer schema, identity-port field layout and per-port mapping to the outer reconstruction join key pairs.",
+    "Complete binding from any upstream aggregate values to the reconstruction identity fields."
+  ]
+}

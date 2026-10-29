@@ -1,0 +1,12 @@
+{
+  "schema": "quality_spill_revision_guard_metadata_contracts_v1",
+  "patch_sha256": "b9393c041625cbf1b7f43d2d55aa6e7f440367a33f8f67b6ba68258423ebac54",
+  "checks_passed": 2064,
+  "case_phase_pairs_checked": 164,
+  "actual_native_preparation_prefix_checked": true,
+  "receipt_documents": "Temporary synthetic metadata only; no runner executable or query invoked",
+  "native_build_graph_toolchain_runs": 0,
+  "rendered_SQL_CPP_fixtures_or_plans_persisted": false,
+  "live_edits": false,
+  "script_sha256": "d02929a8f343f52a33b204e9472b271f3d0eb94d9d8afda032fdc261596138ae"
+}

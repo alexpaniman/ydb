@@ -1,0 +1,16 @@
+{
+  "schema": "C41_standard_post_type_amendment_applied_v1",
+  "old_revision": "dd1d8cabb86258c4bcb998bd6b317b296bfdd251",
+  "revision": "c6a5904e300b925032913f51e6a19518ceb842c2",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "branch": "fix/new-rbo/c41-preserve-mixed-query-results",
+  "patch": "proposed-correctness-amendments/C41-final-query-standard-post-type-pipeline-20261028.patch",
+  "patch_sha256": "725b784e7785826c6530f205e46ac0c1f5f2b35579cf0ba0fa51eec41189a924",
+  "changed_files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  ],
+  "no_essentials_edits": true,
+  "independent_review": "verification/C41-final-query-standard-post-type-pipeline-independent-review-20261028.json",
+  "native_pending": true,
+  "applied_unix_time": 1793158771.4758902
+}

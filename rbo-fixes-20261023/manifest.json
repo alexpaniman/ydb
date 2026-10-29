@@ -1,0 +1,668 @@
+{
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "base_ref": "origin/main (pinned 2026-10-23)",
+  "constraints": [
+    "One independent branch per finding",
+    "No yql/essentials edits",
+    "No rendered reproduction inputs retained",
+    "Freeze source edits during builds",
+    "No -j or forced rebuild; relwithdebinfo"
+  ],
+  "items": [
+    {
+      "id": "C01",
+      "title": "Typed join predicates are copied across unequal key types",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c01-preserve-predicate-types",
+      "commit": "40a5bea4e432b65845052aacbd104b642ffc8df1"
+    },
+    {
+      "id": "C02",
+      "title": "Volatile filters change aggregate values",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c02-preserve-volatile-group-filters",
+      "commit": "6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41"
+    },
+    {
+      "id": "C03",
+      "title": "DISTINCT aggregates over grouping sets compute incorrect subtotals",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c03-expand-grouping-sets-first",
+      "commit": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e"
+    },
+    {
+      "id": "C04",
+      "title": "Filter fusion evaluates expressions on rows already rejected",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c04-preserve-filter-evaluation-order",
+      "commit": "69b7c53d2f5ad03f02256e03b972901bdab12eab"
+    },
+    {
+      "id": "C05",
+      "title": "Scalar subquery validation runs for unrelated correlation keys",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c05-preserve-scalar-domains",
+      "commit": "bf6527096b7a594beb47e3b2e274079b184b8128"
+    },
+    {
+      "id": "C06",
+      "title": "Correlation can select the wrong row after a key type changes",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c06-preserve-capture-types",
+      "commit": "446592a476b92437df5b2579e1027cfb313be1d9"
+    },
+    {
+      "id": "C07",
+      "title": "Domain elimination admits matches forbidden by NaN equality",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c07-retain-correlation-equality",
+      "commit": "2e4843e6be7a7b49fab191bc0d454653e0aca41e"
+    },
+    {
+      "id": "C08",
+      "title": "Empty correlated scalar aggregates skip their result expression",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c08-restore-empty-scalar-groups",
+      "commit": "af05d7c395191d1a19ff7a3a4b2c8bc29be83582"
+    },
+    {
+      "id": "C09",
+      "title": "IN subqueries ignore the requested NULL-semantics mode",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c09-preserve-in-null-semantics",
+      "commit": "1525ba0d79efbdae93eb658a6ab75daa5371f411"
+    },
+    {
+      "id": "C10",
+      "title": "Nullable NaN is mistaken for NULL in IN handling",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c10-test-in-lookup-presence",
+      "commit": "8c96cdf3c1ef0a971b7d736facd8d2610a5335d9"
+    },
+    {
+      "id": "C11",
+      "title": "IN typing removes a necessary COALESCE fallback",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c11-preserve-in-result-type",
+      "commit": "d23472b33678121343af7ebc4f532c88e0488d51"
+    },
+    {
+      "id": "C12",
+      "title": "Hidden grouping columns prevent DISTINCT from removing duplicates",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c12-distinct-selected-group-values",
+      "commit": "68356618882bee6b367ac24f5536883c2cb14609"
+    },
+    {
+      "id": "C13",
+      "title": "Grouped result expressions are replaced by a bare grouping key",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c13-preserve-grouped-result-expressions",
+      "commit": "71378e72b8ce2770e83abac301d701b744a6c603"
+    },
+    {
+      "id": "C14",
+      "title": "Aggregates on different nested fields share the wrong input",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c14-preserve-nested-aggregate-inputs",
+      "commit": "c128b7c1bd99c1c7199e3ad2b00d061b7f3a2b6f"
+    },
+    {
+      "id": "C15",
+      "title": "A scalar subquery is evaluated outside its conditional guard",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c15-check-demanded-scalar-values",
+      "commit": "3a9521680600ea2f5bcdb2ea0736e8d2cdb5df5d"
+    },
+    {
+      "id": "C16",
+      "title": "Unresolved subqueries enter block-cross join filters too early",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c16-defer-unresolved-join-subplans",
+      "commit": "473f0a46d6145fb93e940140030f0ae21e83972e"
+    },
+    {
+      "id": "C17",
+      "title": "Shared-plan pruning leaves references to removed columns",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c17-refresh-pruned-schemas",
+      "commit": "d08902de538969291efbeb272b45a12982a65ae8"
+    },
+    {
+      "id": "C18",
+      "title": "Pruning leaves an invalid operator under an empty grouping-set wrapper",
+      "kind": "correctness",
+      "status": "verified_new_parser_invariant",
+      "branch": "fix/new-rbo/c18-preserve-grouping-templates",
+      "commit": "ec25a7d3319c8e75ad3849a638f6830642097709"
+    },
+    {
+      "id": "C19",
+      "title": "Unordered rank functions construct an invalid expression",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c19-unordered-ranking",
+      "commit": "8c1af92732e2b672b9c9a3e0c9cf533eb2d8969c"
+    },
+    {
+      "id": "C20",
+      "title": "Window ranking loses the nullable-key compatibility setting",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c20-nullable-rank-mode",
+      "commit": "5f9ef7674522a3df8d13b3d6080d82224a9fba83"
+    },
+    {
+      "id": "C21",
+      "title": "Window AVG uses the wrong physical type for intervals",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c21-window-interval-average",
+      "commit": "78462388619dee01bf57156839620936e70d7376"
+    },
+    {
+      "id": "C22",
+      "title": "Repeated window keys produce an invalid physical sort",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c22-window-sort-keys",
+      "commit": "e67e82b03f5ece6469b879a25083fea8e5684f87"
+    },
+    {
+      "id": "C23",
+      "title": "Grouping sets mishandle a bare NULL key type",
+      "kind": "correctness",
+      "status": "verified_scoped",
+      "branch": "fix/new-rbo/c23-null-grouping-key",
+      "commit": "030ea24b8e681a8242c7f4e7df2c0b0bd1725676"
+    },
+    {
+      "id": "C24",
+      "title": "DISTINCT expansion creates a nested optional for interval SUM",
+      "kind": "correctness",
+      "status": "verified_scoped",
+      "branch": "fix/new-rbo/c24-distinct-interval-state",
+      "commit": "037848a02d0d400ab3d90c29d329b83b9f03456c"
+    },
+    {
+      "id": "C25",
+      "title": "Correlated multi-aggregate DISTINCT fails between stages",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c25-decorrelate-before-distinct",
+      "commit": "33e1d0f59ccf5c07308337e019b73f110cd98d53"
+    },
+    {
+      "id": "C26",
+      "title": "DISTINCT combined with sample standard deviation is rejected",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c26-distinct-variance-state",
+      "commit": "d40b5b11a3c485d1b504c128931d120d94487324"
+    },
+    {
+      "id": "C27",
+      "title": "HAVING without an aggregate call fails translation",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c27-having-without-aggregate",
+      "commit": "fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c"
+    },
+    {
+      "id": "C28",
+      "title": "DISTINCT over window results references columns before definition",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c28-distinct-after-window",
+      "commit": "5616e3ad461be8ae3f5716e1f3cfaae2580d2abb"
+    },
+    {
+      "id": "C29",
+      "title": "Mixed set-operation precedence is lowered without a real operand stack",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c29-set-operation-stack",
+      "commit": "9f2e822f02204297e1aef990a2ce29310c7d438c"
+    },
+    {
+      "id": "C30",
+      "title": "INSERT OR REVERT loses its conflict policy",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c30-route-insert-revert",
+      "commit": "d3f07e4572af7719c1846c38fc3a8200e9c2ebd6"
+    },
+    {
+      "id": "C31",
+      "title": "Late join-filter inlining recreates unsupported sharing",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c31-inline-before-sharing-expansion",
+      "commit": "24e1aae9a0677e8ed12f257a7944c50516e9cba4"
+    },
+    {
+      "id": "C32",
+      "title": "Forced Map mode selects an unsupported algorithm for FULL JOIN",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c32-supported-map-join-kinds",
+      "commit": "244c9fa808fb219eee19bf7a73dbed19602f303e"
+    },
+    {
+      "id": "C33",
+      "title": "Set-operation output column order follows the final arm",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c33-first-arm-column-order",
+      "commit": "b48c86eeb7c2f0ea14d052f107d04cf26330d885"
+    },
+    {
+      "id": "C34",
+      "title": "Scalar tuple-valued aggregates are mistaken for AVG state",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c34-preserve-tuple-aggregate-results",
+      "commit": "80b8d1dcee88c42a687c820600955953ec413c49"
+    },
+    {
+      "id": "C35",
+      "title": "Ordinary AVG uses an incompatible accumulator for intervals",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c35-interval-average",
+      "commit": "545bae60730d260ed848ebbfde31b47a7d0fc21e"
+    },
+    {
+      "id": "C36",
+      "title": "Repeated ordinary ORDER BY keys fail physical type checking",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c36-order-sort-keys",
+      "commit": "49ca1046560e6edb6b2d616829833ef586e5822d"
+    },
+    {
+      "id": "C37",
+      "title": "Window repartitioning leaves stale distribution metadata and breaks later grouping",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c37-window-distribution",
+      "commit": "bc9e6946f9d128036b13912fedafabb1bd9a206d"
+    },
+    {
+      "id": "C38",
+      "title": "Full outer joins advertise a false left-key distribution and break later grouping",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c38-full-join-distribution",
+      "commit": "62bdb6bf7ed7b70851ed62c3d886fcc9737de15b"
+    },
+    {
+      "id": "C39",
+      "title": "Full joins silently discard residual ON predicates when block joins are enabled",
+      "kind": "correctness",
+      "status": "verified_guard",
+      "branch": "fix/new-rbo/c39-require-residual-capability",
+      "commit": "416834fa9b1e0fec89d663026e74f76ab6909314"
+    },
+    {
+      "id": "C40",
+      "title": "Multiple JSON projections from one column fail compilation",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c40-decline-conflicting-olap-projections",
+      "commit": "a3f2d982416508ada71d8e63fcc097631a3dbe12"
+    },
+    {
+      "id": "C41",
+      "title": "Mixed read and write statements lose result bindings and fail task construction",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c41-preserve-mixed-query-results",
+      "commit": "c6a5904e300b925032913f51e6a19518ceb842c2"
+    },
+    {
+      "id": "C42",
+      "title": "Nested unions do not consistently widen branch types",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c42-widen-every-set-operation-edge",
+      "commit": "6eeadd50b057ceec10173d3fb1104b4a81ddbafe"
+    },
+    {
+      "id": "C43",
+      "title": "Focused physical lowering rejects supported composite expressions",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c43-lower-composite-compatibility",
+      "commit": "fd7ba4678acdce0c5473cb765187abdde514a16e"
+    },
+    {
+      "id": "C44",
+      "title": "Successful indexed INSERT can omit required index maintenance",
+      "kind": "correctness",
+      "status": "verified_guard",
+      "branch": "fix/new-rbo/c44-require-index-maintenance",
+      "commit": "329c771f34f97af659cf4d78af1e6c54226deb3e"
+    },
+    {
+      "id": "C45",
+      "title": "Window expressions lose nested-field receivers",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c45-window-nested-members",
+      "commit": "6d8e86a79f5417c74d46a8314e3591d6e3b88eed"
+    },
+    {
+      "id": "C46",
+      "title": "Conditional UPDATE is rejected by table-effect translation",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c46-route-conditional-update",
+      "commit": "43cf0cc6ab0a627e42844759086ac020bd98925f"
+    },
+    {
+      "id": "C47",
+      "title": "Explicit secondary-index reads are not imported",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c47-import-explicit-index-reads",
+      "commit": "54db45bef39b3515bd662daefe9d10c8757e74db"
+    },
+    {
+      "id": "C48",
+      "title": "Indexed UPSERT is rejected when sink index maintenance is disabled",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c48-route-explicit-index-writes",
+      "commit": "35bc8b6938f42a11e92747063bfafc1dec0b9b5c"
+    },
+    {
+      "id": "C49",
+      "title": "Incomplete lookup keys make residual LEFT JOIN reconstruction mix different rows",
+      "kind": "correctness",
+      "status": "verified",
+      "branch": "fix/new-rbo/c49-preserve-lookup-identity",
+      "commit": "a2abaec9a49a3ad176a135a55278426de0b01dad"
+    },
+    {
+      "id": "C50",
+      "title": "Mixed numeric join keys can be shuffled before type normalization and lose matches",
+      "kind": "correctness",
+      "status": "verified_scoped",
+      "branch": "fix/new-rbo/c50-gather-mixed-join-keys",
+      "commit": "946575513d233534e8f4fa4168f5dc9379ffc982"
+    },
+    {
+      "id": "Q01",
+      "title": "General window frames repeatedly aggregate the whole frame.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q01-general-window-frames-repeatedly-aggregate-the-whole-frame",
+      "commit": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7"
+    },
+    {
+      "id": "Q02",
+      "title": "Unused window results retain their complete execution pipeline.",
+      "kind": "optimization_quality",
+      "status": "verified_semantics_quality_pending",
+      "branch": "fix/new-rbo/q02-unused-window-results-retain-their-complete-execution-pipeline",
+      "commit": "1b50d28716f74eb02571e7490181132b14c37bff"
+    },
+    {
+      "id": "Q03",
+      "title": "An uncovered residual predicate prevents a selective index access path.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q03-an-uncovered-residual-predicate-prevents-a-selective-index-access-path",
+      "commit": "939173f5abcbcd596dd23ddfefed806df0d243ed"
+    },
+    {
+      "id": "Q04",
+      "title": "An unfiltered bounded sort does not consider a matching secondary index.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q04-an-unfiltered-bounded-sort-does-not-consider-a-matching-secondary-index",
+      "commit": "a9df61306aa47badfbf1cec2fc043b3336addfd3"
+    },
+    {
+      "id": "Q05",
+      "title": "Descending primary-key top-N loses row-store ordered-read pushdown.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q05-descending-primary-key-top-n-loses-row-store-ordered-read-pushdown",
+      "commit": "33bc67934dd9a881ca1aecbf4c6cefd0f882f8c1"
+    },
+    {
+      "id": "Q06",
+      "title": "Lookup selection can choose a broad secondary-index prefix over a complete primary-key probe.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q06-lookup-selection-can-choose-a-broad-secondary-index-prefix-over-a-complete",
+      "commit": "864bd56c1abb0c47f9f1ee669acf722819354dee"
+    },
+    {
+      "id": "Q07",
+      "title": "Lookup costing and actual lookup eligibility disagree.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q07-lookup-costing-and-actual-lookup-eligibility-disagree",
+      "commit": "18eb64e0a7e18ccf2f50340a75f98b3ced6ab646"
+    },
+    {
+      "id": "Q08",
+      "title": "Filters apply earlier selectivity again to already-reduced estimates.",
+      "kind": "optimization_quality",
+      "status": "verified_quality",
+      "branch": "fix/new-rbo/q08-filters-apply-earlier-selectivity-again-to-already-reduced-estimates",
+      "commit": "799af8215d791f4f3c4bdd3da9c087c56177117a"
+    },
+    {
+      "id": "Q09",
+      "title": "Scalar aggregate cardinality is estimated as its input cardinality.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q09-scalar-aggregate-cardinality-is-estimated-as-its-input-cardinality",
+      "commit": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e"
+    },
+    {
+      "id": "Q10",
+      "title": "Multiple DISTINCT aggregates duplicate deduplication of the same argument.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q10-multiple-distinct-aggregates-duplicate-deduplication-of-the-same-argument",
+      "commit": "efeebb38e72fd7a7c84ab65121e49362f93e2d4b"
+    },
+    {
+      "id": "Q11",
+      "title": "Filters above UnionAll miss branch-local access-path optimization.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q11-filters-above-unionall-miss-branch-local-access-path-optimization",
+      "commit": "f9279dcfeac87c596f58ccc8e3add4722c66a960"
+    },
+    {
+      "id": "Q12",
+      "title": "Early peephole expansion prevents native JSON filter pushdown.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q12-early-peephole-expansion-prevents-native-json-filter-pushdown",
+      "commit": "a92df58f248c54a46f82586f50fc58ae5b207e8e"
+    },
+    {
+      "id": "Q13",
+      "title": "Bulk OLAP writes cannot retain parallel streaming sinks.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q13-bulk-olap-writes-cannot-retain-parallel-streaming-sinks",
+      "commit": "b0df3bf71706e6a13041e3dda141e13312130b97"
+    },
+    {
+      "id": "Q14",
+      "title": "ReverseBlockJoin loses the CBO's shuffle directives.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q14-reverseblockjoin-loses-the-cbo-s-shuffle-directives",
+      "commit": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd"
+    },
+    {
+      "id": "Q15",
+      "title": "Every window repartitions even when input partitioning is sufficient.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q15-every-window-repartitions-even-when-input-partitioning-is-sufficient",
+      "commit": "4e6d9217ef22bdcced5cd1879d3639508717e8e0"
+    },
+    {
+      "id": "Q16",
+      "title": "A wide row-store LIMIT disables the query-wide block engine.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q16-a-wide-row-store-limit-disables-the-query-wide-block-engine",
+      "commit": "36000459cb44ccfe5e548a2622bfa21ffff591c7"
+    },
+    {
+      "id": "Q17",
+      "title": "Covering lookup indexes are rejected when outputs use implicit primary-key columns.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q17-covering-lookup-indexes-are-rejected-when-outputs-use-implicit-primary-key",
+      "commit": "a5a23189d946a8bd772e10279bc44e270648ec02"
+    },
+    {
+      "id": "Q18",
+      "title": "Fetched statistics are discarded when any table statistics already exist.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q18-fetched-statistics-are-discarded-when-any-table-statistics-already-exist",
+      "commit": "f27cc1474705c540c5a64c2700f19eb4df749f54"
+    },
+    {
+      "id": "Q19",
+      "title": "A failure in the first statistics request discards later successful statistics.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q19-a-failure-in-the-first-statistics-request-discards-later-successful-statis",
+      "commit": "c261bd389b61872b7c78851a26bf46283b95b9cb"
+    },
+    {
+      "id": "Q20",
+      "title": "Join statistics omit right-side aliases when applying hints.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q20-join-statistics-omit-right-side-aliases-when-applying-hints",
+      "commit": "49b33e196eefd41df663417e7392f7ca0e1504cd"
+    },
+    {
+      "id": "Q21",
+      "title": "Positive LIMIT inside a correlated EXISTS becomes unnecessary window work.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q21-positive-limit-inside-a-correlated-exists-becomes-unnecessary-window-work",
+      "commit": "a15cf405bd258b86dedf171e6a9eaac9022dd644"
+    },
+    {
+      "id": "Q22",
+      "title": "Focused scalar IN lowering expands large explicit collections linearly.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q22-focused-scalar-in-lowering-expands-large-explicit-collections-linearly",
+      "commit": "81b248477b2357b4acee6e61d735fdf473f7f71b"
+    },
+    {
+      "id": "Q23",
+      "title": "Original lookup keys stay in payloads after their last semantic use.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q23-original-lookup-keys-stay-in-payloads-after-their-last-semantic-use",
+      "commit": "183be021902ede0113798fcee8118c4479966713"
+    },
+    {
+      "id": "Q24",
+      "title": "Range-enforced predicate columns remain projected for provenance alone.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q24-range-enforced-predicate-columns-remain-projected-for-provenance-alone",
+      "commit": "734379d38b24d68712098d96cd57fe79d1c90253"
+    },
+    {
+      "id": "Q25",
+      "title": "Map fusion drops the request to continue pushing definitions.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q25-map-fusion-drops-the-request-to-continue-pushing-definitions",
+      "commit": "1300a777c320158fe82cd9416b355165dbe73ecd"
+    },
+    {
+      "id": "Q26",
+      "title": "Configured sequential-read concurrency is not forwarded.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q26-configured-sequential-read-concurrency-is-not-forwarded",
+      "commit": "c0e36684231f975761822543f88edae5a4e3297e"
+    },
+    {
+      "id": "Q27",
+      "title": "Shared nonterminal AST nodes are revisited during top-level SELECT collection.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q27-shared-nonterminal-ast-nodes-are-revisited-during-top-level-select-collect",
+      "commit": "72e17774d130a022ed4649c26c3db7656d83d971"
+    },
+    {
+      "id": "Q28",
+      "title": "Every successful rule restarts traversal and recomputes global properties.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q28-every-successful-rule-restarts-traversal-and-recomputes-global-properties",
+      "commit": "8089888107b179ca5c08f145f70564bd4637daa6"
+    },
+    {
+      "id": "Q29",
+      "title": "Lookup filters can duplicate deterministic residual evaluation.",
+      "kind": "optimization_quality",
+      "status": "prepared_unverified",
+      "branch": "fix/new-rbo/q29-lookup-filters-can-duplicate-deterministic-residual-evaluation",
+      "commit": "73620db7e22cbf67cb2e2262f227a9303492ed41"
+    }
+  ],
+  "followup_items": [
+    {
+      "id": "F01",
+      "title": "Repeated DISTINCT aliases create duplicate Map definitions",
+      "status": "verified",
+      "branch": "fix/new-rbo/f01-deduplicate-distinct-inputs",
+      "commit": "cb7a4189eea1f56dfdc7bbbb012c96403c090636"
+    },
+    {
+      "id": "F02",
+      "title": "Interval SUM uses an unsuitable physical accumulator",
+      "status": "verified",
+      "branch": "fix/new-rbo/f02-normalize-interval-sums",
+      "commit": "1c4fd440a12e3a6a8267f119b1e25b603b5282c9"
+    },
+    {
+      "id": "F03",
+      "title": "Physical-window interval SUM uses an unsuitable accumulator",
+      "status": "verified",
+      "branch": "fix/new-rbo/f03-normalize-window-interval-sums",
+      "commit": "2a99d200829f2dd090ef70ce69b491c12227c5d5"
+    }
+  ]
+}

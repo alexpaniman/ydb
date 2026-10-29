@@ -1,0 +1,38 @@
+F02 — Aggregate interval SUM uses the wrong accumulator representation
+
+Correctness: the new aggregate lowering emits an unsupported Interval64
+AggrAdd call. For the smaller Interval type it also checks the interval range
+while accumulating, so an intermediate overflow can lose part of a sum even
+when later values would bring the final total back into range. Ordinary and
+DISTINCT SUM share this lowering. The Interval64 compilation failure is
+natively confirmed; overflow cancellation is source-confirmed and awaits the
+generated native controls.
+
+Narrow fix: normalize interval SUM inputs through Int64 to Decimal(35,0) in
+the early RBO aggregate stage, reuse existing Decimal aggregation and partial
+merging, then convert the completed result through Int64 to its original
+interval type. Preserve result IDs, grouping keys, DISTINCT and final NULL
+on overflow. No yql/essentials changes. Bounded physical windows use the
+separate F03 fix.
+
+Source authorship / introducing history:
+- Filitov Mikhail, c8d7de0150504c118177f529bbc05b0774e5aa83,
+  2026-10-06, “[WindowFunctions][NewRBO] Do not make window aggregates over
+  never empty frames optional” (#55294): changed integer name-prefix widening
+  to numeric signedness, retaining Interval/Interval64 as accumulator types,
+  and added optional interval state wrapping.
+- Denis Khalikov, 05744b79f6132ebbd8de22eb67c4ad9b1d5acbde,
+  2026-01-07, “[NEW RBO] Support wide lambdas for aggregation” (#31698):
+  introduced the older generic SUM AggrAdd builder. This is provenance for
+  the mechanism, not proof of the same interval-as-state failure before the
+  later type change.
+These attributions come from exact introducing diffs and pinned-main blame.
+No historical native bisection was performed; Git metadata does not establish
+whether an author used an agent.
+
+Independent branch commit: 1c4fd440a12e3a6a8267f119b1e25b603b5282c9.
+Patch: proposed-correctness-amendments/F02-interval-sum-normalization.patch.
+Generator: interval_sum_checks.py, 88 compositional profiles.
+Source/model evidence: verification/F02-interval-sum-artifact-contracts.json.
+Source review: verification/F02-interval-sum-independent-source-review.json.
+Fixed compilation and native execution are pending.

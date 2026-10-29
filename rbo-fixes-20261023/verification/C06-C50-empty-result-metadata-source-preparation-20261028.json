@@ -1,0 +1,101 @@
+{
+  "binding_consequences": {
+    "future_helper_composition_must_recheck_exact_before_images": true,
+    "native_after": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77",
+    "native_before": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b",
+    "old_profile_and_run_evidence_must_remain_immutable": true,
+    "recursive_quality_SQL_and_SDK_profile_fingerprints_need_new_composition_manifest": true,
+    "runner_after": "b2b939a9eee061e745b59be8307619a1fbf5e2e4a1bef619e14d0d349083f406",
+    "runner_wrapper_pin_refreshed": true,
+    "wrapper_after": "6f40673cc6e1a8169185302d7895c46a40f45cb46f13dc4dad2afbb7104d60fd",
+    "wrapper_and_runner_native_pins_refreshed": true
+  },
+  "classification": "verification_transport_boundary_gap_no_production_anti_join_miscompile_established",
+  "final_distribution_proof": false,
+  "format_source_proof": [
+    "kqprun supports full-json and passes each Ydb::ResultSet directly to PrintJSON.",
+    "The public ResultSet schema carries ordered columns, rows, truncation, format and alternate-format payloads; the parser permits only the specific empty value-format metadata shape.",
+    "The styleguide generator emits original lower-case proto names here, integer enum values and omits empty repeated fields/default scalars. This proof is source-only until the actual runner transport is observed.",
+    "The same result alias and required Int64 outer id projection are unchanged for both left-anti families; a different actual schema rejects for review."
+  ],
+  "full_integration_acceptance_granted": false,
+  "human_readable_cause": "The four rejected left-anti cells correctly matched the independent empty-row oracle, but rows-format output contains no single-result-set heading and writes nothing for zero rows. The integration validator cannot distinguish an empty result set from no result set, so it correctly withheld acceptance. The saved records retain observed_semantic_oracle_pass=true and the boundary-validation error.",
+  "immutable_actual_evidence": {
+    "fully_validated_records": 12,
+    "old_failed_records_accepted_or_modified": false,
+    "record_count": 16,
+    "records": "verification/integration-C06-C50-2bc207a991cc-4366390bb07240379f07b9162a14ce3b-records.jsonl",
+    "records_sha256": "0d8b6a682f0abcec5d1cbb9707138ba69244adead244fd61e81ee42746312c87",
+    "row_oracle_pass_but_boundary_unproved_records": 4,
+    "summary": "verification/integration-C06-C50-2bc207a991cc-4366390bb07240379f07b9162a14ce3b-summary.json",
+    "summary_sha256": "3d4eb359558c532b48df743c9e225ef2f7de1deaa44d929e87f466eb9930e131"
+  },
+  "native_next_step": "After independent review and idle installation, rerun exactly the original16 integration records with unchanged query/schema/fixture/settings hashes, the exact same successfully built combined revision and revalidated executable receipt, and a fresh guard-bound evidence slice. Require all16 boundary and independent semantic verdicts; preserve this earlier12pass/4boundary-failure run.",
+  "preservation": {
+    "all_node_bounded_spilling_configuration_unchanged": true,
+    "no_generic_formatter_or_empty_stream_acceptance": true,
+    "node_count": 4,
+    "original16settings_fingerprints_unchanged": true,
+    "original48workload_fingerprint_slots_unchanged": true,
+    "original8cases_tworepetitions": true,
+    "query_schema_fixture_settings_hashes_unchanged": true,
+    "result_output_format_intentionally_changes_for4records": true,
+    "rows_parameter": 24,
+    "serial_runner_function_bodies_unchanged": true,
+    "source_snapshot_provenance_and_guards_unchanged": true
+  },
+  "production_live_helpers_Git_objects_modified": false,
+  "production_revision": "2bc207a991cc036e1a74616d7ea3e7df6137d8dd",
+  "production_source_bindings": {
+    "contrib/tools/protoc/plugins/cpp_styleguide/cpp_styleguide.cpp": "3cff6eb2933e47480ca1e9b89b60f4476cbfe7b2f6f5cc285a4f641726da98e4",
+    "ydb/public/api/protos/ydb_value.proto": "cf11c3006d18d50efa4709687c415b6bdf2425e79d5caaa5d5621237d212d5da",
+    "ydb/tests/tools/kqprun/kqprun.cpp": "c706050a14132739899130cd5a97fdb0ed0445790d8dc7cd9859fb2b2d4a8cce",
+    "ydb/tests/tools/kqprun/runlib/utils.cpp": "f575648dba38ed2876a8d5a5bbe9d0e2dcc1f59ebfb30b2c593accac7ffd69b6",
+    "ydb/tests/tools/kqprun/src/kqp_runner.cpp": "bacfc529b96c4692ed498437ca7eae5e0c4d1a0a442d3cfcd657f196b1ad4c00"
+  },
+  "production_tree": "138b36fd19ebf6d44f37aa3c73585e9c8be6ff5d",
+  "rendered_queries_fixtures_rows_AST_CPP_or_raw_diagnostics_persisted": false,
+  "repair": {
+    "absent_output": "Blank or whitespace-only output remains a failure regardless of the expected oracle.",
+    "actual_witness": "Require a nonempty payload containing exactly one actual ResultSet JSON object with the expected single required Int64 result column. The exact protobuf PrintJSON schema omits zero repeated rows and default scalars; unexpected rows, truncation, Arrow data, unknown fields and malformed or duplicate JSON reject.",
+    "implementation_files": [
+      "native_verify.py: restricted format/parse branch for exact integration module and two reviewed case IDs",
+      "c06_c50_bounded_integration_checks.py: metadata request, strict empty-ResultSet parser and fail-closed record validation",
+      "c06_c50_integration_runner.py: only version, safe metadata fields and exact dependency pins; all function bodies unchanged"
+    ],
+    "independent_oracle": "The original join_key_checks expected_rows/check_rows definitions are unchanged and still decide bag semantics.",
+    "payload_binding": "Persist only a hash and typed witness/version flags. Require the witness payload hash to equal the native driver raw result hash, one known result-set boundary and zero typed row count.",
+    "production_or_shared_result_parser_changed": false,
+    "scope": "Only c50_left_anti and c50_left_anti_same_type_control in the initialized integration module, with24rows,newoptimizer andoriginal16record vector.",
+    "transport": "Select existing kqprun --result-format full-json for the two empty-result families; the other12records retain the unchanged rows-format path."
+  },
+  "schema": "c06_c50_empty_result_metadata_source_preparation_v1",
+  "source_images": {
+    "after": {
+      "c06_c50_bounded_integration_checks.py": "6f40673cc6e1a8169185302d7895c46a40f45cb46f13dc4dad2afbb7104d60fd",
+      "c06_c50_integration_runner.py": "b2b939a9eee061e745b59be8307619a1fbf5e2e4a1bef619e14d0d349083f406",
+      "native_verify.py": "0ddf84d7d8424a580922a63ac6d1dcaae27ff065fd44149dd88d29c294f9fc77"
+    },
+    "before": {
+      "c06_c50_bounded_integration_checks.py": "d7dff3b1f4a20e2a2a3306bc9f969dfa77e048c824e9db9f2f9114e2072c0ca2",
+      "c06_c50_integration_runner.py": "1c18bbe841ccd90be8f7b5c8a3cfdc4dba56a1c5a3b6b59072ef4e79a3b007c9",
+      "native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b"
+    },
+    "patch": "proposed-correctness-amendments/C06-C50-empty-result-metadata-20261028.patch",
+    "patch_sha256": "1f36ac8729e1c4d80d1222613556bd7d7edf0608328702b344eda6bf4a8187df",
+    "schema": "c06_c50_empty_result_transport_candidate_v1"
+  },
+  "standalone_C06_C50_admission_changed": false,
+  "status": "dormant_source_and_mock_checked_independent_review_and_native_pending",
+  "validation": {
+    "actual_full_json_transport_verified": false,
+    "checks_passed": 260,
+    "disposable_exact_patch_application": true,
+    "metadata_report": "verification/C06-C50-empty-result-metadata-contracts-20261028.json",
+    "metadata_report_sha256": "77af181c1f7361ea0217aba0a9cd1ded8557c2192e9de758e1df7208ff5fb891",
+    "mock_processes_and_fake_descriptors_only": true,
+    "mocked_run_generated_records": 16,
+    "production_native_build_toolchain_runs": 0,
+    "strict_malformed_absent_wrong_schema_unknown_field_truncation_rows_digest_and_count_negatives": true
+  }
+}

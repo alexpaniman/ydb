@@ -1,0 +1,97 @@
+Quality verification handoff, 2026-10-23
+
+Source review and artifact validation are complete for Q01/Q02/Q10/Q13/Q15/Q22.
+They are not native acceptance evidence. Q15's artifact now obeys the existing
+OptShuffleElimination override/default gate; all six patches pass baseline
+apply and whitespace checks. Root owns branch creation, compilation and native
+verification. Do not edit production sources while its compiler is running.
+
+Generators
+- quality_window_checks.py: 61 cases for Q01/Q02/Q10/Q13/Q15/Q22.
+- quality_rule_checks.py: 31 cases for Q05/Q12/Q21.
+- Both support the native generator API, with case-specific schema builders,
+  independent result formulas and optional check_physical_ast.
+- Q13 writes use a separate final validation request. Their source is a
+  partitioned OLAP table so sink parallelism can be observed.
+- Read/write inputs, result payloads and ASTs must stay in anonymous memory.
+  Persist only counters, hashes, source provenance and sanitized verdicts.
+- Peak native concurrency must remain one, especially for four-node Q13/Q15.
+  Do not overlap native jobs with compilation without root's RAM admission.
+- Artifact-only builder/oracle/parser checks passed. Their exact source hashes
+  and counts are in verification/quality-window-rule-generator-contract.json.
+
+Plan checks
+The AST reader rejects arbitrary logs, unbalanced documents, missing physical
+stages, malformed quoted lists and invalid baseline counter summaries. It
+resolves let references from return roots and counts shared DAG nodes once.
+Quoted strings cannot masquerade as callables. It does not save the AST.
+check_physical_ast accepts either raw baseline AST in memory or a sanitized
+baseline summary containing validated integer counters and its SHA256.
+Real native AST format still needs a first-run check; a rejected format is a
+harness limitation and must never be reclassified as an optimizer failure.
+
+Q01 requires both the independent COUNT results and disappearance of the frame
+fold, with frame collection and boundary accesses still present. Its mixed-SUM
+case is a semantic fallback control. COUNT-only timing should separately vary
+frame width and row count under the same resource cap. This branch is a bounded
+COUNT-family improvement. SUM/AVG/MIN/MAX remain open as documented in
+q01-complete-strategy-audit.txt; the smallest next step is required integer SUM.
+
+Q02 requires all-dead/partly-live/empty semantics and dead window state removal.
+If baseline translator pruning already removes a SQL-generated window, that
+case is a control, not proof of the RBO operator fix. Operator-level liveness
+coverage still needs protected definitions, subplans and shared inputs.
+
+Q10 requires independent grouped/scalar/optional/all-null/empty results and one
+shared input branch per exact DISTINCT argument plus the ordinary-aggregate
+branch. The physical Switch output counts provide a branch count for these
+isolated recipes; if full peephole changes that representation, inspect the
+logical trace and adapt the shape reader without weakening the branch claim.
+Baseline must have more shared outputs on the same-input target cases.
+
+Q13 requires exact stream/inconsistent flags and the actual incoming connection
+of the stage with DqSink, not an aggregate count of Map connections. The current
+checker distinguishes Map and UnionAll via that stage's Inputs. Native cases
+cover ordinary parallel OLAP upserts, same-target reads and a row-store sink.
+Operator/native coverage still needs config/query-kind rejection, index effect
+exclusion, explicit inconsistent authorization, opaque inputs, nested subplans,
+defaults/batch behavior and duplicate-key semantics. These are not yet claimed.
+
+Q15 checks a direct window chain, distinct partition keys, an intervening
+filter, keyless windows, default switch on/off and explicit pragma overrides.
+The two windows deliberately have different sort orders. Four-node semantic
+models are independent. The fixed same-key chain needs one hash shuffle and
+baseline needs more; disabled/different-key controls retain two. Intervening
+filter topology must be confirmed if another rule relocates the filter.
+General distribution reuse remains outside this bounded branch.
+
+Q22 checks the threshold on both sides, tuple/list forms, ANSI/legacy nullable
+membership, and a row-dependent collection. The large constant cases need
+dictionary membership and successful focused-callable elimination. The
+row-dependent control proves dependencies are preserved, not that hoisting
+occurred. Heterogeneous-cast, empty-collection and memory/compile-cost coverage
+remains necessary before a broad performance claim.
+
+Q05 checks ordered result sequences and ItemsLimit plus Sorted/Reverse in the
+row-source settings, including compatible/incompatible nullable controls and
+non-key ordering. Compare baseline settings on the changed required-key cases;
+matching-null-order controls may already be optimized on baseline.
+
+Q12 uses mixed JSON numbers/strings/nulls/missing fields/containers and SQL NULL,
+checking JSON_VALUE, JSON_EXISTS, negation, nullable Boolean combinations,
+residual predicates, explicit RETURNING and disabled pushdown. The intended
+native OLAP callable must increase on the changed paths. Existing returning
+and null semantics are independently modeled, but native parser/provider
+admission is still pending. Keep every control whose plan was already native.
+
+Q21 checks positive direct EXISTS/NOT EXISTS limits in filter and projected
+forms, plus zero, offset, unlimited, IN and scalar controls. The positive cases
+must lose the per-domain ranking chain while retaining the expected Boolean
+and row-bag behavior. A baseline without ranking work is not target evidence.
+No claim is made for limits hidden beneath arbitrary operators or dynamic
+limits that do not become proven positive constants.
+
+No generator, source-review record or successful semantic-only run should set
+quality_improvement_verified. Root must combine fresh binary provenance,
+semantic results, before/after structural evidence and relevant runtime cost
+measurements; bounded findings stay explicitly partial.

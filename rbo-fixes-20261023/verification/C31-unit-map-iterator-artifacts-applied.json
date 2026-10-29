@@ -1,0 +1,12 @@
+{
+  "patch_sha256": "5fb4b53d43d07bcb88115c25ac21868e7bb55762fda75d187a1a05ef77afeee9",
+  "before": {
+    "c31_identity_cpp_generator.py": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+    "correctness_cpp_profiles.json": "673ffd586de480a5faf04681e222d19622b3ae6e82fa975f441a2431fe5949b5"
+  },
+  "after": {
+    "c31_identity_cpp_generator.py": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9",
+    "correctness_cpp_profiles.json": "f60dd032970fc9802c2ca72ba7de78c2bf39d4c30672365c0c899d3bbc68e9f9"
+  },
+  "actual_compile_link_native_pending": true
+}

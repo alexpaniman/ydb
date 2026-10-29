@@ -1,0 +1,55 @@
+--- a/rbo-fixes-20261023/verify_series.py
++++ b/rbo-fixes-20261023/verify_series.py
+@@ -72,7 +72,7 @@
+ def prepare_quality_baseline(args, state, modules_by_bug):
+     """Build pinned main once, then run the selected quality profiles serially."""
+     if not modules_by_bug or args.build_only:
+-        return {}, None
++        return {}, None, None
+     worktree = args.quality_baseline_worktree or args.worktree
+     require_clean(worktree)
+     base = state['base']
+@@ -92,7 +92,7 @@
+     if build.returncode:
+         emit({'step': 'quality_baseline_build_failed', **record})
+         # No fixed branch has been tested or assigned a failure by this step.
+-        return None, 1
++        return None, None, 1
+     from binary_provenance import write_build_receipt
+     record['build_receipt'] = str(write_build_receipt(worktree, base, record))
+     path.write_text(json.dumps(record, indent=2) + '\n')
+@@ -106,11 +106,13 @@
+         if native.returncode or profile_fingerprint(modules) != fingerprint:
+             emit({'bug': bug, 'step': 'quality_baseline_harness_failed', 'exit_code': native.returncode,
+                   'diagnostic_sha256': hashlib.sha256((native.stdout + native.stderr).encode()).hexdigest()})
+-            return None, 1
++            return None, None, 1
+         all_records[bug] = [dict(item, quality_profile_sha256=fingerprint) for item in generated[bug]]
+     evidence = HERE / 'verification' / ('quality-baseline-profile-' + str(time.time_ns()) + '.jsonl')
+     evidence.write_text(''.join(json.dumps(record, sort_keys=True) + '\n' for group in all_records.values() for record in group))
+-    return all_records, None
++    artifact = {'path': str(evidence.relative_to(HERE)),
++                'sha256': hashlib.sha256(evidence.read_bytes()).hexdigest()}
++    return all_records, artifact, None
+ 
+ 
+ def clear_resolved_transient_limit(case, records=()):
+@@ -197,7 +199,7 @@
+         parent = subprocess.check_output(['git', 'rev-parse', case['commit'] + '^'], cwd=args.worktree, text=True).strip()
+         if parent != state['base']:
+             raise SystemExit('Commit is not independently main-based')
+-    baseline, baseline_error = prepare_quality_baseline(args, state, modules_by_bug)
++    baseline, baseline_artifact, baseline_error = prepare_quality_baseline(args, state, modules_by_bug)
+     if baseline_error:
+         return baseline_error
+     pending_quality = False
+@@ -284,7 +286,8 @@
+                 'finding_profile_coverage_complete': bool(records) and all(
+                     item.get('finding_profile_coverage_complete') is True for item in records),
+                 'paired_evidence': str(paired_path.relative_to(HERE)), 'baseline_revision': state['base'],
+-                'baseline_evidence': 'verification/baseline-' + bug + '-' + state['base'][:12] + '.jsonl',
++                'baseline_evidence': baseline_artifact['path'],
++                'baseline_evidence_sha256': baseline_artifact['sha256'],
+                 'paired_checks': len(records), 'optimization_contract_passed': success}
+             partial = case.get('implementation_scope_complete') is False
+             if success and partial:

@@ -1,0 +1,11 @@
+{
+  "records": 23,
+  "expected_records": 23,
+  "exact_vector_pass": true,
+  "guard_passed": true,
+  "semantic_passed": 23,
+  "failed_verdict_cases": [],
+  "evidence": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/guarded-C50-selected-1793148695271677846.jsonl",
+  "revision": "946575513d233534e8f4fa4168f5dc9379ffc982",
+  "original_C06_related_failures_preserved": true
+}

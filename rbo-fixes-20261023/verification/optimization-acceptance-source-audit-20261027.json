@@ -1,0 +1,986 @@
+{
+  "schema_version": "optimization_acceptance_source_audit_v1",
+  "recorded_unix_ns": 1793132148679464774,
+  "scope": "Read-only source/control-flow and saved metadata review of all29 Q findings. No product workloads rendered, no native/build/graph/toolchain runs. Only dormant proposal and sanitized reports written.",
+  "current_status_counts": {
+    "prepared_unverified": 29
+  },
+  "finding_count": 11,
+  "findings": [
+    {
+      "id": "OA01",
+      "priority": "high",
+      "category": "false_full_promotion",
+      "affected": [
+        "Q01",
+        "Q15"
+      ],
+      "title": "Selecting a partial profile redefines the whole finding acceptance matrix.",
+      "finding": "Explicit profile selection replaces AUTO. The driver checks only the selected case-owner map, so omitted canonical functions, frame families, wrappers or direct-admission cases do not prevent verified_quality. Case implementation-scope flags remain complete.",
+      "evidence": [
+        {
+          "path": "quality_pairing.py",
+          "line": 30
+        },
+        {
+          "path": "verify_series.py",
+          "line": 176
+        },
+        {
+          "path": "verify_series.py",
+          "line": 258
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 316
+        }
+      ],
+      "resolution": "Dormant patch requires the canonical profile digest and exact canonical case-owner map; partial profiles remain semantics/quality-pending."
+    },
+    {
+      "id": "OA02",
+      "priority": "high",
+      "category": "missing_required_acceptance",
+      "affected": [
+        "Q11"
+      ],
+      "title": "Union filter quality can be promoted without its documented direct IR obligations.",
+      "finding": "The generator explicitly leaves exact UnionAll ordering-state identity and volatile-call placement to a direct adapter, but no Q11 admission is requested by records or accepted by the current driver. SQL rows and physical counters alone can produce verified_quality.",
+      "evidence": [
+        {
+          "path": "quality_union_checks.py",
+          "line": 1
+        },
+        {
+          "path": "quality_union_checks.py",
+          "line": 86
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 289
+        },
+        {
+          "path": "verify_series.py",
+          "line": 169
+        }
+      ],
+      "resolution": "Dormant patch requires Q11 fixed direct admission unconditionally. The separately prepared Q11 adapter must satisfy it; no direct success grants SQL or quality success by itself."
+    },
+    {
+      "id": "OA03",
+      "priority": "high",
+      "category": "missing_paired_control",
+      "affected": [
+        "Q11",
+        "Q29"
+      ],
+      "title": "Effect-preservation checks in baseline-aware hooks are bypassed by the actual pairing path.",
+      "finding": "Native execution invokes each physical hook without a baseline. Generic pairing accepts nonempty fixed assertions first and does not recreate the Q11 guard-site or Q29 unsafe-expression/guard-site equality checks. Matching rows and a positive case can therefore hide changes in protected controls.",
+      "evidence": [
+        {
+          "path": "native_verify.py",
+          "line": 191
+        },
+        {
+          "path": "quality_union_checks.py",
+          "line": 199
+        },
+        {
+          "path": "quality_lookup_checks.py",
+          "line": 586
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 241
+        }
+      ],
+      "resolution": "Dormant patch compares positive typed guard/comparison counters against baseline before accepting the fixed assertions. This is narrower than exact placement and does not replace Q11 direct IR admission."
+    },
+    {
+      "id": "OA04",
+      "priority": "high",
+      "category": "acceptance_blocker",
+      "affected": [
+        "Q01",
+        "Q02",
+        "Q22"
+      ],
+      "title": "Some mandatory SQL cases have no accepting physical contract.",
+      "finding": "The mixed-window case, partially live window case and small membership boundary family yield empty structural assertions. Their names do not enter the generic unchanged-control fallback, so complete default batches cannot reach verified_quality even if semantics are correct.",
+      "evidence": [
+        {
+          "path": "quality_window_checks.py",
+          "line": 415
+        },
+        {
+          "path": "quality_window_checks.py",
+          "line": 451
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 241
+        }
+      ],
+      "resolution": "Implement focused positive/negative physical contracts for the missing cases, or explicitly qualify the claimed scope. Do not remove cases or accept parsing alone. No change proposed in the admission patch."
+    },
+    {
+      "id": "OA05",
+      "priority": "high",
+      "category": "missing_quality_measurement",
+      "affected": [
+        "Q01"
+      ],
+      "title": "Q01 can reach quality acceptance without its required allocation/work scaling evidence.",
+      "finding": "MIN/MAX hooks emit allocation_scaling_verified=false. Paired acceptance ignores that field. The fixed runtime gate verifies lifecycle, cleanup and bounded source fetches, but has no paired allocation/latency growth threshold or internal work measurement. The case explicitly requires actual memory/work scaling and mixed-collector memory/latency acceptance.",
+      "evidence": [
+        {
+          "path": "quality_minmax_checks.py",
+          "line": 273
+        },
+        {
+          "path": "quality_range_minmax_checks.py",
+          "line": 219
+        },
+        {
+          "path": "quality_range_runtime_contract.py",
+          "line": 20
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 316
+        },
+        {
+          "path": "cases/Q01.json",
+          "line": 58
+        }
+      ],
+      "resolution": "Keep structural optimization, lifecycle correctness and measured resource acceptance distinct; add explicit bounded growth and mixed-collector acceptance contracts before full Q01 quality promotion."
+    },
+    {
+      "id": "OA06",
+      "priority": "medium",
+      "category": "direct_evidence_freshness",
+      "affected": [
+        "Q14",
+        "Q16",
+        "Q18",
+        "Q19",
+        "Q25",
+        "Q27",
+        "Q28"
+      ],
+      "title": "Generic direct pairing does not bind saved evidence to the current adapter contract and receipt contents.",
+      "finding": "Pairing checks claimed revisions and equal before/after generator hashes. Except for Q28 it does not match the generator or expected case count to the current module. It also validates closure receipt hash shape without loading the referenced receipt. Old matching adapter pairs can still report local improvement after adapter coverage changes. Actual execute verifies its receipt before and after execution, so this is a later saved-evidence admission gap rather than a demonstrated mixed-build execution.",
+      "evidence": [
+        {
+          "path": "anonymous_cpp_verify.py",
+          "line": 407
+        },
+        {
+          "path": "anonymous_cpp_verify.py",
+          "line": 437
+        },
+        {
+          "path": "anonymous_cpp_verify.py",
+          "line": 455
+        }
+      ],
+      "resolution": "Pin current generator/profile/case vectors and verify referenced receipt content/revision before admitting a saved direct pair. Keep query/full-finding success false until separate coverage is complete."
+    },
+    {
+      "id": "OA07",
+      "priority": "medium",
+      "category": "missing_paired_control",
+      "affected": [
+        "Q01",
+        "Q29"
+      ],
+      "title": "Additional intended paired shape and per-case improvement checks are not enforced.",
+      "finding": "SUM specialized controls expose only a parsed-plan assertion when run without a baseline, which bypasses generic unchanged-shape comparison. Q29 positive cases require only that some residual comparison exists; the aggregate needs improvement in any one record, so another intended positive case may retain or increase duplicate work and still pass the whole batch.",
+      "evidence": [
+        {
+          "path": "quality_sum_checks.py",
+          "line": 144
+        },
+        {
+          "path": "quality_lookup_checks.py",
+          "line": 566
+        },
+        {
+          "path": "quality_lookup_checks.py",
+          "line": 586
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 209
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 241
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 316
+        }
+      ],
+      "resolution": "Add explicitly paired specialized-control equality and required per-family improvement/non-regression checks. These are not changed by the narrow admission proposal."
+    },
+    {
+      "id": "OA08",
+      "priority": "medium",
+      "category": "additional_unwired_coverage",
+      "affected": [
+        "Q09",
+        "Q14",
+        "Q16",
+        "Q18",
+        "Q20",
+        "Q25",
+        "Q26",
+        "Q27",
+        "Q28"
+      ],
+      "title": "Existing acceptance documents retain obligations beyond current automatic paths.",
+      "finding": "Documented gaps include scalar aggregate phase/zero-width checks, physical shuffle edges and multinode semantics, WindowFunctionsV2 controls, sketch/histogram identity, side-specific/nested/self-join hints, demand semantics, SysView/OLAP controls, and end-to-end scheduler semantics/profiling. Seven direct-only findings have no AUTO SQL profile and correctly cannot be fully promoted by the driver; Q09/Q20/Q26 currently have SQL promotion routes that do not gate their documented additional controls.",
+      "evidence": [
+        {
+          "path": "verification/quality-independent-review-statistics-settings.json",
+          "line": 22
+        },
+        {
+          "path": "verification/quality-independent-review-statistics-settings.json",
+          "line": 78
+        },
+        {
+          "path": "verification/quality-independent-review-statistics-settings.json",
+          "line": 102
+        },
+        {
+          "path": "verification/quality-rule-cpp-execution-manifest.json",
+          "line": 1
+        },
+        {
+          "path": "verification/quality-cpp-execution-manifest.json",
+          "line": 1
+        },
+        {
+          "path": "q28-acceptance-definition.txt",
+          "line": 29
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 22
+        }
+      ],
+      "resolution": "Publish per-finding acceptance obligations and retain qualified/pending status until each required control is implemented and run. Do not treat local direct pairs as end-to-end acceptance."
+    },
+    {
+      "id": "OA09",
+      "priority": "medium",
+      "category": "avoidable_expensive_verification",
+      "affected": [
+        "Q01",
+        "Q15",
+        "Q11"
+      ],
+      "title": "Missing direct evidence is discovered only after expensive SQL/build work.",
+      "finding": "The driver validates direct evidence only if supplied. A required admission can therefore be absent while baseline and fixed builds plus the entire SQL matrix run, only to finish quality-pending. Restarting the command also always rebuilds the baseline and reruns its selected native cases; no validated baseline reuse exists.",
+      "evidence": [
+        {
+          "path": "verify_series.py",
+          "line": 72
+        },
+        {
+          "path": "verify_series.py",
+          "line": 83
+        },
+        {
+          "path": "verify_series.py",
+          "line": 166
+        },
+        {
+          "path": "verify_series.py",
+          "line": 190
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 289
+        }
+      ],
+      "resolution": "Schedule required fixed direct contracts before full SQL acceptance runs, and batch compatible quality cases to share one pinned-baseline build. Any future reuse must preserve exact receipt/profile/workload/optimizer bindings."
+    },
+    {
+      "id": "OA10",
+      "priority": "medium",
+      "category": "evidence_auditability",
+      "affected": [
+        "Q01",
+        "Q02",
+        "Q03",
+        "Q04",
+        "Q05",
+        "Q06",
+        "Q07",
+        "Q08",
+        "Q09",
+        "Q10",
+        "Q11",
+        "Q12",
+        "Q13",
+        "Q15",
+        "Q17",
+        "Q20",
+        "Q21",
+        "Q22",
+        "Q23",
+        "Q24",
+        "Q26",
+        "Q29"
+      ],
+      "title": "The case summary points to a different baseline representation from the one actually paired.",
+      "finding": "Pairing uses fresh guarded records augmented with a profile digest, and saves a uniquely named profile baseline file. The summary instead points to the append-only unguarded baseline filename, which can include multiple runs and lacks the added profile/guard representation used by baseline_record_sha256. This does not change the in-memory verdict but prevents direct reconstruction of the claimed baseline binding from the advertised path.",
+      "evidence": [
+        {
+          "path": "verify_series.py",
+          "line": 105
+        },
+        {
+          "path": "verify_series.py",
+          "line": 110
+        },
+        {
+          "path": "verify_series.py",
+          "line": 111
+        },
+        {
+          "path": "verify_series.py",
+          "line": 268
+        }
+      ],
+      "resolution": "Store the exact immutable baseline evidence path/digest used for pairing and retain selected record hashes."
+    },
+    {
+      "id": "OA11",
+      "priority": "low",
+      "category": "stale_planning_metadata",
+      "affected": [
+        "Q01"
+      ],
+      "title": "The saved profile summary predates the RANGE profile.",
+      "finding": "quality-profile-contracts.json lists three Q01 modules and an older case total, while AUTO now selects four modules including RANGE MIN/MAX. Its generation-only status is honest, but its case count and fingerprint must not drive current scheduling or acceptance.",
+      "evidence": [
+        {
+          "path": "verification/quality-profile-contracts.json",
+          "line": 1
+        },
+        {
+          "path": "quality_pairing.py",
+          "line": 27
+        }
+      ],
+      "resolution": "Regenerate sanitized current profile metadata after source freeze and after admission changes, without promoting it to native evidence."
+    }
+  ],
+  "cases": [
+    {
+      "id": "Q01",
+      "title": "General window frames repeatedly aggregate the whole frame.",
+      "revision": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "case_sha256": "37ada3cc56c2b0b2f0bede00ef59f541d1a9b433a128002b09e4e0b94cb9020c",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_window_checks",
+        "quality_sum_checks",
+        "quality_minmax_checks",
+        "quality_range_minmax_checks"
+      ],
+      "current_profile_source_sha256": "684e3fb2851f9e04e219e222f55f986adf4dd3c7b409abaa39194caa6e1c2239",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [
+        "fixed production RANGE runtime admission",
+        "actual allocation/work growth and mixed-collector acceptance"
+      ],
+      "audit_findings": [
+        "OA01",
+        "OA04",
+        "OA05",
+        "OA07",
+        "OA09",
+        "OA10",
+        "OA11"
+      ]
+    },
+    {
+      "id": "Q02",
+      "title": "Unused window results retain their complete execution pipeline.",
+      "revision": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "case_sha256": "ba0d7d0853a8ce1d6bf5ae22fe54037cead33ace6f2e6a3b22d6be87c4a9459c",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_window_checks"
+      ],
+      "current_profile_source_sha256": "fe337d385daa5fc1de84ad53cc0b5172f8e8ca29fc82bd3e055ce06435d7ba3d",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA04",
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q03",
+      "title": "An uncovered residual predicate prevents a selective index access path.",
+      "revision": "939173f5abcbcd596dd23ddfefed806df0d243ed",
+      "case_sha256": "d8753b9c18730523e1450ee892864167fb96f3d768f3f5c5c213a58c20a718aa",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_lookup_checks"
+      ],
+      "current_profile_source_sha256": "f6e17478cdba01c7c76d65449edaefb6cc4bb7a98f217570c4bfc7c4856a03ad",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q04",
+      "title": "An unfiltered bounded sort does not consider a matching secondary index.",
+      "revision": "a9df61306aa47badfbf1cec2fc043b3336addfd3",
+      "case_sha256": "372dc644a7e7e8335e40f9b61a4eb6bd76840c8489fd5eebbe456f727ea7efc6",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_lookup_checks"
+      ],
+      "current_profile_source_sha256": "f6e17478cdba01c7c76d65449edaefb6cc4bb7a98f217570c4bfc7c4856a03ad",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q05",
+      "title": "Descending primary-key top-N loses row-store ordered-read pushdown.",
+      "revision": "33bc67934dd9a881ca1aecbf4c6cefd0f882f8c1",
+      "case_sha256": "9a614cd8d5987bec1454bafe3aa2a58f5067e16b702efaadb0bfa15cf1858396",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_rule_checks"
+      ],
+      "current_profile_source_sha256": "d519ddb997ef7575e17d9734f996eeeb725365c44cb8ee494e9c0f57b250ef8c",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q06",
+      "title": "Lookup selection can choose a broad secondary-index prefix over a complete primary-key probe.",
+      "revision": "864bd56c1abb0c47f9f1ee669acf722819354dee",
+      "case_sha256": "fbed82046e77395a1966fd7074878e203cfae7dc2ea622ecb3c25e2124c18424",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_lookup_checks"
+      ],
+      "current_profile_source_sha256": "f6e17478cdba01c7c76d65449edaefb6cc4bb7a98f217570c4bfc7c4856a03ad",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q07",
+      "title": "Lookup costing and actual lookup eligibility disagree.",
+      "revision": "18eb64e0a7e18ccf2f50340a75f98b3ced6ab646",
+      "case_sha256": "fe50912fe294f167db4d5eb6bedefb8d2a36eae40ce313e6e5154560119ba83e",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_lookup_checks"
+      ],
+      "current_profile_source_sha256": "f6e17478cdba01c7c76d65449edaefb6cc4bb7a98f217570c4bfc7c4856a03ad",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q08",
+      "title": "Filters apply earlier selectivity again to already-reduced estimates.",
+      "revision": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+      "case_sha256": "8e165ae40899fc75263be81515f79187d597be22a2441dbc328673e7587cfde1",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_statistics_checks"
+      ],
+      "current_profile_source_sha256": "857700cce7a7e1ce5305b2211a8c9b9893b1a0f7cac6ee0522c69f0a9337975c",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q09",
+      "title": "Scalar aggregate cardinality is estimated as its input cardinality.",
+      "revision": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e",
+      "case_sha256": "62132da6d75df34e35fa43095890bda95bebd21f7e6a4e7b1aab227132639df5",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_statistics_checks"
+      ],
+      "current_profile_source_sha256": "857700cce7a7e1ce5305b2211a8c9b9893b1a0f7cac6ee0522c69f0a9337975c",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [
+        "direct aggregate phase and zero-width controls"
+      ],
+      "audit_findings": [
+        "OA08",
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q10",
+      "title": "Multiple DISTINCT aggregates duplicate deduplication of the same argument.",
+      "revision": "efeebb38e72fd7a7c84ab65121e49362f93e2d4b",
+      "case_sha256": "e15635b8fb66548b92271fdd714c76944011873ffc7265368b26c31c399bdc89",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_window_checks"
+      ],
+      "current_profile_source_sha256": "fe337d385daa5fc1de84ad53cc0b5172f8e8ca29fc82bd3e055ce06435d7ba3d",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q11",
+      "title": "Filters above UnionAll miss branch-local access-path optimization.",
+      "revision": "f9279dcfeac87c596f58ccc8e3add4722c66a960",
+      "case_sha256": "24b2438023d49f4736322bca6cc59e53dd35ae5f8646e51f396f8f445de9076c",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_union_checks"
+      ],
+      "current_profile_source_sha256": "a6af9f6955da67ba93271598a1b6619b897f85546463311bafd50547929b7899",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [
+        "fixed direct ordering-state/branch ownership/effect-placement admission"
+      ],
+      "audit_findings": [
+        "OA02",
+        "OA03",
+        "OA09",
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q12",
+      "title": "Early peephole expansion prevents native JSON filter pushdown.",
+      "revision": "a92df58f248c54a46f82586f50fc58ae5b207e8e",
+      "case_sha256": "d3b9c4a967055cfef0557a107039678722944ed5b4fcb4f151f383c9bb750a6d",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_rule_checks"
+      ],
+      "current_profile_source_sha256": "d519ddb997ef7575e17d9734f996eeeb725365c44cb8ee494e9c0f57b250ef8c",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q13",
+      "title": "Bulk OLAP writes cannot retain parallel streaming sinks.",
+      "revision": "b0df3bf71706e6a13041e3dda141e13312130b97",
+      "case_sha256": "500535e7bd7b14ee07d4a67e94c649d1c8d5fff1128be3037b912f96ec1ca3bc",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_window_checks"
+      ],
+      "current_profile_source_sha256": "fe337d385daa5fc1de84ad53cc0b5172f8e8ca29fc82bd3e055ce06435d7ba3d",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q14",
+      "title": "ReverseBlockJoin loses the CBO's shuffle directives.",
+      "revision": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd",
+      "case_sha256": "5bea033e0ba3e97e4458a61710b83e0566f1ace04c6bdfd390ef4943664e7ebf",
+      "status": "prepared_unverified",
+      "canonical_modules": [],
+      "current_profile_source_sha256": null,
+      "route": "direct local contracts; full acceptance remains separate",
+      "additional_obligations": [
+        "direct join conversion",
+        "downstream stage edges and multinode semantics"
+      ],
+      "audit_findings": [
+        "OA06",
+        "OA08"
+      ]
+    },
+    {
+      "id": "Q15",
+      "title": "Every window repartitions even when input partitioning is sufficient.",
+      "revision": "4e6d9217ef22bdcced5cd1879d3639508717e8e0",
+      "case_sha256": "cf13ab0a2f653a1ffd0b77ec5fd8d9aa721a73837df0f3df46286fb19964c553",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_partition_subset_checks"
+      ],
+      "current_profile_source_sha256": "15cdb43efa902f730e4c9e3c2ad4cae4575d25580c69be8abb60fa00fdc44781",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [
+        "fixed direct shared partition metadata/stage admission"
+      ],
+      "audit_findings": [
+        "OA01",
+        "OA09",
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q16",
+      "title": "A wide row-store LIMIT disables the query-wide block engine.",
+      "revision": "36000459cb44ccfe5e548a2622bfa21ffff591c7",
+      "case_sha256": "a0cdbd93ae1f23cda7d331c23eb5822cbd1b244b54e4ce7b3dcb91eaf92a09da",
+      "status": "prepared_unverified",
+      "canonical_modules": [],
+      "current_profile_source_sha256": null,
+      "route": "direct local contracts; full acceptance remains separate",
+      "additional_obligations": [
+        "direct TypeCtx mutation",
+        "WindowFunctionsV2 guard controls"
+      ],
+      "audit_findings": [
+        "OA06",
+        "OA08"
+      ]
+    },
+    {
+      "id": "Q17",
+      "title": "Covering lookup indexes are rejected when outputs use implicit primary-key columns.",
+      "revision": "a5a23189d946a8bd772e10279bc44e270648ec02",
+      "case_sha256": "876def739ea76d4fd4b45171498ff7383dd73340e7a054d2122a1c5ce4fa7c10",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_lookup_checks"
+      ],
+      "current_profile_source_sha256": "f6e17478cdba01c7c76d65449edaefb6cc4bb7a98f217570c4bfc7c4856a03ad",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q18",
+      "title": "Fetched statistics are discarded when any table statistics already exist.",
+      "revision": "f27cc1474705c540c5a64c2700f19eb4df749f54",
+      "case_sha256": "9168b2312e7c0802bcdf3ee92095cb1ef18db6d585065ea1bb1afe6d317c185f",
+      "status": "prepared_unverified",
+      "canonical_modules": [],
+      "current_profile_source_sha256": null,
+      "route": "direct local contracts; full acceptance remains separate",
+      "additional_obligations": [
+        "direct merge/cache fields",
+        "sketch/histogram identity extension"
+      ],
+      "audit_findings": [
+        "OA06",
+        "OA08"
+      ]
+    },
+    {
+      "id": "Q19",
+      "title": "A failure in the first statistics request discards later successful statistics.",
+      "revision": "c261bd389b61872b7c78851a26bf46283b95b9cb",
+      "case_sha256": "ec74c37af0f0abd8e42c4653e242c4df85d90033835631837027784e71f2f0fe",
+      "status": "prepared_unverified",
+      "canonical_modules": [],
+      "current_profile_source_sha256": null,
+      "route": "direct local contracts; full acceptance remains separate",
+      "additional_obligations": [
+        "direct asynchronous partial-success/error/warning and exception matrix"
+      ],
+      "audit_findings": [
+        "OA06"
+      ]
+    },
+    {
+      "id": "Q20",
+      "title": "Join statistics omit right-side aliases when applying hints.",
+      "revision": "49b33e196eefd41df663417e7392f7ca0e1504cd",
+      "case_sha256": "ad9b6e0889b729d98178e1068ec24e9fba76970f04f5f816f4ff88091df1bf14",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_statistics_checks"
+      ],
+      "current_profile_source_sha256": "857700cce7a7e1ce5305b2211a8c9b9893b1a0f7cac6ee0522c69f0a9337975c",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [
+        "side-specific nested/self-join hint controls"
+      ],
+      "audit_findings": [
+        "OA08",
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q21",
+      "title": "Positive LIMIT inside a correlated EXISTS becomes unnecessary window work.",
+      "revision": "a15cf405bd258b86dedf171e6a9eaac9022dd644",
+      "case_sha256": "18f286ce8263b1aadc4023eeb9cdc53b859cffea0349b22aeca8f4280154dcbc",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_rule_checks"
+      ],
+      "current_profile_source_sha256": "d519ddb997ef7575e17d9734f996eeeb725365c44cb8ee494e9c0f57b250ef8c",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q22",
+      "title": "Focused scalar IN lowering expands large explicit collections linearly.",
+      "revision": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+      "case_sha256": "b0a39a17313075c01850c4f6f324ef2d9691ae88f8e5b8e0876b3df0d88b92fb",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_window_checks"
+      ],
+      "current_profile_source_sha256": "fe337d385daa5fc1de84ad53cc0b5172f8e8ca29fc82bd3e055ce06435d7ba3d",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA04",
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q23",
+      "title": "Original lookup keys stay in payloads after their last semantic use.",
+      "revision": "183be021902ede0113798fcee8118c4479966713",
+      "case_sha256": "da0b2bec7201cf57d004414d82a2bd7016cee7962066b816f5f50b394f6bd132",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_lookup_checks"
+      ],
+      "current_profile_source_sha256": "f6e17478cdba01c7c76d65449edaefb6cc4bb7a98f217570c4bfc7c4856a03ad",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q24",
+      "title": "Range-enforced predicate columns remain projected for provenance alone.",
+      "revision": "734379d38b24d68712098d96cd57fe79d1c90253",
+      "case_sha256": "ed95ee299184a174c2a635fbccfdff0ed083acc9e6cd9b99d41a9fd2db568a32",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_lookup_checks"
+      ],
+      "current_profile_source_sha256": "f6e17478cdba01c7c76d65449edaefb6cc4bb7a98f217570c4bfc7c4856a03ad",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q25",
+      "title": "Map fusion drops the request to continue pushing definitions.",
+      "revision": "1300a777c320158fe82cd9416b355165dbe73ecd",
+      "case_sha256": "bd9cb19ece755ec98e09886ba532ca48463bd066c9c9d0a59690be0408958ac6",
+      "status": "prepared_unverified",
+      "canonical_modules": [],
+      "current_profile_source_sha256": null,
+      "route": "direct local contracts; full acceptance remains separate",
+      "additional_obligations": [
+        "direct definition flags and movement",
+        "scalar/outer-join demand semantics"
+      ],
+      "audit_findings": [
+        "OA06",
+        "OA08"
+      ]
+    },
+    {
+      "id": "Q26",
+      "title": "Configured sequential-read concurrency is not forwarded.",
+      "revision": "c0e36684231f975761822543f88edae5a4e3297e",
+      "case_sha256": "7e331abaf0fec32884d5b51703c53fa2d530050f559e81eea2f86efbde0da028",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_statistics_checks"
+      ],
+      "current_profile_source_sha256": "857700cce7a7e1ce5305b2211a8c9b9893b1a0f7cac6ee0522c69f0a9337975c",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [
+        "SysView/OLAP negative controls"
+      ],
+      "audit_findings": [
+        "OA08",
+        "OA10"
+      ]
+    },
+    {
+      "id": "Q27",
+      "title": "Shared nonterminal AST nodes are revisited during top-level SELECT collection.",
+      "revision": "72e17774d130a022ed4649c26c3db7656d83d971",
+      "case_sha256": "aa40ead6692f7f82a82d8359dff78c05d91936262027e92da1cfdeb844fce493",
+      "status": "prepared_unverified",
+      "canonical_modules": [],
+      "current_profile_source_sha256": null,
+      "route": "direct local contracts; full acceptance remains separate",
+      "additional_obligations": [
+        "production collector root/result and work contracts"
+      ],
+      "audit_findings": [
+        "OA06",
+        "OA08"
+      ]
+    },
+    {
+      "id": "Q28",
+      "title": "Every successful rule restarts traversal and recomputes global properties.",
+      "revision": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+      "case_sha256": "63da69639afdba5bb4417f5778a6758f0b0fc91387feb6f3950dc25643a07097",
+      "status": "prepared_unverified",
+      "canonical_modules": [],
+      "current_profile_source_sha256": null,
+      "route": "direct local contracts; full acceptance remains separate",
+      "additional_obligations": [
+        "production-rule and excluded-effect direct work contracts",
+        "right-join/full-stage-boundary end-to-end semantics and planning profiles"
+      ],
+      "audit_findings": [
+        "OA06",
+        "OA08"
+      ]
+    },
+    {
+      "id": "Q29",
+      "title": "Lookup filters can duplicate deterministic residual evaluation.",
+      "revision": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+      "case_sha256": "682ae49cc3459b2ef4fd9e4b77d333b71bf51f3d1cc571274f242aaf702e2f90",
+      "status": "prepared_unverified",
+      "canonical_modules": [
+        "quality_lookup_checks"
+      ],
+      "current_profile_source_sha256": "f6e17478cdba01c7c76d65449edaefb6cc4bb7a98f217570c4bfc7c4856a03ad",
+      "route": "SQL plus explicit required admissions",
+      "additional_obligations": [],
+      "audit_findings": [
+        "OA03",
+        "OA07",
+        "OA10"
+      ]
+    }
+  ],
+  "current_source_sha256": {
+    "quality_pairing.py": "25fe7d594c031073b05a4ad42b3482b3ebb87d656869bd7150bb79771e5c9886",
+    "verify_series.py": "ac16a3e9049127e845c8103f1673a4520b23a2e81e0f1d56e35098635b556249",
+    "native_verify.py": "ada91caca657beb641dca120172f6c9a894db4b5f3d843c8a0abc510420609f5",
+    "verification_contract.py": "50dd2432dc492f7a59fbd92281bcbb3fc42c033241597aab25904721546bc151",
+    "anonymous_cpp_verify.py": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+    "quality_range_runtime_contract.py": "1524946db123ad92bd1e2836c9fc736e7c6409190723c34b31d70fbdef9f8973",
+    "quality_pairing_contracts.py": "e9de55728d8879a3f9c4b2173bed924806e0ea08e44603b2edf40d5d160efc72",
+    "quality_lookup_checks.py": "477596a7a71a3c65e8abdb0be218e4ae82c5dafd4414450d963798955cf16bae",
+    "quality_minmax_checks.py": "42d8fbf1f983b739448dc1c6e19432ac464ea9f4a4bf6343e0a10e573f4d74d4",
+    "quality_partition_checks.py": "6e05ff277e5f75846efc58a6b61e837b86c55b54f4452a447a2caf7b0f84a5b7",
+    "quality_partition_cpp_checks.py": "0fd904a0055d82b12013f2e2ce126b5a2bd20f110455dee747948a223c261a3b",
+    "quality_partition_subset_checks.py": "4a7c8816c021df7388ec50fc873b4a76f9c61ed32d1b7a06b6e2fced88469f93",
+    "quality_range_minmax_checks.py": "2d2a23f017e76a67552260d7e15dcfe1e2b53be727ac92543ab99b32978eb390",
+    "quality_rule_checks.py": "79928bb8b273843ea6c4dd575c11ea4aa8fe377741e5091d027193852eee236e",
+    "quality_scheduler_cpp_checks.py": "e32719455f2ea13b6cbd0b19772243c7d61f2497cfb9310c896515ecf642a00d",
+    "quality_statistics_checks.py": "96540f6174e2921a6a8d5659fc163860c83766f020edcccc1cd30181edfed5d4",
+    "quality_sum_checks.py": "0178be8fb6183a0fe1bfc9a058e0037dd918cf3ca6c96695fdcb7895584915fd",
+    "quality_union_checks.py": "a83b641614853848cfd3091d8d7f40422b5f5f8f7cf5b53c12850a21e2b88b4b",
+    "quality_window_checks.py": "4304f9319e180234de339f369288ae48c6271ab2115aa6713f9ba245dbadaa72"
+  },
+  "source_confirmed_only": true,
+  "native_bug_demonstrations_performed": false,
+  "positive_guards": [
+    "All29 cases remain unverified; none is falsely accepted already.",
+    "Pinned revisions, binary receipts, workload/config/profile matching and nonempty paired semantic/plan evidence are required by the current SQL path.",
+    "Seven direct-only cases have no AUTO SQL profile and the driver refuses their absent generator route.",
+    "Direct local pair summaries explicitly keep query/full-finding acceptance false.",
+    "Q01/Q15 fixed direct admissions verify current adapter identity and bound production receipt before admission."
+  ],
+  "dormant_patch": {
+    "status": "dormant_source_patch_not_applied_or_executed",
+    "recorded_unix_ns": 1793132038330080627,
+    "files": [
+      "quality_pairing.py",
+      "verify_series.py",
+      "quality_pairing_contracts.py"
+    ],
+    "patch": "proposed-quality-amendments/optimization-admission-guards.patch",
+    "patch_sha256": "d3c4eccfa2bb36c992df2c558a75affa0ad15ee9b467462aacbceb31bc8a8f70",
+    "source_before_sha256": {
+      "quality_pairing.py": "25fe7d594c031073b05a4ad42b3482b3ebb87d656869bd7150bb79771e5c9886",
+      "verify_series.py": "ac16a3e9049127e845c8103f1673a4520b23a2e81e0f1d56e35098635b556249",
+      "quality_pairing_contracts.py": "e9de55728d8879a3f9c4b2173bed924806e0ea08e44603b2edf40d5d160efc72"
+    },
+    "source_after_sha256": {
+      "quality_pairing.py": "d5bdd69e61be6928f08862f945422321c1cf32495ce892e501c82a000a194955",
+      "verify_series.py": "2375b60d1f842e1a06f4516fe6270ca36eaac3ff143dbda1fd194943ca7c17ce",
+      "quality_pairing_contracts.py": "a4e1a0780338b56ea6e0c17d66a66dd22bff74b011d17e5399342777f27bc1f9"
+    },
+    "python_ast_parse_passed": true,
+    "regression_contracts_executed": false,
+    "builds": 0,
+    "native_runs": 0,
+    "live_edits": false,
+    "rendered_product_inputs": false,
+    "covered_findings": [
+      "mandatory canonical profile fingerprint and exact case ownership",
+      "Q11 fixed IR admission required even without optional record flag",
+      "Q11 fallible and Q29 unsafe/guard paired counter preservation"
+    ],
+    "scope_limits": [
+      "No missing positive physical contract is weakened",
+      "Q01 scaling admission remains unresolved",
+      "Other previously documented direct/negative-control obligations remain unresolved"
+    ],
+    "pairing_version": "canonical_profile_and_effect_controls_v2",
+    "version_consumers_checked": "All depth<=2 Python/JSON artifacts; no comparison against old version found",
+    "review_amendments": [
+      "Broken Q15 assertion contract supplies valid required coverage, isolating the assertion under test",
+      "Bumped pairing version for mandatory-coverage semantics"
+    ]
+  },
+  "scheduling_recommendation": [
+    "Finish the existing guarded correctness queue before any quality build or direct adapter work.",
+    "Resolve blocking physical contracts and admission gaps before broad expensive Q SQL runs.",
+    "Run Q01/Q15 and new Q11 fixed direct admissions before their full SQL matrices.",
+    "Use one baseline build for compatible selected quality cases; retain per-case isolated profiles and serial native execution.",
+    "Do not schedule default all29 through one SQL-only driver invocation; seven require their separate direct route and still need the documented remaining obligations."
+  ],
+  "actions": {
+    "builds": 0,
+    "native_runs": 0,
+    "graph_runs": 0,
+    "toolchain_runs": 0,
+    "generator_renders": 0,
+    "live_source_edits": 0,
+    "case_edits": 0,
+    "tests_executed": 0,
+    "dormant_source_ast_parse": true
+  }
+}

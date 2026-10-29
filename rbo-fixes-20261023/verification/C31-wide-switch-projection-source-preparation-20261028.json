@@ -1,0 +1,188 @@
+{
+  "actual_evidence": {
+    "path": "verification/guarded-C31-lexical-observation-1793148426841856297.jsonl",
+    "sha256": "b8928fe64a562886485507c5451816dd4e952cff8b6aea0be63ebd8750400009",
+    "summary": [
+      {
+        "binary_provenance_verified": true,
+        "branch_root_heads": {
+          "FromFlow": 1,
+          "argument": 1
+        },
+        "case": "c31_stability_float_domain__spilling__left",
+        "field_rejection": "switch_projection",
+        "input_chain_heads": {
+          "0:FromFlow": 1,
+          "1:NarrowMap": 1,
+          "2:ToFlow": 1,
+          "3:other_callable": 1
+        },
+        "mapping_argument_counts": {
+          "2": 1
+        },
+        "native_batch_guard_pass": true,
+        "node_count": 1,
+        "physical_ast_sha256": "02e378320cca79bdf329928e413dab43d33af8288c5861dc8e3800d03f79bd30",
+        "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+        "rows": 24,
+        "semantic_oracle_pass": true,
+        "stage_count": 13,
+        "struct_values": {
+          "other_computation": 2
+        },
+        "structural_oracle_pass": true,
+        "switch_count": 1
+      },
+      {
+        "binary_provenance_verified": true,
+        "branch_root_heads": {
+          "FromFlow": 3,
+          "argument": 1
+        },
+        "case": "c31_stability_integer_domain__spilling__left",
+        "field_rejection": "switch_projection",
+        "input_chain_heads": {
+          "0:FromFlow": 3,
+          "1:NarrowMap": 3,
+          "2:ToFlow": 3,
+          "3:other_callable": 3
+        },
+        "mapping_argument_counts": {
+          "2": 3
+        },
+        "native_batch_guard_pass": true,
+        "node_count": 1,
+        "physical_ast_sha256": "a398a945d12389fc3b3cfe0348fbaf755ac042aa948771b350964c4ef28e2f3e",
+        "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+        "rows": 24,
+        "semantic_oracle_pass": true,
+        "stage_count": 10,
+        "struct_values": {
+          "other_computation": 6
+        },
+        "structural_oracle_pass": true,
+        "switch_count": 2
+      }
+    ]
+  },
+  "admission": {
+    "aggregation_value_to_identity_binding_proved": false,
+    "candidate_complete_key_pair_lineage_observed": false,
+    "exact_shared_producer_origin_proved": false,
+    "full_shared_producer_contract_pass": false,
+    "observation_only": true
+  },
+  "conclusion": "Actual observations do not yet justify adding these branches to field-lineage proof. The unresolved wrapper and scalar value ownership must be identified first.",
+  "conditional_next_field_support": [
+    "Require the exact observed wrapper chain and exact same lexical branch argument, with supported arities and bounded depth. Unknown wrappers must remain rejected.",
+    "Resolve block producer/consumer layout explicitly, including the auxiliary row-count column; do not treat WideFromBlocks as generic transparent lineage.",
+    "Bind every projected field to its exact NarrowMap lambda argument position; reject computed values, foreign captures, duplicates and missing fields.",
+    "For an identity branch, derive the complete producer schema from the actual shared producer or a validated typed wide layout, rather than inferring it from another possibly pruned port.",
+    "Only after those checks should the constrained field observer be extended. Complete aggregate value-to-identity binding and shared producer origin must still remain separate pending obligations."
+  ],
+  "confirmed_gaps": [
+    "Both records reach FromFlow, NarrowMap and ToFlow, then stop at an unclassified callable. The original field checker correctly rejects this unrecognized Switch projection.",
+    "The projected structures have two values classified as other_computation. That broad label includes direct lambda arguments as well as real computation, so it cannot establish provenance.",
+    "An exact identity branch is observed, but its complete shared-producer field layout is not established by the current counters.",
+    "The old global inventory still rejects the float case; the lexical inventory succeeded without changing that historic rejection."
+  ],
+  "dormant_changes": [
+    "Add exactly WideFromBlocks and WideToBlocks to fixed observable labels and one-child shape traversal. No stream or scalar lineage semantics are added.",
+    "Record allowlisted structure-value heads and exact own-versus-foreign scalar lambda argument identities.",
+    "For NarrowMap only, record whether the single AsStruct body is a nonempty bijection of its own lambda arguments with unique output names; bounded to 128 fields.",
+    "Keep broad existing scalar categories for comparison and bump observer/wrapper versions. Field proof module, row oracle, table-service spill cap and all full-proof guards remain byte-identical."
+  ],
+  "files": {
+    "c31_scope_observation.py": {
+      "after_sha256": "53936c074cbfd900616accec68caaf0308e8866c12db2d04b3fa91d6504df9a7",
+      "before_sha256": "5a3781ce5847e1f9670d9ae83363a20265992b1e73575d514480a5b2e091e73d",
+      "candidate": "proposed-correctness-amendments/c31_scope_observation_wide_projection_20261028.candidate.py"
+    },
+    "c31_shared_field_probe.py": {
+      "unchanged_sha256": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298"
+    },
+    "c31_switch_shape_observation.py": {
+      "after_sha256": "f7352e08ab1abdcd3aaa82bb2c4f4dc2fe89a6c733ccc48b4b504f7b0b266fc8",
+      "before_sha256": "5839cb9e13b6dfd0987db6d426e2449b9737ea4193df514eba7b1003af48fce1",
+      "candidate": "proposed-correctness-amendments/c31_switch_shape_wide_projection_20261028.candidate.py"
+    }
+  },
+  "important_observation_limit": "A local argument bijection is deliberately recorded independently of branch-input ownership. Metadata adversaries show that a foreign input or malformed transport can coexist with a local bijection; none of these counters grants proof.",
+  "next_native_route": "At an idle boundary after independent review, rerun only the same two 24-row scope-observation cells under the existing spill cap and serial memory guard. Preserve previous evidence and compare sanitized shape counters only.",
+  "patch": {
+    "path": "proposed-correctness-amendments/C31-wide-switch-projection-observation-20261028.patch",
+    "sha256": "663071e6b09e6db24a991e2df0f706fd3ba33bd237c6da75fb45c11a6c94a5a8"
+  },
+  "schema_version": "c31_wide_projection_followup_source_review_v1",
+  "source_bindings": {
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp": {
+      "lines": [
+        100
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "One BuildSwitch invocation per shared replicate hub in its assigned stage.",
+      "sha256": "1f5a0fead4fd48d92ae7135c9f5898d8efa0ed6ca95589519003dd279f369d8e"
+    },
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp": {
+      "lines": [
+        57,
+        126
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "BuildSwitch creates per-port ordered rename projections from exact producer/rebinding IUs, selected by liveness.",
+      "sha256": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc"
+    },
+    "ydb/library/yql/dq/opt/dq_opt_build.cpp": {
+      "lines": [
+        599,
+        640,
+        924
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Wide and block channel conversions introduce FromFlow/NarrowMap/ToFlow and WideFromBlocks wrappers, with direct per-field lambda arguments.",
+      "sha256": "0aede48614d2e4dbadbaca6358657e171bdc6077e21a41d23a8544de2bbdc99c"
+    },
+    "yql/essentials/core/expr_nodes/yql_expr_nodes.json": {
+      "lines": [
+        2679,
+        2697
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Wide block transport nodes derive from the one-input expression base.",
+      "sha256": "4d81e5953e12badc691a5ce8f0996bc44f097e25ba1a503072f8e8dabb380479"
+    },
+    "yql/essentials/core/peephole_opt/yql_opt_peephole_physical.cpp": {
+      "lines": [
+        3740,
+        3767
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Map fusion over NarrowMap can replace named-row access with direct wide lambda arguments.",
+      "sha256": "4325c1828f3ddc3fbf552e5e4e3ab2ed7d6057dc5452a56a909514e4f37da6d0"
+    },
+    "yql/essentials/core/type_ann/type_ann_blocks.cpp": {
+      "lines": [
+        1210,
+        1288
+      ],
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "role": "Block transport has one input. Encoding adds a final row-count scalar; decoding removes that extra component, so it cannot be treated as a row-layout no-op in a future lineage proof.",
+      "sha256": "15cdb19bba6f42e0f92f1578040ff3464c5766fa4457527b524b13db9acf7c0d"
+    }
+  },
+  "source_supported_hypothesis": "Wide channel and block rewrites can produce the observed outer wrappers and direct-argument structures. The missing callable may be WideFromBlocks; this remains an inference until the next bounded observation identifies it.",
+  "status": "dormant_observation_refinement_ready_for_independent_review",
+  "validation": {
+    "build_runs": 0,
+    "checks": 765,
+    "compiler_runs": 0,
+    "live_helper_or_production_changes": false,
+    "metadata_report": "verification/C31-wide-switch-projection-metadata-contracts-20261028.json",
+    "metadata_report_sha256": "430597c34bf011f968553e93d343a429de23a37a8b5d51e33036919be2077e53",
+    "native_runs": 0,
+    "raw_graphs_queries_or_generated_cpp_saved": false,
+    "script": "proposed-correctness-amendments/C31-wide-switch-projection-metadata-contracts-20261028.py",
+    "script_sha256": "280ab2f430683f352ab7ee6f08f6154497ab233e28e01a53ec7168fa29b8f77f",
+    "synthetic_observations": 58
+  }
+}

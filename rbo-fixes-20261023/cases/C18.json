@@ -1,0 +1,83 @@
+{
+  "id": "C18",
+  "branch": "fix/new-rbo/c18-preserve-grouping-templates",
+  "commit": "ec25a7d3319c8e75ad3849a638f6830642097709",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified_new_parser_invariant",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_operator.cpp"
+  ],
+  "rationale": "Carry parent-slot semantics through cleanup and retain the defining Aggregate beneath GroupingSets even when it has no demanded traits. Other resultless scalar aggregates still become unit sources.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed candidate fe6ded1f6926cba1a15f4df20605aaad63f0f97c against current base and GroupingSets type annotation/expansion contract; no build or native execution",
+    "Compositional generator syntax validated with ast.parse; no queries rendered, saved, printed, or executed"
+  ],
+  "generators": [
+    "rbo-fixes-20261023/metadata_checks.py:recipes(n), names prefixed c18_"
+  ],
+  "expected_oracle": "An empty grouping-set wrapper keeps a valid aggregate template through pruning and compiles with correct empty/nonempty input multiplicity.",
+  "controls": [
+    "Ordinary unconsumed scalar aggregate still folds to one row",
+    "Nonempty grouping keys",
+    "Multiple grouping sets and grouping indicators"
+  ],
+  "concerns": [
+    "Retained native failure had incomplete stack attribution; fix directly resolves the independently established invalid operator contract.",
+    "Candidate fix was reapplied as a fresh base-only commit."
+  ],
+  "generator_config": "metadata_checks.py:CONFIG_NEEDS",
+  "generator_oracle": "metadata_checks.py:oracles(n), typed unordered multiset",
+  "generator_status": "Candidate coverage: baseline failure on intended rewrite path must be established before fixed-only success counts as regression verification.",
+  "baseline_observation": "Pinned-base C18 duplicate-empty-set cases abort; empty-input stack reaches kqp_rbo_type_ann.cpp:442, the Aggregate-template dereference. Other generated controls pass.",
+  "oracle_qualification": "Legacy parser intentionally deduplicates repeated empty grouping sets; new parser retains them. Duplicate-empty-set cases are compile/no-abort checks with unresolved multiplicity compatibility, not exact semantic oracles. Original baseline records are retained unchanged.",
+  "build_verification": {
+    "bug": "C18",
+    "revision": "ec25a7d3319c8e75ad3849a638f6830642097709",
+    "exit_code": 0,
+    "elapsed_seconds": 83.9,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4493312,
+      "peak_scope_usage_bytes": 43101814784,
+      "minimum_host_available_bytes": 73451376640,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 83.8
+    },
+    "diagnostic_sha256": "d9d965f23fe952b37569dfd881d17de227d3b307619344b27752b914d2a7478e",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/ec25a7d3319c8e75ad3849a638f6830642097709-0270cdce795d4724.json"
+  },
+  "native_verification": {
+    "checks": 14,
+    "checks_passed": true,
+    "evidence": "verification/guarded-fixed-C18-ec25a7d3319c-1793151641720576203.jsonl"
+  },
+  "verification_limitation": "Retained and pruned aggregate outputs preserve the new parser's exact bag multiplicity. Legacy deduplicates repeated empty grouping sets; that separate compatibility difference remains unresolved.",
+  "status_before_verification": "verified_new_parser_invariant",
+  "resolved_verification_limitations": [
+    {
+      "limitation": "Earlier native checks passed before exact executable receipts were required; rebuild and rerun are required for final acceptance.",
+      "resolved_by": "fresh_exact_revision_receipt_bound_guarded_native_verification",
+      "build_receipt_sha256": [
+        "797ccdff7eaa39e325ec85a4e4dca032de980b8cd12529433145d70fffa677cc"
+      ]
+    }
+  ],
+  "historical_vector_verification": {
+    "coverage_checker_exit": 0,
+    "coverage_check": true,
+    "coverage_evidence": "verification/historical-vector-C18-1793151682860836173.json",
+    "coverage_evidence_sha256": "9316bf6faeb0e6b527792ee65ffe1fd3a3a795d4f1fbc7ca3a3dc0fe558e64d6",
+    "remaining_qualifications": [
+      "Only the new-parser pruning/multiplicity invariant is covered; legacy duplicate-empty-grouping-set compatibility remains unresolved."
+    ]
+  }
+}

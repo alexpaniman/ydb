@@ -1,0 +1,29 @@
+{
+  "schema": "reviewed_idle_helper_application_v1",
+  "previous": "verification/idle-reviewed-composition-applied53-20261028.json",
+  "before_count": 53,
+  "total_applied_helper_patches": 56,
+  "ordered_patches": [
+    {
+      "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-bounded-integration-generator-20261028.patch",
+      "sha256": "75ea46631d821354dde8ca87aee6d9845a612c09626fb6fefb52e62b24ae15a6"
+    },
+    {
+      "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-integration-idle53-binding-refresh-20261028.patch",
+      "sha256": "a3ff753f5e6c8824a2127389a7b5a6c7bb0a3b4564e7d20402c94758eab8ad06"
+    },
+    {
+      "path": "rbo-fixes-20261023/proposed-correctness-amendments/C06-C50-bounded-integration-runner-20261028.patch",
+      "sha256": "775047f8626cf6ee6b33f463f59d2f3e34f76ecea61814fd01568e44e00df149"
+    }
+  ],
+  "independent_review": "verification/C06-C50-bounded-integration-independent-runner-review-20261028.json",
+  "combined_after_sha256": {
+    "c06_c50_bounded_integration_checks.py": "d7dff3b1f4a20e2a2a3306bc9f969dfa77e048c824e9db9f2f9114e2072c0ca2",
+    "c06_c50_integration_runner.py": "1c18bbe841ccd90be8f7b5c8a3cfdc4dba56a1c5a3b6b59072ef4e79a3b007c9"
+  },
+  "generated_workloads_persisted": false,
+  "production_sources_changed": false,
+  "native_runs": 0,
+  "applied_unix_time": 1793156337.471229
+}

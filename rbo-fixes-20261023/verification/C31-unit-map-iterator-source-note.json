@@ -1,0 +1,41 @@
+{
+  "after_sha256": {
+    "c31_identity_cpp_generator.py": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9",
+    "correctness_cpp_profiles.json": "f60dd032970fc9802c2ca72ba7de78c2bf39d4c30672365c0c899d3bbc68e9f9"
+  },
+  "before_sha256": {
+    "c31_identity_cpp_generator.py": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+    "correctness_cpp_profiles.json": "673ffd586de480a5faf04681e222d19622b3ae6e82fa975f441a2431fe5949b5"
+  },
+  "case_count": 33,
+  "case_matrix_and_assertions_unchanged": true,
+  "concrete_compiler_cause": "Three expanded zero-column contracts use front on the btree map returned by TMappedIUs::Items; that container exposes begin but no front.",
+  "correction": "Replace the one generator accessor with begin()->second after the unchanged size==1 assertion.",
+  "execution": {
+    "compiler_runs": 0,
+    "live_generator_or_profile_edits": false,
+    "native_runs": 0,
+    "python_source_syntax_passed": true,
+    "rendered_cpp_saved_or_printed": false,
+    "temporary_apply_passed": true
+  },
+  "generated_source_fingerprint": {
+    "computed_only_in_memory": true,
+    "sha256": "59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d",
+    "size_bytes": 157622
+  },
+  "iterator_safety": [
+    "Items() returns a const reference to stable map storage.",
+    "The preceding Check(size==1) throws std::runtime_error on false; it does not merely increment a failure counter or return.",
+    "The catch is outside the case body, so a failed cardinality assertion cannot continue to the dereference.",
+    "No map mutation or intervening operation occurs between the size assertion and iterator dereference."
+  ],
+  "patch": "proposed-correctness-amendments/C31-unit-map-iterator-artifacts.patch",
+  "patch_sha256": "5fb4b53d43d07bcb88115c25ac21868e7bb55762fda75d187a1a05ef77afeee9",
+  "remaining": [
+    "Independent exact-artifact source review.",
+    "Actual guarded anonymous compile/link/native retry; no production correctness claim follows from this source repair."
+  ],
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "status": "dormant_small_compile_correction_independent_review_required"
+}

@@ -1,0 +1,3885 @@
+{
+  "schema_version": "historical_exact_vectors_v1",
+  "status": "prepared_metadata_only_no_new_native_acceptance",
+  "rows": 24,
+  "original_manifest": "verification/historical-rerun-case-manifest-20261028.json",
+  "original_manifest_sha256": "6db980d5acbce1745b7a2c12d76b7c0e54611b1a7b5695ce0f45e0a2879d4a5d",
+  "items": [
+    {
+      "bug": "C01",
+      "revision": "40a5bea4e432b65845052aacbd104b642ffc8df1",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 6,
+      "expected_generator_case_count": 6,
+      "cells": [
+        {
+          "case": "c01_mixed_on_left",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "07e42c2c0d655feda8ed566b104257a7ec22ee42309d0a6e4ad2f5281c4bc6ae",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c01_mixed_on_right",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "ea2564d20cae48b8d84178446aef83ac451eaf41232f761db3b66cef272bc8c2",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c01_mixed_where_left",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "92a0771f636196d4ef366b6f67a20e336c898a7af740168f7dd86a51ff269817",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c01_mixed_where_right",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "f36a90b9195fd595bac31e8dbb3d6ee5a510144e03d93b1e02319e0e70a148be",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c01_same_on",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "fa2c18b9d0b587f33655f8aca991d53adc986fb3ead6f551de22e13a56e24f18",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c01_same_where",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "5f619854c0588abf644cf32bbd5ee8a341b77facb99e4116bbcc3ab8fbcbb1d9",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        }
+      ],
+      "remaining_qualifications": [],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C02",
+      "revision": "6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 18,
+      "expected_generator_case_count": 4,
+      "cells": [
+        {
+          "case": "c02_deterministic_group",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "10cfef15a37d09bcd5ca96580bf18d37d97f701ea0f46821338851c87790aa82",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c02_unfiltered_group",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "6b7adef9f27d7af2681b815f7931bfa4e09f28172c76ca0d97511cee9c999033",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c02_volatile_group",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "6f61bd3fa80ec127c91db84cb8de739ac3e5f185b50659f74b4461ce8e46f4b4",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c02_volatile_mixed",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "02ba952036f0c66c9186ed558d958f595e3f9884cc1da1e150a28b67cb1654bc",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        }
+      ],
+      "remaining_qualifications": [],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C03",
+      "revision": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 5,
+      "expected_generator_case_count": 5,
+      "cells": [
+        {
+          "case": "c03_distinct_rollup",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "7e9743ed44e00d569180e4c9ab865bfce46ef5b6d4ae5fc4b49ebc5c96226798",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c03_grouped_control_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "bdd41569229741c2670b236081c434d374d4a4603c632ebb6b32cd6f10fe05e8",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c03_grouped_control_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "a994f9fc56929365d384dde7df7c7d4efad07c18641e550771ead39f906fc441",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c03_rollup_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "f546b1b22d481b1fbe0076913bcca86270cb65e46e10316e94d7161cb45c792d",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c03_rollup_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "059c4ddb42e34fb53f2dda8da5952481e639baf5c1430baf4451c155205cddf6",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        }
+      ],
+      "remaining_qualifications": [],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C04",
+      "revision": "69b7c53d2f5ad03f02256e03b972901bdab12eab",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 4,
+      "expected_generator_case_count": 4,
+      "cells": [
+        {
+          "case": "c04_false_guard",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "52ad1429dd2748ba8a70a4efde113f64224ca2c6c4d8ea35b9309deb3d75d510",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c04_nonthrowing",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "f68e7feb2c90df15bae8958d0814dc8e625c4f2076e7e42a578f240ae014692b",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c04_null_guard",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e93204c404e6082bf8ca623ad87674a495d111d1f60c08b6f9ed9f636e867853",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        },
+        {
+          "case": "c04_three_levels",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "logical_checks",
+          "generator_sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "680be2571f698664109c5cd69de8d4920fc6b392b599c0f57a420917eb314f91",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_shape_valid": true
+          }
+        }
+      ],
+      "remaining_qualifications": [
+        "Pg handling remains source-reviewed only; frontend rejection is not optimizer-native coverage."
+      ],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C05",
+      "revision": "bf6527096b7a594beb47e3b2e274079b184b8128",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 4,
+      "expected_generator_case_count": 2,
+      "cells": [
+        {
+          "case": "c05_demanded_cardinality",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "target_failure",
+          "bindings": {
+            "query_sha256": "e8422876a3193fbca1ffb7648795fc85371f2569dc94f979e12081d25b36896a",
+            "schema_sha256": "18ce72ac694ab8fc187949f7978358576f54c4f5d6f61f5984cad0380e88d5b7",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "59112522f5634ff7bce4b520ab006e2fb99f44c39c99dad03f186dad1c2fb706"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c05_demanded_single_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e8422876a3193fbca1ffb7648795fc85371f2569dc94f979e12081d25b36896a",
+            "schema_sha256": "18ce72ac694ab8fc187949f7978358576f54c4f5d6f61f5984cad0380e88d5b7",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "9ab8c36c56025be442984c225410de9627870c2c89ea9be3bb95891f226debde"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "demand_extra_domains",
+          "mode": "new",
+          "record_kind": "legacy_correlation_adapter",
+          "repetitions": null,
+          "expected_outcome": "functional"
+        },
+        {
+          "case": "demand_requested_only_control",
+          "mode": "new",
+          "record_kind": "legacy_correlation_adapter",
+          "repetitions": null,
+          "expected_outcome": "functional"
+        }
+      ],
+      "remaining_qualifications": [
+        "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract."
+      ],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C06",
+      "revision": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 5,
+      "expected_generator_case_count": 3,
+      "cells": [
+        {
+          "case": "c06_generic_exists_mixed_types",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e79ba68e5a832cef504f896d9add998cb97ada4e5e6049319e4f33b644d22237",
+            "schema_sha256": "c257c6e7acff9c902890617c28e91a94744060feda326194cf41aa5401cd6f91",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "5431a3eae379dab8c2bfa66ca0a252513d0753dae179476aeccfb5456dadaa6d"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c06_generic_exists_optional_mismatch",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e79ba68e5a832cef504f896d9add998cb97ada4e5e6049319e4f33b644d22237",
+            "schema_sha256": "928c50279be7b244c0fec117a8cc8b66c02ffb5fbec5e75bb2d7145d3567aa7b",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "d99b64606a68b45d3c33093c43be5e35f9d7f73b923ffa37c7b22ee3cb7c6c22"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c06_generic_exists_same_type",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e79ba68e5a832cef504f896d9add998cb97ada4e5e6049319e4f33b644d22237",
+            "schema_sha256": "18ce72ac694ab8fc187949f7978358576f54c4f5d6f61f5984cad0380e88d5b7",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "7523ad334723ee092165fc378d51d7b2be4d7f948b8492c1fd9d3fb0795b9a84"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "typed_capture_collision",
+          "mode": "new",
+          "record_kind": "legacy_correlation_adapter",
+          "repetitions": null,
+          "expected_outcome": "functional"
+        },
+        {
+          "case": "typed_same_type_control",
+          "mode": "new",
+          "record_kind": "legacy_correlation_adapter",
+          "repetitions": null,
+          "expected_outcome": "functional"
+        }
+      ],
+      "remaining_qualifications": [
+        "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract.",
+        "Original mixed numeric correlated C50 profiles are excluded: unchanged four-node controls can require both C06 and C50; separate integration remains pending."
+      ],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C07",
+      "revision": "2e4843e6be7a7b49fab191bc0d454653e0aca41e",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 5,
+      "expected_generator_case_count": 3,
+      "cells": [
+        {
+          "case": "c07_generic_exists_finite",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e79ba68e5a832cef504f896d9add998cb97ada4e5e6049319e4f33b644d22237",
+            "schema_sha256": "842c5fa5f99d43ed00c5a78193bc757620ccd0ad9d2b9f200e16c0815461acf9",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "430432f0f71b08ec5c5d7589b639e62b19f749322df85ab829c1112aca3eb308",
+              "5430690cccf393dcc3b07c206f820a996b45054b639919d791b537bb866f8f52"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c07_generic_exists_nan",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e79ba68e5a832cef504f896d9add998cb97ada4e5e6049319e4f33b644d22237",
+            "schema_sha256": "842c5fa5f99d43ed00c5a78193bc757620ccd0ad9d2b9f200e16c0815461acf9",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "c1f1625d9c73bab0f28b05dc3d0ed077a05bd93b93692528bedbc5772fb6323a",
+              "3a2cb8bc0941536eb05078cbed36c7cf2b0e7b2c1a3d7360a131092e38f06622"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c07_generic_exists_null",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e79ba68e5a832cef504f896d9add998cb97ada4e5e6049319e4f33b644d22237",
+            "schema_sha256": "842c5fa5f99d43ed00c5a78193bc757620ccd0ad9d2b9f200e16c0815461acf9",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "3bd932482c0f1220fd136ac46f842be37a8fb405f463005183b978577dcadc51",
+              "6af764bb648c8bc089d3646d067e5c6afc6fa8e7d8271c789fd7b70c502b9da9"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "nan_domain_equality",
+          "mode": "new",
+          "record_kind": "legacy_correlation_adapter",
+          "repetitions": null,
+          "expected_outcome": "functional"
+        },
+        {
+          "case": "nan_finite_control",
+          "mode": "new",
+          "record_kind": "legacy_correlation_adapter",
+          "repetitions": null,
+          "expected_outcome": "functional"
+        }
+      ],
+      "remaining_qualifications": [
+        "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract."
+      ],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C08",
+      "revision": "af05d7c395191d1a19ff7a3a4b2c8bc29be83582",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 6,
+      "expected_generator_case_count": 4,
+      "cells": [
+        {
+          "case": "c08_grouped_empty_projection",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "234fac1dea37e091beb7d6f7a68d14be41dd67e6a7749436dbfdc080d3023647",
+            "schema_sha256": "18ce72ac694ab8fc187949f7978358576f54c4f5d6f61f5984cad0380e88d5b7",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "c6be33105c464bc020cefaa705a4e062bbd305afac0940adc6c3cc15bd5fb6cd"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c08_grouped_nonempty_projection",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "234fac1dea37e091beb7d6f7a68d14be41dd67e6a7749436dbfdc080d3023647",
+            "schema_sha256": "18ce72ac694ab8fc187949f7978358576f54c4f5d6f61f5984cad0380e88d5b7",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "9ab8c36c56025be442984c225410de9627870c2c89ea9be3bb95891f226debde"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c08_scalar_empty_projection",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "9ed224d9ad6f64fdc044d848401facf5c3707b2bf7a4dae2fc39effe0223119c",
+            "schema_sha256": "18ce72ac694ab8fc187949f7978358576f54c4f5d6f61f5984cad0380e88d5b7",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "c6be33105c464bc020cefaa705a4e062bbd305afac0940adc6c3cc15bd5fb6cd"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c08_scalar_nonempty_projection",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "correlation_controls",
+          "generator_sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+          "generator_version": "correlation-controls-v1",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "9ed224d9ad6f64fdc044d848401facf5c3707b2bf7a4dae2fc39effe0223119c",
+            "schema_sha256": "18ce72ac694ab8fc187949f7978358576f54c4f5d6f61f5984cad0380e88d5b7",
+            "settings_sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d",
+            "fixture_sha256": [
+              "4487e7f4c4508d6be91e7b5764a054270716f8b31de92f0aa180b7f150f3f83c",
+              "9ab8c36c56025be442984c225410de9627870c2c89ea9be3bb95891f226debde"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 2,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "empty_scalar_projection",
+          "mode": "new",
+          "record_kind": "legacy_correlation_adapter",
+          "repetitions": null,
+          "expected_outcome": "functional"
+        },
+        {
+          "case": "empty_count_restore_control",
+          "mode": "new",
+          "record_kind": "legacy_correlation_adapter",
+          "repetitions": null,
+          "expected_outcome": "functional"
+        }
+      ],
+      "remaining_qualifications": [
+        "Legacy correlation-adapter records are fresh binary/guard-bound evidence, but omit loaded generator/settings/query/mode fingerprints and repetition fields. They are not the modern fingerprinted generator contract."
+      ],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C17",
+      "revision": "d08902de538969291efbeb272b45a12982a65ae8",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 8,
+      "expected_generator_case_count": 8,
+      "cells": [
+        {
+          "case": "c17_active_primary_subplan_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "d237de7f5b0e37bb32416003272f64446cfe5dab98274d67081113ef0c3dfac4",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c17_inactive_primary_subplan",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "75531c9a1995790bb02060ee7afe3435cc7b878ad5811e654f051c14af9370fc",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c17_inactive_primary_subplan_secondary_first",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "445eb043be9d965420d01119133f17c5cb8f6542594ca279002ceefe54442410",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c17_no_dead_definition_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "681870966f2261666bd6728d8b8ddc0ff2d10df463968b17bb05e9df8696811c",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c17_primary_retained_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "13a279c468158967c317d81a2b9944385461bc41148c705f95317275f2d8bbca",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c17_secondary_singleton_primary_first",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "5222b4884037113732287e5de631c567feed3da12e98971c87d97b078852d2ae",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c17_secondary_singleton_secondary_first",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "6e56482bfb5716c0f37c521f0488576355c4809fb7fe33e3250244b36ffebf46",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c17_two_secondary_ports_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "b9dca53ea1dea1e855043e13362d41058fbea7ba6e419fb13aa2d246644a673d",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        }
+      ],
+      "remaining_qualifications": [],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C18",
+      "revision": "ec25a7d3319c8e75ad3849a638f6830642097709",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 14,
+      "expected_generator_case_count": 14,
+      "cells": [
+        {
+          "case": "c18_grouping_indicator_control_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "f661f92a29aebff58295b7cd56bb82542af05874c21d7e97c6c24d1f4ee16c1c",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_grouping_indicator_control_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "6a186e69126e6e5ce7412fb93f06cc6ffdf04972bd8d523c5d86db5f345f96cb",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_key_and_empty_set_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "342dc7f758eb0553b486ebdd0fabea71ea8173550adfe779e67dd46c477b5c67",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_key_and_empty_set_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "2b9c7d6a3f4f1102841c4c4645e62bde03437668b447a64b85cf90d9540a2b47",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_keyed_control_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "101ed660f3c85a8f4832460718b81a83fbc9f4795a969a4a6ebc3a24d245d805",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_keyed_control_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "2413d9d257458d2d94c90cd77a6435b4946f12899c386aba86c9e2a3398f20d5",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_one_empty_set_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "34a28aa914d5b68c69dc451ff08bc9117077994eee8bec38cb7373f7473bb2a7",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_one_empty_set_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "ea502f258972c8879378a7b911c7e641cb99ead1cff8655bbad9be0e600a6527",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_retained_two_empty_sets_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "1cad280a54167abc9ccf0892b0e45215c973199e6b9e02a0f3a96e98c29764d3",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "semantic_oracle_scope": "same_new_parser_pruning_invariant",
+            "legacy_duplicate_empty_set_compatibility": "separate_unresolved_contract",
+            "metamorphic_pair": "c18_empty",
+            "metamorphic_role": "retained"
+          }
+        },
+        {
+          "case": "c18_retained_two_empty_sets_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "7bf866b4d82dee9f3a2cdb2dd3bc5a87000a516f3bea1287c1873d4999b49a48",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "semantic_oracle_scope": "same_new_parser_pruning_invariant",
+            "legacy_duplicate_empty_set_compatibility": "separate_unresolved_contract",
+            "metamorphic_pair": "c18_nonempty",
+            "metamorphic_role": "retained"
+          }
+        },
+        {
+          "case": "c18_scalar_control_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "db0f958543c0c4a9d95df3aef3737f0f2d01de7f5ba0d1839581d7041921044a",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_scalar_control_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "b5caa0e36b95132fa649f0ca1da0ecd1e3864e3478c840e68c0739d4a39b92bd",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c18_two_empty_sets_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "c28d538307572df79210ff0c1380c942cbfad9106be97b8c514b877aba26b940",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "semantic_oracle_scope": "same_new_parser_pruning_invariant",
+            "legacy_duplicate_empty_set_compatibility": "separate_unresolved_contract",
+            "metamorphic_pair": "c18_empty",
+            "metamorphic_role": "pruned"
+          }
+        },
+        {
+          "case": "c18_two_empty_sets_nonempty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "metadata_checks",
+          "generator_sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+          "generator_version": "metadata_pruning_invariants_v2",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "fcf51f6eceaff6c574c3c6cab21bfd493b6dc2d2a56dc9cbd87f5f84ce0c594c",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "195538d5b926cc9e1a7bf922ab141a71b0a3d1e74e925d8ccff21d0461cd71c8",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "semantic_oracle_scope": "same_new_parser_pruning_invariant",
+            "legacy_duplicate_empty_set_compatibility": "separate_unresolved_contract",
+            "metamorphic_pair": "c18_nonempty",
+            "metamorphic_role": "pruned"
+          }
+        }
+      ],
+      "remaining_qualifications": [
+        "Only the new-parser pruning/multiplicity invariant is covered; legacy duplicate-empty-grouping-set compatibility remains unresolved."
+      ],
+      "fullsuite_build_required": false,
+      "expected_status": "verified_new_parser_invariant"
+    },
+    {
+      "bug": "C26",
+      "revision": "d40b5b11a3c485d1b504c128931d120d94487324",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 10,
+      "expected_generator_case_count": 10,
+      "cells": [
+        {
+          "case": "c26_all_null",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "17108afab8b704061fbc9a6f26a064bf6b84ac779059f1c1e52c38313d0e63ee",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_distinct_variance",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "ab3ef5406523b1837bc0f472776da100ec417c01a5d115076b3bf05117379021",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_empty",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "584c14bebabc3836738e2ea29c2d55043495d1d6401c48aa9425627799764395",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_grouped",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "36023f8488d481de42038235f8e4b6e46d5024fb9346d57a0629fcd11c591352",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_mixed_avg",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "2a0279670a776795fbd6ca3ca8dd44459d4bd0ecbd2adc9a48adba19e95eb1fa",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_optional",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "be3f42865a332d3c832c463febf50711d1924f73dcf26be704ee4567bb7bef3c",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_single",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "2062103042e9e17c81803a23bec44334f9d0ff2b693d1f83bb36cb9275bee7f3",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_variance_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "419ba19d19e028018a1106ae0962f81cf9e28f5e3d089d464549c0a3a3834dc0",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_varying_stddev_samp",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e8efddce9d3d2005116435ca0042b97bffd3a82be7685797720bb3232547305a",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c26_varying_stddev_samp_optional",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "aggregate_checks",
+          "generator_sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+          "generator_version": "aggregate_oracle_v4",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "f2f95d1dc529129f1ec8b27f76214e603249d0f5058e751371c4eba81337ea38",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "ffbd090a197eae0bc4755c004735b3e2f99461636da613892bb5a5ba1d2112be",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {}
+        }
+      ],
+      "remaining_qualifications": [],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C44",
+      "revision": "329c771f34f97af659cf4d78af1e6c54226deb3e",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 3,
+      "expected_generator_case_count": 3,
+      "cells": [
+        {
+          "case": "c44_sink_disabled_fallback",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": true,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "9ee221f08db1a05170f87320e3e3bfe7b8e25ebb1bf3c61813ad40b98b4b8892",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "06545aae7ca47e0f529f9b69e135680d825786b516ac79a4597f0acdf64eb0d1",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c44_sink_disabled_guard",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "guard",
+          "bindings": {
+            "query_sha256": "9ee221f08db1a05170f87320e3e3bfe7b8e25ebb1bf3c61813ad40b98b4b8892",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "429f88003f0ebc2e1e8cdbb86fdf9ec5d4eaa6e31a3f3d9c4377154fbb6907be",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": true,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {}
+        },
+        {
+          "case": "c44_sink_enabled_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "9ee221f08db1a05170f87320e3e3bfe7b8e25ebb1bf3c61813ad40b98b4b8892",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "d7a1c9ad308cc5ff60588813b9f7dc9892168da0892ee35c8cbfac6c67e99814",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        }
+      ],
+      "remaining_qualifications": [
+        "This is guard/routing coverage. Forced no-fallback must reject at target; enabled fallback is legacy execution, not unsupported new-RBO effect support."
+      ],
+      "fullsuite_build_required": false,
+      "expected_status": "verified_guard"
+    },
+    {
+      "bug": "C48",
+      "revision": "35bc8b6938f42a11e92747063bfafc1dec0b9b5c",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 9,
+      "expected_generator_case_count": 9,
+      "cells": [
+        {
+          "case": "c48_indexed_insert",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "cf371cf0674dd8754a4e6c8470a62718b79e466f7df2de0728755bd6694d5f6a",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "429f88003f0ebc2e1e8cdbb86fdf9ec5d4eaa6e31a3f3d9c4377154fbb6907be",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c48_indexed_partial_replace",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "efe68a0f169be7b97589cb42a91ff06b2654cdf08e8d2567c55d5c36d7984307",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "429f88003f0ebc2e1e8cdbb86fdf9ec5d4eaa6e31a3f3d9c4377154fbb6907be",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c48_indexed_partial_upsert",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e29b193d4bca918e35652ebbee9da8d9f74248b2ce009a6b5e4180c3d59ece83",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "429f88003f0ebc2e1e8cdbb86fdf9ec5d4eaa6e31a3f3d9c4377154fbb6907be",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c48_stream_fresh_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "cf371cf0674dd8754a4e6c8470a62718b79e466f7df2de0728755bd6694d5f6a",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "d7a1c9ad308cc5ff60588813b9f7dc9892168da0892ee35c8cbfac6c67e99814",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c48_stream_full_upsert_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "762fb20e2e37c2312642d63f4ef2f52734fea7ed5eedb0d4f7ba0771386957d4",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "d7a1c9ad308cc5ff60588813b9f7dc9892168da0892ee35c8cbfac6c67e99814",
+            "fixture_sha256": [
+              "dbade34a4249ce4654f87dccdf1bf3de5d96a3894520c849cd86c16d577e3067"
+            ],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 1,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c48_stream_index_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "ba3b628fe47795859782c83e90deeddf3fa888a01a6445cb9686fee7027e0592",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "d7a1c9ad308cc5ff60588813b9f7dc9892168da0892ee35c8cbfac6c67e99814",
+            "fixture_sha256": [
+              "dbade34a4249ce4654f87dccdf1bf3de5d96a3894520c849cd86c16d577e3067"
+            ],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 1,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c48_stream_nonkey_upsert_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "18f388b19d03470c30522c0d4188c3ce43f030fac32c01dba8391b85ce518c0f",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "d7a1c9ad308cc5ff60588813b9f7dc9892168da0892ee35c8cbfac6c67e99814",
+            "fixture_sha256": [
+              "dbade34a4249ce4654f87dccdf1bf3de5d96a3894520c849cd86c16d577e3067"
+            ],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 1,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c48_stream_partial_replace_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "655d7200760bfbbab80acea0dc80d6a5dae1258574aefdac9bd31a0867d0ab27",
+            "schema_sha256": "81bb179847760fae8e3ceea914d2ad6208b04b5fce65233503596bd7246a95bf",
+            "settings_sha256": "d7a1c9ad308cc5ff60588813b9f7dc9892168da0892ee35c8cbfac6c67e99814",
+            "fixture_sha256": [
+              "dbade34a4249ce4654f87dccdf1bf3de5d96a3894520c849cd86c16d577e3067"
+            ],
+            "validation_sha256": [
+              "467ff7e9fb1c02090022797984a304bebb7015aed1a07e4281a1184c03e1ddc5"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 1,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": true,
+            "statement_scope_checked": false,
+            "index_table_oracle_pass": true,
+            "index_extra_row_count": 0
+          }
+        },
+        {
+          "case": "c48_unindexed_control",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "write_checks",
+          "generator_sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+          "generator_version": "separate_write_validation_v3",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "e29b193d4bca918e35652ebbee9da8d9f74248b2ce009a6b5e4180c3d59ece83",
+            "schema_sha256": "31ec10af88b70b60be9f0b734a142d220ae04296429f36219b78bc8bc0974e79",
+            "settings_sha256": "429f88003f0ebc2e1e8cdbb86fdf9ec5d4eaa6e31a3f3d9c4377154fbb6907be",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "97acb5531c764e75c94c6a18cbdb407de3a8f3572be3865a170b8072e07e351f"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "result_set_ownership_pass": true,
+            "index_consistency_checked": false,
+            "statement_scope_checked": false
+          }
+        }
+      ],
+      "remaining_qualifications": [
+        "This covers intended legacy optimizer routing for unsupported writes, not native new-RBO effect support."
+      ],
+      "fullsuite_build_required": false,
+      "expected_status": "verified"
+    },
+    {
+      "bug": "C41",
+      "revision": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+      "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+      "rows": 24,
+      "expected_record_count": 12,
+      "expected_generator_case_count": 12,
+      "cells": [
+        {
+          "case": "c41_effect_only",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "fa5d24957e5e456062a455b13464c07df62f9d15528a9160df7ac1eb891758cf",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": [
+              "28be06e13113b9742e4a0516ddeca657e9f8be0a7561f82bdde7d015dbb55a8c"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "effect_persistence_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          }
+        },
+        {
+          "case": "c41_effect_then_results",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "0e23cf74661a301a9edae6adf85b7f7e93d7367fd65b5864463e5e78a5d8e2f7",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          }
+        },
+        {
+          "case": "c41_empty_first_result",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "b327de4a6afc2426dee707b514f68461e8ba0e79a37b0ab01241298a3315da68",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 2
+          }
+        },
+        {
+          "case": "c41_empty_last_result",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "029062d22897335cf7c9fb2c7fb02d704604258af73469ffe6f8bcf361e83235",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 2
+          }
+        },
+        {
+          "case": "c41_indexed_effect_blocks",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "a3bf60f5e456859f89f00b6f09efa1ef23b93f0ecd286a2033878cedf6983664",
+            "schema_sha256": "cb15f600986537ad71d805d5dbd229c6d83d848a7c9d519df9df4dde7d8ebd4f",
+            "settings_sha256": "88a3570668536c90a82b5766f6a0d037c5b81fb0229ad20234d887dce8118f3e",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "6df10fb0b268e6fcf12893765b4b30a4ab368b5dfec6d681474c63569e0629dd"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "index_table_oracle_pass": true,
+            "effect_persistence_pass": true,
+            "result_set_ownership_pass": true,
+            "index_extra_row_count": 0,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          }
+        },
+        {
+          "case": "c41_indexed_effect_sequence",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "a3bf60f5e456859f89f00b6f09efa1ef23b93f0ecd286a2033878cedf6983664",
+            "schema_sha256": "cb15f600986537ad71d805d5dbd229c6d83d848a7c9d519df9df4dde7d8ebd4f",
+            "settings_sha256": "a03bfaf7cbc5d714dbe9781ec0365bcb42e9a2128f1600c301393999e2fb8ac0",
+            "fixture_sha256": [],
+            "validation_sha256": [
+              "6df10fb0b268e6fcf12893765b4b30a4ab368b5dfec6d681474c63569e0629dd"
+            ]
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 0,
+            "target_request_count": 1,
+            "validation_request_count": 1,
+            "target_results_checked": false
+          },
+          "required_oracle_fields": {
+            "base_table_oracle_pass": true,
+            "index_table_oracle_pass": true,
+            "effect_persistence_pass": true,
+            "result_set_ownership_pass": true,
+            "index_extra_row_count": 0,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          }
+        },
+        {
+          "case": "c41_materialized_blocks",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "6c99ff62accb93fc15262e019cd76872b39df08072dbeff610b2bddbf1e6fa0e",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 2
+          }
+        },
+        {
+          "case": "c41_multiple_effects",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "bc3e1cb96cb83f4a0d07b6a70e6e972c13608f8e9ad0861da49b3f6a99ca7c20",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          }
+        },
+        {
+          "case": "c41_multiple_results_effect",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "0af51d46dc41cbaae420dfe7d7368f72f6df5a5b2fc9774ad9703249b49dd1dc",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 2
+          }
+        },
+        {
+          "case": "c41_read_only",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "751add969dede416020eae3f5562234f17e3e82149046dedea050f42de3c08ff",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          }
+        },
+        {
+          "case": "c41_results_then_effect",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "b88cba0b5f407127ea9d1b8877efa0feefc4f9176d7683305d3b8172a8f5e072",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          }
+        },
+        {
+          "case": "c41_write_then_read_same_table",
+          "mode": "new",
+          "record_kind": "generator_snapshot",
+          "repetitions": [
+            0
+          ],
+          "generator_module": "access_effect_checks",
+          "generator_sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+          "generator_version": "unversioned",
+          "node_count": 1,
+          "query_syntax": "yql",
+          "fallback_requested": false,
+          "expected_outcome": "functional",
+          "bindings": {
+            "query_sha256": "6bbcdae80d8efdf5e746ca42d50571941c22773ceff2e701c30f6c04754f26d3",
+            "schema_sha256": "c82fb0595a3d5ec0b091e56dcd644acb0e231492b7b4c22d9d2b949ecf8ad7e8",
+            "settings_sha256": "3228125f1f0fa9c6a7ceeb2cf34b4a3bd8030d3746d12b2c54316bc4686c60fe",
+            "fixture_sha256": [
+              "aa187cd4a5aa25e061a9ee7936bca119c9de911f7967b87d95f5a1731fb8305c",
+              "080501b3c09e7cbc913f3bd415c2c8402fce3ec0d8eda509de2f9992e42f2c9d",
+              "81e83592e9b1daef1a9d8e5fdd6eb48ac8c9657d804434962569ed9912ae73fc"
+            ],
+            "validation_sha256": []
+          },
+          "required_record_fields": {
+            "verification_contract_version": "strict_results_and_request_boundaries_v1",
+            "correctness_physical_ast_required": false,
+            "correctness_query_plan_required": false,
+            "quality_evidence_required": false,
+            "expected_rejection_configured": false,
+            "setup_request_count": 3,
+            "target_request_count": 1,
+            "validation_request_count": 0,
+            "target_results_checked": true
+          },
+          "required_oracle_fields": {
+            "result_binding_order_pass": true,
+            "result_set_ownership_pass": true,
+            "result_set_boundaries_known": true,
+            "result_set_count": 1
+          }
+        }
+      ],
+      "remaining_qualifications": [],
+      "fullsuite_build_required": true,
+      "expected_status": "verified"
+    }
+  ],
+  "total_expected_finding_records": 109,
+  "expected_runtime_preflights": 14,
+  "default_modules": [
+    "logical_checks",
+    "window_checks",
+    "metadata_checks",
+    "aggregate_checks",
+    "subsystem_checks",
+    "aggregate_window_checks",
+    "write_checks",
+    "join_key_checks",
+    "access_effect_checks",
+    "correlation_controls",
+    "distribution_checks",
+    "sharing_lifecycle_checks",
+    "expression_checks"
+  ],
+  "required_extra_generator_modules": [],
+  "source_bindings": [
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/native_verify.py",
+      "sha256": "a0abb05ec07f94dd3cb8a016616233073c044715e0a1f85e0088b2a5daaa4bd1"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+      "sha256": "cc07fc271efde3ed8f8377ef86f9560b484591503d7c0198d89e7ca7488d6265"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification_contract.py",
+      "sha256": "73a7608c2a8ea37395bd2336def4801a3aa77e607324376816fac996242cd952"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/optimizer_mode_contract.py",
+      "sha256": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/binary_provenance.py",
+      "sha256": "b738e1aefd321965d62009f66739014ab45331ce8d1816ff59a1195e3f98451c"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/anonymous_cpp_guard.py",
+      "sha256": "58941801bad6b72f86546c669107e51cf2b765a806b1d8bb999ac4dfbf310819"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/memory_safe_build.py",
+      "sha256": "ba2e6c524bfcf72a2d0507fceda8cd4877ce4a0570bdc1fbd0e56131933363bd"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/access_effect_checks.py",
+      "sha256": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/aggregate_checks.py",
+      "sha256": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/correlation_controls.py",
+      "sha256": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/logical_checks.py",
+      "sha256": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/metadata_checks.py",
+      "sha256": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/write_checks.py",
+      "sha256": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/generate_and_verify.py",
+      "sha256": "fa9f950e0d97e784574532f5092ee45ac8cabd8edfba91b9495bc81f8e9afaed"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/correlation_oracle_generator.py",
+      "sha256": "01df4ffff02830784e8aad4d4b072f671f89b8b3a8772a1e0949899551cdb2b9"
+    },
+    {
+      "path": "/home/alexpaniman/projects/ydb/ai-verification/rbo-review-20261021/new.conf",
+      "sha256": "7496d5d173b6dc3a270f2ce7ca2faf78d3bd7864723c200d71e46d77bda7359d"
+    }
+  ],
+  "commands": [
+    {
+      "purpose": "13 independent exact-receipt reruns, serial; stop on any failure",
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bugs",
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "C07",
+        "C08",
+        "C17",
+        "C18",
+        "C26",
+        "C44",
+        "C48",
+        "--rows",
+        "24",
+        "--runner-only",
+        "--build-workers",
+        "8"
+      ]
+    },
+    {
+      "purpose": "C41 runner plus complete existing RBO suite and12 semantic cases",
+      "argv": [
+        "python3",
+        "-B",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verify_series.py",
+        "--worktree",
+        "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify",
+        "--bugs",
+        "C41",
+        "--rows",
+        "24",
+        "--build-workers",
+        "8"
+      ]
+    }
+  ],
+  "command_constraints": [
+    "Root must hold the global serial execution slot; no concurrent build or native job. These are proposed commands only.",
+    "Do not set --repetitions: that would replace C02 per-case defaults of eight volatile repetitions.",
+    "No --cases filtering and no --build-only. C41 must omit --runner-only.",
+    "Every finding runs only new mode; the separate legacy scalar preflight is excluded from the finding vector.",
+    "Keep all old raw and guarded records. Check only the newly created guarded slice and exact successful receipt.",
+    "The legacy adapter calls run once each regardless of --repetitions and are explicit exceptional records."
+  ],
+  "not_automatic_full_scope_admission": true,
+  "prepared_unix_ns": 1793148746806907772,
+  "superseded_manifest_sha256": "017e1fc6144fbdc2e5481cf436cdfc2b5a9c5d173c1ee3e143b1706ca1a1cc61",
+  "expected_worktree": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/worktrees/verify"
+}

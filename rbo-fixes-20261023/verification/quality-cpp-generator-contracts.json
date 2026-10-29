@@ -1,0 +1,79 @@
+{
+  "status": "generator_contracts_passed_cpp_compile_and_execution_pending",
+  "generator_sha256": "10d5f97d36c1142d5c7c033e76c3a2152b720087640fb8f2b69773cc8c46dd28",
+  "cases": [
+    {
+      "case": "q18_fields_1",
+      "source_sha256": "77ca3a30f3f295aeef6b6380704d185dd012f3e2a1bd6da53af8cda6952df890",
+      "generated_bytes": 3109,
+      "assertion_count": 8
+    },
+    {
+      "case": "q18_fields_3",
+      "source_sha256": "5e39f8aa23ff05dc390518b290ce3d1f7e759ae4624f17ce4c99b2d5c6864a36",
+      "generated_bytes": 4007,
+      "assertion_count": 14
+    },
+    {
+      "case": "q18_fields_7",
+      "source_sha256": "1f6dd752adcde8c508e98dd2c271fe110213834958fef2febdf15d4cf2f879c8",
+      "generated_bytes": 5803,
+      "assertion_count": 26
+    },
+    {
+      "case": "q19_success_error",
+      "source_sha256": "b746b8c31277d8ae06759dc276f35240302b7c6126eb88ad692a1ee3b21f241c",
+      "generated_bytes": 4175,
+      "assertion_count": 8
+    },
+    {
+      "case": "q19_error_success",
+      "source_sha256": "676f8f59dc00bda00a175bbb95ecd3573599893bb3c59d7314d42da8be5269f1",
+      "generated_bytes": 4175,
+      "assertion_count": 8
+    },
+    {
+      "case": "q19_success_warning",
+      "source_sha256": "87ba939bb1f4cc2a65ce7b44daea6ce2c62ceb30530bcc158d3bdf6f234b3251",
+      "generated_bytes": 4425,
+      "assertion_count": 9
+    },
+    {
+      "case": "q19_all_success",
+      "source_sha256": "2591dec7acf5603f8aa710f4cf0c15eb1bcd28623bfa7b14c8749f3a06f9f929",
+      "generated_bytes": 4323,
+      "assertion_count": 9
+    },
+    {
+      "case": "q19_all_error",
+      "source_sha256": "46bc79b0f707d710c0980d9b63f5f492d9ecee95944305585e408dd8fdc03115",
+      "generated_bytes": 4053,
+      "assertion_count": 7
+    },
+    {
+      "case": "q19_future_exception",
+      "source_sha256": "4f1552afa789064f609f9eb7343dccce3dc77b9c57bb296603124db8bb4e8bac",
+      "generated_bytes": 3828,
+      "assertion_count": 5
+    }
+  ],
+  "case_count": 9,
+  "suites": [
+    {
+      "finding": "Q18",
+      "case_count": 3,
+      "source_sha256": "a3e71107787af1bc2f61c1eff2b5aa8fa0b096cd285381e42523e8c97cc7b54b",
+      "generated_bytes": 11757
+    },
+    {
+      "finding": "Q19",
+      "case_count": 6,
+      "source_sha256": "f479d4dc7d188deb96677b36072a685cda77674eef7fab8954ce5d7c2b952095",
+      "generated_bytes": 13983
+    }
+  ],
+  "rendered_sources_persisted": false,
+  "builds": 0,
+  "native_runs": 0,
+  "coverage": "Actual production calls generated; no compiler/linker/native proof yet."
+}

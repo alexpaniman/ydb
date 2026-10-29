@@ -1,0 +1,51 @@
+{
+  "id": "Q15",
+  "reviewer": "/root/quality_review",
+  "independent_of_patch_author": false,
+  "review_kind": "second source audit against exact pinned main; patch author is reviewer",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "reviewed_patch_sha256": "e186058b626f1fb113fbc340617eb02be5d7939dbfabbda04a457bb49043c31e",
+  "source_review_result": "no blocker found within admitted proof domain",
+  "apply_check_passed": true,
+  "apply_diagnostic_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "pinned_source_sha256": {
+    "ydb/core/kqp/opt/rbo/kqp_rbo_utils.h": "a3e6d4f48411ed96bbf6ef1e9178dc57995ccfa997e7069c2d784a51f24981d7",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_utils.cpp": "dcdb8bab2fdfe8c5a8779c6d960c606d07e39edf6d134ee682aa65543379d6d5",
+    "ydb/core/kqp/opt/rbo/kqp_operator.h": "d5ef4e7aa7921d4dcab120f4d9d503d44442d1f5d068445eb6f3b0d27a5771af",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_compute_statistics.cpp": "fce89a7e7f349a93b8784b2fcefd6b897fa4de9f13ea809028a3309d47337d55",
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp": "e0217b2201275ab0c8ae05d3d2ea45a1589dd313cc2d367783224db0b99cab85"
+  },
+  "compiled": false,
+  "native_verified": false,
+  "production_edited": false,
+  "proof_contracts": [
+    "The helper and pre-stage metadata use the same effective OptShuffleElimination override/default setting. Disabled reuse advertises the full Window key and stage assignment emits the same full-key shuffle; keyless windows advertise no hash key and gather.",
+    "For each actual ordered upstream hash key there must be a value/type-identical current partition key. The result preserves upstream order and multiplicity, rather than the order or size of the Window partition-key list.",
+    "Map definitions require fresh IUs and append to input columns. IsColumnAccess is exactly Member of the lambda row argument; aliases retain value/type, while casts, nested members and computed expressions cannot replace a required hash key.",
+    "A computed extra partition key only invalidates its own candidate. An independent sufficient direct key still proves grouping colocation.",
+    "Only prior Window metadata produced by this same override and column Source metadata resolved from storage partition names are admitted anchors. Every actual key must be output by the anchor.",
+    "Map/Filter above an admitted Window or column Source stay in the same stage. Row Source and Replicate paths reject even before stage IDs exist, and differing assigned wrapper stage IDs reject afterward. No newly finalized Join algorithm can create an admitted proof.",
+    "The assignment stage requires fresh metadata and types. It compares the shared helper result with the already-advertised ordered distribution before creating the Window stage.",
+    "After stage assignment, metadata reads the actual input-to-window connection. HashShuffle uses its actual Keys, Map uses the proved preserved keys, and absent/ambiguous/gather/unknown connections clear the hash claim. This prevents recomputation from silently changing the chosen full-key shuffle to a newly available subset.",
+    "Map preserves the producing stage hash function and PropagateHashFuncs carries it through Map paths. Direct aliases introduce no hash input type conversion; no cross-input mixed-type or outer-join equivalence is used.",
+    "Aggregate and Join anchors, including Full, Exclusion and mixed-type joins, remain unproved. Physical aggregate and top-sort rewrites do not introduce a newly admitted anchor or change an existing window input shuffle decision.",
+    "The exact patch changes only five new-RBO files and applies to the pinned base without C37/C38 or other finding branches. The Window override overlaps C37 and must be reconciled as one final body when branches are combined."
+  ],
+  "references": [
+    "kqp_expression.cpp:IsRowMember,TExpression::IsColumnAccess",
+    "kqp_operator.cpp:TOpMap::ComputeOutputIUs",
+    "kqp_rbo_compute_statistics.cpp:IUnaryOperator::ComputeMetadata,TOpRead::ComputeMetadata,TOpMap::ComputeMetadata",
+    "kqp_rbo_rules.h:TAssignStagesStage",
+    "kqp_rbo.cpp:EnsureRequiredProps",
+    "rules/assign_stages.cpp:ProcessSource,MakePortConnection,AssignStage",
+    "rules/propagate_hash_func_stage.cpp:PropagateHashFuncs",
+    "kqp_rbo_transformer.cpp:configured stage ordering"
+  ],
+  "existing_model_evidence": "verification/q15-subset-artifact-contracts.json",
+  "remaining_verification": [
+    "Compile exact branch and execute anonymous production-helper C++ contracts.",
+    "Run generated native semantic and physical-plan contracts, including multiple tasks, configuration overrides and column-source hash settings.",
+    "Check downstream aggregate/join placement and actual metadata connection agreement; semantic equality or shuffle counters alone are insufficient.",
+    "Obtain another reviewers exact-amendment approval if independent reviewer approval is required; this record is explicitly an author second-pass audit."
+  ]
+}

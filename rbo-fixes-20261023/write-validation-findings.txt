@@ -1,0 +1,49 @@
+Write correctness verification notes
+
+These checks use separate requests for fixture setup, the target operation and
+persisted-content verification. Both base-table and physical-index contents are
+checked. Only generators, configuration/input hashes, counts and verdicts are
+stored; no rendered statements, rows or raw diagnostics are retained.
+
+C30 — Insert-or-revert reports an error on existing-key or duplicate-input
+conflicts instead of completing with no change to that statement's input.
+The pinned base fails five conflict/scope checks under new RBO. Both ordinary
+insert controls pass, and all seven legacy comparisons pass. This now isolates
+the write behavior from C41's mixed effects/results failure.
+
+C44 — With sink index maintenance disabled, new RBO can successfully insert
+base-table rows without maintaining their synchronous index. Enabling fallback
+alone does not help because the faulty operation reports success. Both disabled
+variants produce incorrect persisted contents on the pinned base. The enabled
+streaming-index control and all three legacy comparisons pass. The prepared
+fix is a correctness guard, so verification must report a guard separately from
+normal successful execution.
+
+C46 — Conditional updates fail during new-RBO lowering for both ordinary and
+indexed tables, including empty matches and full matches. Seven isolated target
+checks fail under new RBO and all seven corresponding legacy checks pass.
+
+C48 — Non-streaming upsert/replace lowering remains unsupported; enabling index
+streaming does not make partial Replace input lowering supported. The latter
+fails at the RBO effect input importer while the legacy result is correct. The
+source proposal in c48-replace-routing-proposal.txt keeps the upsert flag gate
+and routes Replace independently of that flag.
+
+C41 follow-up — Consecutive indexed writes in one request can execute with the
+wrong effect ordering, leaving incorrect base values and extra stale index
+entries. The same streaming upserts, issued as separate requests, pass for
+partial/full rows, non-key changes and fresh inserts. The ordering coverage now
+lives in access_effect_checks.py and is not waived by the C48 routing fix.
+StreamWrite=false alone is not established as the cause: the query compiler's
+index-maintenance path is controlled by EnableIndexStreamWrite separately.
+
+Evidence qualifications:
+- One sandboxed launch produced 44 startup failures before any target request.
+  Those records remain explicitly setup_or_startup and are excluded as bug
+  evidence. Escalated runs with local loopback sockets reached the targets.
+- The native harness now runs a known legacy control before each batch, refuses
+  malformed/missing result-set boundaries where the oracle needs them, and
+  captures exact loaded generator-source fingerprints.
+- Older generator_sha256 fields without generator_hash_source describe the
+  file observed on disk, not necessarily the source snapshot already loaded by
+  a running worker. Version tags plus request/config hashes remain available.

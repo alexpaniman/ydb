@@ -1,0 +1,134 @@
+Q28: bounded scheduler change with an explicit local rewrite contract
+Base e8700d379b3b9c4fbaf68f36424e6bcf08314fd2. Design only; no production edits.
+
+Recommended first implementation
+Use a batch path only for the existing standalone "Rewrite right joins" stage.
+The stage contains only TRewriteRightJoinRule. Its implementation creates a new
+TOpJoin, swaps the existing children and key pairs, changes Right/RightSemi/
+RightOnly into the corresponding left kind, and retains JoinFilters. It does not
+use ctx, props, or Parents. Remove its unused RequireParents declaration.
+This is a complete bounded fix for repeated scans in this normalization stage,
+not a claim to eliminate Q28's cost in every stage.
+
+Smallest useful contract
+Give IRule a scheduling contract defaulting to RestartFromRoot. An opt-in value
+such as BottomUpLocalReplacement means all of the following, not just "local":
+1. Only the supplied owning edge may be replaced. No existing operator, parent,
+   child, registry, subplan entry, Replicate hub, stage graph, or global context is
+   mutated. The replacement may own already processed children from the match.
+2. Output IU identity and types are preserved. Raw subplan references are exactly
+   preserved, and no definition IDs or subplan registrations are added/removed.
+3. The replacement introduces no nodes that can match a rule in this same stage;
+   the rewrite cannot change eligibility of an already processed descendant.
+4. Every rule in the stage opts in, and the first implementation requires Props=0.
+   No cached/global property is consumed during the batch. Mixed/unclassified
+   stages take the current restart path unchanged.
+5. Stage matching depends only on the current node and its current children,
+   never ancestor state, previous trace events, or other subplans.
+Right-join canonicalization satisfies these conditions. The stage is before CBO,
+so opaque CBOTree virtual edges are not present in this particular batch.
+
+Traversal and lifetime mechanism
+Collect a complete postorder snapshot BEFORE any rewrite, and destroy the lazy
+iterator before applying rules. Each entry owns intrusive references to Current
+and Parent and stores ChildIndex plus optional SubplanIU. Do not reuse the raw
+TOpTraversal type: it explicitly does not retain lifetime. Root ownership is held
+by the optimizer; retaining it in entries is harmless.
+Resolve the owning edge fresh for each candidate using the same rule-loop logic:
+Parent.MutableChild(index), Subplans.MutablePlan(id), or root.MutableChild(0).
+Verify that this edge still points at the entry's Current before applying.
+For a Replicate producer, MutableChild on a port resolves to the canonical hub
+slot; standard traversal visits that producer once. The contract prohibits hub,
+port or registry changes, so that owner remains stable. Referenced subplan roots
+are resolved by ID, not by storing a pointer into a mutable registry container.
+An unexpected owner/identity mismatch must fall back to a fresh global traversal
+(or fail a debug assertion); do not silently process a detached snapshot node.
+The root wrapper is never matched by this rule. Ordinary multiple ownership is
+already rejected by ComputeTypes; batch guards should not widen that contract.
+
+Why postorder is enough here
+Descendant right joins are rewritten before an ancestor is replaced. An ancestor
+replacement reuses its NOW-CURRENT children, so it carries prior replacements
+forward. Owning snapshot references prevent destruction, but lifetime alone would
+not suffice without the no-descendant-mutation and owner-identity contracts.
+Swapping children happens after all their candidates have been handled, so it does
+not change the order of still-pending right-join matches. The final joins, keys,
+filters, IU schema and sharing ports match the restart algorithm's fixed point.
+Parents become stale during the batch, but no rule reads them; the next stage's
+normal EnsureRequiredProps recomputes them. Do not call FinishLogicalRewrite per
+match or preserve global computedProps across stages.
+
+Properties and invalidation scope
+This optimization removes unnecessary parent reconstruction for this rule and
+per-match traversal restarts. It deliberately does not introduce broad cache
+preservation masks. New joins have fresh caches, output schemas are invariant,
+and later stages retain their current global analyses/invalidation policy.
+Avoid claiming that a local expression replacement preserves metadata/statistics
+merely because it preserves output types: selectivity, lineage, subplan reachability
+and evaluation demand can all change.
+
+Unsafe opt-ins rejected after source review
+- Map pushdown mutates child operators and definition ownership; Q25 is separate.
+- Filter fusion/pushdown can remove nodes, alter demand and rewrite descendants.
+- Scalar/IN/EXISTS/dependent rules mutate distant consumers and subplan registry.
+- Range/lookup selection changes expressions, output bindings and access metadata.
+- CBO wrappers expose virtual children and may replace hidden TreeRoot graphs.
+- Physical propagation mutates stage connections and distribution contracts.
+- DisableBlocksOnColumnsLimit changes global TypeCtx even when it reports no match.
+- Peephole predicates can change raw dependencies and subplan reachability; require
+  a stronger proof before considering them for batch execution.
+No class should be opted in because its base type is ISimplifiedRule.
+
+Validation required before merge
+Create generated operator graphs in memory and retain only counters/verdicts.
+Compare old restart scheduler and new batch scheduler on independent right joins,
+chains, balanced trees, unmatched left joins, interleaved nonjoin operators,
+referenced subplans, and explicit Replicate ports with multiple consumers. Match
+normalized final topology, kind/key orientation, filter bindings, output IDs/types,
+active subplan IDs and canonical producer ownership. Run subsequent type/parent
+analysis and existing join suites; compare native semantic multisets as well.
+Record per-stage operator visits, QuickMatch calls, MatchAndApply calls, matches,
+parent recomputations, snapshots and fallbacks. For N independent candidates,
+new scheduler should perform one O(V+E) snapshot plus O(V) attempts and zero
+parent recomputations inside this stage; old visits/property scans grow with N*V.
+Measure N at several scales below the current rewrite ceiling; retain compile
+latencies only as supplemental measurements, not proof of asymptotic behavior.
+Keep the existing 1000-match rejection semantics in this quality patch. Test the
+boundary separately; relaxing that rejection is a different robustness change.
+Trace-enabled execution still serializes whole plans per match by design, so it
+can remain quadratic. Preserve match count/order and trace event behavior; do not
+claim trace-mode acceleration from this scheduling change.
+
+Source anchors
+kqp_rbo.cpp:125-185 restart/property loop; kqp_operator.h:1449 iterator mutation
+contract; kqp_operator.cpp:1930-1984 postorder/first-edge traversal;
+kqp_rbo_type_ann.cpp:813+ ownership validation; kqp_rbo_transformer.cpp:622-625
+standalone stage; rules/rewrite_right_join.cpp:10-44 pure replacement;
+kqp_rbo_rules.h:210-218 unused RequireParents declaration.
+
+Q25: narrow per-definition intent design
+Move push eligibility onto TMapElement, default false. Preserve the constructor
+bool on TOpMap only as an explicit request to mark all INITIAL definitions true;
+false must preserve incoming per-definition flags rather than clear them.
+Replace map-wide NeedToPush reads with HasPushIntent() (any element eligible).
+Through-input movement skips unflagged definitions before dependency/preserved-side
+checks. Into-map movement copies the whole TMapElement value, so moved and retained
+definitions keep their individual eligibility. New kept maps preserve flags and
+new pushed maps contain only flagged definitions. Existing lower definitions never
+become eligible because an upper definition was fused into their map.
+CopyDefinitions already copies whole values; CopyImpl should pass copied elements
+without a map-wide true flag. SetMapElementExpression currently reconstructs the
+value from TExpression and MUST preserve the old element's push flag. That one
+setter is used by both RenameUsedIUs and ApplyReplaceMap. Pruning RetainKeys and
+SetMapElements preserve remaining whole values. Physical propagation constructors
+also copy TMapIUs values, so preserving flags in constructors covers those paths.
+Only extract_join_expressions.cpp creates an initially flagged map, apart from
+pushdown's own continuation maps. Existing source grep found no other flag writers.
+Likely production footprint: kqp_operator.h/.cpp, copy_logical_subtree.cpp and
+rules/push_map_elements_through_input.cpp, without essentials or expression schema.
+Tests must cover top=true/bottom=false AND top=false/bottom=true, mixed retained
+and moved definitions, copy/rename/ApplyReplaceMap, filter/outer-join placement,
+fallible unflagged definitions and branch-demanded cardinality. Check actual
+movement counts in addition to semantic outputs. This preserves the existing
+meaning of explicit push intent; it does not prove every historically flagged
+expression is effect-safe and must not expand that authorization.

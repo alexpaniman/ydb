@@ -1,0 +1,183 @@
+--- a/rbo-fixes-20261023/quality_window_checks.py
++++ b/rbo-fixes-20261023/quality_window_checks.py
+@@ -4,7 +4,7 @@
+ in the caller's anonymous buffers. This module does not execute or write them.
+ Semantic success alone never establishes an optimization improvement: run the
+ paired physical-AST checks and retain only their counters, hashes and verdicts.
+-Q01 covers COUNT only; Q15 covers consecutive windows with exact partition keys.
++Q01 covers COUNT and its integer-SUM mixed case; Q15 covers exact partition keys.
+ """
+ from collections import Counter
+ import hashlib
+@@ -14,7 +14,7 @@
+ import generate_and_verify as g
+ 
+ CASE_SPECIFIC_SCHEMA = True
+-GENERATOR_VERSION = 'quality_window_independent_models_v1'
++GENERATOR_VERSION = 'quality_window_physical_contracts_v2'
+ 
+ 
+ def _int(value):
+@@ -409,17 +409,116 @@
+             'callables': {name: counters[name] for name in relevant}, 'sink_flags': flags,
+             'sink_incoming_connections': sink_edges,
+             'switch_output_counts': sorted(switch_outputs), 'row_read_setting_names': row_read_settings,
+-            'physical_ast_parsed': True}
++            'physical_ast_parsed': True,
++            # Comparison callable heads are symbols, outside the identifier-only counter.
++            'scalar_equality_dag_nodes': sum(bool(node) and len(node) == 3 and node[0] == '==' for node in nodes)}
++
++
++def _window_frame_fold_state(text):
++    """Inspect only concrete frame-fold state nodes; never guess local aliases."""
++    result = {'version': 'window_frame_fold_state_v1', 'complete': False, 'folds': []}
++    try:
++        resolve, nodes = parse_physical_graph(text)
++        def head(node):
++            return node[0] if isinstance(node, list) and node and isinstance(node[0], str) else None
++        def atom(node):
++            node = resolve(node)
++            if not isinstance(node, str) or node.startswith('$'):
++                raise ValueError('Unresolved field atom')
++            node = node[1:] if node.startswith("'") else node
++            value = json.loads(node) if node.startswith('"') else node
++            if not isinstance(value, str):
++                raise ValueError('Invalid field atom')
++            return value
++        def one_lambda(node):
++            node = resolve(node)
++            if head(node) != 'lambda' or len(node) != 3:
++                raise ValueError('Unsupported frame lambda')
++            args, body = resolve(node[1]), resolve(node[2])
++            if (not isinstance(args, list) or any(not isinstance(arg, str) or not arg.startswith('$') for arg in args)
++                    or len(set(args)) != len(args) or any(resolve(arg) != arg for arg in args)):
++                raise ValueError('Unresolved frame arguments')
++            return args, body
++        def state_fields(body):
++            if head(body) != 'AsStruct':
++                raise ValueError('Unresolved frame state')
++            fields = {}
++            for pair in body[1:]:
++                pair = resolve(pair)
++                if not isinstance(pair, list) or len(pair) != 2:
++                    raise ValueError('Invalid frame state field')
++                name = atom(pair[0])
++                if name in fields:
++                    raise ValueError('Duplicate frame state field')
++                fields[name] = resolve(pair[1])
++            return fields
++        def member(node, argument):
++            node = resolve(node)
++            if head(node) != 'Member' or len(node) != 3 or resolve(node[1]) != argument:
++                return None
++            return atom(node[2])
++        collectors = [node for node in nodes if head(node) == 'WinFramesCollector']
++        descriptors = []
++        for fold in (node for node in nodes if head(node) == 'Fold1'):
++            if len(fold) != 4:
++                raise ValueError('Unsupported frame fold')
++            frame = resolve(fold[1])
++            if head(frame) in ('Map', 'OrderedMap') and len(frame) == 3:
++                args, body = one_lambda(frame[2])
++                if len(args) != 1 or body != args[0]:
++                    raise ValueError('Nonidentity frame map')
++                frame = resolve(frame[1])
++            if head(frame) != 'WinFrame' or len(frame) != 7:
++                raise ValueError('Unresolved frame source')
++            queue = resolve(frame[1])
++            if head(queue) != 'QueueCreate':
++                raise ValueError('Unresolved frame queue')
++            matched = [node for node in collectors if len(node) == 4 and resolve(node[2]) is queue]
++            init_args, init_body = one_lambda(fold[2])
++            update_args, update_body = one_lambda(fold[3])
++            initial, updated = state_fields(init_body), state_fields(update_body)
++            optional_counts = 0
++            if len(init_args) == 1 and len(update_args) == 2:
++                for name in initial.keys() & updated.keys():
++                    first, later = initial[name], updated[name]
++                    if head(first) != 'AggrCountInit' or len(first) != 2 or head(later) != 'AggrCountUpdate' or len(later) != 3:
++                        continue
++                    field = member(first[1], init_args[0])
++                    if field is not None and field == member(later[1], update_args[0]) and member(later[2], update_args[1]) == name:
++                        optional_counts += 1
++            descriptors.append({'init_fields': len(initial), 'update_fields': len(updated),
++                                'state_fields_match': initial.keys() == updated.keys(),
++                                'init_arity': len(init_args), 'update_arity': len(update_args),
++                                'optional_count_fields': optional_counts,
++                                'collector_queue_bound': len(matched) == 1})
++        result.update(complete=True, folds=descriptors)
++    except (ValueError, TypeError, IndexError, KeyError, RecursionError) as error:
++        result['shape_rejection'] = type(error).__name__
++    return result
++
++
++def _retained_optional_count_state(summary):
++    if not isinstance(summary, dict) or summary.get('complete') is not True:
++        return False
++    folds = summary.get('folds')
++    return (isinstance(folds, list) and len(folds) == 1 and folds[0] == {
++        'init_fields': 1, 'update_fields': 1, 'state_fields_match': True,
++        'init_arity': 1, 'update_arity': 2, 'optional_count_fields': 1,
++        'collector_queue_bound': True})
+ 
+ 
+ def check_physical_ast(case, text, baseline=None):
+     summary = physical_ast_summary(text)
+     counts = summary['callables']
+     assertions = {}
+-    if case.startswith('q01_') and case not in ('q01_rows_mixed', 'q01_empty_control'):
++    if case.startswith('q01_') and case != 'q01_empty_control':
+         assertions = {'frame_collection_present': counts['WinFramesCollector'] > 0,
+                       'count_has_no_frame_fold': counts['Fold'] + counts['Fold1'] == 0,
+                       'boundary_accesses_present': counts['WinFrame'] >= 2}
++    elif case == 'q02_partial':
++        summary['window_frame_fold_state'] = _window_frame_fold_state(text)
++        assertions = {'retained_window_pipeline_present': counts['QueueCreate'] > 0 and counts['WinFramesCollector'] > 0,
++                      'only_live_optional_count_state_retained': _retained_optional_count_state(summary['window_frame_fold_state'])}
+     elif case == 'q02_all_dead':
+         assertions = {'unused_frame_state_removed': counts['QueueCreate'] == 0 and counts['WinFramesCollector'] == 0}
+     elif case.startswith('q10_') and not case.endswith(('_empty', '_all_null')):
+@@ -443,12 +542,19 @@
+                       'expected_sink_input_connection': summary['sink_incoming_connections'] == [
+                           ['DqCnMap' if expected else 'DqCnUnionAll']]}
+         summary['sink_incoming_connection_checked'] = True
+-    elif case.startswith('q22_') and case != 'q22_row_dependent_control' and int(case.split('_')[3]) > 5:
+-        assertions = {'dictionary_membership_present': counts['Contains'] > 0,
+-                      'high_level_membership_lowered': counts['SqlIn'] == 0}
++    elif case.startswith('q22_') and case != 'q22_row_dependent_control':
++        if int(case.split('_')[3]) > 5:
++            assertions = {'dictionary_membership_present': counts['Contains'] > 0,
++                          'high_level_membership_lowered': counts['SqlIn'] == 0}
++        elif int(case.split('_')[3]) == 5:
++            assertions = {'small_collection_membership_lowered': counts['SqlIn'] == 0,
++                          'small_collection_comparison_present': summary['scalar_equality_dag_nodes'] > 0}
++            summary['paired_boundary_preservation_required'] = True
+     if baseline is not None:
+         if isinstance(baseline, str):
+             before = physical_ast_summary(baseline)
++            if case == 'q02_partial':
++                before['window_frame_fold_state'] = _window_frame_fold_state(baseline)
+         elif isinstance(baseline, dict):
+             before = baseline
+             if (before.get('physical_ast_parsed') is not True
+@@ -464,6 +570,20 @@
+         for key in ('sink_incoming_connections', 'switch_output_counts', 'row_read_setting_names'):
+             if key in before:
+                 summary['baseline_' + key] = before[key]
++        if case == 'q02_partial':
++            previous = before.get('window_frame_fold_state', {})
++            folds = previous.get('folds', []) if isinstance(previous, dict) else []
++            assertions['baseline_dead_accumulator_fields_removed'] = (
++                isinstance(previous, dict) and previous.get('complete') is True
++                and isinstance(folds, list) and len(folds) == 1 and isinstance(folds[0], dict)
++                and type(folds[0].get('init_fields')) is int and folds[0]['init_fields'] > 1
++                and folds[0].get('init_fields') == folds[0].get('update_fields')
++                and folds[0].get('state_fields_match') is True and folds[0].get('collector_queue_bound') is True)
++        if case.startswith('q22_') and 'small_collection_comparison_present' in assertions:
++            assertions['small_collection_strategy_preserved'] = (
++                type(before.get('scalar_equality_dag_nodes')) is int
++                and before['scalar_equality_dag_nodes'] == summary['scalar_equality_dag_nodes']
++                and before['callables'] == counts)
+         if case.startswith('q01_') and 'count_has_no_frame_fold' in assertions:
+             assertions['baseline_frame_fold_present'] = before['callables']['Fold'] + before['callables']['Fold1'] > 0
+         if case == 'q15_same_partition':

@@ -1,0 +1,115 @@
+--- a/ydb/core/kqp/opt/rbo/rules/push_ranges.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/push_ranges.cpp
+@@ -499,6 +499,83 @@
+ }
+ 
+ } // anonymous namespace
++
++bool TUseCoveringImportedIndexRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
++    return input->Kind == EOperator::TableLookup;
++}
++
++TIntrusivePtr<IOperator> TUseCoveringImportedIndexRule::SimpleMatchAndApply(
++    const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
++    if (!QuickMatch(input) || ctx.KqpCtx.Config->GetEnableQueryServiceSpilling()) {
++        return input;
++    }
++    const auto lookup = CastOperator<TOpTableLookup>(input);
++    if (lookup->Parents.size() != 1 || lookup->IsJoin() || !lookup->AllowNullKeys || lookup->Prefix || lookup->FetchedRowFilter
++        || lookup->KeysFromInputLookup || lookup->SourceRead || !lookup->ResidualJoinKeys.Items().empty()
++        || lookup->GetInput()->Kind != EOperator::Source) {
++        return input;
++    }
++    const auto read = CastOperator<TOpRead>(lookup->GetInput());
++    if (!read->ReadSettings || read->GetTableStorageType() != NYql::EStorageType::RowStorage
++        || read->OlapFilterLambda || read->OriginalPredicate) {
++        return input;
++    }
++    const auto* mainTable = FindTable(ctx.KqpCtx, TKqpTable(lookup->Table).Path().StringValue());
++    if (!mainTable || !mainTable->Metadata) {
++        return input;
++    }
++    const auto& mainMeta = *mainTable->Metadata;
++    if (mainMeta.KeyColumnNames.empty() || lookup->LookupKeys.Items().size() != mainMeta.KeyColumnNames.size()) {
++        return input;
++    }
++    size_t keyIndex = 0;
++    for (const auto& [id, column] : lookup->LookupKeys.Items()) {
++        if (column != mainMeta.KeyColumnNames[keyIndex++] || !read->GetColumns().Contains(id)
++            || props.InfoUnitRegistry.Get(id).GetColumnName() != column) {
++            return input;
++        }
++    }
++    TIntrusivePtr<TKikimrTableMetadata> indexMeta;
++    const auto indexTable = TKqpTable(read->TableCallable).Path().StringValue();
++    for (size_t i = 0; i < mainMeta.Indexes.size() && i < mainMeta.ImplTables.size(); ++i) {
++        const auto& index = mainMeta.Indexes[i];
++        const auto& implTable = mainMeta.ImplTables[i];
++        if (implTable && implTable->Name == indexTable
++            && (index.Type == TIndexDescription::EType::GlobalSync || index.Type == TIndexDescription::EType::GlobalSyncUnique)
++            && index.State == TIndexDescription::EIndexState::Ready) {
++            indexMeta = implTable;
++            break;
++        }
++    }
++    const auto* indexTableDesc = FindTable(ctx.KqpCtx, indexTable);
++    if (!indexMeta || !indexTableDesc || !indexTableDesc->Metadata) {
++        return input;
++    }
++    // The original import lowered a full-schema read before demand was known.
++    // Use all consumers' live outputs, never an inferred SQL projection.
++    auto columns = lookup->GetColumns();
++    columns.IntersectWith(GetLiveOut(lookup.Get()));
++    if (columns.Empty()) {
++        return input;
++    }
++    for (const auto id : columns) {
++        const auto column = props.InfoUnitRegistry.Get(id).GetColumnName();
++        if (!indexMeta->Columns.contains(column)) {
++            return input;
++        }
++        const auto* mainType = mainTable->GetColumnType(column);
++        const auto* indexType = indexTableDesc->GetColumnType(column);
++        if (!mainType || !indexType || !IsSameAnnotation(*mainType, *indexType)) {
++            return input;
++        }
++    }
++    // Move the fetched definitions to a fresh index read. The existing read may
++    // have other consumers, and its private lookup-key IDs must not be renamed.
++    auto covering = MakeIntrusive<TOpRead>(read->Alias, std::move(columns), NYql::EStorageType::RowStorage,
++        read->TableCallable, nullptr, read->Limit, read->RangeInfo, std::nullopt,
++        read->SortDir, TPhysicalOpProps{}, lookup->Pos, read->ReadSettings);
++    return covering;
++}
+ 
+ bool TPushRangesRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
+     return input->Kind == EOperator::Filter &&
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_rules.h
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_rules.h
+@@ -393,6 +393,16 @@
+ /**
+  * Push ranges to read.
+  */
++// Reconsider an imported explicit-index lookup after whole-plan demand pruning.
++class TUseCoveringImportedIndexRule final: public ISimplifiedRule {
++public:
++    TUseCoveringImportedIndexRule()
++        : ISimplifiedRule("Use covering imported index", ERuleProperties::RequireParents | ERuleProperties::RequireLiveness) {}
++
++    bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
++    TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) override;
++};
++
+ class TPushRangesRule: public ISimplifiedRule {
+ public:
+     TPushRangesRule(NYql::EStorageType applicableTableType)
+--- a/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
++++ b/ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp
+@@ -715,6 +715,7 @@
+     RBO.AddStage(std::make_unique<TRuleBasedStage>("Physical rewrites I", std::move(physicalStageRules)));
+ 
+     TVector<std::unique_ptr<IRule>> indexSelectionRules;
++    indexSelectionRules.emplace_back(std::make_unique<TUseCoveringImportedIndexRule>());
+     indexSelectionRules.emplace_back(std::make_unique<TPushRangesRule>(NYql::EStorageType::RowStorage));
+     RBO.AddStage(std::make_unique<TRuleBasedStage>("Index selection rules", std::move(indexSelectionRules)));
+ 

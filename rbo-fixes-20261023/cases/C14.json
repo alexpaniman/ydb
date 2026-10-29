@@ -1,0 +1,72 @@
+{
+  "id": "C14",
+  "branch": "fix/new-rbo/c14-preserve-nested-aggregate-inputs",
+  "commit": "c128b7c1bd99c1c7199e3ad2b00d061b7f3a2b6f",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "verified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rewrite_select.cpp"
+  ],
+  "rationale": "Restrict aggregate input deduplication by column name to a Member whose receiver is exactly the current row argument. Nested members follow the existing expression-materialization path and preserve their complete receiver chain.",
+  "checks": [
+    "git diff --check passed",
+    "Reviewed short-circuit classification for direct members, expressions, and count-star",
+    "Reviewed shared ProcessAggregations use from HAVING",
+    "Parent is the required main base",
+    "No build or native execution",
+    "Compositional generator syntax and oracle helpers checked at three fixture sizes; no native execution"
+  ],
+  "generator_module": "rbo-fixes-20261023/expression_checks.py",
+  "generator_cases": [
+    "c14_nested_receivers",
+    "c14_deep_receivers",
+    "c14_direct_control",
+    "c14_nested_having"
+  ],
+  "expected_oracle_controls": [
+    "Different nested receivers with equal leaf names feed their respective aggregates",
+    "Deep member chains retain each receiver",
+    "Repeated direct-column aggregation retains deduplication",
+    "HAVING uses the same correctly bound aggregate inputs"
+  ],
+  "concerns": [
+    "Repeated nested expressions may be separately materialized; structural deduplication is an independent optimization"
+  ],
+  "status_before_verification": "prepared_unverified",
+  "build_verification": {
+    "bug": "C14",
+    "revision": "c128b7c1bd99c1c7199e3ad2b00d061b7f3a2b6f",
+    "exit_code": 0,
+    "elapsed_seconds": 99.1,
+    "target": "ydb/tests/tools/kqprun",
+    "memory": {
+      "scheduler_memory_threshold": "40GB",
+      "requested_cgroup_memory_max_gib": 72,
+      "requested_cgroup_memory_high_gib": 56,
+      "watchdog_min_host_available_gib": 36,
+      "watchdog_max_scope_usage_gib": 52,
+      "peak_group_rss_bytes": 4546560,
+      "peak_scope_usage_bytes": 43109306368,
+      "minimum_host_available_bytes": 109156634624,
+      "watchdog_stopped": false,
+      "explicit_build_workers": 8,
+      "scope_memory_accounting_available": false,
+      "scope_process_rss_available": true,
+      "elapsed_seconds": 99.0
+    },
+    "diagnostic_sha256": "484ea7a0acd14f45bbd6d86f24f67a8227786a6549c6a08204d9933cf62bbde0",
+    "build_receipt": "/home/alexpaniman/projects/ydb/ai-verification/rbo-fixes-20261023/verification/build-receipts/c128b7c1bd99c1c7199e3ad2b00d061b7f3a2b6f-48c4f1872521cccc.json"
+  },
+  "native_verification": {
+    "checks": 4,
+    "checks_passed": true,
+    "evidence": "verification/fixed-C14-c128b7c1bd99.jsonl"
+  },
+  "historical_preparation_notes": [
+    {
+      "original_field": "concerns",
+      "text": "Build/native verification pending coordination",
+      "classification": "drafting_note_superseded_by_saved_verification_status"
+    }
+  ]
+}

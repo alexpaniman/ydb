@@ -1,0 +1,10 @@
+{
+  "id": "Q27",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "proposed_not_applied",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+  ],
+  "rationale": "Visit shared nonterminal AST nodes once while preserving terminal-root boundaries.",
+  "validation": "Generated shared DAG traversal counts and selected-root identity set, plus native existing selection coverage."
+}

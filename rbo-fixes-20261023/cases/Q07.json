@@ -1,0 +1,62 @@
+{
+  "id": "Q07",
+  "title": "Lookup costing and actual lookup eligibility disagree.",
+  "branch": "fix/new-rbo/q07-lookup-costing-and-actual-lookup-eligibility-disagree",
+  "commit": "18eb64e0a7e18ccf2f50340a75f98b3ced6ab646",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h",
+    "ydb/core/kqp/opt/rbo/rules/apply_cbo.cpp",
+    "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp",
+    "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp"
+  ],
+  "proposal_sha256": "883370dc00e342e6797ec75f4bb02f386a815a22b22341bb5663087decf704e2",
+  "proposal": "proposed-quality-patches/Q07.patch",
+  "proposal_metadata": {
+    "id": "Q07",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_patch_only",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.cpp",
+      "ydb/core/kqp/opt/rbo/rules/rewrite_join_to_index_lookup_join.cpp",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.cpp",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_cbo.h",
+      "ydb/core/kqp/opt/rbo/rules/apply_cbo.cpp",
+      "ydb/core/kqp/opt/rbo/rules/assign_stages.cpp"
+    ],
+    "scope": "Shared typed lookup eligibility and target/key preparation for costing and lowering; final stage-assignment validation recosts any unlowered forced or invalidated lookup and clears stale distribution decisions.",
+    "validation_plan": [
+      "Costed lookup must lower with the same target and prefix across exact/optional/mixed types, feature/query gates, null-safe keys, sharing and filter recovery",
+      "Forced hints bypass generic CBO applicability: add scoped post-logical validation and costed hash fallback before physical rewrite",
+      "Large right input must never receive late forced MapJoin",
+      "Compare eligible lookup plans unchanged, ordinary rejected candidates never costed as lookups, forced/late-rejected candidates use supported physical algorithms.",
+      "Large right fallback never bypasses CBO Map size cap; missing statistics choose Grace; mixed key annotation fallback gathers both inputs before comparison.",
+      "Nested and shared consumers discard ancestor CBO shuffle claims after fallback; all supported regular join kinds preserve rows.",
+      "Q29 integration keeps one BuildLookupJoinFetchedRowFilter declaration and uses the Q29 safe comparison deduplication body from Q07 PrepareLookupJoin."
+    ],
+    "static_checks": [
+      "git apply --check against pinned baseline passed after fallback extension",
+      "No production edits, builds or native executions during source review",
+      "Every changed source remains under ydb/core/kqp/opt/rbo; no yql/essentials edits"
+    ],
+    "limits": [
+      "No compilation, native execution or plan-quality measurement yet.",
+      "Fallback recosts the selected join orientation locally; it does not rerun global join-order search after a forced hint or later logical rewrite.",
+      "C50 integration should merge its general gather proof with this lookup-fallback-only gather handling.",
+      "Q29 overlaps the shared fetched-row filter helper and removes the same obsolete duplicated helpers; integrate explicitly, retaining one helper.",
+      "Integration still requires C47 imported-read settings policy and the separate index-family policy corrections."
+    ]
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

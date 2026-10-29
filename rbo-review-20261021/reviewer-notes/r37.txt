@@ -1,0 +1,38 @@
+R37: compatibility lowering, async statistics, fallback and transformer lifecycle
+Two source review passes completed. No source edits, native executions, generated SQL, or concrete input fixtures.
+
+CORRECTNESS / VALID QUERY FAILURES
+
+R37-C1 (P2, source-confirmed lowering hole, native confirmation pending): Disabling physical-stage peephole rejects valid composite comparisons and membership operations.
+The focused compatibility pass is selected when EnableNewRBOPhysicalStagePeephole=false. Its detector demands elimination of every complex comparison, HasNull and SqlIn, but its rewriter supports comparisons only for equal-length tuples whose elements are SQL scalars; HasNull only for optional scalar/null; and SqlIn only for scalar lookups over scalar lists or tuples. A surviving list/struct/nested-tuple/optional-tuple comparison, different-length tuple comparison, composite HasNull, dictionary membership, or composite membership is left unchanged and then rejected by EnsureRboCompatibilityLowered. Full peephole has lowering for these supported expression families. This affects valid expressions that survive earlier constant folding. It is a flag-dependent support gap, not a demonstrated wrong answer under the default (full peephole enabled) configuration.
+Locations: ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.cpp:62-79,95-96,225-250,314-315,348-351,408-412; kqp_rbo_physical_query_builder.cpp:136-143,153-185.
+Reference: yql/essentials/core/peephole_opt/yql_opt_peephole_physical.cpp:7742-7786,8792-8838,8845-8883 and ExpandSqlIn at2247.
+Fix: reuse complete expression-lowering helpers for these callables, or extend focused lowering with type-complete recursive lowering and verify both physical-stage modes. Avoid weakening the final checker because the runtime cannot directly execute these callables.
+Generator direction supplied to root without exact inputs: nonconstant nested tuple or list-valued comparison; compare peephole-off to peephole-on and legacy.
+
+OPTIMIZATION QUALITY (SEPARATE)
+
+R37-Q1: Successfully fetched statistics are discarded if the type context already contains any statistics for that table.
+Request creation intentionally fetches missing column/statistic kinds while keeping already cached kinds. ApplyColumnStatistics uses table-level insert rather than merging the fetched fields into an existing table entry. Thus a partial existing table entry causes all newly fetched statistics for that table to be ignored, including multi-column histograms newly introduced in RBO. Query answers are not affected, but join cardinality estimation and ordering continue without the requested evidence; compilation still pays for the request. This implementation pattern also exists in the legacy requester, so do not present it as uniquely introduced by new RBO.
+Locations: kqp_rbo_transformer.cpp:404-413,541-543; ydb/core/kqp/opt/kqp_column_statistics_utils.cpp:142-158,167-183. Fix: merge Data and MultiData field-by-field into the existing table map, preserving older fields that were not requested.
+
+R37-Q2: A failure in the first statistics request discards successful results from later requests.
+Requests are ordered count-min, equi-width, equi-height. Their result merge copies the first response, then merges only statistic data from later responses without reconciling Issues. ApplyColumnStatistics rejects the entire response whenever first-response Issues are nonempty. A count-min request failure therefore causes successful histogram responses to be thrown away. Conversely, failures in later responses are omitted from diagnostics. This is optimization resilience/observability, not wrong-result behavior; the legacy merge has the same issue for its two request kinds.
+Locations: kqp_rbo_transformer.cpp:408-413,427-469,534-544. Fix: aggregate diagnostics independently and apply successful statistic fields even if another request fails.
+
+R37-Q3: Top-level SELECT collection does not memoize ordinary AST nodes.
+CollectTopLevelSelects checks visited for every node but inserts only KqpOpRoot or YqlSelect terminals. Shared nonterminal ancestors are therefore recursively revisited. Work can become exponential in compact DAG depth, before OptimizeExpr's own deduplication runs. Normal SQL root wrappers are often small, so production impact depends on nonterminal sharing above terminal SELECTs; no native latency regression has been demonstrated.
+Location: kqp_rbo_transformer.cpp:61-79. Fix: insert every node into visited on entry, then perform callable checks and recurse once.
+Verification: a parameterized abstract DAG traversal exercised 18 graph sizes; every measured count matched the exponential recurrence. This was a traversal model, not native compilation. No graph witnesses were saved.
+
+R37-Q4: Focused scalar IN lowering always expands explicit collections to a linear OR chain.
+BuildSqlInComparisons is selected for every nonempty explicit list or tuple, independent of size. The full peephole switches collections larger than five elements to a dictionary. Large invariant lists surviving earlier folding can therefore generate O(number of rows times list size) comparison work and a larger expression graph with focused lowering.
+Location: kqp_rbo_compatibility.cpp:233-247; legacy threshold yql_opt_peephole_physical.cpp:2255-2260. Fix: retain small-list expansion and use a typed dictionary for large invariant collections, with identical NULL semantics.
+
+CHECKS / REJECTED CANDIDATES
+- The empty Rewind method leaves Roots and async state populated, but normal PrepareQueryInternal recreates the graph transformer each time (kqp_runner.cpp:296), and fallback rebuilds the host. No normal lifecycle failure was established. Do not promote it as a confirmed bug.
+- Async callback captures only weak shared response state, avoiding a transformer use-after-destruction. Readiness gates result application. Exceptional futures deserve a robustness test, but no concrete failure path was established.
+- New-RBO fallback is implemented at compile actor boundary and rebuilds host/config; it is not absent simply because the local transformer catches only some exceptions.
+- Multiple-root replacement problems are owned by R36; not duplicated here.
+- Tuple comparison nullable lexicographic branch structure and scalar IN three-valued OR structure have no newly identified semantic mismatch. Abstract three-valued OR enumeration checked 3279 cases without mismatch.
+- Empty-tuple evaluation elimination also exists in full peephole and is not a new-RBO regression.

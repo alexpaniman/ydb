@@ -1,0 +1,95 @@
+{
+  "status": "prepared_source_review_only_not_applied",
+  "scope": [
+    "C31",
+    "C47"
+  ],
+  "patch": "proposed-correctness-amendments/anonymous-correctness-strip-debug-20261028.patch",
+  "patch_sha256": "a0e0b7c9ac16546ca592cb9884df2b608f47453df897fcac5c32f1f70753ee2e",
+  "requires_idle_boundary": true,
+  "apply_after": "verification/idle-artifact-application-plan-20261027.json",
+  "before_sha256": "024b3b8bed93890aa5b85612db3b5106896de86c89bc61fc76a4d9b8b834cf39",
+  "after_sha256": "65120ce941bd99d5b2f60f6b897e7a95ad797e9780247cecf0c3a56e2405afcf",
+  "changed_file": "anonymous_cpp_verify.py",
+  "changed_functions": [
+    "execute"
+  ],
+  "syntax_parse_passed": true,
+  "change": "Append -Wl,--strip-debug only for anonymous C31/C47 generated test links; record adapted argument hash, including on structured stage failure.",
+  "preserved": [
+    "Production build commands and closure receipts",
+    "Production compiler flags and existing input objects",
+    "Production input order, link groups and symbol wrapping",
+    "Link stdout memfd and archive response transport",
+    "Guard thresholds and cleanup admission",
+    "Generated executable content hash and post-execution receipt verification",
+    "All optimization-family link arguments",
+    "All contract assertions and result admission"
+  ],
+  "production_elf_debug_inventory": {
+    "file": "verification/cpp-closures/24e1aae9a067-1792736142124693334/outputs/ydb/core/kqp/ut/rbo/ydb-core-kqp-ut-rbo",
+    "debug_bytes": 9185386118,
+    "sections": [
+      {
+        "name": ".debug_abbrev",
+        "size_bytes": 39267666,
+        "allocated": false
+      },
+      {
+        "name": ".debug_info",
+        "size_bytes": 4277667022,
+        "allocated": false
+      },
+      {
+        "name": ".debug_str",
+        "size_bytes": 1342529538,
+        "allocated": false
+      },
+      {
+        "name": ".debug_line",
+        "size_bytes": 651926865,
+        "allocated": false
+      },
+      {
+        "name": ".debug_loc",
+        "size_bytes": 2349878451,
+        "allocated": false
+      },
+      {
+        "name": ".debug_ranges",
+        "size_bytes": 524114256,
+        "allocated": false
+      },
+      {
+        "name": ".debug_aranges",
+        "size_bytes": 2320,
+        "allocated": false
+      }
+    ],
+    "all_debug_sections_nonallocated": true
+  },
+  "reason": "Measured production debug sections total 8.555 GiB. Omitting dependency debug payload from anonymous link output should reduce RAM needed for linker output and memfd storage.",
+  "limitations": [
+    "No actual link or native verification performed.",
+    "Memory reduction is expected, not measured.",
+    "Anonymous executable DWARF source/line debugging becomes unavailable; normal linker symbols are not deliberately stripped.",
+    "Byte-identical linked code and relocation layout have not been experimentally compared."
+  ],
+  "upstream_references": [
+    {
+      "url": "https://github.com/llvm/llvm-project/blob/llvmorg-20.1.8/lld/ELF/Options.td",
+      "claim": "Defines strip-debug separately from strip-all."
+    },
+    {
+      "url": "https://github.com/llvm/llvm-project/blob/llvmorg-20.1.8/lld/ELF/Driver.cpp",
+      "symbol": "getStrip",
+      "claim": "Selects Debug policy for strip-debug and All policy for strip-all."
+    }
+  ],
+  "live_helper_edits": false,
+  "production_source_edits": false,
+  "generated_workloads_rendered": false,
+  "native_runs": 0,
+  "build_runs": 0,
+  "toolchain_executions": 0
+}

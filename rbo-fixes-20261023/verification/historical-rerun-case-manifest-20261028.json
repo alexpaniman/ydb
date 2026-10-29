@@ -1,0 +1,216 @@
+{
+  "status": "metadata_only_runtime_pending",
+  "rows": 24,
+  "items": [
+    {
+      "bug": "C01",
+      "prepared_case_count": 6,
+      "case_names": [
+        "c01_mixed_on_left",
+        "c01_mixed_on_right",
+        "c01_mixed_where_left",
+        "c01_mixed_where_right",
+        "c01_same_on",
+        "c01_same_where"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C02",
+      "prepared_case_count": 4,
+      "case_names": [
+        "c02_deterministic_group",
+        "c02_unfiltered_group",
+        "c02_volatile_group",
+        "c02_volatile_mixed"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C03",
+      "prepared_case_count": 5,
+      "case_names": [
+        "c03_distinct_rollup",
+        "c03_grouped_control_empty",
+        "c03_grouped_control_nonempty",
+        "c03_rollup_empty",
+        "c03_rollup_nonempty"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C04",
+      "prepared_case_count": 4,
+      "case_names": [
+        "c04_false_guard",
+        "c04_nonthrowing",
+        "c04_null_guard",
+        "c04_three_levels"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C05",
+      "prepared_case_count": 2,
+      "case_names": [
+        "c05_demanded_cardinality",
+        "c05_demanded_single_control"
+      ],
+      "additional_legacy_correlation_adapter": true
+    },
+    {
+      "bug": "C06",
+      "prepared_case_count": 3,
+      "case_names": [
+        "c06_generic_exists_mixed_types",
+        "c06_generic_exists_optional_mismatch",
+        "c06_generic_exists_same_type"
+      ],
+      "additional_legacy_correlation_adapter": true
+    },
+    {
+      "bug": "C07",
+      "prepared_case_count": 3,
+      "case_names": [
+        "c07_generic_exists_finite",
+        "c07_generic_exists_nan",
+        "c07_generic_exists_null"
+      ],
+      "additional_legacy_correlation_adapter": true
+    },
+    {
+      "bug": "C08",
+      "prepared_case_count": 4,
+      "case_names": [
+        "c08_grouped_empty_projection",
+        "c08_grouped_nonempty_projection",
+        "c08_scalar_empty_projection",
+        "c08_scalar_nonempty_projection"
+      ],
+      "additional_legacy_correlation_adapter": true
+    },
+    {
+      "bug": "C17",
+      "prepared_case_count": 8,
+      "case_names": [
+        "c17_active_primary_subplan_control",
+        "c17_inactive_primary_subplan",
+        "c17_inactive_primary_subplan_secondary_first",
+        "c17_no_dead_definition_control",
+        "c17_primary_retained_control",
+        "c17_secondary_singleton_primary_first",
+        "c17_secondary_singleton_secondary_first",
+        "c17_two_secondary_ports_control"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C18",
+      "prepared_case_count": 14,
+      "case_names": [
+        "c18_grouping_indicator_control_empty",
+        "c18_grouping_indicator_control_nonempty",
+        "c18_key_and_empty_set_empty",
+        "c18_key_and_empty_set_nonempty",
+        "c18_keyed_control_empty",
+        "c18_keyed_control_nonempty",
+        "c18_one_empty_set_empty",
+        "c18_one_empty_set_nonempty",
+        "c18_retained_two_empty_sets_empty",
+        "c18_retained_two_empty_sets_nonempty",
+        "c18_scalar_control_empty",
+        "c18_scalar_control_nonempty",
+        "c18_two_empty_sets_empty",
+        "c18_two_empty_sets_nonempty"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C26",
+      "prepared_case_count": 10,
+      "case_names": [
+        "c26_all_null",
+        "c26_distinct_variance",
+        "c26_empty",
+        "c26_grouped",
+        "c26_mixed_avg",
+        "c26_optional",
+        "c26_single",
+        "c26_variance_control",
+        "c26_varying_stddev_samp",
+        "c26_varying_stddev_samp_optional"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C44",
+      "prepared_case_count": 3,
+      "case_names": [
+        "c44_sink_disabled_fallback",
+        "c44_sink_disabled_guard",
+        "c44_sink_enabled_control"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C48",
+      "prepared_case_count": 9,
+      "case_names": [
+        "c48_indexed_insert",
+        "c48_indexed_partial_replace",
+        "c48_indexed_partial_upsert",
+        "c48_stream_fresh_control",
+        "c48_stream_full_upsert_control",
+        "c48_stream_index_control",
+        "c48_stream_nonkey_upsert_control",
+        "c48_stream_partial_replace_control",
+        "c48_unindexed_control"
+      ],
+      "additional_legacy_correlation_adapter": false
+    },
+    {
+      "bug": "C41",
+      "prepared_case_count": 12,
+      "case_names": [
+        "c41_effect_only",
+        "c41_effect_then_results",
+        "c41_empty_first_result",
+        "c41_empty_last_result",
+        "c41_indexed_effect_blocks",
+        "c41_indexed_effect_sequence",
+        "c41_materialized_blocks",
+        "c41_multiple_effects",
+        "c41_multiple_results_effect",
+        "c41_read_only",
+        "c41_results_then_effect",
+        "c41_write_then_read_same_table"
+      ],
+      "additional_legacy_correlation_adapter": false
+    }
+  ],
+  "module_sha256": {
+    "logical_checks": "b141f948d1ee9cd3023a1214f55806be02396b9770f55c7327a52c6e1478d9d9",
+    "window_checks": "c48fc8c06ddc561788de2c28d578b794390649a1b323b87ddd3e11f9af66698e",
+    "metadata_checks": "a3aad0ee306fe74b3d7fb2a94a91a6c0630d71a60814fe931b3e3dbcd2bd7f05",
+    "aggregate_checks": "1c71f101679ddfeb80e2b879f713b1c422a8b76a32da193107125f2fe9061f0b",
+    "subsystem_checks": "39f11acf4eeae9c4b0e3ec82c17cd94847a7dd9d46dfd73be9f0023d0f0b1a28",
+    "aggregate_window_checks": "b9ac29432685d4bbfb102a0e6753163e9f9de9c65f11c20516220659cd51a3e5",
+    "write_checks": "53af6afe9b41076875bf6262683417dfb44a9d5b6da80c439ae1c2347123e7d2",
+    "join_key_checks": "72c2efc2d77ec424f3ee794482728ce73b8d032e5fed88390d339f6d7e3310fe",
+    "access_effect_checks": "7e92662dfcd0b48ece38c23a6d3d97807f5144f9503a54e0c037462a92881023",
+    "correlation_controls": "c108ec3d8b3f7b6c8819475c89fc4d103e4f69cd83e5fce29184420276e5d073",
+    "distribution_checks": "26d0fd4d081959fb97290baeccb50a3ec2859505ccd2f4ab00f4489ab5ecd200",
+    "sharing_lifecycle_checks": "c8e174548e2b645f1d81a514daf705957424b8f420e8a910cc57c3be52c6a001",
+    "expression_checks": "6d9c220332f900d85037367334e7c4de78ec737f419b6c8de4aef1ebcec75f5b"
+  },
+  "native_runs": 0,
+  "rendered_queries_or_fixtures_persisted": false,
+  "post_run_requirements": {
+    "all": "Build each exact independent branch and retain guarded receipt-bound records; do not reuse historical acceptance.",
+    "C03": "Require all five prepared cases. Only then remove the stale expanded-control-set-pending sentence while retaining historical records.",
+    "C04": "Preserve source-only Pg limitation; host frontend rejection is not optimizer native coverage.",
+    "C18": "Preserve qualified new-parser multiplicity result and unresolved legacy compatibility distinction.",
+    "C44": "Preserve guard-only qualification.",
+    "C41": "Omit --runner-only so build target also runs ydb/core/kqp/ut/rbo -tA; retain exact receipt and existing-suite verdict separately."
+  }
+}

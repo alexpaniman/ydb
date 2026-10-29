@@ -1,0 +1,2830 @@
+{
+  "schema_version": "fix_series_evidence_audit_v1",
+  "audit_started_unix_ns": 1793130201692493503,
+  "audit_finished_unix_ns": 1793130203701179105,
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "read_only_scope": "Git graph/names and saved JSON evidence only; no source/native/compile/build tests executed. Only this report is written.",
+  "case_count": 82,
+  "counts": {
+    "C:prepared_unverified": 2,
+    "C:sql_checks_passed_direct_pending": 1,
+    "C:verification_in_progress": 1,
+    "C:verified": 41,
+    "C:verified_guard": 2,
+    "C:verified_new_parser_invariant": 1,
+    "C:verified_scoped": 2,
+    "F:verified": 3,
+    "Q:prepared_unverified": 29
+  },
+  "qualified_cases": {
+    "verified_scoped": [
+      "C23",
+      "C24"
+    ],
+    "verified_guard": [
+      "C39",
+      "C44"
+    ],
+    "verified_new_parser_invariant": [
+      "C18"
+    ]
+  },
+  "case_flags": {
+    "historical_receipt_reruns": [
+      "C01",
+      "C02",
+      "C03",
+      "C04",
+      "C05",
+      "C06",
+      "C07",
+      "C08",
+      "C17",
+      "C18",
+      "C26",
+      "C44",
+      "C48"
+    ],
+    "all_records_receipt_bound": [
+      "C09",
+      "C10",
+      "C11",
+      "C12",
+      "C13",
+      "C14",
+      "C15",
+      "C16",
+      "C19",
+      "C20",
+      "C21",
+      "C22",
+      "C23",
+      "C24",
+      "C25",
+      "C27",
+      "C28",
+      "C29",
+      "C30",
+      "C31",
+      "C32",
+      "C33",
+      "C34",
+      "C35",
+      "C36",
+      "C37",
+      "C38",
+      "C39",
+      "C40",
+      "C41",
+      "C42",
+      "C43",
+      "C45",
+      "C46",
+      "F01",
+      "F02",
+      "F03"
+    ],
+    "all_records_batch_guard_bound": [
+      "C19",
+      "C20",
+      "C21",
+      "C22",
+      "C23",
+      "C24",
+      "C25",
+      "C27",
+      "C28",
+      "C29",
+      "C30",
+      "C31",
+      "C32",
+      "C33",
+      "C34",
+      "C35",
+      "C36",
+      "C37",
+      "C38",
+      "C39",
+      "C40",
+      "C42",
+      "C43",
+      "C45",
+      "C46",
+      "F01",
+      "F02",
+      "F03"
+    ],
+    "all_records_optimizer_configuration_bound": [
+      "C28",
+      "C29",
+      "C30",
+      "C31",
+      "C32",
+      "C33",
+      "C34",
+      "C35",
+      "C36",
+      "C37",
+      "C38",
+      "C39",
+      "C40",
+      "C42",
+      "C43",
+      "C45",
+      "C46"
+    ]
+  },
+  "all_branch_checks_passed": true,
+  "branch_checks": [
+    {
+      "id": "C01",
+      "commit": "40a5bea4e432b65845052aacbd104b642ffc8df1",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C02",
+      "commit": "6f8b0f5ccd36dc8c3a9e2af9903f5c5632fbcb41",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C03",
+      "commit": "40b098bc31f1a41dea4ba7b68ac2553caff1f11e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C04",
+      "commit": "69b7c53d2f5ad03f02256e03b972901bdab12eab",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C05",
+      "commit": "bf6527096b7a594beb47e3b2e274079b184b8128",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C06",
+      "commit": "446592a476b92437df5b2579e1027cfb313be1d9",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C07",
+      "commit": "2e4843e6be7a7b49fab191bc0d454653e0aca41e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C08",
+      "commit": "af05d7c395191d1a19ff7a3a4b2c8bc29be83582",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C09",
+      "commit": "1525ba0d79efbdae93eb658a6ab75daa5371f411",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C10",
+      "commit": "8c96cdf3c1ef0a971b7d736facd8d2610a5335d9",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C11",
+      "commit": "d23472b33678121343af7ebc4f532c88e0488d51",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C12",
+      "commit": "68356618882bee6b367ac24f5536883c2cb14609",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C13",
+      "commit": "71378e72b8ce2770e83abac301d701b744a6c603",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C14",
+      "commit": "c128b7c1bd99c1c7199e3ad2b00d061b7f3a2b6f",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C15",
+      "commit": "3a9521680600ea2f5bcdb2ea0736e8d2cdb5df5d",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C16",
+      "commit": "473f0a46d6145fb93e940140030f0ae21e83972e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C17",
+      "commit": "d08902de538969291efbeb272b45a12982a65ae8",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C18",
+      "commit": "ec25a7d3319c8e75ad3849a638f6830642097709",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C19",
+      "commit": "8c1af92732e2b672b9c9a3e0c9cf533eb2d8969c",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C20",
+      "commit": "5f9ef7674522a3df8d13b3d6080d82224a9fba83",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C21",
+      "commit": "78462388619dee01bf57156839620936e70d7376",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C22",
+      "commit": "e67e82b03f5ece6469b879a25083fea8e5684f87",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C23",
+      "commit": "030ea24b8e681a8242c7f4e7df2c0b0bd1725676",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C24",
+      "commit": "037848a02d0d400ab3d90c29d329b83b9f03456c",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C25",
+      "commit": "33e1d0f59ccf5c07308337e019b73f110cd98d53",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C26",
+      "commit": "d40b5b11a3c485d1b504c128931d120d94487324",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C27",
+      "commit": "fb3c38f6837af7097d8dfe9d80f3858ae5d1e07c",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C28",
+      "commit": "5616e3ad461be8ae3f5716e1f3cfaae2580d2abb",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C29",
+      "commit": "9f2e822f02204297e1aef990a2ce29310c7d438c",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C30",
+      "commit": "d3f07e4572af7719c1846c38fc3a8200e9c2ebd6",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C31",
+      "commit": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C32",
+      "commit": "244c9fa808fb219eee19bf7a73dbed19602f303e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C33",
+      "commit": "b48c86eeb7c2f0ea14d052f107d04cf26330d885",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C34",
+      "commit": "80b8d1dcee88c42a687c820600955953ec413c49",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C35",
+      "commit": "545bae60730d260ed848ebbfde31b47a7d0fc21e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C36",
+      "commit": "49ca1046560e6edb6b2d616829833ef586e5822d",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C37",
+      "commit": "bc9e6946f9d128036b13912fedafabb1bd9a206d",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C38",
+      "commit": "62bdb6bf7ed7b70851ed62c3d886fcc9737de15b",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C39",
+      "commit": "416834fa9b1e0fec89d663026e74f76ab6909314",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C40",
+      "commit": "a3f2d982416508ada71d8e63fcc097631a3dbe12",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C41",
+      "commit": "b71ac02fc35f8a058faf2eb996ca8cf0d0266a18",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C42",
+      "commit": "6eeadd50b057ceec10173d3fb1104b4a81ddbafe",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C43",
+      "commit": "fd7ba4678acdce0c5473cb765187abdde514a16e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C44",
+      "commit": "329c771f34f97af659cf4d78af1e6c54226deb3e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C45",
+      "commit": "6d8e86a79f5417c74d46a8314e3591d6e3b88eed",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C46",
+      "commit": "43cf0cc6ab0a627e42844759086ac020bd98925f",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C47",
+      "commit": "a58066d3eb57a265ea472ee4eccd7490e3e8ab7b",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C48",
+      "commit": "35bc8b6938f42a11e92747063bfafc1dec0b9b5c",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C49",
+      "commit": "a2abaec9a49a3ad176a135a55278426de0b01dad",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "C50",
+      "commit": "946575513d233534e8f4fa4168f5dc9379ffc982",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "F01",
+      "commit": "cb7a4189eea1f56dfdc7bbbb012c96403c090636",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "F02",
+      "commit": "1c4fd440a12e3a6a8267f119b1e25b603b5282c9",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "F03",
+      "commit": "2a99d200829f2dd090ef70ce69b491c12227c5d5",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q01",
+      "commit": "3e2a57e559557a716bba6f42eccff44bbc2ed8d7",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q02",
+      "commit": "1b50d28716f74eb02571e7490181132b14c37bff",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q03",
+      "commit": "939173f5abcbcd596dd23ddfefed806df0d243ed",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q04",
+      "commit": "a9df61306aa47badfbf1cec2fc043b3336addfd3",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q05",
+      "commit": "33bc67934dd9a881ca1aecbf4c6cefd0f882f8c1",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q06",
+      "commit": "864bd56c1abb0c47f9f1ee669acf722819354dee",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q07",
+      "commit": "18eb64e0a7e18ccf2f50340a75f98b3ced6ab646",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q08",
+      "commit": "799af8215d791f4f3c4bdd3da9c087c56177117a",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q09",
+      "commit": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q10",
+      "commit": "efeebb38e72fd7a7c84ab65121e49362f93e2d4b",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q11",
+      "commit": "f9279dcfeac87c596f58ccc8e3add4722c66a960",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q12",
+      "commit": "a92df58f248c54a46f82586f50fc58ae5b207e8e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q13",
+      "commit": "b0df3bf71706e6a13041e3dda141e13312130b97",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q14",
+      "commit": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q15",
+      "commit": "4e6d9217ef22bdcced5cd1879d3639508717e8e0",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q16",
+      "commit": "36000459cb44ccfe5e548a2622bfa21ffff591c7",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q17",
+      "commit": "a5a23189d946a8bd772e10279bc44e270648ec02",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q18",
+      "commit": "f27cc1474705c540c5a64c2700f19eb4df749f54",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q19",
+      "commit": "c261bd389b61872b7c78851a26bf46283b95b9cb",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q20",
+      "commit": "49b33e196eefd41df663417e7392f7ca0e1504cd",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q21",
+      "commit": "a15cf405bd258b86dedf171e6a9eaac9022dd644",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q22",
+      "commit": "81b248477b2357b4acee6e61d735fdf473f7f71b",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q23",
+      "commit": "183be021902ede0113798fcee8118c4479966713",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q24",
+      "commit": "734379d38b24d68712098d96cd57fe79d1c90253",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q25",
+      "commit": "1300a777c320158fe82cd9416b355165dbe73ecd",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q26",
+      "commit": "c0e36684231f975761822543f88edae5a4e3297e",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q27",
+      "commit": "72e17774d130a022ed4649c26c3db7656d83d971",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q28",
+      "commit": "567d22ff15c8036cbc9741e0bb29daa6c140f0c1",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    },
+    {
+      "id": "Q29",
+      "commit": "73620db7e22cbf67cb2e2262f227a9303492ed41",
+      "main_based": true,
+      "case_base_matches": true,
+      "branch_matches": true,
+      "expected_files_only": true,
+      "essentials_untouched": true,
+      "diff_check": true,
+      "branch_index_commit_matches": true,
+      "overlap_index_commit_matches": true,
+      "manifest_commit_matches": true,
+      "manifest_status_matches": true
+    }
+  ],
+  "native_evidence": [
+    {
+      "id": "C01",
+      "status": "verified",
+      "evidence": "verification/fixed-C01-40a5bea4e432.jsonl",
+      "evidence_sha256": "8eade55a85ab42a545e4500eacb89c6f3e56fa0a315c5756c308a28888c8134f",
+      "records": 6,
+      "strict_current_record_verdicts": {
+        "failure": 6
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C02",
+      "status": "verified",
+      "evidence": "verification/fixed-C02-6f8b0f5ccd36.jsonl",
+      "evidence_sha256": "a525851786be01f688357c5438f4ba53462c51cd952fe783e544e735a444d250",
+      "records": 18,
+      "strict_current_record_verdicts": {
+        "failure": 18
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C03",
+      "status": "verified",
+      "evidence": "verification/fixed-C03-40b098bc31f1.jsonl",
+      "evidence_sha256": "8e23f6bb6f7f12b92b0669d4bc0e5f17003ab1c8c48eed09330c9587dc3becc6",
+      "records": 1,
+      "strict_current_record_verdicts": {
+        "failure": 1
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C04",
+      "status": "verified",
+      "evidence": "verification/fixed-C04-69b7c53d2f5a.jsonl",
+      "evidence_sha256": "0e1e4adfabae118b0d994f65e94abe67ea2b55ebe509304978e5cd7fbba1a88a",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "failure": 4
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C05",
+      "status": "verified",
+      "evidence": "verification/fixed-C05-bf6527096b7a.jsonl",
+      "evidence_sha256": "fc0f7436442c91b790bc14a9deade7f56ab0d9e09f12ed822ea8a685f6fe30aa",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "failure": 4
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C06",
+      "status": "verified",
+      "evidence": "verification/fixed-C06-446592a476b9.jsonl",
+      "evidence_sha256": "052eeabff0780fd5d159140e43d55cf84207eca1e05abb337aa28b0bf0f836a2",
+      "records": 5,
+      "strict_current_record_verdicts": {
+        "failure": 5
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C07",
+      "status": "verified",
+      "evidence": "verification/fixed-C07-2e4843e6be7a.jsonl",
+      "evidence_sha256": "c741fc4191fd87449e4dee79939450757c63f74ad4768d261259b8455a28aa3e",
+      "records": 5,
+      "strict_current_record_verdicts": {
+        "failure": 5
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C08",
+      "status": "verified",
+      "evidence": "verification/fixed-C08-af05d7c39519.jsonl",
+      "evidence_sha256": "5ea83f69bba595b4bbdc68eae0d4276f641d4b18d6e4718011c0808e354734e7",
+      "records": 6,
+      "strict_current_record_verdicts": {
+        "failure": 6
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C09",
+      "status": "verified",
+      "evidence": "verification/fixed-C09-1525ba0d79ef.jsonl",
+      "evidence_sha256": "30d2bc09d4e262c641b112a8f6edd7eb8c3f453b9ac57df1d27d026fba48b97e",
+      "records": 5,
+      "strict_current_record_verdicts": {
+        "functional": 5
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C10",
+      "status": "verified",
+      "evidence": "verification/fixed-C10-8c96cdf3c1ef.jsonl",
+      "evidence_sha256": "fb980d99b3066d5ede73fd711ec2c6a2dc0e63bb7a10581e3f6ced4398816737",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "functional": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C11",
+      "status": "verified",
+      "evidence": "verification/fixed-C11-d23472b33678.jsonl",
+      "evidence_sha256": "a821022fa34c4f184404126bc512e9eed094a17a536d236dfb196a3bf96e02d1",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "functional": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C12",
+      "status": "verified",
+      "evidence": "verification/fixed-C12-68356618882b.jsonl",
+      "evidence_sha256": "8fbc04cfe4b2f8b3c9d677b84899fa15c5431db147348636bbc488cff60d3792",
+      "records": 3,
+      "strict_current_record_verdicts": {
+        "functional": 3
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C13",
+      "status": "verified",
+      "evidence": "verification/fixed-C13-71378e72b8ce.jsonl",
+      "evidence_sha256": "5ca73bcaa0d6c32793807ed38a4e27ee696f3d43cd6dc4f973f74d9f4c592371",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "functional": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C14",
+      "status": "verified",
+      "evidence": "verification/fixed-C14-c128b7c1bd99.jsonl",
+      "evidence_sha256": "94c189dfef6ea5835e6b401c7a012f06126a9797e9ff5c934578be477f56526b",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "functional": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C15",
+      "status": "verified",
+      "evidence": "verification/fixed-C15-3a9521680600.jsonl",
+      "evidence_sha256": "e0ef2155adab1351ebb29a85ec260ce985cbae216501d73719aea04780ebc993",
+      "records": 8,
+      "strict_current_record_verdicts": {
+        "functional": 8
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C16",
+      "status": "verified",
+      "evidence": "verification/fixed-C16-473f0a46d614.jsonl",
+      "evidence_sha256": "cfbca9a70deb0ba60d6efef695c7bc02b69e5fd265b5227438a4f518989679ba",
+      "records": 7,
+      "strict_current_record_verdicts": {
+        "functional": 7
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C17",
+      "status": "verified",
+      "evidence": "verification/fixed-C17-d08902de5389.jsonl",
+      "evidence_sha256": "174b625f3ca24ee2c0a279b0723fba37a2e4ece39e7d34652f2fa07b97e47455",
+      "records": 8,
+      "strict_current_record_verdicts": {
+        "failure": 8
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C18",
+      "status": "verified_new_parser_invariant",
+      "evidence": "verification/fixed-C18-ec25a7d3319c.jsonl",
+      "evidence_sha256": "906933f66da2cf2f00afebba34f281376c0885f50977442b472f7c18e1cb0b1f",
+      "records": 14,
+      "strict_current_record_verdicts": {
+        "failure": 14
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C19",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C19-8c1af92732e2-1792726379826280016.jsonl",
+      "evidence_sha256": "28550c9f66fde7f71ea6267c1cf7092b4454cdbd70abe886a11ceb5cf91f811b",
+      "records": 2,
+      "strict_current_record_verdicts": {
+        "functional": 2
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C20",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C20-5f9ef7674522-1792727788070131074.jsonl",
+      "evidence_sha256": "06929c9b3836b232946788d0cf0011e23c54c62e728c6511325d2b0e2bb3a697",
+      "records": 8,
+      "strict_current_record_verdicts": {
+        "functional": 8
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C21",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C21-78462388619d-1792728097394293471.jsonl",
+      "evidence_sha256": "be94640caa351e223eeda98b8aad66aaf208208a2e18c2a07a1beae443f7732f",
+      "records": 8,
+      "strict_current_record_verdicts": {
+        "functional": 8
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C22",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C22-e67e82b03f5e-1792728236533800143.jsonl",
+      "evidence_sha256": "c9c5a3e6bb282ad1600c4442b28b4d1ee876ce24d17e01ee9422069a46a0180d",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "functional": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C23",
+      "status": "verified_scoped",
+      "evidence": "verification/guarded-fixed-C23-030ea24b8e68-1792728896493589944.jsonl",
+      "evidence_sha256": "10c04c0b208f77244cd182885283acd9e789a5611f2647ba925915219c7b89e5",
+      "records": 48,
+      "strict_current_record_verdicts": {
+        "functional": 44,
+        "failure": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "scoped": {
+        "distinct_functional_checks": 52,
+        "distinct_failed_controls": 12,
+        "reported_functional_checks": 52,
+        "reported_failed_controls": 12,
+        "separate_finding": "F01",
+        "counts_match": true
+      }
+    },
+    {
+      "id": "C24",
+      "status": "verified_scoped",
+      "evidence": "verification/guarded-fixed-C24-037848a02d0d-1792729514455929043.jsonl",
+      "evidence_sha256": "8c5d5c41b407da2ca64fc0e495287f6e9f5139a56a2b38290e796c1ad12247a6",
+      "records": 14,
+      "strict_current_record_verdicts": {
+        "functional": 13,
+        "failure": 1
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "scoped": {
+        "distinct_functional_checks": 13,
+        "distinct_failed_controls": 1,
+        "reported_functional_checks": 13,
+        "reported_failed_controls": 1,
+        "separate_finding": "F02",
+        "counts_match": true
+      }
+    },
+    {
+      "id": "C25",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C25-33e1d0f59ccf-1792731485611398809.jsonl",
+      "evidence_sha256": "df5e452300a62ac0a8f286cb156327a1bc81583864a642ecbf9d56832a041cde",
+      "records": 3,
+      "strict_current_record_verdicts": {
+        "functional": 3
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C26",
+      "status": "verified",
+      "evidence": "verification/fixed-C26-d40b5b11a3c4.jsonl",
+      "evidence_sha256": "faba90f9d3eb5bd63d61a111537645648023a0d4ccf93d1e06803cc6a1eea055",
+      "records": 10,
+      "strict_current_record_verdicts": {
+        "failure": 10
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C27",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C27-fb3c38f6837a-1792731615186623276.jsonl",
+      "evidence_sha256": "3cbc70123a895125987a44436838738134c29876b1615787224dda83fb0d485c",
+      "records": 6,
+      "strict_current_record_verdicts": {
+        "functional": 6
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C28",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C28-5616e3ad461b-1792733023818693743.jsonl",
+      "evidence_sha256": "0e64d0c8e0cdde7214991f3c18edc2635d7a18ea31b81c2a0031cd3ab390a452",
+      "records": 32,
+      "strict_current_record_verdicts": {
+        "functional": 32
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C29",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C29-9f2e822f0220-1792733233371230259.jsonl",
+      "evidence_sha256": "a4106911d5b886441ee6b5ae74341e21f13c9ce817d8d620adb53d1733cb05a7",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "functional": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C30",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C30-d3f07e4572af-1792733423986541236.jsonl",
+      "evidence_sha256": "524a3bf19ad3420aa3f1a80fba6b84ea96810e3a960cf7ee1e09802687f5301f",
+      "records": 7,
+      "strict_current_record_verdicts": {
+        "functional": 7
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C31",
+      "status": "sql_checks_passed_direct_pending",
+      "evidence": "verification/guarded-fixed-C31-24e1aae9a067-1792735900260575936.jsonl",
+      "evidence_sha256": "c8fb76b58c4f9c0b16abe5084bfde149cb6d6591fee3aa3b5def9176dd5a31a9",
+      "records": 50,
+      "strict_current_record_verdicts": {
+        "functional": 46,
+        "guard": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "sql_checks_passed_direct_pending",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "SQL success is correctly separate from direct-contract and scope acceptance."
+    },
+    {
+      "id": "C32",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C32-244c9fa808fb-1792737397793603395.jsonl",
+      "evidence_sha256": "c8f0f5de1db48fd505f4ac7769c5f0318e50a1af65f992ba0860c20f82fac7cc",
+      "records": 3,
+      "strict_current_record_verdicts": {
+        "functional": 3
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C33",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C33-b48c86eeb7c2-1792737533735326219.jsonl",
+      "evidence_sha256": "07790fa2ce61539e7b435a10182fcae1342dfa4e80a609d26ab74d9ab79fbed1",
+      "records": 2,
+      "strict_current_record_verdicts": {
+        "functional": 2
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C34",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C34-80b8d1dcee88-1792737639833765648.jsonl",
+      "evidence_sha256": "42734ddf4e25fd9f39fbf6ffff137bf2e56be1b05a7e6c2a00dac3dafaf674b6",
+      "records": 10,
+      "strict_current_record_verdicts": {
+        "functional": 10
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C35",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C35-545bae60730d-1792738017297351671.jsonl",
+      "evidence_sha256": "e1508d822465dcab55d3c4b8b70f1af1c5283e47132465c33a1f31afcbe964ca",
+      "records": 15,
+      "strict_current_record_verdicts": {
+        "functional": 15
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C36",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C36-49ca1046560e-1792738155422194307.jsonl",
+      "evidence_sha256": "3c0021277ce556238a2e5932bb0cea2488b90a6457f6c5390c055ca387a8d33d",
+      "records": 4,
+      "strict_current_record_verdicts": {
+        "functional": 4
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C37",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C37-bc9e6946f9d1-1792738842457940930.jsonl",
+      "evidence_sha256": "e52448a3a2c3366d8ba2a894155c02a70772e45d687894f20e6da5eec970c9f0",
+      "records": 10,
+      "strict_current_record_verdicts": {
+        "functional": 10
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C38",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C38-62bdb6bf7ed7-1792739007345552134.jsonl",
+      "evidence_sha256": "65782f30722d1e7f4ccb4c5d4f2ba23ce1e92652f50198b6df26235f2c2cf705",
+      "records": 12,
+      "strict_current_record_verdicts": {
+        "functional": 12
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C39",
+      "status": "verified_guard",
+      "evidence": "verification/guarded-fixed-C39-416834fa9b1e-1792739181687571246.jsonl",
+      "evidence_sha256": "655d012fa45d8b46a53d59693271c0f153934d8a3703d37080eab621c64566e7",
+      "records": 3,
+      "strict_current_record_verdicts": {
+        "guard": 1,
+        "functional": 2
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified_guard",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C40",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C40-a3f2d9824165-1792739295559073621.jsonl",
+      "evidence_sha256": "bfc4b8f813944cfb7fa7177dc5963f3473b1bb8d765427262c960401b8059536",
+      "records": 2,
+      "strict_current_record_verdicts": {
+        "functional": 2
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C41",
+      "status": "verified",
+      "evidence": "verification/fixed-C41-b71ac02fc35f.jsonl",
+      "evidence_sha256": "c755c823767be2b13568e90fa7cad923139d052afdab6ecd7ca5caccceab4aa6",
+      "records": 12,
+      "strict_current_record_verdicts": {
+        "functional": 12
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C42",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C42-6eeadd50b057-1792740419049036213.jsonl",
+      "evidence_sha256": "09b38d51aae7ea35fc657d202fa0a946ae09a502c255c1671cbc9cb7dd8bdb63",
+      "records": 2,
+      "strict_current_record_verdicts": {
+        "functional": 2
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C43",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C43-fd7ba4678acd-1792740522594508480.jsonl",
+      "evidence_sha256": "1e0fd40524072809a6b349892b0bacc2c2b5b99a294e01e55b19515e53b2c0ac",
+      "records": 2,
+      "strict_current_record_verdicts": {
+        "functional": 2
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C44",
+      "status": "verified_guard",
+      "evidence": "verification/fixed-C44-329c771f34f9.jsonl",
+      "evidence_sha256": "f12aeeb77d8cae1f697b483930e05d89c667a3368b0068c06525a19a4d1193be",
+      "records": 3,
+      "strict_current_record_verdicts": {
+        "failure": 3
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "C45",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C45-6d8e86a79f54-1792740643326814092.jsonl",
+      "evidence_sha256": "3b8ae7939705963b0f02ec9d2b4c22ab311af5fe6976412230e6707950845268",
+      "records": 6,
+      "strict_current_record_verdicts": {
+        "functional": 6
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C46",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-C46-43cf0cc6ab0a-1792740763394546680.jsonl",
+      "evidence_sha256": "0e535baa22f4b253d5e89312cfb55c424592ba94a0a7ffe769998bd138b42d16",
+      "records": 7,
+      "strict_current_record_verdicts": {
+        "functional": 7
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": true,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "C48",
+      "status": "verified",
+      "evidence": "verification/fixed-C48-35bc8b6938f4.jsonl",
+      "evidence_sha256": "7e65c262888bdddf36464387888d136f7f73e3d784ba575d3d3a6b8047fd8f13",
+      "records": 9,
+      "strict_current_record_verdicts": {
+        "failure": 9
+      },
+      "historical_rerun_required": true,
+      "all_records_receipt_bound": false,
+      "all_records_batch_guard_bound": false,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "native_failed",
+      "saved_contract_summary_success": false,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      },
+      "interpretation": "Historical semantic/guard statement is preserved, but current admission fails absent exact executable receipt; rerun is already explicitly required."
+    },
+    {
+      "id": "F01",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-F01-cb7a4189eea1-1792730383027247259.jsonl",
+      "evidence_sha256": "c11d1c2753dc41614767b95b17edfaf9401d791dcedf555f75e941037cd2dd7c",
+      "records": 32,
+      "strict_current_record_verdicts": {
+        "functional": 32
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "F02",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-F02-1c4fd440a12e-1792730882080212102.jsonl",
+      "evidence_sha256": "323d54c5cf1a0781d7db4cb20f369416588b70dab7a02b8931622c5431fda556",
+      "records": 88,
+      "strict_current_record_verdicts": {
+        "functional": 88
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    },
+    {
+      "id": "F03",
+      "status": "verified",
+      "evidence": "verification/guarded-fixed-F03-2a99d200829f-1792731219274033424.jsonl",
+      "evidence_sha256": "f8595f518ee79be1e3a200ed1925e79f9893810aaa648996582cdb26af454e6c",
+      "records": 68,
+      "strict_current_record_verdicts": {
+        "functional": 68
+      },
+      "historical_rerun_required": false,
+      "all_records_receipt_bound": true,
+      "all_records_batch_guard_bound": true,
+      "all_records_optimizer_configuration_bound": false,
+      "saved_contract_summary_status": "verified",
+      "saved_contract_summary_success": true,
+      "checks": {
+        "record_count_matches": true,
+        "records_match_case_revision": true,
+        "records_match_fixed_phase": true,
+        "records_match_bug": true,
+        "existing_receipt_bindings_consistent": true,
+        "existing_guard_bindings_consistent": true
+      }
+    }
+  ],
+  "consistency_issues": [],
+  "presentation_findings": [
+    {
+      "severity": "metadata",
+      "ids": [
+        "C01",
+        "C02",
+        "C04",
+        "C05",
+        "C06",
+        "C07",
+        "C09",
+        "C10",
+        "C11",
+        "C12",
+        "C13",
+        "C14",
+        "C15",
+        "C16",
+        "C19",
+        "C20",
+        "C21",
+        "C22",
+        "C24",
+        "C27",
+        "C30",
+        "C36",
+        "C45",
+        "C46",
+        "C48"
+      ],
+      "issue": "Stale top-level pending-build/native concerns coexist with successful saved results.",
+      "details": [
+        {
+          "id": "C01",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C02",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C04",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C05",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C06",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C07",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C09",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C10",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C11",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C12",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C13",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C14",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C15",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C16",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C19",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C20",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C21",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C22",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C24",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C27",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C30",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C36",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C45",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C46",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        },
+        {
+          "id": "C48",
+          "field": "concerns",
+          "count": 1,
+          "issue": "Untimestamped build/native pending wording remains despite recorded completed native checks; distinguish historical drafting notes from actual rerun/scope limitations."
+        }
+      ]
+    },
+    {
+      "severity": "metadata",
+      "ids": [
+        "C31"
+      ],
+      "issue": "verification_limitation says the anonymous archive-response adapter awaits application, but its applied artifact and subsequent real link attempt exist; current remaining output adapter is different."
+    },
+    {
+      "severity": "classification",
+      "ids": [
+        "C31"
+      ],
+      "issue": "The phrase volatile predicates remain unsupported is broader than the scoped source rule: repeatability restrictions apply to keyless domains. The scope source audit documents the keyed/keyless distinction."
+    }
+  ],
+  "scope_notes": [
+    "The current contract intentionally retains narrower optimizer-mode claims for historical records without configuration evidence.",
+    "Historical records missing exact executable receipts fail current record admission; all13 are explicitly flagged for rerun rather than silently accepted as final.",
+    "C23/C24 preserve independent F01/F02 failing controls; qualified passing counts are checked separately.",
+    "C41 has12 exact-receipt semantic records; its existing full RBO suite is still pending.",
+    "C31 SQL50 success does not establish direct33 native success or complete physical value lineage.",
+    "All29 optimization cases remain prepared_unverified; none is silently counted as optimization acceptance.",
+    "Historical evidence files are audited for recorded binding consistency; current historical binary bytes or old worktree source states were not re-executed or rehashed."
+  ],
+  "snapshot_changed_cases": [],
+  "case_snapshot_sha256": {
+    "C01": "2d4abacfc2335272fc24aa4b9dd6efcaaee3c8e1521283a589e867d3fc30d493",
+    "C02": "ad6c09a63b96b36194c7b7d954298716ef233db905a9f25a15179702041e824e",
+    "C03": "555814bc711d57f93b63d8bb072dd2d085162cee23a168e41e30f615f44e7995",
+    "C04": "2c6eac8bebfbf933158ef15c0437bcfa5fb42514972354c48a4fd79290d15ed4",
+    "C05": "4746124807aed6071d725ddc65baabff9bc250a8af38c1ea17d4fdbcf8979562",
+    "C06": "63efe3184afaa763e2e11f691411ae79fa93cd3b35ab9494c05f9fabaeed2841",
+    "C07": "8d6fd76d0c947916d482eb537d8f80ec9a049880f3c2e5248388996f34e4c09e",
+    "C08": "0f3ea2a3baf70ad183778dfac67c9b5007ead64e5b8bc6ecabda641eadb51141",
+    "C09": "6fc5f67f0be3b648450210340c30d4d1098a76e16a8664239376ca2ce70a5d64",
+    "C10": "a9177f74ba48380d4d31d0360f7a9a8b4d8e1d0462dbee3ffcb346f46c937431",
+    "C11": "6b36500589b53e4753769b8c6be67cb38c308d0bfcf3483a71e18cd3ff8564cf",
+    "C12": "b1f19cc500cf8c19092f6a776f61387a50dd3bb15b47ae4f77e5865e09477e63",
+    "C13": "b9e7d9fec110b7dda8fadd46ba2defd0b86359b950bfc15591ac02637a06f873",
+    "C14": "37c5aa87a0713713ef9ca70d180e263f0f49e1d3c9eaf55bd969db8d993a703f",
+    "C15": "34236653beacf3f2fb8447a51ea833ae1eb8b25abf277be0318f5b1c22fd4333",
+    "C16": "ce85c908002e47af7996fd3a7a81f8d78add04eb9ddfac82c5d4a061ea0d5040",
+    "C17": "70f4d293df7e2f7e7f061fd39a29aa06092d3ea6bd45645e7bb8939b7ec5504c",
+    "C18": "ec39cd5e8c5bcba1a358a50f19ad4acb5bf34c4154194c0287c4942ac397a223",
+    "C19": "dddb66f66a4e1f823052d1cde0d51cdc6d49f029471e74be8f32c09e513c2b88",
+    "C20": "032c2e2c0f6c1940b633b14314485912fa4943ce489fd5be67fead2a7033f21e",
+    "C21": "9c8b59b25b7900a8c47f56b089cecc6be32dedac5c48144816c97039c3e0bd21",
+    "C22": "898e0e63d2e5d13f48e405441ab28ea1b4fbee60234d10812d6b4bcb2285fd13",
+    "C23": "c60b25bf64b6ce12bca56142722737e7c1085b8fb0ed707a457ebc78b6512cd9",
+    "C24": "95ecd770fe772fd3a0a35c06d720c06ed0b9944e26437f94dfbbb4daf40c7850",
+    "C25": "c7e9cf7764e24024df4b69d2175fc081479552cb3dc623ef7926834fbc657abc",
+    "C26": "f09e667bc34496dc725a1c6c7ae14e9d804e884d46a587b94abc43e622a52e21",
+    "C27": "bf437562c7b9cf5f96974e3e5fdeefb8bb08d3b60c7c5d36c4f3b2e959ca8af1",
+    "C28": "32e4ebd70634daec26a369edb652ce4f83d254027010d9381876bef1c857139a",
+    "C29": "36352b600f53fd5949c232dd635fef2e97d423e5c10e704b1bf125996cdd6a38",
+    "C30": "7e2d2145fc07a9188c73bf2339ec7b42ed81c4ae4e5a4f189463c38111d8bf2d",
+    "C31": "f3746a71619c387e2df5dfa403663f0f9ac952e554888afca86d08d48c1d93eb",
+    "C32": "0b4fed9948d7ddf32b87fe532c0373d5f5e37d6c264a2c42b69b9e9cb64f8f1f",
+    "C33": "bccecf1b149004c773eec4316ad45818985fffde85830c980ba81a32483bf2b0",
+    "C34": "614dbc33163b26b046a671b9e3fdbd6c95f714b414df37e2f1689271af0393d3",
+    "C35": "a73c3aaac01ba036cd5773f7640141c2c600be399c474927c2c68bfd99b20d7e",
+    "C36": "05391eb6ba64eb6959b7e60ce1e8d77f8dc892cf6a46937c9a3db0a2da5d9031",
+    "C37": "96515666045b97e3f95375f920b3bd8830334315790ef443364c349a31b1c8e8",
+    "C38": "60e4fa74e74a43456febc4e4657473e6153c57aeef5a13efa440e779a41788a8",
+    "C39": "7f13eb99d5b1dd0f2a54cf2e55678afc607eafed23dc090083d187b274389c81",
+    "C40": "732730274f6a6328eec7a090b885c6148d57edf23804dc2b8f24c4eb6564f3f2",
+    "C41": "b62b50f143b268506486848e42cfbabaccff1cf045e496cb0a5c3ae8b0b2f472",
+    "C42": "a2999d8cecf3a0b1619f903c36c868f4d1cd6444896de7fb81d6efcc5b62743f",
+    "C43": "9fed3c554f2128e3e107af167316207f467fb3ee9a237615b270312d89de876a",
+    "C44": "67fce30ef4c379ff5d4bb54408762df423592e99ba3db521be797049bd7880b6",
+    "C45": "bbb16531c90bbb30508d6089b297b1cf291116829313101830b07f2c194efb52",
+    "C46": "665b17c638a81b20b7d4bddd39ec3a35ac552ba1060e89a7462d876a8b2185df",
+    "C47": "4dd79a15d87ff8dec867e0b5bf625debce163b02049500be35740822685a6664",
+    "C48": "c36d66847b4f372cecfccd1bc77c99c8c84cec6fb58e16bb40b0141909795a87",
+    "C49": "0e9f5bc191b7cbbcced32ad3d9bad87ecf73c0956fc25bbd2e9148e99f951156",
+    "C50": "3bdc7495d88368df065bde912d29bac9563efcfa8c20227a2716589199bed764",
+    "F01": "d7a98002b3adb9caa5437c79e378eebaf079414c7d58c6feb10a4e4ba3c99ac5",
+    "F02": "edababe1af4fec7b55bed9b6aaa9505ec7a8193e48fcf46ba93fc691fd0e4a23",
+    "F03": "2f78753aff67235a11ee14ea2a5944d42f16e46b09f8ad5b35666f5091e67eb4",
+    "Q01": "37ada3cc56c2b0b2f0bede00ef59f541d1a9b433a128002b09e4e0b94cb9020c",
+    "Q02": "ba0d7d0853a8ce1d6bf5ae22fe54037cead33ace6f2e6a3b22d6be87c4a9459c",
+    "Q03": "d8753b9c18730523e1450ee892864167fb96f3d768f3f5c5c213a58c20a718aa",
+    "Q04": "372dc644a7e7e8335e40f9b61a4eb6bd76840c8489fd5eebbe456f727ea7efc6",
+    "Q05": "9a614cd8d5987bec1454bafe3aa2a58f5067e16b702efaadb0bfa15cf1858396",
+    "Q06": "fbed82046e77395a1966fd7074878e203cfae7dc2ea622ecb3c25e2124c18424",
+    "Q07": "fe50912fe294f167db4d5eb6bedefb8d2a36eae40ce313e6e5154560119ba83e",
+    "Q08": "8e165ae40899fc75263be81515f79187d597be22a2441dbc328673e7587cfde1",
+    "Q09": "62132da6d75df34e35fa43095890bda95bebd21f7e6a4e7b1aab227132639df5",
+    "Q10": "e15635b8fb66548b92271fdd714c76944011873ffc7265368b26c31c399bdc89",
+    "Q11": "24b2438023d49f4736322bca6cc59e53dd35ae5f8646e51f396f8f445de9076c",
+    "Q12": "d3b9c4a967055cfef0557a107039678722944ed5b4fcb4f151f383c9bb750a6d",
+    "Q13": "500535e7bd7b14ee07d4a67e94c649d1c8d5fff1128be3037b912f96ec1ca3bc",
+    "Q14": "5bea033e0ba3e97e4458a61710b83e0566f1ace04c6bdfd390ef4943664e7ebf",
+    "Q15": "cf13ab0a2f653a1ffd0b77ec5fd8d9aa721a73837df0f3df46286fb19964c553",
+    "Q16": "a0cdbd93ae1f23cda7d331c23eb5822cbd1b244b54e4ce7b3dcb91eaf92a09da",
+    "Q17": "876def739ea76d4fd4b45171498ff7383dd73340e7a054d2122a1c5ce4fa7c10",
+    "Q18": "9168b2312e7c0802bcdf3ee92095cb1ef18db6d585065ea1bb1afe6d317c185f",
+    "Q19": "ec74c37af0f0abd8e42c4653e242c4df85d90033835631837027784e71f2f0fe",
+    "Q20": "ad9b6e0889b729d98178e1068ec24e9fba76970f04f5f816f4ff88091df1bf14",
+    "Q21": "18f286ce8263b1aadc4023eeb9cdc53b859cffea0349b22aeca8f4280154dcbc",
+    "Q22": "b0a39a17313075c01850c4f6f324ef2d9691ae88f8e5b8e0876b3df0d88b92fb",
+    "Q23": "da0b2bec7201cf57d004414d82a2bd7016cee7962066b816f5f50b394f6bd132",
+    "Q24": "ed95ee299184a174c2a635fbccfdff0ed083acc9e6cd9b99d41a9fd2db568a32",
+    "Q25": "bd9cb19ece755ec98e09886ba532ca48463bd066c9c9d0a59690be0408958ac6",
+    "Q26": "7e331abaf0fec32884d5b51703c53fa2d530050f559e81eea2f86efbde0da028",
+    "Q27": "aa40ead6692f7f82a82d8359dff78c05d91936262027e92da1cfdeb844fce493",
+    "Q28": "63da69639afdba5bb4417f5778a6758f0b0fc91387feb6f3950dc25643a07097",
+    "Q29": "682ae49cc3459b2ef4fd9e4b77d333b71bf51f3d1cc571274f242aaf702e2f90"
+  },
+  "audited_contract_hashes": {
+    "verification_contract.py": "50dd2432dc492f7a59fbd92281bcbb3fc42c033241597aab25904721546bc151",
+    "optimizer_mode_contract.py": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad"
+  },
+  "executed_actions": {
+    "build_runs": 0,
+    "native_runs": 0,
+    "compiler_runs": 0,
+    "tests_rerun": 0,
+    "production_helper_case_edits": false,
+    "rendered_repros_or_raw_results_saved": false
+  }
+}

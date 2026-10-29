@@ -1,0 +1,62 @@
+{
+  "status": "approved_source_and_metadata_only_native_pending",
+  "reviewer": "remaining_correctness_review",
+  "date": "2026-10-28",
+  "patch": "proposed-quality-amendments/Q26-source-kind-controls-20261028.patch",
+  "patch_sha256": "ccfdac0c0d4328c243cab9e45697ab1039e09d82036c637cfe95e02d62a6f655",
+  "candidate_module_sha256": "a3ae2c3ac5a3b30359eb196660ab93e4037ce5d68a70f9d552f5252ed70be2ba",
+  "source_preparation_report_sha256": "791acfb676cd897c54de8301fec8aa78b5ecf5ac84a5f4d00b2b302e010181e8",
+  "metadata_checks": "verification/Q26-source-kind-independent-metadata-checks-20261028.json",
+  "metadata_checks_sha256": "fcf09d988974aecca9ec31b3e28097abe14c9cb9c9ce073c79696f4d09b27d97",
+  "independent_assertions_passed": 624,
+  "review_corrections_completed": [
+    {
+      "issue": "Ordinary row source was incorrectly required to have storage Sorted=true although its query has no LIMIT.",
+      "resolution": "Ordinary row descriptor now requires Sorted=false; before/after descriptor equality remains mandatory. Unknown actual shape requires separate review.",
+      "source_refs": [
+        "ydb/core/kqp/opt/rbo/kqp_operator.cpp:322",
+        "ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp:179",
+        "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp:211"
+      ]
+    },
+    {
+      "issue": "Counter-only row oracle did not enforce ORDER BY on row and sorted column profiles.",
+      "resolution": "Exact list equality now required for both ordered row shapes and the column sorted-limit shape, with explicit result_order_checked and reversed-order negative checks."
+    }
+  ],
+  "contracts_reviewed": [
+    "All eighteen source-kind cases have canonical quality_source_settings_checks ownership; the old six-case statistics subset cannot accept Q26.",
+    "AST indices and arities match KqpRowsSourceSettings, KqpSysViewSourceSettings, KqpBlockReadOlapTableRanges and KqpTable definitions.",
+    "Source table path and SysView-name atoms are checked for the intended fixture, without persisting identifiers or raw plans.",
+    "MaxSequentialReadsInFlight is a presence-aware uint32 setting; explicit zero remains distinct from unset and expected Sequential values are exact integers.",
+    "SysView emits no datashard Sequential setting. Column unsorted limit keeps Sequential=1 and ItemsLimit Uint64(3); sorted column limit keeps sorting/limit and no Sequential.",
+    "Baseline/fixed source projection and all non-Sequential source settings must match exactly, as must strictly typed nonnegative callable counters.",
+    "Source-kind, duplicate descriptor, wrong limits, bool-as-int, changed projection/settings, missing coverage, changed generator/profile/node count/provenance and semantic failures reject metadata admission.",
+    "Only four configured row cases count as setting-propagation improvement; all unaffected source-kind controls must preserve their existing behavior."
+  ],
+  "sysview_oracle": {
+    "expected_nodes": 1,
+    "reason": "Profile metadata requests one node; kqprun defaults one static node, no tenant nodes are passed, and setup initializes the domain with that node count. Existing new-RBO SysView test ties count to a configured three-node runner.",
+    "source_refs": [
+      "ydb/tests/tools/kqprun/src/ydb_setup.cpp:290",
+      "ydb/tests/tools/kqprun/src/ydb_setup.cpp:383",
+      "ydb/tests/tools/kqprun/src/ydb_setup.cpp:395",
+      "ydb/tests/tools/kqprun/src/ydb_setup.cpp:541",
+      "ydb/core/kqp/ut/rbo/kqp_rbo_yql_ut.cpp:10627",
+      "ydb/core/kqp/gateway/kqp_metadata_loader.cpp:499",
+      "ydb/core/kqp/opt/kqp_opt.cpp:201"
+    ]
+  },
+  "limitations": [
+    "Actual typed physical AST shape and SysView/column-store runtime reachability remain unverified.",
+    "No throughput, latency or resource gain is claimed.",
+    "Strict source descriptors may reject an unanticipated but valid lowering; such evidence remains pending for review, never counted as passing."
+  ],
+  "native_runs": 0,
+  "build_runs": 0,
+  "queries_rendered": false,
+  "production_plans_used": false,
+  "live_helper_edits": false,
+  "production_source_edits": false,
+  "raw_reproductions_persisted": false
+}

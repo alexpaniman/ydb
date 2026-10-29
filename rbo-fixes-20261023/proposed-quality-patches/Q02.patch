@@ -1,0 +1,53 @@
+--- a/ydb/core/kqp/opt/rbo/kqp_operator.h
++++ b/ydb/core/kqp/opt/rbo/kqp_operator.h
+@@ -983,6 +983,7 @@
+ 
+     TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
+     void PropagateLiveness(ILivenessContext& ctx) override;
++    bool PruneOutputs(const TUnorderedIUs& liveOut, TExprContext& ctx) override;
+     void RenameUsedIUs(const TSubstitutions& substitutions) override;
+     TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
+     NJson::TJsonValue ToJson(ui32 explainFlags, const TInfoUnitRegistry& registry) override;
+--- a/ydb/core/kqp/opt/rbo/global_pruning.cpp
++++ b/ydb/core/kqp/opt/rbo/global_pruning.cpp
+@@ -35,6 +35,14 @@
+         Props.OutputIUs.reset();
+     }
+     return columnsChanged || indicatorsChanged;
++}
++
++bool TOpWindow::PruneOutputs(const TUnorderedIUs& liveOut, TExprContext&) {
++    if (!WindowFuncs.RetainKeys(liveOut)) {
++        return false;
++    }
++    Props.OutputIUs.reset();
++    return true;
+ }
+ 
+ bool TOpUnionAll::PruneOutputs(const TUnorderedIUs& liveOut, TExprContext&) {
+--- a/ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp
++++ b/ydb/core/kqp/opt/rbo/analysis/logical_liveness.cpp
+@@ -363,12 +363,18 @@
+ }
+ 
+ void TOpWindow::PropagateLiveness(ILivenessContext& ctx) {
+-    // Window functions are never pruned, so every function keeps its inputs
+-    // live in both modes.
+     auto inputLive = LivePassthrough(this, 0, ctx);
+-    inputLive.UnionWith(PartitionKeys.Unordered());
+-    inputLive.UnionWith(SortElements.Unordered());
+-    inputLive.UnionWith(WindowFuncs.MappedIUs());
++    bool needsWindow = false;
++    for (const auto& [output, function] : WindowFuncs.Items()) {
++        if (ctx.NeedsDefinition(this, output)) {
++            inputLive.UnionWith(function.Arguments.Unordered());
++            needsWindow = true;
++        }
++    }
++    if (needsWindow) {
++        inputLive.UnionWith(PartitionKeys.Unordered());
++        inputLive.UnionWith(SortElements.Unordered());
++    }
+     ctx.AddLiveInput(this, 0, inputLive);
+ }
+ 

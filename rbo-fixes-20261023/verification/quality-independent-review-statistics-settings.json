@@ -1,0 +1,110 @@
+{
+  "reviewer": "harness_provenance",
+  "recorded_unix_ns": 1792721240157005597,
+  "scope": "Independent source review; no production edits, compilation or native execution",
+  "findings": {
+    "Q08": {
+      "status": "source_review_pass_pending_native",
+      "proof": [
+        "Input row/byte estimates already include inherited selectivity; multiplying only local selectivity avoids squaring prior filtering.",
+        "Accumulated Selectivity still multiplies by local selectivity. Existing partially-pushed filter bypass remains unchanged."
+      ],
+      "validation": "Native generator requires an observed retained Filter over Window and explicit estimate ratio; no claim if optimizer removes the boundary.",
+      "patch_sha256": "4012fdb157ddd9b1d5a566c491d4ee5a50b8c6ac0e76696d37283099682dab08",
+      "prepared_commit": "799af8215d791f4f3c4bdd3da9c087c56177117a"
+    },
+    "Q09": {
+      "status": "source_review_pass_pending_native",
+      "proof": [
+        "Only keyless non-dedup Undefined/Final aggregates get one row. Intermediate/grouped/dedup paths remain excluded.",
+        "Finite positive width fallback handles empty/zero-width inputs; input processing cost is retained."
+      ],
+      "validation": "Native generator checks final scalar ERows/EBytes and grouped negative control. Direct phase/zero-width contracts remain required.",
+      "patch_sha256": "258885bf28ac3ed03977c11135476d8e792dcf9825a5458977d3ec2c24698f56",
+      "prepared_commit": "a3f90f2d1667ae3249d34d75daf4e8d84a71185e"
+    },
+    "Q14": {
+      "status": "source_review_pass_pending_ir_and_native",
+      "proof": [
+        "Conversion now preserves solver shuffle directives for ReverseBlockJoin identically to GraceJoin. Existing stage assignment consumes absent/empty/nonempty optional directives distinctly."
+      ],
+      "validation": "Direct typed IR matrix is needed to distinguish empty/absent decisions; four-node semantics and physical-edge counters still required.",
+      "patch_sha256": "05564f749ff5f27a10124f398033415c4a76627843734f33a854abd8b5a0c74e",
+      "prepared_commit": "0600104a1fba93917e7a4e11a4f1b2ad0198cdbd"
+    },
+    "Q16": {
+      "status": "compile_blocker_corrected_in_artifact_pending_branch_amend_and_build",
+      "finding": "The proposed generic IOperator traversal used GetInputs, available only on IVariadicOperator.",
+      "repair": "Traverse GetChildren and push its raw child pointers.",
+      "proof": [
+        "Visited set bounds shared-subtree traversal.",
+        "Eligibility inspects only the affected Limit input subtree; unrelated column roots do not participate.",
+        "Existing width threshold, disabled-block and WindowFunctionsV2 behavior remains."
+      ],
+      "validation": "Observed TypeCtx.BlockEngineMode before/after direct IR application is required; SQL row semantics or an absent block callable alone is insufficient.",
+      "patch_sha256": "9adfc97955af92fb61ebadbeeb5b6cf4dc360c56c38f8c67bd2a2fc7620ffc16",
+      "prepared_commit": "36000459cb44ccfe5e548a2622bfa21ffff591c7"
+    },
+    "Q18": {
+      "status": "source_review_pass_pending_helper_execution",
+      "proof": [
+        "All five TColumnStatistics fields and all four TMultiColumnStatistics fields are covered.",
+        "std::optional<double> presence preserves legitimate zero NDV/HLL.",
+        "Missing incoming fields preserve cached data; existing intrusive map object retains identity.",
+        "Independent Issues gate remains for Q19."
+      ],
+      "validation": "Real C++ helper/cache application tests required; Python models or unrelated SQL cannot verify this implementation.",
+      "patch_sha256": "7894f834d88021e5b68560ac6fd92fe78d57f9fde9fd53c957ae81adaa556829",
+      "prepared_commit": "6a76df72ad2d9d0af37ebc034fed5bca12de33f4"
+    },
+    "Q19": {
+      "status": "source_review_pass_pending_async_contract_execution",
+      "proof": [
+        "All later response issues are accumulated; successful payload maps are applied despite diagnostic presence.",
+        "Future exceptions continue through TryRethrow, and no Success status gate discards currently status-unset successful response objects.",
+        "Existing cache collision remains Q18 scope."
+      ],
+      "validation": "Permute asynchronous success/error/warning responses on an initially uncached table; verify stored data and all issues. SQL cannot reliably force service error timing.",
+      "patch_sha256": "1a5025893086d543a595ff2e2a651b4a155549fe6b17c34f26d1123d3f0dd36f",
+      "prepared_commit": "c261bd389b61872b7c78851a26bf46283b95b9cb"
+    },
+    "Q20": {
+      "status": "source_review_pass_pending_native",
+      "proof": [
+        "Both sides now supply hint aliases.",
+        "Union is formed from relation-ID bindings before GetAliases, preserving its self-join disambiguation and including semi/anti hidden input relations.",
+        "Both metadata and statistics callers pass both inputs."
+      ],
+      "validation": "Native generator checks exact composite Rows/Bytes estimates and unrelated-hint control. Side-specific/nested/self-join direct contracts remain required.",
+      "patch_sha256": "6f9dcb247c76f6a0701beec0706c93daeb441ff5e4ab2b5c85a97e67f4f09cbc",
+      "prepared_commit": "49b33e196eefd41df663417e7392f7ca0e1504cd"
+    },
+    "Q25": {
+      "status": "source_review_pass_pending_ir_and_native",
+      "proof": [
+        "Push intent belongs to TMapElement and survives value copying in map fusion and CopyDefinitions.",
+        "SetMapElementExpression reconstructs the definition with its existing flag before swapping values.",
+        "Through-input pushdown filters per definition, retaining unmarked values; partial kept maps preserve flags by value.",
+        "OLAP projection reconstruction carries each flag.",
+        "MarkElementsForPushdown replaces values without inserting/removing keys, preserving map iteration validity."
+      ],
+      "validation": "Direct IR fusion/copy/rebind/partial-push observations and scalar/outer-join demand semantics required; counts of SQL maps alone cannot establish mark preservation.",
+      "patch_sha256": "4ec6b4d689ef7cf277f8408ed3d8274efa578d76c513e8ccaef81f689005f4be",
+      "prepared_commit": "1300a777c320158fe82cd9416b355165dbe73ecd"
+    },
+    "Q26": {
+      "status": "source_review_pass_pending_native",
+      "proof": [
+        "HasMaxSequentialReadsInFlight checks optional presence, so explicit zero reaches the builder.",
+        "Builder applies setting only to ordinary row sources; SysView excluded.",
+        "Column source branch existing limit concurrency behavior untouched."
+      ],
+      "validation": "Native generator checks actual Sequential source settings for unset/zero/positive configurations and ordinary/sorted-limit shapes. SysView/OLAP negative controls still required.",
+      "patch_sha256": "b43009ca4b6e8aa2cd8e19bed95b4e71af83a326d69a32bfae942241248183e4",
+      "prepared_commit": "c0e36684231f975761822543f88edae5a4e3297e"
+    }
+  },
+  "generator": "quality_statistics_checks.py",
+  "generator_contract_evidence": "verification/quality-statistics-generator-contracts.json",
+  "direct_contract_specs": "verification/quality-direct-contract-specs.json"
+}

@@ -1,0 +1,46 @@
+{
+  "errors": [
+    {
+      "vocabulary": [
+        "cannot",
+        "open",
+        "output",
+        "file",
+        "no",
+        "such",
+        "file",
+        "or",
+        "directory"
+      ],
+      "identifiers": [],
+      "message_sha256": "6603edaf6317103a847bce85788999336480617ec96ca5238911a147cdfa8fbd"
+    },
+    {
+      "vocabulary": [
+        "unable",
+        "to",
+        "file",
+        "not"
+      ],
+      "identifiers": [],
+      "message_sha256": "7e7cadb28784509a88a021fb1e154541f8fed8f05eba222c1abbd5885d5711bb"
+    },
+    {
+      "vocabulary": [
+        "linker",
+        "command",
+        "failed",
+        "with",
+        "exit",
+        "code",
+        "to"
+      ],
+      "identifiers": [],
+      "message_sha256": "b7a2babc5ac055347f20d1a8d978f52914d5ffdfb423c4b10785799a7ccd9c4d"
+    }
+  ],
+  "exit_code": 1,
+  "raw_diagnostics_persisted": false,
+  "generated_artifacts_persisted": false,
+  "observer_scope": "bounded_stderr_only"
+}

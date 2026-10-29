@@ -1,0 +1,26 @@
+{
+  "generator": "quality_union_checks.py",
+  "generator_sha256": "a83b641614853848cfd3091d8d7f40422b5f5f8f7cf5b53c12850a21e2b88b4b",
+  "generator_version": "quality_union_independent_models_v1",
+  "case_count": 11,
+  "offline_model_checks": 33,
+  "row_sizes": [
+    8,
+    19,
+    32
+  ],
+  "wrong_result_and_order_mutations_rejected": true,
+  "bag_multiplicity_checked": true,
+  "parser_branch_and_baseline_contracts_checked": true,
+  "maximum_combined_seed_rendering_bytes": 5604,
+  "native_execution": false,
+  "production_source_edits": false,
+  "quality_improvement_verified": false,
+  "limits": [
+    "Native SQL and target reachability remain unverified.",
+    "Optional-widening guard requires confirmation that frontend keeps unequal branch annotations.",
+    "Physical range presence demonstrates pushdown; runtime scanned-row reduction needs separate measurements.",
+    "Volatile call placement and exact UnionAll Ordered property still need a direct IR adapter.",
+    "Final ORDER BY validates result order, not internal Ordered flag identity."
+  ]
+}

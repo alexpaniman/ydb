@@ -1,0 +1,188 @@
+{
+  "status": "dormant_observation_source_prepared_independent_review_required",
+  "human_readable_findings": [
+    {
+      "kind": "verification_observer_shape_limit",
+      "issue": "The constrained field observer requires a direct Map or OrderedMap branch, but the integer physical inventory contains neither callable after optimization. Both actual observations reject switch_projection.",
+      "impact": "The observer cannot establish the intended field lineage from these optimized branches. This is not evidence of a new production bug.",
+      "repair_scope": "Add bounded lexical shape counters and exact argument-object identity diagnostics in a separate observation module; do not broaden the existing proof."
+    },
+    {
+      "kind": "verification_diagnostic_limit",
+      "issue": "The float scope inventory reports only ValueError. Its global resolver does not model nested local bindings; existing evidence cannot identify the exact rejected expression.",
+      "impact": "The actual rejection cause remains unknown. A lexical join inventory records only allowlisted callable/kind labels, key-shape counters and fixed rejection categories.",
+      "certainty": "The global parser limitation is source-confirmed; whether it caused this float rejection remains a hypothesis until the new native observation."
+    },
+    {
+      "kind": "verification_helper_traversal_cost",
+      "issue": "Reachability deduplicated callable nodes but repeatedly expanded shared tuple aliases, causing excessive work on small normalized graphs.",
+      "repair": "Track visited tuple object identities before extending the pending walk. All existing proof functions and admission flags remain unchanged.",
+      "validation": "Generated-in-RAM alias depths 4 through 256 retain exactly two callable nodes; maximum tested reachability visits 518, proportional to depth."
+    }
+  ],
+  "evidence": {
+    "path": "verification/guarded-C31-scope-observation-1793146590698833385.jsonl",
+    "sha256": "56edbc3e03893150290617e7495424d87077cd66fa2c60cc09f3500e08a9420b",
+    "records": 2,
+    "semantic_passes": 2,
+    "field_rejection_counts": {
+      "switch_projection": 2
+    },
+    "full_lineage_flags_remain_false": true,
+    "actual_wrappers_known": false
+  },
+  "patch": {
+    "path": "proposed-correctness-amendments/C31-lexical-switch-shape-observation-20261028.patch",
+    "sha256": "a280f0f8545fe8295b60b781c9a62d4b7fa6978129cdedfebbad7b378c20bdf2"
+  },
+  "new_module": {
+    "installed_name": "c31_switch_shape_observation.py",
+    "candidate": "proposed-correctness-amendments/c31_switch_shape_observation_20261028.candidate.py",
+    "sha256": "5839cb9e13b6dfd0987db6d426e2449b9737ea4193df514eba7b1003af48fce1"
+  },
+  "wrapper": {
+    "path": "c31_scope_observation.py",
+    "before_sha256": "60462c0206c58978416b3e75740de951cf8d809e690ec214013c43519874ac64",
+    "after_sha256": "5a3781ce5847e1f9670d9ae83363a20265992b1e73575d514480a5b2e091e73d"
+  },
+  "coverage": {
+    "cases": [
+      "c31_stability_float_domain__spilling__left",
+      "c31_stability_integer_domain__spilling__left"
+    ],
+    "rows": 24,
+    "node_count_policy": "unchanged existing bounded observation metadata",
+    "fixture_query_semantic_oracle_changes": false,
+    "local_spilling_cap_and_node_mask_changes": false,
+    "lineage_proof_changes": false,
+    "counter_categories": [
+      "reachable lexical stage/switch/join counts",
+      "stage terminal and branch root allowlisted head counts",
+      "bounded first-input-chain head/depth counts",
+      "exact same-branch versus foreign argument identity",
+      "mapping lambda arity and body category",
+      "same-row versus foreign-row direct Member category",
+      "join kind/key-list/numeric-position shape"
+    ],
+    "bounds": {
+      "input_utf8_bytes": 16777216,
+      "lexical_normalizer_visits": 200000,
+      "stages": 128,
+      "switches": 32,
+      "joins": 32,
+      "switch_branches": 16,
+      "input_chain_depth": 12,
+      "mapping_bodies_or_struct_fields_inspected": 128,
+      "reachability": "Each reachable callable node and tuple identity expands once; total expansion is bounded by the normalized representation."
+    },
+    "truncation_policy": "Counter categories report truncation or unsupported shapes; no observation grants proof.",
+    "output_policy": "Only fixed/allowlisted labels, bounded counters, booleans and SHA256; no symbols, field names, constants, graph fragments, workload inputs or rows."
+  },
+  "metadata_validation": {
+    "path": "verification/C31-switch-shape-metadata-contracts-20261028.json",
+    "sha256": "fb6c84b024b2fc86f2a4b067a57f9d06e16f7cdbc3ce6c6d7eef01a6bc3ffd08",
+    "status": "metadata_passed_actual_graph_observation_pending",
+    "assertions": 1086,
+    "synthetic_observations": 54,
+    "native_executed": false,
+    "build_or_toolchain_executed": false,
+    "live_helpers_changed": false,
+    "generated_graphs_persisted": false,
+    "full_lineage_flags_remain_false": true,
+    "patch_sha256": "a280f0f8545fe8295b60b781c9a62d4b7fa6978129cdedfebbad7b378c20bdf2",
+    "module_sha256": "5839cb9e13b6dfd0987db6d426e2449b9737ea4193df514eba7b1003af48fce1",
+    "wrapper_before_sha256": "60462c0206c58978416b3e75740de951cf8d809e690ec214013c43519874ac64",
+    "wrapper_after_sha256": "5a3781ce5847e1f9670d9ae83363a20265992b1e73575d514480a5b2e091e73d",
+    "lexical_helper_before_sha256": "da4de444927190d983c7068fa416c9b3371eb70f929c8a40073137c538dfa85e",
+    "lexical_helper_after_sha256": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298",
+    "tuple_alias_walk_samples": [
+      {
+        "tuple_alias_depth": 4,
+        "normalization_visits": 19,
+        "reachability_visits": 14,
+        "reachable_callable_nodes": 2
+      },
+      {
+        "tuple_alias_depth": 8,
+        "normalization_visits": 31,
+        "reachability_visits": 22,
+        "reachable_callable_nodes": 2
+      },
+      {
+        "tuple_alias_depth": 12,
+        "normalization_visits": 43,
+        "reachability_visits": 30,
+        "reachable_callable_nodes": 2
+      },
+      {
+        "tuple_alias_depth": 64,
+        "normalization_visits": 199,
+        "reachability_visits": 134,
+        "reachable_callable_nodes": 2
+      },
+      {
+        "tuple_alias_depth": 256,
+        "normalization_visits": 775,
+        "reachability_visits": 518,
+        "reachable_callable_nodes": 2
+      }
+    ]
+  },
+  "test_generator": {
+    "path": "proposed-correctness-amendments/C31-switch-shape-metadata-contracts-20261028.py",
+    "sha256": "2fd2a01e4175036350480338034f1712a581894a571af2371e841c90062b079f"
+  },
+  "source_bindings": [
+    {
+      "path": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.cpp",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "d493f422d8ed4dfc675e41dd745637641a73d2ace554f49108f8bd29c0971ebc"
+    },
+    {
+      "path": "yql/essentials/core/expr_nodes/yql_expr_nodes.json",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "4d81e5953e12badc691a5ce8f0996bc44f097e25ba1a503072f8e8dabb380479"
+    },
+    {
+      "path": "ydb/library/yql/dq/expr_nodes/dq_expr_nodes.json",
+      "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+      "sha256": "c97f43ffb9ffacabd419fd350d2cbe4cacfdbfd34d8972c942e693a0415228ac"
+    }
+  ],
+  "helper_before_sha256": {
+    "c31_shared_field_probe.py": "da4de444927190d983c7068fa416c9b3371eb70f929c8a40073137c538dfa85e",
+    "c31_shared_origin_probe.py": "bbcd4664caaafca3b3bef9dfd9268f3d4c6916fa8ddb241f87b9c5c6be12e276",
+    "quality_window_checks.py": "6cbe9c4ad1d47f72f3e25016d41602c562f4b715f5ddd3d988c8d264a1bfe3ba",
+    "c31_identity_checks.py": "af883b01a218b00181edcfac230e19ee16dd82e72b8d7b095522dc515c52513d",
+    "c31_scope_observation.py": "60462c0206c58978416b3e75740de951cf8d809e690ec214013c43519874ac64"
+  },
+  "actions": {
+    "native_execution": false,
+    "build_or_toolchain_execution": false,
+    "live_helper_changes": false,
+    "rendered_graph_or_query_or_result_persistence": false,
+    "existing_failure_relabeling": false
+  },
+  "remaining": [
+    "Independent review of the dormant patch and metadata checks.",
+    "Apply only in root-authorized idle helper window; preserve frozen source snapshots.",
+    "Run exactly the two existing bounded observation cells through the existing guarded anonymous route.",
+    "Inspect only new sanitized counters; retain current failed full-lineage status.",
+    "Any future proof extension requires exact optimized-shape source review and separate adversarial contracts; inventory is never acceptance."
+  ],
+  "lexical_helper_amendment": {
+    "path": "c31_shared_field_probe.py",
+    "candidate": "proposed-correctness-amendments/c31_shared_field_probe_tuple_guard_20261028.candidate.py",
+    "before_sha256": "da4de444927190d983c7068fa416c9b3371eb70f929c8a40073137c538dfa85e",
+    "after_sha256": "c2c8d8a8dd78705b73fed406ee412f3a2a0b0c09a142e5e99f43140028625298",
+    "change": "Deduplicate reachable tuple expansion by id(tuple), alongside the existing callable-node identity visited set. Do not hash tuple contents.",
+    "ownership_basis": "Graph roots retain every reachable tuple during traversal, so visited identities cannot be reused.",
+    "proof_logic_unchanged": true,
+    "test_binding": "Metadata tests import the patched helper before the observer; temporary composition retains the patched helper and checks both snapshots refer to the same module."
+  },
+  "superseded": {
+    "source_report_sha256": "47b72cb332d4ba4abfeeada6eefe755a17e0ddddbbf95039b0c39fda46e7cf49",
+    "observation_patch_sha256": "0c9459f2ca505714b11c25e32ab8075d0082157dae6f430473e74849bdf6fd4b",
+    "reason": "Independent reviewer identified repeated tuple-alias expansion in reused lexical reachability traversal."
+  }
+}

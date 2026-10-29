@@ -1,0 +1,180 @@
+--- a/anonymous_cpp_guard.py
++++ b/anonymous_cpp_guard.py
+@@ -5,6 +5,7 @@
+ compiler driver and linker. Only bounded native stdout remains in RAM; compiler
+ diagnostics are consumed and hashed without returning their text.
+ """
++import fcntl
+ import hashlib
+ import json
+ import os
+@@ -39,20 +40,49 @@
+     return dict(value)
+ 
+ 
++NATIVE_EXECUTABLE_SEALS = (fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW
++                           | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL)
++
++
++def _native_executable_name(argv):
++    if argv and argv[0].startswith('@FD:') and argv[0].endswith('@'):
++        name = argv[0][4:-1]
++        if not name or '@' in name:
++            raise AnonymousGuardError('invalid_native_executable_descriptor')
++        return name
++    return None
++
++
++def _check_native_executable(fd):
++    if ((fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE) != os.O_RDONLY
++        or fcntl.fcntl(fd, fcntl.F_GET_SEALS) != NATIVE_EXECUTABLE_SEALS):
++        raise AnonymousGuardError('native_executable_must_be_read_only_and_sealed')
++
++
+ def _worker(manifest_path):
+     """Invoked inside the transient scope; never writes a manifest or source."""
+     spec = json.loads(Path(manifest_path).read_bytes())
+     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
++    read_only = spec.get('read_only_fds', [])
++    if (not isinstance(read_only, list) or any(not isinstance(name, str) for name in read_only)
++        or len(set(read_only)) != len(read_only) or not set(read_only).issubset(spec['fds'])
++        or spec.get('stdout_fd') in read_only):
++        raise AnonymousGuardError('invalid_read_only_descriptor_mapping')
++    native_name = _native_executable_name(spec['argv'])
++    if native_name is not None and native_name not in read_only:
++        raise AnonymousGuardError('native_executable_descriptor_requires_read_only_transport')
+     opened = {}
+     try:
+         for name, path in spec['fds'].items():
+             # All paths must be already-open memfds belonging to the parent.
+             if not path.startswith('/proc/') or '/fd/' not in path:
+                 raise AnonymousGuardError('invalid_anonymous_descriptor_path')
+-            fd = os.open(path, os.O_RDWR)
++            fd = os.open(path, (os.O_RDONLY if name in read_only else os.O_RDWR) | os.O_CLOEXEC)
++            opened[name] = fd
+             if not os.readlink('/proc/self/fd/' + str(fd)).startswith('/memfd:'):
+                 raise AnonymousGuardError('descriptor_is_not_anonymous_memory')
+-            opened[name] = fd
++        if native_name is not None:
++            _check_native_executable(opened[native_name])
+         command = []
+         for argument in spec['argv']:
+             for name, fd in opened.items():
+@@ -116,6 +146,15 @@
+         raise AnonymousGuardError('invalid_guard_parameters')
+     if any(not isinstance(fd, int) for fd in fds.values()):
+         raise AnonymousGuardError('invalid_descriptor_mapping')
++    read_only = [name for name, fd in fds.items()
++                 if (fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE) == os.O_RDONLY]
++    if stdout_fd in read_only:
++        raise AnonymousGuardError('anonymous_stdout_descriptor_is_read_only')
++    native_name = _native_executable_name(argv)
++    if native_name is not None:
++        if native_name not in fds:
++            raise AnonymousGuardError('invalid_native_executable_transport')
++        _check_native_executable(fds[native_name])
+     environment = _environment_overrides(environment, compiler_environment)
+     environment_sha256 = hashlib.sha256(json.dumps(environment, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+     start = time.monotonic()
+@@ -124,6 +163,8 @@
+                'max_scope_gib': max_scope_gib, 'min_host_available_gib': min_host_gib,
+                'watchdog_stopped': False, 'cleanup_complete': False,
+                'scope_collection_after_completion': False, 'environment_sha256': environment_sha256}
++    if native_name is not None:
++        metrics['native_executable_transport'] = 'sealed_read_only_memfd_v1'
+     if metrics['minimum_host_available_bytes'] < (min_host_gib + 4) * GIB:
+         return dict(metrics, exit_code=75, watchdog_stopped=True,
+                     stop_reason='insufficient_starting_memory', cleanup_complete=True), b''
+@@ -131,6 +172,7 @@
+     descriptor = os.memfd_create('rbo-direct-command', os.MFD_CLOEXEC)
+     manifest = {'argv': list(argv), 'cwd': str(Path(cwd).resolve()), 'stdout_fd': stdout_fd,
+                 'compiler_environment': compiler_environment, 'environment': environment,
++                'read_only_fds': read_only,
+                 'fds': {name: '/proc/' + str(os.getpid()) + '/fd/' + str(fd)
+                         for name, fd in fds.items()}}
+     os.write(descriptor, json.dumps(manifest).encode())
+--- a/anonymous_cpp_verify.py
++++ b/anonymous_cpp_verify.py
+@@ -14,12 +14,13 @@
+ import os
+ from pathlib import Path
+ import re
++import signal
+ import subprocess
+ import sys
+ import time
+ from types import ModuleType
+ 
+-from anonymous_cpp_guard import run_anonymous
++from anonymous_cpp_guard import NATIVE_EXECUTABLE_SEALS, run_anonymous
+ from anonymous_cpp_metadata import (VERSION as CLOSURE_VERSION, MetadataError, digest_file, issue_receipt,
+                                     production_build_arguments, production_graph_arguments, production_configuration,
+                                     source_revision, verify_receipt)
+@@ -327,7 +328,7 @@
+ 
+ 
+ def _memfd(name, data=b'', executable=False):
+-    fd = os.memfd_create(name, os.MFD_CLOEXEC)
++    fd = os.memfd_create(name, os.MFD_CLOEXEC | (os.MFD_ALLOW_SEALING if executable else 0))
+     if data:
+         with os.fdopen(os.dup(fd), 'wb') as stream:
+             stream.write(data)
+@@ -335,6 +336,37 @@
+     if executable:
+         os.fchmod(fd, 0o700)
+     return fd
++
++
++def _seal_native_executable(fds):
++    """Replace our sole writable executable owner with a sealed read-only FD."""
++    # Keep signal cancellation outside the ownership-transfer window.
++    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
++    try:
++        writable = fds['executable']
++        if ((fcntl.fcntl(writable, fcntl.F_GETFL) & os.O_ACCMODE) != os.O_RDWR
++            or not os.readlink('/proc/self/fd/' + str(writable)).startswith('/memfd:')):
++            raise MetadataError('anonymous_executable_requires_writable_memfd_owner')
++        os.fchmod(writable, 0o700)
++        fcntl.fcntl(writable, fcntl.F_ADD_SEALS, NATIVE_EXECUTABLE_SEALS)
++        readonly = os.open('/proc/self/fd/' + str(writable), os.O_RDONLY | os.O_CLOEXEC)
++        try:
++            before, after = os.fstat(writable), os.fstat(readonly)
++            if ((before.st_dev, before.st_ino, before.st_size) != (after.st_dev, after.st_ino, after.st_size)
++                or (fcntl.fcntl(readonly, fcntl.F_GETFL) & os.O_ACCMODE) != os.O_RDONLY
++                or fcntl.fcntl(readonly, fcntl.F_GET_SEALS) != NATIVE_EXECUTABLE_SEALS):
++                raise MetadataError('anonymous_executable_read_only_reopen_mismatch')
++        except BaseException:
++            os.close(readonly)
++            raise
++        # Link scope cleanup has already closed its output and driver descriptors.
++        # Replace the owning mapping before closing its old writable descriptor.
++        fds['executable'] = readonly
++        os.close(writable)
++        return {'version': 'sealed_read_only_memfd_v1', 'same_inode': True,
++                'write_grow_shrink_and_seal_seals': True, 'writable_owner_closed': True}
++    finally:
++        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+ 
+ 
+ def _fd_digest(fd):
+@@ -481,10 +513,10 @@
+             evidence['status'] = 'anonymous_link_failed'
+             return evidence, 1
+         verify_object(evidence['production_version_infrastructure'], fds)
++        evidence['native_executable_transport'] = _seal_native_executable(fds)
+         evidence['generated_executable'] = _fd_digest(fds['executable'])
+         if evidence['generated_executable']['size_bytes'] == 0:
+             raise MetadataError('successful_link_produced_no_executable')
+-        os.fchmod(fds['executable'], 0o700)
+         verification_stage = 'native'
+         native, stdout = run_anonymous(['@FD:executable@'], args.worktree, fds,
+                                        timeout=args.native_timeout, max_scope_gib=12)
+@@ -516,7 +548,7 @@
+         exc.stage_evidence = {key: evidence[key] for key in
+                               ('compile', 'link', 'native', 'generated_object', 'generated_executable',
+                                'link_archive_responses', 'link_output_transport', 'link_debug_info',
+-                               'production_version_infrastructure')
++                               'production_version_infrastructure', 'native_executable_transport')
+                               if key in evidence}
+         raise
+     finally:

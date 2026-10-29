@@ -1,0 +1,49 @@
+{
+  "id": "Q26",
+  "title": "Configured sequential-read concurrency is not forwarded.",
+  "branch": "fix/new-rbo/q26-configured-sequential-read-concurrency-is-not-forwarded",
+  "commit": "c0e36684231f975761822543f88edae5a4e3297e",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.h"
+  ],
+  "proposal_sha256": "b43009ca4b6e8aa2cd8e19bed95b4e71af83a326d69a32bfae942241248183e4",
+  "proposal": "proposed-quality-patches/Q26.patch",
+  "proposal_metadata": {
+    "id": "Q26",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_unbuilt_unverified",
+    "files": [
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.h",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.cpp",
+      "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_convert_to_physical.cpp"
+    ],
+    "summary": "Propagate configured sequential-read concurrency into row-table source settings, preserving unset and explicit zero.",
+    "review": [
+      "Independent patch generated directly from pinned base; production worktrees unchanged.",
+      "No yql/essentials edits."
+    ],
+    "validation_plan": [
+      "Inspect anonymous typed source settings for unset, positive and zero values.",
+      "Verify ordinary/sorted/limited row-source controls; system views must omit this datashard setting.",
+      "Verify column-store unsorted Limit retains SequentialInFlight=1.",
+      "Build physical-conversion and existing RBO suites."
+    ],
+    "limits": [
+      "System views intentionally excluded because they have no datashard partition concurrency.",
+      "No general latency improvement claimed; resource/concurrency benchmarking follows settings verification."
+    ],
+    "apply_check_exit_code": 0,
+    "patch_sha256": "b43009ca4b6e8aa2cd8e19bed95b4e71af83a326d69a32bfae942241248183e4"
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

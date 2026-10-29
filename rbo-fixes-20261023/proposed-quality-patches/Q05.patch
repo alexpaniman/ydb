@@ -1,0 +1,18 @@
+--- a/ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp
++++ b/ydb/core/kqp/opt/rbo/rules/propagate_topsort_through_stage.cpp
+@@ -188,7 +188,14 @@
+ 
+     const bool ascending = sortElements.front().second.Ascending;
+     for (const auto& [column, order] : sortElements) {
+-        if (order.Ascending != ascending || order.NullsFirst != ascending) {
++        if (order.Ascending != ascending) {
++            return false;
++        }
++        // NULL placement is irrelevant for a nonoptional data key. Keep the
++        // storage ordering check for optional, Pg and unknown key types.
++        const auto* keyType = read->GetIUType(column, ctx.ExprCtx);
++        if (order.NullsFirst != ascending &&
++            (!keyType || keyType->GetKind() != ETypeAnnotationKind::Data)) {
+             return false;
+         }
+     }

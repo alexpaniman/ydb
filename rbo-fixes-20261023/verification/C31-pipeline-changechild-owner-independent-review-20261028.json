@@ -1,0 +1,99 @@
+{
+  "after": {
+    "c31_combined_cpp_generator.py": "6d2dfad9a4cb6e570fb39b5a4c605f223e07ccc85ee59cde0a87cdd2d36c1bb2",
+    "c31_shared_pipeline_cpp_generator.py": "3cf515d213120fda6fa70da7029895d93e74940fa908f70e038d839b3185caa4",
+    "correctness_cpp_profiles.json": "ca3e92a5de2e925bb624598534127a2572201b0bda1bf974ccb3fa8f51dd5974"
+  },
+  "assertion_count": 1442,
+  "author_report": {
+    "path": "verification/C31-pipeline-changechild-owner-repair-source-preparation-20261028.json",
+    "sha256": "7d36c47ab2774e9b49535d44513b2b931e6562e37456b27adddd31ec29146117"
+  },
+  "before": {
+    "c31_combined_cpp_generator.py": "7d56fc9bcc877762fc09238f46fa39983e0634e0f89fca9a183860b3fe57455e",
+    "c31_shared_pipeline_cpp_generator.py": "7237a294c0a31eb9da9ed6cd8069b643fa00dd38690ace3ec031d13938c2c4d6",
+    "correctness_cpp_profiles.json": "3d988379b86534a2f5fe5269d7b6dd957e7427ff5ea55c7a37f3a1b12112b679"
+  },
+  "case_count": 37,
+  "checks": [
+    "frozen_patch",
+    "frozen_preparation",
+    "live_before:c31_combined_cpp_generator.py",
+    "live_before:c31_shared_pipeline_cpp_generator.py",
+    "live_before:correctness_cpp_profiles.json",
+    "original33_generator_sha",
+    "patch_applies_exactly",
+    "disposable_application",
+    "after_image:c31_combined_cpp_generator.py",
+    "after_image:c31_shared_pipeline_cpp_generator.py",
+    "after_image:correctness_cpp_profiles.json",
+    "single_owner_repair:0",
+    "single_owner_repair:1",
+    "single_owner_repair:2",
+    "single_owner_repair:3",
+    "single_owner_repair:4",
+    "single_owner_repair:5",
+    "only_six_owner_expressions_changed",
+    "rendered_single_repair:0, foreign);",
+    "rendered_single_repair:, wrongMapInput);",
+    "rendered_single_repair:, duplicateField);",
+    "rendered_single_repair:, wrongFields);",
+    "rendered_single_repair:, wrongLambda);",
+    "rendered_single_repair:, wrongNarrow);",
+    "component_render_exact_six_delta",
+    "component_cases_and_specs_unchanged",
+    "owner_used_once_then_consumed:wrongMapInput",
+    "owner_used_once_then_consumed:duplicateField",
+    "owner_used_once_then_consumed:wrongFields",
+    "owner_used_once_then_consumed:wrongLambda",
+    "owner_used_once_then_consumed:wrongNarrow",
+    "foreign_not_moved",
+    "foreign_lifetime_retained_for_rejection",
+    "all_negative_oracles_byte_identical",
+    "positive_oracles_byte_identical",
+    "utility_header_present",
+    "combined_render_exact_six_delta",
+    "original33_render_namespace_byte_identity",
+    "original33_render_hash",
+    "exact37_vector_unchanged",
+    "exact1442_counts",
+    "render_bound",
+    "profile_exact_vector",
+    "profile_source_render_binding",
+    "profile_component_manifest",
+    "all_other_profile_fields_identical",
+    "diagnostic_line_hash:2720",
+    "diagnostic_line_hash:2749",
+    "exact_api_binding",
+    "actual_rvalue_owner_api",
+    "actual_api_consumes_into_owned_node",
+    "existing_temporary_ChildPtr_preserved"
+  ],
+  "checks_passed": 52,
+  "limits": [
+    "Source and exact-image validation only. Actual guarded compilation and all37 native cases remain pending.",
+    "No production or live helper edits, native/build activity, generated C++ persistence or raw diagnostic output."
+  ],
+  "original33_assertions": 1416,
+  "original33_byte_identical": true,
+  "ownership_assessment": [
+    "The reused foreign node retains its local intrusive owner; passing an explicit temporary increments ownership without changing node identity.",
+    "Each of five intermediate owners has one subsequent use, the move into its enclosing changed node. The final wrongBranch and wrongOutput remain alive through their negative assertions.",
+    "Existing negative and positive assertion expressions remain byte-identical; no sharing, field-identity or stage-path predicate is relaxed."
+  ],
+  "patch": {
+    "path": "proposed-correctness-amendments/C31-pipeline-changechild-owner-repair-20261028.patch",
+    "sha256": "1848e21ffe4b7692d3c88eb08c70cf29a0c111e33cd9d6d693b19171a19485bb"
+  },
+  "pipeline_counts": [
+    8,
+    8,
+    8,
+    2
+  ],
+  "rendered_source_bytes": 186890,
+  "rendered_source_sha256": "19be2d18ad56fdac509f9b1ed57251904238fe0e9c1ca07af5b5619674716b1a",
+  "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+  "schema": "c31_owner_repair_independent_source_review_v1",
+  "status": "approved_source_only_native_pending"
+}

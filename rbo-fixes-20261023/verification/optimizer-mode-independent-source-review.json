@@ -1,0 +1,39 @@
+{
+  "reviewer": "quality_review",
+  "review_kind": "independent_optimizer_mode_transport_review",
+  "artifact_sha256": {
+    "patch": "782f5c2475d968d717d99f01bbe42006ae98e17a6db6635b8dd277fee1f700a8",
+    "mode_contract": "50ffb02aff06f5b2322cf8b00c87500d24e73580c304120e48ffd76f329c75ad",
+    "integration_checks": "14f2e351d58f101e58b16e335a8356c9ad24df422d8100e749b863c3d9455231"
+  },
+  "verdict": "fallback_safe_source_and_mocked_transport_contracts_passed_native_pending",
+  "confirmed_problem": "F02 and F03 metadata wrappers previously called requirements with default new mode. Their explicit table-service override could therefore replace legacy configuration even though YqlSelect was disabled.",
+  "checked_contracts": [
+    "Native metadata dispatch supplies mode only to wrappers declaring that argument; existing two-argument metadata and requirements-only generators retain their interfaces.",
+    "Both affected wrappers forward the requested mode while preserving the default new mode for existing direct callers.",
+    "The exact post-override settings and YqlSelect dictionary are checked before subprocess execution; unknown, duplicate or contradictory flags fail closed.",
+    "Both stale legacy wrappers are rejected before the mocked process is called, and anonymous descriptors are closed by the existing finally path.",
+    "Requested and effective fallback flags are separately recorded; explicitly enabled fallback controls remain ordinary semantic tests.",
+    "Exclusive C37/C38 comparisons require complete mode evidence, matching settings digest and fallback disabled on both sides.",
+    "An actual C44 fallback-enabled generator passes through run_generated, retains fallback, and still checks base-table and index-table contents; it cannot satisfy exclusive-comparison proof.",
+    "Future explicit contradictory mode evidence fails record_verdict. Historical records without these new fields retain their prior narrower verdict except where exclusive proof is newly required.",
+    "The helper records requested optimizer configuration rather than claiming proof of the engine route actually executed."
+  ],
+  "validation": {
+    "assertions": 725,
+    "mocked_run_generated_calls": 9,
+    "stale_wrapper_launches_blocked": 2,
+    "all_passed": true
+  },
+  "limitations": [
+    "No actual native process or compiler was run. The prospective patch has not been applied to active helpers by this reviewer.",
+    "Historical records without settings identity cannot be upgraded to mode-proven evidence by this review.",
+    "Fallback-enabled success establishes functional behavior through the permitted route, not execution exclusively under new RBO.",
+    "Configured optimizer identity is distinct from runtime trace proof; existing semantic and provenance contracts remain necessary."
+  ],
+  "active_helpers_edited": false,
+  "production_sources_edited": false,
+  "native_runs": 0,
+  "compiler_runs": 0,
+  "generated_reproductions_persisted": false
+}

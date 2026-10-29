@@ -1,0 +1,48 @@
+{
+  "id": "Q04",
+  "title": "An unfiltered bounded sort does not consider a matching secondary index.",
+  "branch": "fix/new-rbo/q04-an-unfiltered-bounded-sort-does-not-consider-a-matching-secondary-index",
+  "commit": "a9df61306aa47badfbf1cec2fc043b3336addfd3",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "status": "prepared_unverified",
+  "files": [
+    "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp",
+    "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp"
+  ],
+  "proposal_sha256": "438fcca11aee747a4c10b5e2eb7bd4b6e982ce88387a0682e3ab84bbd343c027",
+  "proposal": "proposed-quality-patches/Q04.patch",
+  "proposal_metadata": {
+    "id": "Q04",
+    "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+    "status": "proposed_patch_only",
+    "files": [
+      "ydb/core/kqp/opt/rbo/kqp_rbo_rules.h",
+      "ydb/core/kqp/opt/rbo/rules/push_ranges.cpp",
+      "ydb/core/kqp/opt/rbo/kqp_rbo_transformer.cpp"
+    ],
+    "scope": "New narrow index-selection rule for literal-bounded Sort directly over unrestricted row Read. Choose ordinary synchronous covering physical index matching sort prefix; preserve Sort for existing ordered-limit lowering.",
+    "validation_plan": [
+      "Matching covering index gets bounded sorted storage settings and final ordering/result hash matches oracle",
+      "No matching index, noncovering, unsupported/not-ready index, disabled selection, existing range/limit, unbounded and nonliteral limit controls",
+      "Mixed directions, nullable NULL-placement mismatch, Pg key, already-matching base PK and shared input controls",
+      "Measure scanned rows/bytes and sort input size, not merely selected table path"
+    ],
+    "static_checks": [
+      "git apply --check against pinned baseline passed"
+    ],
+    "limits": [
+      "No compilation, native execution or plan-quality measurement yet",
+      "Initial direct Sort(Read) pattern only; no projection traversal",
+      "Uses current strict NULL-placement contract; coordinate Q05 relaxation in both matcher and physical pushdown",
+      "C47 adds imported read settings absent in baseline; integration must reject ForcePrimary/tablet selectors and preserve supported settings"
+    ]
+  },
+  "checks": [
+    "Independent pinned-main parent verified",
+    "git apply --check --whitespace=error-all passed",
+    "git diff --cached --check passed",
+    "No yql/essentials changes"
+  ],
+  "verification_limitation": "Source preparation only; compilation, native semantics and optimization evidence still required."
+}

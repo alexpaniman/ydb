@@ -1,0 +1,12 @@
+{
+  "artifacts": {
+    "proposed-correctness-amendments/C41-final-physical-query-post-annotation-20261028.patch": "aada5ea5509698ec017972b021547584759e855921e0a5a82d400efc4f0e6987",
+    "verification/C41-final-query-post-annotation-independent-review-20261028.json": "28a924b64925ea706427650c631db2088b7bdd4da7fa1a00cc9e836de429ce35",
+    "verification/C41-final-query-post-annotation-source-preparation-20261028.json": "e9ff817fd33f0f9426894ba1c5bf77b201d397a2294541589a1a845f66bf4bd3",
+    "verification/C41-six-assertion-canonicalization-source-assessment-20261028.json": "19834cecad234187dd27bef2eff3fe6bae19c5e805dfcd3675fdf765534c1132"
+  },
+  "native_rerun_pending": true,
+  "reviewed_artifacts_mutated": false,
+  "schema": "c41_postannotation_supplemental_evidence_binding_v1",
+  "source_review_complete": true
+}

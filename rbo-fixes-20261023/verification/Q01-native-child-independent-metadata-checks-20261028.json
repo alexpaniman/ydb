@@ -1,0 +1,31 @@
+{
+  "assertions_passed": 750,
+  "author_mock_assertions_rerun": 215,
+  "builds": 0,
+  "checks": [
+    "Exact frozen patch and six after-image identities; temporary application after all 28 reviewed patches and prior protocol",
+    "Independent brute ROWS/RANGE membership count, sum, min/max checks at 525 positions across 75 cells",
+    "Exact ordered results accepted and reversed results rejected for all fifteen families/width combinations at initial N",
+    "Source/report descriptors excluded from target inherited descriptor list; inherited stdin selector maintained",
+    "Mocked spawn, first/second allocation, scope-read, communication and cleanup-timeout failure paths close owned descriptors and remain unavailable",
+    "Only the owned private group is killed; incomplete drain/reap remains explicitly incomplete",
+    "Changed CPU affinity rejects the raw observation",
+    "Invalid request envelopes fail before launch",
+    "Author mock suite exercises normal/nonzero/signal exit agreement, timeout, cancellation, source/environment/UDF changes and unchanged outer memory guard"
+  ],
+  "generated_inputs_or_results_persisted": false,
+  "graphs": 0,
+  "idle_patch_count": 28,
+  "idle_plan_sha256": "0bdc2c91aec22669459358e0431a7e80758fa88e7187235e68f132ddc5e3a722",
+  "independent_oracle_positions": 525,
+  "metadata_check_generator_sha256": "ffc8a5866a1fb670d7b311df3f6b3d6a83cd4e9a1e096187df7f9ae9fe399577",
+  "native_runs": 0,
+  "production_or_live_helper_edits": false,
+  "protocol_patch_sha256": "f4191c68677a6ae2451344b51a9f09f424930851bea8e261dab7fc941d8f4537",
+  "real_memfds": 0,
+  "real_process_launches": 0,
+  "schema_version": "q01_native_child_independent_metadata_v1",
+  "source_patch_sha256": "9fa07f8be32edb35da301d4212b1366d83f9419ce0faab1811052061c2859d0a",
+  "temporary_latest_stack_plus_protocol_and_integration_application": true,
+  "toolchain_runs": 0
+}

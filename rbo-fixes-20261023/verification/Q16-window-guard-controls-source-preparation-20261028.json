@@ -1,0 +1,47 @@
+{
+  "status": "prepared_source_review_required_native_pending",
+  "recorded_unix_time": 1793135147.2698767,
+  "patch": "proposed-quality-amendments/Q16-window-guard-controls-20261028.patch",
+  "patch_sha256": "3d9b953e7273368975af4444ef6d150a97dec4e0e37846fbc191af7dfb8d9f7f",
+  "before_sha256": "9e0711f9ea1a43517117de3abdbda62bb464407a5a6818a23c2f932b94ecfd15",
+  "after_sha256": "92a0d554eca03485322fac7b89e7b3f7f21962ec4bbc7aa7834e03b3de498674",
+  "base_and_fixed_same_generator_required": true,
+  "scope": "Q16 existing60 limit contracts plus16 unchanged WindowFunctionsV2 controls; Q14 unchanged12.",
+  "new_cases": [
+    "q16_window_row_false_0_Auto",
+    "q16_window_row_false_0_Disable",
+    "q16_window_row_false_2_Auto",
+    "q16_window_row_false_2_Disable",
+    "q16_window_row_true_0_Auto",
+    "q16_window_row_true_0_Disable",
+    "q16_window_row_true_2_Auto",
+    "q16_window_row_true_2_Disable",
+    "q16_window_column_false_0_Auto",
+    "q16_window_column_false_0_Disable",
+    "q16_window_column_false_2_Auto",
+    "q16_window_column_false_2_Disable",
+    "q16_window_column_true_0_Auto",
+    "q16_window_column_true_0_Disable",
+    "q16_window_column_true_2_Auto",
+    "q16_window_column_true_2_Disable"
+  ],
+  "native_assertions_per_new_case": 3,
+  "q16_case_count": 76,
+  "source_sha256": "fa3316bfd88722bc31a0816dd62859df0c75f8e5ed1701f39120667143dedf2a",
+  "source_rendered_in_memory_only": true,
+  "constructor_review": "kqp_operator.cpp:1433 accepts window fields without additional construction work; production rule window arm examines flag and mutates actual TypeCtx.",
+  "api_review": "Independent review corrected config API to protobuf SetEnableWindowFunctionsV2, observed through GetWindowFunctionsV2 fallback; StorageType and constructor reviewed.",
+  "remaining": [
+    "Independent source review",
+    "Compile and execute exact baseline/fixed local contracts",
+    "No end-to-end query semantics granted by local rule controls"
+  ],
+  "native_runs": 0,
+  "build_runs": 0,
+  "live_helper_edits": false,
+  "production_edits": false,
+  "superseded_patch_sha256": "594b166d457f1a0c84b2ae6284207b9517cbecfdc05f479966d8bc537b62559d",
+  "review_amendments": [
+    "Use actual inherited protobuf WindowFunctionsV2 setter."
+  ]
+}

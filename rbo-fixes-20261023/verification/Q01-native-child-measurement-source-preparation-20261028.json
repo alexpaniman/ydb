@@ -1,0 +1,204 @@
+{
+  "schema_version": "q01_native_child_source_preparation_v1",
+  "status": "source_prepared_independent_review_and_native_transport_pending",
+  "patch": "proposed-quality-amendments/Q01-native-child-measurement-integration-20261028.patch",
+  "patch_sha256": "9fa07f8be32edb35da301d4212b1366d83f9419ce0faab1811052061c2859d0a",
+  "files": {
+    "anonymous_child_measurement.py": {
+      "before_sha256": "99c8c9d0233475daf052aaeb1d4ad3d202906e058978dbf428d2088a92858cc1",
+      "after_sha256": "082b44fd51a942d68f2d6f1d918765e01520287187747b7e422208f1ee8bede7"
+    },
+    "native_verify.py": {
+      "before_sha256": "cc467403ba5aca0dfc16ad56d92a47a46c5817ae86bc42ea633bb78aff0717c5",
+      "after_sha256": "a0abb05ec07f94dd3cb8a016616233073c044715e0a1f85e0088b2a5daaa4bd1"
+    },
+    "q01_measurement_metadata_contracts.py": {
+      "before_sha256": null,
+      "after_sha256": "3c9ccfe385843ea44d31b74fde3ee34f00cd1d3fce2818b5a29da117fc9190cb"
+    },
+    "q01_native_child_measurement.py": {
+      "before_sha256": null,
+      "after_sha256": "e2d724fba399450f1de945b8a62529b1f304f029e5ae3a39d35d8d2614ec62d4"
+    },
+    "quality_q01_scaling_checks.py": {
+      "before_sha256": null,
+      "after_sha256": "7244c31fed79188b7d49b759a8ad1720ef13b56489879b112ad42e7a2efa5eb3"
+    },
+    "verify_series.py": {
+      "before_sha256": "e2f8efe3383f129ccbbce6ee8047d57af2f6a1129f20126530d8a159fab1a508",
+      "after_sha256": "cc07fc271efde3ed8f8377ef86f9560b484591503d7c0198d89e7ca7488d6265"
+    }
+  },
+  "dependencies": [
+    {
+      "path": "verification/idle-artifact-application-plan-20261028-complete.json",
+      "sha256": "379973d8b93b403b9a46fcddaaea09164ce6084ad4f81e013e3058d3b909183b",
+      "patch_count": 26
+    },
+    {
+      "path": "proposed-quality-amendments/Q01-dedicated-child-measurement.patch",
+      "sha256": "f4191c68677a6ae2451344b51a9f09f424930851bea8e261dab7fc941d8f4537"
+    }
+  ],
+  "existing_resource_design": {
+    "path": "verification/Q01-resource-scaling-admission-plan-20261027.json",
+    "sha256": "4f5cf34f70cf9a651b579017dee36afbfe907e0903530f9624300c2cfab4e596",
+    "accepting_thresholds_implemented": false
+  },
+  "boundary": {
+    "actual_function": "native_verify.run_generated",
+    "actual_boundary": "subprocess.run(kqprun, pass_fds, capture_output, timeout=120, RLIMIT_CORE=0)",
+    "g_run_is_not_called": true,
+    "measurement": "sealed dedicated Python worker uses exact-child os.wait4 for the actual kqprun executable",
+    "included": [
+      "fork and exec lifetime accounting",
+      "runner startup",
+      "schema loading",
+      "fixture statements",
+      "target compilation and execution",
+      "kernel-attributed waited descendants"
+    ],
+    "excluded": [
+      "driver recipe and schema construction",
+      "Python worker startup CPU",
+      "Python result decoding",
+      "independent row and physical oracles",
+      "separate 32-row legacy preflight"
+    ],
+    "rss": "Linux child ru_maxrss converted KiB to bytes; lifetime high-water, not target/operator-only, not aggregate scope peak; never subtract a startup RSS floor",
+    "local_timeout_seconds": 120,
+    "stdin": "preserves original inherited stdin via the additive wait4 worker selector",
+    "stdout_stderr": "same PIPE capture and existing outer guard; raw diagnostics never persisted"
+  },
+  "ownership_and_cleanup": {
+    "scope": "existing rbo-direct transient scope required and rechecked; wrapper/child inherit that cgroup; no nested scope",
+    "private_process_group": true,
+    "local_timeout_and_cancellation": "kill private group, bounded drain/reap; record cleanup failure; outer scope remains final descendant owner",
+    "single_cell": "opt-in requires Q01 only, one explicit case, new mode, one repetition, dedicated module; no additional target can follow a failed cleanup",
+    "preflight": "existing startup control retained at 32 rows in opt-in mode; unrelated generators are not loaded at scaling N",
+    "outer_guard": "existing invoke_native path and caller-owned global serial lease; same 24 GiB scope threshold, 36 GiB host threshold, retained stdout, outer deadline and scope cleanup",
+    "memfds": "caller owns all config/schema/fixture/query/result/plan fds; wrapper owns only sealed source and bounded sealed report; report/source excluded from target pass_fds; owned fds closed on all returns",
+    "fail_closed": [
+      "bad or oversized/unsealed report",
+      "unexpected child exit agreement",
+      "remaining local descendants",
+      "timeout or cancellation",
+      "scope mismatch",
+      "source/environment/UDF/affinity change",
+      "failed or incomplete outer guard"
+    ]
+  },
+  "bindings": [
+    "sample kind/index and run id",
+    "family, N, W and complete cell descriptor",
+    "phase, exact revision, successful receipt and executable digests",
+    "driver and loaded generator source digests",
+    "builder and physical parser dependency digests",
+    "settings/schema/all fixtures/target query/validation digests",
+    "measurement helper/protocol/outer guard/Python digests",
+    "UDF library digest",
+    "actual argv digest",
+    "inherited full environment digest without retaining values",
+    "Linux release, architecture, CPU affinity and inherited cgroup digest",
+    "sealed nonce-bound raw report digest",
+    "post-oracle exact source revalidation",
+    "post-run runner receipt identity revalidation",
+    "outer guard evidence path/digest and complete cleanup result"
+  ],
+  "generator": {
+    "families": [
+      "rows_collectors",
+      "rows_minmax",
+      "range_minmax",
+      "range_mixed",
+      "range_collectors"
+    ],
+    "family_width_pairs": 15,
+    "frame_widths": [
+      16,
+      128,
+      512
+    ],
+    "permitted_rows": [
+      2048,
+      4096,
+      8192,
+      16384,
+      32768
+    ],
+    "ordering": "monotonic id within three fixed partitions; RANGE width changes actual membership instead of saturating a small modulo order domain",
+    "payload": "identical nullable bounded Int64 source and single-table fixture across constituent families",
+    "oracle": "independent prefix count/sum, binary-search range membership and monotone extrema queues; O(N log N) at worst and O(N) storage; comparison after child measurement; exact typed output row order is required",
+    "plan": "reachable physical callable counters and target AST hash only; no accepting physical or resource verdict",
+    "matrix_limit": "selectable recipe layer only; no complete matrix scheduler, accepted sample filtering, suffix/fallback controls or threshold validator"
+  },
+  "checks": {
+    "temporary_sequential_application_passed": true,
+    "source_syntax_passed": true,
+    "new_mock_transport_and_driver": {
+      "status": "metadata_mock_contracts_passed_native_unverified",
+      "assertions": 215,
+      "real_process_launches": 0,
+      "real_memfds": 0,
+      "native_runs": 0,
+      "rendered_inputs_persisted": false,
+      "acceptance_thresholds_implemented": false
+    },
+    "generator": {
+      "status": "source_only_metadata_checks_passed_native_unverified",
+      "assertions": 760,
+      "cells": 75,
+      "oracle_selected_positions": 525,
+      "real_process_launches": 0,
+      "rendered_inputs_persisted": false,
+      "native_runs": 0
+    },
+    "existing_regression": {
+      "status": "synthetic_contracts_passed_native_unverified",
+      "assertions": 98,
+      "real_builds": 0,
+      "real_process_launches": 0,
+      "native_runs": 0,
+      "coverage": [
+        "profile/config/workload fingerprint mismatch",
+        "baseline failure separate from fixed failure",
+        "fixed provenance rejection",
+        "duplicate/missing pairs",
+        "semantic-only pending",
+        "one baseline build per invocation",
+        "approved workers forwarded",
+        "correctness dual-mode command retained",
+        "guard limitations preserved"
+      ]
+    },
+    "total_assertions": 1073
+  },
+  "pending": [
+    "Independent source review of final frozen patch",
+    "Actual guarded transport checks: normal/nonzero/signal/failed exec/timeout/cancellation/memory cleanup, inherited descriptors and bounded report behavior",
+    "Frozen exact paired executable/matrix contract and actual complete measurements",
+    "Signal pilot proving fixture/startup CPU does not dominate width comparisons",
+    "Matching actual plan reachability before interpreting raw numeric observations",
+    "MiniKQL accounted allocations and absolute peaks remain a separate direct-runtime lane",
+    "Hardware/load matching and final resource-admission validator remain unimplemented",
+    "Full Q01 admission remains pending; no complexity or speedup claim"
+  ],
+  "actions": {
+    "live_helper_edits": false,
+    "production_source_edits": false,
+    "yql_essentials_edits": false,
+    "builds": 0,
+    "native_runs": 0,
+    "graph_runs": 0,
+    "toolchain_runs": 0,
+    "real_memfds_or_target_process_launches": 0,
+    "rendered_inputs_or_results_persisted": 0,
+    "accepted_measurements": 0
+  },
+  "review_correction": {
+    "finding": "Requested final ordering must be checked, not merely row multiplicity",
+    "change": "Compare exact ordered JSON row encodings; reversed and swapped output rejected",
+    "measurement_and_recipe_sources_unchanged": true,
+    "previous_patch_sha256": "f8ca188a00c355e24c9513025dda133f77303a6c801fc24ff2b0adcc6f6e2bf4"
+  }
+}

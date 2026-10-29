@@ -1,0 +1,30 @@
+{
+  "in_memory_patch_contracts_passed": true,
+  "assertions": 771,
+  "existing_pairing_contracts": {
+    "status": "synthetic_contracts_passed_native_unverified",
+    "assertions": 74,
+    "real_builds": 0,
+    "real_process_launches": 0,
+    "native_runs": 0,
+    "coverage": [
+      "profile/config/workload fingerprint mismatch",
+      "baseline failure separate from fixed failure",
+      "fixed provenance rejection",
+      "duplicate/missing pairs",
+      "semantic-only pending",
+      "one baseline build per invocation",
+      "approved workers forwarded",
+      "correctness dual-mode command retained",
+      "guard limitations preserved"
+    ]
+  },
+  "patch_sha256": "5dbe983da81fc60e24c7f1f6325ec71f85629d63458098e29edb4b39f36d991f",
+  "native_runs": 0,
+  "compiler_runs": 0,
+  "active_helpers_edited": false,
+  "mocked_run_generated_calls": 4,
+  "physical_summary_gate_checks": 443,
+  "generated_translation_units_saved": false,
+  "synthetic_evidence_saved": false
+}

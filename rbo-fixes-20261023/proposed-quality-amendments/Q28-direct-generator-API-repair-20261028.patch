@@ -1,0 +1,11 @@
+--- a/rbo-fixes-20261023/quality_scheduler_cpp_checks.py
++++ b/rbo-fixes-20261023/quality_scheduler_cpp_checks.py
+@@ -78,7 +78,7 @@
+     const auto table = NNodes::Build<NNodes::TKqpTable>(f.ExprCtx, f.Pos)
+         .Path().Build("/Root/table").PathId().Build("1:1")
+         .SysView().Build("").Version().Build("1").Done().Ptr();
+-    return MakeIntrusive<TReadProbe>("", TUnorderedIUs{column}, EStorageType::RowStorage,
++    return MakeIntrusive<TReadProbe>("", TUnorderedIUs{column}, NYql::EStorageType::RowStorage,
+         table, nullptr, nullptr, std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, f.Pos);
+ }
+ using TRow = THashMap<TInfoUnitId, ui64>;

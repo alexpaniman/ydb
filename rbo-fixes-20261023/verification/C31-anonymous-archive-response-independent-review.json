@@ -1,0 +1,70 @@
+{
+  "schema": "independent_source_review_v1",
+  "reviewer": "/root/c35_compile_repair_review",
+  "finding": "C31",
+  "artifact": "rbo-fixes-20261023/proposed-correctness-amendments/C31-anonymous-archive-response-artifacts.patch",
+  "artifact_sha256": "dfae58e3f34b3886656300f336ad3ef519996c8644314f47265689327158bc2d",
+  "source_before_sha256": "48515b54d5c8d96a38ce8755fdc732ec9817b2b8f5e58d7941b306c4d1e4d6f4",
+  "expected_source_after_sha256": "d073bc3c97b7745586da01c05c5ce3771afe2ec710b8ef2f6c03d35ab97f0d2b",
+  "verdict": "approved_source_only_for_observed_archive_runs",
+  "independent_actual_receipt_observation": {
+    "argument_count": 1947,
+    "argument_bytes": 384530,
+    "runs": [
+      {
+        "start": 2,
+        "archive_count": 131,
+        "previous": "whole_archive",
+        "next": "no_whole_archive",
+        "all_receipt_bound": true
+      },
+      {
+        "start": 138,
+        "archive_count": 1786,
+        "previous": "start_group",
+        "next": "end_group",
+        "all_receipt_bound": true
+      }
+    ],
+    "all_archive_paths_absolute_and_nul_free": true,
+    "artifact_code_executed": false
+  },
+  "contracts_checked": [
+    "Only contiguous absolute .a arguments are collected. Every collected path must be an existing receipt-file key. The observed two runs are linker inputs, not option operands.",
+    "Each archive run is replaced in place; internal archive order is retained in response data. Whole-archive and group delimiters remain outside the response at their original relative positions.",
+    "Compiler driver, target, sysroot/search flags, linker selectors, generated object, symbol wrapping and output arguments remain unchanged.",
+    "GNU response quoting encloses each complete archive path in double quotes and escapes backslashes and double quotes. The bundled TokenizeGNUCommandLine implementation consumes this representation without JSON escape semantics; NUL is rejected.",
+    "The constructed -Wl response argument contains one literal response marker followed by the existing FD placeholder. Guard substitution leaves an inherited /proc/self/fd path for the linker.",
+    "Response data is written only through the existing memfd helper, positioned at offset zero, and verified by pread-based SHA256/size after creation and after link. No response bytes or archive path list enter persisted evidence.",
+    "The guard already reopens every registered memfd and passes all descriptors to the driver; the response descriptors use this same ownership path and are closed by the existing execute finally block.",
+    "Original/adapted argv-template hashes, per-run sequence hashes, archive counts and response content hashes bind the adaptation to the exact receipt command. Final receipt checks still rehash production archives, compiler, linker and resource inputs.",
+    "TMPDIR, diagnostic suppression, no-mmap output mode, generated output memfds, scope limits, process cleanup and no-runtime-accepted rejection semantics are unchanged.",
+    "The rejection-evidence extension adds only response hashes/counters/descriptor labels, not response contents or command text."
+  ],
+  "source_references": [
+    "anonymous_cpp_verify.py:251",
+    "anonymous_cpp_verify.py:260",
+    "anonymous_cpp_verify.py:318",
+    "anonymous_cpp_guard.py:41",
+    "anonymous_cpp_guard.py:79",
+    "anonymous_cpp_metadata.py:366",
+    "anonymous_cpp_metadata.py:525",
+    "worktrees/aggregate/contrib/libs/llvm18/lib/Support/CommandLine.cpp:805",
+    "worktrees/aggregate/contrib/libs/llvm18/lib/Support/Unix/Program.inc:556"
+  ],
+  "limitations": [
+    "No compiler, linker, native run or mock suite was executed by this reviewer. Actual response-file consumption and complete anonymous linking remain required.",
+    "The observed archive placement was checked against the actual C31 receipt. The helper is not a general parser for arbitrary compiler options whose values happen to end in .a.",
+    "The earlier diagnostic establishes temporary-file failure and matching diagnostic hashes; it does not independently establish that the linker process started.",
+    "The adaptation preserves the existing provenance checks; it does not itself establish C31 correctness, SQL bag semantics or physical shared-value lineage."
+  ],
+  "actions": {
+    "live_helper_edits": false,
+    "production_edits": false,
+    "build_runs": 0,
+    "native_runs": 0,
+    "mock_runs": 0,
+    "rendered_cpp_or_sql": false,
+    "raw_diagnostics_or_commands_saved": false
+  }
+}

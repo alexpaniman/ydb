@@ -1,0 +1,26 @@
+--- a/rbo-fixes-20261023/c31_identity_cpp_generator.py
++++ b/rbo-fixes-20261023/c31_identity_cpp_generator.py
+@@ -247,7 +247,7 @@
+         body += _line('auto& unit = CastOperator<TOpMap>(*primaryPort->GetInput())')
+         body += _check('unit.GetInput().Get() == left.Get() && left->GetOutputIUs().Empty()')
+         body += _check('unit.GetMapElements().Items().size() == 1')
+-        body += _check('unit.GetMapElements().Items().front().second.GetExpression().GetExpressionBody()->IsCallable("Uint64")')
++        body += _check('unit.GetMapElements().Items().begin()->second.GetExpression().GetExpressionBody()->IsCallable("Uint64")')
+     else:
+         body += _check('primaryPort->GetInput().Get() == left.Get()')
+     return body + _binding_contract(shape, kind)
+--- a/rbo-fixes-20261023/correctness_cpp_profiles.json
++++ b/rbo-fixes-20261023/correctness_cpp_profiles.json
+@@ -6,9 +6,9 @@
+       "revision": "24e1aae9a0677e8ed12f257a7944c50516e9cba4",
+       "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+       "profile": "rbo",
+-      "generator_sha256": "53951f4f1fda9144c4d001af664bad7097bf204ff62b9bb25af700db1aabda7c",
+-      "generated_source_sha256": "db908f12367b434770c9143a9e0698a0b7093f21cc291986bb884fbc1fce58a6",
+-      "generated_source_bytes": 157619,
++      "generator_sha256": "112ca72315a8807599d960fe98e80d3b1128b37be9967ad17ff934f02370b8f9",
++      "generated_source_sha256": "59fb5d9eea7fd6890d7d75f12616f62551efc4b3d587ca0bc2bf8ff0a8395a0d",
++      "generated_source_bytes": 157622,
+       "case_count": 33,
+       "proof_scope": "linked_production_local_contracts"
+     },

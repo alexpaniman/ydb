@@ -1,0 +1,19 @@
+{
+  "schema": "quality_spill_revision_guard_independent_root_review_v1",
+  "status": "source_metadata_review_passed_final_composition_and_native_pending",
+  "patch_sha256": "b9393c041625cbf1b7f43d2d55aa6e7f440367a33f8f67b6ba68258423ebac54",
+  "after_images": {
+    "quality_spill_bounds.py": "8baef78c55b538fcd874e7485bdae853a3f9e9f3de1a06d330c68a28c3650eac",
+    "native_verify.py": "b8553e1ad780a6c87867bd47022233d6047c4d08baf1b75863a43eb34a9cf06b"
+  },
+  "independent_checks": 2467,
+  "negative_rejections": 1641,
+  "case_phase_pairs": 164,
+  "main_guard_before_generation_and_preflight": true,
+  "actual_preparation_prefix_bound_and_unbound_Q14_checked": true,
+  "ctime_snapshot_compatibility_preserved": true,
+  "dependency_hash_refresh_required_after_C31_Q28": true,
+  "native_runs": 0,
+  "live_edits": false,
+  "quality_admission": false
+}

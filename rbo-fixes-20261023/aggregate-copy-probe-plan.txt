@@ -1,0 +1,42 @@
+Unassigned candidate: copied floating aggregate values may disagree
+
+The probe tests a within-statement invariant. An upstream aggregate produces one
+row per window partition. MIN over that single row must match the value attached
+to that row, regardless of which legal reduction order produced its floating SUM.
+COUNT verifies partition cardinality. Inputs are deterministic finite values;
+there are no volatile functions, residual join predicates, or changing data.
+
+The generator is aggregate_copy_stability_checks.py. Start with 24 rows, one
+server node and three small table partitions. The initial comparison needs four
+records: the scalar cancellation candidate in new and legacy mode, its new-mode
+shared-producer control, and an exact-arithmetic control. Sixteen profiles are
+available, but no broad batch is needed until that initial route is established.
+Use candidate prefix COPY for the existing anonymous runner; this is a probe
+label, not a numbered or confirmed finding. All input, plan and result payloads
+remain anonymous; persist only the runner's sanitized records.
+
+No numeric difference across separate SUM runs or optimizer modes proves this
+bug. Confirmation requires a mismatch between the row and singleton-window
+values in the same successful statement. The matched legacy and shared controls
+must satisfy that invariant. Requested optimizer mode, disabled error fallback,
+input hashes, generator hash and exact binary provenance must all match.
+
+The physical graph walker is deliberately only a candidate detector. A stage
+containing Double, AggrAdd and a reducer does not prove that the Double SUM feeds
+the compared output. Before confirmation, inspect the actual anonymous AST and
+bind both output expressions, each SUM state/update type and source execution.
+The copied case must have two independent evaluations; the shared control must
+have one. assess_records requires separate closed, hash-bound dataflow review
+summaries for both plans; topology counters alone cannot satisfy the gate.
+
+Pinned main and current C31 revision 24e1aae9a0677e8ed12f257a7944c50516e9cba4
+are viable source targets. Ten inspected producer/copy/lowering files are
+byte-identical. C31 changes only its join-filter implementation and adds its
+inlining stage; the probe's joins have no residual filter and return before the
+local C31 guard. Any different revision needs a new source-equivalence check.
+
+Status: source candidate, not confirmed. Generator syntax and source contracts
+were reviewed; no native, compiler, build, mock suite or reproduction was run or
+saved. Small inputs may choose identical merge orders in both copies, in which
+case the result remains inconclusive. Full Float/Decimal/Interval and equal-value
+representation concerns remain outside this narrowly isolated Double probe.

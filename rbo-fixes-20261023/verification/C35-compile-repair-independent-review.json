@@ -1,0 +1,67 @@
+{
+  "schema": "independent_source_review_v1",
+  "finding": "C35",
+  "reviewer": "/root/c35_compile_repair_review",
+  "reviewed_revision": "461e53cf080ab7c2f213adcab4aee779b5c2ba0c",
+  "base": "e8700d379b3b9c4fbaf68f36424e6bcf08314fd2",
+  "parent_matches_base": true,
+  "changed_paths": [
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h",
+    "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp"
+  ],
+  "essentials_changed": false,
+  "reviewed_diff_sha256": "216a70992a3a9bbfefe12f2a9cd919b32d5533f70cd305d881aae333f5b5ab84",
+  "source_sha256_before_move_repair": "277a61ab4b76bd9033b7d08b4fd858114ab171a85056a288fa5e24ab2486ddc4",
+  "expected_source_sha256_after_only_move_repair": "d06fb0e361788d7778cfd6d8d3fe0b006fb61f137ebdd5afb92d759e1719fd8e",
+  "verdict": "single_line_move_repair_approved_source_only",
+  "confirmed_defect": {
+    "kind": "compile_error_in_prepared_fix",
+    "description": "The optional AVG update builder passes a named intrusive pointer to a NewLambda overload that requires an rvalue body pointer.",
+    "location": "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:319",
+    "minimal_repair": "Move the update body pointer into NewLambda at its sole consuming call."
+  },
+  "repair_contracts": [
+    "TExprContext::NewLambda(TPositionHandle, TExprNode::TPtr&&, TExprNode::TPtr&&) forwards ownership of both pointers into the expression node.",
+    "The local update body pointer has no read or write after the call; moving it cannot invalidate a later local use.",
+    "The lambda body retains references to stateArg and the nested input lambda; NewArguments retains the matching argument nodes. Moving the outer body pointer does not change argument identity or lexical binding.",
+    "The prospective repair changes exactly one production line and needs no yql/essentials edits."
+  ],
+  "surrounding_contracts_reviewed": [
+    "IntervalType removes optionality before testing the data slot. Interval and Interval64 widen through Int64 into Decimal(35,0); numeric and Decimal AVG retain their existing conversion path.",
+    "Optional initialization produces either an optional sum/count tuple or Nothing of the same tuple type. Optional updates ignore null input, preserve a present state on null input, and initialize from the input when the state is absent.",
+    "Final-phase updates merge existing sum/count states rather than converting the whole input tuple as a scalar interval.",
+    "Intermediate finish returns the state unchanged. Final interval finish divides the widened sum by Uint64 count and converts through Int64 back to the original interval family, matching established aggregate traits.",
+    "Optional interval finish wraps only the present result and produces Nothing of Optional<original interval family> for absent state.",
+    "Decimal-backed tuple recovery is restricted to final AVG traits. The existing union/partial binding map recovers original interval versus Decimal input type, while input optionality is retained separately for the finish wrapper.",
+    "Ordinary propagated final aggregates retain original logical input types; union-based DISTINCT states use tuple recovery. DISTINCT padding removes optionality before accessing the interval data slot.",
+    "No additional production defect was established by this source review."
+  ],
+  "source_references": [
+    "yql/essentials/ast/yql_expr.h:3039",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:80",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:95",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:255",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:648",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:816",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:1050",
+    "ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.cpp:1432",
+    "ydb/core/kqp/opt/rbo/rules/expand_distinct_aggregation.cpp:63",
+    "ydb/core/kqp/opt/rbo/kqp_rbo_type_ann.cpp:345",
+    "yql/essentials/mount/lib/yql/aggregate.yqls:75"
+  ],
+  "coverage_limits": [
+    "No compilation or native execution was performed by this reviewer. The amended commit must pass the guarded build and runtime checks before acceptance.",
+    "Existing row-oriented small single-node profiles do not by themselves establish distributed merge or block-path coverage.",
+    "Optional/all-null/empty inputs, multiple DISTINCT interval states, whole-partition window expansion and numeric/Decimal controls remain required runtime checks.",
+    "C34 separately owns general tuple-valued empty-state handling. C24/C26 touch DISTINCT padding and F02 owns interval SUM; independent source review does not prove combined-branch behavior.",
+    "The inherited Decimal(35,0) accumulation precision and Uint64 count limits remain unchanged."
+  ],
+  "actions": {
+    "production_files_edited": false,
+    "branches_modified": false,
+    "build_run": false,
+    "native_run": false,
+    "repros_written_or_rendered": false
+  }
+}

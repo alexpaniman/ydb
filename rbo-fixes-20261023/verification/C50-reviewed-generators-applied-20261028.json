@@ -1,0 +1,19 @@
+{
+  "status": "reviewed_generator_patches_applied_at_idle",
+  "patches": [
+    {
+      "path": "proposed-correctness-amendments/C50-chain-projection-aliases-20261028.patch",
+      "sha256": "515490fe8163bc3257873ea299dc4e36b228b7f13dbebc36ee64aaeaadb94570"
+    },
+    {
+      "path": "proposed-correctness-amendments/C50-uncorrelated-membership-controls-20261028.patch",
+      "sha256": "8e79fa969bcb352597f3ff3b81898a1122c2e61c94624acdf9fa99d07d91a875"
+    }
+  ],
+  "before_sha256": "72c2efc2d77ec424f3ee794482728ce73b8d032e5fed88390d339f6d7e3310fe",
+  "after_sha256": "32c91d788fd03cbb7035ebfea624f0b62eb012992810944c7450b509020a1acb",
+  "original62_records_preserved": true,
+  "production_edits": false,
+  "new_native_runs": 0,
+  "applied_unix_time": 1793146782.2521317
+}
