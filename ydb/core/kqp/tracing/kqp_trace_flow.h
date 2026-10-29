@@ -5,12 +5,13 @@
 namespace NKikimr::NKqp {
 
 // Spans form logical flows. A span runs within the flow of its parent and nests
-// in it, unless it starts a flow of its own: work that runs concurrently with its
-// parent, e.g. a request served by another actor. Links record where a flow
+// in it, unless it starts a flow of its own, e.g. a request served by another
+// actor. A flow boundary does not imply that its parent makes progress in
+// parallel: a parent can await the result. Links record where a flow
 // consumes the outcome of another one. Viewers lay out one lane per flow.
-inline constexpr TStringBuf FlowAttribute = "ydb.flow";
+inline constexpr TStringBuf FlowAttribute = "span.flow";
 inline constexpr TStringBuf AsyncFlow = "async";
-inline constexpr TStringBuf RelationAttribute = "ydb.link.relation";
+inline constexpr TStringBuf RelationAttribute = "span.link.relation";
 // The span waited for the outcome of the linked span.
 inline constexpr TStringBuf DependsOnRelation = "depends_on";
 // The span started when the linked span completed.
