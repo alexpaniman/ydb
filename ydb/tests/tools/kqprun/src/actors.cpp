@@ -17,6 +17,7 @@ class TRunScriptActorMock: public NActors::TActorBootstrapped<TRunScriptActorMoc
 public:
     TRunScriptActorMock(TQueryRequest request, NThreading::TPromise<TQueryResponse> promise, TProgressCallback progressCallback)
         : TargetNode_(request.TargetNode)
+        , WilsonTraceId_(std::move(request.WilsonTraceId))
         , QueryId_(request.QueryId)
         , Request_(std::move(request.Event))
         , Promise_(promise)
@@ -34,7 +35,8 @@ public:
 
     void Bootstrap() {
         NActors::ActorIdToProto(SelfId(), Request_->Record.MutableRequestActorId());
-        Send(NKikimr::NKqp::MakeKqpProxyID(TargetNode_), std::move(Request_));
+        Send(new NActors::IEventHandle(NKikimr::NKqp::MakeKqpProxyID(TargetNode_), SelfId(), Request_.release(),
+            0, 0, nullptr, std::move(WilsonTraceId_)));
 
         Become(&TRunScriptActorMock::StateFunc);
     }
@@ -99,6 +101,7 @@ public:
 
 private:
     const ui32 TargetNode_ = 0;
+    NWilson::TTraceId WilsonTraceId_;
     const size_t QueryId_ = 0;
     const NColorizer::TColors CerrColors_ = NColorizer::AutoColors(Cerr);
 

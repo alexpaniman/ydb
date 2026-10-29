@@ -1,4 +1,5 @@
 #include "ydb_setup.h"
+#include "trace_file.h"
 
 #include <ydb/core/blob_depot/mon_main.h>
 #include <ydb/core/client/server/msgbus_server_pq_metacache.h>
@@ -532,6 +533,12 @@ private:
 
         Tenants_ = MakeHolder<NKikimr::Tests::TTenants>(Server_);
         CreateTenants();
+        if (Settings_.TraceFile) {
+            TraceUploader_ = GetRuntime()->Register(new TTraceFileUploader(Settings_.TraceFile, Settings_.TraceDataset));
+            for (ui32 node = 0; node < GetRuntime()->GetNodeCount(); ++node) {
+                GetRuntime()->RegisterService(NWilson::MakeWilsonUploaderId(), *TraceUploader_, node);
+            }
+        }
     }
 
     void InitializeYqlLogger() {
@@ -697,7 +704,7 @@ public:
         FillQueryRequest(script.Options, NKikimrKqp::QUERY_TYPE_SQL_GENERIC_SCRIPT, nodeIndex, event->Record);
 
         return RunKqpProxyRequest<NKikimr::NKqp::TEvKqp::TEvScriptRequest, NKikimr::NKqp::TEvKqp::TEvScriptResponse>(
-            std::move(event), nodeIndex);
+            std::move(event), nodeIndex, true);
     }
 
     TQueryResponse QueryRequest(const TRequestOptions& query, TProgressCallback progressCallback) {
@@ -714,7 +721,7 @@ public:
         auto event = MakeHolder<NKikimr::NKqp::TEvKqp::TEvQueryRequest>();
         FillQueryRequest(query, NKikimrKqp::QUERY_TYPE_SQL_SCRIPT, nodeIndex, event->Record);
 
-        return RunKqpProxyRequest<NKikimr::NKqp::TEvKqp::TEvQueryRequest, NKikimr::NKqp::TEvKqp::TEvQueryResponse>(std::move(event), nodeIndex);
+        return RunKqpProxyRequest<NKikimr::NKqp::TEvKqp::TEvQueryRequest, NKikimr::NKqp::TEvKqp::TEvQueryResponse>(std::move(event), nodeIndex, true);
     }
 
     NKikimr::NKqp::TEvGetScriptExecutionOperationResponse::TPtr GetScriptExecutionOperationRequest(
@@ -774,6 +781,17 @@ public:
             new NKikimrRun::TEvPrivate::TEvStartAsyncQuery(std::move(request), startPromise));
 
         return startPromise.GetFuture().GetValueSync();
+    }
+
+    void FlushTraces() const {
+        if (TraceUploader_) {
+            // Query responses may precede the end of their parent actor spans.
+            Sleep(TDuration::MilliSeconds(300));
+            auto event = std::make_unique<TTraceFileUploader::TEvFlush>();
+            const auto future = event->Promise.GetFuture();
+            GetRuntime()->GetActorSystem(0)->Send(*TraceUploader_, event.release());
+            future.GetValueSync();
+        }
     }
 
     void WaitAsyncQueries() const {
@@ -840,11 +858,12 @@ private:
     }
 
     template <typename TRequest, typename TResponse>
-    typename TResponse::TPtr RunKqpProxyRequest(THolder<TRequest> event, ui32 nodeIndex) const {
+    typename TResponse::TPtr RunKqpProxyRequest(THolder<TRequest> event, ui32 nodeIndex, bool trace = false) const {
         NActors::TActorId edgeActor = GetRuntime()->AllocateEdgeActor(nodeIndex);
         NActors::TActorId kqpProxy = NKikimr::NKqp::MakeKqpProxyID(GetRuntime()->GetNodeId(nodeIndex));
 
-        GetRuntime()->Send(kqpProxy, edgeActor, event.Release(), nodeIndex);
+        GetRuntime()->Send(new NActors::IEventHandle(kqpProxy, edgeActor, event.Release(), 0, 0, nullptr,
+            trace ? NewTraceId() : NWilson::TTraceId()), nodeIndex);
 
         return GetRuntime()->GrabEdgeEvent<TResponse>(edgeActor);
     }
@@ -883,6 +902,10 @@ private:
         }
     }
 
+    NWilson::TTraceId NewTraceId() const {
+        return Settings_.TraceFile ? NWilson::TTraceId::NewTraceId(Settings_.TraceLevel, 4095) : NWilson::TTraceId();
+    }
+
     TQueryRequest GetQueryRequest(const TRequestOptions& query) {
         ui32 targetNodeIndex = GetNodeIndexForDatabase(query.Database);
         auto event = std::make_unique<NKikimr::NKqp::TEvKqp::TEvQueryRequest>();
@@ -895,7 +918,7 @@ private:
         return { .Event = std::move(event), .TargetNode = GetRuntime()->GetNodeId(targetNodeIndex),
             .ResultRowsLimit = Settings_.AppConfig.GetQueryServiceConfig().GetScriptResultRowsLimit(),
             .ResultSizeLimit = Settings_.AppConfig.GetQueryServiceConfig().GetScriptResultSizeLimit(),
-            .QueryId = query.QueryId };
+            .QueryId = query.QueryId, .WilsonTraceId = NewTraceId() };
     }
 
     TString GetTenantPath(const TString& tenantName) const {
@@ -943,6 +966,7 @@ private:
     THolder<NKikimr::Tests::TTenants> Tenants_;
 
     std::unordered_map<TString, TString> ServerlessToShared_;
+    std::optional<NActors::TActorId> TraceUploader_;
     std::optional<NActors::TActorId> AsyncQueryRunnerActorId_;
     std::optional<TSessionState> SessionState_;
     TFsPath StorageMetaPath_;
@@ -1059,6 +1083,10 @@ TRequestResult TYdbSetup::CancelScriptExecutionOperationRequest(
 
 void TYdbSetup::QueryRequestAsync(const TRequestOptions& query) const {
     Impl_->QueryRequestAsync(query);
+}
+
+void TYdbSetup::FlushTraces() const {
+    Impl_->FlushTraces();
 }
 
 void TYdbSetup::WaitAsyncQueries() const {

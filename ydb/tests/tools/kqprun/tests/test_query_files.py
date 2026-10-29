@@ -1,3 +1,4 @@
+import json
 import pathlib
 import subprocess
 import tempfile
@@ -161,6 +162,34 @@ class TestQueryFiles(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn(f"Bad format of scheme limits file '{limits}'", result.stdout)
         self.assertNotIn("Initialization of kqp runner", result.stdout)
+
+    def test_trace_file(self):
+        trace = self.root / "spans.jsonl"
+        result = self.run_queries(
+            "--sql",
+            "SELECT 42;",
+            "-C",
+            "query",
+            "-A",
+            "explain",
+            "--trace-file",
+            trace,
+            "--trace-dataset",
+            "example run",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        documents = [json.loads(line) for line in trace.read_text().splitlines()]
+        spans = []
+        for doc in documents:
+            resource = doc["resourceSpans"][0]
+            self.assertEqual(resource["resource"]["attributes"][0]["value"]["stringValue"], "example run")
+            spans.extend(resource["scopeSpans"][0]["spans"])
+        self.assertEqual(sum(s["name"] == "Compile query" for s in spans), 1)
+        self.assertTrue(all(int(s["endTimeUnixNano"]) >= int(s["startTimeUnixNano"]) for s in spans))
+
+        result = self.run_queries("--sql", "SELECT 42;", "--trace-level", "16")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Trace level must be between 1 and 15", result.stdout)
 
     def test_invalid_directories(self):
         self.write("empty/ignored.txt", "SELECT 42;")

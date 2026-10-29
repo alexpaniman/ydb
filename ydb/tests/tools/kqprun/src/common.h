@@ -53,6 +53,9 @@ struct TYdbSetupSettings: public NKikimrRun::TServerSettings {
     std::optional<TString> PDisksPath;
     std::optional<ui64> DiskSize;
 
+    TString TraceFile;
+    TString TraceDataset = "kqprun";
+    ui8 TraceLevel = 15;
     bool TraceOptEnabled = false;
     EVerbosity VerbosityLevel = EVerbosity::Info;
     NKikimrRun::TAsyncQueriesSettings AsyncQueriesSettings;
