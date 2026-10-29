@@ -3,7 +3,9 @@
 #include "kqp_info_unit.h"
 #include "kqp_rbo_context.h"
 #include "kqp_plan_props.h"
+#include "frontend/expression.h"
 
+#include <memory>
 #include <optional>
 
 #include <ydb/core/kqp/common/kqp_yql.h>
@@ -20,6 +22,16 @@ using namespace NYql;
  */
 class TExpression {
   public:
+    static TExpression FromNative(std::shared_ptr<const NFrontend::TExpressionArena> arena,
+        NFrontend::TExprId root, TExprContext* ctx, TPlanProps* props = nullptr, TPositionHandle pos = {});
+
+    bool IsNative() const { return bool(NativeArena_); }
+    const std::shared_ptr<const NFrontend::TExpressionArena>& GetNativeArena() const { return NativeArena_; }
+    NFrontend::TExprId GetNativeRoot() const { return NativeRoot_; }
+    NFrontend::TType GetNativeType() const { return (*NativeArena_)[NativeRoot_].Type; }
+    TExpression WithNativeColumnTypes(const std::function<NFrontend::TType(TInfoUnitId)>& typeOf) const;
+    TPositionHandle Pos() const { return IsNative() ? NativePos_ : Node->Pos(); }
+
     // Conversion-only source spellings. Never reconstruct this scope from
     // mutable registry labels after conversion.
     using TBindings = THashMap<TString, TInfoUnitId>;
@@ -106,6 +118,12 @@ class TExpression {
     mutable TPlanProps* PlanProps = nullptr;
 
   private:
+    std::shared_ptr<const NFrontend::TExpressionArena> NativeArena_;
+    NFrontend::TExprId NativeRoot_ = 0;
+    TPositionHandle NativePos_;
+    mutable TExprNode::TPtr NativeLambda_;
+    mutable bool NativeIUsComputed_ = false;
+
     bool MaybeEquiJoinConditionInternal(bool includeExpressions) const;
 
     mutable TExprNode::TPtr RawInputIUsCacheKey;
