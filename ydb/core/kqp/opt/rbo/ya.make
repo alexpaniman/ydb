@@ -5,6 +5,7 @@ SRCS(
     global_inlining.cpp
     global_pruning.cpp
     kqp_expression.cpp
+    kqp_expression_printer.cpp
     kqp_olap_expr_inspection.cpp
     kqp_operator.cpp
     kqp_plan_conversion_utils.cpp
@@ -52,6 +53,8 @@ PEERDIR(
     ydb/core/kqp/provider
     ydb/library/formats/arrow/protos
     yql/essentials/core/extract_predicate
+    yql/essentials/minikql
+    yql/essentials/types/uuid
 )
 
 END()

@@ -10,6 +10,7 @@ SRCS(
     kqp_rbo_compatibility_ut.cpp
     kqp_rbo_copy_ut.cpp
     kqp_rbo_decorrelation_ut.cpp
+    kqp_rbo_expression_printer_ut.cpp
     kqp_rbo_global_ut.cpp
     kqp_rbo_lowering_ut.cpp
     kqp_rbo_yql_ut.cpp
