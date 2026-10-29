@@ -158,6 +158,7 @@ struct TExecutionOptions {
             .Database = GetValue(index, Databases, TString()),
             .Timeout = GetValue(index, Timeouts, TDuration::Zero()),
             .QueryId = queryId,
+            .QueryLabel = ScriptQueries[index].Source ? TFsPath(ScriptQueries[index].Source).GetName() : ToString(queryId),
             .Params = Params,
             .GroupSIDs = GetValue<std::optional<TVector<NACLib::TSID>>>(index, GroupSIDs, std::nullopt),
             .StatsCollectionMode = GetValue(index, StatsCollectionModes, Ydb::Table::QueryStatsCollection::STATS_COLLECTION_PROFILE),

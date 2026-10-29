@@ -918,7 +918,7 @@ private:
         return { .Event = std::move(event), .TargetNode = GetRuntime()->GetNodeId(targetNodeIndex),
             .ResultRowsLimit = Settings_.AppConfig.GetQueryServiceConfig().GetScriptResultRowsLimit(),
             .ResultSizeLimit = Settings_.AppConfig.GetQueryServiceConfig().GetScriptResultSizeLimit(),
-            .QueryId = query.QueryId, .WilsonTraceId = NewTraceId() };
+            .QueryId = query.QueryId, .WilsonTraceId = NewTraceId(), .QueryLabel = query.QueryLabel };
     }
 
     TString GetTenantPath(const TString& tenantName) const {

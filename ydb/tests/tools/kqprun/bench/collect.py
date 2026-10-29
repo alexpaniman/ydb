@@ -158,8 +158,8 @@ LogConfig {{ DefaultLevel: 2 }}
                 write(folder / 'schema.sql', ddl)
                 for i, (label, sql) in enumerate(batch):
                     # Both are EXPLAIN requests. The first warms metadata; the second is the observation.
-                    write(folder / 'queries' / f'{i:05d}-0.sql', '-- warm-up\n' + sql)
-                    write(folder / 'queries' / f'{i:05d}-1.sql', f'-- {name} q{label}, measured\n' + sql)
+                    write(folder / 'queries' / f'{i:05d}-q{label}-warmup.sql', '-- warm-up\n' + sql)
+                    write(folder / 'queries' / f'{i:05d}-q{label}.sql', f'-- {name} q{label}, measured\n' + sql)
                 command = [
                     str(binary),
                     '--app-config',
@@ -217,10 +217,12 @@ LogConfig {{ DefaultLevel: 2 }}
         *outputs,
         '--unit',
         'Compile query',
-        '--skip-text',
-        '^-- warm-up',
+        '--label-attr',
+        'query.name',
+        '--skip-label',
+        r'.*-warmup\.sql$',
         '--label-regex',
-        r'^--\s*\S+\s+(?P<label>q\d+), measured',
+        r'^\d+-(?P<label>q\d+)',
         '--layout',
         str(args.layout.resolve()),
         '--left',

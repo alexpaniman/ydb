@@ -23,7 +23,7 @@ Without `--no-peephole`, the same command enables the pass. The switch specifica
 | 1C medium | The recovered YQL-compatible repro in `samples/medium` |
 | 1C tiny | `SELECT 1 FROM table LIMIT 1`, in `samples/tiny` |
 
-Each query is explained once to warm metadata and once for measurement. Warm-up traces are excluded from the report. No table data is needed. New RBO is enabled, optimizer fallback is disabled, statistics collection is disabled, and the latest language version in this checkout is used. Trace level 15 preserves phase, stage and rule spans, matching the previous detailed report. The medium/tiny table path prefixes are flattened to `/Root/` to avoid separate directory setup.
+Each query is explained once to warm metadata and once for measurement. Warm-up traces are excluded using request filenames recorded as `query.name`, independently of SQL text and its redaction. No table data is needed. New RBO is enabled, optimizer fallback is disabled, statistics collection is disabled, and the latest language version in this checkout is used. Trace level 15 preserves phase, stage and rule spans, matching the previous detailed report. The medium/tiny table path prefixes are flattened to `/Root/` to avoid separate directory setup.
 
 `manifest.json` records the source commit, binary hash, exact configuration, commands and batch results. Each batch keeps its SQL inputs, OTLP `spans.jsonl`, server log and runner log. Failed compilations appear in the report's failure list and are excluded from successful-duration distributions. Counts need not equal an older report if compiler behavior changed.
 
@@ -38,7 +38,7 @@ ydb/tests/tools/kqprun/kqprun \
 python3 ~/projects/violinoscope/violinoscope.py spans.jsonl --unit 'Compile query'
 ```
 
-`--trace-file` overwrites the destination and streams complete OTLP JSON lines rather than retaining all spans in memory. Normal finalization allows 300 ms for spans ending after the query response, then checks the writer. The option traces query/script requests, not schema creation. `--trace-id` remains the existing text correlation ID; it does not enable span collection.
+`--trace-file` overwrites the destination and streams complete OTLP JSON lines rather than retaining all spans in memory. Normal finalization allows 300 ms for spans ending after the query response, then checks the writer. The option traces query/script requests, not schema creation. Generic query requests also record the input basename as `query.name` and their ordinal as `query.index`, without adding query text. `--trace-id` remains the existing text correlation ID; it does not enable span collection.
 
 ## Collect from a cluster
 

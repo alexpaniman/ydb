@@ -98,6 +98,7 @@ struct TRequestOptions {
     TString Database;
     TDuration Timeout;
     size_t QueryId = 0;
+    TString QueryLabel;
     std::unordered_map<TString, Ydb::TypedValue> Params;
     std::optional<TVector<NACLib::TSID>> GroupSIDs = std::nullopt;
     Ydb::Table::QueryStatsCollection_Mode StatsCollectionMode = Ydb::Table::QueryStatsCollection::STATS_COLLECTION_PROFILE;

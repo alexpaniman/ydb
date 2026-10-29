@@ -25,6 +25,7 @@ struct TQueryRequest {
     ui64 ResultSizeLimit;
     size_t QueryId;
     NWilson::TTraceId WilsonTraceId;
+    TString QueryLabel;
 };
 
 struct TCreateSessionRequest {

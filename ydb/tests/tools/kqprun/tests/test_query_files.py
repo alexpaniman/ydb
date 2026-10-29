@@ -191,6 +191,28 @@ class TestQueryFiles(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("Trace level must be between 1 and 15", result.stdout)
 
+    def test_trace_label_survives_redaction(self):
+        query = self.write("secret-marker.sql", "SELECT 'password' AS marker;")
+        trace = self.root / "redacted.jsonl"
+        result = self.run_queries("-p", query, "-C", "query", "-A", "explain", "--trace-file", trace)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        spans = [
+            s
+            for line in trace.read_text().splitlines()
+            for rs in json.loads(line)["resourceSpans"]
+            for scope in rs["scopeSpans"]
+            for s in scope["spans"]
+        ]
+        request = next(s for s in spans if s["name"] == "kqprun.query")
+        attrs = {a["key"]: a["value"] for a in request["attributes"]}
+        self.assertEqual(attrs["query.name"]["stringValue"], "secret-marker.sql")
+        self.assertTrue(any(s["name"] == "Compile query" for s in spans))
+        texts = [
+            a["value"]["stringValue"] for s in spans for a in s.get("attributes", []) if a["key"] == "db.query.text"
+        ]
+        self.assertTrue(texts)
+        self.assertTrue(all("hidden" in t for t in texts), texts)
+
     def test_invalid_directories(self):
         self.write("empty/ignored.txt", "SELECT 42;")
         self.write("empty/nested/query.sql", "SELECT 42;")
