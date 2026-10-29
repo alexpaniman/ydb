@@ -206,6 +206,33 @@ Y_UNIT_TEST_SUITE(KqpRboExpressionPrinter) {
         UNIT_ASSERT_C(printed.Contains("f($item)"), printed);
     }
 
+    Y_UNIT_TEST(ParametersAreNotShadowedByLambdaArguments) {
+        AssertPrinted({
+            {R"((Map (Member row '3) (lambda '(x) (+ x (Parameter '$x (DataType 'Int32))))))",
+                "Map(s, ($x_2) -> ($x_2 + $x))"},
+        });
+    }
+
+    Y_UNIT_TEST(SharedCompoundTypesStayBounded) {
+        TPrinterTestContext context;
+        auto& ctx = context.Ctx;
+        const auto pos = context.Pos;
+        auto row = ctx.NewArgument(pos, "row");
+        auto typeNode = ctx.NewCallable(pos, "DataType", {ctx.NewAtom(pos, "Int32")});
+        const TTypeAnnotationNode* type = ctx.MakeType<TDataExprType>(EDataSlot::Int32);
+        for (int i = 0; i < 20; ++i) {
+            typeNode = ctx.NewCallable(pos, "TupleType", {typeNode, typeNode});
+            type = ctx.MakeType<TTupleExprType>(TTypeAnnotationNode::TListType{type, type});
+            typeNode->SetTypeAnn(ctx.MakeType<TTypeExprType>(type));
+        }
+        auto column = ctx.NewCallable(pos, "Member", {row, ctx.NewAtom(pos, "0")});
+        column->SetTypeAnn(type);
+        auto cast = ctx.NewCallable(pos, "SafeCast", {column, typeNode});
+        const auto printed = context.Print(context.Lambda(row, cast));
+        UNIT_ASSERT_C(printed.size() < 20000, printed.size());
+        UNIT_ASSERT_C(printed.Contains("..."), printed);
+    }
+
     Y_UNIT_TEST(DeepWrappersAndTypesAreCut) {
         TPrinterTestContext context;
         auto& ctx = context.Ctx;

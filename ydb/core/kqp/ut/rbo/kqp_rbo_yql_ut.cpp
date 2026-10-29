@@ -1936,9 +1936,9 @@ FROM (
         UNIT_ASSERT_C(limitOp, plan);
 
         const auto mapName = GetStringField(*mapOp, "Name");
-        UNIT_ASSERT_C(mapName == "Map [next_id := /Root/foo.id + 1]", plan);
+        UNIT_ASSERT_C(mapName == "Map [next_id := `/Root/foo`.id + 1]", plan);
         const auto predicate = GetStringField(*filterOp, "Predicate");
-        UNIT_ASSERT_C(predicate == "/Root/foo.b > 10", plan);
+        UNIT_ASSERT_C(predicate == "`/Root/foo`.b > 10", plan);
         UNIT_ASSERT_VALUES_EQUAL_C(GetStringField(*limitOp, "Limit"), "3", plan);
 
         // A unique public name needs no final output-renaming OrderedMap,
@@ -1997,8 +1997,8 @@ FROM (
             {"t.s IS NULL", "t.s IS NULL"},
             {"t.s IS NOT NULL", "t.s IS NOT NULL"},
             {"t.b BETWEEN 1 AND 5", "t.b >= 1 AND t.b <= 5"},
-            {"COALESCE(t.b, 0) < 5", "Coalesce(t.b, 0) < 5"},
-            {"CASE WHEN t.b > 0 THEN t.c ELSE 0 END > 1", "If(t.b > 0, t.c, 0) > 1"},
+            {"COALESCE(t.b, 0) < 5", "Coalesce(t.b, Convert(0, Int64)) < 5"},
+            {"CASE WHEN t.b > 0 THEN t.c ELSE 0 END > 1", "If(t.b > 0, t.c, Convert(0, Int64)) > 1"},
             {"t.d > Date('2020-01-01')", R"(t.d > Date("2020-01-01"))"},
             {"t.s || 'x' = 'yx'", R"(t.s || "x" == "yx")"},
             {"t.s LIKE 'ab%'", R"(StartsWith(t.s, "ab"))"},

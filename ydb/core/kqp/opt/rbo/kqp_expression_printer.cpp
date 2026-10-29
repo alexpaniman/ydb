@@ -1,7 +1,6 @@
 #include "kqp_expression_printer.h"
 
 #include <yql/essentials/ast/yql_ast_escaping.h>
-#include <yql/essentials/ast/yql_type_string.h>
 #include <yql/essentials/core/expr_nodes/yql_expr_nodes.h>
 #include <yql/essentials/minikql/mkql_alloc.h>
 #include <yql/essentials/minikql/mkql_type_ops.h>
@@ -323,19 +322,36 @@ std::optional<TString> PrintType(const TExprNode& type, size_t depth = 0) {
         }
         return {};
     }
-    if (const auto* annotation = type.GetTypeAnn().Get(); annotation && annotation->GetKind() == ETypeAnnotationKind::Type) {
-        return FormatType(annotation->Cast<TTypeExprType>()->GetType());
-    }
+    // Other types use the ordinary callable printer so shared compound types
+    // are expanded under the same node budget as value expressions.
     return {};
 }
 
 class TPrinter {
 public:
-    TPrinter(const TExprNode& row, const TInfoUnitRegistry& registry, const TPlanProps* props)
-        : Row(row)
+    TPrinter(const TExprNode& lambda, const TInfoUnitRegistry& registry, const TPlanProps* props)
+        : Row(lambda.Head().Head())
         , Registry(registry)
         , Props(props)
     {
+        // Parameters retain their public names. Reserve them before assigning
+        // local names, including when a parameter is first used inside a lambda.
+        THashSet<const TExprNode*> visited;
+        TVector<const TExprNode*> pending{&lambda.Tail()};
+        while (!pending.empty()) {
+            const auto* node = pending.back();
+            pending.pop_back();
+            if (!visited.insert(node).second) {
+                continue;
+            }
+            if (node->IsCallable("Parameter") && node->ChildrenSize() >= 1 && node->Head().IsAtom()) {
+                const auto name = node->Head().Content();
+                UsedArgumentNames.insert(TString(name.StartsWith('$') ? name.SubStr(1) : name));
+            }
+            for (const auto& child : node->Children()) {
+                pending.push_back(child.Get());
+            }
+        }
     }
 
     TPrinted Print(const TExprNode::TPtr& node) {
@@ -720,7 +736,7 @@ TString PrintExplainExpression(const TExpression& expr, const TInfoUnitRegistry&
     if (!lambda || !lambda->IsLambda() || lambda->ChildrenSize() != 2 || lambda->Head().ChildrenSize() != 1) {
         return "f()";
     }
-    return TPrinter(lambda->Head().Head(), registry, expr.PlanProps).Print(lambda->TailPtr()).Text;
+    return TPrinter(*lambda, registry, expr.PlanProps).Print(lambda->TailPtr()).Text;
 }
 
 } // namespace NKikimr::NKqp
