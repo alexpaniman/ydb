@@ -29,7 +29,7 @@ struct TSyntaxExpr {
 
 struct TNamedExpr {
     TSyntaxId Expression = NoSyntax;
-    std::string Alias;
+    std::string Alias = {};
 };
 
 struct TSource {
@@ -45,7 +45,7 @@ struct TJoin {
     EJoinKind Kind;
     TSource Source;
     TSyntaxId Predicate = NoSyntax;
-    std::vector<std::string> Using;
+    std::vector<std::string> Using = {};
 };
 
 struct TSortKey {
@@ -72,6 +72,7 @@ struct TSelect {
 enum class EStatementKind : std::uint8_t { Query, Binding, Declaration, Pragma, Use };
 
 struct TStatement {
+    TStatement(EStatementKind kind, TSourcePosition position) : Kind(kind), Position(position) {}
     EStatementKind Kind;
     TSourcePosition Position;
     std::string Name;

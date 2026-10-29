@@ -100,6 +100,8 @@ public:
     TExprId Parameter(std::string name, TType type, TSourcePosition position = {});
     TExprId Unary(EOpcode op, TExprId input, TSourcePosition position = {});
     TExprId Binary(EOpcode op, TExprId left, TExprId right, TSourcePosition position = {});
+    // Total numeric conversion/optional lifting; rejects conversions that can fail.
+    TExprId Convert(TExprId input, TType target, TSourcePosition position = {});
     TExprId Cast(TExprId input, TType target, TSourcePosition position = {});
     TExprId If(TExprId condition, TExprId thenExpr, TExprId elseExpr, TSourcePosition position = {});
     TExprId Coalesce(std::span<const TExprId> arguments, TSourcePosition position = {});
@@ -116,7 +118,6 @@ public:
 
 private:
     TExprId Append(TExprNode node);
-    TExprId Convert(TExprId input, TType target, TSourcePosition position);
     std::vector<TExprNode> Nodes_;
 };
 

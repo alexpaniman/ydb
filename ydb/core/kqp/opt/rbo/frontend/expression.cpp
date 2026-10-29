@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cmath>
 #include <limits>
+#include <locale>
 #include <optional>
 #include <sstream>
 #include <unordered_map>
@@ -48,6 +49,109 @@ K IntegerKind(int width, bool isSigned) {
 
 bool IsDate(K kind) {
     return kind == K::Date || kind == K::Datetime || kind == K::Timestamp;
+}
+
+constexpr std::int64_t MicrosPerDay = 86'400'000'000LL;
+constexpr std::int64_t TimestampLimit = 49'673LL * MicrosPerDay;
+
+std::int64_t DateUnit(K kind) {
+    return kind == K::Date ? MicrosPerDay : kind == K::Datetime ? 1'000'000 : 1;
+}
+
+bool FitsTemporal(__int128 value, K kind) {
+    return kind == K::Interval ? value > -TimestampLimit && value < TimestampLimit :
+        value >= 0 && value < TimestampLimit / DateUnit(kind);
+}
+
+std::optional<std::int64_t> ParseTemporal(std::string_view text, K kind) {
+    if (kind == K::Interval) {
+        bool negative = false;
+        if (text.starts_with('-')) {
+            negative = true;
+            text.remove_prefix(1);
+        }
+        if (!text.starts_with('P')) return {};
+        text.remove_prefix(1);
+        bool time = false, any = false;
+        __int128 micros = 0;
+        unsigned previous = 0;
+        while (!text.empty()) {
+            if (text.front() == 'T' && !time) {
+                time = true;
+                text.remove_prefix(1);
+                if (text.empty()) return {};
+                continue;
+            }
+            std::uint64_t whole = 0;
+            const auto number = std::from_chars(text.data(), text.data() + text.size(), whole);
+            if (number.ec != std::errc{} || number.ptr == text.data()) return {};
+            text.remove_prefix(number.ptr - text.data());
+            std::uint64_t fraction = 0;
+            unsigned digits = 0;
+            if (text.starts_with('.')) {
+                text.remove_prefix(1);
+                while (!text.empty() && text.front() >= '0' && text.front() <= '9') {
+                    if (++digits > 6) return {};
+                    fraction = fraction * 10 + (text.front() - '0');
+                    text.remove_prefix(1);
+                }
+                if (!digits) return {};
+                while (digits++ < 6) fraction *= 10;
+            }
+            if (text.empty()) return {};
+            const char unit = text.front();
+            text.remove_prefix(1);
+            const unsigned order = !time && unit == 'D' ? 1 : time && unit == 'H' ? 2 : time && unit == 'M' ? 3 : time && unit == 'S' ? 4 : 0;
+            if (!order || order <= previous || (digits && unit != 'S')) return {};
+            previous = order;
+            const std::int64_t scale = unit == 'D' ? MicrosPerDay : unit == 'H' ? 3'600'000'000LL : unit == 'M' ? 60'000'000LL : 1'000'000LL;
+            micros += static_cast<__int128>(whole) * scale + fraction;
+            if (micros >= TimestampLimit) return {};
+            any = true;
+        }
+        if (!any) return {};
+        return static_cast<std::int64_t>(negative ? -micros : micros);
+    }
+    auto component = [&](std::size_t offset, std::size_t length) -> int {
+        if (offset + length > text.size()) return -1;
+        unsigned result = 0;
+        const auto parsed = std::from_chars(text.data() + offset, text.data() + offset + length, result);
+        return parsed.ec == std::errc{} && parsed.ptr == text.data() + offset + length ? static_cast<int>(result) : -1;
+    };
+    const int year = component(0, 4), month = component(5, 2), day = component(8, 2);
+    if (text.size() < 10 || text[4] != '-' || text[7] != '-' || year < 1970 || month < 1 || month > 12 || day < 1) return {};
+    constexpr int MonthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    const bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    if (day > MonthDays[month - 1] + (month == 2 && leap)) return {};
+    // Gregorian calendar to days since 1970-01-01; bounded four-digit years.
+    const int y = year - (month <= 2), era = y / 400, yearOfEra = y - era * 400;
+    const int dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const std::int64_t days = era * 146097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719468;
+    std::int64_t micros = days * MicrosPerDay;
+    if (kind == K::Date) {
+        return text.size() == 10 && FitsTemporal(days, kind) ? std::optional<std::int64_t>{days} : std::nullopt;
+    }
+    const int hour = component(11, 2), minute = component(14, 2), second = component(17, 2);
+    if (text.size() < 19 || text[10] != 'T' || text[13] != ':' || text[16] != ':' || hour < 0 || hour > 23 ||
+        minute < 0 || minute > 59 || second < 0 || second > 59) return {};
+    micros += (hour * 3600LL + minute * 60 + second) * 1'000'000;
+    std::size_t offset = 19;
+    if (offset < text.size() && text[offset] == '.') {
+        if (kind != K::Timestamp) return {};
+        ++offset;
+        unsigned digits = 0;
+        std::int64_t fraction = 0;
+        while (offset < text.size() && text[offset] >= '0' && text[offset] <= '9') {
+            if (++digits > 6) return {};
+            fraction = fraction * 10 + text[offset++] - '0';
+        }
+        if (!digits) return {};
+        while (digits++ < 6) fraction *= 10;
+        micros += fraction;
+    }
+    if (offset < text.size() && text[offset] == 'Z') ++offset;
+    if (offset != text.size() || micros < 0 || micros >= TimestampLimit) return {};
+    return micros / DateUnit(kind);
 }
 
 void ValidateType(TType type, TSourcePosition position) {
@@ -244,8 +348,10 @@ std::optional<double> FloatingValue(const TValue& value) {
     }
     if (auto p = std::get_if<std::string>(&value.Data)) {
         double result;
-        const auto parsed = std::from_chars(p->data(), p->data() + p->size(), result);
-        if (parsed.ec == std::errc{} && parsed.ptr == p->data() + p->size() && std::isfinite(result)) {
+        std::istringstream input(*p);
+        input.imbue(std::locale::classic());
+        input >> std::noskipws >> result;
+        if (!input.fail() && input.eof() && std::isfinite(result)) {
             return result;
         }
         return {};
@@ -303,7 +409,16 @@ TValue ConvertValue(const TValue& value, TType target) {
         return NullValue(target);
     }
     if (target.IsIntegral() || target.Kind == K::Interval || IsDate(target.Kind)) {
+        if ((target.Kind == K::Interval || IsDate(target.Kind)) && std::holds_alternative<std::string>(value.Data)) {
+            if (const auto parsed = ParseTemporal(std::get<std::string>(value.Data), target.Kind)) {
+                return target.Kind == K::Interval ? TValue{target, *parsed} : TValue{target, static_cast<std::uint64_t>(*parsed)};
+            }
+            return NullValue(target);
+        }
         if (auto number = IntegralValue(value)) {
+            if ((target.Kind == K::Interval || IsDate(target.Kind)) && !FitsTemporal(*number, target.Kind)) {
+                return NullValue(target);
+            }
             const bool isSigned = target.IsSigned() || target.Kind == K::Interval;
             const int width = target.Kind == K::Date ? 16 : target.Kind == K::Datetime ? 32 :
                 target.Kind == K::Timestamp || target.Kind == K::Interval ? 64 : Width(target.Kind);
@@ -326,13 +441,13 @@ void ValidateValue(const TValue& value, TSourcePosition position) {
     bool valid = false;
     if (value.Type.IsSigned() || value.Type.Kind == K::Interval) {
         if (const auto* number = std::get_if<std::int64_t>(&value.Data)) {
-            valid = FitsSigned(*number, value.Type.Kind == K::Interval ? 64 : Width(value.Type.Kind));
+            valid = value.Type.Kind == K::Interval ? FitsTemporal(*number, K::Interval) : FitsSigned(*number, Width(value.Type.Kind));
         }
     } else if (value.Type.IsIntegral() || IsDate(value.Type.Kind)) {
         if (const auto* number = std::get_if<std::uint64_t>(&value.Data)) {
             const int width = value.Type.Kind == K::Date ? 16 : value.Type.Kind == K::Datetime ? 32 :
                 value.Type.Kind == K::Timestamp ? 64 : Width(value.Type.Kind);
-            valid = FitsUnsigned(*number, width);
+            valid = IsDate(value.Type.Kind) ? FitsTemporal(*number, value.Type.Kind) : FitsUnsigned(*number, width);
         }
     } else if (value.Type.IsString()) {
         valid = std::holds_alternative<std::string>(value.Data);
@@ -455,8 +570,12 @@ TExprId TExpressionArena::Parameter(std::string name, TType type, TSourcePositio
 }
 
 TExprId TExpressionArena::Convert(TExprId input, TType target, TSourcePosition position) {
+    ValidateType(target, position);
     if ((*this)[input].Type == target) {
         return input;
+    }
+    if (CommonType((*this)[input].Type, target, position) != target) {
+        Fail(position, "Implicit conversion cannot narrow " + (*this)[input].Type.ToString() + " to " + target.ToString());
     }
     return Append({O::Convert, target, position, {input}, {}, {}, 0});
 }
@@ -509,6 +628,15 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
 TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosition position) {
     const auto leftType = (*this)[left].Type;
     const auto rightType = (*this)[right].Type;
+    if ((op == O::Add || op == O::Subtract) && IsDate(leftType.Kind) && rightType.Kind == K::Interval) {
+        return Append({op, leftType.Optional(), position, {left, right}, {}, {}, 0});
+    }
+    if (op == O::Add && leftType.Kind == K::Interval && IsDate(rightType.Kind)) {
+        return Append({op, rightType.Optional(), position, {right, left}, {}, {}, 0});
+    }
+    if (op == O::Subtract && IsDate(leftType.Kind) && IsDate(rightType.Kind)) {
+        return Append({op, {K::Interval, true}, position, {left, right}, {}, {}, 0});
+    }
     auto common = CommonType(leftType, rightType, position);
     auto result = common;
     if (op == O::And || op == O::Or) {
@@ -533,6 +661,7 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
         if (op == O::Divide || op == O::Modulo) {
             result.Nullable = true;
         }
+        if (common.Kind == K::Interval) result.Nullable = true;
     } else {
         Fail(position, "Unsupported binary operation");
     }
@@ -695,6 +824,7 @@ std::string FormatValue(const TValue& value) {
     }
     if (auto p = std::get_if<double>(&value.Data)) {
         std::ostringstream out;
+        out.imbue(std::locale::classic());
         out.precision(std::numeric_limits<double>::max_digits10);
         out << *p;
         return out.str();
@@ -703,7 +833,7 @@ std::string FormatValue(const TValue& value) {
     auto text = Int128ToString(coefficient < 0 ? -coefficient : coefficient);
     if (value.Type.Scale) {
         if (text.size() <= value.Type.Scale) {
-            text.insert(0, value.Type.Scale + 1 - text.size(), '0');
+            text.insert(std::size_t{0}, value.Type.Scale + 1 - text.size(), '0');
         }
         text.insert(text.size() - value.Type.Scale, 1, '.');
     }
@@ -763,6 +893,17 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         return {node.Type, WrapInteger(static_cast<unsigned __int128>(number), node.Type)};
     }
     const auto& right = argument(1);
+    if ((node.Op == O::Add || node.Op == O::Subtract) && IsDate(left.Type.Kind)) {
+        const __int128 a = static_cast<__int128>(std::get<std::uint64_t>(left.Data)) * DateUnit(left.Type.Kind);
+        const __int128 b = IsDate(right.Type.Kind) ? static_cast<__int128>(std::get<std::uint64_t>(right.Data)) * DateUnit(right.Type.Kind) :
+            std::get<std::int64_t>(right.Data);
+        const __int128 result = node.Op == O::Add ? a + b : a - b;
+        if (node.Type.Kind == K::Interval) {
+            return FitsTemporal(result, K::Interval) ? TValue{node.Type, static_cast<std::int64_t>(result)} : NullValue(node.Type);
+        }
+        if (result < 0 || result >= TimestampLimit) return NullValue(node.Type);
+        return {node.Type, static_cast<std::uint64_t>(result / DateUnit(node.Type.Kind))};
+    }
     if (node.Op == O::Concat || node.Op == O::Contains || node.Op == O::StartsWith || node.Op == O::EndsWith) {
         const auto& a = std::get<std::string>(left.Data);
         const auto& b = std::get<std::string>(right.Data);
@@ -781,9 +922,9 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
                 node.Op == O::Less ? *a < b : node.Op == O::LessEqual ? *a <= b : node.Op == O::Greater ? *a > b : *a >= b;
             return {node.Type, result};
         } else {
-            const auto a = left.Type.Kind == K::Decimal ? std::get<TDecimal>(left.Data).Coefficient : *IntegralValue(left);
-            const auto b = right.Type.Kind == K::Decimal ? std::get<TDecimal>(right.Data).Coefficient : *IntegralValue(right);
-            order = (a > b) - (a < b);
+            const auto leftNumber = left.Type.Kind == K::Decimal ? std::get<TDecimal>(left.Data).Coefficient : *IntegralValue(left);
+            const auto rightNumber = right.Type.Kind == K::Decimal ? std::get<TDecimal>(right.Data).Coefficient : *IntegralValue(right);
+            order = (leftNumber > rightNumber) - (leftNumber < rightNumber);
         }
         const bool result = node.Op == O::Equal ? order == 0 : node.Op == O::NotEqual ? order != 0 :
             node.Op == O::Less ? order < 0 : node.Op == O::LessEqual ? order <= 0 : node.Op == O::Greater ? order > 0 : order >= 0;
@@ -804,6 +945,10 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         return NullValue(node.Type);
     }
     if (!decimal) {
+        if (node.Type.Kind == K::Interval) {
+            const __int128 result = node.Op == O::Add ? a + b : a - b;
+            return FitsTemporal(result, K::Interval) ? TValue{node.Type, static_cast<std::int64_t>(result)} : NullValue(node.Type);
+        }
         const auto unsignedA = static_cast<unsigned __int128>(a);
         const auto unsignedB = static_cast<unsigned __int128>(b);
         if (node.Op == O::Add || node.Op == O::Subtract || node.Op == O::Multiply) {
