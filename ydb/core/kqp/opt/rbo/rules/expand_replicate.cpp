@@ -39,6 +39,9 @@ bool TExpandReplicateRule::QuickMatch(const TIntrusivePtr<IOperator>& input) con
 }
 
 bool TExpandReplicateRule::MatchAndApply(TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
+    if (props.NativeExpressions) {
+        return false;
+    }
     if (input->Kind != EOperator::Replicate) {
         return false;
     }

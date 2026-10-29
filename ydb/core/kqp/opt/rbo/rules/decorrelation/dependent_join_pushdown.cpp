@@ -456,6 +456,7 @@ bool TPushDependentJoinThroughFilterRule::QuickMatch(const TIntrusivePtr<IOperat
 
 TIntrusivePtr<IOperator> TPushDependentJoinThroughFilterRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx,
                                                                                  TPlanProps& props) {
+    Y_UNUSED(ctx);
     auto dependentJoin = CastOperator<TOpDependentJoin>(input);
     auto body = dependentJoin->GetInput();
     if (body->Kind != EOperator::Filter) {
@@ -464,7 +465,9 @@ TIntrusivePtr<IOperator> TPushDependentJoinThroughFilterRule::SimpleMatchAndAppl
 
     auto filter = CastOperator<TOpFilter>(body);
     auto newInput = PushInto(dependentJoin, filter->GetInput());
-    return MakeIntrusive<TOpFilter>(newInput, filter->Pos, TExpression(filter->GetFilterExpression().GetLambda(), &ctx.ExprCtx, &props));
+    auto expression = filter->GetFilterExpression();
+    expression.BindPlanProps(&props);
+    return MakeIntrusive<TOpFilter>(newInput, filter->Pos, std::move(expression));
 }
 
 bool TPushDependentJoinThroughMapRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {

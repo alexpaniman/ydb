@@ -1,6 +1,9 @@
 #include <ydb/library/yql/providers/ydb_external/common/provider_names.h>
 #include "kqp_host_impl.h"
 #include "kqp_statement_rewrite.h"
+#include <ydb/core/kqp/opt/rbo/frontend/compiler/compiler.h>
+#include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 
 #include <ydb/core/base/appdata.h>
 #include <ydb/core/external_sources/external_source_factory.h>
@@ -8,6 +11,7 @@
 #include <ydb/core/kqp/common/kqp_yql.h>
 #include <ydb/core/kqp/opt/cbo/solver/kqp_opt_join_cbo_factory.h>
 #include <ydb/core/kqp/opt/kqp_query_plan.h>
+#include <ydb/core/kqp/opt/kqp_opt_impl.h>
 #include <ydb/core/kqp/provider/yql_kikimr_provider_impl.h>
 #include <ydb/core/path_aliasing/path_normalizer.h>
 #include <ydb/library/yql/dq/opt/dq_opt_join_cbo_factory.h>
@@ -46,6 +50,7 @@
 #include <library/cpp/cache/cache.h>
 #include <library/cpp/random_provider/random_provider.h>
 #include <library/cpp/time_provider/time_provider.h>
+#include <util/generic/scope.h>
 
 namespace NKikimr::NKqp {
 
@@ -1440,6 +1445,175 @@ public:
     }
 
 private:
+    bool WantsNativeFrontend() const {
+        return !NativeFallback && Config->GetNativeFrontendMode() != NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY;
+    }
+
+    IAsyncQueryResultPtr NativeError(const NFrontend::TFrontendError& error, TExprContext& ctx) {
+        ctx.AddError(YqlIssue(TPosition(error.Position.Column, error.Position.Line), TIssuesIds::KIKIMR_BAD_REQUEST,
+            TStringBuilder() << "[native_frontend] " << error.what()));
+        return MakeKikimrResultHolder(ResultFromErrors<TQueryResult>(ctx.IssueManager.GetIssues()));
+    }
+
+    IAsyncQueryResultPtr NativeUnsupported(const NFrontend::TUnsupportedFeature& error, const TKqpQueryRef& query,
+        EKikimrQueryType queryType, TPrepareSettings settings, TExprContext& ctx)
+    {
+        if (Config->GetNativeFrontendMode() == NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED) return NativeError(error, ctx);
+        const auto previousFallback = std::exchange(NativeFallback, true);
+        Y_DEFER { NativeFallback = previousFallback; };
+        Config->SetEnableNewRBO(false);
+        settings.YqlSelect = NSQLTranslation::EYqlSelect::Disable;
+        TIssue warning(TPosition(error.Position.Column, error.Position.Line), TStringBuilder()
+            << "[native_frontend_fallback] compiler=legacy-yql feature=" << NFrontend::FeatureName(error.Feature)
+            << ": " << error.what());
+        warning.SetCode(TIssuesIds::DEFAULT_ERROR, TSeverityIds::S_WARNING);
+        // Discard any cached YQL AST: fallback must use legacy translation too.
+        TKqpQueryRef legacy(query.Text, query.ParameterTypes);
+        IAsyncQueryResultPtr result;
+        if (queryType == EKikimrQueryType::Dml) result = PrepareDataQueryInternal(legacy, settings, ctx);
+        else if (queryType == EKikimrQueryType::Scan) result = PrepareScanQueryInternal(legacy, ctx, settings);
+        else result = PrepareQueryInternal(legacy, nullptr, queryType, settings, ctx);
+        if (!result) result = MakeKikimrResultHolder(ResultFromErrors<TQueryResult>(ctx.IssueManager.GetIssues()));
+        return AsyncApplyResult<TQueryResult, TQueryResult>(result, [warning](TQueryResult&& value) {
+            value.AddIssues(TIssues{warning});
+            return MakeKikimrResultHolder(std::move(value));
+        });
+    }
+
+    IAsyncQueryResultPtr PrepareNative(const TKqpQueryRef& query, EKikimrQueryType queryType,
+        const TPrepareSettings& settings, TExprContext& ctx)
+    {
+        namespace F = NFrontend;
+        try {
+            if (settings.UsePgParser.GetOrElse(false) || settings.SyntaxVersion.GetOrElse(1) != 1)
+                throw F::TUnsupportedFeature(F::EFeature::LanguageVersion, {}, "native frontend supports SQL v1");
+            if (queryType != EKikimrQueryType::Dml && queryType != EKikimrQueryType::Scan && queryType != EKikimrQueryType::Query)
+                throw F::TUnsupportedFeature(F::EFeature::Statement, {}, "native frontend supports data, scan and generic read queries");
+            F::TCompilerSettings options;
+            options.Binding.TablePathPrefix = std::string(Config->_KqpTablePathPrefix.Get().GetOrElse(SessionCtx->GetDatabase()));
+            if (query.ParameterTypes) for (const auto& [name, supplied] : *query.ParameterTypes) {
+                const auto& type = supplied.has_optional_type() ? supplied.optional_type().item() : supplied;
+                if (!type.has_type_id()) throw F::TUnsupportedFeature(F::EFeature::Type, {}, "native parameters require scalar types");
+                auto native = F::ParseType(Ydb::Type_PrimitiveTypeId_Name(type.type_id()));
+                native.Nullable = supplied.has_optional_type();
+                auto key = std::string(name);
+                if (key.starts_with('$')) key.erase(0, 1);
+                options.Binding.ParameterTypes.emplace(std::move(key), native);
+            }
+            const std::string_view sql(query.Text.data(), query.Text.size());
+            auto syntax = std::make_shared<F::TParsedQuery>(F::ParseNative(sql, options));
+            const auto requests = F::CollectTables(*syntax, options.Binding);
+            TVector<TFuture<IKikimrGateway::TTableMetadataResult>> loads;
+            for (const auto& request : requests) {
+                IKikimrGateway::TLoadTableMetadataSettings loadSettings;
+                loadSettings.WithTableStats(true).WithAuthInfo(true)
+                    .WithPrivateTables(settings.IsInternalCall.GetOrElse(false)).WithExternalDatasources(true);
+                loads.push_back(Gateway->LoadTableMetadata(Cluster, TString(request.Name), loadSettings));
+            }
+            auto ready = WaitAll(loads).Apply([](const TFuture<void>& future) {
+                future.GetValue();
+                TGenericResult result;
+                result.SetSuccess();
+                return result;
+            });
+            auto wait = MakeIntrusive<TKqpFutureResult<TGenericResult>>(ready, ctx);
+            return AsyncApplyResult<TGenericResult, TQueryResult>(wait,
+                [this, syntax, options, loads, requests, text = query.Text, parameters = query.ParameterTypes, queryType, settings, &ctx](TGenericResult&&) {
+                return CheckedProcessQuery(ctx, [&](TExprContext&) -> IAsyncQueryResultPtr {
+                    try {
+                        std::unordered_map<std::string, TKikimrTableMetadataPtr> metadata;
+                        for (std::size_t i = 0; i < loads.size(); ++i) {
+                            const auto& loaded = loads[i].GetValue();
+                            loaded.ReportIssues(ctx.IssueManager);
+                            if (!loaded.Success()) return MakeKikimrResultHolder(ResultFromErrors<TQueryResult>(ctx.IssueManager.GetIssues()));
+                            const auto& meta = loaded.Metadata;
+                            YQL_ENSURE(meta);
+                            if (!meta->DoesExist) throw F::TFrontendError(requests[i].Position, "table does not exist: " + requests[i].Name);
+                            if ((meta->Kind != EKikimrTableKind::Datashard && meta->Kind != EKikimrTableKind::Olap) ||
+                                meta->Temporary || meta->IsIndexImplTable || !meta->SysView.empty())
+                                throw F::TUnsupportedFeature(F::EFeature::Backend, requests[i].Position, "native profile supports ordinary persistent tables");
+                            metadata.emplace(requests[i].Name, meta);
+                            metadata.emplace(std::string(meta->Name), meta);
+                        }
+                        auto schema = [&](std::string_view path, F::TSourcePosition pos) {
+                            const auto& meta = metadata.at(std::string(path));
+                            F::TCatalogTable table{std::string(meta->Name), {}};
+                            auto column = [&](const TString& name) {
+                                const auto& item = meta->Columns.at(name);
+                                auto type = F::ParseType(std::string_view(item.Type.data(), item.Type.size()), pos);
+                                type.Nullable = !item.NotNull;
+                                table.Columns.push_back({std::string(name), type});
+                            };
+                            if (!meta->ColumnOrder.empty()) for (const auto& name : meta->ColumnOrder) column(name);
+                            else for (const auto& [name, item] : meta->Columns) column(name);
+                            return table;
+                        };
+                        auto program = F::BindNative(*syntax, schema, options.Binding);
+                        const auto explain = TString(F::Explain(program));
+                        const auto nativeParameters = program.Parameters;
+
+                        // RBO/backend boundary. Up to here the query was parsed,
+                        // resolved and typed using only the native representation.
+                        Config->SetEnableNewRBO(true);
+                        SetupYqlTransformer(queryType);
+                        const auto sqlVersion = SetupQueryParameters(settings, queryType);
+                        auto roots = ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
+                            const auto& meta = metadata.at(std::string(path));
+                            auto& desc = SessionCtx->Tables().GetOrAddTable(Cluster, SessionCtx->GetDatabase(), meta->Name);
+                            desc.Metadata = meta;
+                            YQL_ENSURE(desc.Load(ctx, SessionCtx->Config().SystemColumnsEnabled()));
+                            for (auto impl : meta->ImplTables) while (impl) {
+                                auto& index = SessionCtx->Tables().GetOrAddTable(Cluster, SessionCtx->GetDatabase(), impl->Name);
+                                SessionCtx->Tables().AddIndexImplTableToMainTableMapping(meta->Name, impl->Name);
+                                index.Metadata = impl;
+                                YQL_ENSURE(index.Load(ctx, SessionCtx->Config().SystemColumnsEnabled()));
+                                impl = impl->Next;
+                            }
+                            const auto position = ctx.AppendPosition(TPosition(pos.Column, pos.Line));
+                            return TNativeTable{schema(path, pos), NOpt::BuildTableMeta(*meta, position, ctx).Ptr(),
+                                meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
+                        }, ctx);
+                        for (const auto& [name, type] : nativeParameters) {
+                            auto& param = *SessionCtx->Query().PreparingQuery->AddParameters();
+                            param.SetName("$" + TString(name));
+                            auto allocatorGuard = SessionCtx->Query().QueryData->TypeEnv().BindAllocator();
+                            NMiniKQL::TTypeBuilder builder(SessionCtx->Query().QueryData->TypeEnv());
+                            auto* exported = NCommon::BuildType({}, *ExportNativeType(type, ctx), builder);
+                            YQL_ENSURE(exported);
+                            NMiniKQL::ExportTypeToProto(exported, *param.MutableType());
+                        }
+                        IKikimrQueryExecutor::TExecuteSettings execute;
+                        auto prepared = KqpRunner->PrepareNativeQuery(Cluster, std::move(roots), ctx, execute);
+                        return AsyncApplyResult<TQueryResult, TQueryResult>(prepared,
+                            [this, text, explain, sqlVersion](TQueryResult&& result) {
+                            if (result.Success()) {
+                                FillColumnMeta(SessionCtx->Query().PreparingQuery->GetPhysicalQuery(), result);
+                                result.PreparingQuery = std::move(SessionCtx->Query().PreparingQuery);
+                                result.PreparingQuery->SetText(text);
+                                result.SqlVersion = sqlVersion;
+                                result.QueryPlan = result.PreparingQuery->GetPhysicalQuery().GetQueryPlan();
+                                result.QueryAst = TStringBuilder() << "native frontend: native-read-v1\n" << explain << '\n'
+                                    << result.PreparingQuery->GetPhysicalQuery().GetQueryAst();
+                                result.PreparingQuery->MutablePhysicalQuery()->SetQueryAst(result.QueryAst);
+                                result.AllowCache = true;
+                                result.AddIssues(ExprCtx->IssueManager.GetIssues());
+                            }
+                            return MakeKikimrResultHolder(std::move(result));
+                        });
+                    } catch (const F::TUnsupportedFeature& error) {
+                        return NativeUnsupported(error, TKqpQueryRef(text, parameters), queryType, settings, ctx);
+                    } catch (const F::TFrontendError& error) {
+                        return NativeError(error, ctx);
+                    }
+                });
+            });
+        } catch (const F::TUnsupportedFeature& error) {
+            return NativeUnsupported(error, query, queryType, settings, ctx);
+        } catch (const F::TFrontendError& error) {
+            return NativeError(error, ctx);
+        }
+    }
+
     TCompileExprResult CompileQuery(const TKqpQueryRef& query, bool isSql, TExprContext& ctx, TMaybe<TSqlVersion>& sqlVersion,
         TKqpTranslationSettingsBuilder& settingsBuilder) const
     {
@@ -1645,6 +1819,7 @@ private:
     IAsyncQueryResultPtr PrepareDataQueryInternal(const TKqpQueryRef& query, const TPrepareSettings& settings,
         TExprContext& ctx)
     {
+        if (WantsNativeFrontend()) return PrepareNative(query, EKikimrQueryType::Dml, settings, ctx);
         SetupYqlTransformer(EKikimrQueryType::Dml);
 
         SessionCtx->Query().PrepareOnly = true;
@@ -1748,6 +1923,7 @@ private:
     IAsyncQueryResultPtr PrepareQueryInternal(const TKqpQueryRef& query, NYql::TExprNode::TPtr expr, EKikimrQueryType queryType,
         const TPrepareSettings& settings, TExprContext& ctx)
     {
+        if (!expr && WantsNativeFrontend()) return PrepareNative(query, queryType, settings, ctx);
         SetupYqlTransformer(queryType);
         auto sqlVersion = SetupQueryParameters(settings, queryType);
 
@@ -1825,6 +2001,7 @@ private:
     IAsyncQueryResultPtr PrepareScanQueryInternal(const TKqpQueryRef& query, TExprContext& ctx, const TPrepareSettings& prepareSettings,
         EKikimrStatsMode statsMode = EKikimrStatsMode::None)
     {
+        if (WantsNativeFrontend()) return PrepareNative(query, EKikimrQueryType::Scan, prepareSettings, ctx);
         SetupYqlTransformer(EKikimrQueryType::Scan);
 
         SessionCtx->Query().PrepareOnly = true;
@@ -2430,6 +2607,7 @@ private:
 
     TIntrusivePtr<TKikimrSessionContext> SessionCtx;
     TKikimrConfiguration::TPtr Config;
+    bool NativeFallback = false;
 
     TIntrusivePtr<NKikimr::NMiniKQL::IFunctionRegistry> FuncRegistryHolder;
     const NKikimr::NMiniKQL::IFunctionRegistry* FuncRegistry;

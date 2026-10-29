@@ -1,5 +1,6 @@
 #include "kqp_operator.h"
 #include "kqp_rbo_utils.h"
+#include "frontend_lowering.h"
 
 #include <ydb/core/kqp/provider/yql_kikimr_provider_impl.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
@@ -65,6 +66,14 @@ void AnnotateLambdaIfNeeded(TExprNode::TPtr& lambda, TRBOContext& ctx) {
     Y_ENSURE(status == TStatus::Ok, "Cannot type annotate lambda in NEW RBO");
 }
 
+TExpression BindNativeTypes(const TExpression& expression, const TStructExprType& row, TExprContext& ctx) {
+    return expression.WithNativeColumnTypes([&](TInfoUnitId id) {
+        const auto* type = row.FindItemType(ctx.GetIndexAsString(id));
+        Y_ENSURE(type, "Missing native expression input " << id);
+        return ImportNativeType(*type);
+    });
+}
+
 TStatus ComputeTypes(TIntrusivePtr<TOpRead> read, TRBOContext& ctx, TPlanProps& props) {
     const auto table = ResolveTable(read->TableCallable.Get(), ctx.ExprCtx, ctx.KqpCtx.Cluster, *ctx.KqpCtx.Tables);
     if (!table.second) {
@@ -100,7 +109,9 @@ TStatus ComputeTypes(TIntrusivePtr<TOpRead> read, TRBOContext& ctx, TPlanProps& 
     }
     auto newStructType = ctx.ExprCtx.MakeType<TStructExprType>(newItemTypes);
 
-    if (read->OriginalPredicate.has_value()) {
+    if (read->OriginalPredicate && read->OriginalPredicate->IsNative()) {
+        read->OriginalPredicate = BindNativeTypes(*read->OriginalPredicate, *newStructType, ctx.ExprCtx);
+    } else if (read->OriginalPredicate.has_value()) {
         auto& lambda = read->OriginalPredicate.value().Node;
         if (!UpdateLambdaAllArgumentsTypes(lambda, {newStructType}, ctx.ExprCtx)) {
             YQL_CLOG(TRACE, CoreDq) << "Could not update original filter lambda arg types.";
@@ -213,6 +224,13 @@ TStatus ComputeTypes(TIntrusivePtr<TOpFilter> filter, TRBOContext& ctx, TPlanPro
     YQL_CLOG(TRACE, CoreDq) << "Type annotation for Filter, itemType after scalars: " << *(TTypeAnnotationNode*)itemType;
 
     auto filterExpression = filter->GetFilterExpression();
+    if (filterExpression.IsNative()) {
+        auto typed = BindNativeTypes(filterExpression, *itemType, ctx.ExprCtx);
+        Y_ENSURE(typed.GetNativeType().Kind == NFrontend::ETypeKind::Bool, "Native filter must be Bool");
+        filter->SetFilterExpression(std::move(typed));
+        filter->Type = inputType;
+        return TStatus::Ok;
+    }
     auto lambda = filterExpression.Node;
 
     if (!UpdateLambdaAllArgumentsTypes(lambda, {itemType}, ctx.ExprCtx)) {
@@ -262,6 +280,13 @@ TStatus ComputeTypes(TIntrusivePtr<TOpMap> map, TRBOContext& ctx, TPlanProps& pr
     for (const auto& [output, mapElement] : map->GetMapElements().Items()) {
         // This is type annotation update inplace, which is different comparing to yql type annotation.
         auto expression = mapElement.GetExpression();
+        if (expression.IsNative()) {
+            auto typed = BindNativeTypes(expression, *structType, ctx.ExprCtx);
+            resStructItemTypes.push_back(ctx.ExprCtx.MakeType<TItemExprType>(ctx.ExprCtx.GetIndexAsString(output),
+                ExportNativeType(typed.GetNativeType(), ctx.ExprCtx)));
+            map->SetMapElementExpression(output, std::move(typed));
+            continue;
+        }
         auto lambda = expression.Node;
 
         auto subplanContextIUs = expression.GetInputIUs(true,false);
@@ -498,6 +523,10 @@ TStatus ComputeTypes(TIntrusivePtr<TOpJoin> join, TRBOContext& ctx) {
     auto crossProductType = ctx.ExprCtx.MakeType<TStructExprType>(crossProductTypes);
 
     for (auto& filterExpr : join->JoinFilters) {
+        if (filterExpr.IsNative()) {
+            filterExpr = BindNativeTypes(filterExpr, *crossProductType, ctx.ExprCtx);
+            continue;
+        }
         auto& lambda = filterExpr.Node;
 
         if (!UpdateLambdaAllArgumentsTypes(lambda, {crossProductType}, ctx.ExprCtx)) {
@@ -555,6 +584,11 @@ TStatus ComputeTypes(TIntrusivePtr<TOpLimit> limit, TRBOContext& ctx) {
     auto inputType = limit->GetInput()->Type;
     const auto* structType = inputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
 
+    if (limit->LimitCond.IsNative()) {
+        limit->LimitCond = BindNativeTypes(limit->LimitCond, *structType, ctx.ExprCtx);
+        limit->Type = inputType;
+        return TStatus::Ok;
+    }
     auto& lambda = limit->LimitCond.Node;
     if (!UpdateLambdaAllArgumentsTypes(lambda, {structType}, ctx.ExprCtx)) {
         return IGraphTransformer::TStatus::Error;

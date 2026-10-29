@@ -6,6 +6,10 @@ namespace NKqp {
 namespace {
 
 bool IsValidLimit(const TExpression& expression) {
+    // Read pushdown stores a legacy expression. Native limits stay in RBO.
+    if (expression.IsNative()) {
+        return false;
+    }
     return expression.Node && !!TMaybeNode<TCoUint64>(expression.Node->ChildPtr(1));
 }
 

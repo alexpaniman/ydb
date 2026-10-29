@@ -82,6 +82,9 @@ TConstantFoldingStage::TConstantFoldingStage() : IRBOStage("Constant folding sta
 }
 
 void TConstantFoldingStage::RunStage(TOpRoot &root, TRBOContext &ctx) {
+    if (root.PlanProps.NativeExpressions) {
+        return;
+    }
     TVector<TExprNode::TPtr> lambdasWithConstExpr;
     bool foldUdfs = ctx.KqpCtx.Config->GetEnableFoldUdfs();
 
@@ -99,6 +102,9 @@ void TConstantFoldingStage::RunStage(TOpRoot &root, TRBOContext &ctx) {
             auto expressions = it.Current->GetExpressions();
             bool affected = false;
             for (auto e : expressions) {
+                if (e.get().IsNative()) {
+                    continue;
+                }
                 auto lambda = TCoLambda(e.get().Node);
                 TVector<std::pair<TExprNode::TPtr, TExprNode::TPtr>> extractedExprs;
                 ExtractConstantExprs(lambda.Body().Ptr(), extractedExprs, ctx.ExprCtx, foldUdfs);

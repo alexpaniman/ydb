@@ -44,7 +44,7 @@ TExprNode::TPtr TPhysicalMapBuilder::BuildPhysicalOp(TExprNode::TPtr input) {
             continue;
         }
 
-        auto lambda = TCoLambda(mapElement.GetExpression().Node);
+        auto lambda = TCoLambda(mapElement.GetExpression().GetLambda());
         auto lambdaBody = lambda.Body().Ptr();
 
         auto isMember = [&](const TExprNode::TPtr& node) -> bool {

@@ -30,6 +30,9 @@ bool TPushOlapProjectionRule::QuickMatch(const TIntrusivePtr<IOperator>& input) 
 }
 
 TIntrusivePtr<IOperator> TPushOlapProjectionRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
+    if (props.NativeExpressions) {
+        return input;
+    }
     if (!(ctx.KqpCtx.Config->HasOptEnableOlapPushdown() && ctx.KqpCtx.Config->GetEnableOlapPushdownProjections())) {
         return input;
     }
@@ -39,6 +42,12 @@ TIntrusivePtr<IOperator> TPushOlapProjectionRule::SimpleMatchAndApply(const TInt
     }
 
     const auto map = CastOperator<TOpMap>(input);
+    for (const auto& [id, element] : map->GetMapElements().Items()) {
+        Y_UNUSED(id);
+        if (element.GetExpression().IsNative()) {
+            return input;
+        }
+    }
     const auto read = CastOperator<TOpRead>(map->GetInput().Get());
     // Preserve the input's IU-ID atoms and row-schema fields during construction.
     const TPushdownOptions pushdownOptions(false, false, /*StripAliasPrefixForColumnName=*/false);

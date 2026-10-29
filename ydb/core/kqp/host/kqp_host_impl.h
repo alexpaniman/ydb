@@ -8,6 +8,8 @@
 namespace NKikimr {
 namespace NKqp {
 
+class TOpRoot;
+
 Ydb::Table::QueryStatsCollection::Mode GetStatsMode(NYql::EKikimrStatsMode statsMode);
 
 template<typename TResult, bool copyIssues = true>
@@ -248,6 +250,13 @@ class IKqpRunner : public TThrRefBase {
 public:
     using TQueryResult = NYql::IKikimrGateway::TQueryResult;
     using TAsyncQueryResult = NYql::IKikimrAsyncResult<TQueryResult>;
+
+    // The caller has already bound and typed the native plan and resolved its
+    // tables through the normal catalog/authorization path. Preparation starts
+    // at RBO; no SQL/YQL translation or legacy logical-plan conversion runs.
+    virtual TIntrusivePtr<TAsyncQueryResult> PrepareNativeQuery(const TString& cluster,
+        TVector<TIntrusivePtr<TOpRoot>> roots, NYql::TExprContext& ctx,
+        const NYql::IKikimrQueryExecutor::TExecuteSettings& settings) = 0;
 
     virtual TIntrusivePtr<TAsyncQueryResult> PrepareDataQuery(const TString& cluster,
         const NYql::TExprNode::TPtr& query, NYql::TExprContext& ctx,

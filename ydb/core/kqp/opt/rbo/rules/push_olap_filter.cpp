@@ -20,6 +20,9 @@ bool IsSuitableToPushPredicateToColumnTables(IOperator* input) {
     }
 
     const auto filter = CastOperator<TOpFilter>(input);
+    if (filter->GetFilterExpression().IsNative()) {
+        return false;
+    }
     const auto predicate = TCoLambda(filter->GetFilterExpression().Node).Body();
     if (predicate.Ptr()->GetTypeAnn()->GetKind() == ETypeAnnotationKind::Pg) {
         return false;

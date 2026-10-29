@@ -44,6 +44,9 @@ bool TInlineGenericInExistsSubplanRule::QuickMatch(const TIntrusivePtr<IOperator
 }
 
 TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
+    if (props.NativeExpressions) {
+        return input;
+    }
     if (input->Kind != EOperator::Filter) {
         return input;
     }
@@ -287,7 +290,9 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
     props.Subplans.Remove(subplanIU);
 
     // Otherwise, we need to pack the remaining conjuncts back into the filter
-    return MakeIntrusive<TOpFilter>(newFilterInput, filter->Pos, TExpression(filter->GetFilterExpression().GetLambda(), &ctx.ExprCtx, &props));
+    auto expression = filter->GetFilterExpression();
+    expression.BindPlanProps(&props);
+    return MakeIntrusive<TOpFilter>(newFilterInput, filter->Pos, std::move(expression));
 }
 }
 }

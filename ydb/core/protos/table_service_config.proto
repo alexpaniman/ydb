@@ -636,4 +636,13 @@ message TTableServiceConfig {
 
     // Allows to collect point predicates for each valid index and use them for index lookup join if applicable.
     optional bool EnableLookupJoinPointPrefixes = 154 [default = false, (InvalidateCompileCache) = true];
+
+    // Native SQL frontend is opt-in. AUTO delegates whole unsupported queries
+    // to the legacy YQL optimizer; REQUIRED never silently falls back.
+    enum ENativeFrontendMode {
+        NATIVE_LEGACY = 0;
+        NATIVE_AUTO = 1;
+        NATIVE_REQUIRED = 2;
+    }
+    optional ENativeFrontendMode NativeFrontendMode = 155 [default = NATIVE_LEGACY, (InvalidateCompileCache) = true];
 };

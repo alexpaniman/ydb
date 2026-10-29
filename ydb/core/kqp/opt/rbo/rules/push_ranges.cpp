@@ -500,6 +500,9 @@ bool TPushRangesRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
 }
 
 TIntrusivePtr<IOperator> TPushRangesRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& rboCtx, TPlanProps& props) {
+    if (props.NativeExpressions || (input->Kind == EOperator::Filter && CastOperator<TOpFilter>(input)->GetFilterExpression().IsNative())) {
+        return input;
+    }
     auto& kqpCtx = rboCtx.KqpCtx;
     auto& ctx = rboCtx.ExprCtx;
     auto& typeCtx = rboCtx.TypeCtx;

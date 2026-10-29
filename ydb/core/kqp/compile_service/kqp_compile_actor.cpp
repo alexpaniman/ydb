@@ -116,6 +116,9 @@ public:
         // ANALYZE scans use UDAF factories unsupported by new RBO. Select the
         // YQL optimizer on their first attempt, as well as on fallback retries.
         config->SetEnableNewRBO(EnableNewRBO);
+        if (QueryId.Settings.IsAnalyze) {
+            config->SetNativeFrontendMode(TTableServiceConfig::NATIVE_LEGACY);
+        }
 
         if (QueryId.Settings.QueryType == NKikimrKqp::QUERY_TYPE_SQL_GENERIC_SCRIPT || QueryId.Settings.QueryType == NKikimrKqp::QUERY_TYPE_SQL_GENERIC_QUERY) {
             ui32 scriptResultRowsLimit = QueryServiceConfig.GetScriptResultRowsLimit();
@@ -594,6 +597,8 @@ private:
         }
 
         auto kqpResult = std::move(AsyncCompileResult->GetResult());
+        // Native routing can finish after asynchronous catalog resolution.
+        EnableNewRBO = Config->GetEnableNewRBO();
         auto status = GetYdbStatus(kqpResult);
         auto meta = CollectMeta();
 
@@ -741,7 +746,7 @@ private:
     }
 
     bool IsSuitableToFallbackToYqlOptimizer(Ydb::StatusIds::StatusCode status) {
-        return EnableNewRBO && EnableFallbackToYqlOptimizer && status != Ydb::StatusIds::SUCCESS;
+        return TableServiceConfig.GetNativeFrontendMode() == TTableServiceConfig::NATIVE_LEGACY && EnableNewRBO && EnableFallbackToYqlOptimizer && status != Ydb::StatusIds::SUCCESS;
     }
 
     bool IsSuitableToReportSuccessOnNewRBO(Ydb::StatusIds::StatusCode status) {

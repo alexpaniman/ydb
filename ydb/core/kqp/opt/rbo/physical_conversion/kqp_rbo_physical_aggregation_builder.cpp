@@ -1462,7 +1462,7 @@ THashMap<TString, const TTypeAnnotationNode*> TPhysicalAggregationBuilder::GetIn
                     if (value->IsCallable("Just")) {
                         value = value->HeadPtr();
                     }
-                    if (!value->IsCallable("Member") || &value->Head() != &expression.Node->Head().Head()) {
+                    if (!value->IsCallable("Member") || &value->Head() != &expression.GetLambda()->Head().Head()) {
                         continue; // NULL padding, not a partial-state binding.
                     }
                     id = GetMemberId(*value);

@@ -7,6 +7,9 @@ SIZE(MEDIUM)
 REQUIREMENTS(cpu:2)
 
 SRCS(
+    kqp_native_frontend_ut.cpp
+    kqp_native_expression_arena_ut.cpp
+    kqp_native_host_ut.cpp
     kqp_rbo_compatibility_ut.cpp
     kqp_rbo_copy_ut.cpp
     kqp_rbo_decorrelation_ut.cpp
@@ -18,6 +21,9 @@ SRCS(
 )
 
 PEERDIR(
+    yql/essentials/minikql/comp_nodes
+    yql/essentials/providers/common/mkql
+    yql/essentials/udfs/common/string
     library/cpp/resource
     ydb/core/kqp/ut/common
     yql/essentials/public/udf/service/exception_policy

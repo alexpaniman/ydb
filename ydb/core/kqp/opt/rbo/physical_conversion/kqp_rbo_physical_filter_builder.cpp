@@ -23,7 +23,7 @@ TExprNode::TPtr TPhysicalFilterBuilder::BuildPhysicalOp(TExprNode::TPtr input) {
         colNamesToIndices.emplace(Names.Get(inputColumns[i]), i);
     }
 
-    auto lambda = TCoLambda(Filter.GetFilterExpression().Node);
+    auto lambda = TCoLambda(Filter.GetFilterExpression().GetLambda());
     auto lambdaBody = lambda.Body().Ptr();
 
     auto isMember = [&](const TExprNode::TPtr& node) -> bool {

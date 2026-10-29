@@ -4,6 +4,8 @@ SRCS(
     copy_logical_subtree.cpp
     global_inlining.cpp
     global_pruning.cpp
+    frontend_lowering.cpp
+    kqp_native_frontend.cpp
     kqp_expression.cpp
     kqp_olap_expr_inspection.cpp
     kqp_operator.cpp
@@ -41,6 +43,8 @@ PEERDIR(
     ydb/core/kqp/opt/peephole
     ydb/core/kqp/opt/physical
     ydb/core/kqp/opt/rbo/html_log
+    ydb/core/kqp/opt/rbo/frontend
+    ydb/core/kqp/opt/rbo/frontend/compiler
     ydb/core/kqp/opt/rbo/rules
     ydb/core/kqp/opt/rbo/physical_conversion
     ydb/library/yql/dq/common
@@ -56,4 +60,4 @@ PEERDIR(
 
 END()
 
-RECURSE_FOR_TESTS(ut)
+RECURSE_FOR_TESTS(ut frontend)

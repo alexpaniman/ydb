@@ -611,7 +611,7 @@ private:
             request.Deadline,
             ev->Get()->Split
                 ? ECompileActorAction::SPLIT
-                : (TableServiceConfig.GetEnableAstCache() && !request.QueryAst)
+                : (TableServiceConfig.GetNativeFrontendMode() == TTableServiceConfig::NATIVE_LEGACY && TableServiceConfig.GetEnableAstCache() && !request.QueryAst)
                     ? ECompileActorAction::PARSE
                     : ECompileActorAction::COMPILE,
             request.IsWarmupCompilation);
@@ -620,7 +620,7 @@ private:
             ev->Get()->UserRequestContext, std::move(ev->Get()->Orbit), std::move(compileServiceSpan),
             std::move(ev->Get()->TempTablesState), Nothing(), request.SplitCtx, std::move(request.SplitExpr), request.UsePessimisticLocks, request.CollectDiagnostics);
 
-        if (TableServiceConfig.GetEnableAstCache() && request.QueryAst) {
+        if (TableServiceConfig.GetNativeFrontendMode() == TTableServiceConfig::NATIVE_LEGACY && TableServiceConfig.GetEnableAstCache() && request.QueryAst) {
             return CompileByAst(*request.QueryAst, std::move(compileRequest), ctx);
         }
 
@@ -663,7 +663,7 @@ private:
                 request.Deadline,
                 ev->Get()->Split
                     ? ECompileActorAction::SPLIT
-                : (TableServiceConfig.GetEnableAstCache() && !request.QueryAst)
+                : (TableServiceConfig.GetNativeFrontendMode() == TTableServiceConfig::NATIVE_LEGACY && TableServiceConfig.GetEnableAstCache() && !request.QueryAst)
                         ? ECompileActorAction::PARSE
                         : ECompileActorAction::COMPILE);
             auto query = request.Query ? *request.Query : *compileResult->Query;
@@ -684,7 +684,7 @@ private:
                 request.UsePessimisticLocks, request.CollectDiagnostics);
             compileRequest.FindInCache = false;
 
-            if (TableServiceConfig.GetEnableAstCache() && request.QueryAst) {
+            if (TableServiceConfig.GetNativeFrontendMode() == TTableServiceConfig::NATIVE_LEGACY && TableServiceConfig.GetEnableAstCache() && request.QueryAst) {
                 return CompileByAst(*request.QueryAst, std::move(compileRequest), ctx);
             }
 

@@ -6,6 +6,10 @@ namespace NKqp {
 namespace {
 
 bool IsValidLimit(const TExpression& expression) {
+    if (expression.IsNative()) {
+        const auto& node = (*expression.GetNativeArena())[expression.GetNativeRoot()];
+        return node.Op == NFrontend::EOpcode::Literal && node.Type.Kind == NFrontend::ETypeKind::Uint64 && !node.Type.Nullable;
+    }
     return expression.Node && !!TMaybeNode<TCoUint64>(expression.Node->ChildPtr(1));
 }
 

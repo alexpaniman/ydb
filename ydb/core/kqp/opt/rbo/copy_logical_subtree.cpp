@@ -28,7 +28,7 @@ bool CanDuplicateAggregation(const TOpAggregate& aggregate) {
 
 bool IsRepeatable(const IOperator& op) {
     for (const auto& expression : op.GetExpressions()) {
-        if (!IsRepeatable(expression.get().Node)) {
+        if (!expression.get().IsNative() && !IsRepeatable(expression.get().Node)) {
             return false;
         }
     }

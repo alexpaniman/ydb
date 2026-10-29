@@ -147,6 +147,19 @@ void TKqpRewriteSelectTransformer::Rewind() {
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) {
     output = input;
+    if (NativeRoots) {
+        for (auto& root : Roots) {
+            root->ComputeParents();
+        }
+        if (IsSuitableToRequestStatistics()) {
+            const auto status = RequestColumnStatistics(ctx);
+            if (status == TStatus::Async || status == TStatus::Error) {
+                return status;
+            }
+        }
+        return ContinueOptimizations(input, output, ctx);
+    }
+
     TOptimizeExprSettings settings(&TypeCtx);
     settings.VisitTuples = true;
 
@@ -242,6 +255,11 @@ void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(IOperator* op, const TC
 }
 
 void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(const TExpression& expr, const IOperator& input, const TColumnLineage& lineage) {
+    if (expr.IsNative()) {
+        // Native selectivity currently uses a conservative estimate and does
+        // not consume the legacy predicate visitor's column statistics.
+        return;
+    }
     auto lambda = TCoLambda(expr.GetLambda());
 
     // Request only the statistic each filter predicate actually consumes during selectivity estimation: 
@@ -480,6 +498,18 @@ bool TKqpNewRBOTransformer::IsSuitableToRequestStatistics() {
 }
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::ContinueOptimizations(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) {
+    if (NativeRoots) {
+        TRBOContext rboCtx(KqpCtx, ctx, TypeCtx, *RBOTypeAnnTransformer.Get(), FuncRegistry);
+        TRBOTraceOutput traceOutput(rboCtx);
+        output = RBO.Optimize(Roots, rboCtx);
+        traceOutput.Flush();
+        if (!output) {
+            return TStatus::Error;
+        }
+        AddPlans(rboCtx.ExecutionJson, rboCtx.ExplainJson);
+        return TStatus::Ok;
+    }
+
     output = input;
     TOptimizeExprSettings settings(nullptr);
     if (!ResetTypes) {
@@ -567,6 +597,16 @@ void TKqpNewRBOTransformer::AddPlans(std::optional<NJson::TJsonValue> execPlan, 
     planJson["SimplifiedPlan"]["OptimizerStats"] = MakeNewRBOOptimizerStats(KqpCtx);
 
     TransformCtx->PlanJson = planJson;
+}
+
+void TKqpNewRBOTransformer::SetNativeRoots(TVector<TIntrusivePtr<TOpRoot>> roots) {
+    Y_ENSURE(Roots.empty() && !roots.empty(), "Native roots must be supplied once before optimization");
+    for (const auto& root : roots) {
+        Y_ENSURE(root && root->PlanProps.NativeExpressions, "Expected a native RBO root");
+        Y_ENSURE(!root->PlanProps.WithEffects, "Native frontend does not support effects");
+    }
+    Roots = std::move(roots);
+    NativeRoots = true;
 }
 
 void TKqpNewRBOTransformer::Rewind() {

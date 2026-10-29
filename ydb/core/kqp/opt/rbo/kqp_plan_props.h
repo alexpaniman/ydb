@@ -192,6 +192,9 @@ private:
  * Global plan properties
  */
 struct TPlanProps {
+    // Native plans keep scalar expressions in the typed frontend model until
+    // physical emission. Legacy AST rewrite stages must not materialize them.
+    bool NativeExpressions = false;
     TInfoUnitRegistry InfoUnitRegistry;
     TStageGraph StageGraph;
     TSubplans Subplans;

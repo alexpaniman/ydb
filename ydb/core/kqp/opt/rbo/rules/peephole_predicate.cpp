@@ -12,6 +12,9 @@ bool IsSuitableToApplyPeephole(IOperator* input) {
     }
 
     const auto filter = CastOperator<TOpFilter>(input);
+    if (filter->GetFilterExpression().IsNative()) {
+        return false;
+    }
     const auto lambda = TCoLambda(filter->GetFilterExpression().Node);
     auto peepholeIsNeeded = [&](const TExprNode::TPtr& node) -> bool {
         // Here is a list of Callables for which peephole is needed.

@@ -69,6 +69,10 @@ public:
     TStatus DoApplyAsyncChanges(NYql::TExprNode::TPtr input, NYql::TExprNode::TPtr& output, NYql::TExprContext& ctx) final;
     void AddPlans(std::optional<NJson::TJsonValue> execPlan, std::optional<NJson::TJsonValue> explainPlan);
 
+    // Supply bound, typed native roots before starting the transformer. This
+    // entry bypasses the YQL tree search and PlanConverter entirely.
+    void SetNativeRoots(TVector<TIntrusivePtr<TOpRoot>> roots);
+
     void Rewind() override;
 
 private:
@@ -107,6 +111,7 @@ private:
 
     // Flag to reset the check of original type for multiple statement queries
     bool ResetTypes = false;
+    bool NativeRoots = false;
 
     TVector<TIntrusivePtr<TOpRoot>> Roots;
     TRuleBasedOptimizer RBO;

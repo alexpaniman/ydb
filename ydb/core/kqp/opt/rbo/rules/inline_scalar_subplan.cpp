@@ -66,6 +66,9 @@ bool TInlineScalarSubplanRule::QuickMatch(const TIntrusivePtr<IOperator>& input,
 // FIXME: Need to do correct general case decorellation in the future
 
 bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) {
+    if (props.NativeExpressions) {
+        return false;
+    }
     TVector<TInfoUnitId> scalarIUs;
     for (const auto iu : input->GetSubplanIUs(props.Subplans)) {
         if (props.Subplans.At(iu).Type == ESubplanType::EXPR) {

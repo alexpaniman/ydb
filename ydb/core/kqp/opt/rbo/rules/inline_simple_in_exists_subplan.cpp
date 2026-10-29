@@ -25,12 +25,15 @@ bool TInlineSimpleInExistsSubplanRule::QuickMatch(const TIntrusivePtr<IOperator>
 }
 
 TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
-    if (input->Kind != EOperator::Filter || props.PgSyntax) {
+    if (input->Kind != EOperator::Filter || props.PgSyntax || props.NativeExpressions) {
         return input;
     }
 
     // Check that the filter lambda is a conjunction of one or more elements
     auto filter = CastOperator<TOpFilter>(input);
+    if (filter->GetFilterExpression().IsNative()) {
+        return input;
+    }
     auto lambdaBody = filter->GetFilterExpression().Node->ChildPtr(1);
 
     if (!TCoAnd::Match(lambdaBody.Get()) && !TCoNot::Match(lambdaBody.Get()) && !TCoMember::Match(lambdaBody.Get())) {

@@ -1,5 +1,7 @@
 #include "kqp_rules_include.h"
 
+#include <unordered_map>
+
 namespace {
 using namespace NYql::NNodes;
 using namespace NKikimr;
@@ -45,6 +47,62 @@ TExprBase PruneNot(const TExprBase& node) {
 }
 
 bool IsNullRejectingPredicate(const TExpression& filter) {
+    if (filter.IsNative()) {
+        using O = NFrontend::EOpcode;
+        struct TNullResult {
+            bool AlwaysNull = false;
+            bool NeverTrue = false;
+        };
+        const auto& arena = *filter.GetNativeArena();
+        std::unordered_map<NFrontend::TExprId, TNullResult> results;
+        std::vector<std::pair<NFrontend::TExprId, bool>> pending{{filter.GetNativeRoot(), false}};
+        while (!pending.empty()) {
+            const auto [id, ready] = pending.back();
+            pending.pop_back();
+            if (results.contains(id)) continue;
+            const auto& node = arena[id];
+            if (!ready) {
+                pending.emplace_back(id, true);
+                for (auto child : node.Arguments) pending.emplace_back(child, false);
+                continue;
+            }
+            bool anyNull = false, allNull = !node.Arguments.empty();
+            bool anyNeverTrue = false, allNeverTrue = !node.Arguments.empty();
+            for (auto child : node.Arguments) {
+                const auto state = results.at(child);
+                anyNull |= state.AlwaysNull;
+                allNull &= state.AlwaysNull;
+                anyNeverTrue |= state.NeverTrue;
+                allNeverTrue &= state.NeverTrue;
+            }
+            TNullResult state;
+            // This function is called only for a predicate whose columns all
+            // come from the nullable join side. Substitute NULL for each one.
+            switch (node.Op) {
+                case O::Column: state = {true, true}; break;
+                case O::Parameter: break;
+                case O::Literal:
+                    state.AlwaysNull = std::holds_alternative<std::monostate>(node.Value);
+                    state.NeverTrue = state.AlwaysNull || (std::holds_alternative<bool>(node.Value) && !std::get<bool>(node.Value));
+                    break;
+                case O::IsNull: break;
+                case O::IsNotNull: state.NeverTrue = anyNull; break;
+                case O::And: state = {allNull, anyNeverTrue}; break;
+                case O::Or: case O::Coalesce: state = {allNull, allNeverTrue}; break;
+                case O::If:
+                    if (results.at(node.Arguments[0]).AlwaysNull) {
+                        state = results.at(node.Arguments[2]);
+                    } else {
+                        state = {results.at(node.Arguments[1]).AlwaysNull && results.at(node.Arguments[2]).AlwaysNull,
+                            results.at(node.Arguments[1]).NeverTrue && results.at(node.Arguments[2]).NeverTrue};
+                    }
+                    break;
+                default: state = {anyNull, anyNull}; break;
+            }
+            results.emplace(id, state);
+        }
+        return results.at(filter.GetNativeRoot()).NeverTrue;
+    }
     auto lambda = TCoLambda(filter.GetLambda());
     auto arg = lambda.Args().Arg(0);
 

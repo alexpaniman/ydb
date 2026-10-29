@@ -289,6 +289,7 @@ TIntrusivePtr<IOperator> TExpandDistinctAggregationRule::SimpleMatchAndApply(con
         // Fast path.
         return ExpandSingleDistinct(aggregate);
     }
+    Y_ENSURE(!props.NativeExpressions, "Mixed DISTINCT aggregates require native aggregate-state expressions");
     return ExpandMultiDistinct(aggregate, props, rboCtx.ExprCtx);
 }
 
