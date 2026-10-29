@@ -1,0 +1,481 @@
+{
+  "format": "violinoscope-layout",
+  "version": 1,
+  "name": "Compilation",
+  "unit": "Compile query",
+  "paths": [
+    [
+      "Compile query",
+      "Prepare physical query"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Convert to physical plan",
+      "Peephole physical stages"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Convert to physical plan"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Compile physical query"
+    ],
+    [
+      "Compile query",
+      "Parse query"
+    ],
+    [
+      "Compile query",
+      "Prepare logical query"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Create transformer pipelines"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Rewrite select"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Convert to new RBO operators"
+    ],
+    [
+      "Compile query",
+      "Prepare logical query",
+      "Annotate types"
+    ],
+    [
+      "Compile query",
+      "Prepare logical query",
+      "Apply provider optimizations"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Compile physical query",
+      "Compile OLAP program"
+    ],
+    [
+      "Compile query",
+      "Prepare logical query",
+      "Annotate IO"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Constant folding stage"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Index selection rules"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Assign physical stages"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Inline definitions"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Build plan JSON"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Finalize new RBO operators"
+    ],
+    [
+      "Compile query",
+      "Prepare logical query",
+      "Annotate IO",
+      "Execute plan"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Invoke CBO"
+    ],
+    [
+      "Compile query",
+      "Prepare logical query",
+      "Annotate IO",
+      "Await table metadata"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Await column statistics"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query"
+    ],
+    [
+      "Compile query"
+    ],
+    [
+      "Compile query",
+      "Set up compilation"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Early pruning"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Expand aggregation"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Push filters before inlining"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Decorrelation"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Prune before inlining"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Inline in/exists subplans"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Pruning I"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Inline scalar subplans"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Physical rewrites I"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Logical rewrites II"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Logical rewrites I"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Push map elements"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Prepare for CBO"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Prune after CBO"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Inline after CBO"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Pruning II"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Inline after join filters"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Optimize physical stages"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Hash function propagation"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Rewrite right joins"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Inline join filters after CBO"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Physical rewrites II"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Run new RBO",
+      "Rule-based optimization",
+      "RBO stage: Clean up after CBO"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Build KQL query"
+    ],
+    [
+      "Compile query",
+      "Prepare physical query",
+      "Optimize query",
+      "Annotate KQL query"
+    ]
+  ],
+  "shown": [
+    "s0",
+    "s1",
+    "s2",
+    "s3",
+    "s4",
+    "s5",
+    "g3",
+    "s6",
+    "s7",
+    "s8",
+    "s9",
+    "s10",
+    "s11",
+    "s12",
+    "s13",
+    "g4",
+    "s14",
+    "s15",
+    "s16",
+    "s17",
+    "s18",
+    "s19",
+    "s20",
+    "s21",
+    "s22",
+    "s23",
+    "s24"
+  ],
+  "open": [
+    "s2",
+    "s4",
+    "s7",
+    "s5",
+    "s1",
+    "g3",
+    "s0",
+    "s14"
+  ],
+  "skip": [
+    "s25"
+  ],
+  "parents": {
+    "g3": "s26"
+  },
+  "order": {
+    "g3": [
+      "s27",
+      "s8",
+      "s6",
+      "s7",
+      "g4",
+      "s9",
+      "s10"
+    ],
+    "s1": [
+      "s28",
+      "s29",
+      "s30",
+      "s22",
+      "s15",
+      "s31",
+      "s32",
+      "s33",
+      "s16",
+      "s17",
+      "s18",
+      "s34",
+      "s35",
+      "s36",
+      "s37",
+      "s38",
+      "s39",
+      "s40",
+      "s41",
+      "s42",
+      "s43",
+      "s44",
+      "s45",
+      "s46",
+      "s47",
+      "s48",
+      "s49",
+      "s50"
+    ]
+  },
+  "groups": [
+    {
+      "id": "g3",
+      "name": "YQL before new RBO",
+      "parts": [
+        "s27",
+        "s6",
+        "s7",
+        "s8",
+        "s9",
+        "s10",
+        "g4"
+      ]
+    },
+    {
+      "id": "g4",
+      "name": "Build & annotate KQL query",
+      "parts": [
+        "s51",
+        "s52"
+      ]
+    }
+  ]
+}
