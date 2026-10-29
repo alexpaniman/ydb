@@ -38,7 +38,7 @@ ydb/tests/tools/kqprun/kqprun \
 python3 ~/projects/violinoscope/violinoscope.py spans.jsonl --unit 'Compile query'
 ```
 
-`--trace-file` overwrites the destination and streams complete OTLP JSON lines rather than retaining all spans in memory. Normal finalization allows 300 ms for spans ending after the query response, then checks the writer. The option traces query/script requests, not schema creation. Generic query requests also record the input basename as `query.name` and their ordinal as `query.index`, without adding query text. `--trace-id` remains the existing text correlation ID; it does not enable span collection.
+`--trace-file` overwrites the destination and streams complete protobuf JSON spans in OTLP resource envelopes rather than retaining all spans in memory. This local format uses base64 IDs and enum names; Violinoscope accepts it directly. For ingestion into a Collector or tracing backend, use the server’s OTLP/gRPC exporter described below. Normal finalization allows 300 ms for spans ending after the query response, then checks the writer. The option traces query/script requests, not schema creation. Generic query requests also record the input basename as `query.name` and their ordinal as `query.index`, without adding query text. `--trace-id` remains the existing text correlation ID; it does not enable span collection.
 
 ## Collect from a cluster
 
