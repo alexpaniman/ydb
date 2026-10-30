@@ -677,6 +677,74 @@ private:
         return negative ? Program.Expressions.Unary(EOpcode::Negate, literal, syntax.Position) : literal;
     }
 
+    TExprId Like(TExprId input, TExprId patternId, TSourcePosition pos) {
+        auto& arena = Program.Expressions;
+        const auto pattern = arena[patternId];
+        if (pattern.Op != EOpcode::Literal || !pattern.Type.IsString() || !std::holds_alternative<std::string>(pattern.Value))
+            throw TUnsupportedFeature(EFeature::Expression, pos, "native LIKE requires a constant string pattern");
+        const auto& text = std::get<std::string>(pattern.Value);
+        if (text.find_first_of("_\\") != std::string::npos)
+            throw TUnsupportedFeature(EFeature::Expression, pos, "native LIKE supports literal text and % wildcards; _ and escapes are outside the profile");
+        if (text.size() > std::numeric_limits<std::uint32_t>::max())
+            throw TResourceLimitError(pos, "LIKE pattern exceeds Uint32 string length");
+        const bool leading = text.starts_with('%'), trailing = text.ends_with('%');
+        std::vector<std::string> pieces;
+        for (std::size_t start = 0; start < text.size();) {
+            const auto end = text.find('%', start);
+            if (end != start) pieces.push_back(text.substr(start, end == std::string::npos ? end : end - start));
+            if (end == std::string::npos) break;
+            start = end + 1;
+        }
+        if (pieces.size() <= 1) {
+            const auto literal = arena.Literal(pattern.Type.Required(), pieces.empty() ? std::string{} : pieces.front(), pos);
+            const auto op = leading && trailing ? EOpcode::Contains : leading ? EOpcode::EndsWith : trailing ? EOpcode::StartsWith : EOpcode::Equal;
+            return arena.Binary(op, input, literal, pos);
+        }
+        // YQL uses regex matching for these forms: NULL/invalid UTF-8 returns
+        // false. A leading literal also adds a nullable prefix predicate.
+        // Preserve both its values and its metadata without retaining regexes.
+        const bool regexSemantics = pieces.size() > 2 || leading || trailing;
+        if (arena[input].Type.Kind == ETypeKind::Null)
+            return arena.Literal({ETypeKind::Bool, !regexSemantics || !leading}, regexSemantics ? TScalar{false} : TScalar{std::monostate{}}, pos);
+        if (!arena[input].Type.IsString()) throw TFrontendError(pos, "LIKE requires a string input");
+        const bool nullable = arena[input].Type.Nullable;
+        auto result = regexSemantics ? arena.Unary(EOpcode::IsNotNull, arena.Cast(input, {ETypeKind::Utf8}, pos), pos) :
+            arena.Literal({ETypeKind::Bool}, true, pos);
+        // % consumes any byte sequence. Ordered searches need no regex object,
+        // substring copies or semantic lowering in the execution model.
+        input = arena.Cast(input, {ETypeKind::String}, pos);
+        const auto zero = arena.Literal({ETypeKind::Uint32}, std::uint64_t{0}, pos);
+        auto offset = zero;
+        for (std::size_t i = 0; i < pieces.size(); ++i) {
+            const auto literal = arena.Literal({ETypeKind::String}, pieces[i], pos);
+            const auto length = arena.Literal({ETypeKind::Uint32}, static_cast<std::uint64_t>(pieces[i].size()), pos);
+            TExprId matches;
+            if (i == 0 && !leading) {
+                matches = arena.Binary(EOpcode::StartsWith, input, literal, pos);
+                offset = length;
+            } else if (i + 1 == pieces.size() && !trailing) {
+                // A suffix may occur earlier too; require the final occurrence
+                // to start after the already consumed prefix (no overlap).
+                const auto end = arena.Binary(EOpcode::Add, arena.Convert(offset, {ETypeKind::Uint64}, pos), arena.Convert(length, {ETypeKind::Uint64}, pos), pos);
+                const auto fits = arena.Binary(EOpcode::GreaterEqual, arena.Unary(EOpcode::Length, input, pos), end, pos);
+                matches = arena.Binary(EOpcode::And, arena.Binary(EOpcode::EndsWith, input, literal, pos), fits, pos);
+            } else {
+                const auto found = arena.Find(input, literal, offset, pos);
+                matches = arena.Unary(EOpcode::IsNotNull, found, pos);
+                const TExprId alternatives[]{found, zero};
+                offset = arena.Binary(EOpcode::Add, arena.Coalesce(alternatives, pos), length, pos);
+            }
+            result = arena.Binary(EOpcode::And, result, matches, pos);
+        }
+        if (regexSemantics) {
+            const TExprId alternatives[]{result, arena.Literal({ETypeKind::Bool}, false, pos)};
+            result = arena.Coalesce(alternatives, pos);
+            if (!leading && nullable) result = arena.Convert(result, {ETypeKind::Bool, true}, pos);
+        } else if (nullable)
+            result = arena.If(arena.Unary(EOpcode::IsNull, input, pos), arena.Literal({ETypeKind::Bool, true}, std::monostate{}, pos), result, pos);
+        return result;
+    }
+
     TExprId InResult(TExprId lookup, TExprId result, TSourcePosition pos) {
         if (AnsiIn) return result;
         auto& arena = Program.Expressions;
@@ -759,23 +827,7 @@ private:
                     {"=", EOpcode::Equal}, {"==", EOpcode::Equal}, {"!=", EOpcode::NotEqual}, {"<>", EOpcode::NotEqual},
                     {"<", EOpcode::Less}, {"<=", EOpcode::LessEqual}, {">", EOpcode::Greater}, {">=", EOpcode::GreaterEqual},
                     {"AND", EOpcode::And}, {"OR", EOpcode::Or}, {"||", EOpcode::Concat}};
-                if (syntax.Text == "LIKE") {
-                    const auto& pattern = arena[right];
-                    if (pattern.Op != EOpcode::Literal || !pattern.Type.IsString() || !std::holds_alternative<std::string>(pattern.Value)) {
-                        throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "native LIKE requires a constant string pattern");
-                    }
-                    auto text = std::get<std::string>(pattern.Value);
-                    const bool leading = !text.empty() && text.front() == '%';
-                    const bool trailing = !text.empty() && text.back() == '%';
-                    if (leading) text.erase(text.begin());
-                    if (trailing && !text.empty()) text.pop_back();
-                    if (text.find_first_of("%_\\") != std::string::npos) {
-                        throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "native LIKE supports only a literal with leading/trailing %");
-                    }
-                    const auto literal = arena.Literal(pattern.Type, text, syntax.Position);
-                    const auto op = leading && trailing ? EOpcode::Contains : leading ? EOpcode::EndsWith : trailing ? EOpcode::StartsWith : EOpcode::Equal;
-                    result = arena.Binary(op, left, literal, syntax.Position);
-                }
+                if (syntax.Text == "LIKE") result = Like(left, right, syntax.Position);
                 else if (syntax.Text == "XOR") {
                     if (arena[left].Type.Kind != ETypeKind::Bool || arena[right].Type.Kind != ETypeKind::Bool) {
                         throw TFrontendError(syntax.Position, "XOR requires Boolean operands");
@@ -1171,7 +1223,7 @@ std::string_view SupportManifest() {
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

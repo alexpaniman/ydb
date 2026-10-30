@@ -265,6 +265,45 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         UNIT_ASSERT_EXCEPTION(Compile("SELECT 'abc' LIKE 'a_c'", Catalog), TFrontendError);
     }
 
+    Y_UNIT_TEST(PercentLikePatternsMatchIndependentWildcardTable) {
+        auto words = [](std::string_view alphabet) {
+            std::vector<std::string> result{std::string{}};
+            for (std::size_t i = 0; i < result.size(); ++i) if (result[i].size() < 4) {
+                const auto prefix = result[i];
+                for (const auto ch : alphabet) result.push_back(prefix + ch);
+            }
+            return result;
+        };
+        // Dynamic programming oracle, independent of the ordered-search binder.
+        auto match = [](std::string_view text, std::string_view pattern) {
+            std::vector<bool> previous(text.size() + 1), current(text.size() + 1);
+            previous[0] = true;
+            for (const char ch : pattern) {
+                current[0] = ch == '%' && previous[0];
+                for (std::size_t i = 1; i <= text.size(); ++i)
+                    current[i] = ch == '%' ? previous[i] || current[i - 1] : previous[i - 1] && text[i - 1] == ch;
+                previous.swap(current);
+            }
+            return bool(previous.back());
+        };
+        const auto inputs = words("ab");
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) for (const auto& pattern : words("ab%")) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto compiled = CompileNative("DECLARE $s AS String; SELECT $s LIKE '" + pattern + "' AS v", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto expression = Find(program, ERelation::Map).Definitions[0].Expression;
+            UNIT_ASSERT(program.Expressions[expression].Type == (TType{ETypeKind::Bool}));
+            TEvaluationContext context;
+            for (const auto& input : inputs) {
+                context.Parameter = [&](auto) { return TValue{{ETypeKind::String}, input}; };
+                UNIT_ASSERT_VALUES_EQUAL_C(std::get<bool>(Evaluate(program.Expressions, expression, context).Data), match(input, pattern), input + " LIKE " + pattern);
+            }
+        }
+        UNIT_ASSERT_EXCEPTION(CompileNative("SELECT 'abc' LIKE 'a_c'", Catalog), TUnsupportedFeature);
+        UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $p AS String; SELECT 'abc' LIKE $p", Catalog), TUnsupportedFeature);
+    }
+
     Y_UNIT_TEST(LinearProjectionGrowth) {
         std::string sql = "SELECT ";
         for (unsigned i = 0; i < 2000; ++i) sql += (i ? "," : "") + std::string("value + ") + std::to_string(i) + " AS c" + std::to_string(i);

@@ -228,7 +228,7 @@ private:
                 if (!types[0].Nullable) return Lift(args[0], type);
                 auto actual = type.Optional();
                 auto result = args[0];
-                for (std::size_t i = 1; i < args.size(); ++i) result = Call("Coalesce", {result, args[i]}, actual);
+                for (std::size_t i = 1; i < args.size(); ++i) result = Call("Coalesce", {result, Lift(args[i], actual)}, actual);
                 return type.Nullable ? result : Call("Unwrap", {result}, type);
             }
             case O::Abs: return Call("Abs", std::move(args), type);
@@ -242,6 +242,7 @@ private:
             case O::Concat: return Call("Concat", std::move(args), type);
             case O::Lower: case O::Upper: return StringCase(args[0], type, node.Op == O::Upper);
             case O::Substring: return Call("Substring", std::move(args), type);
+            case O::Find: return Call("Find", std::move(args), type);
         }
         throw NFrontend::TFrontendError(node.Position, "unknown native opcode");
     }

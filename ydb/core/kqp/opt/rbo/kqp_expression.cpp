@@ -469,6 +469,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::Concat: return "Concat";
         case TNativeOp::Ensure: return "Ensure";
         case TNativeOp::StablePickle: return "StablePickle";
+        case TNativeOp::Find: return "Find";
     }
     Y_UNREACHABLE();
 }

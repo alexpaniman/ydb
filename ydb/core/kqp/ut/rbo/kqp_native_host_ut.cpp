@@ -242,7 +242,9 @@ TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
                 std::optional<TInstant>{TInstant::ParseIso8601(id == 102 ? "1999-01-02T00:00:00Z" : id >= 100 ? "1999-01-01T00:00:00Z" : id == 3 ? "1995-03-15T00:00:00Z" : "1995-03-14T00:00:00Z")})
             .AddMember("o_shippriority").OptionalInt32(0)
             .AddMember("o_clerk").OptionalUtf8(std::nullopt)
-            .AddMember("o_comment").OptionalUtf8(std::nullopt)
+            .AddMember("o_comment").OptionalUtf8(id == 6 ? std::nullopt : std::optional<std::string>{
+                id == 1 ? "special big requests" : id == 4 ? "specialrequests" : id == 8 ? "special requests special" :
+                id == 99 ? "special and requests" : id == 3 ? "requests before special" : "ordinary"})
             .AddMember("o_orderpriority").OptionalUtf8(std::nullopt)
             .AddMember("o_orderstatus").OptionalUtf8(id < 100 ? std::nullopt : std::optional<std::string>{id == 104 ? "O" : "F"})
             .AddMember("o_totalprice");
@@ -252,17 +254,17 @@ TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
     }
     orders.EndList();
     parts.BeginList();
-    for (const i64 id : {1, 2, 3, 4, 5, 6, 7, 8}) {
+    for (const i64 id : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}) {
         parts.AddListItem().BeginStruct()
             .AddMember("p_partkey").Int64(id)
-            .AddMember("p_brand").OptionalUtf8(id == 1 ? "Brand#12" : id == 2 ? "Brand#23" : "Brand#34")
+            .AddMember("p_brand").OptionalUtf8(id == 1 ? "Brand#12" : id == 2 ? "Brand#23" : id == 11 ? "Brand#45" : "Brand#34")
             .AddMember("p_container").OptionalUtf8(id == 1 ? "SM BOX" : id == 2 ? "MED BOX" : "LG BOX")
-            .AddMember("p_size").OptionalInt32(id < 5 ? 3 : id == 7 ? 14 : 15)
+            .AddMember("p_size").OptionalInt32(id < 5 ? 3 : id == 7 || id >= 9 ? 14 : 15)
             .AddMember("p_comment").OptionalUtf8(std::nullopt)
             .AddMember("p_mfgr").OptionalUtf8("Maker")
             .AddMember("p_name").OptionalUtf8(std::nullopt)
             .AddMember("p_retailprice").EmptyOptional(decimalType)
-            .AddMember("p_type").OptionalUtf8(id < 5 ? std::nullopt : std::optional<std::string>{id == 8 ? "LARGE TIN" : "LARGE BRASS"})
+            .AddMember("p_type").OptionalUtf8(id < 5 ? std::nullopt : std::optional<std::string>{id == 10 ? "MEDIUM POLISHED BRASS" : id == 8 || id == 12 ? "LARGE TIN" : "LARGE BRASS"})
             .EndStruct();
     }
     parts.EndList();
@@ -288,7 +290,8 @@ TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
         .AddMember("s_acctbal").BeginOptional().Decimal(TDecimalValue(id == 2 ? "200" : id == 3 ? "999" : "100", 12, 2)).EndOptional()
         .AddMember("s_address").OptionalUtf8("Address")
         .AddMember("s_phone").OptionalUtf8("Phone")
-        .AddMember("s_comment").OptionalUtf8(std::nullopt).EndStruct();
+        .AddMember("s_comment").OptionalUtf8(id == 1 || id == 5 ? std::nullopt : std::optional<std::string>{
+            id == 3 ? "Customer repeated Complaints" : id == 6 ? "CustomerComplaints" : id == 4 ? "Complaints Customer" : "ordinary"}).EndStruct();
     suppliers.EndList();
     partsupp.BeginList();
     // Tied European minima for part 5; lower Asian/missing-nation costs must
@@ -296,7 +299,11 @@ TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
     // fail size/type filters even though their supply costs qualify.
     for (const auto& [part, supplier, cost] : std::initializer_list<std::tuple<i64, i64, const char*>>{
             {5, 1, "10"}, {5, 2, "10"}, {5, 3, "1"}, {5, 4, "11"}, {5, 5, "0"},
-            {6, 1, "20"}, {6, 2, nullptr}, {7, 1, "1"}, {8, 1, "1"}}) {
+            {6, 1, "20"}, {6, 2, nullptr}, {7, 1, "1"}, {8, 1, "1"},
+            // Q16: distinct suppliers across parts, excluded complaint suppliers,
+            // a reversed comment pattern, and filtered brand/type/size values.
+            {7, 2, "9"}, {7, 3, "8"}, {9, 1, "9"}, {9, 4, "10"}, {9, 6, "10"},
+            {10, 1, "10"}, {11, 1, "10"}, {12, 2, "10"}}) {
         partsupp.AddListItem().BeginStruct()
             .AddMember("ps_partkey").Int64(part).AddMember("ps_suppkey").Int64(supplier)
             .AddMember("ps_availqty").OptionalInt32(100).AddMember("ps_comment").OptionalUtf8(std::nullopt)
@@ -317,20 +324,40 @@ $to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
 $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
-    for (const auto [query, expectedRows] : {std::pair{1, 4}, {2, 3}, {3, 2}, {17, 1}, {18, 3}, {19, 1}, {21, 2}, {22, 2}}) {
+    for (const auto [query, expectedRows] : {std::pair{1, 4}, {2, 3}, {3, 2}, {13, 4}, {16, 2}, {17, 1}, {18, 3}, {19, 1}, {21, 2}, {22, 2}}) {
         Cerr << "TPC-H Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpch/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
         UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
         UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
         UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
-        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), expectedRows);
+        UNIT_ASSERT_VALUES_EQUAL_C(result.GetResultSet(0).RowsCount(), expectedRows, SnapshotRows(result.GetResultSet(0)).Values);
         if (query == 2) {
             TResultSetParser values(result.GetResultSet(0));
             for (const auto [part, supplier] : {std::pair{5, "Supplier2"}, {5, "Supplier1"}, {6, "Supplier1"}}) {
                 UNIT_ASSERT(values.TryNextRow());
                 UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("p_partkey").GetInt64(), part);
                 UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("s_name").GetOptionalUtf8().value(), supplier);
+            }
+        }
+        if (query == 13) {
+            TResultSetParser values(result.GetResultSet(0));
+            // YQL's complex LIKE returns false for NULL, so customer 103's
+            // NULL-comment order satisfies NOT LIKE and contributes one.
+            for (const auto& [orders, customers] : {std::pair{0, 10}, {7, 1}, {2, 1}, {1, 1}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("c_count").GetUint64(), orders);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("custdist").GetUint64(), customers);
+            }
+        }
+        if (query == 16) {
+            TResultSetParser values(result.GetResultSet(0));
+            for (const auto& [type, suppliers] : {std::pair{"LARGE BRASS", 3}, {"LARGE TIN", 1}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("p_brand").GetOptionalUtf8().value(), "Brand#34");
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("p_type").GetOptionalUtf8().value(), type);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("p_size").GetOptionalInt32().value(), 14);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("supplier_cnt").GetUint64(), suppliers);
             }
         }
         if (query == 17) {
@@ -894,6 +921,39 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             }
         }
         UNIT_ASSERT_C(failures.empty(), failures);
+    }
+
+    Y_UNIT_TEST(RuntimePercentLikePatternsMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const char* patterns[]{"", "%", "%%", "a%b", "%a%b%", "a%b%", "%a%b", "ab%b", "%ab%ba%", "a%%b%a", "%Customer%Complaints%", "%é%ж%"};
+        for (const bool utf8 : {false, true}) {
+            TVector<std::optional<std::string>> inputs{std::nullopt, "", "a", "ab", "abb", "abc", "aba", "abba", "aaabbb", "a\nb", std::string{"a\0b", 3}, "Customer Complaints", "Complaints Customer", "é_ж"};
+            if (!utf8) {
+                inputs.push_back(std::string{"a\xff" "b", 3});
+                inputs.push_back(std::string{"\xc0\xaf" "ab", 4});
+            }
+            TString sql = utf8 ? "DECLARE $s AS Utf8?; SELECT " : "DECLARE $s AS String?; SELECT ";
+            for (std::size_t i = 0; i < std::size(patterns); ++i) {
+                if (i) sql += ", ";
+                sql += TStringBuilder() << "$s LIKE '" << patterns[i] << "' AS v" << i;
+            }
+            for (const auto& input : inputs) {
+                auto builder = TParamsBuilder();
+                auto& value = builder.AddParam("$s");
+                if (utf8) value.OptionalUtf8(input).Build();
+                else value.OptionalString(input).Build();
+                const auto params = builder.Build();
+                const auto expected = legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                UNIT_ASSERT_C(expected.IsSuccess(), expected.GetIssues().ToString());
+                const auto actual = native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                UNIT_ASSERT_C(actual.IsSuccess(), actual.GetIssues().ToString());
+                UNIT_ASSERT_C(actual.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, actual.GetIssues().ToString());
+                AssertSame(Snapshot(actual), Snapshot(expected));
+            }
+        }
     }
 
     Y_UNIT_TEST(RuntimeFloatingCastsAndSubstringMatchLegacy) {

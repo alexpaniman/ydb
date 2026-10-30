@@ -20,6 +20,27 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(CoalesceNullabilitySurvivesReconstruction) {
+        TExpressionArena arena;
+        const auto optional = arena.Column(0, {K::Uint32, true});
+        const auto fallback = arena.Column(1, {K::Uint32});
+        const TExprId alternatives[]{optional, fallback};
+        const auto result = arena.Coalesce(alternatives);
+        UNIT_ASSERT(arena[result].Type == TType{K::Uint32});
+        TExpressionArena imported;
+        const auto copied = imported.Import(arena, result, [&](auto id, auto type, auto pos) { return imported.Column(id + 10, type, pos); });
+        UNIT_ASSERT(imported[copied].Type == TType{K::Uint32});
+        const auto nullable = arena.RewriteColumns(result, [&](auto, auto id, auto type, auto pos) { return arena.Column(id, type.Optional(), pos); });
+        UNIT_ASSERT(arena[nullable].Type == (TType{K::Uint32, true}));
+        const auto constants = arena.RewriteColumns(result, [&](auto, auto id, auto type, auto pos) {
+            return arena.Literal(type, id == 0 ? TScalar{std::monostate{}} : TScalar{std::uint64_t{7}}, pos);
+        });
+        const TExprId roots[]{constants};
+        const auto folded = arena.FoldConstants(roots).front();
+        UNIT_ASSERT(arena[folded].Type == TType{K::Uint32});
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), "7");
+    }
+
     Y_UNIT_TEST(StableKeysPreserveNullAndFloatingEquivalence) {
         TExpressionArena arena;
         const auto column = arena.Column(7, {K::Double, true});

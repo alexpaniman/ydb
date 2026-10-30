@@ -481,7 +481,11 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT CAST(Double('-4.9406564584124654e-324') AS Uint64)",
             "SELECT CAST(Float('-1e-40') AS Uint8)",
             "SELECT CAST(12 AS String)", "SELECT CAST(Utf8('hello') AS String)",
-            "SELECT 'abc' LIKE '%b%'"
+            "SELECT 'abc' LIKE '%b%'", "SELECT 'ab' LIKE '%a%b%'",
+            "SELECT 'ab' LIKE 'a%b'", "SELECT 'abc' LIKE 'a%b'", "SELECT 'abb' LIKE 'a%b'",
+            "SELECT 'ab' LIKE 'ab%b'", "SELECT 'aba' LIKE '%ab%ba%'",
+            "SELECT 'abba' LIKE 'a%%b%a'", "SELECT Utf8('abc') LIKE '%a%c%'",
+            "SELECT IF(false, 'abc') LIKE '%a%b%'", "SELECT NULL LIKE '%a%b%'"
         }) {
             try {
                 CheckScalar(sql);

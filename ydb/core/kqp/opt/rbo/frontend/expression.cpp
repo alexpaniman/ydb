@@ -944,7 +944,12 @@ TExprId TExpressionArena::Coalesce(std::span<const TExprId> arguments, TSourcePo
     std::vector<TExprId> converted;
     converted.reserve(arguments.size());
     for (auto id : arguments) {
-        converted.push_back(Convert(id, type, position));
+        auto target = type;
+        const auto input = (*this)[id].Type;
+        // Keep each alternative's nullability: lifting a required fallback
+        // here loses that guarantee when a rewrite reconstructs Coalesce.
+        target.Nullable = input.Nullable || input.Kind == K::Null;
+        converted.push_back(Convert(id, target, position));
     }
     type.Nullable = nullable;
     return Append({O::Coalesce, type, position, std::move(converted), {}, {}, 0});
@@ -953,6 +958,13 @@ TExprId TExpressionArena::Coalesce(std::span<const TExprId> arguments, TSourcePo
 TExprId TExpressionArena::Ensure(TExprId value, TExprId predicate, std::string message, TSourcePosition position) {
     if ((*this)[predicate].Type != TType{K::Bool}) Fail(position, "Ensure requires a non-null Boolean predicate");
     return Append({O::Ensure, (*this)[value].Type, position, {value, predicate}, {}, std::move(message), 0});
+}
+
+TExprId TExpressionArena::Find(TExprId input, TExprId needle, TExprId offset, TSourcePosition position) {
+    const auto type = (*this)[input].Type;
+    if (!type.IsString() || (*this)[needle].Type != type.Required() || (*this)[offset].Type != TType{K::Uint32})
+        Fail(position, "Find requires matching string types, a non-null needle and a non-null Uint32 offset");
+    return Append({O::Find, {K::Uint32, true}, position, {input, needle, offset}, {}, {}, 0});
 }
 
 TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position) {
@@ -1068,6 +1080,7 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::Coalesce: return Coalesce(node.Arguments, node.Position);
         case O::Substring: return Call("Substring", node.Arguments, node.Position);
         case O::Ensure: return Ensure(node.Arguments[0], node.Arguments[1], std::move(node.Name), node.Position);
+        case O::Find: return Find(node.Arguments[0], node.Arguments[1], node.Arguments[2], node.Position);
         default:
             return node.Arguments.size() == 1 ? Unary(node.Op, node.Arguments[0], node.Position) :
                 Binary(node.Op, node.Arguments[0], node.Arguments[1], node.Position);
@@ -1293,6 +1306,10 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         const auto offset = std::get<std::uint64_t>(argument(1).Data);
         const auto count = node.Arguments.size() == 3 ? std::get<std::uint64_t>(argument(2).Data) : text.size();
         return {node.Type, offset >= text.size() ? std::string{} : text.substr(offset, std::min<std::uint64_t>(count, text.size()))};
+    }
+    if (node.Op == O::Find) {
+        const auto found = std::get<std::string>(left.Data).find(std::get<std::string>(argument(1).Data), std::get<std::uint64_t>(argument(2).Data));
+        return found == std::string::npos ? NullValue(node.Type) : TValue{node.Type, static_cast<std::uint64_t>(found)};
     }
     if (node.Op == O::Negate || node.Op == O::Abs) {
         if (auto number = std::get_if<double>(&left.Data)) {

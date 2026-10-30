@@ -116,7 +116,7 @@ Scalar types are Bool, signed/unsigned integers, Float/Double, String/Utf8,
 Date/Datetime/Timestamp/Interval, Decimal, Null, and one optional layer. Arithmetic,
 comparisons, Boolean logic, CASE/IF, COALESCE, IN lists, BETWEEN, null tests,
 byte-string concatenation, Length, StartsWith/EndsWith, ASCII case functions,
-and simple constant LIKE patterns have native operations. Primitive data
+and constant LIKE patterns containing literal text and % wildcards have native operations. Primitive data
 constructors require string literals and produce required values. Explicit
 casts cover integers, Bool, Float/Double, Decimal, and String/Utf8 (text parsing still
 requires literals). Total casts preserve non-nullability, including integer to
@@ -139,6 +139,14 @@ both 64-bit integer types), without conversion through floating point.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
 DisableAnsiInForEmptyOrNullableItemsCollections.
+
+LIKE compiles to ordered byte searches and prefix/suffix checks, with no regex
+object or runtime semantic lowering. It preserves YQL's pattern-dependent NULL
+behavior and result types: forms handled by YQL's regex matcher return false
+for NULL and invalid UTF-8; its simple string-operation forms propagate NULL.
+The native binder inserts ordinary UTF-8 casts and Boolean operations for this
+compatibility behavior. Repeated % wildcards, anchored suffixes and overlapping
+literal pieces are covered by exhaustive short-pattern tests and runtime parity.
 
 Scalar subqueries bind to typed relational results and use RBO's existing
 cardinality check: no row yields NULL and more than one row raises a runtime
@@ -207,7 +215,7 @@ Explicitly outside the profile:
   integer bound to Float before checking, admitting an out-of-range value.
   These casts remain explicit unsupported features; no existing runtime fix is
   included. Double to integer and Float to 8/16-bit integer casts are supported.
-- General LIKE patterns and unverified function aliases. Invalid aliases are
+- LIKE with _, escapes or dynamic patterns, ILIKE, and unverified function aliases. Invalid aliases are
   delegated in auto mode so legacy YQL supplies its own diagnostic.
 - String literals used as identifiers (use backticks), system columns,
   typed-string suffixes, and string escapes beyond newline,
@@ -287,17 +295,24 @@ and generated modes currently agree on these frontend routing counts:
 
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
-| TPC-H | 8/22 (Q1, Q2, Q3, Q17, Q18, Q19, Q21, Q22) | 14 |
+| TPC-H | 10/22 (Q1, Q2, Q3, Q13, Q16, Q17, Q18, Q19, Q21, Q22) | 12 |
 | TPC-DS | 37/99 | 62 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
-and profile validation, not RBO optimization or execution. TPC-H Q1, Q2, Q3, Q17, Q18, Q19, Q21 and Q22 separately
+and profile validation, not RBO optimization or execution. All ten accepted TPC-H queries separately
 have native-required execution parity on populated column tables; the accepted
 TPC-DS and ClickBench queries still need that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+The LIKE extension passed all 103 native tests. The standalone matcher compares
+all 121 patterns of up to four characters over `ab%` against all 31 strings over
+`ab`, through both parser routes. Runtime parameter tests compare 360 values
+and types with YQL, including NULL, Unicode, invalid UTF-8, newlines and embedded
+zero bytes. Reconstruction tests also verify that native COALESCE retains a
+required fallback through imports, type changes and constant folding.
 
 The IN extension passed 124 selected native, decorrelation and lookup tests,
 including 208 native populated executions across API defaults, explicit ANSI
@@ -329,13 +344,17 @@ The Decimal extension passed all 79 native tests, plus 10 compiler checks after
 correcting unsupported statistical-aggregate routing. Tests compare native
 Decimal values with the existing arithmetic implementation, execute terminal
 MiniKQL graphs without annotation, and compare runtime parameters with legacy
-SQL values/types. The unchanged checked-in TPC-H Q1, Q2, Q3, Q17, Q18, Q19, Q21 and Q22 run with the complete schema,
+SQL values/types. The ten accepted checked-in TPC-H queries run with the complete schema,
 helper prelude, maximum language version, and 16-partition column tables. Their
 nonempty results match both the legacy optimizer and the old frontend with new
 RBO. The fixture covers duplicate line items, nulls, date/quantity boundaries,
 unmatched rows, and all three Q19 OR branches. Q3 revenues are explicitly checked
 as 190 and 180; Q19 revenue is 750. Q2 checks tied European minimum costs,
-excluded suppliers, NULL costs, and size/type filters; Q17 checks a Decimal
+excluded suppliers, NULL costs, and size/type filters. Q13 checks the distribution
+of orders surviving NOT LIKE, including YQL's NULL-comment behavior, returning
+counts/distribution `(0,10), (7,1), (2,1), (1,1)`. Q16 checks distinct suppliers
+across parts, ordered complaint words and excluded brand/type/size values,
+returning supplier counts 3 and 1. Q17 checks a Decimal
 result of 1.43. Q18 checks sums above/equal to/below 300 and an all-NULL
 group, returning orders 100, 102 and 104 with quantities 301, 302 and 301;
 price/date ordering is checked with tied prices. Q21 checks duplicate qualifying late lines, competing suppliers,

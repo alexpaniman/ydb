@@ -80,7 +80,7 @@ enum class EOpcode : std::uint8_t {
     Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
     And, Or, IsNull, IsNotNull, Coalesce, If,
     Abs, Length, Lower, Upper, Contains, StartsWith, EndsWith, Substring,
-    Concat, Ensure, StablePickle,
+    Concat, Ensure, StablePickle, Find,
 };
 
 struct TExprNode {
@@ -115,6 +115,8 @@ public:
     TExprId Coalesce(std::span<const TExprId> arguments, TSourcePosition position = {});
     // Runtime assertion: check a required Boolean before evaluating its value.
     TExprId Ensure(TExprId value, TExprId predicate, std::string message, TSourcePosition position = {});
+    // Byte search: required needle and Uint32 offset, optional Uint32 result.
+    TExprId Find(TExprId input, TExprId needle, TExprId offset, TSourcePosition position = {});
     TExprId Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position = {});
 
     const TExprNode& operator[](TExprId id) const;
