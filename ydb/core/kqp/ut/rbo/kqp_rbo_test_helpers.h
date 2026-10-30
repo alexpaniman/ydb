@@ -34,7 +34,7 @@ struct TIdTestContext {
             .Path().Build("/Root/table").PathId().Build("1:1")
             .SysView().Build("").Version().Build("1").Done().Ptr();
         return MakeIntrusive<TOpRead>("", std::move(columns), NYql::EStorageType::RowStorage,
-            table, nullptr, nullptr, std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, Pos);
+            table, nullptr, std::nullopt, std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, Pos);
     }
 
     TIntrusivePtr<TOpUnionAll> Union(TIntrusivePtr<IOperator> left, TIntrusivePtr<IOperator> right,

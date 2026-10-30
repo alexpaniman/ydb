@@ -365,17 +365,17 @@ TIntrusivePtr<TOpRead> TOpRead::FromExpr(TExprNode::TPtr node, TInfoUnitRegistry
     columns.Assign(ids);
     const auto storageType = opSource.SourceType().StringValue() == "Row" ? NYql::EStorageType::RowStorage : NYql::EStorageType::ColumnStorage;
     return MakeIntrusive<TOpRead>(alias, std::move(columns), storageType, opSource.Table().Ptr(),
-        nullptr, nullptr, std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, node->Pos());
+        nullptr, std::nullopt, std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, node->Pos());
 }
 
 TOpRead::TOpRead(const TString& alias, TUnorderedIUs columns, const NYql::EStorageType storageType,
-                 const TExprNode::TPtr& tableCallable, const TExprNode::TPtr& olapFilterLambda, const TExprNode::TPtr& limit, std::optional<TRangeInfo> ranges,
+                 const TExprNode::TPtr& tableCallable, const TOlapProgram& olapProgram, std::optional<ui64> limit, std::optional<TRangeInfo> ranges,
                  const std::optional<TExpression>& originalPredicate, const ESortDir sortDir, const TPhysicalOpProps& props, TPositionHandle pos)
     : IOperator(EOperator::Source, pos, props)
     , Alias(alias)
     , StorageType(storageType)
     , TableCallable(tableCallable)
-    , OlapFilterLambda(olapFilterLambda)
+    , OlapProgram(olapProgram)
     , Limit(limit)
     , OriginalPredicate(originalPredicate)
     , SortDir(sortDir)
@@ -393,11 +393,15 @@ TUnorderedIUs TOpRead::GetRequiredColumns(TExprContext& ctx) const {
         required = OriginalPredicate->GetRawInputIUs();
         required.IntersectWith(Columns_);
     }
-    if (!OlapFilterLambda) {
+    if (OlapProgram.IsNative()) {
+        required.UnionWith(OlapProgram.Native().GetRawInputIUs());
+        return required;
+    }
+    if (!OlapProgram) {
         return required;
     }
 
-    const auto inspection = NOpt::InspectOlapProcessLambda(OlapFilterLambda);
+    const auto inspection = NOpt::InspectOlapProcessLambda(OlapProgram.Legacy());
     if (inspection.RequiresAllInputColumns) {
         return Columns_;
     }
@@ -410,16 +414,21 @@ TUnorderedIUs TOpRead::GetRequiredColumns(TExprContext& ctx) const {
     return required;
 }
 
-static std::optional<TString> GetUint64Literal(const TExprNode::TPtr& node) {
-    if (!node) {
-        return std::nullopt;
-    }
+TVector<std::reference_wrapper<const TExpression>> TOpRead::GetExpressions() const {
+    TVector<std::reference_wrapper<const TExpression>> result;
+    if (OlapProgram.IsNative()) result.push_back(std::cref(OlapProgram.Native()));
+    return result;
+}
 
-    if (auto maybeUint64 = TExprBase(node).Maybe<TCoUint64>()) {
-        return TString(maybeUint64.Cast().Literal().Cast<TCoAtom>().Value());
-    }
+void TOpRead::BindExpressionPlanProps(TPlanProps* props) {
+    IOperator::BindExpressionPlanProps(props);
+    // Statistics-only expressions must not become executable dependencies.
+    if (OriginalPredicate && OriginalPredicate->IsNative()) OriginalPredicate->BindPlanProps(props);
+}
 
-    return std::nullopt;
+void TOpRead::RewriteExpressions(const TExpressionRewrite& rewrite) {
+    if (OlapProgram.IsNative()) OlapProgram.Native() = rewrite(OlapProgram.Native());
+    if (OriginalPredicate && OriginalPredicate->IsNative()) OriginalPredicate = rewrite(*OriginalPredicate);
 }
 
 TString StripAliasPrefix(const TString& column) {
@@ -451,8 +460,8 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
     if (SortDir != ESortDir::None) {
         res["SortDirection"] = SortDir == ESortDir::Asc ? "asc" : "desc";
     }
-    if (const auto limit = GetUint64Literal(Limit)) {
-        res["Limit"] = *limit;
+    if (Limit) {
+        res["Limit"] = ::ToString(*Limit);
     }
 
     if (OriginalPredicate && !RangeInfo) {
@@ -513,12 +522,14 @@ TString TOpRead::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) 
     res << "])";
     const TString storageType = StorageType == NYql::EStorageType::RowStorage ? "Row" : "Column";
     res << " (StorageType: " << storageType << ")";
-    if (OlapFilterLambda) {
+    if (OlapProgram.IsNative()) {
+        res << " OlapFilter: (" << OlapProgram.Native().ToExplainString(registry) << ")";
+    } else if (OlapProgram) {
         THashMap<TString, TString> names;
         for (const auto id : GetRequiredColumns(ctx)) {
             names.emplace(ctx.GetIndexAsString(id), registry.GetDebugName(id));
         }
-        res << " OlapFilter: (" << PrintRBOExpression(NOpt::TOlapFilterInspector::RenameColumns(OlapFilterLambda, names, ctx), ctx) << ")";
+        res << " OlapFilter: (" << PrintRBOExpression(NOpt::TOlapFilterInspector::RenameColumns(OlapProgram.Legacy(), names, ctx), ctx) << ")";
     }
     if (const auto ranges = GetRanges()) {
         res << " Ranges: (" << PrintRBOExpression(ranges, ctx) << ")";

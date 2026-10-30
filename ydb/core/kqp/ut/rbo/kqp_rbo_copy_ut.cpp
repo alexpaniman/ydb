@@ -81,7 +81,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
         UNIT_ASSERT(!CanDuplicateSubtree(*filter, f.Props.Subplans));
         auto read = f.Read({source});
         UNIT_ASSERT(CanDuplicateOperator(*read));
-        read->Limit = f.Constant().Node;
+        read->Limit = 1;
         UNIT_ASSERT(!CanDuplicateOperator(*read));
     }
 
@@ -95,7 +95,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
                 read->OriginalPredicate = predicate;
             } else {
                 const auto row = f.ExprCtx.NewArgument(f.Pos, "row");
-                read->OlapFilterLambda = f.ExprCtx.NewLambda(f.Pos,
+                read->OlapProgram.Legacy() = f.ExprCtx.NewLambda(f.Pos,
                     f.ExprCtx.NewArguments(f.Pos, {row}), TExprNode::TPtr(row));
             }
 
@@ -145,7 +145,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             auto read = f.Read({key, value});
             read->Alias = "table";
             read->SortDir = ESortDir::Desc;
-            read->Limit = f.Constant().Node;
+            read->Limit = 1;
             read->Props.StageId = 7;
             f.SetType(*read);
             auto hub = TReplicate::Create(read, f.Pos, f.Props.InfoUnitRegistry);

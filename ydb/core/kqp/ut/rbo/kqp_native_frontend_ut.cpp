@@ -82,6 +82,74 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(OlapPredicatesStayNativeThroughPushdownPruningAndCopy) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto key = f.Id("key"), payload = f.Id("payload"), unused = f.Id("unused");
+        auto read = f.Read({key, payload, unused});
+        read->StorageType = NYql::EStorageType::ColumnStorage;
+        f.SetType(*read, {key});
+        auto arena = std::make_shared<TExpressionArena>();
+        const auto value = arena->Column(key, {ETypeKind::Int32, true});
+        const auto positive = arena->Binary(EOpcode::Greater, value, arena->Literal({ETypeKind::Int32}, std::int64_t{0}));
+        auto expression = TExpression::FromNative(arena, positive, &f.ExprCtx, &f.Props);
+        auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, expression);
+        auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
+            UNIT_FAIL("native OLAP pushdown invoked YQL annotation");
+            return IGraphTransformer::TStatus::Error;
+        });
+        TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+        TPushOlapFilterRule rule;
+        const auto pushed = rule.SimpleMatchAndApply(filter, context, f.Props);
+        UNIT_ASSERT(pushed->Kind == EOperator::Source);
+        auto& source = CastOperator<TOpRead>(*pushed);
+        UNIT_ASSERT(source.OlapProgram.IsNative());
+        UNIT_ASSERT(!source.OlapProgram.Native().Node);
+        UNIT_ASSERT(source.GetRequiredColumns(f.ExprCtx) == TUnorderedIUs{key});
+        TSubstitutions renames;
+        const auto copied = source.Copy(f.Props, renames);
+        UNIT_ASSERT(copied);
+        const auto& copy = CastOperator<TOpRead>(*copied);
+        UNIT_ASSERT(copy.OlapProgram.IsNative());
+        UNIT_ASSERT(copy.OlapProgram.Native().GetNativeArena() == arena);
+        UNIT_ASSERT(copy.GetRequiredColumns(f.ExprCtx) == TUnorderedIUs{*renames.Find(key)});
+        auto root = f.Root(pushed, {{payload, "payload"}});
+        TGlobalPruningStage("prune").RunStage(*root, context);
+        UNIT_ASSERT(source.GetColumns() == (TUnorderedIUs{key, payload}));
+        UNIT_ASSERT(!source.OlapProgram.Native().Node);
+
+        // Discarding NULL before a checked expression could suppress an error.
+        const auto checked = arena->Ensure(value, arena->Literal({ETypeKind::Bool}, false), "checked");
+        const auto failure = arena->Binary(EOpcode::Greater, checked, arena->Literal({ETypeKind::Int32}, std::int64_t{0}));
+        const auto text = arena->Cast(value, {ETypeKind::String});
+        const auto length = arena->Binary(EOpcode::Greater, arena->Unary(EOpcode::Length, text), arena->Literal({ETypeKind::Uint32}, std::uint64_t{1}));
+        for (const bool canFail : {false, true}) for (const bool first : {false, true}) {
+            const auto remaining = canFail ? failure : length;
+            const auto predicate = arena->Binary(EOpcode::And, first ? positive : remaining, first ? remaining : positive);
+            auto fresh = f.Read({key, payload}); fresh->StorageType = NYql::EStorageType::ColumnStorage;
+            auto original = MakeIntrusive<TOpFilter>(fresh, f.Pos, TExpression::FromNative(arena, predicate, &f.ExprCtx, &f.Props));
+            const auto result = rule.SimpleMatchAndApply(original, context, f.Props);
+            UNIT_ASSERT(result->Kind == EOperator::Filter);
+            const auto& input = CastOperator<TOpRead>(*CastOperator<TOpFilter>(*result).GetInput());
+            UNIT_ASSERT_VALUES_EQUAL(bool(input.OlapProgram), first && !canFail);
+        }
+        const auto external = arena->Column(unused, {ETypeKind::Int32});
+        auto fresh = f.Read({key, payload}); fresh->StorageType = NYql::EStorageType::ColumnStorage;
+        const auto externalFilter = MakeIntrusive<TOpFilter>(fresh, f.Pos,
+            TExpression::FromNative(arena, arena->Binary(EOpcode::Greater, value, external), &f.ExprCtx, &f.Props));
+        UNIT_ASSERT(rule.SimpleMatchAndApply(externalFilter, context, f.Props) == externalFilter);
+        const auto mixedExternal = MakeIntrusive<TOpFilter>(fresh, f.Pos,
+            TExpression::FromNative(arena, arena->Binary(EOpcode::And, positive,
+                externalFilter->GetFilterExpression().GetNativeRoot()), &f.ExprCtx, &f.Props));
+        UNIT_ASSERT(rule.SimpleMatchAndApply(mixedExternal, context, f.Props) == mixedExternal);
+        const auto parameter = arena->Parameter("flag", {ETypeKind::Bool, true});
+        for (const bool first : {false, true}) {
+            const auto logical = arena->Binary(EOpcode::Or, first ? parameter : positive, first ? positive : parameter);
+            UNIT_ASSERT(!CanLowerNativeOlapPredicate(*arena, logical));
+        }
+        UNIT_ASSERT(!CanLowerNativeOlapPredicate(*arena, parameter));
+    }
+
     Y_UNIT_TEST(IntegerComparisonsLowerDirectlyForEveryWidth) {
         using namespace NFrontend;
         using K = ETypeKind;

@@ -139,7 +139,7 @@ TIntrusivePtr<IOperator> TPushOlapProjectionRule::SimpleMatchAndApply(const TInt
     }
 
     const auto olapProcess =
-        read->OlapFilterLambda ? TCoLambda(read->OlapFilterLambda) :
+        read->OlapProgram ? TCoLambda(read->OlapProgram.Legacy()) :
             // clang-format off
             Build<TCoLambda>(ctx.ExprCtx, read->Pos)
                 .Args({"arg_0"})

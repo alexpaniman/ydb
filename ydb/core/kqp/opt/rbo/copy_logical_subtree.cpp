@@ -61,7 +61,7 @@ bool IsRepeatable(const IOperator& op) {
 
 // Embedded programs need column-ID and row-schema rebinding in CopyImpl.
 bool CanCopyRead(const TOpRead& read) {
-    return !read.OlapFilterLambda && !read.OriginalPredicate;
+    return (!read.OlapProgram || read.OlapProgram.IsNative()) && (!read.OriginalPredicate || read.OriginalPredicate->IsNative());
 }
 
 TInfoUnitId CopyDefinition(TInfoUnitId id, TInfoUnitRegistry& registry, TSubstitutions& renames) {
@@ -266,8 +266,11 @@ TIntrusivePtr<IOperator> TOpRead::CopyImpl(TInfoUnitRegistry& registry, TSubstit
     if (!CanCopyRead(*this)) {
         return nullptr;
     }
-    return MakeIntrusive<TOpRead>(Alias, CopyColumns(Columns_, registry, renames), StorageType,
-        TableCallable, nullptr, Limit, RangeInfo, std::nullopt, SortDir, TPhysicalOpProps{}, Pos);
+    auto columns = CopyColumns(Columns_, registry, renames);
+    const auto program = OlapProgram.IsNative() ? TOlapProgram(OlapProgram.Native().ApplyRenames(renames)) : TOlapProgram{};
+    const auto predicate = OriginalPredicate ? std::optional<TExpression>{OriginalPredicate->ApplyRenames(renames)} : std::nullopt;
+    return MakeIntrusive<TOpRead>(Alias, std::move(columns), StorageType,
+        TableCallable, program, Limit, RangeInfo, predicate, SortDir, TPhysicalOpProps{}, Pos);
 }
 
 TIntrusivePtr<IOperator> TOpMap::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {

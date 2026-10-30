@@ -2,6 +2,7 @@
 
 #include <ydb/core/kqp/common/kqp_yql.h>
 #include <ydb/core/kqp/opt/rbo/kqp_olap_expr_inspection.h>
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <ydb/library/yql/dq/type_ann/dq_type_ann.h>
 
 #include <yql/essentials/core/yql_expr_optimize.h>
@@ -51,7 +52,7 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             if (Read.SortDir != ESortDir::None) {
                 settings.SetSorting(Read.SortDir == ESortDir::Asc ? ERequestSorting::ASC : ERequestSorting::DESC);
                 if (Read.Limit) {
-                    settings.SetItemsLimit(Read.Limit);
+                    settings.SetItemsLimit(Build<TCoUint64>(Ctx, Pos).Literal().Build(::ToString(*Read.Limit)).Done().Ptr());
                 }
             }
 
@@ -113,16 +114,17 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             .Done().Ptr();
             // clang-format on
 
-            if (Read.OlapFilterLambda) {
+            if (Read.OlapProgram) {
                 // Do not carry the optimizer's ID-keyed argument type across the
                 // storage-name boundary. The read annotator supplies the storage row.
-                processLambda = Ctx.DeepCopyLambda(*NOpt::TOlapFilterInspector::RenameColumns(
-                    Read.OlapFilterLambda, olapNames, Ctx));
+                const auto program = Read.OlapProgram.IsNative() ? LowerNativeOlapPredicate(*Read.OlapProgram.Native().GetNativeArena(),
+                    Read.OlapProgram.Native().GetNativeRoot(), Ctx, Pos) : Read.OlapProgram.Legacy();
+                processLambda = Ctx.DeepCopyLambda(*NOpt::TOlapFilterInspector::RenameColumns(program, olapNames, Ctx));
             }
 
             TKqpReadTableSettings settings;
             if (Read.Limit) {
-                settings.SetItemsLimit(Read.Limit);
+                settings.SetItemsLimit(Build<TCoUint64>(Ctx, Pos).Literal().Build(::ToString(*Read.Limit)).Done().Ptr());
             }
 
             if (Read.SortDir != ESortDir::None) {

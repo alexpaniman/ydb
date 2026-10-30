@@ -308,10 +308,39 @@ The existing decorrelation rules use these keys when equal-NULL join keys are
 disabled. Fresh forwarding operators supply native column types directly to
 scalar factories, without an additional plan annotation pass.
 
-**Plan-quality limitation:** legacy scalar peepholes, range extraction, and
-OLAP predicate/projection pushdown are currently skipped for native scalars.
-Native equivalents and plan/execution parity are required before broad rollout.
-A faster frontend alone does not prove faster complete query execution.
+Column-store predicate pushdown keeps the original native scalar DAG through
+optimization, pruning and copying. Only physical source conversion constructs
+the backend storage program. Eligibility uses native types and operations;
+it invokes no YQL annotation or peephole pipeline. Supported shapes include
+comparisons, Boolean columns/logic, numeric arithmetic, IF/COALESCE, direct-column
+null tests, parameters and simple string predicates. A supported leading
+conjunction can move into storage while the remaining predicate stays in native
+compute. Checked assertions prevent this split, preserving their error behavior.
+
+Decimal/calendar operations, nontrivial casts, comparisons that consume the same
+column twice, scalar-only Boolean branches, and predicates with external column
+dependencies stay in compute. These are storage capability boundaries, not
+frontend fallback. Native Boolean construction removes neutral operands such as
+the initial `false OR` in an IN list before storage lowering. This avoids sending
+a redundant scalar branch to the storage streaming-logic executor.
+
+Pushed read limits are plain optional Uint64 values for both frontends. Literal
+limit/top-N pushdown therefore needs no legacy expression in RBO; physical
+conversion creates the backend literal. The OLAP tests compare 40 predicates on
+populated tables across native/existing frontends with pushdown on/off, including
+NULLs, integer extremes, NaN/infinity and Unicode. They also check empty/limited
+results, nullable parameters, count-only reads, partial pushdown, result metadata,
+and storage-filter/item-limit presence in explain output.
+Validation covered all 79 standalone frontend and 395 RBO tests, with a final
+arena-suite rerun after updating its neutral-expression fixture. All execution
+tests passed, including the unchanged populated TPC-H and TPC-DS fixtures.
+
+**Plan-quality limitation:** native range extraction and OLAP projection pushdown
+are still missing, and native statistics use approximate selectivity. Legacy
+scalar peepholes are not run on native scalars. Dual scalar/storage-program
+representations still support the existing frontend during migration. Removing
+this debt and establishing plan/execution parity remain required before broad
+rollout. A faster frontend alone does not prove faster complete query execution.
 
 ## Build and test
 

@@ -496,7 +496,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
             .Path().Build("/Root/table").PathId().Build("1:1")
             .SysView().Build("").Version().Build("1").Done().Ptr();
         for (const auto storage : {NYql::EStorageType::RowStorage, NYql::EStorageType::ColumnStorage}) {
-            TOpRead read("t", {z, a, anotherZ}, storage, table, nullptr, nullptr,
+            TOpRead read("t", {z, a, anotherZ}, storage, table, nullptr, std::nullopt,
                 std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, pos);
             if (storage == NYql::EStorageType::ColumnStorage) {
                 auto row = ctx.NewArgument(pos, "row");
@@ -505,7 +505,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
                         ctx.GetIndexAsString(z), ctx.MakeType<TDataExprType>(EDataSlot::Uint64))})));
                 auto condition = ctx.NewList(pos, {ctx.NewAtom(pos, z)});
                 auto filter = ctx.NewCallable(pos, "KqpOlapFilter", {row, condition});
-                read.OlapFilterLambda = ctx.NewLambda(pos, ctx.NewArguments(pos, {row}), std::move(filter));
+                read.OlapProgram.Legacy() = ctx.NewLambda(pos, ctx.NewArguments(pos, {row}), std::move(filter));
             }
             const auto result = TPhysicalSourceBuilder(read, ctx, pos, names, registry, "stage").BuildPhysicalOp();
             TExprNode::TPtr storageRead;
@@ -519,7 +519,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
             if (storage == NYql::EStorageType::ColumnStorage) {
                 const auto process = TKqpBlockReadOlapTableRanges(storageRead).Process();
                 UNIT_ASSERT(!process.Args().Arg(0).Ref().GetTypeAnn());
-                UNIT_ASSERT(read.OlapFilterLambda->Head().Head().GetTypeAnn());
+                UNIT_ASSERT(read.OlapProgram.Legacy()->Head().Head().GetTypeAnn());
                 UNIT_ASSERT_VALUES_EQUAL(process.Body().Ref().Tail().Head().Content(), "z");
             }
             const auto columns = storage == NYql::EStorageType::RowStorage
@@ -548,7 +548,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
     Y_UNIT_TEST(EmptyOlapReadUsesOnlyAPhysicalCarrier) {
         NTests::TIdTestContext f;
         const auto table = f.Read({})->TableCallable;
-        TOpRead read("t", {}, NYql::EStorageType::ColumnStorage, table, nullptr, nullptr,
+        TOpRead read("t", {}, NYql::EStorageType::ColumnStorage, table, nullptr, std::nullopt,
             std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, f.Pos);
         const TPhysicalNames names(f.Props.InfoUnitRegistry);
         const auto ast = TPhysicalSourceBuilder(read, f.ExprCtx, f.Pos, names,

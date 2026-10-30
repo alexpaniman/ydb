@@ -665,11 +665,11 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
         auto condition = f.ExprCtx.NewList(f.Pos, {f.ExprCtx.NewAtom(f.Pos, used)});
         auto lambda = f.ExprCtx.NewLambda(f.Pos, f.ExprCtx.NewArguments(f.Pos, {row}),
             f.ExprCtx.NewCallable(f.Pos, "KqpOlapFilter", {row, condition}));
-        read->OlapFilterLambda = lambda;
+        read->OlapProgram.Legacy() = lambda;
         auto root = f.Root(std::move(read), {});
         TGlobalPruningStage("prune").RunStage(*root, f.RboCtx);
         UNIT_ASSERT(root->GetInput()->GetOutputIUs() == TUnorderedIUs{used});
-        UNIT_ASSERT(CastOperator<TOpRead>(*root->GetInput()).OlapFilterLambda == lambda);
+        UNIT_ASSERT(CastOperator<TOpRead>(*root->GetInput()).OlapProgram.Legacy() == lambda);
     }
 
     Y_UNIT_TEST(OlapPruningAllowsAnEmptyLogicalPayload) {
@@ -677,7 +677,7 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
         const auto first = f.Id(), second = f.Id();
         const auto table = f.Read({first, second})->TableCallable;
         auto read = MakeIntrusive<TOpRead>("t", TUnorderedIUs{first, second},
-            NYql::EStorageType::ColumnStorage, table, nullptr, nullptr,
+            NYql::EStorageType::ColumnStorage, table, nullptr, std::nullopt,
             std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, f.Pos);
         auto root = f.Root(std::move(read), {});
         TGlobalPruningStage("prune").RunStage(*root, f.RboCtx);

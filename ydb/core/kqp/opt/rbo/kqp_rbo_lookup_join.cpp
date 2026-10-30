@@ -156,7 +156,7 @@ std::optional<TLookupJoinRightSide> MatchLookupJoinRightSide(const TIntrusivePtr
     TOpRead::TRangeInfo rangeInfo;
     rangeInfo.PointPrefixes = source.PointPrefixes;
     auto sourceRead = MakeIntrusive<TOpRead>(read->Alias, sourceLookup->GetColumns(), NYql::EStorageType::RowStorage,
-                                             sourceLookup->Table, nullptr, nullptr, std::move(rangeInfo), source.Predicate,
+                                             sourceLookup->Table, nullptr, std::nullopt, std::move(rangeInfo), source.Predicate,
                                              ESortDir::None, sourceLookup->Props, sourceLookup->Pos);
     sourceRead->Type = sourceLookup->Type;
     return TLookupJoinRightSide{sourceRead, nullptr};

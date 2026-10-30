@@ -5,14 +5,6 @@ namespace NKqp {
 
 namespace {
 
-bool IsValidLimit(const TExpression& expression) {
-    if (expression.IsNative()) {
-        const auto& node = (*expression.GetNativeArena())[expression.GetNativeRoot()];
-        return node.Op == NFrontend::EOpcode::Literal && node.Type.Kind == NFrontend::ETypeKind::Uint64 && !node.Type.Nullable;
-    }
-    return expression.Node && !!TMaybeNode<TCoUint64>(expression.Node->ChildPtr(1));
-}
-
 // Check that sort is a last operator in the stage.
 bool IsLastOpInStage(const TIntrusivePtr<TOpSort>& sort) {
     const auto& parents = sort->Parents;
@@ -172,7 +164,7 @@ bool CanPushSortToOlapRead(const TIntrusivePtr<TOpSort>& sort, const TIntrusiveP
         }
     }
 
-    return IsValidLimit(*sort->LimitCond);
+    return sort->LimitCond->GetUint64Literal().has_value();
 }
 
 bool CanPushSortToRowRead(const TIntrusivePtr<TOpSort>& sort, const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, const TInfoUnitRegistry& registry, ui32& sortDirection) {
@@ -220,7 +212,7 @@ bool CanPushSortToRowRead(const TIntrusivePtr<TOpSort>& sort, const TIntrusivePt
     }
 
     sortDirection = ascending ? static_cast<ui32>(ESortDir::Asc) : static_cast<ui32>(ESortDir::Desc);
-    return IsValidLimit(*sort->LimitCond);
+    return sort->LimitCond->GetUint64Literal().has_value();
 }
 
 } // namespace
@@ -255,15 +247,15 @@ TIntrusivePtr<IOperator> TPropagateTopSortThroughStageRule::SimpleMatchAndApply(
         return MakeIntrusive<TOpMap>(propagatedSort, map->Pos, map->Props, mapElements);
     } else if (CanPushSortToOlapRead(sort, sortInput, ctx, props.InfoUnitRegistry, sortDirecion)) {
         const auto read = CastOperator<TOpRead>(sortInput);
-        const auto limitCond = sort->LimitCond->Node->ChildPtr(1);
-        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapFilterLambda, limitCond,
+        const auto limitCond = sort->LimitCond->GetUint64Literal();
+        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapProgram, limitCond,
                                                     read->RangeInfo, read->OriginalPredicate, static_cast<ESortDir>(sortDirecion), read->Props, read->Pos);
         // We keep sort in stage even after push to read, because cs read can return values not sorted.
         return MakeIntrusive<TOpSort>(newRead, sort->Pos, sort->Props, sort->GetSortElements(), sort->LimitCond, EOpPhase::Intermediate);
     } else if (CanPushSortToRowRead(sort, sortInput, ctx, props.InfoUnitRegistry, sortDirecion)) {
         const auto read = CastOperator<TOpRead>(sortInput);
-        const auto limitCond = sort->LimitCond->Node->ChildPtr(1);
-        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapFilterLambda, limitCond,
+        const auto limitCond = sort->LimitCond->GetUint64Literal();
+        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapProgram, limitCond,
                                       read->RangeInfo, read->OriginalPredicate, static_cast<ESortDir>(sortDirecion), read->Props, read->Pos);
         // TODO: We need to handle merge connection for row storage. So we keep sort until add them.
         return MakeIntrusive<TOpSort>(newRead, sort->Pos, sort->Props, sort->GetSortElements(), sort->LimitCond, EOpPhase::Intermediate);

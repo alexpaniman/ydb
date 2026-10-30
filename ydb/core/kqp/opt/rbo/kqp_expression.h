@@ -64,6 +64,7 @@ class TExpression {
 
     // Check if the expression is just getting a single column from a tuple
     bool IsColumnAccess() const;
+    std::optional<ui64> GetUint64Literal() const;
 
     // Check if the expression is a just a single callable on top of a column expression
     bool IsSingleCallable(const THashSet<TString>& allowedCallables) const;

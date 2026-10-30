@@ -113,7 +113,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                 case R::Read: {
                     const auto& table = tables.at(relation.Table);
                     TUnorderedIUs columns; for (auto column : relation.Columns) columns.Add(column);
-                    op = MakeIntrusive<TOpRead>("", std::move(columns), table.Storage, table.Table, nullptr, nullptr,
+                    op = MakeIntrusive<TOpRead>("", std::move(columns), table.Storage, table.Table, nullptr, std::nullopt,
                         std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, pos);
                     break;
                 }

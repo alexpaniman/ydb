@@ -958,6 +958,15 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
             Fail(position, "Boolean operation expects Bool operands");
         }
         common = result = {K::Bool, common.Nullable || common.Kind == K::Null};
+        // Neutral Boolean operands need neither execution nor an arena node.
+        // Keep the common nullability even when only one operand remains.
+        const auto neutral = [&](TExprId id) {
+            const auto& node = (*this)[id];
+            return node.Op == O::Literal && std::holds_alternative<bool>(node.Value) &&
+                std::get<bool>(node.Value) == (op == O::And);
+        };
+        if (neutral(left)) return Convert(right, common, position);
+        if (neutral(right)) return Convert(left, common, position);
     } else if (IsComparison(op)) {
         result = {K::Bool, common.Nullable || common.Kind == K::Null};
     } else if (op == O::Concat || op == O::Contains || op == O::StartsWith || op == O::EndsWith) {

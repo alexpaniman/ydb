@@ -14,6 +14,57 @@ using O = NFrontend::EOpcode;
 
 TString String(std::string_view text) { return TString(text.data(), text.size()); }
 
+TStringBuf OlapBinaryName(O op) {
+    switch (op) {
+        case O::Equal: return "eq";
+        case O::NotEqual: return "neq";
+        case O::Less: return "lt";
+        case O::LessEqual: return "lte";
+        case O::Greater: return "gt";
+        case O::GreaterEqual: return "gte";
+        case O::Add: return "+";
+        case O::Subtract: return "-";
+        case O::Multiply: return "*";
+        case O::Divide: return "/";
+        case O::Modulo: return "%";
+        case O::Coalesce: return "??";
+        case O::Contains: return "string_contains";
+        case O::StartsWith: return "starts_with";
+        case O::EndsWith: return "ends_with";
+        default: return {};
+    }
+}
+
+bool OlapIdentityConversion(const NFrontend::TExpressionArena& arena, const NFrontend::TExprNode& node) {
+    if (node.Op != O::Convert) return false;
+    const auto from = arena[node.Arguments[0]].Type;
+    return from.Required() == node.Type.Required() || (from.Kind == K::Utf8 && node.Type.Kind == K::String);
+}
+
+bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend::TExprNode& node) {
+    if (node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
+    if (OlapIdentityConversion(arena, node)) return true;
+    if (node.Op >= O::Add && node.Op <= O::Modulo && !node.Type.IsNumeric()) return false;
+    if (!OlapBinaryName(node.Op).empty()) {
+        if (node.Arguments.size() != 2) return false;
+        // The existing storage kernels cannot consume the same column twice.
+        auto column = [&](NFrontend::TExprId id) -> std::optional<NFrontend::TColumnId> {
+            while (OlapIdentityConversion(arena, arena[id])) id = arena[id].Arguments[0];
+            return arena[id].Op == O::Column ? std::optional{arena[id].ColumnId} : std::nullopt;
+        };
+        const auto left = column(node.Arguments[0]), right = column(node.Arguments[1]);
+        return !left || !right || *left != *right;
+    }
+    switch (node.Op) {
+        case O::Literal: return !std::holds_alternative<std::monostate>(node.Value);
+        case O::Column: case O::Parameter: case O::And: case O::Or: case O::Not: case O::If:
+            return true;
+        case O::Negate: case O::Abs: return node.Type.IsNumeric();
+        case O::IsNull: case O::IsNotNull: return arena[node.Arguments[0]].Op == O::Column;
+        default: return false;
+    }
+}
+
 class TLowerer {
 public:
     TLowerer(const NFrontend::TExpressionArena& arena, TExprContext& ctx, TPositionHandle pos)
@@ -332,6 +383,90 @@ NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type) {
 NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root,
     NYql::TExprContext& ctx, NYql::TPositionHandle pos) {
     return TLowerer(arena, ctx, pos).Run(root);
+}
+
+bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root) {
+    if (arena[root].Type.Kind != K::Bool) return false;
+    std::unordered_map<NFrontend::TExprId, bool> hasColumn;
+    std::vector<std::pair<NFrontend::TExprId, bool>> pending{{root, false}};
+    while (!pending.empty()) {
+        const auto [id, ready] = pending.back(); pending.pop_back();
+        if (hasColumn.contains(id)) continue;
+        const auto& node = arena[id];
+        if (!OlapNodeSupported(arena, node)) return false;
+        if (!ready) {
+            pending.emplace_back(id, true);
+            for (auto arg : node.Arguments) pending.emplace_back(arg, false);
+            continue;
+        }
+        bool column = node.Op == O::Column;
+        for (auto arg : node.Arguments) {
+            // Storage streaming logic needs a row count before combining
+            // branches. Keep scalar-only Boolean branches in compute.
+            if ((node.Op == O::And || node.Op == O::Or) && !hasColumn.at(arg)) return false;
+            column |= hasColumn.at(arg);
+        }
+        hasColumn.emplace(id, column);
+    }
+    return hasColumn.at(root);
+}
+
+NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root,
+    NYql::TExprContext& ctx, NYql::TPositionHandle pos) {
+    Y_ENSURE(CanLowerNativeOlapPredicate(arena, root), "Unsupported native OLAP predicate");
+    std::unordered_map<NFrontend::TExprId, TExprNode::TPtr> lowered;
+    std::vector<std::pair<NFrontend::TExprId, bool>> pending{{root, false}};
+    while (!pending.empty()) {
+        const auto [id, ready] = pending.back(); pending.pop_back();
+        if (lowered.contains(id)) continue;
+        const auto& node = arena[id];
+        if (!ready) {
+            pending.emplace_back(id, true);
+            for (auto arg : node.Arguments) pending.emplace_back(arg, false);
+            continue;
+        }
+        TExprNode::TListType args;
+        for (auto arg : node.Arguments) args.push_back(lowered.at(arg));
+        TExprNode::TPtr value;
+        if (OlapIdentityConversion(arena, node)) value = args[0];
+        else if (node.Op == O::Column) value = ctx.NewAtom(pos, ctx.GetIndexAsString(node.ColumnId));
+        else if (node.Op == O::Literal || node.Op == O::Parameter) {
+            value = LowerNativeLambda(arena, id, ctx, pos)->TailPtr();
+            if (node.Op == O::Literal && node.Type.Nullable)
+                value = ctx.NewList(pos, {ctx.NewAtom(pos, "just"), value->HeadPtr()});
+        }
+        else if (const auto name = OlapBinaryName(node.Op); !name.empty()) {
+            args.insert(args.begin(), ctx.NewAtom(pos, name));
+            args.push_back(ExpandType(pos, *ExportNativeType(node.Type, ctx), ctx));
+            value = ctx.NewList(pos, std::move(args));
+        } else if (node.Op == O::If) {
+            if (arena[node.Arguments[0]].Type.Nullable) {
+                const auto boolean = ExportNativeType({K::Bool}, ctx);
+                auto literal = ctx.NewAtom(pos, "false");
+                literal->SetTypeAnn(ctx.MakeType<TUnitExprType>());
+                auto otherwise = ctx.NewCallable(pos, "Bool", {literal});
+                otherwise->SetTypeAnn(boolean);
+                args[0] = ctx.NewList(pos, {
+                    ctx.NewAtom(pos, "??"), args[0], otherwise, ExpandType(pos, *boolean, ctx)});
+            }
+            args.insert(args.begin(), ctx.NewAtom(pos, "if"));
+            args.push_back(ExpandType(pos, *ExportNativeType(node.Type, ctx), ctx));
+            value = ctx.NewList(pos, std::move(args));
+        } else if (node.Op == O::And || node.Op == O::Or || node.Op == O::Not) {
+            value = ctx.NewCallable(pos, node.Op == O::And ? "KqpOlapAnd" : node.Op == O::Or ? "KqpOlapOr" : "KqpOlapNot", std::move(args));
+        } else {
+            args.insert(args.begin(), ctx.NewAtom(pos, node.Op == O::IsNull ? "empty" : node.Op == O::IsNotNull ? "exists" :
+                node.Op == O::Negate ? "minus" : "abs"));
+            value = ctx.NewList(pos, std::move(args));
+        }
+        lowered.emplace(id, std::move(value));
+    }
+    auto input = ctx.NewArgument(pos, "native_olap_rows");
+    // The storage filter entry point accepts operations, including a one-item
+    // conjunction, but not a bare Boolean column atom.
+    auto condition = ctx.NewCallable(pos, "KqpOlapAnd", {lowered.at(root)});
+    auto filter = ctx.NewCallable(pos, "KqpOlapFilter", {input, std::move(condition)});
+    return ctx.NewLambda(pos, ctx.NewArguments(pos, {input}), std::move(filter));
 }
 
 } // namespace NKikimr::NKqp

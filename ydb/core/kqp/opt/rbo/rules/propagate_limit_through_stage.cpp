@@ -5,20 +5,12 @@ namespace NKqp {
 
 namespace {
 
-bool IsValidLimit(const TExpression& expression) {
-    // Read pushdown stores a legacy expression. Native limits stay in RBO.
-    if (expression.IsNative()) {
-        return false;
-    }
-    return expression.Node && !!TMaybeNode<TCoUint64>(expression.Node->ChildPtr(1));
-}
-
 bool CanPushLimitToRead(const TIntrusivePtr<TOpLimit>& limit, const TIntrusivePtr<IOperator>& input) {
     if (input->GetKind() != EOperator::Source) {
         return false;
     }
     const auto read = CastOperator<TOpRead>(input);
-    return !read->Limit && read->GetTableStorageType() == NYql::EStorageType::ColumnStorage && IsValidLimit(limit->GetLimitCond());
+    return !read->Limit && read->GetTableStorageType() == NYql::EStorageType::ColumnStorage && limit->GetLimitCond().GetUint64Literal().has_value();
 }
 
 bool CanPushLimitOverInput(const TIntrusivePtr<TOpLimit>& limit, const TIntrusivePtr<IOperator>& input) {
@@ -81,8 +73,8 @@ TIntrusivePtr<IOperator> TPropagateLimitThroughStageRule::SimpleMatchAndApply(co
         return MakeIntrusive<TOpLimit>(limitInput, limit->Pos, props, limit->GetLimitCond(), limit->GetLimitPhase());
     } else if (CanPushLimitToRead(limit, limitInput)) {
         const auto read = CastOperator<TOpRead>(limitInput);
-        const auto limitCond = limit->GetLimitCond().Node->ChildPtr(1);
-        return MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapFilterLambda, limitCond,
+        const auto limitCond = limit->GetLimitCond().GetUint64Literal();
+        return MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapProgram, limitCond,
                                       read->RangeInfo, read->OriginalPredicate, read->SortDir, read->Props, read->Pos);
     }
     return input;

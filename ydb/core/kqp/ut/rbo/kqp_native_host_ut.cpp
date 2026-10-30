@@ -1090,6 +1090,112 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST(NativeOlapFiltersMatchComputeOnPopulatedTables) {
+        TVector<TResultSnapshot> expected;
+        for (const int strategy : {0, 2, 3, 1}) {
+            const bool push = strategy == 1 || strategy == 3;
+            auto settings = NativeSettings(strategy >= 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY :
+                NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+            settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+            settings.AppConfig.MutableTableServiceConfig()->SetEnableOlapScalarApply(false);
+            settings.AppConfig.MutableTableServiceConfig()->SetAllowOlapDataQuery(true);
+            NKikimrKqp::TKqpSetting setting;
+            setting.SetName("OptEnableOlapPushdown"); setting.SetValue(push ? "true" : "false");
+            settings.SetKqpSettings({setting});
+            TKikimrRunner runner(settings);
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto created = session.ExecuteSchemeQuery(R"(CREATE TABLE `/Root/NativeOlap` (
+                id Int32 NOT NULL, s Int64, u Uint64, x Int32, y Int32, f Double, t Utf8, b Bool, PRIMARY KEY(id)
+            ) WITH (STORE = COLUMN);)").GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            struct TRow { std::optional<i64> S; std::optional<ui64> U; std::optional<i32> X, Y; std::optional<double> F; const char* Text; };
+            TValueBuilder rows;
+            rows.BeginList();
+            i32 id = 0;
+            for (const auto& row : std::initializer_list<TRow>{
+                    {-1, std::numeric_limits<ui64>::max(), -10, 2, 1.5, "a"},
+                    {0, 0, 0, std::nullopt, 0., nullptr}, {1, 1, 10, 2, std::numeric_limits<double>::infinity(), "beta"},
+                    {std::numeric_limits<i64>::max(), ui64{1} << 63, std::nullopt, 0, std::numeric_limits<double>::quiet_NaN(), "éclair"},
+                    {std::numeric_limits<i64>::lowest(), 0, 20, -1, -std::numeric_limits<double>::infinity(), ""},
+                    {1, std::numeric_limits<ui64>::max(), std::numeric_limits<i32>::max(), std::numeric_limits<i32>::lowest(), std::nullopt, "A"},
+                    {std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, nullptr},
+                    {-1, 1, std::numeric_limits<i32>::lowest(), -1, -1.5, "alpha"}}) {
+                rows.AddListItem().BeginStruct().AddMember("id").Int32(++id).AddMember("s").OptionalInt64(row.S)
+                    .AddMember("u").OptionalUint64(row.U).AddMember("x").OptionalInt32(row.X).AddMember("y").OptionalInt32(row.Y)
+                    .AddMember("b").OptionalBool(row.X ? std::optional<bool>{*row.X > 0} : std::nullopt)
+                    .AddMember("f").OptionalDouble(row.F).AddMember("t").OptionalUtf8(row.Text ? std::optional<std::string>{row.Text} : std::nullopt).EndStruct();
+            }
+            rows.EndList();
+            const auto loaded = client.BulkUpsert("/Root/NativeOlap", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            size_t index = 0;
+            for (const auto& [predicate, pushable] : std::initializer_list<std::pair<const char*, bool>>{
+                    {"b", true}, {"NOT b", true}, {"b OR x < 0", true}, {"b AND y IS NULL", true},
+                    {"id > 0", true}, {"x > 0", true}, {"x <= 0", true}, {"x = 10", true}, {"x != 10", true},
+                    {"x IS NULL", true}, {"x IS NOT NULL", true}, {"NOT (x > 0)", true},
+                    {"x > 0 OR y IS NULL", true}, {"x > 0 AND y < 0", true}, {"(x = 0 OR x = 10) AND (y < 3 OR y IS NULL)", true},
+                    {"x + 1 > 0", true}, {"-x < 0", true}, {"Abs(x) > 1", true}, {"x / y > 2", true}, {"x % y > 0", true},
+                    {"COALESCE(x, 0) > 1", true}, {"IF(x > 0, y, 0) >= 0", true}, {"s < u", true}, {"u <= s", true}, {"s = u", true},
+                    {"f < 0.0", true}, {"f >= 1.5", true}, {"f != 1.5", true}, {"t = 'a'", true}, {"t < 'z'", true},
+                    {"t IS NULL", true}, {"t IN ('a', 'beta', 'A')", true},
+                    {"false OR x > 0", true}, {"x > 0 AND true", true}, {"x > $p", true}, {"StartsWith(t, 'a')", true}, {"EndsWith(t, 'a')", true},
+                    {"t LIKE '%a%'", true}, {"Length(t) > 1u", false}, {"x = x", false}}) {
+                const TString sql = TStringBuilder() << "DECLARE $p AS Int32?; SELECT id FROM `/Root/NativeOlap` WHERE " << predicate << " ORDER BY id";
+                const auto params = TParamsBuilder().AddParam("$p").OptionalInt32(1).Build().Build();
+                const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(), params).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), TStringBuilder() << "strategy=" << strategy << " " << sql << ": " << result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+                const auto actual = SnapshotRows(result.GetResultSet(0));
+                if (strategy == 0) expected.push_back(actual);
+                else { Cerr << "OLAP strategy " << strategy << ": " << predicate << Endl; AssertSame(actual, expected.at(index)); }
+                const auto explain = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(), params,
+                    NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
+                const auto& ast = *explain.GetStats()->GetAst();
+                if (strategy != 3) UNIT_ASSERT_VALUES_EQUAL_C(ast.find("KqpOlapFilter") != std::string::npos, push && pushable, sql);
+                ++index;
+            }
+            for (const auto& [sql, values] : std::initializer_list<std::pair<const char*, const char*>>{
+                    {"SELECT id FROM `/Root/NativeOlap` WHERE x > 0 ORDER BY id LIMIT 2", "[[3];[5]]"},
+                    {"SELECT id FROM `/Root/NativeOlap` WHERE x > 0 ORDER BY id LIMIT 0", "[]"},
+                    {"SELECT id FROM `/Root/NativeOlap` WHERE x > 0 ORDER BY id DESC LIMIT 2", "[[6];[5]]"},
+                    {"SELECT id FROM `/Root/NativeOlap` WHERE x > 0 AND Length(t) > 1u ORDER BY id", "[[3]]"},
+                    {"SELECT COUNT(*) AS n FROM `/Root/NativeOlap` WHERE x > 0", nullptr}}) {
+                const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), TStringBuilder() << sql << ": " << result.GetIssues().ToString());
+                const auto actual = SnapshotRows(result.GetResultSet(0));
+                if (TStringBuf(sql).Contains("LIMIT 2")) {
+                    const auto explain = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                        NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                    UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                    UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
+                    UNIT_ASSERT_VALUES_EQUAL_C(explain.GetStats()->GetAst()->find("ItemsLimit") != std::string::npos, push, sql);
+                }
+                if (values) UNIT_ASSERT_VALUES_EQUAL(actual.Values, values);
+                else {
+                    TResultSetParser parsed(result.GetResultSet(0)); UNIT_ASSERT(parsed.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(parsed.ColumnParser("n").GetUint64(), 3);
+                }
+                if (strategy == 0) expected.push_back(actual);
+                else AssertSame(actual, expected.at(index));
+                ++index;
+            }
+            for (const auto parameter : std::initializer_list<std::optional<i32>>{std::nullopt, std::numeric_limits<i32>::lowest(), std::numeric_limits<i32>::max()}) {
+                const auto params = TParamsBuilder().AddParam("$p").OptionalInt32(parameter).Build().Build();
+                const auto result = runner.GetQueryClient().ExecuteQuery(
+                    "DECLARE $p AS Int32?; SELECT id FROM `/Root/NativeOlap` WHERE x > $p ORDER BY id", NQuery::TTxControl::NoTx(), params).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                const auto actual = SnapshotRows(result.GetResultSet(0));
+                UNIT_ASSERT_VALUES_EQUAL(actual.Values, parameter && *parameter == std::numeric_limits<i32>::lowest() ? "[[1];[2];[3];[5];[6]]" : "[]");
+                if (strategy == 0) expected.push_back(actual);
+                else AssertSame(actual, expected.at(index));
+                ++index;
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(MixedIntegerJoinsMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<TResultSnapshot> expected;
         for (const int strategy : {0, 1, 2}) {

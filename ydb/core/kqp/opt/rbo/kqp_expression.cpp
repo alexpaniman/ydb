@@ -623,6 +623,17 @@ TVector<TExpression> TExpression::SplitDisjunct() const {
     return disjuncts;
 }
 
+std::optional<ui64> TExpression::GetUint64Literal() const {
+    if (IsNative()) {
+        const auto& node = (*NativeArena_)[NativeRoot_];
+        if (node.Op == NFrontend::EOpcode::Literal && node.Type == NFrontend::TType{NFrontend::ETypeKind::Uint64})
+            return std::get<std::uint64_t>(node.Value);
+    } else if (Node && Node->Tail().IsCallable("Uint64")) {
+        return FromString<ui64>(Node->Tail().Head().Content());
+    }
+    return std::nullopt;
+}
+
 bool TExpression::IsColumnAccess() const {
     if (IsNative()) {
         return (*NativeArena_)[NativeRoot_].Op == TNativeOp::Column;

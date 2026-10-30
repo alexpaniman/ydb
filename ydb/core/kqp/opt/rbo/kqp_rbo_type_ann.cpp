@@ -122,8 +122,10 @@ TStatus ComputeTypes(TIntrusivePtr<TOpRead> read, TRBOContext& ctx, TPlanProps& 
         Y_ENSURE(lambda->GetTypeAnn(), "Cannot type annotate original filter lambda.");
     }
 
-    if (IsNeededToUpdateOlapReadType(read->OlapFilterLambda)) {
-        auto& lambda = read->OlapFilterLambda;
+    if (read->OlapProgram.IsNative()) {
+        read->OlapProgram.Native() = BindNativeTypes(read->OlapProgram.Native(), *newStructType, ctx.ExprCtx);
+    } else if (IsNeededToUpdateOlapReadType(read->OlapProgram.Legacy())) {
+        auto& lambda = read->OlapProgram.Legacy();
         if (!UpdateLambdaAllArgumentsTypes(lambda, {ctx.ExprCtx.MakeType<TFlowExprType>(newStructType)}, ctx.ExprCtx)) {
             YQL_CLOG(TRACE, CoreDq) << "Could not update olap filter lambda arg types.";
             return IGraphTransformer::TStatus::Error;

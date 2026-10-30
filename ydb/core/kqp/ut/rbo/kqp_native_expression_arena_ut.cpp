@@ -90,21 +90,24 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressionArena) {
         TExprContext ctx;
         auto leftArena = std::make_shared<TArena>();
         auto rightArena = std::make_shared<TArena>();
-        const auto leftId = leftArena->Literal({K::Bool}, false);
+        const auto leftId = leftArena->Column(1, {K::Bool});
+        rightArena->Literal({K::Int32}, std::int64_t{7}); // Unreachable nodes must not be imported.
         const auto rightId = rightArena->Literal({K::Bool}, true);
         auto left = TExpression::FromNative(leftArena, leftId, &ctx);
         auto right = TExpression::FromNative(rightArena, rightId, &ctx);
         auto combined = MakeBinaryPredicate("Or", left, right);
         UNIT_ASSERT(combined.GetNativeArena() == leftArena);
         UNIT_ASSERT_VALUES_EQUAL(leftArena->Size(), 3);
-        UNIT_ASSERT_VALUES_EQUAL(rightArena->Size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(rightArena->Size(), 2);
         UNIT_ASSERT_VALUES_EQUAL((*leftArena)[combined.GetNativeRoot()].Arguments[0], leftId);
-        UNIT_ASSERT_VALUES_EQUAL(NFrontend::FormatValue(NFrontend::Evaluate(*leftArena, combined.GetNativeRoot())), "true");
+        NFrontend::TEvaluationContext context;
+        context.Column = [](NFrontend::TColumnId) { return NFrontend::TValue{{K::Bool}, false}; };
+        UNIT_ASSERT_VALUES_EQUAL(NFrontend::FormatValue(NFrontend::Evaluate(*leftArena, combined.GetNativeRoot(), context)), "true");
         std::weak_ptr<TArena> lifetime = leftArena;
         left = {};
         leftArena.reset();
         UNIT_ASSERT(!lifetime.expired());
-        UNIT_ASSERT_VALUES_EQUAL(NFrontend::FormatValue(NFrontend::Evaluate(*combined.GetNativeArena(), combined.GetNativeRoot())), "true");
+        UNIT_ASSERT_VALUES_EQUAL(NFrontend::FormatValue(NFrontend::Evaluate(*combined.GetNativeArena(), combined.GetNativeRoot(), context)), "true");
     }
 }
 } // namespace NKikimr::NKqp

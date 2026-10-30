@@ -183,6 +183,24 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         }
     }
 
+    Y_UNIT_TEST(NeutralBooleanOperandsPreserveTypesAndEvaluation) {
+        TExpressionArena arena;
+        const auto no = arena.Literal({K::Bool}, false), yes = arena.Literal({K::Bool}, true);
+        for (const bool nullable : {false, true}) {
+            const auto column = arena.Column(1, {K::Bool, nullable});
+            UNIT_ASSERT_VALUES_EQUAL(arena.Binary(O::Or, no, column), column);
+            UNIT_ASSERT_VALUES_EQUAL(arena.Binary(O::Or, column, no), column);
+            UNIT_ASSERT_VALUES_EQUAL(arena.Binary(O::And, yes, column), column);
+            UNIT_ASSERT_VALUES_EQUAL(arena.Binary(O::And, column, yes), column);
+        }
+        const auto nullableNo = arena.Literal({K::Bool, true}, false);
+        const auto required = arena.Column(1, {K::Bool});
+        const auto lifted = arena.Binary(O::Or, nullableNo, required);
+        UNIT_ASSERT((arena[lifted].Type == TType{K::Bool, true}));
+        UNIT_ASSERT(arena[lifted].Op == O::Convert);
+        UNIT_ASSERT_EXCEPTION(Evaluate(arena, lifted), TFrontendError);
+    }
+
     Y_UNIT_TEST(LazyBranchesDoNotReadMissingBindings) {
         TExpressionArena arena;
         auto missing = arena.Parameter("missing", {K::Int64});

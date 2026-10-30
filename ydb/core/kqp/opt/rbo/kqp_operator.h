@@ -12,6 +12,7 @@
 #include <optional>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <library/cpp/containers/absl/flat_hash_set.h>
 #include <library/cpp/containers/stack_vector/stack_vec.h>
 #include <ydb/core/kqp/common/kqp_yql.h>
@@ -596,6 +597,23 @@ private:
     TUnorderedIUs Columns;
 };
 
+// A storage program stays native until physical conversion. The legacy arm
+// preserves existing OLAP programs while the old expression path is migrated.
+class TOlapProgram {
+public:
+    TOlapProgram(std::nullptr_t = nullptr) {}
+    TOlapProgram(TExprNode::TPtr lambda) : Value_(std::move(lambda)) {}
+    explicit TOlapProgram(TExpression predicate) : Value_(std::move(predicate)) { Y_ENSURE(Native().IsNative()); }
+    bool IsNative() const { return std::holds_alternative<TExpression>(Value_); }
+    explicit operator bool() const { return IsNative() || bool(Legacy()); }
+    TExprNode::TPtr& Legacy() { return std::get<TExprNode::TPtr>(Value_); }
+    const TExprNode::TPtr& Legacy() const { return std::get<TExprNode::TPtr>(Value_); }
+    TExpression& Native() { return std::get<TExpression>(Value_); }
+    const TExpression& Native() const { return std::get<TExpression>(Value_); }
+private:
+    std::variant<TExprNode::TPtr, TExpression> Value_;
+};
+
 class TOpRead: public IOperator {
 public:
     // Everything the read carries about pushed-down key ranges. ComputeNode is the source of
@@ -646,7 +664,7 @@ public:
 
     // Reconstruction preserves the supplied bindings; it never allocates IDs.
     TOpRead(const TString& alias, TUnorderedIUs columns, const NYql::EStorageType storageType,
-            const TExprNode::TPtr& tableCallable, const TExprNode::TPtr& olapFilterLambda, const TExprNode::TPtr& limit, std::optional<TRangeInfo> ranges,
+            const TExprNode::TPtr& tableCallable, const TOlapProgram& olapProgram, std::optional<ui64> limit, std::optional<TRangeInfo> ranges,
             const std::optional<TExpression>& originalPredicate, const ESortDir sortDirection, const TPhysicalOpProps& props, TPositionHandle pos);
 
     const TUnorderedIUs& GetColumns() const Y_LIFETIME_BOUND { return Columns_; }
@@ -654,6 +672,9 @@ public:
     // Columns needed by embedded programs, independently of consumer liveness.
     // Inspect the OLAP program; never rewrite it as part of column pruning.
     TUnorderedIUs GetRequiredColumns(TExprContext& ctx) const;
+    TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
+    void RewriteExpressions(const TExpressionRewrite& rewrite) override;
+    void BindExpressionPlanProps(TPlanProps* props) override;
 
     // The column set is also the output set; there is no second cache.
     const TUnorderedIUs& GetOutputIUs() override { return Columns_; }
@@ -681,8 +702,8 @@ public:
     TExprNode::TPtr TableCallable;
     // Binding atoms and embedded row-schema fields use decimal IU IDs. The
     // program preserves Columns_ membership, but may change values and types.
-    TExprNode::TPtr OlapFilterLambda;
-    TExprNode::TPtr Limit;
+    TOlapProgram OlapProgram;
+    std::optional<ui64> Limit;
     // Bound to the pre-program input row, also using IDs.
     std::optional<TExpression> OriginalPredicate;
     ESortDir SortDir{ESortDir::None};
