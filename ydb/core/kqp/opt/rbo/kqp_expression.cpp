@@ -508,7 +508,9 @@ TVector<TExpression> SplitNative(const TExpression& expression, TNativeOp op) {
     std::unordered_set<TNativeId> visited;
     const auto& arena = *expression.GetNativeArena();
     while (!pending.empty()) {
-        const auto id = pending.back();
+        // Lifting Bool to Bool? preserves its truth value. Look through it
+        // when splitting predicates, including a lifted nested AND/OR.
+        const auto id = UnwrapNativeOptionalLift(arena, pending.back());
         pending.pop_back();
         if (!visited.insert(id).second) {
             continue;
@@ -654,7 +656,7 @@ bool TExpression::MaybeExprEquiJoinCondition() const {
 
 bool TExpression::MaybeEquiJoinConditionInternal(bool includeExpressions) const {
     if (IsNative()) {
-        const auto& node = (*NativeArena_)[NativeRoot_];
+        const auto& node = (*NativeArena_)[UnwrapNativeOptionalLift(*NativeArena_, NativeRoot_)];
         // Computed join keys remain residual predicates until the rule can
         // extract native definitions without a YQL replacement map.
         return node.Op == TNativeOp::Equal &&
@@ -918,7 +920,7 @@ TString TExpression::ToExplainString(const TInfoUnitRegistry& registry) const {
 
 TEquiJoinCondition::TEquiJoinCondition(const TExpression& expr) : Expr(expr) {
     if (Expr.IsNative()) {
-        const auto& node = (*Expr.GetNativeArena())[Expr.GetNativeRoot()];
+        const auto& node = (*Expr.GetNativeArena())[UnwrapNativeOptionalLift(*Expr.GetNativeArena(), Expr.GetNativeRoot())];
         Y_ENSURE(node.Arguments.size() == 2, "Non-binary native join condition");
         const auto left = NativePart(Expr, UnwrapNativeOptionalLift(*Expr.GetNativeArena(), node.Arguments[0]));
         const auto right = NativePart(Expr, UnwrapNativeOptionalLift(*Expr.GetNativeArena(), node.Arguments[1]));

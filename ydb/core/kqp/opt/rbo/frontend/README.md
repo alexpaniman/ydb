@@ -341,8 +341,8 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. TPC-DS Q21, Q32, Q37, Q40, Q82 and Q92 also have populated native-required
-execution checks; the other accepted TPC-DS and ClickBench queries still need
+tables. Thirteen TPC-DS queries also have populated native-required execution
+checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
@@ -364,21 +364,29 @@ through native window expansion and copying; terminal unwrap is tested directly.
 Fast and generated parser routes agree on all 164 corpus decisions with no
 hard errors. Windows newly admit TPC-DS Q12, Q20, Q51, Q53, Q63, Q89 and Q98,
 bringing frontend acceptance to 56/99; their populated benchmark execution is
-verified for Q12, Q20 and Q98 and still pending for the other four. The standalone
-CLI still has no YQL or MiniKQL symbols.
+verified for all seven. The standalone CLI still has no YQL or MiniKQL symbols.
 
-Nine TPC-DS queries (Q12, Q20, Q21, Q32, Q37, Q40, Q82, Q92 and Q98) pass populated execution
+Thirteen TPC-DS queries (Q12, Q20, Q21, Q32, Q37, Q40, Q51, Q53, Q63, Q82,
+Q89, Q92 and Q98) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
 The three revenue/window queries also match the legacy optimizer exactly on
 eight result rows each, with different totals for each sales channel, shared
 classes across categories, NULL partitions and all-NULL groups, zero/negative
 revenue, date boundaries, invalid dates and missing dimension rows.
+The remaining window cases check cumulative SUM/MAX across a full outer join,
+monthly versus quarterly grouping, compound and NULL partition keys, and the
+strict 10% threshold. Q51 exposed an optional Boolean lift hiding a native join
+equality. Native predicate splitting and equality inspection now look through
+that value-preserving lift, including nested conjunctions, so both equalities
+become join keys. The existing join backend is unchanged. The fix and expanded
+fixtures passed all 50 tests across native expression/host suites and unchanged
+window regressions, including all 22 populated TPC-H queries.
 They retain the original SQL, full schema, helpers and benchmark settings.
 Fixtures exercise date/price/quantity bounds, invalid and NULL dates, duplicate
 sales, missing matches, strict correlated-average thresholds, NULL refunds and
-negative net sales. All values also agree with the old optimizer. Q21 pins an
-existing metadata difference: the old optimizer alphabetizes SELECT * columns,
+negative net sales. All values also agree with the old optimizer. Q21, Q51,
+Q53, Q63 and Q89 pin an existing metadata difference: the old optimizer alphabetizes SELECT * columns,
 whereas new RBO preserves the derived table's projection order. Native retains
 the existing RBO order; neither older compiler is changed.
 

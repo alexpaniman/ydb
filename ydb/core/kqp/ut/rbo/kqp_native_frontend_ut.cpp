@@ -82,6 +82,34 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(OptionalBooleanLiftsPreserveJoinKeys) {
+        using namespace NFrontend;
+        for (const auto& [condition, keys] : std::initializer_list<std::pair<const char*, std::size_t>>{
+                {"a.id = b.id AND a.y = b.y", 2}, {"(a.id = b.id AND a.x = b.x) AND a.y = b.y", 3}}) {
+            NTests::TIdTestContext f;
+            const std::string sql = std::string("SELECT a.id, b.id AS right_id FROM ") +
+                "(SELECT 1 AS id, 2 AS x, CAST(3 AS Int32?) AS y) AS a FULL JOIN " +
+                "(SELECT 1 AS id, 2 AS x, CAST(3 AS Int32?) AS y) AS b ON " + condition;
+            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx);
+            auto& root = *roots.front();
+            bool found = false;
+            for (const auto& item : root) if (item.Current->Kind == EOperator::Join) {
+                const auto& join = CastOperator<TOpJoin>(*item.Current);
+                UNIT_ASSERT_VALUES_EQUAL(join.JoinKeys.Items().size(), keys);
+                UNIT_ASSERT(join.JoinFilters.empty());
+                found = true;
+            }
+            UNIT_ASSERT(found);
+            auto arena = root.PlanProps.NativeExpressions;
+            const auto equal = arena->Binary(EOpcode::Equal, arena->Column(0, {ETypeKind::Int32}), arena->Column(1, {ETypeKind::Int32}));
+            const auto lifted = TExpression::FromNative(arena, arena->Convert(equal, {ETypeKind::Bool, true}), &f.ExprCtx, &root.PlanProps);
+            UNIT_ASSERT(lifted.MaybeEquiJoinCondition());
+            const TEquiJoinCondition equality(lifted);
+            UNIT_ASSERT_VALUES_EQUAL(equality.GetLeftIU(), 0);
+            UNIT_ASSERT_VALUES_EQUAL(equality.GetRightIU(), 1);
+        }
+    }
+
     Y_UNIT_TEST(CheckedUnwrapIsExecutableAndPreservesLazyFailures) {
         using namespace NFrontend;
         TExpressionArena arena;
