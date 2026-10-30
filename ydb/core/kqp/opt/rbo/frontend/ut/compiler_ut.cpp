@@ -2,6 +2,7 @@
 #include <ydb/core/kqp/opt/rbo/frontend/parser.h>
 #include <library/cpp/testing/unittest/registar.h>
 #include <library/cpp/resource/resource.h>
+#include <algorithm>
 #include <type_traits>
 
 using namespace NKikimr::NKqp::NFrontend;
@@ -31,6 +32,92 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(GroupingSetsBindNullableOutputsAndExecutableMasks) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative("SELECT id, value, SUM(id), COUNT(*), GROUPING(id,value) AS g FROM t GROUP BY ROLLUP(id,value)", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto& outputs = program.Results[0].Columns;
+            UNIT_ASSERT(outputs[0].Type == (TType{ETypeKind::Uint64, true}));
+            UNIT_ASSERT(outputs[1].Type == (TType{ETypeKind::Int32, true}));
+            UNIT_ASSERT(outputs[2].Type == (TType{ETypeKind::Uint64, true}));
+            UNIT_ASSERT(outputs[3].Type == (TType{ETypeKind::Uint64}));
+            UNIT_ASSERT(outputs[4].Type == (TType{ETypeKind::Uint64}));
+            const TRelation* group = nullptr;
+            std::optional<TExprId> mask;
+            for (const auto& relation : program.Relations) {
+                if (relation.Kind == ERelation::Aggregate) group = &relation;
+                for (const auto& definition : relation.Definitions) if (definition.Column == outputs[4].Column) mask = definition.Expression;
+            }
+            UNIT_ASSERT(group && mask);
+            UNIT_ASSERT_VALUES_EQUAL(group->GroupingSets.size(), 3);
+            UNIT_ASSERT_VALUES_EQUAL(group->GroupingColumns.size(), 4);
+            UNIT_ASSERT_VALUES_EQUAL(group->GroupingIndicators.size(), 2);
+            for (const auto& [output, input] : group->GroupingColumns) UNIT_ASSERT_VALUES_UNEQUAL(output, input);
+            for (std::uint64_t bits = 0; bits < 4; ++bits) {
+                TEvaluationContext eval;
+                eval.Column = [&](TColumnId id) {
+                    for (std::size_t i = 0; i < group->GroupingIndicators.size(); ++i)
+                        if (group->GroupingIndicators[i].first == id) return TValue{{ETypeKind::Uint64}, (bits >> (1 - i)) & 1};
+                    throw std::logic_error("unexpected grouping mask input");
+                };
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(program.Expressions, *mask, eval).Data), bits);
+            }
+            const auto common = CompileNative("SELECT id, value, SUM(id) FROM t GROUP BY id, ROLLUP(value)", Catalog, settings);
+            UNIT_ASSERT(!common.Program->Get().Results[0].Columns[0].Type.Nullable);
+            UNIT_ASSERT(!common.Program->Get().Results[0].Columns[2].Type.Nullable);
+            const auto duplicate = CompileNative("SELECT id, GROUPING(id) FROM t GROUP BY GROUPING SETS ((id,id),(id),(id))", Catalog, settings);
+            for (const auto& relation : duplicate.Program->Get().Relations) if (relation.Kind == ERelation::Aggregate) {
+                UNIT_ASSERT_VALUES_EQUAL(relation.GroupKeys.size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(relation.GroupingSets.size(), 3);
+                for (const auto& set : relation.GroupingSets) UNIT_ASSERT_VALUES_EQUAL(set.size(), 1);
+            }
+            for (const auto* sql : {
+                    "SELECT COUNT(*) FROM t GROUP BY ()",
+                    "SELECT id, GROUPING(id) FROM t GROUP BY id",
+                    "SELECT k, GROUPING(k) FROM t GROUP BY ROLLUP(id + 1ul AS k)",
+                    "SELECT id, SUM(value) FROM t GROUP BY ROLLUP(id) HAVING GROUPING(id) = 1ul"})
+                UNIT_ASSERT_C(!CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+            for (const auto* sql : {
+                    "SELECT GROUPING() FROM t GROUP BY id",
+                    "SELECT GROUPING(value) FROM t GROUP BY id",
+                    "SELECT GROUPING(SUM(id)) FROM t GROUP BY id",
+                    "SELECT GROUPING(id) FROM t",
+                    "SELECT id FROM t WHERE GROUPING(id) = 0ul"}) {
+                try { CompileNative(sql, Catalog, settings); UNIT_FAIL(sql); }
+                catch (const TUnsupportedFeature&) { UNIT_FAIL("invalid GROUPING delegated"); }
+                catch (const TFrontendError&) {}
+            }
+            settings.Mode = ECompilerMode::Auto;
+            const auto bareNull = CompileNative("SELECT k FROM t GROUP BY ROLLUP(NULL AS k)", Catalog, settings);
+            UNIT_ASSERT(bareNull.UsesLegacy() && bareNull.Unsupported->Feature == EFeature::GroupingSets);
+        }
+    }
+
+    Y_UNIT_TEST(OrderExpressionsUseOutputAliasesAboveProjection) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                    "SELECT value + 1 AS id FROM t ORDER BY id + 2",
+                    "SELECT id, GROUPING(id) AS g, SUM(value) AS s FROM t GROUP BY ROLLUP(id) ORDER BY CASE WHEN g = 0ul THEN id ELSE NULL END, s + 1"}) {
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& program = compiled.Program->Get();
+                for (const auto& relation : program.Relations) if (relation.Kind == ERelation::Map) {
+                    const auto& input = program.Relations[relation.Inputs[0]].Columns;
+                    for (const auto& definition : relation.Definitions) {
+                        std::vector<TExprId> pending{definition.Expression};
+                        while (!pending.empty()) {
+                            const auto& node = program.Expressions[pending.back()]; pending.pop_back();
+                            if (node.Op == EOpcode::Column)
+                                UNIT_ASSERT_C(std::find(input.begin(), input.end(), node.ColumnId) != input.end(), sql);
+                            pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(MixedDistinctAggregatesHaveAnExplicitStateBoundary) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser; settings.Mode = ECompilerMode::Auto;

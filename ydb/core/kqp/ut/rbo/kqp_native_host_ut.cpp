@@ -682,7 +682,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {65, "2000-12-31"}, {66, "2002-01-01"}, {70, "2000-01-01"}, {71, "2000-02-01"}, {72, "2000-03-01"}, {73, "1999-01-01"},
             {74, "2002-04-01"}, {75, "2001-02-30"},
             {80, "1999-02-01"}, {81, "1999-04-02"}, {82, "1999-01-31"}, {83, "1999-04-03"},
-            {84, "1999-05-01"}, {85, "1999-06-30"}, {86, "1999-04-30"}, {87, "1999-07-01"}}) {
+            {84, "1999-05-01"}, {85, "1999-06-30"}, {86, "1999-04-30"}, {87, "1999-07-01"},
+            {90, "1998-01-01"}, {91, "1998-12-31"}, {92, "1997-12-31"}, {93, "1999-01-01"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -779,6 +780,13 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         appendItem(rejected + 20, nullptr, 999, category, nullptr, nullptr, std::nullopt, {nullptr, name.c_str(), color, units, size});
         ++rejected;
     }
+    // Grouping fixtures use their own categories, outside existing query filters.
+    for (const auto& [id, product, brand, itemClass, category] :
+            std::initializer_list<std::tuple<i64, const char*, const char*, const char*, const char*>>{
+            {970, "P", "B", "C1", "Roll A"}, {971, "P", "B", "C2", "Roll A"},
+            {972, "P", "Other", "C1", "Roll B"}, {973, "Q", nullptr, nullptr, "Roll B"},
+            {974, nullptr, nullptr, "C3", nullptr}, {975, "R", "B", "C4", "Roll C"}, {976, "S", "B", "C5", "Roll D"}})
+        appendItem(id, nullptr, std::nullopt, category, itemClass, brand, std::nullopt, {product, nullptr, nullptr, nullptr, nullptr});
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -786,12 +794,22 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {1, "Store A", "Company A", nullptr}, {2, "Store A", "Company B", nullptr}, {3, "Store B", "Company A", nullptr}, {4, nullptr, nullptr, nullptr},
             {80, "Intersect A", nullptr, "x94"}, {81, "Intersect A", nullptr, "x94"}, {82, "Intersect B", nullptr, "x08"},
             {83, "Excluded count", nullptr, "x50"}, {84, "Excluded flag", nullptr, "x29"}, {85, "Excluded list", nullptr, "x00"},
-            {86, "Excluded null", nullptr, nullptr}, {87, "Intersect null", nullptr, "x39"}}) {
+            {86, "Excluded null", nullptr, nullptr}, {87, "Intersect null", nullptr, "x39"},
+            {90, "Grouping TN", nullptr, nullptr}, {91, "Grouping TX", nullptr, nullptr}, {92, "Grouping null", nullptr, nullptr}}) {
         stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
             .AddMember("s_store_name").OptionalUtf8(optionalText(name)).AddMember("s_company_name").OptionalUtf8(optionalText(company))
-            .AddMember("s_zip").OptionalUtf8(optionalText(zip)).EndStruct();
+            .AddMember("s_zip").OptionalUtf8(optionalText(zip))
+            .AddMember("s_state").OptionalUtf8(id == 90 ? optionalText("TN") : id == 91 ? optionalText("TX") : std::nullopt).EndStruct();
     }
     load("store", stores);
+    TValueBuilder demographics; demographics.BeginList();
+    for (const auto& [id, gender, marital, education] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
+            {90, "F", "W", "Primary"}, {91, "M", "W", "Primary"}, {92, "F", "S", "Primary"},
+            {93, "F", "W", "College"}, {94, nullptr, "W", "Primary"}})
+        demographics.AddListItem().BeginStruct().AddMember("cd_demo_sk").Int64(id)
+            .AddMember("cd_gender").OptionalUtf8(optionalText(gender)).AddMember("cd_marital_status").OptionalUtf8(optionalText(marital))
+            .AddMember("cd_education_status").OptionalUtf8(optionalText(education)).EndStruct();
+    load("customer_demographics", demographics);
     TValueBuilder warehouse;
     warehouse.BeginList().AddListItem().BeginStruct().AddMember("w_warehouse_sk").Int64(1)
         .AddMember("w_warehouse_id").Utf8("WH001").AddMember("w_warehouse_name").OptionalUtf8("Warehouse A")
@@ -812,7 +830,12 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {20, 101, 10}, {21, 101, 1}, {22, 101, 1}, {23, 101, 10}, {24, 101, 999}, {25, 101, 999}, {4, 101, 999}, {5, 101, 999},
             {20, 102, 10}, {23, 102, 20}, {20, 103, 10}, {23, 103, 5}, {20, 104, 0}, {23, 104, 10},
             {20, 105, std::nullopt}, {23, 105, 10}, {20, 106, 10}, {23, 106, 10}, {20, 107, 10}, {23, 107, 10},
-            {20, 108, 10}, {23, 108, 10}}) {
+            {20, 108, 10}, {23, 108, 10},
+            // Q22: full four-key rollup, all-NULL measures, real NULL keys,
+            // shared prefixes, zero/negative inputs and inclusive month bounds.
+            {60, 970, 10}, {64, 970, 30}, {60, 971, 60}, {61, 972, 20}, {62, 973, 50},
+            {63, 974, 0}, {60, 975, std::nullopt}, {60, 976, -20}, {64, 976, 20},
+            {65, 970, 999}, {66, 970, 999}, {4, 970, 999}, {999, 970, 999}, {60, 99999, 999}}) {
         inventory.AddListItem().BeginStruct().AddMember("inv_date_sk").Int64(date).AddMember("inv_item_sk").Int64(item)
             .AddMember("inv_warehouse_sk").Int64(item == 108 ? 999 : 1)
             .AddMember("inv_quantity_on_hand").OptionalInt64(quantity).EndStruct();
@@ -833,6 +856,11 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         std::optional<i64> ShipAddress = std::nullopt;
         std::optional<i64> Site = std::nullopt;
         const char* ShipCost = nullptr;
+        const char* NetPaid = nullptr;
+        std::optional<i64> Quantity = std::nullopt;
+        const char* ListPrice = nullptr;
+        const char* Coupon = nullptr;
+        std::optional<i64> Demographics = std::nullopt;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -1014,6 +1042,39 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             append(number++, 2, std::nullopt, address, 10, "999", "999");
         }
     }
+    // Q36/Q86: hierarchy ranks, shared class names across categories, real
+    // NULL keys and measures, negative/zero values, and month/year boundaries.
+    for (const auto& [item, price, profit] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
+            {970, "50", "5"}, {970, "50", "5"}, {971, "100", "30"}, {972, "100", "-10"},
+            {973, "100", "30"}, {974, "50", "15"}, {975, nullptr, nullptr}, {976, "50", "0"}})
+        store.push_back({item, order++, 70, 1, nullptr, nullptr, price, 90, profit});
+    for (const auto& [item, date, paid] : std::initializer_list<std::tuple<i64, i64, const char*>>{
+            {970, 60, "10"}, {970, 64, "5"}, {971, 61, "30"}, {972, 62, "-10"},
+            {973, 63, "20"}, {974, 60, "7"}, {975, 60, nullptr}, {976, 60, "0"},
+            {970, 65, "999"}, {970, 66, "999"}, {970, 4, "999"}, {970, 999, "999"}, {99999, 60, "999"}}) {
+        TSale sale{item, order++, date, 1, nullptr, nullptr}; sale.NetPaid = paid; web.push_back(sale);
+    }
+    for (const auto& [date, shop, item] : std::initializer_list<std::tuple<i64, std::optional<i64>, i64>>{
+            {73, 90, 970}, {60, 90, 970}, {4, 90, 970}, {999, 90, 970},
+            {70, 91, 970}, {70, 92, 970}, {70, 999, 970}, {70, std::nullopt, 970}, {70, 90, 99999}})
+        store.push_back({item, order++, date, 1, nullptr, nullptr, "999", shop, "999"});
+    auto demographicSale = [&](i64 item, i64 date, std::optional<i64> shop, std::optional<i64> demo,
+            std::optional<i64> quantity, const char* listPrice, const char* coupon, const char* price) {
+        TSale sale{item, order++, date, 1, price, nullptr, nullptr, shop};
+        sale.Quantity = quantity; sale.ListPrice = listPrice; sale.Coupon = coupon; sale.Demographics = demo;
+        store.push_back(sale);
+    };
+    demographicSale(970, 90, 90, 90, 2, "10", "1", "5");
+    demographicSale(970, 91, 90, 90, 6, "30", "3", "15");
+    demographicSale(970, 90, 90, 90, std::nullopt, nullptr, nullptr, nullptr);
+    demographicSale(971, 90, 90, 90, 10, "20", "2", "10");
+    demographicSale(975, 90, 90, 90, std::nullopt, nullptr, nullptr, nullptr);
+    for (const auto demo : std::initializer_list<std::optional<i64>>{91, 92, 93, 94, 999, std::nullopt})
+        demographicSale(970, 90, 90, demo, 999, "999", "999", "999");
+    for (const auto shop : std::initializer_list<std::optional<i64>>{91, 92, 999, std::nullopt})
+        demographicSale(970, 90, shop, 90, 999, "999", "999", "999");
+    for (const auto date : {92, 93, 4, 999}) demographicSale(970, date, 90, 90, 999, "999", "999", "999");
+    demographicSale(99999, 90, 90, 90, 999, "999", "999", "999");
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -1028,7 +1089,13 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
                     .AddMember(prefix + "ext_ship_cost");
                 decimal(rows, row.ShipCost);
             }
-            if (prefix == "ss_") rows.AddMember("ss_store_sk").OptionalInt64(row.Store);
+            if (prefix == "ss_") {
+                rows.AddMember("ss_store_sk").OptionalInt64(row.Store)
+                    .AddMember("ss_quantity").OptionalInt64(row.Quantity).AddMember("ss_cdemo_sk").OptionalInt64(row.Demographics)
+                    .AddMember("ss_list_price"); decimal(rows, row.ListPrice);
+                rows.AddMember("ss_coupon_amt"); decimal(rows, row.Coupon);
+            }
+            if (prefix == "ws_") { rows.AddMember("ws_net_paid"); decimal(rows, row.NetPaid); }
             rows.AddMember(prefix + (prefix == "ss_" ? "customer_sk" : "bill_customer_sk")).OptionalInt64(row.Customer);
             rows.AddMember(prefix + "sales_price"); decimal(rows, row.Price);
             rows.AddMember(prefix + "ext_discount_amt"); decimal(rows, row.Discount);
@@ -1063,7 +1130,8 @@ $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
-            {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1}}) {
+            {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1104,6 +1172,80 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_item_id").GetUtf8(), "Item101");
             UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("inv_before").GetOptionalInt64().value(), 11);
             UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("inv_after").GetOptionalInt64().value(), 11);
+        }
+        if (query == 22) {
+            using TRow = std::tuple<std::optional<std::string>, std::optional<std::string>, std::optional<std::string>, std::optional<std::string>, std::optional<double>>;
+            TVector<TRow> expected, actual;
+            auto row = [&](const char* product, const char* brand, const char* itemClass, const char* category, std::optional<double> qoh) {
+                expected.emplace_back(optionalText(product), optionalText(brand), optionalText(itemClass), optionalText(category), qoh);
+            };
+            row("P", "B", "C1", "Roll A", 20); row("P", "B", "C1", nullptr, 20);
+            row("P", "B", "C2", "Roll A", 60); row("P", "B", "C2", nullptr, 60);
+            row("P", "B", nullptr, nullptr, 100. / 3);
+            row("P", "Other", "C1", "Roll B", 20); row("P", "Other", "C1", nullptr, 20);
+            row("P", "Other", nullptr, nullptr, 20); row("P", nullptr, nullptr, nullptr, 30);
+            row("Q", nullptr, nullptr, "Roll B", 50);
+            for (int n = 0; n < 3; ++n) row("Q", nullptr, nullptr, nullptr, 50);
+            for (int n = 0; n < 2; ++n) { row(nullptr, nullptr, "C3", nullptr, 0); row(nullptr, nullptr, nullptr, nullptr, 0); }
+            row("S", "B", "C5", "Roll D", 0); row("S", "B", "C5", nullptr, 0);
+            row("S", "B", nullptr, nullptr, 0); row("S", nullptr, nullptr, nullptr, 0);
+            row("R", "B", "C4", "Roll C", std::nullopt); row("R", "B", "C4", nullptr, std::nullopt);
+            row("R", "B", nullptr, nullptr, std::nullopt); row("R", nullptr, nullptr, nullptr, std::nullopt);
+            row(nullptr, nullptr, nullptr, nullptr, 21.25);
+            while (values.TryNextRow()) actual.emplace_back(values.ColumnParser("i_product_name").GetOptionalUtf8(),
+                values.ColumnParser("i_brand").GetOptionalUtf8(), values.ColumnParser("i_class").GetOptionalUtf8(),
+                values.ColumnParser("i_category").GetOptionalUtf8(), values.ColumnParser("qoh").GetOptionalDouble());
+            std::sort(actual.begin(), actual.end()); std::sort(expected.begin(), expected.end());
+            UNIT_ASSERT_VALUES_EQUAL(actual.size(), expected.size());
+            for (std::size_t i = 0; i < actual.size(); ++i) {
+                UNIT_ASSERT(std::get<0>(actual[i]) == std::get<0>(expected[i]));
+                UNIT_ASSERT(std::get<1>(actual[i]) == std::get<1>(expected[i]));
+                UNIT_ASSERT(std::get<2>(actual[i]) == std::get<2>(expected[i]));
+                UNIT_ASSERT(std::get<3>(actual[i]) == std::get<3>(expected[i]));
+                const auto a = std::get<4>(actual[i]), e = std::get<4>(expected[i]);
+                UNIT_ASSERT(bool(a) == bool(e));
+                if (e) UNIT_ASSERT_DOUBLES_EQUAL(*a, *e, 1e-12);
+            }
+        }
+        if (query == 27) {
+            for (const auto& [item, state, grouping, quantity] :
+                    std::initializer_list<std::tuple<const char*, const char*, ui64, std::optional<double>>>{
+                    {nullptr, nullptr, 1, 6}, {"Item970", nullptr, 1, 4}, {"Item970", "TN", 0, 4},
+                    {"Item971", nullptr, 1, 10}, {"Item971", "TN", 0, 10},
+                    {"Item975", nullptr, 1, std::nullopt}, {"Item975", "TN", 0, std::nullopt}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT(values.ColumnParser("i_item_id").GetOptionalUtf8() == optionalText(item));
+                UNIT_ASSERT(values.ColumnParser("s_state").GetOptionalUtf8() == optionalText(state));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("g_state").GetUint64(), grouping);
+                UNIT_ASSERT(values.ColumnParser("agg1").GetOptionalDouble() == quantity);
+                assertDecimal("agg2", quantity ? optionalText("20") : std::nullopt);
+                assertDecimal("agg3", quantity ? optionalText("2") : std::nullopt);
+                assertDecimal("agg4", quantity ? optionalText("10") : std::nullopt);
+            }
+        }
+        if (query == 36 || query == 86) {
+            using TRow = std::tuple<const char*, const char*, const char*, ui64, ui64>;
+            const TVector<TRow> expected = query == 36 ? TVector<TRow>{
+                {"0.15", nullptr, nullptr, 2, 1},
+                {nullptr, "Roll C", nullptr, 1, 1}, {"0", "Roll D", nullptr, 1, 2}, {"0.1", "Roll B", nullptr, 1, 3},
+                {"0.2", "Roll A", nullptr, 1, 4}, {"0.3", nullptr, nullptr, 1, 5},
+                {"0.3", nullptr, "C3", 0, 1}, {"0.1", "Roll A", "C1", 0, 1}, {"0.3", "Roll A", "C2", 0, 2},
+                {"-0.1", "Roll B", "C1", 0, 1}, {"0.3", "Roll B", nullptr, 0, 2},
+                {nullptr, "Roll C", "C4", 0, 1}, {"0", "Roll D", "C5", 0, 1}} : TVector<TRow>{
+                {"62", nullptr, nullptr, 2, 1},
+                {"45", "Roll A", nullptr, 1, 1}, {"10", "Roll B", nullptr, 1, 2}, {"7", nullptr, nullptr, 1, 3},
+                {"0", "Roll D", nullptr, 1, 4}, {nullptr, "Roll C", nullptr, 1, 5},
+                {"7", nullptr, "C3", 0, 1}, {"30", "Roll A", "C2", 0, 1}, {"15", "Roll A", "C1", 0, 2},
+                {"20", "Roll B", nullptr, 0, 1}, {"-10", "Roll B", "C1", 0, 2},
+                {nullptr, "Roll C", "C4", 0, 1}, {"0", "Roll D", "C5", 0, 1}};
+            for (const auto& [amount, category, itemClass, hierarchy, rank] : expected) {
+                UNIT_ASSERT(values.TryNextRow());
+                assertDecimal(query == 36 ? "gross_margin" : "total_sum", optionalText(amount));
+                UNIT_ASSERT(values.ColumnParser("i_category").GetOptionalUtf8() == optionalText(category));
+                UNIT_ASSERT(values.ColumnParser("i_class").GetOptionalUtf8() == optionalText(itemClass));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("lochierarchy").GetUint64(), hierarchy);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("rank_within_parent").GetUint64(), rank);
+            }
         }
         if (query == 32 || query == 92) {
             UNIT_ASSERT(values.TryNextRow());
@@ -1233,6 +1375,123 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(GroupingSetsMatchLegacyOnPopulatedTables, ColumnStore) {
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto created = session.ExecuteSchemeQuery(TString(
+                "CREATE TABLE `/Root/Grouping` (id Int32 NOT NULL, k Int32, v Int32, w Int64 NOT NULL, PRIMARY KEY(id))")
+                + (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            TValueBuilder rows; rows.BeginList();
+            i32 id = 0;
+            for (const auto& [key, value, required] : std::initializer_list<std::tuple<std::optional<i32>, std::optional<i32>, i64>>{
+                    {1, 2, 2}, {1, 2, 4}, {1, std::nullopt, -3},
+                    {std::nullopt, -1, 6}, {std::nullopt, 3, 6}, {2, std::nullopt, 0}, {2, std::nullopt, 0}, {3, 2, 1}}) {
+                rows.AddListItem().BeginStruct().AddMember("id").Int32(++id)
+                    .AddMember("k").OptionalInt32(key).AddMember("v").OptionalInt32(value).AddMember("w").Int64(required).EndStruct();
+            }
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/Grouping", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            size_t index = 0;
+            const std::pair<const char*, const char*> cases[]{
+                {"k, GROUPING(k) AS g, COUNT(*) AS n, SUM(w) AS s", "ROLLUP(k) ORDER BY g,k"},
+                {"k, v, GROUPING(k,v) AS g, COUNT(*) AS n, SUM(w) AS s", "ROLLUP(k,v) ORDER BY g,k,v"},
+                {"k, v, GROUPING(k,v) AS g, COUNT(*) AS n, SUM(w) AS s", "CUBE(k,v) ORDER BY g,k,v"},
+                {"k, v, GROUPING(k,v) AS g, COUNT(*) AS n", "GROUPING SETS ((k,v),(k),(v),()) ORDER BY g,k,v"},
+                {"w, k, GROUPING(w,k) AS g, SUM(w) AS s", "w, ROLLUP(k) ORDER BY w,g,k"},
+                {"k, v, GROUPING(k,v) AS g, COUNT(*) AS n", "ROLLUP(k), ROLLUP(v) ORDER BY g,k,v"},
+                {"k, v, GROUPING(k,v) AS g", "GROUPING SETS ((k,v)) ORDER BY g,k,v"},
+                {"k, v, GROUPING(k,v) AS g", "ROLLUP(k,v) ORDER BY g,k,v"},
+                {"w, GROUPING(w) AS g, SUM(w) AS s, MIN(w) AS lo, MAX(w) AS hi, AVG(w) AS a", "ROLLUP(w) ORDER BY g,w"},
+                {"k, GROUPING(k) AS g, COUNT(DISTINCT v) AS n, SUM(w) AS s, SUM(DISTINCT v) AS vs", "ROLLUP(k) ORDER BY g,k"},
+                {"k, GROUPING(k) AS g, SUM(v) AS s", "ROLLUP(k) HAVING GROUPING(k) = 1ul ORDER BY g,k"},
+                {"k, GROUPING(k) AS g, SUM(w) AS s, Rank() OVER(PARTITION BY GROUPING(k) ORDER BY SUM(w) DESC) AS r", "ROLLUP(k) ORDER BY g,r,k"},
+                {"k, GROUPING(k) AS g, COUNT(*) AS n", "k ORDER BY k"},
+                {"k, GROUPING(k) AS g, COUNT(*) AS n", "GROUPING SETS ((k),(k),()) ORDER BY g,k"},
+                {"k, v, GROUPING(k,v) AS g, COUNT(*) AS n", "ROLLUP((k,v)) ORDER BY g,k,v"},
+                {"COUNT(*) AS n, SUM(w) AS s", "()"},
+                {"k, v, GROUPING(k,v) AS g, COUNT(*) AS n", "GROUPING SETS (ROLLUP(k,v),()) ORDER BY g,k,v"},
+                {"x, GROUPING(x) AS g, COUNT(*) AS n", "ROLLUP(k + 1 AS x) ORDER BY g,x"},
+                {"k, GROUPING(k) AS g, COUNT(*) AS n", "GROUPING SETS ((k,k),(k),()) ORDER BY g,k"},
+                {"COUNT(*) AS n, SUM(w) AS s", "GROUPING SETS ((),())"},
+                {"k, GROUPING(k) AS g, SUM(w) AS w", "ROLLUP(k) ORDER BY g,w + 1,k"},
+            };
+            for (const auto& [projection, grouping] : cases) for (const bool empty : {false, true}) {
+                const TString sql = TStringBuilder() << "SELECT " << projection << " FROM `/Root/Grouping`"
+                    << (empty ? " WHERE id < 0" : "") << " GROUP BY " << grouping;
+                Cerr << "grouping sets strategy " << strategy << ": " << sql << Endl;
+                const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                // Pin existing compiler failures independently of native success.
+                const auto caseIndex = index / 2;
+                const char* failure = nullptr;
+                if (strategy == 0) switch (caseIndex) {
+                    case 10: failure = "Member not found: GroupingHint0"; break;
+                    case 12: failure = "Source not support grouping hint"; break;
+                    case 14: failure = "IsGroupByColumn(): requirement !GroupingCols_.empty() failed"; break;
+                    case 18: failure = "Duplicate grouping column: k"; break;
+                }
+                if (strategy == 1) switch (caseIndex) {
+                    case 4: case 5: failure = "Unsupported grouping sets. Only rollup is supported."; break;
+                    case 10: failure = "Invalid number of filters for HAVING."; break;
+                    case 14: failure = "IsGroupByColumn(): requirement !GroupingCols_.empty() failed"; break;
+                    case 15: failure = "Translate(): requirement !\"Unexpected usage\" failed"; break;
+                    case 16: failure = "GROUPING SETS with nested ROLLUP/CUBE/GROUPING SETS"; break;
+                    case 17: failure = "GROUP BY aliases"; break;
+                }
+                if (failure) {
+                    UNIT_ASSERT_C(!result.IsSuccess(), sql);
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find(failure) != std::string::npos, sql << "\n" << result.GetIssues().ToString());
+                    ++index;
+                    continue;
+                }
+                UNIT_ASSERT_C(result.IsSuccess(), sql << "\n" << result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+                const auto actual = SnapshotRows(result.GetResultSet(0));
+                if (index == 0) UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;0u;2u;[12]];[[1];0u;3u;[3]];[[2];0u;2u;[0]];[[3];0u;1u;[1]];[#;1u;8u;[16]]]");
+                if (index == 1) UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;1u;0u;#]]");
+                if (strategy == 2 && index == 18) UNIT_ASSERT_VALUES_EQUAL(actual.Values,
+                    "[[#;0u;2u;[12];[2]];[[1];0u;1u;[3];[2]];[[2];0u;0u;[0];#];[[3];0u;1u;[1];[2]];[#;1u;3u;[16];[4]]]");
+                if (strategy == 2 && index == 28) UNIT_ASSERT_VALUES_EQUAL(actual.Values,
+                    "[[#;[-1];0u;1u];[#;[3];0u;1u];[[1];#;0u;1u];[[1];[2];0u;2u];[[2];#;0u;2u];[[3];[2];0u;1u];[#;#;3u;8u]]");
+                if (strategy == 2 && index == 29) UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;#;3u;0u]]");
+                if (strategy == 2 && caseIndex == 19) UNIT_ASSERT_VALUES_EQUAL(actual.Values, empty ? "[[0u;#];[0u;#]]" : "[[8u;[16]];[8u;[16]]]");
+                if (strategy == 2) reference.push_back(actual);
+                else {
+                    auto expected = reference.at(index);
+                    if (strategy == 0 && caseIndex == 16) {
+                        // The old optimizer drops duplicate empty grouping sets.
+                        expected.Values = empty ? "[[#;#;3u;0u]]" :
+                            "[[#;[-1];0u;1u];[#;[3];0u;1u];[[1];#;0u;1u];[[1];[2];0u;2u];[[2];#;0u;2u];[[3];[2];0u;1u];"
+                            "[#;#;1u;2u];[[1];#;1u;3u];[[2];#;1u;2u];[[3];#;1u;1u];[#;#;3u;8u]]";
+                    }
+                    if (strategy == 0 && caseIndex == 19) expected.Values = empty ? "[[0u;#]]" : "[[8u;[16]]]";
+                    if (strategy == 1 && caseIndex == 9) {
+                        // Existing RBO expands DISTINCT before ROLLUP: the
+                        // grand total counts values repeated in different groups,
+                        // and required SUM incorrectly remains required on empty input.
+                        expected.Values = empty ? "[[#;1u;0u;0;#]]" :
+                            "[[#;0u;2u;12;[2]];[[1];0u;1u;3;[2]];[[2];0u;0u;0;#];[[3];0u;1u;1;[2]];[#;1u;4u;16;[6]]]";
+                        expected.Columns.at(3).second = "Int64";
+                    }
+                    AssertSame(actual, expected);
+                }
+                ++index;
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(MixedDistinctAggregatesMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<TResultSnapshot> reference;
         for (const int strategy : {2, 0, 1}) {

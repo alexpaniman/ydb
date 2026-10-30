@@ -77,6 +77,13 @@ struct TSyntaxWindow {
 
 enum class ESetOperation : std::uint8_t { Push, UnionAll, Union, IntersectAll, Intersect, ExceptAll, Except };
 
+using TGroupingSets = std::vector<std::vector<std::uint32_t>>;
+enum class EGroupingOperation : std::uint8_t { Product, Sets, Rollup, Cube };
+// Key indices refer to TSelect::GroupBy. Bound expansion size before allocating
+// products, including the exponential output of CUBE.
+TGroupingSets ExpandGroupingSets(const std::vector<TGroupingSets>& elements,
+    EGroupingOperation operation, std::size_t limit, TSourcePosition position);
+
 struct TSelect {
     TSourcePosition Position;
     std::vector<std::pair<std::string, std::shared_ptr<TSelect>>> Ctes;
@@ -85,6 +92,9 @@ struct TSelect {
     std::vector<TNamedExpr> Projection;
     TSyntaxId Where = NoSyntax;
     std::vector<TNamedExpr> GroupBy;
+    // Empty means ordinary grouping (or no GROUP BY). {{}} is an explicit
+    // empty grouping set, which still requires an aggregate relation.
+    TGroupingSets GroupingSets;
     TSyntaxId Having = NoSyntax;
     std::vector<TSortKey> OrderBy;
     TSyntaxId Limit = NoSyntax;

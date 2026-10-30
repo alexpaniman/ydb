@@ -106,7 +106,7 @@ result/type parity tests.
 Supported relational forms include SELECT and FROM-first SELECT, projection,
 filters, aliases/stars, ordinary table reads, CTEs/derived tables, scalar/query
 bindings, simple scalar lambdas, ON joins (inner/cross/outer/semi/only), grouping,
-HAVING, inline windows, DISTINCT, UNION/INTERSECT/EXCEPT (including ALL), ordering, limits, scalar/EXISTS/IN subqueries with correlation,
+HAVING, GROUPING SETS/ROLLUP/CUBE and GROUPING masks, inline windows, DISTINCT, UNION/INTERSECT/EXCEPT (including ALL), ordering, limits, scalar/EXISTS/IN subqueries with correlation,
 and multiple result statements.
 
 Set operands align by field name, infer common types once across the chain, and
@@ -125,6 +125,27 @@ scalar (COUNT, SUM, MIN, MAX, SOME). A combination containing both DISTINCT and
 AVG is explicitly unsupported unless AVG is the sole aggregate: its tuple state
 still needs native representation. Computed GROUP BY keys require explicit
 aliases (`GROUP BY expression AS key`, then `SELECT key`). Scan queries require one result.
+
+Both parsers expand grouping syntax into bounded key lists, preserving duplicate
+sets. Binding assigns outward key/result IDs and nullable types once; GROUPING
+masks use ordinary Uint64 arithmetic over indicator columns. The RBO handoff
+emits aggregate branches, native NULL/optional/indicator maps and one union,
+sharing the input through Replicate. DISTINCT expands independently in each
+branch. Ordinary keys common to every set retain required types. Bare NULL
+keys in grouping sets require an explicit scalar cast; GROUP BY modifiers and
+hopping-window grouping remain outside the profile. ORDER BY expressions can
+refer to output aliases; their map is placed above the projection map.
+
+The grouping matrix exercises 21 query forms on populated and empty row/column
+tables: duplicate sets/keys, composite keys, common required keys, nullable
+measures, mixed DISTINCT, HAVING, windows and alias shadowing. Known older-path
+failures are asserted separately. The old optimizer drops duplicate empty sets;
+the old frontend with RBO combines DISTINCT states incorrectly across rollup
+levels and leaves required SUM non-null on empty input. Tests pin these existing
+results without changing either implementation. Native preserves duplicate
+sets and computes each level independently. The converter invariant test forbids
+YQL annotation and verifies native expressions through pruning, DISTINCT
+expansion and Replicate copying.
 
 Scalar types are Bool, signed/unsigned integers, Float/Double, String/Utf8,
 Date/Datetime/Timestamp/Interval, Decimal, Null, and one optional layer. Arithmetic,
@@ -253,7 +274,7 @@ Explicitly outside the profile:
 - DML/DDL, USE, scripting effects, arbitrary pragmas/settings, views, temporary
   and external tables, table hints, sampling, and PostgreSQL syntax/types.
 - Tuple IN subqueries; subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
-  scalar bindings or lambda bodies, JOIN USING, grouping sets,
+  scalar bindings or lambda bodies, JOIN USING,
   duplicate result names within a set operand, and stars over joins
   (which require YQL's column-name coalescing rules).
 - Correlated set expressions containing INTERSECT ALL or EXCEPT ALL: the existing
@@ -395,13 +416,13 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 70/99 | 29 |
+| TPC-DS | 80/99 | 19 |
 | ClickBench | 38/43 | 5 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Twenty TPC-DS queries also have populated native-required execution
+tables. Twenty-four TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -500,10 +521,15 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Twenty TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q32, Q37, Q38, Q40, Q41, Q51, Q53,
-Q63, Q82, Q87, Q89, Q92, Q94, Q95 and Q98) pass populated execution
+Twenty-four TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q27, Q32, Q36, Q37, Q38,
+Q40, Q41, Q51, Q53, Q63, Q82, Q86, Q87, Q89, Q92, Q94, Q95 and Q98) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
+Q22, Q27, Q36 and Q86 check four-key inventory rollup, demographic-filtered
+averages, hierarchy margins and sales ranks. Their independent expected values
+cover real NULL keys versus subtotal NULLs, all-NULL measures, shared prefixes,
+negative/zero amounts, date boundaries and missing dimension rows. All four
+match both existing compiler paths, with the original SQL and full schemas.
 Q41 checks all eight correlated predicate branches, numeric manufacturer-range
 boundaries, inner matches outside that range, duplicate products, NULL product
 and manufacturer values, missing matches and individual invalid/NULL predicate

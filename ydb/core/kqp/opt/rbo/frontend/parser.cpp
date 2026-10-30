@@ -445,13 +445,60 @@ private:
         if (Take("WHERE")) result->Where = Expression();
         if (Take("GROUP")) {
             Expect("BY");
+            bool composite = false;
+            std::vector<TGroupingSets> elements;
             do {
-                TNamedExpr key{Expression()}; if (Take("AS")) key.Alias = Identifier();
-                result->GroupBy.push_back(std::move(key));
+                elements.push_back(GroupingElement(*result, composite));
             } while (Take(","));
+            if (composite) result->GroupingSets = ExpandGroupingSets(elements, EGroupingOperation::Product, Settings.MaxNodes, result->Position);
         }
         if (Take("HAVING")) result->Having = Expression();
         return result;
+    }
+
+    TGroupingSets GroupingElement(TSelect& query, bool& composite, bool ordinary = false) {
+        TDepth depth(*this);
+        const auto pos = Token().Position;
+        if (!ordinary && (Is("ROLLUP") || Is("CUBE") || (Is("GROUPING") && Is("SETS", 1)))) {
+            composite = true;
+            const auto op = Take("ROLLUP") ? EGroupingOperation::Rollup : Take("CUBE") ? EGroupingOperation::Cube : EGroupingOperation::Sets;
+            if (op == EGroupingOperation::Sets) { Expect("GROUPING"); Expect("SETS"); }
+            Expect("(");
+            std::vector<TGroupingSets> elements;
+            do {
+                elements.push_back(GroupingElement(query, composite, op != EGroupingOperation::Sets));
+                if (!Take(",")) break;
+                if (op == EGroupingOperation::Sets && Is(")")) break;
+            } while (true);
+            Expect(")");
+            return ExpandGroupingSets(elements, op, Settings.MaxNodes, pos);
+        }
+        // Parenthesized lists are grouping bundles, while (a + b) remains an
+        // ordinary scalar expression and may carry an alias.
+        if (Is("(")) {
+            unsigned nesting = 0;
+            bool tuple = Is(")", 1);
+            for (std::size_t i = Index; i < Tokens.size(); ++i) {
+                if (Tokens[i].Kind != EToken::Symbol) continue;
+                if (Tokens[i].Text == "(") ++nesting;
+                else if (Tokens[i].Text == ")" && !--nesting) break;
+                else if (nesting == 1 && Tokens[i].Text == ",") tuple = true;
+            }
+            if (tuple) {
+                composite = true;
+                Expect("(");
+                std::vector<TGroupingSets> elements;
+                if (!Take(")")) {
+                    do { elements.push_back(GroupingElement(query, composite, true)); } while (Take(",") && !Is(")"));
+                    Expect(")");
+                }
+                return ExpandGroupingSets(elements, EGroupingOperation::Product, Settings.MaxNodes, pos);
+            }
+        }
+        TNamedExpr key{Expression()}; if (Take("AS")) key.Alias = Identifier();
+        const auto index = static_cast<std::uint32_t>(query.GroupBy.size());
+        query.GroupBy.push_back(std::move(key));
+        return {{index}};
     }
 
     // YQL precedence, from SQLv1Antlr4.g.in: OR, AND, XOR, equality /
@@ -592,6 +639,51 @@ private:
 };
 
 } // namespace
+
+TGroupingSets ExpandGroupingSets(const std::vector<TGroupingSets>& elements,
+    EGroupingOperation operation, std::size_t limit, TSourcePosition position) {
+    auto check = [&](const TGroupingSets& sets) {
+        std::size_t size = sets.size();
+        if (size > limit) throw TResourceLimitError(position, "grouping set expansion limit exceeded");
+        for (const auto& keys : sets) {
+            if (keys.size() > limit - size) throw TResourceLimitError(position, "grouping set expansion limit exceeded");
+            size += keys.size();
+        }
+    };
+    auto product = [&](const TGroupingSets& left, const TGroupingSets& right) {
+        TGroupingSets result;
+        if (!right.empty() && left.size() > limit / right.size())
+            throw TResourceLimitError(position, "grouping set expansion limit exceeded");
+        std::size_t size = left.size() * right.size();
+        for (const auto& a : left) for (const auto& b : right) {
+            if (a.size() > limit - size || b.size() > limit - size - a.size())
+                throw TResourceLimitError(position, "grouping set expansion limit exceeded");
+            size += a.size() + b.size();
+        }
+        result.reserve(left.size() * right.size());
+        for (const auto& a : left) for (const auto& b : right) {
+            auto& keys = result.emplace_back(a); keys.insert(keys.end(), b.begin(), b.end());
+        }
+        return result;
+    };
+    TGroupingSets result = operation == EGroupingOperation::Sets ? TGroupingSets{} : TGroupingSets{{}};
+    TGroupingSets prefix{{}};
+    for (const auto& element : elements) {
+        check(element);
+        if (operation == EGroupingOperation::Product) result = product(result, element);
+        else if (operation == EGroupingOperation::Sets) result.insert(result.end(), element.begin(), element.end());
+        else if (operation == EGroupingOperation::Rollup) {
+            prefix = product(prefix, element);
+            result.insert(result.end(), prefix.begin(), prefix.end());
+        } else {
+            auto extra = product(result, element);
+            result.insert(result.end(), std::make_move_iterator(extra.begin()), std::make_move_iterator(extra.end()));
+        }
+        check(result);
+    }
+    if (operation == EGroupingOperation::Rollup || operation == EGroupingOperation::Cube) std::reverse(result.begin(), result.end());
+    return result;
+}
 
 TParsedQuery Parse(std::string_view sql, const TParseSettings& settings) {
     return TParser(sql, settings).Run();

@@ -82,6 +82,50 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(GroupingSetsExpansionKeepsNativeExpressions) {
+        for (const auto* clause : {"ROLLUP(k,v)", "CUBE(k,v)", "k, ROLLUP(v)", "GROUPING SETS ((k,v))", "GROUPING SETS ((k,v),())"}) {
+            for (const auto* measures : {"SUM(k), SUM(v), AVG(k), COUNT(*)", "COUNT(DISTINCT k), SUM(v), SUM(DISTINCT k)", "1"}) {
+                NTests::TIdTestContext f;
+                const TString sql = TStringBuilder() << "SELECT k, v, GROUPING(k,v), " << measures
+                    << " FROM (SELECT 1 AS k, CAST(2 AS Int32?) AS v) AS q GROUP BY " << clause;
+                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx);
+                auto& root = *roots.front();
+                for (const auto& item : root) UNIT_ASSERT(item.Current->Kind != EOperator::GroupingSets);
+                auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+                    UNIT_FAIL("native grouping sets invoked YQL annotation");
+                    return IGraphTransformer::TStatus::Error;
+                });
+                TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+                TGlobalPruningStage("native grouping sets pruning").RunStage(root, context);
+                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                const auto* expected = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                TVector<std::unique_ptr<IRule>> rules;
+                rules.emplace_back(std::make_unique<TExpandGroupingSetsRule>());
+                rules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
+                TRuleBasedStage("native grouping sets expansion", std::move(rules)).RunStage(root, context);
+                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                TGlobalPruningStage("native grouping sets padding pruning").RunStage(root, context);
+                TVector<std::unique_ptr<IRule>> copies;
+                copies.emplace_back(std::make_unique<TExpandReplicateRule>());
+                TRuleBasedStage("native grouping sets copies", std::move(copies)).RunStage(root, context);
+                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                const auto* actual = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                for (const auto& [id, label] : root.GetColumns().Items()) {
+                    const auto name = f.ExprCtx.GetIndexAsString(id);
+                    UNIT_ASSERT_C(IsSameAnnotation(*expected->FindItemType(name), *actual->FindItemType(name)), sql);
+                }
+                NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
+                for (const auto& item : root) {
+                    UNIT_ASSERT(item.Current->Kind != EOperator::GroupingSets);
+                    for (const auto& expression : item.Current->GetExpressions()) {
+                        UNIT_ASSERT(expression.get().IsNative());
+                        UNIT_ASSERT(!expression.get().Node);
+                    }
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(MixedDistinctExpansionKeepsNativeExpressions) {
         for (const auto* projection : {
                 "COUNT(DISTINCT v), COUNT(*), SUM(v), SUM(DISTINCT v), MIN(v), MAX(DISTINCT v)",

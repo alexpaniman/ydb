@@ -6,7 +6,9 @@
 #include <limits>
 #include <locale>
 #include <map>
+#include <set>
 #include <sstream>
+#include <tuple>
 #include <unordered_set>
 
 namespace NKikimr::NKqp::NFrontend {
@@ -215,6 +217,12 @@ struct TAggregationContext {
     std::vector<TAggregate> Aggregates;
     std::unordered_map<std::uint32_t, TScopeColumn> Groups;
     std::unordered_map<std::uint32_t, TExprId> Calls;
+    TGroupingSets GroupingSets;
+    std::vector<std::pair<TColumnId, TColumnId>> GroupingColumns;
+    std::vector<std::pair<TColumnId, TColumnId>> GroupingIndicators;
+    std::unordered_map<TColumnId, TColumnId> GroupSources;
+    std::unordered_map<TColumnId, TColumnId> Indicators;
+    bool MayBeEmpty = false;
 };
 
 struct TWindowContext {
@@ -232,6 +240,7 @@ struct TExprContext {
         const std::unordered_map<std::string, TExprId>* arguments = nullptr)
         : Scope(scope), Aggregation(aggregation), Arguments(arguments) {}
     const TScope& Scope;
+    const TScope* Aliases = nullptr;
     TAggregationContext* Aggregation = nullptr;
     const std::unordered_map<std::string, TExprId>* Arguments = nullptr;
     std::unordered_map<TSyntaxId, TExprId> Cache;
@@ -261,7 +270,7 @@ public:
                 Bindings[i] == TGlobalBindings::Unknown)
                 throw TFrontendError(expr.Position, "unknown binding: " + expr.Text);
             TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i], expr.Query.get()};
-            bool aggregate = expr.Kind == ESyntaxKind::Call && !expr.Window && IsAggregate(Lower(expr.Text));
+            bool aggregate = expr.Kind == ESyntaxKind::Call && !expr.Window && (IsAggregate(Lower(expr.Text)) || Lower(expr.Text) == "grouping");
             for (auto child : expr.Arguments) {
                 if (child >= i) throw TFrontendError(expr.Position, "syntax tree is not topologically ordered");
                 key.Arguments.push_back(Canonical[child]);
@@ -511,7 +520,7 @@ private:
             source.Relation = Filter(BindInput(source.Relation, sourceContext, query.Position), predicate, Syntax.Expressions[query.Where].Position);
         }
 
-        bool aggregate = !query.GroupBy.empty();
+        bool aggregate = !query.GroupBy.empty() || !query.GroupingSets.empty();
         for (const auto& projection : query.Projection) aggregate = aggregate || ContainsAggregate[projection.Expression];
         if (query.Having != NoSyntax) aggregate = aggregate || ContainsAggregate[query.Having];
         for (const auto& key : query.OrderBy) aggregate = aggregate || ContainsAggregate[key.Expression];
@@ -520,19 +529,54 @@ private:
         if (aggregate) {
             aggregation.Source = &sourceContext;
             std::unordered_set<TColumnId> seen;
+            std::unordered_map<std::uint32_t, TColumnId> bound;
+            std::vector<TScopeColumn> keyNames;
             sourceContext.AllowSubqueries = false;
             for (const auto& key : query.GroupBy) {
                 if (key.Alias.empty() && Syntax.Expressions[key.Expression].Kind != ESyntaxKind::Column)
                     throw TUnsupportedFeature(EFeature::Expression, Syntax.Expressions[key.Expression].Position,
                         "computed GROUP BY keys require an explicit alias in native-read-v1");
-                auto expression = Expr(key.Expression, sourceContext);
-                auto id = Materialize(expression, aggregation.Definitions, Syntax.Expressions[key.Expression].Position, key.Alias);
+                const auto canonical = Canonical[key.Expression];
+                auto found = bound.find(canonical);
+                const auto id = found == bound.end() ? Materialize(Expr(key.Expression, sourceContext), aggregation.Definitions,
+                    Syntax.Expressions[key.Expression].Position, key.Alias) : found->second;
+                bound.emplace(canonical, id);
                 if (seen.insert(id).second) aggregation.Keys.push_back(id);
                 auto column = ScopeColumn(id);
-                column.Type = Program.Expressions[expression].Type;
-                aggregation.Groups.emplace(Canonical[key.Expression], column);
                 if (!key.Alias.empty()) column.Name = key.Alias;
-                grouped.Add(std::move(column));
+                keyNames.push_back(std::move(column));
+            }
+            std::unordered_map<TColumnId, std::size_t> frequency;
+            for (const auto& set : query.GroupingSets) {
+                auto& keys = aggregation.GroupingSets.emplace_back();
+                std::unordered_set<TColumnId> present;
+                for (const auto index : set) {
+                    if (index >= keyNames.size()) throw TFrontendError(query.Position, "invalid grouping key index");
+                    const auto id = keyNames[index].Id;
+                    if (present.insert(id).second) { keys.push_back(id); ++frequency[id]; }
+                }
+            }
+            aggregation.MayBeEmpty = aggregation.Keys.empty() || std::any_of(aggregation.GroupingSets.begin(), aggregation.GroupingSets.end(),
+                [](const auto& set) { return set.empty(); });
+            std::unordered_map<TColumnId, TColumnId> outward;
+            for (const auto id : aggregation.Keys) {
+                auto output = id;
+                if (!aggregation.GroupingSets.empty()) {
+                    auto type = Program.Columns[id].Type;
+                    if (type.Kind == ETypeKind::Null) throw TUnsupportedFeature(EFeature::GroupingSets, query.Position, "bare NULL grouping keys require an explicit scalar cast");
+                    if (frequency[id] != aggregation.GroupingSets.size()) type = type.Optional();
+                    output = Column(Program.Columns[id].Name, Program.Columns[id].Qualifier, type, query.Position);
+                    aggregation.GroupingColumns.emplace_back(output, id);
+                }
+                outward.emplace(id, output);
+                aggregation.GroupSources.emplace(output, id);
+            }
+            std::set<std::tuple<TColumnId, std::string, std::string>> names;
+            for (std::size_t i = 0; i < keyNames.size(); ++i) {
+                auto column = keyNames[i];
+                column.Id = outward.at(column.Id); column.Type = Program.Columns[column.Id].Type;
+                aggregation.Groups.emplace(Canonical[query.GroupBy[i].Expression], column);
+                if (names.emplace(column.Id, column.Name, column.Qualifier).second) grouped.Add(std::move(column));
             }
             sourceContext.AllowSubqueries = true;
         }
@@ -595,14 +639,16 @@ private:
         // ORDER BY aliases bind to result columns; other expressions see the
         // appropriate input/grouping scope. They are materialized once.
         std::vector<TBoundSortKey> sort;
+        std::vector<TDefinition> sortDefinitions;
         context.AllowSubqueries = false;
+        context.Aliases = &outputScope;
         for (const auto& key : query.OrderBy) {
             const auto& syntax = Syntax.Expressions[key.Expression];
             const TScopeColumn* alias = syntax.Kind == ESyntaxKind::Column ? outputScope.Find(syntax.Text, syntax.Position) : nullptr;
             if (alias) sort.push_back({alias->Id, key.Descending});
             else {
                 auto expr = Expr(key.Expression, context);
-                auto id = Materialize(expr, definitions, syntax.Position);
+                auto id = Materialize(expr, sortDefinitions, syntax.Position);
                 if (query.Distinct && std::none_of(outputs.begin(), outputs.end(), [&](const auto& output) { return output.Column == id; })) {
                     throw TFrontendError(syntax.Position, "ORDER BY in SELECT DISTINCT must name a result column");
                 }
@@ -610,12 +656,22 @@ private:
             }
         }
         context.AllowSubqueries = true;
+        context.Aliases = nullptr;
         auto root = BindInput(source.Relation, sourceContext, query.Position);
         if (aggregate) {
             root = Map(root, std::move(aggregation.Definitions), query.Position);
             TRelation node{ERelation::Aggregate, query.Position}; node.Inputs = {root}; node.GroupKeys = std::move(aggregation.Keys);
-            node.Columns = node.GroupKeys; node.Aggregates = std::move(aggregation.Aggregates);
-            for (const auto& agg : node.Aggregates) node.Columns.push_back(agg.Output);
+            node.Aggregates = std::move(aggregation.Aggregates);
+            node.GroupingSets = std::move(aggregation.GroupingSets);
+            node.GroupingColumns = std::move(aggregation.GroupingColumns);
+            node.GroupingIndicators = std::move(aggregation.GroupingIndicators);
+            if (node.GroupingSets.empty()) {
+                node.Columns = node.GroupKeys;
+                for (const auto& agg : node.Aggregates) node.Columns.push_back(agg.Output);
+            } else {
+                for (const auto& [output, input] : node.GroupingColumns) node.Columns.push_back(output);
+                for (const auto& [output, input] : node.GroupingIndicators) node.Columns.push_back(output);
+            }
             root = Relation(std::move(node));
         }
         root = BindInput(root, context, query.Position);
@@ -633,6 +689,7 @@ private:
         }
         for (const auto& definition : afterWindows) root = Map(root, {definition}, query.Position);
         root = Map(root, std::move(definitions), query.Position);
+        root = Map(root, std::move(sortDefinitions), query.Position);
         if (query.Distinct) {
             TRelation node{ERelation::Aggregate, query.Position}; node.Inputs = {root};
             std::unordered_set<TColumnId> seen;
@@ -886,11 +943,44 @@ private:
         } else {
             input = Expr(arg, *context.Source);
         }
-        const auto type = AggregateType(name, Program.Expressions[input].Type, context.Keys.empty(), syntax.Position);
+        const auto type = AggregateType(name, Program.Expressions[input].Type, context.MayBeEmpty, syntax.Position);
         auto inputColumn = Materialize(input, context.Definitions, syntax.Position);
-        auto output = Column(name + std::to_string(Program.Columns.size()), {}, type, syntax.Position);
+        const auto innerType = AggregateType(name, Program.Expressions[input].Type, context.Keys.empty(), syntax.Position);
+        auto output = Column(name + std::to_string(Program.Columns.size()), {}, innerType, syntax.Position);
         context.Aggregates.push_back({output, inputColumn, name, syntax.Distinct});
+        if (!context.GroupingSets.empty()) {
+            const auto inner = output;
+            output = Column(name + std::to_string(Program.Columns.size()), {}, type, syntax.Position);
+            context.GroupingColumns.emplace_back(output, inner);
+        }
         auto result = Program.Expressions.Column(output, type, syntax.Position); context.Calls.emplace(canonical, result); return result;
+    }
+
+    TExprId Grouping(const TSyntaxExpr& syntax, TExprContext& context) {
+        if (!context.Aggregation) throw TFrontendError(syntax.Position, "GROUPING requires grouping keys");
+        if (syntax.Arguments.empty() || syntax.Arguments.size() > 64 || syntax.Distinct)
+            throw TFrontendError(syntax.Position, "GROUPING requires one to 64 grouping keys");
+        auto& grouping = *context.Aggregation;
+        auto& arena = Program.Expressions;
+        auto result = arena.Literal({ETypeKind::Uint64}, std::uint64_t{0}, syntax.Position);
+        const auto two = arena.Literal({ETypeKind::Uint64}, std::uint64_t{2}, syntax.Position);
+        for (const auto argument : syntax.Arguments) {
+            const auto& arg = Syntax.Expressions[argument];
+            const TScopeColumn* column = nullptr;
+            if (auto it = grouping.Groups.find(Canonical[argument]); it != grouping.Groups.end()) column = &it->second;
+            else if (arg.Kind == ESyntaxKind::Column) column = context.Scope.Find(arg.Text, arg.Position);
+            if (!column || !grouping.GroupSources.contains(column->Id)) throw TFrontendError(arg.Position, "GROUPING argument is not a grouping key");
+            if (grouping.GroupingSets.empty()) continue;
+            const auto source = grouping.GroupSources.at(column->Id);
+            auto [it, inserted] = grouping.Indicators.try_emplace(source);
+            if (inserted) {
+                it->second = Column("grouping" + std::to_string(source), {}, {ETypeKind::Uint64}, syntax.Position);
+                grouping.GroupingIndicators.emplace_back(it->second, source);
+            }
+            result = arena.Binary(EOpcode::Add, arena.Binary(EOpcode::Multiply, result, two, syntax.Position),
+                arena.Column(it->second, {ETypeKind::Uint64}, syntax.Position), syntax.Position);
+        }
+        return result;
     }
 
     TExprId Window(TSyntaxId id, TWindowContext& context) {
@@ -1108,6 +1198,13 @@ private:
         const auto& syntax = Syntax.Expressions.at(id);
         TDepth depth(*this, syntax.Position);
         CheckSize(syntax.Position);
+        if (syntax.Kind == ESyntaxKind::Column && context.Aliases) {
+            if (const auto* alias = context.Aliases->Find(syntax.Text, syntax.Position)) {
+                const auto result = Access(*alias, syntax.Position);
+                context.Cache.emplace(id, result);
+                return result;
+            }
+        }
         if (context.Aggregation) if (auto it = context.Aggregation->Groups.find(Canonical[id]); it != context.Aggregation->Groups.end()) {
             auto result = Access(it->second, syntax.Position); context.Cache.emplace(id, result); return result;
         }
@@ -1239,6 +1336,7 @@ private:
                     if (!context.Aggregation) throw TFrontendError(syntax.Position, "aggregate is not allowed in this expression");
                     result = Aggregate(syntax, Canonical[id], *context.Aggregation); break;
                 }
+                if (name == "grouping") { result = Grouping(syntax, context); break; }
                 if (syntax.Distinct) throw TFrontendError(syntax.Position, "DISTINCT requires an aggregate function");
                 std::vector<TExprId> args;
                 for (auto arg : syntax.Arguments) args.push_back(Expr(arg, context));
@@ -1320,6 +1418,13 @@ std::string Explain(const TBoundProgram& program) {
         out << ']';
         for (const auto& capture : relation.Captures) out << " capture=" << capture.Local << "<-" << capture.Outer;
         for (const auto& function : relation.WindowFunctions) out << " window=" << function.Output << ':' << function.Function;
+        for (const auto& set : relation.GroupingSets) {
+            out << " grouping-set=[";
+            for (std::size_t j = 0; j < set.size(); ++j) out << (j ? "," : "") << set[j];
+            out << ']';
+        }
+        for (const auto& [output, input] : relation.GroupingColumns) out << " grouping-output=" << output << "<-" << input;
+        for (const auto& [output, input] : relation.GroupingIndicators) out << " grouping-indicator=" << output << "<-" << input;
         out << '\n';
     }
     std::vector<TColumnId> bindings;
@@ -1612,11 +1717,12 @@ std::string_view SupportManifest() {
 "relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
+"grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],
 "windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow"],
-"restrictions":["mixed DISTINCT aggregates support scalar states; combinations containing AVG require a tuple state and delegate","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; no implicit signed/unsigned promotion elsewhere or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["mixed DISTINCT aggregates support scalar states; combinations containing AVG require a tuple state and delegate","computed GROUP BY keys require aliases; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","no stars over joins","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; no implicit signed/unsigned promotion elsewhere or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

@@ -70,6 +70,11 @@ struct TRelation {
     EJoinKind JoinKind = EJoinKind::Inner;
     std::vector<TColumnId> GroupKeys;
     std::vector<TAggregate> Aggregates;
+    // An aggregate with grouping sets has fresh outward key/result bindings.
+    // Indicator bindings map their output to the input key they describe.
+    TGroupingSets GroupingSets;
+    std::vector<std::pair<TColumnId, TColumnId>> GroupingColumns;
+    std::vector<std::pair<TColumnId, TColumnId>> GroupingIndicators;
     std::vector<TBoundSortKey> SortKeys;
     std::optional<TExprId> Count;
     std::optional<TExprId> Offset;

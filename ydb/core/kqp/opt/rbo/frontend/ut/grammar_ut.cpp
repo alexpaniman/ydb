@@ -7,6 +7,43 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(GroupingSetsHaveSharedBoundedExpansion) {
+        const std::pair<const char*, TGroupingSets> cases[]{
+            {"id, value", {}},
+            {"()", {{}}},
+            {"(id, value)", {{0, 1}}},
+            {"ROLLUP(id, value)", {{0, 1}, {0}, {}}},
+            {"CUBE(id, value)", {{0, 1}, {1}, {0}, {}}},
+            {"GROUPING SETS ((id, value), (id), (),)", {{0, 1}, {2}, {}}},
+            {"id, ROLLUP(value)", {{0, 1}, {0}}},
+            {"ROLLUP(id), CUBE(value)", {{0, 1}, {0}, {1}, {}}},
+            {"ROLLUP((id, value), other)", {{0, 1, 2}, {0, 1}, {}}},
+            {"GROUPING SETS (ROLLUP(id, value), CUBE(other), GROUPING SETS (id, ()))", {{0, 1}, {0}, {}, {2}, {}, {3}, {}}},
+            {"GROUPING SETS ((id, id), (id), (id))", {{0, 1}, {2}, {3}}},
+            {"GROUPING SETS ((id + 1ul AS k, value), ())", {{0, 1}, {}}},
+        };
+        for (const auto& [clause, sets] : cases) {
+            const std::string sql = std::string("SELECT COUNT(*) FROM t GROUP BY ") + clause;
+            try {
+                const auto fast = Parse(sql);
+                const auto grammar = ParseGrammar(sql);
+                UNIT_ASSERT_VALUES_EQUAL_C(SyntaxFingerprint(fast), SyntaxFingerprint(grammar), sql);
+                UNIT_ASSERT_C(fast.Statements[0].Query->GroupingSets == sets, sql);
+            } catch (const TFrontendError& error) {
+                UNIT_FAIL(TStringBuilder() << sql << ": " << error.what());
+            }
+        }
+        const auto sql = "SELECT COUNT(*) FROM t GROUP BY CUBE(a,b,c,d,e,f,g,h,i,j)";
+        TParseSettings small; small.MaxNodes = 128;
+        UNIT_ASSERT_EXCEPTION(Parse(sql, small), TResourceLimitError);
+        UNIT_ASSERT_EXCEPTION(ParseGrammar(sql, small), TResourceLimitError);
+        for (const auto* clause : {"ROLLUP()", "CUBE()", "GROUPING SETS ()", "ROLLUP(id,)", "CUBE(id,,value)"}) {
+            const auto invalid = std::string("SELECT COUNT(*) FROM t GROUP BY ") + clause;
+            UNIT_ASSERT_EXCEPTION_C(Parse(invalid), TFrontendError, invalid);
+            UNIT_ASSERT_EXCEPTION_C(ParseGrammar(invalid), TFrontendError, invalid);
+        }
+    }
+
     Y_UNIT_TEST(StructureAgreesWithHandwrittenParser) {
         for (auto sql : {
             "SELECT 1 + 2 * 3 AS x",
@@ -45,7 +82,7 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
             "CREATE TABLE t (id Uint64, PRIMARY KEY(id));",
             "UPSERT INTO t (id) VALUES (1);",
             "SELECT RowNumber() OVER w FROM t WINDOW w AS ();",
-            "SELECT id FROM t GROUP BY ROLLUP(id);",
+            "SELECT id FROM t GROUP COMPACT BY id;",
         }) {
             ValidateGrammar(sql);
             UNIT_ASSERT_EXCEPTION(ParseGrammar(sql), TUnsupportedFeature);

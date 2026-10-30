@@ -394,6 +394,58 @@ private:
         if (!alias) alias = Child(node, "an_id_as_compat");
         return {Expr(expression), alias ? Id(alias) : ""};
     }
+
+    TGroupingSets GroupingValue(TTree* expression, std::string alias, TSelect& query, bool& composite) {
+        auto* unwrapped = Unwrap(expression);
+        if (Name(unwrapped) == "lambda" && !Has(unwrapped, "->")) unwrapped = Child(unwrapped, "smart_parenthesis");
+        if (Name(unwrapped) == "smart_parenthesis") {
+            auto* sub = Child(unwrapped, "select_subexpr");
+            auto* tuple = sub ? Unwrap(sub) : nullptr;
+            if (!sub || (Name(tuple) == "tuple_or_expr" && Has(tuple, ","))) {
+                composite = true;
+                if (!alias.empty()) Unsupported(expression, EFeature::GroupingSets, "alias on a grouping bundle");
+                std::vector<TGroupingSets> elements;
+                if (tuple) {
+                    auto* name = Child(tuple, "an_id_or_type");
+                    elements.push_back(GroupingValue(Child(tuple, "expr"), name ? Id(name) : "", query, composite));
+                    for (auto* named : Children(tuple, "named_expr")) {
+                        auto* name = Child(named, "an_id_or_type");
+                        elements.push_back(GroupingValue(Child(named, "expr"), name ? Id(name) : "", query, composite));
+                    }
+                }
+                return ExpandGroupingSets(elements, EGroupingOperation::Product, Settings.MaxNodes, Position(expression));
+            }
+        }
+        const auto index = static_cast<std::uint32_t>(query.GroupBy.size());
+        query.GroupBy.push_back({Expr(expression), std::move(alias)});
+        return {{index}};
+    }
+
+    TGroupingSets GroupingElement(TTree* element, TSelect& query, bool& composite) {
+        if (auto* ordinary = Child(element, "ordinary_grouping_set")) {
+            auto* named = Child(ordinary, "named_expr");
+            auto* alias = Child(named, "an_id_or_type");
+            return GroupingValue(Child(named, "expr"), alias ? Id(alias) : "", query, composite);
+        }
+        composite = true;
+        auto* form = Only(element);
+        const auto name = Name(form);
+        std::vector<TGroupingSets> elements;
+        EGroupingOperation op;
+        if (name == "grouping_sets_specification") {
+            op = EGroupingOperation::Sets;
+            for (auto* child : Children(Child(form, "grouping_element_list"), "grouping_element"))
+                elements.push_back(GroupingElement(child, query, composite));
+        } else if (name == "rollup_list" || name == "cube_list") {
+            op = name == "rollup_list" ? EGroupingOperation::Rollup : EGroupingOperation::Cube;
+            for (auto* child : Children(Child(form, "ordinary_grouping_set_list"), "ordinary_grouping_set")) {
+                auto* named = Child(child, "named_expr");
+                auto* alias = Child(named, "an_id_or_type");
+                elements.push_back(GroupingValue(Child(named, "expr"), alias ? Id(alias) : "", query, composite));
+            }
+        } else Unsupported(element, EFeature::GroupingSets, "hopping window grouping");
+        return ExpandGroupingSets(elements, op, Settings.MaxNodes, Position(element));
+    }
     TSource Source(TTree* node) {
         if (Name(node) == "flatten_source") {
             if (Has(node, "FLATTEN")) Unsupported(node, EFeature::Type, "FLATTEN");
@@ -564,10 +616,11 @@ private:
         if (auto* group = Child(node, "group_by_clause")) {
             if (Has(group, "COMPACT") || Has(group, "WITH") || !Child(group, "opt_set_quantifier")->getText().empty())
                 Unsupported(group, EFeature::GroupingSets, "GROUP BY modifier");
-            for (auto* element : Children(Child(group, "grouping_element_list"), "grouping_element")) {
-                if (auto* ordinary = Child(element, "ordinary_grouping_set")) result->GroupBy.push_back(Named(Child(ordinary, "named_expr")));
-                else Unsupported(element, EFeature::GroupingSets, "grouping sets, rollup, cube, or hopping window");
-            }
+            bool composite = false;
+            std::vector<TGroupingSets> elements;
+            for (auto* element : Children(Child(group, "grouping_element_list"), "grouping_element"))
+                elements.push_back(GroupingElement(element, *result, composite));
+            if (composite) result->GroupingSets = ExpandGroupingSets(elements, EGroupingOperation::Product, Settings.MaxNodes, Position(group));
         }
         if (auto* order = Child(node, "ext_order_by_clause")) {
             if (Has(order, "ASSUME")) Unsupported(order, EFeature::Statement, "ASSUME ORDER BY");
@@ -720,6 +773,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
             for (const auto& column : join.Using) text(column);
         }
         named(value.Projection); expr(value.Where); named(value.GroupBy); expr(value.Having);
+        out << '['; for (const auto& set : value.GroupingSets) { out << '['; for (auto key : set) out << key << ','; out << ']'; } out << ']';
         for (const auto& key : value.OrderBy) { out << key.Descending; expr(key.Expression); }
         expr(value.Limit); expr(value.Offset);
         out << '['; for (auto op : value.SetOperations) out << static_cast<int>(op) << ','; out << ']';
