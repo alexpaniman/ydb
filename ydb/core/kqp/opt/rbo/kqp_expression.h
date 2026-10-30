@@ -161,9 +161,12 @@ class TEquiJoinCondition {
 
 // Create an expression that accesses a single column
 TExpression MakeColumnAccess(TInfoUnitId column, TPositionHandle pos, TExprContext* ctx, TPlanProps* props = nullptr);
+// Typed optimizer factories append directly to a native plan's arena.
+TExpression MakeColumnAccess(TInfoUnitId column, const TTypeAnnotationNode* type,
+    TPositionHandle pos, TExprContext* ctx, TPlanProps* props);
 
-// Create a constant expression. Constant expressions don't need plan properties
-TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TExprContext* ctx);
+// Create a constant expression; native plans supply their destination arena through properties.
+TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TExprContext* ctx, TPlanProps* props = nullptr);
 
 // Create. a null expression of a specific type, also doesn't need plan properties
 TExpression MakeNothing(TPositionHandle pos, const TTypeAnnotationNode* type, TExprContext* ctx);

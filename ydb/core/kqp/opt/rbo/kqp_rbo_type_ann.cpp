@@ -281,7 +281,10 @@ TStatus ComputeTypes(TIntrusivePtr<TOpMap> map, TRBOContext& ctx, TPlanProps& pr
         // This is type annotation update inplace, which is different comparing to yql type annotation.
         auto expression = mapElement.GetExpression();
         if (expression.IsNative()) {
-            auto typed = BindNativeTypes(expression, *structType, ctx.ExprCtx);
+            auto calls = expression.GetInputIUs(true, false);
+            calls.IntersectWith(props.Subplans.Bindings());
+            auto* expressionType = calls.Empty() ? structType : AddSubplanTypes(structType, calls, ctx, props);
+            auto typed = BindNativeTypes(expression, *expressionType, ctx.ExprCtx);
             resStructItemTypes.push_back(ctx.ExprCtx.MakeType<TItemExprType>(ctx.ExprCtx.GetIndexAsString(output),
                 ExportNativeType(typed.GetNativeType(), ctx.ExprCtx)));
             map->SetMapElementExpression(output, std::move(typed));

@@ -76,11 +76,19 @@ struct TQueryResult {
     std::vector<TResultColumn> Columns;
 };
 
+// Subquery results have ordinary typed column references in scalar DAGs.
+// Their producers stay relational and use RBO's existing cardinality rewrite.
+struct TSubplan {
+    TRelId Root;
+    TColumnId Result;
+};
+
 struct TBoundProgram {
     TExpressionArena Expressions;
     std::vector<TColumn> Columns;
     std::vector<TRelation> Relations;
     std::vector<TQueryResult> Results;
+    std::unordered_map<TColumnId, TSubplan> Subplans;
     std::unordered_map<std::string, TType> Parameters;
 };
 

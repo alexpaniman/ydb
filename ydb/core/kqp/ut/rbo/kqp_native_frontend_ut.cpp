@@ -78,6 +78,26 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(ScalarSubplansRemainNativeThroughTyping) {
+        NTests::TIdTestContext f;
+        auto roots = CompileNativeToRbo("SELECT (SELECT (SELECT 1) + 2) AS x, (SELECT 7) AS y", NoTables, f.ExprCtx);
+        auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+            UNIT_FAIL("native scalar subquery invoked YQL annotation");
+            return IGraphTransformer::TStatus::Error;
+        });
+        TRBOContext nativeContext(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+        auto& root = *roots.front();
+        UNIT_ASSERT(!root.PlanProps.Subplans.Empty());
+        UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+        for (const auto& item : IterateSubtreeWithSubplans(&root, root.PlanProps)) {
+            for (const auto& expression : item.Current->GetExpressions()) {
+                UNIT_ASSERT(expression.get().IsNative());
+                UNIT_ASSERT(!expression.get().Node);
+                UNIT_ASSERT(expression.get().PlanProps == &root.PlanProps);
+            }
+        }
+    }
+
     Y_UNIT_TEST(NativeAssertionsExecuteWithoutCompatibilityLowering) {
         using namespace NFrontend;
         TExpressionArena arena;

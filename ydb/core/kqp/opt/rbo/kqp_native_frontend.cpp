@@ -3,6 +3,7 @@
 #include "frontend/frontend.h"
 
 #include <unordered_map>
+#include <unordered_set>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -64,16 +65,32 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
         tables.emplace(relation.Table, std::move(table));
     }
     auto arena = std::make_shared<NFrontend::TExpressionArena>(std::move(program.Expressions));
+    std::unordered_map<NFrontend::TRelId, NFrontend::TColumnId> subplanBindings;
+    for (const auto& [binding, subplan] : program.Subplans) subplanBindings.emplace(subplan.Root, binding);
     TVector<TIntrusivePtr<TOpRoot>> roots;
     for (const auto& result : program.Results) {
         TPlanProps props;
-        props.NativeExpressions = true;
+        props.NativeExpressions = arena;
         for (const auto& column : program.Columns) props.InfoUnitRegistry.Add(TInfoUnit(String(column.Qualifier), String(column.Name)));
         auto expression = [&](NFrontend::TExprId id) {
             return TExpression::FromNative(arena, id, &ctx, &props, Position((*arena)[id].Position, ctx));
         };
         std::unordered_map<NFrontend::TRelId, TIntrusivePtr<IOperator>> converted;
         std::vector<std::pair<NFrontend::TRelId, bool>> pending{{result.Root, false}};
+        std::unordered_set<NFrontend::TExprId> visitedExpressions;
+        auto scheduleExpression = [&](NFrontend::TExprId root) {
+            std::vector<NFrontend::TExprId> expressions{root};
+            while (!expressions.empty()) {
+                const auto id = expressions.back(); expressions.pop_back();
+                if (!visitedExpressions.insert(id).second) continue;
+                const auto& node = (*arena)[id];
+                expressions.insert(expressions.end(), node.Arguments.begin(), node.Arguments.end());
+                if (node.Op == NFrontend::EOpcode::Column) {
+                    if (const auto call = program.Subplans.find(node.ColumnId); call != program.Subplans.end())
+                        pending.emplace_back(call->second.Root, false);
+                }
+            }
+        };
         while (!pending.empty()) {
             const auto [id, ready] = pending.back(); pending.pop_back();
             if (converted.contains(id)) continue;
@@ -81,6 +98,10 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
             if (!ready) {
                 pending.emplace_back(id, true);
                 for (auto it = relation.Inputs.rbegin(); it != relation.Inputs.rend(); ++it) pending.emplace_back(*it, false);
+                for (const auto& definition : relation.Definitions) scheduleExpression(definition.Expression);
+                if (relation.Predicate) scheduleExpression(*relation.Predicate);
+                if (relation.Count) scheduleExpression(*relation.Count);
+                if (relation.Offset) scheduleExpression(*relation.Offset);
                 continue;
             }
             auto pos = Position(relation.Position, ctx);
@@ -151,13 +172,17 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                 }
             }
             op->GetOutputIUs();
-            converted.emplace(id, std::move(op));
+            converted.emplace(id, op);
+            if (const auto call = subplanBindings.find(id); call != subplanBindings.end()) {
+                const auto& subplan = program.Subplans.at(call->second);
+                props.Subplans.Add(call->second, std::move(op), ESubplanType::EXPR, {}, subplan.Result);
+            }
         }
         TOrderedIUs<TString> columns;
         for (const auto& column : result.Columns) columns.Append(column.Column, String(column.Name));
         auto root = MakeIntrusive<TOpRoot>(converted.at(result.Root), converted.at(result.Root)->Pos, std::move(columns));
         root->PlanProps = std::move(props);
-        for (const auto& item : *root) item.Current->BindExpressionPlanProps(&root->PlanProps);
+        for (const auto& item : IterateSubtreeWithSubplans(root.Get(), root->PlanProps)) item.Current->BindExpressionPlanProps(&root->PlanProps);
         root->RecomputeOutputIUsSubtree(); root->ComputeParents(); roots.push_back(std::move(root));
     }
     return roots;

@@ -17,6 +17,7 @@ namespace NKqp {
 using namespace NYql;
 
 class IOperator;
+namespace NFrontend { class TExpressionArena; }
 
 enum ESubplanType : ui32 { EXPR, IN_SUBPLAN, EXISTS };
 
@@ -194,7 +195,7 @@ private:
 struct TPlanProps {
     // Native plans keep scalar expressions in the typed frontend model until
     // physical emission. Legacy AST rewrite stages must not materialize them.
-    bool NativeExpressions = false;
+    std::shared_ptr<NFrontend::TExpressionArena> NativeExpressions;
     TInfoUnitRegistry InfoUnitRegistry;
     TStageGraph StageGraph;
     TSubplans Subplans;

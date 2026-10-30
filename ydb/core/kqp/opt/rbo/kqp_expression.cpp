@@ -988,7 +988,21 @@ TExpression MakeColumnAccess(TInfoUnitId column, TPositionHandle pos, TExprConte
     return TExpression(lambda, ctx, props);
 }
 
-TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TExprContext* ctx) {
+TExpression MakeColumnAccess(TInfoUnitId column, const TTypeAnnotationNode* type,
+    TPositionHandle pos, TExprContext* ctx, TPlanProps* props) {
+    if (!props || !props->NativeExpressions) return MakeColumnAccess(column, pos, ctx, props);
+    Y_ENSURE(type, "Native optimizer column construction requires its known type");
+    const auto& arena = props->NativeExpressions;
+    return TExpression::FromNative(arena, arena->Column(column, ImportNativeType(*type)), ctx, props, pos);
+}
+
+TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TExprContext* ctx, TPlanProps* props) {
+    if (props && props->NativeExpressions) {
+        const auto& arena = props->NativeExpressions;
+        const auto text = arena->Literal({NFrontend::ETypeKind::String}, std::string(value.data(), value.size()));
+        const NFrontend::TExprId args[]{text};
+        return TExpression::FromNative(arena, arena->Call(std::string_view(type.data(), type.size()), args), ctx, props, pos);
+    }
      auto constExpr = ctx->NewCallable(pos, type, {ctx->NewAtom(pos, value)});
      return TExpression(constExpr, ctx);
 }

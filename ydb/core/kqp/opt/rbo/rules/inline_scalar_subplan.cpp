@@ -20,9 +20,12 @@ TString OnlyValueAggregation(const TTypeAnnotationNode* valueType) {
 std::pair<TIntrusivePtr<IOperator>, TInfoUnitId> MakeAtMostOneRowPerGroup(const TIntrusivePtr<IOperator>& input, const TOrderedIUs<>& groupKeys,
                                                                           TInfoUnitId valueIU, const TTypeAnnotationNode* valueType,
                                                                           TPositionHandle pos, TRBOContext& ctx, TPlanProps& props) {
+    const auto* countType = ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64);
+    const auto* scalarType = valueType && !valueType->IsOptionalOrNull() ?
+        static_cast<const TTypeAnnotationNode*>(ctx.ExprCtx.MakeType<TOptionalExprType>(valueType)) : valueType;
     auto rowIU = props.InfoUnitRegistry.AddGenerated("row");
     TMapIUs rowElements;
-    rowElements.Add(rowIU, MakeConstant("Uint64", "1", pos, &ctx.ExprCtx));
+    rowElements.Add(rowIU, MakeConstant("Uint64", "1", pos, &ctx.ExprCtx, &props));
     auto rowMap = MakeIntrusive<TOpMap>(input, pos, rowElements);
 
     auto countIU = props.InfoUnitRegistry.AddGenerated("row_count");
@@ -35,12 +38,12 @@ std::pair<TIntrusivePtr<IOperator>, TInfoUnitId> MakeAtMostOneRowPerGroup(const 
     auto aggregate = MakeIntrusive<TOpAggregate>(rowMap, traits, groupKeys, EOpPhase::Undefined, /*distinctAll=*/false, pos);
 
     auto atMostOne =
-        MakeBinaryPredicate("<=", MakeColumnAccess(countIU, pos, &ctx.ExprCtx, &props), MakeConstant("Uint64", "1", pos, &ctx.ExprCtx));
+        MakeBinaryPredicate("<=", MakeColumnAccess(countIU, countType, pos, &ctx.ExprCtx, &props), MakeConstant("Uint64", "1", pos, &ctx.ExprCtx, &props));
 
     auto checkedIU = props.InfoUnitRegistry.AddGenerated("checked_scalar");
     TMapIUs valueElements;
     // Emit ensure.
-    valueElements.Add(checkedIU, MakeEnsure(MakeColumnAccess(valueStateIU, pos, &ctx.ExprCtx, &props), atMostOne,
+    valueElements.Add(checkedIU, MakeEnsure(MakeColumnAccess(valueStateIU, scalarType, pos, &ctx.ExprCtx, &props), atMostOne,
                                             "Scalar subquery returned more than one row"));
     return std::make_pair(MakeIntrusive<TOpMap>(aggregate, pos, valueElements), checkedIU);
 }
@@ -66,9 +69,6 @@ bool TInlineScalarSubplanRule::QuickMatch(const TIntrusivePtr<IOperator>& input,
 // FIXME: Need to do correct general case decorellation in the future
 
 bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext &ctx, TPlanProps &props) {
-    if (props.NativeExpressions) {
-        return false;
-    }
     TVector<TInfoUnitId> scalarIUs;
     for (const auto iu : input->GetSubplanIUs(props.Subplans)) {
         if (props.Subplans.At(iu).Type == ESubplanType::EXPR) {
@@ -88,6 +88,8 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
     auto subplanResIU = *subplanEntry.ResultIU;
     const auto* subplanResType = subplan->Type ? subplan->GetIUType(subplanResIU, ctx.ExprCtx) : nullptr;
 
+    const auto* scalarType = subplanResType && !subplanResType->IsOptionalOrNull() ?
+        static_cast<const TTypeAnnotationNode*>(ctx.ExprCtx.MakeType<TOptionalExprType>(subplanResType)) : subplanResType;
     Y_ENSURE(MatchOperator<IUnaryOperator>(input));
     auto unaryOp = CastOperator<IUnaryOperator>(input);
 
@@ -101,7 +103,7 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
                 outerFilter->SetInput(join);
             } else {
                 TMapIUs renameElements;
-                renameElements.Add(scalarIU, MakeColumnAccess(joinedSubplanResIU, subplan->Pos, &ctx.ExprCtx, &props));
+                renameElements.Add(scalarIU, MakeColumnAccess(joinedSubplanResIU, scalarType, subplan->Pos, &ctx.ExprCtx, &props));
                 auto rename = MakeIntrusive<TOpMap>(join, subplan->Pos, renameElements);
                 unaryOp->SetInput(rename);
             }
@@ -134,7 +136,7 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
         auto [checkedInput, checkedResIU] = MakeAtMostOneRowPerGroup(subplan, {}, subplanResIU, subplanResType, subplan->Pos, ctx, props);
 
         TMapIUs renameElements;
-        renameElements.Add(scalarIU, MakeColumnAccess(checkedResIU, subplan->Pos, &ctx.ExprCtx, &props));
+        renameElements.Add(scalarIU, MakeColumnAccess(checkedResIU, scalarType, subplan->Pos, &ctx.ExprCtx, &props));
         auto rename = MakeIntrusive<TOpMap>(checkedInput, subplan->Pos, renameElements);
 
         TJoinIUs joinKeys;

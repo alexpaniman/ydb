@@ -106,7 +106,8 @@ result/type parity tests.
 Supported relational forms include SELECT and FROM-first SELECT, projection,
 filters, aliases/stars, ordinary table reads, CTEs/derived tables, scalar/query
 bindings, simple scalar lambdas, ON joins (inner/cross/outer/semi/only), grouping,
-HAVING, DISTINCT, UNION ALL, ordering, limits, and multiple result statements.
+HAVING, DISTINCT, UNION ALL, ordering, limits, uncorrelated scalar subqueries,
+and multiple result statements.
 Aggregates are COUNT, SUM, AVG, MIN, MAX, and SOME. A DISTINCT aggregate must be
 the only aggregate in that aggregation. Computed GROUP BY keys require explicit
 aliases (`GROUP BY expression AS key`, then `SELECT key`). Scan queries require one result.
@@ -138,6 +139,13 @@ both 64-bit integer types), without conversion through floating point.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin.
 
+Scalar subqueries bind to typed relational results and use RBO's existing
+cardinality check: no row yields NULL and more than one row raises a runtime
+error. Scalar DAGs reference these results as columns; they contain no opaque
+SQL or subquery execution node. Table discovery includes nested query bodies. ORDER BY may reference a projected
+subquery result through its alias, but direct scalar subqueries in sort keys
+are excluded because the existing RBO backend fails their physical typing.
+
 Named scalars, lambdas and queries may be rebound. References resolve to
 definition IDs in one walk; lambda/query captures keep their original IDs
 when a later statement reuses a name. Table discovery uses the same resolution
@@ -147,7 +155,8 @@ Explicitly outside the profile:
 
 - DML/DDL, USE, scripting effects, arbitrary pragmas/settings, views, temporary
   and external tables, table hints, sampling, and PostgreSQL syntax/types.
-- Scalar/IN/EXISTS subqueries, correlation, JOIN USING, windows, grouping sets,
+- IN/EXISTS subqueries, correlation, scalar subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
+  scalar bindings or lambda bodies, JOIN USING, windows, grouping sets,
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
 - UDFs, higher-order values, containers/structs/tuples, nested optionals.
@@ -316,3 +325,10 @@ does not itself establish that either query fails. The migration target is all 1
 execution validation, plus previously working YQL read-query tests. Writes
 and PostgreSQL are tracked separately. Pre-existing RBO/backend defects remain
 outside this patch; failures caused by native translation or migration are fixed.
+
+Scalar-subquery context checks also record existing limitations with
+`YqlSelect=force`: the legacy optimizer leaves a sublink inside a SUM argument
+unlowered, while the existing RBO path executes that case. Direct subqueries in
+ORDER BY fail physical typing in the existing RBO backend; subqueries in GROUP
+BY keys are rejected by the existing SQL translator. The native profile excludes
+the latter two forms explicitly. These existing components are not patched.

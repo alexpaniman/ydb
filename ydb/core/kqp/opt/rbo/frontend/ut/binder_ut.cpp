@@ -19,6 +19,36 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(ScalarSubplansAreTypedRelationalBindings) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto compiled = CompileNative("SELECT (SELECT MAX(value) FROM a) AS x, (SELECT MIN(value) FROM b) AS y, (SELECT (SELECT 1) + 2) AS z", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            UNIT_ASSERT_VALUES_EQUAL(program.Subplans.size(), 4);
+            UNIT_ASSERT_VALUES_EQUAL(program.Results[0].Columns.size(), 3);
+            for (const auto& column : program.Results[0].Columns) {
+                UNIT_ASSERT(column.Type == (TType{ETypeKind::Int32, true}));
+                UNIT_ASSERT(!program.Subplans.contains(column.Column));
+            }
+            const auto tables = CollectTables(ParseNative("SELECT (SELECT MAX(value) FROM a), (SELECT MIN(value) FROM b)", settings));
+            UNIT_ASSERT_VALUES_EQUAL(tables.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "a");
+            UNIT_ASSERT_VALUES_EQUAL(tables[1].Name, "b");
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT id, value FROM a)", Catalog, settings), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT missing FROM a)", Catalog, settings), TFrontendError);
+            settings.Mode = ECompilerMode::Auto;
+            const auto unsupported = CompileNative("SELECT (SELECT b.value FROM b WHERE b.id = a.id) FROM a", Catalog, settings);
+            UNIT_ASSERT(unsupported.UsesLegacy() && unsupported.Unsupported->Feature == EFeature::Subquery);
+            const auto sort = CompileNative("SELECT id FROM a ORDER BY (SELECT MAX(value) FROM b)", Catalog, settings);
+            UNIT_ASSERT(sort.UsesLegacy() && sort.Unsupported->Feature == EFeature::Subquery);
+            const auto group = CompileNative("SELECT k, COUNT(*) FROM a GROUP BY (SELECT MAX(value) FROM b) AS k", Catalog, settings);
+            UNIT_ASSERT(group.UsesLegacy() && group.Unsupported->Feature == EFeature::Subquery);
+            UNIT_ASSERT(!CompileNative("SELECT (SELECT MAX(value) FROM b) AS x FROM a ORDER BY x", Catalog, settings).UsesLegacy());
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT missing FROM a)", Catalog, settings), TFrontendError);
+        }
+    }
+
     Y_UNIT_TEST(DirectReadFilterProjection) {
         const auto program = Compile("SELECT id, value + 1 AS next FROM a WHERE value > 0 ORDER BY next DESC LIMIT 10", Catalog);
         UNIT_ASSERT_VALUES_EQUAL(program.Results.size(), 1);

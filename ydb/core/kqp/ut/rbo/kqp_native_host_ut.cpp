@@ -279,6 +279,94 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST(ScalarSubqueriesMatchLegacyOnPopulatedTables) {
+        struct TCase {
+            const char* Sql;
+            size_t Rows = 1;
+            // Expected pre-existing failures, or explicit native rejection.
+            const char* Errors[3] = {};
+            std::optional<i64> Total;
+        };
+        TVector<std::optional<TResultSnapshot>> reference;
+        for (const int strategy : {1, 0, 2}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
+                NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto schema = session.ExecuteSchemeQuery(
+                "CREATE TABLE `/Root/ScalarRows` (id Uint64 NOT NULL, value Int32, PRIMARY KEY(id))").GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            TValueBuilder rows;
+            rows.BeginList();
+            for (ui64 id = 1; id <= 3; ++id) rows.AddListItem().BeginStruct()
+                .AddMember("id").Uint64(id)
+                .AddMember("value").OptionalInt32(id == 2 ? std::nullopt : std::optional<i32>(id * 10))
+                .EndStruct();
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/ScalarRows", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            size_t index = 0;
+            for (const auto& test : std::initializer_list<TCase>{
+                {"SELECT (SELECT id FROM `/Root/ScalarRows` WHERE id = 1ul) AS first_value, (SELECT id FROM `/Root/ScalarRows` WHERE id = 3ul) AS last_value", 1},
+                {"SELECT (SELECT value FROM `/Root/ScalarRows` WHERE id = 99ul) AS empty, (SELECT value FROM `/Root/ScalarRows` WHERE id = 2ul) AS null_value", 1},
+                {"SELECT id, value FROM `/Root/ScalarRows` WHERE value > (SELECT AVG(value) FROM `/Root/ScalarRows`) ORDER BY id", 1},
+                {"SELECT id, (SELECT MAX(value) FROM `/Root/ScalarRows`) AS maximum FROM `/Root/ScalarRows` ORDER BY id", 3},
+                {"SELECT (SELECT (SELECT 1) + 2) AS nested", 1},
+                {"$q = SELECT MAX(value) AS v FROM `/Root/ScalarRows`; SELECT (SELECT v FROM $q) AS maximum", 1},
+                {"SELECT (SELECT COUNT(*) FROM `/Root/ScalarRows` WHERE id > 99ul) AS zero", 1},
+                {"SELECT SUM(value) AS total FROM `/Root/ScalarRows` HAVING SUM(value) > (SELECT MIN(value) FROM `/Root/ScalarRows`)", 1},
+                {"SELECT SUM((SELECT MAX(value) FROM `/Root/ScalarRows`)) AS total FROM `/Root/ScalarRows`", 1, {"Unexpected node in results", nullptr, nullptr}, 90},
+                {"SELECT id FROM `/Root/ScalarRows` ORDER BY (SELECT MAX(value) FROM `/Root/ScalarRows`), id", 3, {"Unexpected node in results", "typeIt!=typeItems.end()", "outside the native profile"}},
+                {"SELECT k, COUNT(*) AS n FROM `/Root/ScalarRows` GROUP BY (SELECT MAX(value) FROM `/Root/ScalarRows`) AS k", 1,
+                    {"Translation of the statement to YqlSelect was forced, but unsupported", "Translation of the statement to YqlSelect was forced, but unsupported", "outside the native profile"}},
+            }) {
+                const TString query = TString("PRAGMA YqlSelect='force'; ") + test.Sql;
+                Cerr << "Scalar subquery strategy=" << strategy << ": " << test.Sql << Endl;
+                const auto result = session.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                if (strategy == 1) reference.emplace_back();
+                if (const auto* error = test.Errors[strategy]) {
+                    UNIT_ASSERT_C(!result.IsSuccess(), test.Sql);
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find(error) != std::string::npos, result.GetIssues().ToString());
+                    // A pre-existing fatal backend error can close its session.
+                    session = client.CreateSession().GetValueSync().GetSession();
+                    ++index;
+                    continue;
+                }
+                const auto actual = Snapshot(result);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), test.Rows);
+                if (test.Total) {
+                    TResultSetParser values(result.GetResultSet(0));
+                    UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("total").GetOptionalInt64().value(), *test.Total);
+                }
+                if (index == 0) {
+                    TResultSetParser values(result.GetResultSet(0));
+                    UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("first_value").GetOptionalUint64().value(), 1);
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("last_value").GetOptionalUint64().value(), 3);
+                }
+                if (strategy == 1) reference[index] = actual;
+                else {
+                    UNIT_ASSERT(reference.at(index));
+                    AssertSame(actual, *reference.at(index));
+                }
+                ++index;
+            }
+            const auto invalid = session.ExecuteDataQuery(
+                "PRAGMA YqlSelect='force'; SELECT (SELECT id FROM `/Root/ScalarRows`) AS invalid",
+                TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT(!invalid.IsSuccess());
+            if (strategy != 0) UNIT_ASSERT_C(invalid.GetIssues().ToString().find("more than one row") != std::string::npos, invalid.GetIssues().ToString());
+        }
+    }
+
     Y_UNIT_TEST(ParserDispatchRemainsNative) {
         TKikimrRunner kikimr(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
