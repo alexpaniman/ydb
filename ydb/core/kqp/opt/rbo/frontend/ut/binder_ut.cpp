@@ -232,11 +232,41 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
     }
 
     Y_UNIT_TEST(UnionAlignsTypesAndPreservesNames) {
-        const auto program = Compile("SELECT 1 AS first UNION ALL SELECT 2L AS second", Catalog);
+        const auto program = Compile("SELECT 1 AS first UNION ALL SELECT 2L AS first", Catalog);
         UNIT_ASSERT_VALUES_EQUAL(program.Results[0].Columns[0].Name, "first");
         UNIT_ASSERT(program.Results[0].Columns[0].Type == (TType{ETypeKind::Int64}));
         UNIT_ASSERT_VALUES_EQUAL(Find(program, ERelation::UnionAll).Inputs.size(), 2);
-        UNIT_ASSERT_EXCEPTION(Compile("SELECT 1 UNION ALL SELECT 1, 2", Catalog), TFrontendError);
+        const auto named = Compile("SELECT 1 AS first UNION ALL SELECT 2L AS second", Catalog);
+        UNIT_ASSERT_VALUES_EQUAL(named.Results[0].Columns.size(), 2);
+        UNIT_ASSERT_VALUES_EQUAL(named.Results[0].Columns[0].Name, "first");
+        UNIT_ASSERT_VALUES_EQUAL(named.Results[0].Columns[1].Name, "second");
+        UNIT_ASSERT(named.Results[0].Columns[0].Type == (TType{ETypeKind::Int32, true}));
+        UNIT_ASSERT(named.Results[0].Columns[1].Type == (TType{ETypeKind::Int64, true}));
+        UNIT_ASSERT_VALUES_EQUAL(Compile("SELECT 1 UNION ALL SELECT 1, 2", Catalog).Results[0].Columns.size(), 2);
+    }
+
+    Y_UNIT_TEST(SetChainsStayFlatAndBindGlobalClauses) {
+        std::string sql = "WITH q AS (SELECT 1 AS x) SELECT x FROM q";
+        for (unsigned i = 0; i < 1000; ++i) sql += " UNION ALL SELECT x FROM q";
+        sql += " ORDER BY x LIMIT 5";
+        const auto program = Compile(sql, Catalog);
+        UNIT_ASSERT_VALUES_EQUAL(Find(program, ERelation::UnionAll).Inputs.size(), 1001);
+        UNIT_ASSERT(program.Relations.size() < 2010);
+        UNIT_ASSERT(program.Relations[program.Results[0].Root].Kind == ERelation::Limit);
+        for (const auto* operation : {"UNION", "UNION DISTINCT", "INTERSECT", "INTERSECT ALL", "EXCEPT", "EXCEPT ALL"}) {
+            const auto query = Compile(std::string("SELECT CAST(NULL AS Int32) AS x ") + operation + " SELECT 1 AS x ORDER BY x", Catalog);
+            UNIT_ASSERT_VALUES_EQUAL(query.Results[0].Columns.size(), 1);
+            UNIT_ASSERT(query.Results[0].Columns[0].Type == (TType{ETypeKind::Int32, true}));
+            UNIT_ASSERT(query.Relations[query.Results[0].Root].Kind == ERelation::Sort);
+        }
+        const auto aliases = Compile("SELECT id AS x, id AS y FROM a INTERSECT SELECT id AS x, id AS y FROM a ORDER BY x, y DESC", Catalog);
+        UNIT_ASSERT_VALUES_EQUAL(Find(aliases, ERelation::Sort).SortKeys.size(), 1);
+        for (auto operation : {"INTERSECT ALL", "EXCEPT ALL"}) {
+            const auto body = std::string("SELECT id FROM a AS b WHERE b.id = a.id ") + operation + " SELECT id FROM a";
+            UNIT_ASSERT_EXCEPTION(Compile("SELECT id FROM a WHERE EXISTS(" + body + ")", Catalog), TUnsupportedFeature);
+            const auto independent = std::string("SELECT id FROM a ") + operation + " SELECT id FROM a";
+            UNIT_ASSERT(!Compile("SELECT EXISTS(" + independent + ")", Catalog).Results.empty());
+        }
     }
 
     Y_UNIT_TEST(UnknownFeaturesAreErrors) {

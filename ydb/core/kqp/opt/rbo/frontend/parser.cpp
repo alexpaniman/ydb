@@ -366,13 +366,36 @@ private:
         }
     }
 
+    void AppendSet(std::shared_ptr<TSelect>& left, ESetOperation op, std::shared_ptr<TSelect> right) {
+        if (left->SetInputs.empty()) {
+            auto set = std::make_shared<TSelect>(); set->Position = left->Position;
+            set->Ctes = std::move(left->Ctes);
+            set->AppendSetInput(std::move(left)); left = std::move(set);
+        }
+        left->AppendSetInput(std::move(right));
+        left->SetOperations.push_back(op);
+    }
+
+    std::shared_ptr<TSelect> Intersect() {
+        auto result = SelectCore();
+        while (Take("INTERSECT")) {
+            const bool all = Take("ALL"); if (!all) Take("DISTINCT");
+            if (Is("WITH")) Fail("set-operation branch cannot start with WITH");
+            AppendSet(result, all ? ESetOperation::IntersectAll : ESetOperation::Intersect, SelectCore());
+        }
+        return result;
+    }
+
     std::shared_ptr<TSelect> Select() {
         TDepth depth(*this);
-        auto result = SelectCore();
-        while (Take("UNION")) {
-            if (!Take("ALL")) Fail("only UNION ALL is supported");
-            if (Is("WITH")) Fail("UNION branch cannot start with WITH");
-            result->UnionAll.push_back(SelectCore());
+        auto result = Intersect();
+        while (Is("UNION") || Is("EXCEPT")) {
+            const bool unite = Take("UNION"); if (!unite) Expect("EXCEPT");
+            const bool all = Take("ALL"); if (!all) Take("DISTINCT");
+            if (Is("WITH")) Fail("set-operation branch cannot start with WITH");
+            const auto op = unite ? (all ? ESetOperation::UnionAll : ESetOperation::Union) :
+                (all ? ESetOperation::ExceptAll : ESetOperation::Except);
+            AppendSet(result, op, Intersect());
         }
         if (Take("ORDER")) {
             Expect("BY");
@@ -387,8 +410,6 @@ private:
             if (Take(",")) { result->Offset = result->Limit; result->Limit = Expression(); }
             else if (Take("OFFSET")) result->Offset = Expression();
         }
-        if (!result->UnionAll.empty() && (!result->OrderBy.empty() || result->Limit != NoSyntax))
-            throw TUnsupportedFeature(EFeature::SetOperation, result->Position, "ordered or limited UNION branch");
         return result;
     }
 

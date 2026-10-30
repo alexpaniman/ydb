@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <locale>
+#include <map>
 #include <sstream>
 #include <unordered_set>
 
@@ -105,7 +106,7 @@ private:
         for (const auto& item : query.OrderBy) Expression(item.Expression);
         Expression(query.Limit);
         Expression(query.Offset);
-        for (const auto& branch : query.UnionAll) Select(*branch);
+        for (const auto& branch : query.SetInputs) Select(*branch);
         --Depth;
     }
 
@@ -348,6 +349,7 @@ private:
     TColumnId Column(std::string name, std::string qualifier, TType type, TSourcePosition pos) {
         CheckSize(pos);
         auto id = static_cast<TColumnId>(Program.Columns.size());
+        ColumnOrigins.push_back(id);
         Program.Columns.push_back({std::move(name), std::move(qualifier), type}); return id;
     }
     TRelId Relation(TRelation relation) {
@@ -402,7 +404,11 @@ private:
     TRelId Map(TRelId input, std::vector<TDefinition> definitions, TSourcePosition pos) {
         if (definitions.empty()) return input;
         TRelation map{ERelation::Map, pos}; map.Inputs = {input}; map.Columns = Program.Relations[input].Columns;
-        for (const auto& definition : definitions) map.Columns.push_back(definition.Column);
+        for (const auto& definition : definitions) {
+            map.Columns.push_back(definition.Column);
+            const auto& expression = Program.Expressions[definition.Expression];
+            if (expression.Op == EOpcode::Column) ColumnOrigins[definition.Column] = ColumnOrigins[expression.ColumnId];
+        }
         map.Definitions = std::move(definitions); return Relation(std::move(map));
     }
     TRelId Filter(TRelId input, TExprId predicate, TSourcePosition pos) {
@@ -491,6 +497,11 @@ private:
         for (const auto& [name, cte] : query.Ctes) {
             if (Queries.contains(name)) throw TFrontendError(cte->Position, "duplicate query binding: " + name);
             Queries.emplace(name, cte);
+        }
+        if (!query.SetInputs.empty()) {
+            auto result = SetQuery(query, outer);
+            Queries = savedQueries;
+            return result;
         }
         auto source = From(query, outer);
         TExprContext sourceContext{source.Scope};
@@ -629,44 +640,16 @@ private:
             node.Columns = node.GroupKeys; root = Relation(std::move(node));
         }
 
-        if (!query.UnionAll.empty()) {
-            if (!sort.empty()) throw TUnsupportedFeature(EFeature::SetOperation, query.Position, "ORDER BY over UNION ALL is not supported yet");
-            std::vector<TQueryResult> branches{{root, outputs}};
-            for (const auto& branch : query.UnionAll) {
-                branches.push_back(Select(*branch, outer));
-                if (branches.back().Columns.size() != outputs.size()) throw TFrontendError(branch->Position, "UNION ALL column count mismatch");
-            }
-            std::vector<TType> types;
-            for (const auto& output : outputs) types.push_back(output.Type);
-            for (std::size_t b = 1; b < branches.size(); ++b) for (std::size_t i = 0; i < types.size(); ++i) {
-                types[i] = CommonType(types[i], branches[b].Columns[i].Type, query.Position);
-            }
-            TRelation node{ERelation::UnionAll, query.Position};
-            for (auto& branch : branches) {
-                std::vector<TDefinition> conversions;
-                std::vector<TColumnId> columns;
-                for (std::size_t i = 0; i < branch.Columns.size(); ++i) {
-                    auto id = branch.Columns[i].Column;
-                    if (branch.Columns[i].Type != types[i]) {
-                        auto expr = Program.Expressions.Column(id, branch.Columns[i].Type, query.Position);
-                        expr = Program.Expressions.Convert(expr, types[i], query.Position);
-                        id = Materialize(expr, conversions, query.Position);
-                    }
-                    columns.push_back(id);
-                }
-                node.Inputs.push_back(Map(branch.Root, std::move(conversions), query.Position));
-                node.UnionInputs.push_back(std::move(columns));
-            }
-            for (std::size_t i = 0; i < outputs.size(); ++i) {
-                auto id = Column(outputs[i].Name, {}, types[i], query.Position); node.Columns.push_back(id);
-                outputs[i] = {id, outputs[i].Name, types[i]};
-            }
-            root = Relation(std::move(node));
-        }
         if (!sort.empty()) {
             TRelation node{ERelation::Sort, query.Position}; node.Inputs = {root}; node.Columns = Program.Relations[root].Columns;
             node.SortKeys = std::move(sort); root = Relation(std::move(node));
         }
+        root = Limit(root, query);
+        Queries = savedQueries;
+        return {root, std::move(outputs)};
+    }
+
+    TRelId Limit(TRelId root, const TSelect& query) {
         if (query.Limit != NoSyntax) {
             const TScope empty;
             TExprContext limitContext{empty};
@@ -679,8 +662,190 @@ private:
             }
             root = Relation(std::move(node));
         }
-        Queries = savedQueries;
-        return {root, std::move(outputs)};
+        return root;
+    }
+
+    TQueryResult Distinct(TQueryResult result, TSourcePosition pos) {
+        TRelation node{ERelation::Aggregate, pos};
+        std::vector<TDefinition> before, after;
+        std::unordered_set<TColumnId> seen;
+        for (auto& column : result.Columns) {
+            // A bare Null field has one value but is not a runtime data key.
+            // Reconstruct it after grouping the remaining fields.
+            if (column.Type.Kind == ETypeKind::Null) {
+                column.Column = Column(column.Name, {}, column.Type, pos);
+                after.push_back({column.Column, Program.Expressions.Null(pos)});
+            } else if (seen.insert(column.Column).second) node.GroupKeys.push_back(column.Column);
+        }
+        if (node.GroupKeys.empty()) {
+            // A constant key preserves zero rows for an empty input, unlike
+            // a global aggregate with no grouping keys.
+            node.GroupKeys.push_back(Materialize(Program.Expressions.Literal({ETypeKind::Uint64}, std::uint64_t{0}, pos), before, pos));
+        }
+        node.Inputs = {Map(result.Root, std::move(before), pos)};
+        node.Columns = node.GroupKeys;
+        result.Root = Map(Relation(std::move(node)), std::move(after), pos);
+        return result;
+    }
+
+    TQueryResult SetQuery(const TSelect& query, TExprContext* outer) {
+        using S = ESetOperation;
+        const auto pos = query.Position;
+        const auto firstRelation = Program.Relations.size();
+        std::vector<TQueryResult> inputs;
+        struct TMember { TType Type; std::size_t Count = 0; };
+        std::map<std::string, TMember> members;
+        std::vector<std::string> order;
+        for (const auto& syntax : query.SetInputs) {
+            auto input = Select(*syntax, outer);
+            std::unordered_set<std::string> seen;
+            std::vector<std::string> current;
+            for (const auto& column : input.Columns) {
+                if (!seen.insert(column.Name).second)
+                    throw TUnsupportedFeature(EFeature::SetOperation, pos, "set operands require unique result names");
+                auto [it, fresh] = members.emplace(column.Name, TMember{column.Type});
+                if (!fresh) it->second.Type = CommonType(it->second.Type, column.Type, pos);
+                ++it->second.Count;
+                current.push_back(column.Name);
+            }
+            // Preserve the common ordered prefix, then use lexical order for
+            // other fields, matching YQL's name-based set-result schema.
+            if (inputs.empty()) order = current;
+            else {
+                bool truncated = false;
+                for (std::size_t i = 0; i < std::min(order.size(), current.size()); ++i) {
+                    if (order[i] != current[i]) { order.resize(i); truncated = true; break; }
+                }
+                if (!truncated && current.size() > order.size()) order = std::move(current);
+            }
+            inputs.push_back(std::move(input));
+        }
+        if (outer && std::any_of(query.SetOperations.begin(), query.SetOperations.end(),
+                [](S op) { return op == S::IntersectAll || op == S::ExceptAll; })) {
+            // The existing backend cannot push correlation through the
+            // numbering windows used below. Uncorrelated subqueries are safe.
+            std::unordered_set<TColumnId> external;
+            for (auto* context = outer; context; context = context->Outer) {
+                for (const auto& column : context->Scope.Columns) external.insert(column.Id);
+                for (const auto& [source, local] : context->Captured) external.insert(local);
+            }
+            for (auto i = firstRelation; i < Program.Relations.size(); ++i)
+                for (const auto& capture : Program.Relations[i].Captures) if (external.contains(capture.Outer))
+                    throw TUnsupportedFeature(EFeature::Backend, pos,
+                        "correlated INTERSECT ALL/EXCEPT ALL requires backend window decorrelation");
+        }
+        std::unordered_set<std::string> ordered(order.begin(), order.end());
+        for (auto& [name, member] : members) {
+            if (member.Count != inputs.size()) member.Type = member.Type.Optional();
+            if (ordered.insert(name).second) order.push_back(name);
+        }
+        for (auto& input : inputs) {
+            std::unordered_map<std::string, TResultColumn> columns;
+            for (const auto& column : input.Columns) columns.emplace(column.Name, column);
+            input.Columns.clear();
+            std::vector<TDefinition> definitions;
+            for (const auto& name : order) {
+                const auto type = members.at(name).Type;
+                const auto column = columns.find(name);
+                auto expr = column == columns.end() ? Program.Expressions.Literal(type, std::monostate{}, pos) :
+                    Program.Expressions.Convert(Program.Expressions.Column(column->second.Column, column->second.Type, pos), type, pos);
+                input.Columns.push_back({Materialize(expr, definitions, pos, name), name, type});
+            }
+            input.Root = Map(input.Root, std::move(definitions), pos);
+        }
+        auto unite = [&](std::vector<TQueryResult> branches) {
+            if (branches.size() == 1) return std::move(branches.front());
+            TRelation node{ERelation::UnionAll, pos};
+            TQueryResult result{};
+            for (const auto& branch : branches) {
+                node.Inputs.push_back(branch.Root);
+                auto& columns = node.UnionInputs.emplace_back();
+                for (const auto& column : branch.Columns) columns.push_back(column.Column);
+            }
+            for (const auto& name : order) {
+                const auto type = members.at(name).Type;
+                const auto id = Column(name, {}, type, pos);
+                node.Columns.push_back(id); result.Columns.push_back({id, name, type});
+            }
+            result.Root = Relation(std::move(node));
+            return result;
+        };
+        auto keys = [&](TQueryResult& input, bool numbered) {
+            std::vector<TDefinition> definitions;
+            std::vector<TColumnId> result;
+            for (const auto& column : input.Columns) {
+                const auto value = Program.Expressions.Column(column.Column, column.Type, pos);
+                result.push_back(Materialize(Program.Expressions.Unary(EOpcode::StablePickle, value, pos), definitions, pos));
+            }
+            input.Root = Map(input.Root, std::move(definitions), pos);
+            if (numbered) {
+                // Equal rows receive 1..N independently on each side. Matching
+                // those ordinals gives min(N,M) / max(N-M,0) without row expansion.
+                TRelation window{ERelation::Window, pos}; window.Inputs = {input.Root};
+                window.Columns = Program.Relations[input.Root].Columns; window.GroupKeys = result;
+                window.WindowFrame = {EWindowFrame::Rows, EWindowBound::UnboundedPreceding, EWindowBound::UnboundedFollowing};
+                const auto ordinal = Column("set_ordinal", {}, {ETypeKind::Uint64}, pos);
+                window.WindowFunctions.push_back({ordinal, {}, "rownumber"}); window.Columns.push_back(ordinal);
+                input.Root = Relation(std::move(window)); result.push_back(ordinal);
+            }
+            return result;
+        };
+        // Adjacent UNION ALL operations share one pending n-ary union, avoiding
+        // a deep operator chain and repeated copies of all preceding operands.
+        std::vector<std::vector<TQueryResult>> stack;
+        std::size_t next = 0;
+        for (const auto op : query.SetOperations) {
+            if (op == S::Push) { stack.emplace_back().push_back(std::move(inputs.at(next++))); continue; }
+            if (stack.size() < 2) throw std::logic_error("unbalanced native set expression");
+            auto right = std::move(stack.back()); stack.pop_back();
+            auto& left = stack.back();
+            if (op == S::Union || op == S::UnionAll) {
+                left.insert(left.end(), std::make_move_iterator(right.begin()), std::make_move_iterator(right.end()));
+                if (op == S::Union) {
+                    auto result = Distinct(unite(std::move(left)), pos);
+                    left.clear(); left.push_back(std::move(result));
+                }
+                continue;
+            }
+            const bool all = op == S::IntersectAll || op == S::ExceptAll;
+            auto lhs = unite(std::move(left)), rhs = unite(std::move(right));
+            if (!all) lhs = Distinct(std::move(lhs), pos);
+            const auto lhsKeys = keys(lhs, all), rhsKeys = keys(rhs, all);
+            std::optional<TExprId> predicate;
+            for (std::size_t i = 0; i < lhsKeys.size(); ++i) {
+                const auto equal = Program.Expressions.Binary(EOpcode::Equal, Access(ScopeColumn(lhsKeys[i]), pos), Access(ScopeColumn(rhsKeys[i]), pos), pos);
+                predicate = predicate ? Program.Expressions.Binary(EOpcode::And, *predicate, equal, pos) : equal;
+            }
+            TRelation join{ERelation::Join, pos}; join.Inputs = {lhs.Root, rhs.Root}; join.Predicate = predicate;
+            join.JoinKind = op == S::Intersect || op == S::IntersectAll ? EJoinKind::LeftSemi : EJoinKind::LeftOnly;
+            join.Columns = Program.Relations[lhs.Root].Columns;
+            lhs.Root = Relation(std::move(join)); left.clear(); left.push_back(std::move(lhs));
+        }
+        if (stack.size() != 1 || next != inputs.size()) throw std::logic_error("unbalanced native set expression");
+        auto result = unite(std::move(stack.back()));
+        if (!query.OrderBy.empty()) {
+            TScope scope;
+            for (const auto& column : result.Columns) scope.Add({column.Column, column.Name, {}, column.Type});
+            TExprContext context{scope}; context.AllowSubqueries = false;
+            std::vector<TDefinition> definitions;
+            TRelation sort{ERelation::Sort, pos};
+            std::unordered_set<TColumnId> seen;
+            for (const auto& key : query.OrderBy) {
+                const auto expression = Expr(key.Expression, context);
+                if (Program.Expressions[expression].Type.Kind == ETypeKind::Null) continue;
+                const auto column = Materialize(expression, definitions, pos);
+                // Output aliases have distinct IDs but can copy the same
+                // value. Keep only the first ordering of an identical value.
+                if (seen.insert(ColumnOrigins[column]).second) sort.SortKeys.push_back({column, key.Descending});
+            }
+            result.Root = Map(result.Root, std::move(definitions), pos);
+            if (!sort.SortKeys.empty()) {
+                sort.Inputs = {result.Root}; sort.Columns = Program.Relations[result.Root].Columns;
+                result.Root = Relation(std::move(sort));
+            }
+        }
+        result.Root = Limit(result.Root, query);
+        return result;
     }
 
     TExprId CheckCount(TExprId expression, TSourcePosition pos) {
@@ -1117,6 +1282,7 @@ private:
     const TBindSettings& Settings;
     TGlobalBindings Bindings;
     TBoundProgram Program;
+    std::vector<TColumnId> ColumnOrigins;
     std::string Prefix;
     bool AnsiIn;
     std::vector<std::uint32_t> Canonical;
@@ -1352,7 +1518,7 @@ private:
         for (const auto& item : query.OrderBy) Expression(item.Expression);
         Expression(query.Limit);
         Expression(query.Offset);
-        for (const auto& branch : query.UnionAll) Select(*branch);
+        for (const auto& branch : query.SetInputs) Select(*branch);
         Queries = std::move(saved);
         --Depth;
     }
@@ -1442,13 +1608,13 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
-"relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
+"relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
 "windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; no implicit signed/unsigned promotion elsewhere or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; no implicit signed/unsigned promotion elsewhere or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

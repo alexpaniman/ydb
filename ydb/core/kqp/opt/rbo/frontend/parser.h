@@ -5,6 +5,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <iterator>
 
 namespace NKikimr::NKqp::NFrontend {
 
@@ -74,6 +75,8 @@ struct TSyntaxWindow {
     TSyntaxId EndOffset = NoSyntax;
 };
 
+enum class ESetOperation : std::uint8_t { Push, UnionAll, Union, IntersectAll, Intersect, ExceptAll, Except };
+
 struct TSelect {
     TSourcePosition Position;
     std::vector<std::pair<std::string, std::shared_ptr<TSelect>>> Ctes;
@@ -87,7 +90,20 @@ struct TSelect {
     TSyntaxId Limit = NoSyntax;
     TSyntaxId Offset = NoSyntax;
     bool Distinct = false;
-    std::vector<std::shared_ptr<TSelect>> UnionAll;
+    // Postfix operations preserve precedence without recursively nesting a
+    // long set-expression chain. All inputs share one name/type alignment.
+    std::vector<std::shared_ptr<TSelect>> SetInputs;
+    std::vector<ESetOperation> SetOperations;
+
+    void AppendSetInput(std::shared_ptr<TSelect> input) {
+        if (input->SetInputs.empty()) {
+            SetInputs.push_back(std::move(input));
+            SetOperations.push_back(ESetOperation::Push);
+        } else {
+            SetInputs.insert(SetInputs.end(), std::make_move_iterator(input->SetInputs.begin()), std::make_move_iterator(input->SetInputs.end()));
+            SetOperations.insert(SetOperations.end(), input->SetOperations.begin(), input->SetOperations.end());
+        }
+    }
 };
 
 enum class EStatementKind : std::uint8_t { Query, Binding, Declaration, Pragma, Use };

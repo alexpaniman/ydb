@@ -679,7 +679,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {40, "1998-03-09"}, {41, "1998-05-08"}, {42, "1998-03-08"}, {43, "1998-05-09"},
             {50, "2001-01-12"}, {51, "2001-02-11"}, {52, "2001-01-11"}, {53, "2001-02-12"}, {54, "2001-1-20"},
             {60, "2001-01-01"}, {61, "2001-02-28"}, {62, "2001-04-01"}, {63, "2001-07-01"}, {64, "2001-12-31"},
-            {65, "2000-12-31"}, {66, "2002-01-01"}, {70, "2000-01-01"}, {71, "2000-02-01"}, {72, "2000-03-01"}, {73, "1999-01-01"}}) {
+            {65, "2000-12-31"}, {66, "2002-01-01"}, {70, "2000-01-01"}, {71, "2000-02-01"}, {72, "2000-03-01"}, {73, "1999-01-01"},
+            {74, "2002-04-01"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -779,10 +780,14 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
-    for (const auto& [id, name, company] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
-            {1, "Store A", "Company A"}, {2, "Store A", "Company B"}, {3, "Store B", "Company A"}, {4, nullptr, nullptr}}) {
+    for (const auto& [id, name, company, zip] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
+            {1, "Store A", "Company A", nullptr}, {2, "Store A", "Company B", nullptr}, {3, "Store B", "Company A", nullptr}, {4, nullptr, nullptr, nullptr},
+            {80, "Intersect A", nullptr, "x94"}, {81, "Intersect A", nullptr, "x94"}, {82, "Intersect B", nullptr, "x08"},
+            {83, "Excluded count", nullptr, "x50"}, {84, "Excluded flag", nullptr, "x29"}, {85, "Excluded list", nullptr, "x00"},
+            {86, "Excluded null", nullptr, nullptr}, {87, "Intersect null", nullptr, "x39"}}) {
         stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
-            .AddMember("s_store_name").OptionalUtf8(optionalText(name)).AddMember("s_company_name").OptionalUtf8(optionalText(company)).EndStruct();
+            .AddMember("s_store_name").OptionalUtf8(optionalText(name)).AddMember("s_company_name").OptionalUtf8(optionalText(company))
+            .AddMember("s_zip").OptionalUtf8(optionalText(zip)).EndStruct();
     }
     load("store", stores);
     TValueBuilder warehouse;
@@ -820,6 +825,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         const char* Discount;
         const char* ExtendedPrice = nullptr;
         std::optional<i64> Store = std::nullopt;
+        const char* NetProfit = nullptr;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -901,6 +907,28 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {600, 65, "999"}, {600, 66, "999"}, {602, 60, "10"}, {603, 60, "10"},
             {605, 60, "10"}, {606, 60, "10"}, {607, 60, nullptr}})
         store.push_back({item, order++, date, 1, price, nullptr});
+    // Q8: duplicate zip prefixes must not multiply sales after INTERSECT.
+    // Exercise the strict >10 preferred-customer threshold, failed membership,
+    // NULL zip/profit, both date predicates and missing join keys.
+    TValueBuilder addresses, customers;
+    addresses.BeginList(); customers.BeginList();
+    i64 customer = 1;
+    for (const auto& [id, zip, count] : std::initializer_list<std::tuple<i64, const char*, int>>{
+            {80, "x89436A", 11}, {81, "x89436B", 0}, {82, "x30868A", 11}, {83, "x65085A", 10},
+            {84, "x22977A", 12}, {85, "x00000A", 12}, {86, nullptr, 12}, {87, "x83927A", 11}}) {
+        addresses.AddListItem().BeginStruct().AddMember("ca_address_sk").Int64(id)
+            .AddMember("ca_address_id").Utf8("Address" + std::to_string(id)).AddMember("ca_zip").OptionalUtf8(optionalText(zip)).EndStruct();
+        for (int i = 0; i < count; ++i, ++customer)
+            customers.AddListItem().BeginStruct().AddMember("c_customer_sk").Int64(customer)
+                .AddMember("c_customer_id").Utf8("Customer" + std::to_string(customer)).AddMember("c_current_addr_sk").OptionalInt64(id)
+                .AddMember("c_preferred_cust_flag").OptionalUtf8(id == 84 && i >= 10 ? "N" : "Y").EndStruct();
+    }
+    load("customer_address", addresses); load("customer", customers);
+    for (const auto& [shop, date, profit] : std::initializer_list<std::tuple<i64, i64, const char*>>{
+            {80, 66, "5"}, {80, 66, "-2"}, {81, 66, "7"}, {82, 66, "-4"}, {82, 66, nullptr}, {87, 66, nullptr},
+            {83, 66, "999"}, {84, 66, "999"}, {85, 66, "999"}, {86, 66, "999"},
+            {80, 74, "999"}, {80, 64, "999"}, {80, 999, "999"}, {999, 66, "999"}})
+        store.push_back({950, order++, date, 1, nullptr, nullptr, nullptr, shop, profit});
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -912,6 +940,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             rows.AddMember(prefix + "sales_price"); decimal(rows, row.Price);
             rows.AddMember(prefix + "ext_discount_amt"); decimal(rows, row.Discount);
             rows.AddMember(prefix + "ext_sales_price"); decimal(rows, row.ExtendedPrice);
+            rows.AddMember(prefix + "net_profit"); decimal(rows, row.NetProfit);
             rows.EndStruct();
         }
         load(table, rows);
@@ -935,7 +964,7 @@ $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
-            {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}}) {
+            {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -949,7 +978,14 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 21) {
+        if (query == 8) {
+            for (const auto& [name, profit] : std::initializer_list<std::pair<const char*, const char*>>{
+                    {"Intersect A", "10"}, {"Intersect B", "-4"}, {"Intersect null", nullptr}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("s_store_name").GetOptionalUtf8().value(), name);
+                assertDecimal("column1", optionalText(profit));
+            }
+        } else if (query == 21) {
             const TVector<TString> columnNames = newRbo ?
                 TVector<TString>{"w_warehouse_name", "i_item_id", "inv_before", "inv_after"} :
                 TVector<TString>{"i_item_id", "inv_after", "inv_before", "w_warehouse_name"};
@@ -1090,6 +1126,167 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(SetOperationsMatchLegacyOnPopulatedTables, ColumnStore) {
+        TVector<std::pair<TString, TString>> queries;
+        for (const auto& [operation, values] : std::initializer_list<std::pair<const char*, const char*>>{
+                {"UNION", "[[#];[[1]];[[2]];[[3]];[[4]]]"},
+                {"UNION DISTINCT", "[[#];[[1]];[[2]];[[3]];[[4]]]"},
+                {"UNION ALL", "[[#];[#];[#];[[1]];[[1]];[[1]];[[1]];[[1]];[[2]];[[3]];[[4]];[[4]];[[4]]]"},
+                {"INTERSECT", "[[#];[[1]];[[4]]]"},
+                {"INTERSECT ALL", "[[#];[[1]];[[1]];[[4]]]"},
+                {"EXCEPT", "[[[2]]]"},
+                {"EXCEPT ALL", "[[#];[[1]];[[2]]]"}}) {
+            queries.emplace_back(TStringBuilder() << "SELECT v FROM `/Root/SetLeft` " << operation
+                << " SELECT v FROM `/Root/SetRight` ORDER BY v", values);
+            for (const bool emptyLeft : {false, true})
+                queries.emplace_back(TStringBuilder() << "SELECT v FROM `/Root/SetLeft`"
+                    << (emptyLeft ? " WHERE id < 0" : "") << " " << operation
+                    << " SELECT v FROM `/Root/SetRight`" << (emptyLeft ? "" : " WHERE id < 0") << " ORDER BY v", "");
+        }
+        for (const auto* sql : {
+                "SELECT 1 AS x UNION SELECT 2 AS x INTERSECT SELECT 2 AS x ORDER BY x",
+                "SELECT 1 AS x UNION SELECT 2 AS x EXCEPT SELECT 1 AS x ORDER BY x",
+                "SELECT v FROM `/Root/SetLeft` EXCEPT ALL SELECT v FROM `/Root/SetRight` EXCEPT ALL SELECT 1 AS v ORDER BY v",
+                "SELECT 1 AS b, 2 AS a UNION ALL SELECT 3 AS a, 4 AS b ORDER BY a, b",
+                "SELECT 1 AS z UNION ALL SELECT 2l AS a ORDER BY z, a",
+                "SELECT 1 AS z UNION SELECT 2 AS a, 3 AS z ORDER BY z, a",
+                "SELECT 1 AS z UNION ALL SELECT 2 AS a UNION ALL SELECT 3 AS z ORDER BY z, a",
+                "SELECT 1 AS z, 2 AS a UNION ALL SELECT 3 AS z, 4 AS b ORDER BY z, a, b",
+                "SELECT v AS z, v AS a FROM `/Root/SetLeft` INTERSECT SELECT v AS a, v AS z FROM `/Root/SetRight` ORDER BY a, z",
+                "SELECT NULL AS v INTERSECT SELECT NULL AS v",
+                "SELECT NULL AS v UNION SELECT NULL AS v",
+                "SELECT NULL AS v EXCEPT ALL SELECT NULL AS v",
+                "SELECT NULL AS v FROM `/Root/SetLeft` WHERE id < 0 UNION SELECT NULL AS v FROM `/Root/SetRight` WHERE id < 0",
+                "SELECT CAST('nan' AS Double) AS v INTERSECT SELECT CAST('nan' AS Double) AS v",
+                "SELECT COUNT(*) AS n FROM (SELECT 0.0 AS v UNION SELECT -0.0 AS v) AS q",
+                "SELECT CAST(v AS Int64) AS v FROM `/Root/SetLeft` INTERSECT SELECT v FROM `/Root/SetRight` ORDER BY v",
+                "SELECT CAST(v AS Decimal(12,2)) AS v FROM `/Root/SetLeft` EXCEPT ALL SELECT CAST(v AS Decimal(10,1)) AS v FROM `/Root/SetRight` ORDER BY v",
+                "SELECT v FROM `/Root/SetLeft` UNION ALL SELECT v FROM `/Root/SetRight` ORDER BY v DESC LIMIT 4 OFFSET 2",
+                "SELECT v FROM `/Root/SetLeft` UNION ALL (SELECT v FROM `/Root/SetRight` ORDER BY v DESC LIMIT 2)",
+                "SELECT v FROM (SELECT v FROM `/Root/SetLeft` ORDER BY v DESC LIMIT 2) AS q UNION ALL SELECT v FROM `/Root/SetRight` ORDER BY v",
+                "WITH q AS (SELECT v FROM `/Root/SetLeft`) SELECT v FROM q INTERSECT ALL SELECT v FROM q ORDER BY v",
+                "SELECT COUNT(*) AS n FROM (SELECT v FROM `/Root/SetLeft` EXCEPT ALL SELECT v FROM `/Root/SetRight`) AS q",
+                "SELECT (SELECT COUNT(*) FROM (SELECT v FROM `/Root/SetLeft` INTERSECT ALL SELECT v FROM `/Root/SetRight`) AS q) AS n",
+                "SELECT EXISTS(SELECT v FROM `/Root/SetLeft` EXCEPT ALL SELECT v FROM `/Root/SetRight`) AS found",
+                "SELECT id FROM `/Root/SetLeft` WHERE v IN (SELECT v FROM `/Root/SetLeft` INTERSECT ALL SELECT v FROM `/Root/SetRight`) ORDER BY id",
+                "SELECT id FROM `/Root/SetLeft` AS a WHERE EXISTS(SELECT v FROM `/Root/SetRight` AS b WHERE b.v = a.v INTERSECT SELECT v FROM `/Root/SetRight`) ORDER BY id",
+                "SELECT id FROM `/Root/SetLeft` AS a WHERE EXISTS(SELECT v FROM `/Root/SetRight` AS b WHERE b.v = a.v INTERSECT ALL SELECT v FROM `/Root/SetRight`) ORDER BY id",
+                "SELECT * FROM (SELECT 1 AS z UNION ALL SELECT 2 AS a UNION ALL SELECT 3 AS z) AS q ORDER BY z, a",
+                "SELECT * FROM (SELECT 1 AS z, 2 AS a UNION ALL SELECT 3 AS z, 4 AS b) AS q ORDER BY z, a, b",
+                "SELECT NULL AS v INTERSECT SELECT NULL AS v ORDER BY v"}) {
+            // Sort outside a locally limited operand as well, so comparison
+            // does not depend on execution order of the union's branches.
+            TString query(sql);
+            if (query.EndsWith("LIMIT 2)")) query = "SELECT v FROM (" + query + ") AS q ORDER BY v";
+            queries.emplace_back(std::move(query), "");
+        }
+        // Independent value oracles where the old frontend cannot execute or
+        // the older translator uses a different result-column order.
+        queries[27].second = queries[48].second = "[[#;[2]];[[1];#];[[3];#]]";
+        queries[28].second = queries[49].second = "[[1;[2];#];[3;#;[4]]]";
+        queries[41].second = "[[#];[#];[[1]];[[1]];[[1]];[[2]];[[4]]]";
+        TVector<TResultSnapshot> reference;
+        TString failures;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableInlineJoinFiltersAfterCBO(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            for (const bool right : {false, true}) {
+                const TString path = right ? "/Root/SetRight" : "/Root/SetLeft";
+                const auto created = session.ExecuteSchemeQuery("CREATE TABLE `" + path +
+                    "` (id Int32 NOT NULL, v Int32, PRIMARY KEY(id))" + (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+                UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+                const TVector<std::optional<i32>> data = right ? TVector<std::optional<i32>>{std::nullopt, 1, 1, 3, 4, 4} :
+                    TVector<std::optional<i32>>{std::nullopt, std::nullopt, 1, 1, 1, 2, 4};
+                TValueBuilder rows;
+                rows.BeginList();
+                i32 id = 0;
+                for (const auto value : data)
+                    rows.AddListItem().BeginStruct().AddMember("id").Int32(id++).AddMember("v").OptionalInt32(value).EndStruct();
+                rows.EndList();
+                const auto loaded = client.BulkUpsert(path, rows.Build()).GetValueSync();
+                UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            }
+            for (size_t index = 0; index < queries.size(); ++index) {
+                const auto& [sql, values] = queries[index];
+                const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                const TString context = TStringBuilder() << "strategy=" << strategy << " query=" << index << " " << sql;
+                if (strategy == 0 && sql.StartsWith("WITH ")) {
+                    UNIT_ASSERT(!result.IsSuccess());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("WITH CTE is available only with YqlSelect") != std::string::npos, context);
+                    continue;
+                }
+                if (strategy == 2 && sql.Contains("b.v = a.v INTERSECT ALL")) {
+                    UNIT_ASSERT(!result.IsSuccess());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("correlated INTERSECT ALL/EXCEPT ALL") != std::string::npos, result.GetIssues().ToString());
+                    reference.emplace_back();
+                    continue;
+                }
+                // Pin failures in the existing compilers; native must still
+                // execute every independent case and match the working path.
+                TString oldError;
+                if (strategy == 0 && sql.Contains("b.v = a.v")) oldError = "Member not found: a";
+                if (strategy == 1) {
+                    if (sql.Contains("INTERSECT ALL") || sql.Contains("EXCEPT ALL")) oldError = "Unsupported set operation";
+                    else if (index == 21) oldError = "opsInputCount <= 2";
+                    else if (index == 24 || index == 25 || index == 26 || index == 29) oldError = "No such column:";
+                    else if (index == 27 || index == 28) oldError = "Member not found: a";
+                    else if (index == 48 || index == 49) oldError = "Member not found: q.a";
+                    else if (index == 30 || index == 31 || index == 33) oldError = "Expected data or optional of data";
+                    else if (index == 50) oldError = "Expected data type, but got: Null";
+                    else if (index == 39) oldError = "YqlSelect unsupported: ORDER BY within UNION/EXCEPT/INTERSECT component";
+                }
+                if (!oldError.empty()) {
+                    UNIT_ASSERT_C(!result.IsSuccess(), context);
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find(oldError.c_str()) != std::string::npos,
+                        TStringBuilder() << context << ": " << result.GetIssues().ToString());
+                    continue;
+                }
+                if (!result.IsSuccess()) {
+                    failures += context + ": " + TString(result.GetIssues().ToString()) + "\n";
+                    if (strategy == 2) reference.emplace_back();
+                    continue;
+                }
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, context);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                const auto actual = SnapshotRows(result.GetResultSet(0));
+                if (strategy == 0 && (index == 27 || index == 28 || index == 48 || index == 49)) {
+                    // YqlSelect preserves a common field prefix; the older
+                    // translator loses that order and emits lexical fields.
+                    auto columns = reference[index].Columns;
+                    std::sort(columns.begin(), columns.end());
+                    UNIT_ASSERT_VALUES_EQUAL_C(actual.Columns, columns, context);
+                    UNIT_ASSERT_VALUES_EQUAL_C(actual.Values, (index == 27 || index == 48) ?
+                        "[[[2];#];[#;[1]];[#;[3]]]" : "[[[2];#;1];[#;[4];3]]", context);
+                    continue;
+                }
+                if (!values.empty()) UNIT_ASSERT_VALUES_EQUAL_C(actual.Values, values, context);
+                if (strategy == 2 && (index == 27 || index == 28 || index == 48 || index == 49)) {
+                    UNIT_ASSERT_VALUES_EQUAL(actual.Columns[0].first, "z");
+                    UNIT_ASSERT_VALUES_EQUAL(actual.Columns[1].first, "a");
+                    if (actual.Columns.size() == 3) UNIT_ASSERT_VALUES_EQUAL(actual.Columns[2].first, "b");
+                }
+                if (strategy == 2) reference.push_back(actual);
+                else if (!reference.at(index).Values.empty() &&
+                        (actual.Values != reference[index].Values || actual.Columns != reference[index].Columns)) {
+                    failures += context + ": actual=" + actual.Values + " native=" + reference[index].Values + " columns=";
+                    for (const auto& [name, type] : actual.Columns) failures += name + ":" + type + ",";
+                    failures += "\n";
+                }
+            }
+        }
+        UNIT_ASSERT_C(failures.empty(), failures);
+    }
+
     Y_UNIT_TEST(NativeOlapFiltersMatchComputeOnPopulatedTables) {
         TVector<TResultSnapshot> expected;
         for (const int strategy : {0, 2, 3, 1}) {

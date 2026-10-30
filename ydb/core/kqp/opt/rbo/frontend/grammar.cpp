@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <sstream>
+#include <utility>
 
 namespace NKikimr::NKqp::NFrontend {
 namespace {
@@ -480,6 +481,11 @@ private:
         }
         return result;
     }
+    bool ParenthesizedSelect(TTree* node) const {
+        if (Name(node) == "select_kind_parenthesis") return Has(node, "(");
+        if (Name(node).ends_with("_intersect") && Rules(node).size() == 1) return ParenthesizedSelect(Only(node));
+        return false;
+    }
     std::shared_ptr<TSelect> Select(TTree* node) {
         if (!node) throw std::logic_error("missing select grammar node");
         const auto name = Name(node);
@@ -497,24 +503,29 @@ private:
             }
             return result;
         }
-        if (name.ends_with("_core") && name != "select_core") {
+        if ((name.ends_with("_core") && name != "select_core") || name.ends_with("_intersect")) {
             auto children = Rules(node);
-            auto result = Select(children.front());
-            for (std::size_t i = 1; i < children.size(); i += 2) {
-                if (Name(children[i]) != "union_op" || !Has(children[i], "UNION") || !Has(children[i], "ALL"))
-                    Unsupported(children[i], EFeature::SetOperation, "only UNION ALL is native");
-                result->UnionAll.push_back(Select(children[i + 1]));
-            }
-            if (!result->UnionAll.empty()) {
-                if (!result->OrderBy.empty() || result->Limit != NoSyntax) Unsupported(node, EFeature::SetOperation, "ordered or limited UNION branch");
-                for (const auto& branch : result->UnionAll)
-                    if (!branch->OrderBy.empty() || branch->Limit != NoSyntax) Unsupported(node, EFeature::SetOperation, "ordered or limited UNION branch");
+            if (children.size() == 1) return Select(children.front());
+            auto result = std::make_shared<TSelect>(); result->Position = Position(node);
+            for (std::size_t i = 0; i < children.size(); i += 2) {
+                auto input = Select(children[i]);
+                if (!ParenthesizedSelect(children[i]) && (!input->OrderBy.empty() || input->Limit != NoSyntax)) {
+                    if (i + 1 != children.size()) throw TFrontendError(input->Position, "ORDER BY/LIMIT is only allowed after the last unparenthesized set operand");
+                    result->OrderBy = std::move(input->OrderBy);
+                    result->Limit = std::exchange(input->Limit, NoSyntax);
+                    result->Offset = std::exchange(input->Offset, NoSyntax);
+                }
+                result->AppendSetInput(std::move(input));
+                if (i) {
+                    auto* op = children[i - 1];
+                    const bool all = Has(op, "ALL");
+                    if (Has(op, "UNION")) result->SetOperations.push_back(all ? ESetOperation::UnionAll : ESetOperation::Union);
+                    else if (Has(op, "INTERSECT")) result->SetOperations.push_back(all ? ESetOperation::IntersectAll : ESetOperation::Intersect);
+                    else if (Has(op, "EXCEPT")) result->SetOperations.push_back(all ? ESetOperation::ExceptAll : ESetOperation::Except);
+                    else Unsupported(op, EFeature::SetOperation, "unknown set operation");
+                }
             }
             return result;
-        }
-        if (name.ends_with("_intersect")) {
-            if (Rules(node).size() != 1) Unsupported(node, EFeature::SetOperation, "INTERSECT");
-            return Select(Only(node));
         }
         if (name == "select_kind_parenthesis" || name == "select_or_expr") return Select(Only(node));
         if (name == "select_kind_partial") {
@@ -711,7 +722,8 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         named(value.Projection); expr(value.Where); named(value.GroupBy); expr(value.Having);
         for (const auto& key : value.OrderBy) { out << key.Descending; expr(key.Expression); }
         expr(value.Limit); expr(value.Offset);
-        for (const auto& branch : value.UnionAll) select(*branch);
+        out << '['; for (auto op : value.SetOperations) out << static_cast<int>(op) << ','; out << ']';
+        for (const auto& branch : value.SetInputs) select(*branch);
         out << '}';
     };
     for (const auto& statement : query.Statements) {

@@ -106,8 +106,19 @@ result/type parity tests.
 Supported relational forms include SELECT and FROM-first SELECT, projection,
 filters, aliases/stars, ordinary table reads, CTEs/derived tables, scalar/query
 bindings, simple scalar lambdas, ON joins (inner/cross/outer/semi/only), grouping,
-HAVING, inline windows, DISTINCT, UNION ALL, ordering, limits, scalar/EXISTS/IN subqueries with correlation,
+HAVING, inline windows, DISTINCT, UNION/INTERSECT/EXCEPT (including ALL), ordering, limits, scalar/EXISTS/IN subqueries with correlation,
 and multiple result statements.
+
+Set operands align by field name, infer common types once across the chain, and
+fill missing fields with NULL. INTERSECT has higher precedence; UNION and EXCEPT
+associate left. A flat postfix syntax keeps long chains shallow, and consecutive
+UNION ALL operands use one n-ary RBO union. DISTINCT uses ordinary grouping;
+INTERSECT/EXCEPT use semi/anti joins with stable keys for equal-NULL semantics.
+Their ALL variants number equal rows on each side and match those ordinals, so
+duplicate counts require no row-expansion operation. Global ordering/limits and
+parenthesized operand-local clauses are supported. Result field order follows
+YqlSelect's common-prefix rule; the older translator emits lexical order in some
+mixed-schema cases. Tests pin that existing difference explicitly.
 Aggregates are COUNT, SUM, AVG, MIN, MAX, and SOME. A DISTINCT aggregate must be
 the only aggregate in that aggregation. Computed GROUP BY keys require explicit
 aliases (`GROUP BY expression AS key`, then `SELECT key`). Scan queries require one result.
@@ -240,8 +251,11 @@ Explicitly outside the profile:
   and external tables, table hints, sampling, and PostgreSQL syntax/types.
 - Tuple IN subqueries; subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
   scalar bindings or lambda bodies, JOIN USING, grouping sets,
-  UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
+  duplicate result names within a set operand, and stars over joins
   (which require YQL's column-name coalescing rules).
+- Correlated set expressions containing INTERSECT ALL or EXCEPT ALL: the existing
+  backend cannot decorrelate their numbering windows. Uncorrelated scalar/EXISTS/IN
+  subqueries containing those operations execute natively.
 - FULL JOIN predicates other than conjunctions of column equality keys. The
   existing RBO backend can ignore residual full-join filters; native-required
   rejects them before RBO, and automatic mode explicitly delegates the whole
@@ -372,16 +386,32 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 62/99 | 37 |
+| TPC-DS | 65/99 | 34 |
 | ClickBench | 37/43 | 6 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Fourteen TPC-DS queries also have populated native-required execution
+tables. Fifteen TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
+
+The set-operation increment newly admits Q8, Q49 and Q75. Q8 additionally has
+populated execution parity across all three compilers, with duplicate zip
+prefixes, strict customer-count thresholds, failed date/join predicates and NULL
+profits. Fifty-one set queries run on row and column tables and explicitly distinguish
+native success from existing translator/backend failures (ALL operations, mixed
+set precedence, some mixed-schema sorts and bare-NULL grouping). No existing
+compiler/backend defects are repaired by this increment.
+
+Validation covers 80 standalone frontend and 397 RBO tests. The full run passed
+475 of 477 checks; the two new compatibility-matrix tests were subsequently
+rerun after pinning the old frontend's additional failures. The final native
+bare-NULL sort normalization was checked with the set matrix and both populated
+benchmark fixtures. Warm parse/bind scaling for 10/100/1,000 UNION ALL branches
+was approximately 37/279/2,556 microseconds (three 100-iteration trials, concurrent
+regression tests); these measurements exclude RBO and backend compilation.
 
 ## Validation and measurements
 
@@ -426,7 +456,7 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Fourteen TPC-DS queries (Q12, Q20, Q21, Q32, Q37, Q40, Q41, Q51, Q53, Q63, Q82,
+Fifteen TPC-DS queries (Q8, Q12, Q20, Q21, Q32, Q37, Q40, Q41, Q51, Q53, Q63, Q82,
 Q89, Q92 and Q98) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.

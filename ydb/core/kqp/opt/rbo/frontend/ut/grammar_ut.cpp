@@ -20,6 +20,9 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
             "SELECT a.id, b.id FROM a LEFT JOIN b ON a.id == b.id",
             "FROM t SELECT id, SUM(value) AS total GROUP BY id HAVING SUM(value) > 0",
             "SELECT 1 AS x UNION ALL SELECT 2 AS x",
+            "SELECT 1 AS x UNION SELECT 2 AS x INTERSECT SELECT 3 AS x EXCEPT ALL SELECT 4 AS x ORDER BY x LIMIT 2",
+            "WITH q AS (SELECT 1 AS x) SELECT x FROM q INTERSECT ALL SELECT x FROM q UNION DISTINCT SELECT x FROM q",
+            "SELECT 1 AS x UNION ALL SELECT 2 AS y ORDER BY x, y DESC LIMIT 1 OFFSET 1",
             "WITH q AS (SELECT 1 AS x) SELECT x FROM q",
             "DECLARE $p AS Uint64; SELECT $p LIMIT $p",
             "$q = (SELECT 1 AS x); SELECT x FROM $q",
@@ -43,7 +46,6 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
             "UPSERT INTO t (id) VALUES (1);",
             "SELECT RowNumber() OVER w FROM t WINDOW w AS ();",
             "SELECT id FROM t GROUP BY ROLLUP(id);",
-            "SELECT 1 INTERSECT SELECT 2;",
         }) {
             ValidateGrammar(sql);
             UNIT_ASSERT_EXCEPTION(ParseGrammar(sql), TUnsupportedFeature);
