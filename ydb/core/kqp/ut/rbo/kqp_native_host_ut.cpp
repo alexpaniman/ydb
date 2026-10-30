@@ -217,22 +217,63 @@ TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
     }
     orders.EndList();
     parts.BeginList();
-    for (const i64 id : {1, 2, 3, 4}) {
+    for (const i64 id : {1, 2, 3, 4, 5, 6, 7, 8}) {
         parts.AddListItem().BeginStruct()
             .AddMember("p_partkey").Int64(id)
             .AddMember("p_brand").OptionalUtf8(id == 1 ? "Brand#12" : id == 2 ? "Brand#23" : "Brand#34")
             .AddMember("p_container").OptionalUtf8(id == 1 ? "SM BOX" : id == 2 ? "MED BOX" : "LG BOX")
-            .AddMember("p_size").OptionalInt32(3)
+            .AddMember("p_size").OptionalInt32(id < 5 ? 3 : id == 7 ? 14 : 15)
             .AddMember("p_comment").OptionalUtf8(std::nullopt)
-            .AddMember("p_mfgr").OptionalUtf8(std::nullopt)
+            .AddMember("p_mfgr").OptionalUtf8("Maker")
             .AddMember("p_name").OptionalUtf8(std::nullopt)
             .AddMember("p_retailprice").EmptyOptional(decimalType)
-            .AddMember("p_type").OptionalUtf8(std::nullopt)
+            .AddMember("p_type").OptionalUtf8(id < 5 ? std::nullopt : std::optional<std::string>{id == 8 ? "LARGE TIN" : "LARGE BRASS"})
             .EndStruct();
     }
     parts.EndList();
+    TValueBuilder regions, nations, suppliers, partsupp;
+    regions.BeginList();
+    for (const i32 id : {1, 2}) regions.AddListItem().BeginStruct()
+        .AddMember("r_regionkey").Int32(id)
+        .AddMember("r_name").OptionalUtf8(id == 1 ? "EUROPE" : "ASIA")
+        .AddMember("r_comment").OptionalUtf8(std::nullopt).EndStruct();
+    regions.EndList();
+    nations.BeginList();
+    for (const i32 id : {1, 2, 3}) nations.AddListItem().BeginStruct()
+        .AddMember("n_nationkey").Int32(id)
+        .AddMember("n_name").OptionalUtf8(id == 1 ? "GERMANY" : id == 2 ? "FRANCE" : "JAPAN")
+        .AddMember("n_regionkey").OptionalInt32(id == 3 ? 2 : 1)
+        .AddMember("n_comment").OptionalUtf8(std::nullopt).EndStruct();
+    nations.EndList();
+    suppliers.BeginList();
+    for (const i64 id : {1, 2, 3, 4, 5}) suppliers.AddListItem().BeginStruct()
+        .AddMember("s_suppkey").Int64(id)
+        .AddMember("s_name").OptionalUtf8("Supplier" + std::to_string(id))
+        .AddMember("s_nationkey").OptionalInt32(id == 5 ? std::nullopt : std::optional<i32>{id == 4 ? 1 : i32(id)})
+        .AddMember("s_acctbal").BeginOptional().Decimal(TDecimalValue(id == 2 ? "200" : id == 3 ? "999" : "100", 12, 2)).EndOptional()
+        .AddMember("s_address").OptionalUtf8("Address")
+        .AddMember("s_phone").OptionalUtf8("Phone")
+        .AddMember("s_comment").OptionalUtf8(std::nullopt).EndStruct();
+    suppliers.EndList();
+    partsupp.BeginList();
+    // Tied European minima for part 5; lower Asian/missing-nation costs must
+    // not affect that minimum. Part 6 has a NULL competing cost. Parts 7/8
+    // fail size/type filters even though their supply costs qualify.
+    for (const auto& [part, supplier, cost] : std::initializer_list<std::tuple<i64, i64, const char*>>{
+            {5, 1, "10"}, {5, 2, "10"}, {5, 3, "1"}, {5, 4, "11"}, {5, 5, "0"},
+            {6, 1, "20"}, {6, 2, nullptr}, {7, 1, "1"}, {8, 1, "1"}}) {
+        partsupp.AddListItem().BeginStruct()
+            .AddMember("ps_partkey").Int64(part).AddMember("ps_suppkey").Int64(supplier)
+            .AddMember("ps_availqty").OptionalInt32(100).AddMember("ps_comment").OptionalUtf8(std::nullopt)
+            .AddMember("ps_supplycost");
+        if (cost) partsupp.BeginOptional().Decimal(TDecimalValue(cost, 12, 2)).EndOptional();
+        else partsupp.EmptyOptional(decimalType);
+        partsupp.EndStruct();
+    }
+    partsupp.EndList();
     for (auto& [table, values] : TVector<std::pair<TString, TValue>>{
-            {"/Root/customer", customers.Build()}, {"/Root/orders", orders.Build()}, {"/Root/part", parts.Build()}}) {
+            {"/Root/customer", customers.Build()}, {"/Root/orders", orders.Build()}, {"/Root/part", parts.Build()},
+            {"/Root/region", regions.Build()}, {"/Root/nation", nations.Build()}, {"/Root/supplier", suppliers.Build()}, {"/Root/partsupp", partsupp.Build()}}) {
         const auto loaded = client.BulkUpsert(table, std::move(values)).GetValueSync();
         UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
     }
@@ -241,7 +282,7 @@ $to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
 $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
-    for (const auto [query, expectedRows] : {std::pair{1, 4}, {3, 2}, {19, 1}}) {
+    for (const auto [query, expectedRows] : {std::pair{1, 4}, {2, 3}, {3, 2}, {17, 1}, {19, 1}}) {
         Cerr << "TPC-H Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpch/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -249,6 +290,21 @@ $round = ($x,$y) -> {return $x;};
         UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
         UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
         UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), expectedRows);
+        if (query == 2) {
+            TResultSetParser values(result.GetResultSet(0));
+            for (const auto [part, supplier] : {std::pair{5, "Supplier2"}, {5, "Supplier1"}, {6, "Supplier1"}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("p_partkey").GetInt64(), part);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("s_name").GetOptionalUtf8().value(), supplier);
+            }
+        }
+        if (query == 17) {
+            TResultSetParser values(result.GetResultSet(0));
+            UNIT_ASSERT(values.TryNextRow());
+            const auto average = values.ColumnParser("avg_yearly").GetOptionalDecimal();
+            UNIT_ASSERT(average);
+            UNIT_ASSERT_VALUES_EQUAL(average->ToString(), "1.43");
+        }
         if (query == 3 || query == 19) {
             TResultSetParser values(result.GetResultSet(0));
             for (const auto* expected : query == 3 ? TVector<const char*>{"190", "180"} : TVector<const char*>{"750"}) {

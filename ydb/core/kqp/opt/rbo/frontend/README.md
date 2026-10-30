@@ -270,7 +270,7 @@ and generated modes currently agree on these frontend routing counts:
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
-and profile validation, not RBO optimization or execution. TPC-H Q1, Q3 and Q19 separately
+and profile validation, not RBO optimization or execution. TPC-H Q1, Q2, Q3, Q17 and Q19 separately
 have native-required execution parity on populated column tables; the accepted
 TPC-DS and ClickBench queries still need that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -299,12 +299,14 @@ The Decimal extension passed all 79 native tests, plus 10 compiler checks after
 correcting unsupported statistical-aggregate routing. Tests compare native
 Decimal values with the existing arithmetic implementation, execute terminal
 MiniKQL graphs without annotation, and compare runtime parameters with legacy
-SQL values/types. The unchanged checked-in TPC-H Q1, Q3 and Q19 run with the complete schema,
+SQL values/types. The unchanged checked-in TPC-H Q1, Q2, Q3, Q17 and Q19 run with the complete schema,
 helper prelude, maximum language version, and 16-partition column tables. Their
 nonempty results match both the legacy optimizer and the old frontend with new
 RBO. The fixture covers duplicate line items, nulls, date/quantity boundaries,
 unmatched rows, and all three Q19 OR branches. Q3 revenues are explicitly checked
-as 190 and 180; Q19 revenue is 750. Both RBO paths also satisfy the existing
+as 190 and 180; Q19 revenue is 750. Q2 checks tied European minimum costs,
+excluded suppliers, NULL costs, and size/type filters; Q17 checks a Decimal
+result of 1.43. Both RBO paths also satisfy the existing
 benchmark invariant: all CBO trees are optimized, with at least one tree for the
 join queries. The common-Decimal-type extension also passed all 79 native tests,
 including runtime comparisons beyond double precision, IF/UNION result types,
