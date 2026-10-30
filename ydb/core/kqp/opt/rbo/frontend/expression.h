@@ -80,7 +80,7 @@ enum class EOpcode : std::uint8_t {
     Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
     And, Or, IsNull, IsNotNull, Coalesce, If,
     Abs, Length, Lower, Upper, Contains, StartsWith, EndsWith, Substring,
-    Concat,
+    Concat, Ensure,
 };
 
 struct TExprNode {
@@ -113,6 +113,8 @@ public:
     TExprId Cast(TExprId input, TType target, TSourcePosition position = {});
     TExprId If(TExprId condition, TExprId thenExpr, TExprId elseExpr, TSourcePosition position = {});
     TExprId Coalesce(std::span<const TExprId> arguments, TSourcePosition position = {});
+    // Runtime assertion: check a required Boolean before evaluating its value.
+    TExprId Ensure(TExprId value, TExprId predicate, std::string message, TSourcePosition position = {});
     TExprId Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position = {});
 
     const TExprNode& operator[](TExprId id) const;
@@ -129,6 +131,10 @@ public:
     // unchanged subgraphs retain their IDs, and existing roots stay immutable.
     TExprId RewriteColumns(TExprId root,
         const std::function<TExprId(TExprId, TColumnId, TType, TSourcePosition)>& bindColumn);
+
+    // Fold shared constant DAGs once across all roots. Keep runtime assertions
+    // deferred, preserve types, and bound newly materialized string data.
+    std::vector<TExprId> FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes = 1024 * 1024);
 
 private:
     TExprId Append(TExprNode node);

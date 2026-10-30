@@ -551,6 +551,10 @@ TUnorderedIUs TOpMap::GetUsedIUs(TPlanProps& props) {
     return result;
 }
 
+void TOpMap::RewriteExpressions(const TExpressionRewrite& rewrite) {
+    for (const auto& [id, element] : MapElements.Items()) SetMapElementExpression(id, rewrite(element.GetExpression()));
+}
+
 TVector<std::reference_wrapper<const TExpression>> TOpMap::GetExpressions() const {
     TVector<std::reference_wrapper<const TExpression>> result;
     result.reserve(MapElements.Items().size());
@@ -658,6 +662,10 @@ TOpFilter::TOpFilter(TIntrusivePtr<IOperator> input, TPositionHandle pos, const 
     , FilterExpr(filterExpr) {
 }
 
+void TOpFilter::RewriteExpressions(const TExpressionRewrite& rewrite) {
+    SetFilterExpression(rewrite(FilterExpr));
+}
+
 TVector<std::reference_wrapper<const TExpression>> TOpFilter::GetExpressions() const {
     return {std::cref(FilterExpr)};
 }
@@ -737,6 +745,10 @@ TUnorderedIUs TOpJoin::GetUsedIUs(TPlanProps& props) {
         result.UnionWith(filter.GetInputIUs(false, true));
     }
     return result;
+}
+
+void TOpJoin::RewriteExpressions(const TExpressionRewrite& rewrite) {
+    for (auto& expression : JoinFilters) expression = rewrite(expression);
 }
 
 TVector<std::reference_wrapper<const TExpression>> TOpJoin::GetExpressions() const {
@@ -984,6 +996,11 @@ NJson::TJsonValue TOpLimit::ToJson(ui32 explainFlags, const TInfoUnitRegistry& r
     return res;
 }
 
+void TOpLimit::RewriteExpressions(const TExpressionRewrite& rewrite) {
+    LimitCond = rewrite(LimitCond);
+    if (OffsetCond) *OffsetCond = rewrite(*OffsetCond);
+}
+
 TVector<std::reference_wrapper<const TExpression>> TOpLimit::GetExpressions() const {
     TVector<std::reference_wrapper<const TExpression>> result{std::cref(LimitCond)};
     if (OffsetCond) {
@@ -1019,6 +1036,10 @@ TUnorderedIUs TOpSort::GetUsedIUs(TPlanProps& props) {
         result.UnionWith(LimitCond->GetInputIUs(false, true));
     }
     return result;
+}
+
+void TOpSort::RewriteExpressions(const TExpressionRewrite& rewrite) {
+    if (LimitCond) *LimitCond = rewrite(*LimitCond);
 }
 
 TVector<std::reference_wrapper<const TExpression>> TOpSort::GetExpressions() const {
@@ -1097,6 +1118,10 @@ TUnorderedIUs TOpTableLookup::GetUsedIUs(TPlanProps& props) {
         result.UnionWith(Prefix->Equalities.Unordered());
     }
     return result;
+}
+
+void TOpTableLookup::RewriteExpressions(const TExpressionRewrite& rewrite) {
+    if (FetchedRowFilter) *FetchedRowFilter = rewrite(*FetchedRowFilter);
 }
 
 TVector<std::reference_wrapper<const TExpression>> TOpTableLookup::GetExpressions() const {

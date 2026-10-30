@@ -72,6 +72,20 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressionArena) {
         UNIT_ASSERT(!original.Node && !renamed.Node && !widened.Node);
     }
 
+    Y_UNIT_TEST(AssertionsUseNativeOperands) {
+        TExprContext ctx;
+        auto arena = std::make_shared<TArena>();
+        const auto value = arena->Literal({K::Int32}, std::int64_t{7});
+        const auto predicate = arena->Literal({K::Bool}, true);
+        auto expression = MakeEnsure(TExpression::FromNative(arena, value, &ctx),
+            TExpression::FromNative(arena, predicate, &ctx), "cardinality");
+        UNIT_ASSERT(expression.IsNative());
+        UNIT_ASSERT(!expression.Node);
+        UNIT_ASSERT(expression.GetNativeArena() == arena);
+        UNIT_ASSERT_VALUES_EQUAL(arena->Size(), 3);
+        UNIT_ASSERT_VALUES_EQUAL(NFrontend::FormatValue(NFrontend::Evaluate(*arena, expression.GetNativeRoot())), "7");
+    }
+
     Y_UNIT_TEST(ForeignArenaCompositionImportsOnlyTheForeignOperand) {
         TExprContext ctx;
         auto leftArena = std::make_shared<TArena>();

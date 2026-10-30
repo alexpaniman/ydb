@@ -26,14 +26,10 @@ NFrontend::TExprId Projection(const NFrontend::TBoundProgram& program) {
 
 // Compile and execute the terminal scalar graph directly: no YQL annotation,
 // expression peepholes, SQL translation or compatibility transformer.
-void CheckScalar(std::string_view sql) {
-    auto program = NFrontend::NDetail::Compile(sql, [](auto, auto pos) -> NFrontend::TCatalogTable {
-        throw NFrontend::TFrontendError(pos, "unexpected table");
-    });
-    const auto id = Projection(program);
-    const auto expected = NFrontend::Evaluate(program.Expressions, id);
+void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id, std::string_view sql) {
+    const auto expected = NFrontend::Evaluate(arena, id);
     TExprContext ctx;
-    const auto lambda = LowerNativeLambda(program.Expressions, id, ctx, {});
+    const auto lambda = LowerNativeLambda(arena, id, ctx, {});
     UNIT_ASSERT_C(AreAllNodesTypeAnnotated(*lambda), sql);
     UNIT_ASSERT_C(!NeedsRboCompatibilityLowering(lambda), sql);
     NMiniKQL::TSetup<false> setup(NMiniKQL::GetBuiltinFactory());
@@ -73,9 +69,65 @@ void CheckScalar(std::string_view sql) {
         case K::Null: UNIT_FAIL("unexpected non-null Null");
     }
 }
+void CheckScalar(std::string_view sql) {
+    auto program = NFrontend::NDetail::Compile(sql, [](auto, auto pos) -> NFrontend::TCatalogTable {
+        throw NFrontend::TFrontendError(pos, "unexpected table");
+    });
+    CheckScalar(program.Expressions, Projection(program), sql);
+}
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(NativeAssertionsExecuteWithoutCompatibilityLowering) {
+        using namespace NFrontend;
+        TExpressionArena arena;
+        const auto value = arena.Literal({ETypeKind::Int32}, std::int64_t{42});
+        const auto no = arena.Literal({ETypeKind::Bool}, false);
+        const auto yes = arena.Literal({ETypeKind::Bool}, true);
+        const auto failed = arena.Ensure(value, no, "Scalar subquery returned more than one row");
+        CheckScalar(arena, arena.Ensure(value, yes, "unused"), "successful assertion");
+        CheckScalar(arena, arena.If(no, failed, value), "assertion in an unselected branch");
+        TExprContext ctx;
+        const auto lambda = LowerNativeLambda(arena, failed, ctx, {});
+        UNIT_ASSERT(AreAllNodesTypeAnnotated(*lambda));
+        UNIT_ASSERT(!NeedsRboCompatibilityLowering(lambda));
+        NMiniKQL::TSetup<false> setup(NMiniKQL::GetBuiltinFactory());
+        NYql::NCommon::TMkqlCommonCallableCompiler compiler;
+        NYql::NCommon::TMkqlBuildContext build(compiler, *setup.PgmBuilder, ctx);
+        auto graph = setup.BuildGraph(NYql::NCommon::MkqlBuildLambda(*lambda, build, {setup.PgmBuilder->NewEmptyStruct()}));
+        UNIT_ASSERT_EXCEPTION_CONTAINS(graph->GetValue(), std::exception, "Scalar subquery returned more than one row");
+    }
+
+    Y_UNIT_TEST(ConstantFoldingRemainsNative) {
+        NTests::TIdTestContext f;
+        auto roots = CompileNativeToRbo("SELECT 1 + 2 AS answer WHERE 2 + 3 = 5 LIMIT 1ul + 1ul", NoTables, f.ExprCtx);
+        auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+            UNIT_FAIL("native constant folding invoked YQL annotation");
+            return IGraphTransformer::TStatus::Error;
+        });
+        TRBOContext nativeContext(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+        auto& root = *roots.front();
+        UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+        TConstantFoldingStage().RunStage(root, nativeContext);
+        bool folded = false, filterFolded = false, limitFolded = false;
+        for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
+            UNIT_ASSERT(expression.get().IsNative());
+            UNIT_ASSERT(!expression.get().Node);
+            const auto& node = (*expression.get().GetNativeArena())[expression.get().GetNativeRoot()];
+            folded |= node.Op == NFrontend::EOpcode::Literal && NFrontend::FormatValue({node.Type, node.Value}) == "3";
+            if (item.Current->Kind == EOperator::Filter) {
+                UNIT_ASSERT(node.Op == NFrontend::EOpcode::Literal && std::get<bool>(node.Value));
+                filterFolded = true;
+            }
+            if (item.Current->Kind == EOperator::Limit) {
+                UNIT_ASSERT(node.Op == NFrontend::EOpcode::Literal && std::get<std::uint64_t>(node.Value) == 2);
+                limitFolded = true;
+            }
+        }
+        UNIT_ASSERT(folded && filterFolded && limitFolded);
+        UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+    }
+
     Y_UNIT_TEST(DecimalValuesMatchRuntimeArithmetic) {
         namespace D = NYql::NDecimal;
         using namespace NFrontend;

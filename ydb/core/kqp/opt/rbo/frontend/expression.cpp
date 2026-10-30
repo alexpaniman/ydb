@@ -948,6 +948,11 @@ TExprId TExpressionArena::Coalesce(std::span<const TExprId> arguments, TSourcePo
     return Append({O::Coalesce, type, position, std::move(converted), {}, {}, 0});
 }
 
+TExprId TExpressionArena::Ensure(TExprId value, TExprId predicate, std::string message, TSourcePosition position) {
+    if ((*this)[predicate].Type != TType{K::Bool}) Fail(position, "Ensure requires a non-null Boolean predicate");
+    return Append({O::Ensure, (*this)[value].Type, position, {value, predicate}, {}, std::move(message), 0});
+}
+
 TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position) {
     const auto lowered = Lower(name);
     auto arity = [&](std::size_t expected) {
@@ -1060,6 +1065,7 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::If: return If(node.Arguments[0], node.Arguments[1], node.Arguments[2], node.Position);
         case O::Coalesce: return Coalesce(node.Arguments, node.Position);
         case O::Substring: return Call("Substring", node.Arguments, node.Position);
+        case O::Ensure: return Ensure(node.Arguments[0], node.Arguments[1], std::move(node.Name), node.Position);
         default:
             return node.Arguments.size() == 1 ? Unary(node.Op, node.Arguments[0], node.Position) :
                 Binary(node.Op, node.Arguments[0], node.Arguments[1], node.Position);
@@ -1356,6 +1362,14 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
             finish(std::move(value));
             continue;
         }
+        if (node.Op == O::Ensure) {
+            const auto predicate = node.Arguments[1], value = node.Arguments[0];
+            if (!values[predicate]) { stack.push_back({predicate}); continue; }
+            if (!std::get<bool>(values[predicate]->Data)) Fail(node.Position, node.Name);
+            if (!values[value]) { stack.push_back({value}); continue; }
+            finish(*values[value]);
+            continue;
+        }
         if (node.Op == O::If) {
             const auto condition = node.Arguments[0];
             if (!values[condition]) {
@@ -1421,6 +1435,98 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
         finish(Execute(node, values));
     }
     return *values[root];
+}
+
+std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes) {
+    std::unordered_map<TExprId, TExprId> rewritten;
+    std::vector<std::pair<TExprId, bool>> pending;
+    auto fold = [&](TExprNode node, TExprId original, bool changed) {
+        auto retain = [&] { return changed ? Rebuild(node) : original; };
+        auto literal = [&](TScalar value) {
+            if (const auto* text = std::get_if<std::string>(&value)) {
+                if (text->size() > maxStringBytes) return retain();
+                maxStringBytes -= text->size();
+            }
+            return Literal(node.Type, std::move(value), node.Position);
+        };
+        if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) return original;
+        if (node.Op == O::If && (*this)[node.Arguments[0]].Op == O::Literal) {
+            const auto& condition = (*this)[node.Arguments[0]].Value;
+            return node.Arguments[std::holds_alternative<bool>(condition) && std::get<bool>(condition) ? 1 : 2];
+        }
+        if (node.Op == O::Ensure) {
+            const auto& condition = (*this)[node.Arguments[1]];
+            // Failed assertions remain runtime errors, even inside dead branches.
+            return condition.Op == O::Literal && std::get<bool>(condition.Value) ? node.Arguments[0] : retain();
+        }
+        if (node.Op == O::And || node.Op == O::Or) {
+            const auto& left = (*this)[node.Arguments[0]];
+            const auto& right = (*this)[node.Arguments[1]];
+            const bool decisive = node.Op == O::Or;
+            if (left.Op != O::Literal) return retain();
+            if (std::holds_alternative<bool>(left.Value) && std::get<bool>(left.Value) == decisive) return literal(decisive);
+            if (right.Op != O::Literal) return retain();
+            if (std::holds_alternative<bool>(right.Value) && std::get<bool>(right.Value) == decisive) return literal(decisive);
+            return literal(std::holds_alternative<std::monostate>(left.Value) || std::holds_alternative<std::monostate>(right.Value) ?
+                TScalar{std::monostate{}} : TScalar{!decisive});
+        }
+        if (node.Op == O::Coalesce) {
+            for (const auto arg : node.Arguments) {
+                const auto& value = (*this)[arg];
+                if (value.Op != O::Literal) return retain();
+                if (!std::holds_alternative<std::monostate>(value.Value))
+                    return value.Type == node.Type ? arg : literal(value.Value);
+            }
+            return literal(std::monostate{});
+        }
+        std::size_t inputBytes = 0;
+        for (const auto arg : node.Arguments) {
+            const auto& value = (*this)[arg];
+            if (value.Op != O::Literal) return retain();
+            if (const auto* text = std::get_if<std::string>(&value.Value)) {
+                if (text->size() > maxStringBytes - inputBytes) return retain();
+                inputBytes += text->size();
+            }
+        }
+        // Compact operands avoid allocating a root-sized evaluator cache for
+        // every constant operation in a large/shared arena.
+        std::vector<std::optional<TValue>> values;
+        values.reserve(node.Arguments.size());
+        auto executable = node;
+        for (auto& arg : executable.Arguments) {
+            const auto& value = (*this)[arg];
+            values.push_back(TValue{value.Type, value.Value});
+            arg = values.size() - 1;
+        }
+        auto value = Execute(executable, values);
+        return literal(std::move(value.Data));
+    };
+    for (auto root : roots) {
+        pending.emplace_back(root, false);
+        while (!pending.empty()) {
+            const auto [id, ready] = pending.back();
+            pending.pop_back();
+            if (rewritten.contains(id)) continue;
+            auto node = (*this)[id]; // appends may reallocate the arena
+            if (!ready && !node.Arguments.empty()) {
+                pending.emplace_back(id, true);
+                for (auto it = node.Arguments.rbegin(); it != node.Arguments.rend(); ++it)
+                    if (!rewritten.contains(*it)) pending.emplace_back(*it, false);
+                continue;
+            }
+            bool changed = false;
+            for (auto& arg : node.Arguments) {
+                const auto replacement = rewritten.at(arg);
+                changed |= replacement != arg;
+                arg = replacement;
+            }
+            rewritten.emplace(id, fold(std::move(node), id, changed));
+        }
+    }
+    std::vector<TExprId> result;
+    result.reserve(roots.size());
+    for (auto root : roots) result.push_back(rewritten.at(root));
+    return result;
 }
 
 } // namespace NKikimr::NKqp::NFrontend

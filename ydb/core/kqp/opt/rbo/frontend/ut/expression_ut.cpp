@@ -177,6 +177,74 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_EXCEPTION(arena.Cast(arena.Literal({K::String}, std::string{"1e2"}), {K::Decimal, false, 8, 2}), TUnsupportedFeature);
     }
 
+    Y_UNIT_TEST(ConstantFoldingSharesWorkAndPreservesRoots) {
+        TExpressionArena arena;
+        const auto one = arena.Literal({K::Int32}, std::int64_t{1});
+        auto root = one;
+        for (unsigned i = 0; i < 1000; ++i) root = arena.Binary(O::Add, root, one);
+        const auto before = arena.Size();
+        const std::vector<TExprId> roots(100, root);
+        const auto folded = arena.FoldConstants(roots);
+        UNIT_ASSERT_VALUES_EQUAL(arena.Size(), before + 1000);
+        for (auto result : folded) {
+            UNIT_ASSERT_VALUES_EQUAL(result, folded.front());
+            UNIT_ASSERT(arena[result].Op == O::Literal);
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, result)), "1001");
+        }
+        UNIT_ASSERT(arena[root].Op == O::Add);
+        const auto after = arena.Size();
+        UNIT_ASSERT(arena.FoldConstants(folded) == folded);
+        UNIT_ASSERT_VALUES_EQUAL(arena.Size(), after);
+        const auto column = arena.Column(7, {K::Int32});
+        const TExprId mixed[]{arena.Binary(O::Add, column, root)};
+        const auto result = arena.FoldConstants(mixed).front();
+        UNIT_ASSERT_VALUES_EQUAL(arena[result].Arguments[0], column);
+        UNIT_ASSERT(arena[arena[result].Arguments[1]].Op == O::Literal);
+        TEvaluationContext context;
+        context.Column = [](TColumnId) { return TValue{{K::Int32}, std::int64_t{3}}; };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, result, context)), "1004");
+    }
+
+    Y_UNIT_TEST(ConstantFoldingPreservesRuntimeAssertionsAndTypes) {
+        TExpressionArena arena;
+        const auto yes = arena.Literal({K::Bool}, true), no = arena.Literal({K::Bool}, false);
+        const auto seven = arena.Literal({K::Int32}, std::int64_t{7});
+        const auto failed = arena.Ensure(seven, no, "cardinality violation");
+        const auto selected = arena.If(no, failed, seven);
+        const auto conditional = arena.If(arena.Parameter("p", {K::Bool}), failed, seven);
+        const auto optional = arena.If(yes, seven, arena.Null());
+        const TExprId roots[]{failed, selected, conditional, optional, arena.Ensure(seven, yes, "unused")};
+        const auto folded = arena.FoldConstants(roots);
+        UNIT_ASSERT(arena[folded[0]].Op == O::Ensure);
+        UNIT_ASSERT_EXCEPTION_CONTAINS(Evaluate(arena, folded[0]), TFrontendError, "cardinality violation");
+        UNIT_ASSERT_VALUES_EQUAL(folded[1], seven);
+        UNIT_ASSERT_VALUES_EQUAL(folded[4], seven);
+        UNIT_ASSERT(arena[folded[3]].Type == arena[optional].Type);
+        UNIT_ASSERT(arena[folded[3]].Type.Nullable);
+        for (const bool condition : {false, true}) {
+            TEvaluationContext context;
+            context.Parameter = [&](auto) { return TValue{{K::Bool}, condition}; };
+            if (condition) UNIT_ASSERT_EXCEPTION_CONTAINS(Evaluate(arena, folded[2], context), TFrontendError, "cardinality violation");
+            else UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded[2], context)), "7");
+        }
+        UNIT_ASSERT_EXCEPTION(arena.Ensure(seven, arena.Convert(yes, {K::Bool, true}), "bad predicate"), TFrontendError);
+    }
+
+    Y_UNIT_TEST(ConstantFoldingBoundsStringMaterialization) {
+        TExpressionArena arena;
+        const auto text = arena.Literal({K::String}, std::string(8, 'x'));
+        const auto pair = arena.Binary(O::Concat, text, text);
+        const TExprId roots[]{arena.Binary(O::Concat, pair, pair)};
+        const auto folded = arena.FoldConstants(roots, 16).front();
+        UNIT_ASSERT(arena[folded].Op == O::Concat);
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), std::string(32, 'x'));
+        const auto number = arena.Literal({K::Int32}, std::int64_t{12345});
+        const TExprId cast[]{arena.Cast(number, {K::String})};
+        const auto retained = arena.FoldConstants(cast, 0).front();
+        UNIT_ASSERT_VALUES_EQUAL(retained, cast[0]);
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, retained)), "12345");
+    }
+
     Y_UNIT_TEST(SharedSubexpressionsAreEvaluatedOnce) {
         TExpressionArena arena;
         auto column = arena.Column(7, {K::Int64});

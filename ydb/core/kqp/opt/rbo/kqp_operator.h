@@ -282,6 +282,11 @@ public:
         return {};
     }
 
+    using TExpressionRewrite = std::function<TExpression(const TExpression&)>;
+    // Replace scalar values through their owning operator so dependency caches
+    // and encapsulated map definitions stay consistent.
+    virtual void RewriteExpressions(const TExpressionRewrite&) {}
+
     // Overrides must also bind stored expressions not exposed by GetExpressions().
     virtual void BindExpressionPlanProps(TPlanProps* props);
 
@@ -733,6 +738,7 @@ public:
     TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
     const TUnorderedIUs& GetUniqueRawInputIUs() const override { return MapElements.MappedIUs(); }
     TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
+    void RewriteExpressions(const TExpressionRewrite& rewrite) override;
     void PropagateLiveness(ILivenessContext& ctx) override;
     bool PruneOutputs(const TUnorderedIUs& liveOut, TExprContext& ctx) override;
     void ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOContext& ctx) override;
@@ -1019,6 +1025,7 @@ public:
     virtual TString GetExplainName() const override { return "Filter"; }
 
     virtual TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
+    void RewriteExpressions(const TExpressionRewrite& rewrite) override;
     virtual void PropagateLiveness(ILivenessContext& ctx) override;
     virtual void ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOContext& ctx) override;
 
@@ -1071,6 +1078,7 @@ public:
     const TUnorderedIUs& GetUniqueRawInputIUs() const override;
     virtual TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
     virtual TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
+    void RewriteExpressions(const TExpressionRewrite& rewrite) override;
     virtual void PropagateLiveness(ILivenessContext& ctx) override;
 
     void RenameUsedIUs(const TSubstitutions& substitutions) override;
@@ -1184,6 +1192,7 @@ public:
     virtual TString GetExplainName() const override { return "Limit"; }
 
     virtual TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
+    void RewriteExpressions(const TExpressionRewrite& rewrite) override;
 
     EOpPhase GetLimitPhase() const {
         return LimitPhase;
@@ -1218,6 +1227,7 @@ public:
     const TUnorderedIUs& GetUniqueRawInputIUs() const override;
     TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
     TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
+    void RewriteExpressions(const TExpressionRewrite& rewrite) override;
     void PropagateLiveness(ILivenessContext& ctx) override;
     void RenameUsedIUs(const TSubstitutions& substitutions) override;
     TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
@@ -1266,6 +1276,7 @@ public:
     const TUnorderedIUs& GetUniqueRawInputIUs() const override;
     TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
     TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
+    void RewriteExpressions(const TExpressionRewrite& rewrite) override;
     void PropagateLiveness(ILivenessContext& ctx) override;
     TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
     NJson::TJsonValue ToJson(ui32 explainFlags, const TInfoUnitRegistry& registry) override;

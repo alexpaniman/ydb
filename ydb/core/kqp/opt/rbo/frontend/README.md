@@ -194,6 +194,11 @@ Each opcode has a direct execution lowering; there is no SQL semantic rewrite
 loop in that adapter. Reference evaluation and direct MiniKQL tests check this
 boundary separately from host-level comparison against legacy YQL.
 
+Native constant folding visits shared scalar DAGs once per arena batch and
+bounds generated string payloads. It preserves result types and keeps failing
+runtime assertions deferred, including in conditional branches. The assertion
+opcode also lowers directly to the backend's executable Ensure operation.
+
 **Plan-quality limitation:** legacy scalar peepholes, range extraction, and
 OLAP predicate/projection pushdown are currently skipped for native scalars.
 Native equivalents and plan/execution parity are required before broad rollout.

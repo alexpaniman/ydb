@@ -82,9 +82,6 @@ TConstantFoldingStage::TConstantFoldingStage() : IRBOStage("Constant folding sta
 }
 
 void TConstantFoldingStage::RunStage(TOpRoot &root, TRBOContext &ctx) {
-    if (root.PlanProps.NativeExpressions) {
-        return;
-    }
     TVector<TExprNode::TPtr> lambdasWithConstExpr;
     bool foldUdfs = ctx.KqpCtx.Config->GetEnableFoldUdfs();
 
@@ -96,13 +93,18 @@ void TConstantFoldingStage::RunStage(TOpRoot &root, TRBOContext &ctx) {
     // Actual map used in the optimizer
     TVector<std::pair<TExprNode::TPtr, TExprNode::TPtr>> globalExtractedExprs;
     TVector<IOperator*> affectedOps;
+    THashMap<NFrontend::TExpressionArena*, TVector<const TExpression*>> nativeExpressions;
+    TVector<IOperator*> nativeOps;
 
     for (const auto& it : root) {
         if (!it.Current->GetExpressions().empty()) {
             auto expressions = it.Current->GetExpressions();
             bool affected = false;
+            bool native = false;
             for (auto e : expressions) {
                 if (e.get().IsNative()) {
+                    native = true;
+                    nativeExpressions[e.get().GetNativeArena().get()].push_back(&e.get());
                     continue;
                 }
                 auto lambda = TCoLambda(e.get().Node);
@@ -114,11 +116,30 @@ void TConstantFoldingStage::RunStage(TOpRoot &root, TRBOContext &ctx) {
                 }
             }
 
+            if (native) nativeOps.push_back(it.Current);
             if (affected) {
                 affectedOps.push_back(it.Current);
             }
         }
     }
+
+    THashMap<const TExpression*, TExpression> nativeReplacements;
+    for (const auto& [arena, expressions] : nativeExpressions) {
+        std::vector<NFrontend::TExprId> roots;
+        roots.reserve(expressions.size());
+        for (const auto* expression : expressions) roots.push_back(expression->GetNativeRoot());
+        const auto folded = arena->FoldConstants(roots);
+        for (std::size_t i = 0; i < expressions.size(); ++i) {
+            const auto& expression = *expressions[i];
+            if (folded[i] != roots[i]) nativeReplacements.emplace(&expression,
+                TExpression::FromNative(expression.GetNativeArena(), folded[i], expression.Ctx, expression.PlanProps, expression.Pos()));
+        }
+    }
+
+    for (auto* op : nativeOps) op->RewriteExpressions([&](const TExpression& expression) {
+        const auto replacement = nativeReplacements.find(&expression);
+        return replacement == nativeReplacements.end() ? expression : replacement->second;
+    });
 
     if (globalExtractedExprs.empty()) {
         return;

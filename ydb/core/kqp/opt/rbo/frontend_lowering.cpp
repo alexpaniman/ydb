@@ -191,6 +191,9 @@ private:
                 return Call("Member", {Row, Atom(Ctx.GetIndexAsString(node.ColumnId))}, type);
             }
             case O::Parameter: return Call("Parameter", {Atom("$" + String(node.Name)), Type(type)}, type);
+            case O::Ensure:
+                args.push_back(Literal({K::String}, node.Name));
+                return Call("Ensure", std::move(args), type);
             case O::Convert: case O::Cast: return Cast(args[0], Arena[node.Arguments[0]].Type, type);
             case O::Negate: return Call("Minus", std::move(args), type);
             case O::Not: return Call("Not", std::move(args), type);

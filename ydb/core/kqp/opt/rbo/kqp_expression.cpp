@@ -467,6 +467,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::EndsWith: return "EndsWith";
         case TNativeOp::Substring: return "Substring";
         case TNativeOp::Concat: return "Concat";
+        case TNativeOp::Ensure: return "Ensure";
     }
     Y_UNREACHABLE();
 }
@@ -1151,7 +1152,14 @@ TExpression MakeUnaryCallable(const TString& callable, const TExpression& arg) {
 }
 
 TExpression MakeEnsure(const TExpression& value, const TExpression& predicate, const TString& message) {
-    Y_ENSURE(!value.IsNative() && !predicate.IsNative(), "Native scalar assertions require a native execution opcode");
+    if (value.IsNative() || predicate.IsNative()) {
+        Y_ENSURE(value.IsNative() && predicate.IsNative(), "Cannot mix native and legacy assertion operands");
+        auto arena = value.GetNativeArena();
+        const auto input = ImportNative(*arena, value), condition = ImportNative(*arena, predicate);
+        const auto root = arena->Ensure(input, condition, std::string(message.data(), message.size()));
+        return TExpression::FromNative(std::move(arena), root, value.Ctx,
+            value.PlanProps ? value.PlanProps : predicate.PlanProps, value.Pos());
+    }
     // Fetch context and plan properties from one of the arguments
     TExprContext* ctx = nullptr;
     TPlanProps* props = nullptr;
