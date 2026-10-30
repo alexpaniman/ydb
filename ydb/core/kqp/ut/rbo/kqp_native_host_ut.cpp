@@ -1049,6 +1049,72 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(FullJoinResidualsAreRejectedOrDelegated, ColumnStore) {
+        std::optional<TResultSnapshot> legacy;
+        for (const int strategy : {0, 1, 2, 3}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 3 ? NKikimrConfig::TTableServiceConfig::NATIVE_AUTO :
+                strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableInlineJoinFiltersAfterCBO(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            for (const bool right : {false, true}) {
+                const TString path = right ? "/Root/JoinB" : "/Root/JoinA";
+                const auto created = session.ExecuteSchemeQuery("CREATE TABLE `" + path +
+                    "` (id Int32 NOT NULL, k Int32 NOT NULL, v Int32, PRIMARY KEY(id))" +
+                    (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+                UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+                TValueBuilder rows;
+                rows.BeginList();
+                for (const auto& [id, key, value] : right ? TVector<std::tuple<i32, i32, i32>>{{3, 1, 15}, {4, 1, 5}, {5, 3, 30}} :
+                        TVector<std::tuple<i32, i32, i32>>{{1, 1, 10}, {2, 2, 20}})
+                    rows.AddListItem().BeginStruct().AddMember("id").Int32(id).AddMember("k").Int32(key)
+                        .AddMember("v").OptionalInt32(value).EndStruct();
+                rows.EndList();
+                const auto loaded = client.BulkUpsert(path, rows.Build()).GetValueSync();
+                UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            }
+            const auto result = runner.GetQueryClient().ExecuteQuery(
+                "PRAGMA YqlSelect='force'; SELECT a.id AS l, b.id AS r FROM `/Root/JoinA` AS a FULL JOIN `/Root/JoinB` AS b "
+                "ON a.k = b.k AND a.v > b.v ORDER BY l, r", NQuery::TTxControl::NoTx()).GetValueSync();
+            const auto issues = result.GetIssues().ToString();
+            if (strategy == 2) {
+                UNIT_ASSERT(!result.IsSuccess());
+                UNIT_ASSERT_C(issues.find("FULL JOIN requires only column equality keys") != std::string::npos, issues);
+                UNIT_ASSERT_C(issues.find("[native_frontend_fallback]") == std::string::npos, issues);
+                continue;
+            }
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            const auto actual = SnapshotRows(result.GetResultSet(0));
+            if (strategy == 1) {
+                // Pin the pre-existing RBO backend defect: it ignores the
+                // residual condition. Do not change that backend in this work.
+                UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;[5]];[[1];[3]];[[1];[4]];[[2];#]]");
+            } else {
+                UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;[3]];[#;[5]];[[1];[4]];[[2];#]]");
+                if (strategy == 0) legacy = actual;
+                else {
+                    AssertSame(actual, *legacy);
+                    UNIT_ASSERT_C(issues.find("[native_frontend_fallback]") != std::string::npos, issues);
+                    UNIT_ASSERT_C(issues.find("feature=backend") != std::string::npos, issues);
+                    const auto next = runner.GetQueryClient().ExecuteQuery(
+                        "PRAGMA YqlSelect='force'; SELECT a.id AS l, b.id AS r FROM `/Root/JoinA` AS a FULL JOIN `/Root/JoinB` AS b "
+                        "ON a.k = b.k ORDER BY l, r", NQuery::TTxControl::NoTx()).GetValueSync();
+                    UNIT_ASSERT_C(next.IsSuccess(), next.GetIssues().ToString());
+                    UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(next.GetResultSet(0)).Values, "[[#;[5]];[[1];[3]];[[1];[4]];[[2];#]]");
+                    UNIT_ASSERT_C(next.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, next.GetIssues().ToString());
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(WindowsMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<std::pair<TString, size_t>> queries;
         const TVector<TString> specifications{

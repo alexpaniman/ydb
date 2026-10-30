@@ -447,6 +447,10 @@ private:
         if (query.Source) current = Source(*query.Source, outer);
         else current.Relation = Relation({ERelation::Unit, query.Position});
         for (const auto& join : query.Joins) {
+            const bool constrained = join.Predicate != NoSyntax || !join.Using.empty();
+            if (join.Kind == EJoinKind::Cross ? constrained : !constrained)
+                throw TFrontendError(join.Source.Position, join.Kind == EJoinKind::Cross ?
+                    "CROSS JOIN cannot have ON or USING" : "JOIN requires ON or USING");
             auto right = Source(join.Source, outer);
             TScope combined;
             for (const auto& column : current.Scope.Columns) combined.Add(column);
@@ -1251,6 +1255,39 @@ void CheckProgram(const TBoundProgram& program) {
         }
     }
     for (const auto& relation : program.Relations) {
+        if (relation.Kind == ERelation::Join && relation.JoinKind == EJoinKind::Full && relation.Predicate) {
+            // The existing full-join backend cannot execute residual filters.
+            // Only admit predicates that become column equality keys; leave
+            // unsupported forms to whole-query legacy-optimizer delegation.
+            const auto& arena = program.Expressions;
+            auto stripLift = [&](TExprId id) {
+                while (arena[id].Op == EOpcode::Convert && arena[id].Type.Required() == arena[arena[id].Arguments[0]].Type.Required())
+                    id = arena[id].Arguments[0];
+                return id;
+            };
+            const auto& leftColumns = program.Relations[relation.Inputs[0]].Columns;
+            const auto& rightColumns = program.Relations[relation.Inputs[1]].Columns;
+            const std::unordered_set<TColumnId> left(leftColumns.begin(), leftColumns.end()), right(rightColumns.begin(), rightColumns.end());
+            std::vector<TExprId> pending{*relation.Predicate};
+            std::unordered_set<TExprId> visited;
+            while (!pending.empty()) {
+                const auto id = stripLift(pending.back()); pending.pop_back();
+                if (!visited.insert(id).second) continue;
+                const auto& node = arena[id];
+                if (node.Op == EOpcode::And) {
+                    pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
+                    continue;
+                }
+                if (node.Op == EOpcode::Equal) {
+                    const auto& a = arena[stripLift(node.Arguments[0])];
+                    const auto& b = arena[stripLift(node.Arguments[1])];
+                    if (a.Op == EOpcode::Column && b.Op == EOpcode::Column &&
+                        ((left.contains(a.ColumnId) && right.contains(b.ColumnId)) || (right.contains(a.ColumnId) && left.contains(b.ColumnId)))) continue;
+                }
+                throw TUnsupportedFeature(EFeature::Backend, relation.Position,
+                    "FULL JOIN requires only column equality keys in the native backend profile");
+            }
+        }
         if (relation.Kind == ERelation::Aggregate && relation.Aggregates.size() > 1) {
             for (const auto& agg : relation.Aggregates) if (agg.Distinct) {
                 throw TUnsupportedFeature(EFeature::AggregateCombination, relation.Position,
@@ -1411,7 +1448,7 @@ std::string_view SupportManifest() {
 "windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

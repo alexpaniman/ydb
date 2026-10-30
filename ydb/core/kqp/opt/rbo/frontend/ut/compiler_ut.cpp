@@ -31,6 +31,42 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(InvalidJoinConstraintsAreErrorsWithoutDelegation) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser; settings.Mode = ECompilerMode::Auto;
+            for (const auto* source : {"t AS a JOIN t AS b", "t AS a LEFT JOIN t AS b", "t AS a FULL JOIN t AS b",
+                    "t AS a RIGHT ONLY JOIN t AS b", "t AS a CROSS JOIN t AS b ON a.id = b.id", "t AS a, t AS b ON true"}) {
+                try {
+                    CompileNative(std::string("SELECT a.id FROM ") + source, Catalog, settings);
+                    UNIT_FAIL("invalid JOIN was accepted");
+                } catch (const TUnsupportedFeature&) {
+                    UNIT_FAIL("invalid JOIN was delegated");
+                } catch (const TFrontendError& error) {
+                    UNIT_ASSERT_C(std::string(error.what()).find("ON or USING") != std::string::npos, error.what());
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(FullJoinResidualsHaveAnExplicitBackendBoundary) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            settings.Mode = ECompilerMode::Auto;
+            for (const auto* predicate : {"a.id = b.id", "a.id = b.id AND a.value = b.value", "b.value = a.value AND a.id = b.id"}) {
+                const auto result = CompileNative(std::string("SELECT a.id FROM t AS a FULL JOIN t AS b ON ") + predicate, Catalog, settings);
+                UNIT_ASSERT_C(!result.UsesLegacy(), predicate);
+            }
+            for (const auto* predicate : {"a.id = b.id AND a.value > b.value", "a.id = b.id AND a.value > 0",
+                    "a.id = b.id AND a.value = a.value", "a.id + 1ul = b.id", "a.id = b.id OR a.value = b.value", "true"}) {
+                const auto sql = std::string("SELECT a.id FROM t AS a FULL JOIN t AS b ON ") + predicate;
+                const auto result = CompileNative(sql, Catalog, settings);
+                UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported->Feature == EFeature::Backend, predicate);
+                auto required = settings; required.Mode = ECompilerMode::NativeRequired;
+                UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, required), TUnsupportedFeature);
+            }
+        }
+    }
+
     Y_UNIT_TEST(WindowsBindToSharedRelationalOperators) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser;

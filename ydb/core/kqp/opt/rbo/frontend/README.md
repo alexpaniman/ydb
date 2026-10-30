@@ -238,6 +238,10 @@ Explicitly outside the profile:
   scalar bindings or lambda bodies, JOIN USING, grouping sets,
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
+- FULL JOIN predicates other than conjunctions of column equality keys. The
+  existing RBO backend can ignore residual full-join filters; native-required
+  rejects them before RBO, and automatic mode explicitly delegates the whole
+  query to the legacy optimizer. The pre-existing backend is unchanged.
 - Named/inherited windows, DISTINCT or filtered window functions, NULL treatment,
   frame exclusions, GROUPS frames other than whole partitions, and RANGE without
   ordering other than whole partitions. Windows inside scalar/EXISTS/IN subqueries,
@@ -347,6 +351,15 @@ that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+The full-join boundary passed 20 targeted compiler/integration tests. Row and
+column fixtures pin the old frontend plus new RBO's incorrect residual-filter
+matches, require native-required rejection, and verify explicit whole-query
+delegation to the correct legacy optimizer. A following supported query stays
+native. Missing join constraints and constrained CROSS JOINs are validation
+errors, rather than accepted native queries. All 13 populated TPC-DS queries
+still pass, all 164 parser routing decisions are unchanged, and the standalone
+compiler has no YQL or MiniKQL symbols.
 
 The window increment passed 74 standalone frontend tests, 45 native/RBO
 tests and eight unchanged window regressions. Its populated matrix executes 160 native queries across row/column
