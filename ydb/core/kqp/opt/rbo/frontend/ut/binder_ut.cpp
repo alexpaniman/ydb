@@ -77,6 +77,46 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         UNIT_ASSERT_EXCEPTION(Compile("$q = SELECT * FROM $q; SELECT * FROM $q", Catalog), TFrontendError);
     }
 
+    Y_UNIT_TEST(RebindingPreservesLexicalCapturesAcrossParsers) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto compiled = CompileNative(R"(
+                $a = 1;
+                $f = ($x) -> { RETURN $x + $a; };
+                $g = ($x) -> { RETURN $f($x); };
+                $a = $a + 9;
+                $f = ($x) -> { RETURN $x + $a; };
+                SELECT $g(2) AS old_value, $f(2) AS new_value, $a AS rebound;
+            )", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto& definitions = Find(program, ERelation::Map).Definitions;
+            const std::int64_t expected[]{3, 12, 10};
+            for (std::size_t i = 0; i < std::size(expected); ++i)
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(program.Expressions, definitions[i].Expression).Data), expected[i]);
+            UNIT_ASSERT_EXCEPTION(CompileNative("$f = ($x)->{RETURN $later + $x;}; $later=1; SELECT $f(2)", Catalog, settings), TFrontendError);
+        }
+    }
+
+    Y_UNIT_TEST(NamedQueryCapturesAgreeWithTableDiscovery) {
+        const auto syntax = ParseNative("$q = SELECT * FROM a; $saved = SELECT * FROM $q; $q = SELECT * FROM b; SELECT * FROM $saved");
+        const auto tables = CollectTables(syntax);
+        UNIT_ASSERT_VALUES_EQUAL(tables.size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "a");
+        const auto compiled = BindNative(syntax, Catalog);
+        UNIT_ASSERT_VALUES_EQUAL(Find(compiled.Get(), ERelation::Read).Table, "a");
+    }
+
+    Y_UNIT_TEST(RebindingBuildsALinearSharedGraph) {
+        std::string sql = "$x = 0;";
+        for (unsigned i = 0; i < 2000; ++i) sql += "$x = $x + 1;";
+        sql += "SELECT $x";
+        const auto program = Compile(sql, Catalog);
+        UNIT_ASSERT(program.Expressions.Size() < 6010);
+        const auto expression = Find(program, ERelation::Map).Definitions[0].Expression;
+        UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(program.Expressions, expression).Data), 2000);
+    }
+
     Y_UNIT_TEST(UnionAlignsTypesAndPreservesNames) {
         const auto program = Compile("SELECT 1 AS first UNION ALL SELECT 2L AS second", Catalog);
         UNIT_ASSERT_VALUES_EQUAL(program.Results[0].Columns[0].Name, "first");

@@ -15,6 +15,11 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[7]
 DATA = ROOT / "ydb/core/kqp/ut/rbo/data"
+# Match RunPerf_YqlTest, including helper redefinitions in individual queries.
+BENCHMARK_PRELUDE = """$to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };
+$to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
+$round = ($x,$y) -> {return $x;};
+"""
 
 
 def catalog_arguments(suite):
@@ -44,15 +49,18 @@ def main():
     parser.add_argument("--cli", type=Path, default=ROOT / "ydb/core/kqp/opt/rbo/frontend/cli/kqp_native_frontend")
     parser.add_argument("--output", type=Path, help="write per-query routing and diagnostics as JSON")
     parser.add_argument("--parser", choices=("fast", "grammar", "handwritten", "verify"), default="fast")
+    parser.add_argument("--bare", action="store_true", help="probe SQL files without the existing benchmark harness's helper prelude")
     options = parser.parse_args()
-    report = {"measurement": "frontend routing only; not execution coverage", "parser": options.parser, "suites": {}}
+    report = {"measurement": "frontend routing only; not execution coverage", "parser": options.parser,
+              "benchmark_prelude": not options.bare, "suites": {}}
     errors = 0
     for suite in ("tpch", "tpcds", "clickbench"):
         arguments = catalog_arguments(suite)
         rows = []
         for path in sorted((DATA / f"yql-{suite}").glob("q*.yql")):
             result = subprocess.run([str(options.cli), "--mode", "auto", "--parser", options.parser, *arguments],
-                                    input=path.read_text(), text=True, capture_output=True, check=False, timeout=60)
+                                    input=("" if options.bare else BENCHMARK_PRELUDE) + path.read_text(),
+                                    text=True, capture_output=True, check=False, timeout=60)
             route = "error" if result.returncode else "legacy" if result.stdout.startswith("compiler=legacy") else "native"
             diagnostic = (result.stderr or result.stdout).splitlines()[0] if route != "native" else ""
             rows.append({"query": path.name, "route": route, "diagnostic": diagnostic})

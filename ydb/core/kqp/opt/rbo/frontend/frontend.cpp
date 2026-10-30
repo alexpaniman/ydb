@@ -17,6 +17,92 @@ std::string Lower(std::string_view value) {
     return result;
 }
 
+// Resolve each global reference to its defining statement once. Closures keep
+// these IDs when later statements shadow a name; expanding a lambda or query
+// never copies an environment or re-resolves its free names.
+class TGlobalBindings {
+public:
+    static constexpr std::uint32_t Unknown = std::numeric_limits<std::uint32_t>::max();
+    static constexpr std::uint32_t Parameter = Unknown - 1;
+    static constexpr std::uint32_t Argument = Unknown - 2;
+
+    TGlobalBindings(const TParsedQuery& syntax, const TBindSettings& settings)
+        : Syntax(syntax), Settings(settings), References(syntax.Expressions.size(), Unknown), Seen(syntax.Expressions.size()) {
+        for (const auto& [name, type] : settings.ParameterTypes) Names[name] = Parameter;
+        for (std::uint32_t i = 0; i < syntax.Statements.size(); ++i) {
+            const auto& statement = syntax.Statements[i];
+            Arguments.clear();
+            if (statement.Lambda) for (const auto& name : statement.Parameters) {
+                if (!Arguments.insert(name).second) throw TFrontendError(statement.Position, "duplicate lambda parameter");
+            }
+            Expression(statement.Expression);
+            if (statement.Query) Select(*statement.Query);
+            if (statement.Kind == EStatementKind::Declaration) Names[statement.Name] = Parameter;
+            if (statement.Kind == EStatementKind::Binding) Names[statement.Name] = i;
+        }
+    }
+
+    std::uint32_t operator[](TSyntaxId expression) const { return References.at(expression); }
+    bool IsReferenced(TSyntaxId expression) const { return Seen.at(expression); }
+    std::shared_ptr<TSelect> Query(const TSource& source) const {
+        if (source.Query || !source.Name.starts_with('$')) return source.Query;
+        const auto binding = Sources.at(&source);
+        if (binding >= Syntax.Statements.size()) throw TFrontendError(source.Position, "unknown query binding: " + source.Name);
+        const auto& statement = Syntax.Statements[binding];
+        if (!statement.Query) throw TUnsupportedFeature(EFeature::Statement, source.Position, "native sources require a named query: " + source.Name);
+        return statement.Query;
+    }
+
+private:
+    std::uint32_t Resolve(const std::string& name) const {
+        if (Arguments.contains(name)) return Argument;
+        const auto found = Names.find(name);
+        return found == Names.end() ? Unknown : found->second;
+    }
+    void Expression(TSyntaxId root) {
+        if (root == NoSyntax || Seen.at(root)) return;
+        std::vector<TSyntaxId> pending{root};
+        while (!pending.empty()) {
+            const auto id = pending.back(); pending.pop_back();
+            if (Seen.at(id)) continue;
+            Seen[id] = true;
+            const auto& node = Syntax.Expressions[id];
+            if (node.Kind == ESyntaxKind::Variable) References[id] = Resolve(node.Text);
+            if (node.Kind == ESyntaxKind::Call && node.Text.starts_with('$')) References[id] = Resolve(node.Text.substr(1));
+            pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
+            if (node.Query) Select(*node.Query);
+        }
+    }
+    void Source(const TSource& source) {
+        if (source.Query) Select(*source.Query);
+        else if (source.Name.starts_with('$')) Sources.emplace(&source, Resolve(source.Name.substr(1)));
+    }
+    void Select(const TSelect& query) {
+        if (++Depth > Settings.MaxExpansionDepth) throw TResourceLimitError(query.Position, "binding scope depth limit exceeded");
+        for (const auto& [name, cte] : query.Ctes) Select(*cte);
+        if (query.Source) Source(*query.Source);
+        for (const auto& join : query.Joins) { Source(join.Source); Expression(join.Predicate); }
+        for (const auto& item : query.Projection) Expression(item.Expression);
+        Expression(query.Where);
+        for (const auto& item : query.GroupBy) Expression(item.Expression);
+        Expression(query.Having);
+        for (const auto& item : query.OrderBy) Expression(item.Expression);
+        Expression(query.Limit);
+        Expression(query.Offset);
+        for (const auto& branch : query.UnionAll) Select(*branch);
+        --Depth;
+    }
+
+    const TParsedQuery& Syntax;
+    const TBindSettings& Settings;
+    std::vector<std::uint32_t> References;
+    std::vector<bool> Seen;
+    std::unordered_map<std::string, std::uint32_t> Names;
+    std::unordered_set<std::string> Arguments;
+    std::unordered_map<const TSource*, std::uint32_t> Sources;
+    std::size_t Depth = 0;
+};
+
 bool IsAggregate(std::string_view name) {
     return name == "count" || name == "sum" || name == "avg" || name == "min" || name == "max" || name == "some";
 }
@@ -70,12 +156,13 @@ struct TSyntaxKey {
     std::string Text;
     std::vector<std::uint32_t> Arguments;
     bool Distinct;
+    std::uint32_t Binding;
     bool operator==(const TSyntaxKey&) const = default;
 };
 
 struct TSyntaxHash {
     std::size_t operator()(const TSyntaxKey& key) const {
-        std::size_t value = std::hash<std::string>{}(key.Text) ^ static_cast<unsigned>(key.Kind) ^ key.Distinct;
+        std::size_t value = std::hash<std::string>{}(key.Text) ^ static_cast<unsigned>(key.Kind) ^ key.Distinct ^ key.Binding;
         for (auto arg : key.Arguments) value ^= arg + 0x9e3779b9 + (value << 6) + (value >> 2);
         return value;
     }
@@ -103,7 +190,7 @@ struct TExprContext {
 class TBinder {
 public:
     TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings)
-        : Syntax(syntax), Catalog(catalog), Settings(settings), Prefix(settings.TablePathPrefix)
+        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), Prefix(settings.TablePathPrefix), Values(syntax.Statements.size())
     {
         Program.Parameters = settings.ParameterTypes;
         Canonical.reserve(syntax.Expressions.size());
@@ -112,7 +199,10 @@ public:
         for (std::size_t i = 0; i < syntax.Expressions.size(); ++i) {
             const auto& expr = syntax.Expressions[i];
             const auto normalized = (expr.Kind == ESyntaxKind::Call && !expr.Text.starts_with('$')) || expr.Kind == ESyntaxKind::Cast;
-            TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct};
+            if (Bindings.IsReferenced(i) && (expr.Kind == ESyntaxKind::Variable || (expr.Kind == ESyntaxKind::Call && expr.Text.starts_with('$'))) &&
+                Bindings[i] == TGlobalBindings::Unknown)
+                throw TFrontendError(expr.Position, "unknown binding: " + expr.Text);
+            TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i]};
             bool aggregate = expr.Kind == ESyntaxKind::Call && IsAggregate(Lower(expr.Text));
             for (auto child : expr.Arguments) {
                 if (child >= i) throw TFrontendError(expr.Position, "syntax tree is not topologically ordered");
@@ -126,7 +216,8 @@ public:
     }
 
     TBoundProgram Run() {
-        for (const auto& statement : Syntax.Statements) {
+        for (std::size_t index = 0; index < Syntax.Statements.size(); ++index) {
+            const auto& statement = Syntax.Statements[index];
             switch (statement.Kind) {
                 case EStatementKind::Query: Program.Results.push_back(Select(*statement.Query)); break;
                 case EStatementKind::Declaration: {
@@ -137,18 +228,10 @@ public:
                     break;
                 }
                 case EStatementKind::Binding: {
-                    if (!BoundNames.insert(statement.Name).second || Program.Parameters.contains(statement.Name)) {
-                        throw TFrontendError(statement.Position, "duplicate binding: $" + statement.Name);
-                    }
-                    if (statement.Query) Queries.emplace("$" + statement.Name, statement.Query);
-                    else if (statement.Lambda) {
-                        std::unordered_set<std::string> params;
-                        for (const auto& param : statement.Parameters) if (!params.insert(param).second) throw TFrontendError(statement.Position, "duplicate lambda parameter");
-                        Lambdas.emplace(statement.Name, &statement);
-                    } else {
+                    if (!statement.Query && !statement.Lambda) {
                         const TScope empty;
                         TExprContext context{empty};
-                        Values.emplace(statement.Name, Expr(statement.Expression, context));
+                        Values[index] = Expr(statement.Expression, context);
                     }
                     break;
                 }
@@ -223,9 +306,9 @@ private:
 
     TBoundSource Source(const TSource& source) {
         TDepth depth(*this, source.Position);
-        const auto named = Queries.find(source.Name);
-        if (source.Query || named != Queries.end()) {
-            auto query = source.Query ? source.Query : named->second;
+        auto query = Bindings.Query(source);
+        if (!query) if (const auto named = Queries.find(source.Name); named != Queries.end()) query = named->second;
+        if (query) {
             if (!ActiveQueries.insert(query.get()).second) throw TFrontendError(source.Position, "recursive query binding is not supported");
             auto result = Select(*query);
             ActiveQueries.erase(query.get());
@@ -560,10 +643,15 @@ private:
                 result = Access(*column, syntax.Position); break;
             }
             case ESyntaxKind::Variable: {
-                if (context.Arguments) if (auto it = context.Arguments->find(syntax.Text); it != context.Arguments->end()) { result = it->second; break; }
-                if (auto it = Values.find(syntax.Text); it != Values.end()) result = it->second;
-                else if (auto it = Program.Parameters.find(syntax.Text); it != Program.Parameters.end()) result = arena.Parameter(syntax.Text, it->second, syntax.Position);
-                else throw TFrontendError(syntax.Position, "unknown scalar binding: $" + syntax.Text);
+                const auto binding = Bindings[id];
+                if (binding == TGlobalBindings::Argument) {
+                    if (!context.Arguments || !context.Arguments->contains(syntax.Text))
+                        throw TUnsupportedFeature(EFeature::Function, syntax.Position, "lambda argument is not a scalar value: " + syntax.Text);
+                    result = context.Arguments->at(syntax.Text);
+                } else if (binding == TGlobalBindings::Parameter) {
+                    result = arena.Parameter(syntax.Text, Program.Parameters.at(syntax.Text), syntax.Position);
+                } else if (binding < Values.size() && Values[binding]) result = *Values[binding];
+                else throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "binding is not a scalar value: $" + syntax.Text);
                 break;
             }
             case ESyntaxKind::Unary: {
@@ -649,9 +737,10 @@ private:
                 std::vector<TExprId> args;
                 for (auto arg : syntax.Arguments) args.push_back(Expr(arg, context));
                 if (syntax.Text.starts_with('$')) {
-                    auto it = Lambdas.find(syntax.Text.substr(1));
-                    if (it == Lambdas.end()) throw TFrontendError(syntax.Position, "unknown scalar lambda: " + syntax.Text);
-                    const auto& lambda = *it->second;
+                    const auto binding = Bindings[id];
+                    if (binding >= Syntax.Statements.size() || !Syntax.Statements[binding].Lambda)
+                        throw TUnsupportedFeature(EFeature::Function, syntax.Position, "native calls require a named scalar lambda: " + syntax.Text);
+                    const auto& lambda = Syntax.Statements[binding];
                     if (lambda.Parameters.size() != args.size()) throw TFrontendError(syntax.Position, "lambda argument count mismatch");
                     if (!ActiveLambdas.insert(&lambda).second) throw TFrontendError(syntax.Position, "recursive lambda is not supported");
                     std::unordered_map<std::string, TExprId> parameters;
@@ -672,14 +761,13 @@ private:
     const TParsedQuery& Syntax;
     const TTableResolver& Catalog;
     const TBindSettings& Settings;
+    TGlobalBindings Bindings;
     TBoundProgram Program;
     std::string Prefix;
     std::vector<std::uint32_t> Canonical;
     std::vector<bool> ContainsAggregate;
-    std::unordered_map<std::string, TExprId> Values;
-    std::unordered_map<std::string, const TStatement*> Lambdas;
+    std::vector<std::optional<TExprId>> Values;
     std::unordered_map<std::string, std::shared_ptr<TSelect>> Queries;
-    std::unordered_set<std::string> BoundNames;
     std::unordered_set<std::string> Declared;
     std::unordered_set<const TSelect*> ActiveQueries;
     std::unordered_set<const TStatement*> ActiveLambdas;
@@ -804,10 +892,10 @@ void CheckProgram(const TBoundProgram& program) {
 
 class TTableCollector {
 public:
-    explicit TTableCollector(const TBindSettings& settings) : Settings(settings), Prefix(settings.TablePathPrefix) {}
-    std::vector<TTableRequest> Run(const TParsedQuery& syntax) {
-        for (const auto& statement : syntax.Statements) {
-            if (statement.Kind == EStatementKind::Binding && statement.Query) Queries["$" + statement.Name] = statement.Query;
+    TTableCollector(const TParsedQuery& syntax, const TBindSettings& settings)
+        : Syntax(syntax), Settings(settings), Bindings(syntax, settings), Prefix(settings.TablePathPrefix) {}
+    std::vector<TTableRequest> Run() {
+        for (const auto& statement : Syntax.Statements) {
             if (statement.Kind == EStatementKind::Pragma && Lower(statement.Name) == "tablepathprefix") Prefix = statement.Value;
             if (statement.Kind == EStatementKind::Query) Select(*statement.Query);
         }
@@ -815,7 +903,7 @@ public:
     }
 private:
     void Source(const TSource& source) {
-        auto query = source.Query;
+        auto query = Bindings.Query(source);
         if (!query) if (const auto it = Queries.find(source.Name); it != Queries.end()) query = it->second;
         if (query) {
             if (!Active.insert(query.get()).second) throw TFrontendError(source.Position, "recursive query binding");
@@ -838,7 +926,9 @@ private:
         Queries = std::move(saved);
         --Depth;
     }
+    const TParsedQuery& Syntax;
     const TBindSettings& Settings;
+    TGlobalBindings Bindings;
     std::string Prefix;
     std::unordered_map<std::string, std::shared_ptr<TSelect>> Queries;
     std::unordered_set<const TSelect*> Active;
@@ -899,7 +989,7 @@ TParsedQuery ParseNative(std::string_view sql, const TCompilerSettings& settings
 }
 
 std::vector<TTableRequest> CollectTables(const TParsedQuery& syntax, const TBindSettings& settings) {
-    return TTableCollector(settings).Run(syntax);
+    return TTableCollector(syntax, settings).Run();
 }
 
 TCompiledProgram BindNative(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings) {

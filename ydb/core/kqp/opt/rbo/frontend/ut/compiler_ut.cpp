@@ -52,6 +52,12 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 TString sql;
                 UNIT_ASSERT(NResource::FindExact(TStringBuilder() << suite << "-q" << i, &sql));
                 AssertParserAgreement(std::string_view(sql.data(), sql.size()));
+                const auto withHelpers = TString(R"(
+                    $to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };
+                    $to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
+                    $round = ($x,$y) -> {return $x;};
+                )") + sql;
+                AssertParserAgreement(std::string_view(withHelpers.data(), withHelpers.size()));
             }
         }
     }

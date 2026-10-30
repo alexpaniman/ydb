@@ -128,6 +128,11 @@ and overflow/underflow to infinity/zero; it imports no YQL conversion code.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin.
 
+Named scalars, lambdas and queries may be rebound. References resolve to
+definition IDs in one walk; lambda/query captures keep their original IDs
+when a later statement reuses a name. Table discovery uses the same resolution
+as binding. No environment snapshot is copied per definition or expansion.
+
 Explicitly outside the profile:
 
 - DML/DDL, USE, scripting effects, arbitrary pragmas/settings, views, temporary
@@ -203,10 +208,14 @@ do not interpret grammar acceptance or parse/bind success as execution coverage.
 
 `python3 ydb/core/kqp/opt/rbo/frontend/tools/probe_corpus.py --output /tmp/native-coverage.json`
 reports per-query native/legacy/error routing against the checked-in benchmark
-schemas. The initial conservative profile accepted 36/43 ClickBench queries
+schemas and prepends the same three scalar helpers as `RunPerf_YqlTest`.
+`--bare` measures the SQL files alone. The initial bare-file profile accepted 36/43 ClickBench queries
 and explicitly delegated all 22 TPC-H and 99 TPC-DS queries, primarily because
 Decimal/casts are excluded. These numbers measure frontend acceptance only;
 they supersede the broader prototype's unverified parse/bind counts.
+With the benchmark helper prelude, all three suites currently delegate because
+it declares Decimal casts, including for ClickBench. Bare-file acceptance must
+not be presented as acceptance of the complete benchmark harness input.
 
 ## Validation and measurements
 
@@ -225,7 +234,7 @@ to Float rounding, and legacy-optimizer result/type parity with runtime
 parameters. It enables floating division, scalar casts and Substring without
 enabling Decimal or the remaining relational features.
 
-Fast and generated modes have identical routing on all 164 benchmark queries:
+Fast and generated modes have identical bare-file routing on all 164 queries:
 36 native and 128 explicit legacy delegations, with no hard errors. The standalone
 CLI contains no YQL or MiniKQL symbols; the frontend's only parser runtime
 dependency is generic ANTLR.
@@ -241,6 +250,10 @@ warm compilations each (microseconds per compilation):
 | Grouping/sort | 130.16 | 11.64 | 11.18 |
 | Join | 124.83 | 13.38 | 9.33 |
 | 100 computed columns | 1832.16 | 232.12 | 7.89 |
+
+After lexical binding support, the corresponding fast-mode medians were 6.18,
+11.70, 13.68 and 232.44 microseconds with the same settings. Its native suite
+passed 75 tests, including rebinding and captured-query table discovery.
 
 These compare two native frontends, not complete native versus legacy YQL
 compilation. Fast mode still delegates unhandled syntax to generated parsing;
