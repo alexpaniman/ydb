@@ -1049,6 +1049,19 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
             Fail(position, std::string(name) + " expects " + std::to_string(expected) + " arguments");
         }
     };
+    if (lowered == "unwrap") {
+        if (arguments.size() != 1 && arguments.size() != 2) Fail(position, "Unwrap expects one or two arguments");
+        const auto type = (*this)[arguments[0]].Type;
+        if (type.Kind == K::Null)
+            throw TUnsupportedFeature(EFeature::Type, position, "Unwrap of bare NULL produces Void, outside the native scalar profile");
+        // YQL ignores the message (including its type) for a required value.
+        if (!type.Nullable) return arguments[0];
+        if (arguments.size() == 2) {
+            const auto message = (*this)[arguments[1]].Type;
+            if (!message.IsString() || message.Nullable) Fail(position, "Unwrap message requires non-null String or Utf8");
+        }
+        return Append({O::Unwrap, type.Required(), position, {arguments.begin(), arguments.end()}, {}, {}, 0});
+    }
     if (lowered.starts_with("datetime::") || lowered.starts_with("datetime2::")) {
         const auto function = lowered.substr(lowered.find("::") + 2);
         if (function == "intervalfromdays" || function == "intervalfromhours" || function == "intervalfromminutes") {
@@ -1200,6 +1213,7 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::Coalesce: return Coalesce(node.Arguments, node.Position);
         case O::Substring: return Call("Substring", node.Arguments, node.Position);
         case O::Ensure: return Ensure(node.Arguments[0], node.Arguments[1], std::move(node.Name), node.Position);
+        case O::Unwrap: return Call("Unwrap", node.Arguments, node.Position);
         case O::Find: return Find(node.Arguments[0], node.Arguments[1], node.Arguments[2], node.Position);
         default:
             return node.Arguments.size() == 1 ? Unary(node.Op, node.Arguments[0], node.Position) :
@@ -1390,7 +1404,14 @@ std::string StablePickle(const TValue& value) {
 TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& values) {
     auto argument = [&](std::size_t index) -> const TValue& { return *values[node.Arguments[index]]; };
     if (node.Op == O::Unwrap) {
-        if (argument(0).IsNull()) Fail(node.Position, "cannot unwrap NULL");
+        if (argument(0).IsNull()) {
+            std::string message = "Failed to unwrap empty optional";
+            if (node.Arguments.size() == 2) {
+                const auto& detail = std::get<std::string>(argument(1).Data);
+                if (!detail.empty()) message += ":\n\n" + detail + "\n\n";
+            }
+            Fail(node.Position, std::move(message));
+        }
         return {node.Type, argument(0).Data};
     }
     if (node.Op == O::Cast || node.Op == O::Convert) {
@@ -1594,6 +1615,14 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
                 Fail(node.Position, "Binding type differs from " + node.Type.ToString());
             }
             finish(std::move(value));
+            continue;
+        }
+        if (node.Op == O::Unwrap) {
+            const auto value = node.Arguments[0];
+            if (!values[value]) stack.push_back({value});
+            else if (!values[value]->IsNull()) finish(*values[value]);
+            else if (node.Arguments.size() == 2 && !values[node.Arguments[1]]) stack.push_back({node.Arguments[1]});
+            else finish(Execute(node, values));
             continue;
         }
         if (node.Op == O::Ensure) {

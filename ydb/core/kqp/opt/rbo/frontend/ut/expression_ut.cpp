@@ -384,6 +384,36 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_EXCEPTION(arena.Ensure(seven, arena.Convert(yes, {K::Bool, true}), "bad predicate"), TFrontendError);
     }
 
+    Y_UNIT_TEST(UnwrapMessagesAreLazyAndSurviveRewrites) {
+        TExpressionArena arena;
+        const auto value = arena.Column(1, {K::Int32, true});
+        const auto message = arena.Column(2, {K::Utf8});
+        const TExprId args[]{value, message};
+        const auto root = arena.Call("Unwrap", args);
+        const auto copied = arena.RewriteColumns(root, [&](TExprId, TColumnId id, TType type, TSourcePosition pos) {
+            return arena.Column(id + 10, type, pos);
+        });
+        for (const auto expr : {root, copied}) for (const bool empty : {false, true}) {
+            unsigned messages = 0;
+            TEvaluationContext context;
+            context.Column = [&](TColumnId id) -> TValue {
+                if (id == 1 || id == 11) return {{K::Int32, true}, empty ? TScalar{std::monostate{}} : TScalar{std::int64_t{7}}};
+                ++messages;
+                return {{K::Utf8}, std::string("missing value")};
+            };
+            if (empty) UNIT_ASSERT_EXCEPTION_CONTAINS(Evaluate(arena, expr, context), TFrontendError, "missing value");
+            else UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, expr, context)), "7");
+            UNIT_ASSERT_VALUES_EQUAL(messages, empty ? 1 : 0);
+        }
+        const auto required = arena.Literal({K::Int32}, std::int64_t{9});
+        const TExprId ignored[]{required, required};
+        UNIT_ASSERT_VALUES_EQUAL(arena.Call("unwrap", ignored), required);
+        const TExprId untyped[]{arena.Null()};
+        UNIT_ASSERT_EXCEPTION(arena.Call("unwrap", untyped), TUnsupportedFeature);
+        const TExprId invalid[]{value, required};
+        UNIT_ASSERT_EXCEPTION(arena.Call("unwrap", invalid), TFrontendError);
+    }
+
     Y_UNIT_TEST(ConstantFoldingBoundsStringMaterialization) {
         TExpressionArena arena;
         const auto text = arena.Literal({K::String}, std::string(8, 'x'));

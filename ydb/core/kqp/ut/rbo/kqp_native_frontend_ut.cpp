@@ -226,6 +226,12 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT_VALUES_EQUAL(arena.FoldConstants(roots).front(), failed);
         const auto lazy = arena.If(arena.Literal({ETypeKind::Bool}, false), failed, arena.Literal({ETypeKind::Int64}, std::int64_t{7}));
         CheckScalar(arena, lazy, "unused failing unwrap");
+        const auto failedMessage = arena.Unary(EOpcode::Unwrap, arena.Literal({ETypeKind::Utf8, true}, std::monostate{}));
+        const TExprId args[]{arena.Literal({ETypeKind::Int64, true}, std::int64_t{8}), failedMessage};
+        const auto withMessage = arena.Call("Unwrap", args);
+        CheckScalar(arena, withMessage, "unused failing error message");
+        const TExprId withMessageRoots[]{withMessage};
+        CheckScalar(arena, arena.FoldConstants(withMessageRoots).front(), "folded unwrap with unused message");
     }
 
     Y_UNIT_TEST(WindowConversionKeepsTypedNativeExpressions) {

@@ -680,7 +680,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {50, "2001-01-12"}, {51, "2001-02-11"}, {52, "2001-01-11"}, {53, "2001-02-12"}, {54, "2001-1-20"},
             {60, "2001-01-01"}, {61, "2001-02-28"}, {62, "2001-04-01"}, {63, "2001-07-01"}, {64, "2001-12-31"},
             {65, "2000-12-31"}, {66, "2002-01-01"}, {70, "2000-01-01"}, {71, "2000-02-01"}, {72, "2000-03-01"}, {73, "1999-01-01"},
-            {74, "2002-04-01"}}) {
+            {74, "2002-04-01"}, {75, "2001-02-30"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -826,6 +826,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         const char* ExtendedPrice = nullptr;
         std::optional<i64> Store = std::nullopt;
         const char* NetProfit = nullptr;
+        std::optional<i64> Customer = std::nullopt;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -912,6 +913,12 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     // NULL zip/profit, both date predicates and missing join keys.
     TValueBuilder addresses, customers;
     addresses.BeginList(); customers.BeginList();
+    auto appendCustomer = [&](i64 id, std::optional<i64> address, const char* preferred, const char* first, const char* last) {
+        customers.AddListItem().BeginStruct().AddMember("c_customer_sk").Int64(id)
+            .AddMember("c_customer_id").Utf8("Customer" + std::to_string(id)).AddMember("c_current_addr_sk").OptionalInt64(address)
+            .AddMember("c_preferred_cust_flag").OptionalUtf8(optionalText(preferred))
+            .AddMember("c_first_name").OptionalUtf8(optionalText(first)).AddMember("c_last_name").OptionalUtf8(optionalText(last)).EndStruct();
+    };
     i64 customer = 1;
     for (const auto& [id, zip, count] : std::initializer_list<std::tuple<i64, const char*, int>>{
             {80, "x89436A", 11}, {81, "x89436B", 0}, {82, "x30868A", 11}, {83, "x65085A", 10},
@@ -919,16 +926,33 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         addresses.AddListItem().BeginStruct().AddMember("ca_address_sk").Int64(id)
             .AddMember("ca_address_id").Utf8("Address" + std::to_string(id)).AddMember("ca_zip").OptionalUtf8(optionalText(zip)).EndStruct();
         for (int i = 0; i < count; ++i, ++customer)
-            customers.AddListItem().BeginStruct().AddMember("c_customer_sk").Int64(customer)
-                .AddMember("c_customer_id").Utf8("Customer" + std::to_string(customer)).AddMember("c_current_addr_sk").OptionalInt64(id)
-                .AddMember("c_preferred_cust_flag").OptionalUtf8(id == 84 && i >= 10 ? "N" : "Y").EndStruct();
+            appendCustomer(customer, id, id == 84 && i >= 10 ? "N" : "Y", nullptr, nullptr);
     }
+    for (const auto& [id, first, last] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
+            {1000, "Common", "One"}, {1001, "Common", "Two"}, {1002, "Nullable", nullptr}, {1003, "Nullable", ""},
+            {1004, nullptr, nullptr}, {1005, "Store", "Only"}, {1006, "Store", "Only"}, {1007, "Different", "Date"},
+            {1008, "Removed", "Catalog"}, {1009, "Removed", "Web"}, {1010, "Outside", "Low"}, {1011, "Outside", "High"},
+            {1012, "Missing", "Date"}})
+        appendCustomer(id, std::nullopt, nullptr, first, last);
     load("customer_address", addresses); load("customer", customers);
     for (const auto& [shop, date, profit] : std::initializer_list<std::tuple<i64, i64, const char*>>{
             {80, 66, "5"}, {80, 66, "-2"}, {81, 66, "7"}, {82, 66, "-4"}, {82, 66, nullptr}, {87, 66, nullptr},
             {83, 66, "999"}, {84, 66, "999"}, {85, 66, "999"}, {86, 66, "999"},
             {80, 74, "999"}, {80, 64, "999"}, {80, 999, "999"}, {999, 66, "999"}})
         store.push_back({950, order++, date, 1, nullptr, nullptr, nullptr, shop, profit});
+    // Q38/Q87: four common name/date keys and three store-only keys. NULL and
+    // empty names coalesce, invalid dates use the epoch, duplicates disappear,
+    // and the date remains part of the key. Include both month bounds and misses.
+    for (const auto& [buyer, date, channels] : std::initializer_list<std::tuple<i64, i64, const char*>>{
+            {1000, 60, "ssscw"}, {1001, 64, "scw"}, {1002, 61, "sw"}, {1003, 61, "sc"},
+            {1004, 75, "scw"}, {1005, 61, "ss"}, {1006, 62, "s"}, {1007, 63, "s"}, {1007, 62, "c"},
+            {1008, 61, "sc"}, {1009, 63, "sw"}, {1010, 65, "scw"}, {1011, 66, "scw"},
+            {1012, 999, "scw"}, {99999, 60, "scw"}}) {
+        for (const char channel : TStringBuf(channels)) {
+            auto& sales = channel == 's' ? store : channel == 'c' ? catalog : web;
+            sales.push_back({960, order++, date, 1, nullptr, nullptr, nullptr, std::nullopt, nullptr, buyer});
+        }
+    }
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -937,6 +961,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
                 .AddMember(number).Int64(row.Order).AddMember(prefix + "sold_date_sk").OptionalInt64(row.Date);
             if (prefix == "cs_") rows.AddMember("cs_warehouse_sk").OptionalInt64(row.Warehouse);
             if (prefix == "ss_") rows.AddMember("ss_store_sk").OptionalInt64(row.Store);
+            rows.AddMember(prefix + (prefix == "ss_" ? "customer_sk" : "bill_customer_sk")).OptionalInt64(row.Customer);
             rows.AddMember(prefix + "sales_price"); decimal(rows, row.Price);
             rows.AddMember(prefix + "ext_discount_amt"); decimal(rows, row.Discount);
             rows.AddMember(prefix + "ext_sales_price"); decimal(rows, row.ExtendedPrice);
@@ -964,7 +989,7 @@ $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
-            {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}}) {
+            {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -978,7 +1003,10 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 8) {
+        if (query == 38 || query == 87) {
+            UNIT_ASSERT(values.TryNextRow());
+            UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(0).GetUint64(), query == 38 ? 4 : 3);
+        } else if (query == 8) {
             for (const auto& [name, profit] : std::initializer_list<std::pair<const char*, const char*>>{
                     {"Intersect A", "10"}, {"Intersect B", "-4"}, {"Intersect null", nullptr}}) {
                 UNIT_ASSERT(values.TryNextRow());
@@ -2139,6 +2167,10 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         TString failures;
         for (const auto* sql : {
             "SELECT 1",
+            "SELECT Unwrap(1), Unwrap(1, 99), Unwrap(CAST(7 AS Int64?))",
+            "SELECT CAST(NULL AS String), CAST(NULL AS Utf8)",
+            "SELECT IF(false, Unwrap(CAST(NULL AS Int32), 'not reached'), 9)",
+            "SELECT Unwrap(CAST(7 AS Int32?), Unwrap(CAST(NULL AS Utf8), 'unused message'))",
             "--!ansi_lexer\nSELECT 'a''b'",
             "SELECT a.x FROM (SELECT 1 AS x) AS a",
             "$a = 1; $f = ($x)->{RETURN $x + $a;}; $a = 10; SELECT $f(2), $a",
@@ -2200,6 +2232,44 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             }
         }
         UNIT_ASSERT_C(failures.empty(), failures);
+    }
+
+    Y_UNIT_TEST(RuntimeUnwrapMatchesLegacyIncludingLazyMessages) {
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto session = runner.GetTableClient().CreateSession().GetValueSync().GetSession();
+            size_t index = 0;
+            for (const auto value : std::initializer_list<std::optional<i32>>{7, std::nullopt, -8}) {
+                const auto params = TParamsBuilder().AddParam("$v").OptionalInt32(value).Build()
+                    .AddParam("$msg").Utf8("missing value").Build().Build();
+                for (const auto* expression : {"Unwrap($v)", "Unwrap($v, $msg)", "IF($v IS NULL, 9, Unwrap($v, $msg))",
+                        "Unwrap($v, Unwrap(CAST(NULL AS Utf8), 'missing message'))"}) {
+                    const TString sql = TStringBuilder() << "DECLARE $v AS Int32?; DECLARE $msg AS Utf8; SELECT " << expression << " AS answer";
+                    const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+                    if (!value && !TStringBuf(expression).StartsWith("IF")) {
+                        UNIT_ASSERT(!result.IsSuccess());
+                        UNIT_ASSERT_C(result.GetIssues().ToString().find("Failed to unwrap empty optional") != std::string::npos, result.GetIssues().ToString());
+                        if (TStringBuf(expression).Contains("$msg"))
+                            UNIT_ASSERT_C(result.GetIssues().ToString().find("missing value") != std::string::npos, result.GetIssues().ToString());
+                        if (TStringBuf(expression).Contains("missing message"))
+                            UNIT_ASSERT_C(result.GetIssues().ToString().find("missing message") != std::string::npos, result.GetIssues().ToString());
+                        continue;
+                    }
+                    const auto actual = Snapshot(result);
+                    UNIT_ASSERT_VALUES_EQUAL(actual.Values, TStringBuilder() << "[[" << value.value_or(9) << "]]");
+                    if (strategy == 2) reference.push_back(actual);
+                    else AssertSame(actual, reference.at(index));
+                    ++index;
+                }
+            }
+        }
     }
 
     Y_UNIT_TEST(RuntimeDateParsingAndIntervalsMatchLegacy) {
@@ -2401,9 +2471,9 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
     }
 
     Y_UNIT_TEST(TpcdsReadQueriesMatchLegacyOnPopulatedColumnTables) {
+        const auto native = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED, true);
         const auto legacy = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, false);
         const auto rbo = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, true);
-        const auto native = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED, true);
         UNIT_ASSERT_VALUES_EQUAL(rbo.size(), legacy.size());
         UNIT_ASSERT_VALUES_EQUAL(native.size(), legacy.size());
         for (std::size_t i = 0; i < legacy.size(); ++i) {

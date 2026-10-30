@@ -314,6 +314,12 @@ bounds generated string payloads. It preserves result types and keeps failing
 runtime assertions deferred, including in conditional branches. The assertion
 opcode also lowers directly to the backend's executable Ensure operation.
 
+SQL `Unwrap(value[, message])` uses the existing executable unwrap opcode. Its
+optional String/Utf8 message must be non-null and is evaluated only when the
+value is NULL; required values are returned unchanged, as in YQL. Rewrites
+preserve both arguments and failing checks remain deferred. Bare NULL would
+produce Void in YQL and is explicitly outside the native scalar profile.
+
 The internal StablePickle opcode produces the backend's exact scalar key
 encoding, including nullable values and normalization of floating NaNs and
 signed zero. It has native reference execution and constant folding, lowers
@@ -386,13 +392,13 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 65/99 | 34 |
+| TPC-DS | 67/99 | 32 |
 | ClickBench | 37/43 | 6 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Fifteen TPC-DS queries also have populated native-required execution
+tables. Seventeen TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -412,6 +418,17 @@ bare-NULL sort normalization was checked with the set matrix and both populated
 benchmark fixtures. Warm parse/bind scaling for 10/100/1,000 UNION ALL branches
 was approximately 37/279/2,556 microseconds (three 100-iteration trials, concurrent
 regression tests); these measurements exclude RBO and backend compilation.
+
+SQL Unwrap additionally admits Q38 and Q87. Both execute unchanged on populated
+tables through all three compiler paths, with exact counts of four intersected
+and three remaining name/date keys. The fixture covers duplicate sales, NULL
+and empty names, invalid dates mapped to the epoch, date bounds, missing join
+keys, and matches in only one competing channel. All 17 populated TPC-DS
+queries pass together. Validation also passed 81 standalone frontend tests and
+22 native RBO/frontend regression tests, plus the selected reused-session scalar
+and runtime-Unwrap tests. Both parsers agree on all 164 final corpus routes.
+The scalar checks caught and fixed a native validation error rejecting
+`CAST(NULL AS String/Utf8)`; no older compiler or backend was changed.
 
 ## Validation and measurements
 
@@ -456,8 +473,8 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Fifteen TPC-DS queries (Q8, Q12, Q20, Q21, Q32, Q37, Q40, Q41, Q51, Q53, Q63, Q82,
-Q89, Q92 and Q98) pass populated execution
+Seventeen TPC-DS queries (Q8, Q12, Q20, Q21, Q32, Q37, Q38, Q40, Q41, Q51, Q53, Q63,
+Q82, Q87, Q89, Q92 and Q98) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
 Q41 checks all eight correlated predicate branches, numeric manufacturer-range
