@@ -9,6 +9,8 @@
 #include <yql/essentials/public/decimal/yql_decimal.h>
 
 #include <cmath>
+#include <bit>
+#include <limits>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -78,6 +80,68 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(StableScalarKeysMatchRuntimeBytes) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        auto check = [](TType type, const std::vector<TScalar>& values) {
+            TExpressionArena arena;
+            for (const auto& value : values) {
+                for (const auto inputType : {type, type.Optional()}) {
+                    const auto key = arena.Unary(EOpcode::StablePickle, arena.Literal(inputType, value));
+                    CheckScalar(arena, key, type.ToString());
+                    const TExprId roots[]{key};
+                    const auto folded = arena.FoldConstants(roots).front();
+                    UNIT_ASSERT(arena[folded].Op == EOpcode::Literal);
+                    UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(arena[folded].Value),
+                        std::get<std::string>(Evaluate(arena, key).Data));
+                }
+            }
+            CheckScalar(arena, arena.Unary(EOpcode::StablePickle,
+                arena.Literal(type.Optional(), std::monostate{})), type.ToString());
+        };
+        check({K::Bool}, {false, true});
+        for (const auto [kind, width] : {std::pair{K::Int8, 8u}, {K::Int16, 16u}, {K::Int32, 32u}, {K::Int64, 64u}}) {
+            const auto max = static_cast<std::int64_t>((std::uint64_t{1} << (width - 1)) - 1);
+            std::vector<TScalar> values{std::int64_t{0}, std::int64_t{-1}, max, -max - 1};
+            for (unsigned bit = 6; bit < width - 1; bit += 7) {
+                const auto boundary = std::int64_t{1} << bit;
+                for (const auto value : {boundary - 1, boundary, -boundary, -boundary - 1}) values.push_back(value);
+            }
+            check({kind}, values);
+        }
+        for (const auto [kind, width] : {std::pair{K::Uint8, 8u}, {K::Uint16, 16u}, {K::Uint32, 32u}, {K::Uint64, 64u}}) {
+            std::vector<TScalar> values{std::uint64_t{0}, std::numeric_limits<std::uint64_t>::max() >> (64 - width)};
+            for (unsigned bit = 7; bit < width; bit += 7) {
+                const auto boundary = std::uint64_t{1} << bit;
+                values.push_back(boundary - 1);
+                values.push_back(boundary);
+            }
+            check({kind}, values);
+        }
+        for (const auto kind : {K::Float, K::Double}) {
+            check({kind}, {0.0, -0.0, 1.25, -42.5, std::numeric_limits<double>::denorm_min(),
+                std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+                std::numeric_limits<double>::quiet_NaN(), std::bit_cast<double>(0xfff123456789abcdULL)});
+        }
+        check({K::Date}, {std::uint64_t{0}, std::uint64_t{127}, std::uint64_t{128}, std::uint64_t{49672}});
+        check({K::Datetime}, {std::uint64_t{0}, std::uint64_t{16384}, std::uint64_t{4000000000}});
+        check({K::Timestamp}, {std::uint64_t{0}, std::uint64_t{2097152}, std::uint64_t{4000000000000000}});
+        check({K::Interval}, {std::int64_t{0}, std::int64_t{-16384}, std::int64_t{4000000000000000}});
+        for (const auto kind : {K::String, K::Utf8}) {
+            check({kind}, {std::string{}, std::string("a\0b", 3), std::string(7, 'x'), std::string(8, 'x'), std::string(257, 'x')});
+        }
+        std::vector<TScalar> decimals;
+        for (const __int128 value : {__int128{0}, __int128{-1}, __int128{1}, TDecimal::Inf() - 1,
+                -TDecimal::Inf() + 1, TDecimal::Inf(), -TDecimal::Inf(), TDecimal::NaN()}) decimals.push_back(TDecimal{value});
+        for (unsigned bit = 8; bit < 112; bit += 8) {
+            const auto boundary = __int128{1} << bit;
+            for (const auto value : {boundary - 1, boundary, -boundary, -boundary - 1}) decimals.push_back(TDecimal{value});
+        }
+        check({K::Decimal, false, 35, 2}, decimals);
+        TExpressionArena arena;
+        CheckScalar(arena, arena.Unary(EOpcode::StablePickle, arena.Null()), "Null key");
+    }
+
     Y_UNIT_TEST(ScalarSubplansRemainNativeThroughTyping) {
         NTests::TIdTestContext f;
         auto roots = CompileNativeToRbo("SELECT (SELECT (SELECT 1) + 2) AS x, (SELECT 7) AS y", NoTables, f.ExprCtx);

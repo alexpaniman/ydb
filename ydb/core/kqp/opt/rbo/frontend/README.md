@@ -208,6 +208,13 @@ bounds generated string payloads. It preserves result types and keeps failing
 runtime assertions deferred, including in conditional branches. The assertion
 opcode also lowers directly to the backend's executable Ensure operation.
 
+The internal StablePickle opcode produces the backend's exact scalar key
+encoding, including nullable values and normalization of floating NaNs and
+signed zero. It has native reference execution and constant folding, lowers
+directly to MiniKQL, and is checked byte-for-byte for every native scalar type.
+This supplies null-safe keys for migration of the existing decorrelation rules;
+it does not yet enable correlated SQL queries in the execution profile.
+
 **Plan-quality limitation:** legacy scalar peepholes, range extraction, and
 OLAP predicate/projection pushdown are currently skipped for native scalars.
 Native equivalents and plan/execution parity are required before broad rollout.

@@ -20,6 +20,31 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(StableKeysPreserveNullAndFloatingEquivalence) {
+        TExpressionArena arena;
+        const auto column = arena.Column(7, {K::Double, true});
+        const auto key = arena.Unary(O::StablePickle, column);
+        UNIT_ASSERT((arena[key].Type == TType{K::String}));
+        auto encode = [&](TScalar value) {
+            TEvaluationContext context;
+            context.Column = [&](TColumnId id) {
+                UNIT_ASSERT_VALUES_EQUAL(id, 7);
+                return TValue{{K::Double, true}, value};
+            };
+            return std::get<std::string>(Evaluate(arena, key, context).Data);
+        };
+        UNIT_ASSERT_VALUES_EQUAL(encode(0.0), encode(-0.0));
+        UNIT_ASSERT_VALUES_EQUAL(encode(std::numeric_limits<double>::quiet_NaN()), encode(-std::numeric_limits<double>::quiet_NaN()));
+        UNIT_ASSERT(encode(std::monostate{}) != encode(0.0));
+        const auto renamed = arena.RewriteColumns(key, [&](auto, auto, auto, auto pos) {
+            return arena.Column(8, {K::Double}, pos);
+        });
+        UNIT_ASSERT(arena[renamed].Op == O::StablePickle);
+        UNIT_ASSERT((arena[renamed].Type == TType{K::String}));
+        const TExprId roots[]{key};
+        UNIT_ASSERT_VALUES_EQUAL(arena.FoldConstants(roots).front(), key);
+    }
+
     Y_UNIT_TEST(TypeConstructionIsLocalAndExplicit) {
         TExpressionArena arena;
         auto a = arena.Literal({K::Int32}, std::int64_t{4});

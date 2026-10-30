@@ -468,6 +468,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::Substring: return "Substring";
         case TNativeOp::Concat: return "Concat";
         case TNativeOp::Ensure: return "Ensure";
+        case TNativeOp::StablePickle: return "StablePickle";
     }
     Y_UNREACHABLE();
 }
@@ -1153,6 +1154,8 @@ TExpression MakeUnaryCallable(const TString& callable, const TExpression& arg) {
             root = arena->Unary(TNativeOp::Not, input);
         } else if (callable == "Exists") {
             root = arena->Unary(TNativeOp::IsNotNull, input);
+        } else if (callable == "StablePickle") {
+            root = arena->Unary(TNativeOp::StablePickle, input);
         } else {
             const std::array<TNativeId, 1> arguments{input};
             root = arena->Call(std::string_view(callable.data(), callable.size()), arguments);

@@ -80,7 +80,7 @@ enum class EOpcode : std::uint8_t {
     Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
     And, Or, IsNull, IsNotNull, Coalesce, If,
     Abs, Length, Lower, Upper, Contains, StartsWith, EndsWith, Substring,
-    Concat, Ensure,
+    Concat, Ensure, StablePickle,
 };
 
 struct TExprNode {

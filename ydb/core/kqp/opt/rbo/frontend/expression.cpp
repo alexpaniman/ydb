@@ -846,7 +846,9 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
 
 TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
     auto type = (*this)[input].Type;
-    if (op == O::IsNull || op == O::IsNotNull) {
+    if (op == O::StablePickle) {
+        type = {K::String};
+    } else if (op == O::IsNull || op == O::IsNotNull) {
         type = {K::Bool};
     } else if (op == O::Not) {
         if (type.Kind != K::Bool && type.Kind != K::Null) {
@@ -1174,6 +1176,84 @@ std::string FormatValue(const TValue& value) {
 
 namespace {
 
+// The scalar subset of the backend's stable encoding. Correlation domains use
+// these bytes as null-safe keys. Keep this executable without a YQL dependency;
+// backend lowering calls StablePickle directly, and parity tests check the wire
+// format for every native type, including NaNs, signed zero and NULL.
+std::string StablePickle(const TValue& value) {
+    std::string payload;
+    auto littleEndian = [&](std::uint64_t bits, unsigned bytes) {
+        for (unsigned i = 0; i < bytes; ++i, bits >>= 8) payload.push_back(static_cast<char>(bits));
+    };
+    auto packedInteger = [&](std::uint64_t bits, unsigned width) {
+        const unsigned maxBytes = width <= 32 ? 3 : 7;
+        for (unsigned bytes = 1; bytes <= maxBytes; ++bytes) {
+            if (bits < (std::uint64_t{1} << (7 * bytes))) {
+                littleEndian((bits << bytes) | ((std::uint64_t{1} << (bytes - 1)) - 1), bytes);
+                return;
+            }
+        }
+        payload.push_back(static_cast<char>((1u << maxBytes) - 1));
+        littleEndian(bits, width <= 32 ? 4 : 8);
+    };
+    if (!value.IsNull()) {
+        const auto kind = value.Type.Kind;
+        if (kind == K::Bool) {
+            payload.push_back(std::get<bool>(value.Data));
+        } else if (value.Type.IsIntegral() || IsDate(kind) || kind == K::Interval) {
+            const unsigned width = kind == K::Date ? 16 : kind == K::Datetime ? 32 :
+                kind == K::Timestamp || kind == K::Interval ? 64 : Width(kind);
+            const bool isSigned = value.Type.IsSigned() || kind == K::Interval;
+            auto bits = isSigned ? static_cast<std::uint64_t>(std::get<std::int64_t>(value.Data)) :
+                std::get<std::uint64_t>(value.Data);
+            if (width == 8) {
+                littleEndian(bits, 1);
+            } else {
+                if (isSigned) bits = (bits << 1) ^ (std::uint64_t{0} - (bits >> 63));
+                packedInteger(bits, width);
+            }
+        } else if (kind == K::Float || kind == K::Double) {
+            const auto number = std::get<double>(value.Data);
+            if (kind == K::Float) {
+                littleEndian(std::isnan(number) ? 0x7fc00000u : number == 0 ? 0 :
+                    std::bit_cast<std::uint32_t>(static_cast<float>(number)), 4);
+            } else {
+                littleEndian(std::isnan(number) ? 0x7ff8000000000000ULL : number == 0 ? 0 :
+                    std::bit_cast<std::uint64_t>(number), 8);
+            }
+        } else if (kind == K::Decimal) {
+            const auto coefficient = std::get<TDecimal>(value.Data).Coefficient;
+            if (coefficient == TDecimal::NaN()) payload.push_back('\xff');
+            else if (coefficient == TDecimal::Inf()) payload.push_back('\xfe');
+            else if (coefficient == -TDecimal::Inf()) payload.push_back('\x01');
+            else if (coefficient == -TDecimal::NaN()) payload.push_back('\x00');
+            else {
+                const auto bits = static_cast<unsigned __int128>(coefficient);
+                const unsigned signByte = coefficient < 0 ? 0xff : 0;
+                unsigned bytes = 15;
+                while (bytes && ((bits >> (8 * (bytes - 1))) & 0xff) == signByte) --bytes;
+                payload.push_back(static_cast<char>(coefficient < 0 ? 0x7f - bytes : 0x80 + bytes));
+                while (bytes) payload.push_back(static_cast<char>(bits >> (8 * --bytes)));
+            }
+        } else if (value.Type.IsString()) {
+            payload = std::get<std::string>(value.Data);
+        } else {
+            throw std::logic_error("invalid native stable key type");
+        }
+    }
+    const auto size = payload.size();
+    if (size > std::numeric_limits<std::uint32_t>::max())
+        throw TResourceLimitError({}, "stable scalar encoding exceeds 4 GiB");
+    if (size <= 7) {
+        const auto empty = value.IsNull() && value.Type.Kind != K::Null;
+        payload.insert(payload.begin(), static_cast<char>(1 | (size << 1) | (empty ? 0x10 : 0)));
+    } else {
+        payload.insert(payload.begin(), 4, '\0');
+        for (unsigned i = 0; i < 4; ++i) payload[i] = static_cast<char>(size >> (8 * i));
+    }
+    return payload;
+}
+
 TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& values) {
     auto argument = [&](std::size_t index) -> const TValue& { return *values[node.Arguments[index]]; };
     if (node.Op == O::Cast || node.Op == O::Convert) {
@@ -1181,6 +1261,9 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
     }
     if (node.Op == O::IsNull || node.Op == O::IsNotNull) {
         return {node.Type, argument(0).IsNull() == (node.Op == O::IsNull)};
+    }
+    if (node.Op == O::StablePickle) {
+        return {node.Type, StablePickle(argument(0))};
     }
     for (auto id : node.Arguments) {
         if (values[id]->IsNull()) {
