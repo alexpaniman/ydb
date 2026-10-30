@@ -813,19 +813,19 @@ private:
                 break;
             }
             case ESyntaxKind::Star: throw TFrontendError(syntax.Position, "star is only valid in projection or COUNT(*)");
+            case ESyntaxKind::Exists:
             case ESyntaxKind::ScalarSubquery: {
                 if (!context.AllowSubqueries)
                     throw TUnsupportedFeature(EFeature::Subquery, syntax.Position, "subqueries in this expression context are outside the native profile");
                 auto query = Select(*syntax.Query, &context);
-                if (query.Columns.size() != 1) throw TFrontendError(syntax.Position, "scalar subquery must return exactly one column");
+                const bool exists = syntax.Kind == ESyntaxKind::Exists;
+                if (!exists && query.Columns.size() != 1) throw TFrontendError(syntax.Position, "scalar subquery must return exactly one column");
                 const auto& output = query.Columns.front();
-                const auto binding = Column("scalar", {}, output.Type.Optional(), syntax.Position);
-                Program.Subplans.emplace(binding, TSubplan{query.Root, output.Column});
+                const auto binding = Column(exists ? "exists" : "scalar", {}, exists ? TType{ETypeKind::Bool} : output.Type.Optional(), syntax.Position);
+                Program.Subplans.emplace(binding, TSubplan{query.Root, output.Column, exists ? ESubquery::Exists : ESubquery::Scalar});
                 result = Access(ScopeColumn(binding), syntax.Position);
                 break;
             }
-            case ESyntaxKind::Exists:
-                throw TUnsupportedFeature(EFeature::Subquery, syntax.Position, "EXISTS subqueries are not supported yet");
         }
         context.Cache.emplace(id, result); return result;
     }
@@ -876,7 +876,7 @@ std::string Explain(const TBoundProgram& program) {
     std::sort(bindings.begin(), bindings.end());
     for (const auto binding : bindings) {
         const auto& subplan = program.Subplans.at(binding);
-        out << "scalar " << binding << " root=" << subplan.Root << " result=" << subplan.Result << '\n';
+        out << (subplan.Kind == ESubquery::Exists ? "exists " : "scalar ") << binding << " root=" << subplan.Root << " result=" << subplan.Result << '\n';
     }
     for (std::size_t i = 0; i < program.Results.size(); ++i) {
         out << "result " << i << " root=" << program.Results[i].Root << ':';
@@ -1115,11 +1115,11 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
-"relations":["read","project","filter","on-join","aggregate","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery"],
+"relations":["read","project","filter","on-join","aggregate","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery","exists-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no scalar subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, IN/EXISTS subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

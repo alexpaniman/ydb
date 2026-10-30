@@ -335,6 +335,85 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(ExistsSubqueriesMatchLegacyOnPopulatedTables, EqualNullsJoinKeys) {
+        struct TCase {
+            const char* Sql;
+            TVector<ui64> Ids;
+            TVector<bool> Values;
+        };
+        const TVector<TCase> cases{
+            {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE EXISTS(SELECT b.value FROM `/Root/ExistsRows` AS b WHERE b.value = a.value) ORDER BY a.id", {1, 3, 4, 6}},
+            {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE NOT EXISTS(SELECT b.value FROM `/Root/ExistsRows` AS b WHERE b.value = a.value) ORDER BY a.id", {2, 5}},
+            {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE EXISTS(SELECT b.id FROM `/Root/ExistsRows` AS b WHERE b.id < a.id) ORDER BY a.id", {2, 3, 4, 5, 6}},
+            {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE EXISTS(SELECT b.id FROM `/Root/ExistsRows` AS b WHERE b.id = a.id) AND NOT EXISTS(SELECT id FROM `/Root/ExistsRows` WHERE id = 99ul) ORDER BY a.id", {1, 2, 3, 4, 5, 6}},
+            {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE a.id = 1ul OR EXISTS(SELECT b.id FROM `/Root/ExistsRows` AS b WHERE b.value < a.value) ORDER BY a.id", {1, 3, 4}},
+            {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE EXISTS(SELECT b.id FROM `/Root/ExistsRows` AS b WHERE b.id < a.id AND EXISTS(SELECT c.id FROM `/Root/ExistsRows` AS c WHERE c.id = b.id)) ORDER BY a.id", {2, 3, 4, 5, 6}},
+            {"SELECT a.id, EXISTS(SELECT b.id, b.value FROM `/Root/ExistsRows` AS b WHERE b.value = a.value) AS v FROM `/Root/ExistsRows` AS a ORDER BY a.id", {1, 2, 3, 4, 5, 6}, {true, false, true, true, false, true}},
+            {"SELECT a.id, NOT EXISTS(SELECT id FROM `/Root/ExistsRows` WHERE id = 99ul) AS v FROM `/Root/ExistsRows` AS a ORDER BY a.id", {1, 2, 3, 4, 5, 6}, {true, true, true, true, true, true}},
+            {"SELECT a.id, EXISTS(SELECT COUNT(*) FROM `/Root/ExistsRows` AS b WHERE b.id < a.id) AS v FROM `/Root/ExistsRows` AS a ORDER BY a.id", {1, 2, 3, 4, 5, 6}, {true, true, true, true, true, true}},
+            {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE EXISTS(SELECT id FROM `/Root/ExistsRows` LIMIT 0) ORDER BY a.id", {}},
+            {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE EXISTS(SELECT id FROM `/Root/ExistsRows` WHERE id = 99ul UNION ALL SELECT id FROM `/Root/ExistsRows` WHERE id = 1ul) ORDER BY a.id", {1, 2, 3, 4, 5, 6}},
+        };
+        TVector<std::optional<TResultSnapshot>> reference(cases.size());
+        for (const int strategy : {1, 2, 0}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableBlockHashJoinEqualNulls(EqualNullsJoinKeys);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
+                NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto schema = session.ExecuteSchemeQuery(
+                "CREATE TABLE `/Root/ExistsRows` (id Uint64 NOT NULL, value Int32, PRIMARY KEY(id))").GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            TValueBuilder rows;
+            rows.BeginList();
+            const std::optional<i32> values[]{10, std::nullopt, 30, 10, std::nullopt, 0};
+            for (ui64 id = 1; id <= 6; ++id) rows.AddListItem().BeginStruct()
+                .AddMember("id").Uint64(id).AddMember("value").OptionalInt32(values[id - 1]).EndStruct();
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/ExistsRows", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            for (size_t index = 0; index < cases.size(); ++index) {
+                const auto& test = cases[index];
+                Cerr << "EXISTS strategy=" << strategy << ", case=" << index << ": " << test.Sql << Endl;
+                const auto result = session.ExecuteDataQuery(TString("PRAGMA YqlSelect='force'; ") + test.Sql,
+                    TTxControl::BeginTx().CommitTx()).GetValueSync();
+                // Original new RBO does not inline projected EXISTS calls. Preserve
+                // these baseline failures; only the native Map path is enabled here.
+                if (strategy == 1 && index >= 6 && index <= 8) {
+                    UNIT_ASSERT(!result.IsSuccess());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find(index == 6 ? "Unknown operator encountered: AddDependencies" : "column not found") != std::string::npos,
+                        result.GetIssues().ToString());
+                    session = client.CreateSession().GetValueSync().GetSession();
+                    continue;
+                }
+                const auto actual = Snapshot(result);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), test.Ids.size());
+                TResultSetParser parser(result.GetResultSet(0));
+                for (size_t row = 0; row < test.Ids.size(); ++row) {
+                    UNIT_ASSERT(parser.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(parser.ColumnParser("id").GetUint64(), test.Ids[row]);
+                    if (!test.Values.empty()) {
+                        // The old optimizer loses the single global-aggregate row
+                        // for an empty correlated input. Native EXISTS is true.
+                        const bool expected = strategy == 0 && index == 8 && row == 0 ? false : test.Values[row];
+                        UNIT_ASSERT_VALUES_EQUAL(parser.ColumnParser("v").GetBool(), expected);
+                    }
+                }
+                if (!reference[index]) reference[index] = actual;
+                else if (strategy == 0 && index == 8) {
+                    UNIT_ASSERT(actual.Columns == reference[index]->Columns);
+                } else AssertSame(actual, *reference[index]);
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(CorrelatedScalarSubqueriesMatchLegacyOnPopulatedTables, EqualNullsJoinKeys) {
         TVector<std::optional<TResultSnapshot>> reference;
         TString failures;

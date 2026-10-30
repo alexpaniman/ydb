@@ -25,21 +25,12 @@ bool TInlineSimpleInExistsSubplanRule::QuickMatch(const TIntrusivePtr<IOperator>
 }
 
 TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
-    if (input->Kind != EOperator::Filter || props.PgSyntax || props.NativeExpressions) {
+    if (input->Kind != EOperator::Filter || props.PgSyntax) {
         return input;
     }
 
     // Check that the filter lambda is a conjunction of one or more elements
     auto filter = CastOperator<TOpFilter>(input);
-    if (filter->GetFilterExpression().IsNative()) {
-        return input;
-    }
-    auto lambdaBody = filter->GetFilterExpression().Node->ChildPtr(1);
-
-    if (!TCoAnd::Match(lambdaBody.Get()) && !TCoNot::Match(lambdaBody.Get()) && !TCoMember::Match(lambdaBody.Get())) {
-        return input;
-    }
-
     // Decompose the conjunction into individual conjuncts
     auto conjuncts = filter->GetFilterExpression().SplitConjunct();
 
@@ -50,18 +41,31 @@ TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(c
     size_t conjunctIdx;
 
     for (conjunctIdx = 0; conjunctIdx < conjuncts.size(); conjunctIdx++) {
-        auto maybeSubplan = conjuncts[conjunctIdx].GetExpressionBody();
-
+        const auto& conjunct = conjuncts[conjunctIdx];
         bool conjunctNegated = false;
-        if (TCoNot::Match(maybeSubplan.Get())) {
-            maybeSubplan = maybeSubplan->ChildPtr(0);
-            conjunctNegated = true;
+        std::optional<TInfoUnitId> binding;
+        if (conjunct.IsNative()) {
+            const auto& arena = *conjunct.GetNativeArena();
+            auto root = conjunct.GetNativeRoot();
+            if (arena[root].Op == NFrontend::EOpcode::Not) {
+                root = arena[root].Arguments[0];
+                conjunctNegated = true;
+            }
+            if (arena[root].Op == NFrontend::EOpcode::Column) binding = arena[root].ColumnId;
+        } else {
+            auto maybeSubplan = conjunct.GetExpressionBody();
+            if (TCoNot::Match(maybeSubplan.Get())) {
+                maybeSubplan = maybeSubplan->ChildPtr(0);
+                conjunctNegated = true;
+            }
+            // Only a member of the row argument names an IU.
+            if (TCoMember::Match(maybeSubplan.Get()) && maybeSubplan->HeadPtr().Get() == &conjunct.Node->Head().Head())
+                binding = GetMemberId(*maybeSubplan);
         }
-        // Only a member of the row argument names an IU.
-        if (TCoMember::Match(maybeSubplan.Get()) && maybeSubplan->HeadPtr().Get() == &conjuncts[conjunctIdx].Node->Head().Head()) {
-            iu = GetMemberId(*maybeSubplan);
-            if (const auto* entry = props.Subplans.Find(iu)) {
+        if (binding) {
+            if (const auto* entry = props.Subplans.Find(*binding)) {
                 if (entry->Type == ESubplanType::IN_SUBPLAN || entry->Type == ESubplanType::EXISTS) {
+                    iu = *binding;
                     subplanEntry = entry;
                     negated = conjunctNegated;
                     break;
@@ -134,13 +138,13 @@ TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(c
     }
     // EXISTS and NOT EXISTS
     else {
-        auto limit = MakeIntrusive<TOpLimit>(subplan, filter->Pos, MakeConstant("Uint64", "1", filter->Pos, &ctx.ExprCtx), EOpPhase::Undefined);
+        auto limit = MakeIntrusive<TOpLimit>(subplan, filter->Pos, MakeConstant("Uint64", "1", filter->Pos, &ctx.ExprCtx, &props), EOpPhase::Undefined);
 
         // The counted rows and their count are distinct IUs.
         auto countInput = props.InfoUnitRegistry.AddGenerated("row");
         auto countResult = props.InfoUnitRegistry.AddGenerated("row_count");
         TMapIUs countMapElements;
-        auto zero = MakeConstant("Uint64", "0", filter->Pos, &ctx.ExprCtx);
+        auto zero = MakeConstant("Uint64", "0", filter->Pos, &ctx.ExprCtx, &props);
         countMapElements.Add(countInput, zero);
         auto countMap = MakeIntrusive<TOpMap>(limit, filter->Pos, countMapElements);
 
@@ -151,7 +155,7 @@ TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(c
         auto agg = MakeIntrusive<TOpAggregate>(countMap, aggs, keyColumns, EOpPhase::Final, false, filter->Pos);
         const TString compareCallable = negated ? "==" : "!=";
 
-        auto comparePredicate = MakeBinaryPredicate(compareCallable, MakeColumnAccess(countResult, filter->Pos, &ctx.ExprCtx, &props), zero);
+        auto comparePredicate = MakeBinaryPredicate(compareCallable, MakeColumnAccess(countResult, ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64), filter->Pos, &ctx.ExprCtx, &props), zero);
         TMapIUs mapElements;
         auto compareResult = props.InfoUnitRegistry.AddGenerated("exists");
         mapElements.Add(compareResult, comparePredicate);
@@ -160,7 +164,7 @@ TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(c
         TJoinIUs joinKeys;
         join = MakeIntrusive<TOpJoin>(filter->GetInput(), map, filter->Pos, "Cross", joinKeys);
 
-        conjuncts[conjunctIdx] = MakeColumnAccess(compareResult, filter->Pos, &ctx.ExprCtx, &props);
+        conjuncts[conjunctIdx] = MakeColumnAccess(compareResult, *map, filter->Pos, &ctx.ExprCtx, &props);
     }
 
     props.Subplans.Remove(iu);

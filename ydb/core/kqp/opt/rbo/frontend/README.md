@@ -142,7 +142,17 @@ AnsiImplicitCrossJoin.
 Scalar subqueries bind to typed relational results and use RBO's existing
 cardinality check: no row yields NULL and more than one row raises a runtime
 error. Scalar DAGs reference these results as columns; they contain no opaque
-SQL or subquery execution node. Table discovery includes nested query bodies. ORDER BY may reference a projected
+SQL or subquery execution node. EXISTS/NOT EXISTS also bind to ordinary required-Bool
+columns. Existing RBO semi/anti joins handle direct filter conjuncts; the
+Boolean-result rewrite handles OR predicates and native projection Maps. Native
+expression composition is used throughout both rewrites. Populated tests cover
+nested correlation, NULLs, duplicates, empty inputs, UNION ALL, and aggregate
+subqueries under both null-safe join settings. The old frontend/RBO still fails
+projected EXISTS cases; the old optimizer incorrectly returns false for EXISTS
+of a global aggregate over an empty correlated input. Tests pin those existing
+boundaries and require correct native results.
+
+Table discovery includes nested query bodies. ORDER BY may reference a projected
 subquery result through its alias, but direct scalar subqueries in sort keys
 are excluded because the existing RBO backend fails their physical typing.
 Outer columns receive typed local captures below their consumers; nested
@@ -170,7 +180,7 @@ Explicitly outside the profile:
 
 - DML/DDL, USE, scripting effects, arbitrary pragmas/settings, views, temporary
   and external tables, table hints, sampling, and PostgreSQL syntax/types.
-- IN/EXISTS subqueries, scalar subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
+- IN subqueries; subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
   scalar bindings or lambda bodies, JOIN USING, windows, grouping sets,
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
@@ -265,17 +275,20 @@ and generated modes currently agree on these frontend routing counts:
 
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
-| TPC-H | 5/22 (Q1, Q2, Q3, Q17, Q19) | 17 |
+| TPC-H | 7/22 (Q1, Q2, Q3, Q17, Q19, Q21, Q22) | 15 |
 | TPC-DS | 33/99 | 66 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. TPC-H Q1, Q2, Q3, Q17 and Q19 separately
 have native-required execution parity on populated column tables; the accepted
-TPC-DS and ClickBench queries still need that validation. The report preserves
+TPC-H Q21/Q22, TPC-DS and ClickBench queries still need that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+The EXISTS extension passed 121 selected native and decorrelation tests,
+including 22 native populated execution cases and unchanged legacy regressions.
 
 The selected relwithdebinfo checks passed 140 tests: 52 standalone frontend
 tests, 16 native/RBO/host tests, and 72 shared RBO regression tests. Host tests

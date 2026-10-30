@@ -19,6 +19,24 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(ExistsSubplansAreRequiredBooleanRelationalBindings) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto compiled = CompileNative("SELECT EXISTS(SELECT b.id, b.value FROM b WHERE b.value = a.value) AS yes, NOT EXISTS(SELECT 1 FROM b WHERE false) AS no FROM a", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            UNIT_ASSERT_VALUES_EQUAL(program.Subplans.size(), 2);
+            for (const auto& [binding, subplan] : program.Subplans) {
+                UNIT_ASSERT(subplan.Kind == ESubquery::Exists);
+                UNIT_ASSERT(program.Columns[binding].Type == (TType{ETypeKind::Bool}));
+            }
+            for (const auto& column : program.Results[0].Columns) UNIT_ASSERT(column.Type == (TType{ETypeKind::Bool}));
+            UNIT_ASSERT_VALUES_EQUAL(Find(program, ERelation::Capture).Captures.size(), 1);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT EXISTS(SELECT missing FROM a)", Catalog, settings), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT a.id FROM a JOIN b ON EXISTS(SELECT 1)", Catalog, settings), TUnsupportedFeature);
+        }
+    }
+
     Y_UNIT_TEST(ScalarSubplansAreTypedRelationalBindings) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings;

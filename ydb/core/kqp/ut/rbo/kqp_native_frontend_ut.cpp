@@ -82,6 +82,12 @@ void CheckScalar(std::string_view sql) {
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     Y_UNIT_TEST(CorrelatedRewritesKeepNativeExpressionsAndBindings) {
         for (const auto* sql : {
+            "SELECT o.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o WHERE EXISTS(SELECT i.id FROM (SELECT 1 AS id) AS i WHERE i.id = o.id)",
+            "SELECT o.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o WHERE NOT EXISTS(SELECT i.id FROM (SELECT 1 AS id) AS i WHERE i.id = o.id)",
+            "SELECT o.id FROM (SELECT 1 AS id) AS o WHERE EXISTS(SELECT 1 WHERE false) OR EXISTS(SELECT 1 WHERE o.id = 1)",
+            "SELECT EXISTS(SELECT i.id FROM (SELECT 1 AS id) AS i WHERE i.id = o.id) AS yes FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
+            "SELECT EXISTS(SELECT 1 WHERE false) AS no, NOT EXISTS(SELECT 1) AS also_no",
+            "SELECT EXISTS(SELECT 1 WHERE EXISTS(SELECT 1 WHERE o.id = 1)) AS yes FROM (SELECT 1 AS id) AS o",
             "SELECT (SELECT COUNT(*) FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id > o.id) AS n FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
             "SELECT (SELECT MAX(i.id) FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id = o.id) AS n FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
             "SELECT (SELECT (SELECT o.id)) AS n FROM (SELECT 1 AS id) AS o",
@@ -97,6 +103,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             TGlobalPruningStage("native capture pruning").RunStage(root, context);
             UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
             TVector<std::unique_ptr<IRule>> inlineRules;
+            inlineRules.emplace_back(std::make_unique<TInlineSimpleInExistsSubplanRule>());
+            inlineRules.emplace_back(std::make_unique<TInlineGenericInExistsSubplanRule>());
             inlineRules.emplace_back(std::make_unique<TInlineScalarSubplanRule>());
             TRuleBasedStage("native scalar inlining", std::move(inlineRules)).RunStage(root, context);
             UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);

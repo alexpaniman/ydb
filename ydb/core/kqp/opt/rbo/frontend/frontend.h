@@ -83,10 +83,12 @@ struct TQueryResult {
 };
 
 // Subquery results have ordinary typed column references in scalar DAGs.
-// Their producers stay relational and use RBO's existing cardinality rewrite.
+// Their producers stay relational and use RBO's existing subplan rewrites.
+enum class ESubquery : std::uint8_t { Scalar, Exists };
 struct TSubplan {
     TRelId Root;
     TColumnId Result;
+    ESubquery Kind = ESubquery::Scalar;
 };
 
 struct TBoundProgram {
