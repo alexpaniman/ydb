@@ -260,6 +260,7 @@ TType ComputeCommonType(TType a, TType b, TSourcePosition position) {
             if (type.Kind == K::Decimal) {
                 return type.Precision - type.Scale;
             }
+            // SQL reserves the same decimal width for signed/unsigned integers.
             return (Width(type.Kind) * 30103U) / 100000U + 1;
         };
         const unsigned precision = std::max(integralDigits(a), integralDigits(b)) + scale;
@@ -276,7 +277,7 @@ TType ComputeCommonType(TType a, TType b, TSourcePosition position) {
     if (a.IsSigned() != b.IsSigned()) {
         const int unsignedWidth = a.IsSigned() ? Width(b.Kind) : Width(a.Kind);
         if (unsignedWidth == 64) {
-            return {K::Decimal, nullable, 20, 0};
+            throw TUnsupportedFeature(EFeature::Type, position, "implicit signed/unsigned promotion is outside the native profile");
         }
         width = std::max(width, unsignedWidth * 2);
     }

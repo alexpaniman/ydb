@@ -31,7 +31,9 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
             UNIT_ASSERT(arg < sum);
         }
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, sum)), "9");
-        UNIT_ASSERT((CommonType({K::Int64}, {K::Uint64}) == TType{K::Decimal, false, 20, 0}));
+        UNIT_ASSERT_EXCEPTION(CommonType({K::Int64}, {K::Uint64}), TUnsupportedFeature);
+        UNIT_ASSERT((CommonType({K::Decimal, false, 8, 2}, {K::Int64}) == TType{K::Decimal, false, 22, 2}));
+        UNIT_ASSERT((CommonType({K::Decimal, false, 8, 2}, {K::Uint64}) == TType{K::Decimal, false, 22, 2}));
     }
 
     Y_UNIT_TEST(ThreeValuedBooleanTables) {

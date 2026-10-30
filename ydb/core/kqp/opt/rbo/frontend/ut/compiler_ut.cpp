@@ -163,7 +163,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         UNIT_ASSERT(scalarColumns[0].Type == (TType{ETypeKind::Double}));
         UNIT_ASSERT(scalarColumns[1].Type == (TType{ETypeKind::String}));
         UNIT_ASSERT(scalarColumns[2].Type == (TType{ETypeKind::Double}));
-        for (const auto* sql : {"SELECT 1u + 2", "SELECT LOWER('ABC')",
+        for (const auto* sql : {"SELECT 1u + 2", "SELECT IF(true, 1L, 2ul)", "SELECT LOWER('ABC')",
             "SELECT CAST(Float('1') AS Int32)", "SELECT CAST(Float('1') AS Uint64)"}) {
             UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
         }
@@ -177,8 +177,12 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             const auto& columns = result.Program->Get().Results[0].Columns;
             for (std::size_t i = 0; i < columns.size(); ++i)
                 UNIT_ASSERT(columns[i].Type == (TType{ETypeKind::Decimal, i == 2, 8, 2}));
+            const auto common = CompileNative("DECLARE $i AS Int64; SELECT IF(true, Decimal('1.25',8,2), $i), Decimal('1',8,2) < $i", Catalog, settings);
+            UNIT_ASSERT(common.Program->Get().Results[0].Columns[0].Type == (TType{ETypeKind::Decimal, false, 22, 2}));
+            UNIT_ASSERT(common.Program->Get().Results[0].Columns[1].Type == TType{ETypeKind::Bool});
             for (const auto* sql : {"SELECT Decimal('1e2',8,2)", "SELECT CAST('1e2' AS Decimal(8,2))",
                 "SELECT Decimal('1',8,2) + 1", "SELECT Decimal('1',8,2) + Decimal('1',12,2)",
+                "SELECT COALESCE(IF(false, Decimal('1.25',8,2)), 1L)",
                 "DECLARE $s AS String; SELECT CAST($s AS Decimal(8,2))"})
                 UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
         }

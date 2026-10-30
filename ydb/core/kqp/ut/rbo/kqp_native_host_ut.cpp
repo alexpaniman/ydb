@@ -315,6 +315,11 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             "SELECT k, COUNT(*) AS n FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q GROUP BY x % 2 AS k HAVING COUNT(*) > 0ul ORDER BY k",
             "SELECT x FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q ORDER BY x LIMIT 1 OFFSET 1",
             "SELECT Decimal('1.25',8,2), CAST(1 AS Decimal(8,2)), CAST('1.25' AS Decimal(8,2))",
+            "SELECT Decimal('9.5',8,2) BETWEEN 1 AND 10, Decimal('1.25',8,2) = Decimal('1.250',6,3)",
+            "SELECT IF(true, Decimal('1.25',8,2), 1L), IF(false, Decimal('1.25',8,2), Decimal('1.251',6,3))",
+            "SELECT IF(false, Decimal('1.25',8,2), 18446744073709551615ul)",
+            "SELECT Decimal('1.25',8,2) AS x UNION ALL SELECT 1L AS x",
+
             "SELECT Decimal('1',8,2) / Decimal('0',8,2), Decimal('0',8,2) / Decimal('0',8,2)",
             "SELECT -Decimal('nan',8,2), Abs(Decimal('-inf',8,2)), Decimal('inf',8,2) - Decimal('inf',8,2)",
             "SELECT CAST(Decimal('1.5',8,2) AS Int32), CAST(Decimal('9.9',2,1) AS Int32), CAST(Decimal('1.50',8,2) AS String)",
@@ -394,7 +399,9 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         const TString sql = R"(
             DECLARE $a AS Decimal(8,2);
             DECLARE $b AS Decimal(8,2)?;
-            SELECT $a + $b, $a - $b, $a * $b, $a / $b, $a % $b,
+            DECLARE $i AS Int64;
+            SELECT $a > $i, $a = $i, IF($a > $i, $a, $i), COALESCE($b, CAST($i AS Decimal(8,2))),
+                $a + $b, $a - $b, $a * $b, $a / $b, $a % $b,
                 $a = $b, $a != $b, $a < $b, $a <= $b, -$a, Abs($a),
                 CAST($a AS Int32), CAST($a AS Float), CAST($a AS Double),
                 CAST($a AS String), CAST($a AS Decimal(2,1))
@@ -404,6 +411,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                 {"1.25", static_cast<const char*>(nullptr)}}) {
             auto builder = TParamsBuilder();
             builder.AddParam("$a").Decimal(TDecimalValue(a, 8, 2)).Build();
+            builder.AddParam("$i").Int64(-9007199254740993LL).Build();
             auto& optional = builder.AddParam("$b");
             if (b) optional.BeginOptional().Decimal(TDecimalValue(b, 8, 2)).EndOptional().Build();
             else optional.EmptyOptional(TTypeBuilder().Decimal({8, 2}).Build()).Build();

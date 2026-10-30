@@ -844,19 +844,20 @@ void CheckSyntax(const TParsedQuery& syntax) {
 
 void CheckProgram(const TBoundProgram& program) {
     for (const auto& node : program.Expressions.Nodes()) {
-        if ((node.Op >= EOpcode::Add && node.Op <= EOpcode::Modulo) || node.Op == EOpcode::Concat) {
+        if ((node.Op >= EOpcode::Add && node.Op <= EOpcode::Modulo) || node.Op == EOpcode::Concat ||
+            (node.Op == EOpcode::Coalesce && node.Type.Kind == ETypeKind::Decimal)) {
             for (auto id : node.Arguments) {
                 while (program.Expressions[id].Op == EOpcode::Convert) id = program.Expressions[id].Arguments[0];
-                if (program.Expressions[id].Type.Kind == ETypeKind::Null)
+                const auto from = program.Expressions[id].Type;
+                if (from.Kind == ETypeKind::Null && node.Op != EOpcode::Coalesce)
                     throw TUnsupportedFeature(EFeature::Expression, node.Position, "bare NULL arithmetic is outside native-read-v1");
+                if (node.Type.Kind == ETypeKind::Decimal && from.Kind != ETypeKind::Null && from.Required() != node.Type.Required())
+                    throw TUnsupportedFeature(EFeature::Type, node.Position,
+                        "native Decimal arithmetic and COALESCE require matching types or explicit casts");
             }
         }
         if (node.Op == EOpcode::Convert && !node.Arguments.empty()) {
             const auto from = program.Expressions[node.Arguments[0]].Type;
-            if (node.Type.Kind == ETypeKind::Decimal && from.Kind != ETypeKind::Null &&
-                node.Type.Required() != from.Required())
-                throw TUnsupportedFeature(EFeature::Type, node.Position,
-                    "implicit Decimal promotion requires explicit casts in the native profile");
             if ((node.Type.Kind == ETypeKind::Double && from.Kind == ETypeKind::Float) ||
                 (node.Type.Kind == ETypeKind::Float && from.Kind != ETypeKind::Float))
                 throw TUnsupportedFeature(EFeature::Type, node.Position, "mixed Float promotion is outside native-read-v1");
@@ -1015,7 +1016,7 @@ std::string_view SupportManifest() {
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no windows, subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","no implicit Decimal promotion; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no windows, subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

@@ -131,7 +131,10 @@ arithmetic does not add a nullable layer. Constructors accept canonical literal
 digits/dot or inf/nan, with literal precision/scale. Decimal-to-integer conversion
 rounds through the source's integral precision before checking the integer range,
 matching the existing runtime. Backend lowering emits direct typed arithmetic
-and casts, without finite-only guards or extra rounding wrappers.
+and casts, without finite-only guards or extra rounding wrappers. Comparisons,
+IF/CASE branches and UNION ALL use an exact common Decimal type with integers
+or other Decimals. Integer widths follow SQL metadata (including 20 digits for
+both 64-bit integer types), without conversion through floating point.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin.
 
@@ -148,10 +151,12 @@ Explicitly outside the profile:
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
 - UDFs, higher-order values, containers/structs/tuples, nested optionals.
-- Mixed signed/unsigned, mixed Float or implicit Decimal promotion, bare-NULL
-  arithmetic, dynamic text parsing, and runtime casts from temporal inputs.
+- Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
+  text parsing, and runtime casts from temporal inputs.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
-  conversions are excluded. Different Decimal types require explicit casts.
+  conversions are excluded. Decimal arithmetic and COALESCE require matching
+  input types or explicit casts; their mixed-type rules differ from comparison
+  and IF/UNION promotion.
 - Float to Int32/Uint32/Int64/Uint64: the existing runtime rounds the upper
   integer bound to Float before checking, admitting an out-of-range value.
   These casts remain explicit unsupported features; no existing runtime fix is
@@ -224,7 +229,7 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 3/22 (Q1, Q3, Q19) | 19 |
-| TPC-DS | 20/99 | 79 |
+| TPC-DS | 30/99 | 69 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
@@ -264,7 +269,9 @@ RBO. The fixture covers duplicate line items, nulls, date/quantity boundaries,
 unmatched rows, and all three Q19 OR branches. Q3 revenues are explicitly checked
 as 190 and 180; Q19 revenue is 750. Both RBO paths also satisfy the existing
 benchmark invariant: all CBO trees are optimized, with at least one tree for the
-join queries.
+join queries. The common-Decimal-type extension also passed all 79 native tests,
+including runtime comparisons beyond double precision, IF/UNION result types,
+and explicit rejection of unsupported mixed arithmetic and COALESCE.
 
 Run `python3 ydb/core/kqp/opt/rbo/frontend/tools/bench_parsers.py --output /tmp/native-parser-bench.json`
 with an idle machine to compare generated parsing with fast mode. A local
