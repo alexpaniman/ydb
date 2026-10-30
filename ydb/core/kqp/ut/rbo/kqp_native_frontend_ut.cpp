@@ -82,6 +82,54 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(MixedDistinctExpansionKeepsNativeExpressions) {
+        for (const auto* projection : {
+                "COUNT(DISTINCT v), COUNT(*), SUM(v), SUM(DISTINCT v), MIN(v), MAX(DISTINCT v)",
+                "COUNT(DISTINCT v), SUM(d), SUM(DISTINCT d), MIN(d), MAX(DISTINCT d)",
+                "COUNT(DISTINCT v), SOME(CAST(NULL AS Int32)), SOME(7)"}) {
+            for (const bool grouped : {false, true}) {
+                NTests::TIdTestContext f;
+                const TString sql = TStringBuilder() << "SELECT " << projection
+                    << " FROM (SELECT 1 AS k, CAST(2 AS Int32?) AS v, Decimal('1.25',8,2) AS d) AS q"
+                    << (grouped ? " GROUP BY k" : "");
+                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx);
+                auto& root = *roots.front();
+                auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+                    UNIT_FAIL("native DISTINCT expansion invoked YQL annotation");
+                    return IGraphTransformer::TStatus::Error;
+                });
+                TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+                TGlobalPruningStage("native distinct pruning").RunStage(root, context);
+                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                const auto* expected = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                TVector<std::unique_ptr<IRule>> rules;
+                rules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
+                TRuleBasedStage("native distinct expansion", std::move(rules)).RunStage(root, context);
+                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                TGlobalPruningStage("native distinct padding pruning").RunStage(root, context);
+                TVector<std::unique_ptr<IRule>> copies;
+                copies.emplace_back(std::make_unique<TExpandReplicateRule>());
+                TRuleBasedStage("native distinct copies", std::move(copies)).RunStage(root, context);
+                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                const auto* actual = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                for (const auto& [id, label] : root.GetColumns().Items()) {
+                    const auto name = f.ExprCtx.GetIndexAsString(id);
+                    UNIT_ASSERT(IsSameAnnotation(*expected->FindItemType(name), *actual->FindItemType(name)));
+                }
+                NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
+                for (const auto& item : root) {
+                    if (item.Current->Kind == EOperator::Aggregate)
+                        for (const auto& [_, traits] : CastOperator<TOpAggregate>(*item.Current).GetAggregationTraits().Items())
+                            UNIT_ASSERT(!traits.Distinct);
+                    for (const auto& expression : item.Current->GetExpressions()) {
+                        UNIT_ASSERT(expression.get().IsNative());
+                        UNIT_ASSERT(!expression.get().Node);
+                    }
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(OlapPredicatesStayNativeThroughPushdownPruningAndCopy) {
         using namespace NFrontend;
         NTests::TIdTestContext f;

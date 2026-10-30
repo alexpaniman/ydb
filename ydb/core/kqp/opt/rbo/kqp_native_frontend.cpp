@@ -149,9 +149,6 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                     op = MakeIntrusive<TOpJoin>(left, right, pos, JoinName(relation.JoinKind), std::move(keys), filters); break;
                 }
                 case R::Aggregate: {
-                    bool distinct = false;
-                    for (const auto& aggregate : relation.Aggregates) distinct |= aggregate.Distinct;
-                    if (distinct && relation.Aggregates.size() != 1) throw NFrontend::TFrontendError(relation.Position, "native mixed DISTINCT aggregates are not supported");
                     TOrderedIUs<> keys; for (auto key : relation.GroupKeys) keys.Append(key);
                     TAggregationIUs aggregates;
                     for (const auto& aggregate : relation.Aggregates) aggregates.Add(aggregate.Output,

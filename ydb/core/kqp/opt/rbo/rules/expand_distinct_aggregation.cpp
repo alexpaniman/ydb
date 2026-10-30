@@ -1,4 +1,5 @@
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_rules.h>
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 
 namespace NKikimr::NKqp {
@@ -95,6 +96,28 @@ TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>
         TExprNode::TPtr columnExpr;
         auto fieldType = inputStructType->FindItemType(originalColName);
         Y_ENSURE(fieldType, "Aggregation column not found in input type:" << output;);
+        if (props.NativeExpressions) {
+            // Preserve the existing partial/union/final plan. Only scalar
+            // aggregate states are admitted by the native frontend here.
+            const auto& arena = props.NativeExpressions;
+            const auto state = ImportNativeType(*GetAggregationType(&RemoveOptionality(*fieldType), aggTraits.AggFunction, ctx));
+            NFrontend::TExprId expression;
+            if (const auto* partial = realAggTraits.Find(output)) {
+                const bool optional = fieldType->IsOptionalOrNull() && aggTraits.AggFunction != "count";
+                if (optional || state.Nullable) {
+                    mapColumns.Add(output, *partial);
+                    continue;
+                }
+                expression = arena->Column(*partial, state);
+                expression = arena->Convert(expression, state.Optional());
+            } else {
+                expression = arena->Literal(state.Optional(), std::monostate{});
+            }
+            const auto padding = props.InfoUnitRegistry.AddGenerated("distinct_padding");
+            mapElements.Add(padding, TExpression::FromNative(arena, expression, &ctx, &props, input->Pos));
+            mapColumns.Add(output, padding);
+            continue;
+        }
         if (const auto* partialColName = realAggTraits.Find(output)) {
             const bool needsOptionalWrap = !fieldType->IsOptionalOrNull() || aggTraits.AggFunction == "count";
             if (!needsOptionalWrap) {
@@ -239,6 +262,7 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
     };
 
     TAggregationIUs finalAggTraitsList;
+    TMapIUs nativeResults;
     TUnorderedIUs aggTraitsListNotDistinct;
 
     for (const auto output : aggTraitsList.Keys()) {
@@ -246,11 +270,31 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
         const bool isDistinct = aggTraits.Distinct;
         const auto aggFunctions = GetAggFunctions(aggTraits.AggFunction);
         const auto intermediateColName = intermediates.At(output);
-        const auto finalAggTraits = TOpAggregationTraits{
+        auto finalAggTraits = TOpAggregationTraits{
             intermediateColName, aggFunctions.second, false,
             NeedToUnwrapOptional(aggregate->GetInput()->Type, TString(ctx.GetIndexAsString(aggTraits.Input)), aggFunctions, aggregate->GetKeyColumns())};
-
-        finalAggTraitsList.Add(output, finalAggTraits);
+        auto finalOutput = output;
+        if (props.NativeExpressions && finalAggTraits.Unwrap) {
+            // Native result types must be correct before terminal lowering.
+            // Keep nullable union states in the aggregate and restore required
+            // results with executable expressions, rather than a backend flag.
+            const auto* result = aggregate->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>()
+                ->FindItemType(ctx.GetIndexAsString(output));
+            Y_ENSURE(result);
+            const auto type = ImportNativeType(*result).Required();
+            const auto& arena = props.NativeExpressions;
+            finalOutput = registry.AddGenerated("distinct_result");
+            auto expression = arena->Column(finalOutput, type.Optional());
+            if (aggTraits.AggFunction == "count") {
+                const NFrontend::TExprId args[]{expression, arena->Literal(type, std::uint64_t{0})};
+                expression = arena->Coalesce(args);
+            } else {
+                expression = arena->Unary(NFrontend::EOpcode::Unwrap, expression);
+            }
+            nativeResults.Add(output, TExpression::FromNative(arena, expression, &ctx, &props, pos));
+            finalAggTraits.Unwrap = false;
+        }
+        finalAggTraitsList.Add(finalOutput, finalAggTraits);
         if (!isDistinct) {
             // For not distinct we keep traits and will put them in one aggregation.
             aggTraitsListNotDistinct.Add(output);
@@ -270,7 +314,9 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
     const TIntrusivePtr<IOperator> unionAllResult = MakeIntrusive<TOpUnionAll>(std::move(unionAllInputs), aggregate->Pos, std::move(columns));
     RebindConsumers(*aggregate, keyReplacements, props.Subplans);
 
-    return MakeIntrusive<TOpAggregate>(unionAllResult, finalAggTraitsList, finalKeys, EOpPhase::Final, /*distinctAll=*/false, pos);
+    TIntrusivePtr<IOperator> result = MakeIntrusive<TOpAggregate>(unionAllResult, finalAggTraitsList, finalKeys, EOpPhase::Final, /*distinctAll=*/false, pos);
+    if (!nativeResults.Keys().Empty()) result = MakeIntrusive<TOpMap>(result, pos, std::move(nativeResults));
+    return result;
 }
 
 } // anonymous namespace
@@ -289,7 +335,6 @@ TIntrusivePtr<IOperator> TExpandDistinctAggregationRule::SimpleMatchAndApply(con
         // Fast path.
         return ExpandSingleDistinct(aggregate);
     }
-    Y_ENSURE(!props.NativeExpressions, "Mixed DISTINCT aggregates require native aggregate-state expressions");
     return ExpandMultiDistinct(aggregate, props, rboCtx.ExprCtx);
 }
 

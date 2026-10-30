@@ -119,8 +119,11 @@ duplicate counts require no row-expansion operation. Global ordering/limits and
 parenthesized operand-local clauses are supported. Result field order follows
 YqlSelect's common-prefix rule; the older translator emits lexical order in some
 mixed-schema cases. Tests pin that existing difference explicitly.
-Aggregates are COUNT, SUM, AVG, MIN, MAX, and SOME. A DISTINCT aggregate must be
-the only aggregate in that aggregation. Computed GROUP BY keys require explicit
+Aggregates are COUNT, SUM, AVG, MIN, MAX, and SOME. Multiple DISTINCT aggregates
+can be combined with ordinary aggregates when their intermediate states are
+scalar (COUNT, SUM, MIN, MAX, SOME). A combination containing both DISTINCT and
+AVG is explicitly unsupported unless AVG is the sole aggregate: its tuple state
+still needs native representation. Computed GROUP BY keys require explicit
 aliases (`GROUP BY expression AS key`, then `SELECT key`). Scan queries require one result.
 
 Scalar types are Bool, signed/unsigned integers, Float/Double, String/Utf8,
@@ -392,13 +395,13 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 67/99 | 32 |
-| ClickBench | 37/43 | 6 |
+| TPC-DS | 70/99 | 29 |
+| ClickBench | 38/43 | 5 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Seventeen TPC-DS queries also have populated native-required execution
+tables. Twenty TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -429,6 +432,30 @@ queries pass together. Validation also passed 81 standalone frontend tests and
 and runtime-Unwrap tests. Both parsers agree on all 164 final corpus routes.
 The scalar checks caught and fixed a native validation error rejecting
 `CAST(NULL AS String/Utf8)`; no older compiler or backend was changed.
+
+Mixed DISTINCT additionally admits TPC-DS Q16, Q94 and Q95, and ClickBench Q23.
+The existing RBO expansion retains its partial-aggregation/union/final-aggregation
+plan. Native padding uses typed NULLs and optional lifts; COUNT's empty-input zero
+and grouped required results use explicit native COALESCE/Unwrap expressions.
+No YQL expression annotation is needed during expansion, pruning or copying,
+and output types remain unchanged before terminal lowering. AVG's tuple state
+remains an explicit migration boundary.
+
+Forty mixed-DISTINCT queries run on both row and column tables, checking required
+and nullable inputs, multiple distinct states, computed arguments, Decimal values,
+NULL keys, all-NULL groups and empty input. Values and metadata match the old
+optimizer. The old frontend plus RBO also matches except for its existing rejection
+of computed DISTINCT arguments, which is pinned without changing that frontend.
+All 20 populated TPC-DS queries pass through all three compilers. Q16/Q94 each
+return three unreturned orders with shipping cost 3 and profit 9; Q95 returns two
+returned orders with shipping cost 5 and profit 3. Duplicate warehouses/returns,
+NULL measures, both shipping-date bounds, invalid/missing dates and failed dimension
+joins are covered with the original SQL, full schemas, helpers and settings.
+The broad run passed 145/147 checks; the two new matrix failures were the old
+computed-DISTINCT rejection. After pinning it and making native result restoration
+explicit, all 28 targeted checks passed, including both populated benchmarks and
+unchanged aggregation regressions. All 82 standalone frontend tests pass; both
+parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
 
@@ -473,8 +500,8 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Seventeen TPC-DS queries (Q8, Q12, Q20, Q21, Q32, Q37, Q38, Q40, Q41, Q51, Q53, Q63,
-Q82, Q87, Q89, Q92 and Q98) pass populated execution
+Twenty TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q32, Q37, Q38, Q40, Q41, Q51, Q53,
+Q63, Q82, Q87, Q89, Q92, Q94, Q95 and Q98) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
 Q41 checks all eight correlated predicate branches, numeric manufacturer-range
