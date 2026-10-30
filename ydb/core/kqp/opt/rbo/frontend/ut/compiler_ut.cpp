@@ -1,9 +1,14 @@
-#include <ydb/core/kqp/opt/rbo/frontend/compiler/compiler.h>
-#include <ydb/core/kqp/opt/rbo/frontend/grammar/grammar.h>
+#include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
+#include <ydb/core/kqp/opt/rbo/frontend/parser.h>
 #include <library/cpp/testing/unittest/registar.h>
 #include <library/cpp/resource/resource.h>
+#include <type_traits>
 
 using namespace NKikimr::NKqp::NFrontend;
+
+static_assert(!std::is_constructible_v<TCompiledProgram, TBoundProgram>);
+static_assert(!std::is_default_constructible_v<TCompiledProgram>);
+static_assert(std::is_same_v<decltype(std::declval<TCompiledProgram>().Get()), const TBoundProgram&>);
 
 namespace {
 struct TKeyword { std::string_view Word; unsigned Identifiers; };
@@ -141,7 +146,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         TCompilerSettings settings;
         settings.Parser = EParser::Verify;
         auto result = CompileNative("SELECT Int32('1') AS literal, CAST(1 AS Int64) AS widened, Length('abc') AS size", Catalog, settings);
-        const auto& columns = result.Program->Results[0].Columns;
+        const auto& columns = result.Program->Get().Results[0].Columns;
         UNIT_ASSERT(columns[0].Type == (TType{ETypeKind::Int32}));
         UNIT_ASSERT(columns[1].Type == (TType{ETypeKind::Int64}));
         UNIT_ASSERT(columns[2].Type == (TType{ETypeKind::Uint32}));

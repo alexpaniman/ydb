@@ -1,6 +1,6 @@
-#include <ydb/core/kqp/opt/rbo/frontend/grammar/grammar.h>
-#include <ydb/core/kqp/opt/rbo/frontend/binder.h>
-#include <ydb/core/kqp/opt/rbo/frontend/diagnostic.h>
+#include <ydb/core/kqp/opt/rbo/frontend/parser.h>
+#include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
+#include <ydb/core/kqp/opt/rbo/frontend/expression.h>
 #include <library/cpp/testing/unittest/registar.h>
 #include <library/cpp/resource/resource.h>
 

@@ -1,6 +1,6 @@
 #include "kqp_native_frontend.h"
 #include "frontend_lowering.h"
-#include "frontend/compiler/compiler.h"
+#include "frontend/frontend.h"
 
 #include <unordered_map>
 
@@ -54,8 +54,9 @@ TVector<TIntrusivePtr<TOpRoot>> CompileNativeToRbo(std::string_view sql,
     }, ctx);
 }
 
-TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TBoundProgram program,
+TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx) {
+    auto program = std::move(compiled).Release();
     std::unordered_map<std::string, TNativeTable> tables;
     for (const auto& relation : program.Relations) if (relation.Kind == NFrontend::ERelation::Read && !tables.contains(relation.Table)) {
         auto table = resolve(relation.Table, relation.Position);

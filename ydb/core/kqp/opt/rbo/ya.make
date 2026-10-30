@@ -44,7 +44,6 @@ PEERDIR(
     ydb/core/kqp/opt/physical
     ydb/core/kqp/opt/rbo/html_log
     ydb/core/kqp/opt/rbo/frontend
-    ydb/core/kqp/opt/rbo/frontend/compiler
     ydb/core/kqp/opt/rbo/rules
     ydb/core/kqp/opt/rbo/physical_conversion
     ydb/library/yql/dq/common

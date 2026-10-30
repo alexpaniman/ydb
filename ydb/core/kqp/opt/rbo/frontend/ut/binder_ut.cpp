@@ -1,8 +1,9 @@
-#include <ydb/core/kqp/opt/rbo/frontend/binder.h>
+#include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
 
 #include <library/cpp/testing/unittest/registar.h>
 
 using namespace NKikimr::NKqp::NFrontend;
+using NKikimr::NKqp::NFrontend::NDetail::Compile;
 
 namespace {
 TCatalogTable Catalog(std::string_view name, TSourcePosition pos) {

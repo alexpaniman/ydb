@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the handwritten lexer's identifier policy from the SQL grammar.
+"""Generate parser grammars and the fast lexer's policy from the SQL grammar.
 
 Only flat alternations of rule/token names are expanded. A grammar change that
 introduces another form fails the build instead of silently changing acceptance.
@@ -35,5 +35,25 @@ def generate(path):
     print("};")
 
 
+def parser_grammar(path, ansi):
+    grammar = Path(path).read_text()
+    name = "NativeRboAnsi" if ansi else "NativeRboDefault"
+    grammar = grammar.replace("grammar SQLv1Antlr4;", f"grammar {name};", 1)
+    single = "~([']) | (QUOTE_SINGLE QUOTE_SINGLE)" if ansi else r"~(['\\]) | (BACKSLASH .)"
+    double = '~([\"]) | (QUOTE_DOUBLE QUOTE_DOUBLE)' if ansi else r'~(["\\]) | (BACKSLASH .)'
+    for key, value in {
+        "GRAMMAR_STRING_CORE_SINGLE": single,
+        "GRAMMAR_STRING_CORE_DOUBLE": double,
+        "GRAMMAR_MULTILINE_COMMENT_CORE": "MULTILINE_COMMENT | ." if ansi else ".",
+    }.items():
+        grammar = grammar.replace(f"@{key}@", value)
+    print(grammar, end="")
+
+
 if __name__ == "__main__":
-    generate(sys.argv[1])
+    if sys.argv[2] == "keywords":
+        generate(sys.argv[1])
+    elif sys.argv[2] in ("default", "ansi"):
+        parser_grammar(sys.argv[1], sys.argv[2] == "ansi")
+    else:
+        raise ValueError("expected keywords, default, or ansi")

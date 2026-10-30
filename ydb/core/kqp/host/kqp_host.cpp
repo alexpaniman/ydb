@@ -1,7 +1,7 @@
 #include <ydb/library/yql/providers/ydb_external/common/provider_names.h>
 #include "kqp_host_impl.h"
 #include "kqp_statement_rewrite.h"
-#include <ydb/core/kqp/opt/rbo/frontend/compiler/compiler.h>
+#include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
 #include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 
@@ -1549,8 +1549,8 @@ private:
                             return table;
                         };
                         auto program = F::BindNative(*syntax, schema, options.Binding);
-                        const auto explain = TString(F::Explain(program));
-                        const auto nativeParameters = program.Parameters;
+                        const auto explain = TString(F::Explain(program.Get()));
+                        const auto nativeParameters = program.Get().Parameters;
 
                         // RBO/backend boundary. Up to here the query was parsed,
                         // resolved and typed using only the native representation.

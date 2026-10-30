@@ -53,7 +53,9 @@ The APIs are:
 - `ParseNative` / `CollectTables` / `BindNative`: separate parsing
   and binding around asynchronous metadata I/O (all in `NFrontend`).
 - `CompileNative`: standalone compile/routing decision with a catalog callback.
-- `ConvertNativeToRbo`: consume a bound program once at the optimizer boundary.
+- `ConvertNativeToRbo`: consume a validated `TCompiledProgram` once at the optimizer boundary.
+  Only checked compilation can construct this type; raw binder output cannot
+  be passed to the converter.
 - `CompileNativeToRbo`: synchronous convenience API using the same grammar and
   execution profile, with no fallback.
 
@@ -61,7 +63,7 @@ The CLI reports fallback decisions but cannot execute the legacy compiler.
 
 ## Grammar and parser migration
 
-`grammar/default` and `grammar/ansi` generate independent, namespaced C++
+The `grammar` build target generates independent, namespaced C++
 parsers from `yql/essentials/sql/v1/SQLv1Antlr4.g.in` at build time. They depend
 on the generic ANTLR C++ runtime, not YQL parser wrappers, protobuf parse trees,
 translation, or type libraries. Strict recognition covers the full shared
@@ -96,7 +98,7 @@ string data.
 
 ## Execution profile
 
-`compiler/compiler.cpp` enforces `native-read-v1`; `--support` prints its
+`frontend.cpp` enforces `native-read-v1`; `--support` prints its
 machine-readable description. Grammar recognition is deliberately broader
 than execution support. The profile is experimental and grows with legacy
 result/type parity tests.
@@ -228,3 +230,21 @@ These compare two native frontends, not complete native versus legacy YQL
 compilation. Fast mode still delegates unhandled syntax to generated parsing;
 its correspondence tests exercise that full dispatch path. The benchmark cases
 also verify direct handwritten/generated syntax agreement before timing.
+
+## Migration scope and baseline
+
+The compiler is contained in four implementation files in this directory:
+`expression.cpp` (types and execution operations), `parser.cpp` (fast syntax),
+`grammar.cpp` (shared grammar adaptation), and `frontend.cpp` (binding and
+checked compilation). `grammar/` contains build rules only. RBO conversion and
+backend lowering are in the enclosing RBO directory. Tests share one `ut`
+target. New language support belongs in these files rather than a new framework
+or a directory per feature.
+
+The unchanged baseline at `f9967857753` passed all 357 RBO tests on 2026-10-30.
+Existing benchmark expectations are 22/22 TPC-H and 97/99 TPC-DS explain
+successes; TPC-DS 17 and 44 are expected failures, not native successes. The
+migration target is all 121 queries with native-required compilation and
+execution validation, plus previously working YQL read-query tests. Writes
+and PostgreSQL are tracked separately. Pre-existing RBO/backend defects remain
+outside this patch; failures caused by native translation or migration are fixed.

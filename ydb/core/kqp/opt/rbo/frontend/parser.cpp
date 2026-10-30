@@ -1,5 +1,4 @@
 #include "parser.h"
-#include "diagnostic.h"
 
 #include <algorithm>
 #include <array>

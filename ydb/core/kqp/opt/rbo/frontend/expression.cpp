@@ -1,5 +1,4 @@
 #include "expression.h"
-#include "diagnostic.h"
 
 #include <algorithm>
 #include <bit>

@@ -1,10 +1,9 @@
-#include "grammar.h"
-#include "../diagnostic.h"
+#include "parser.h"
 
-#include <ydb/core/kqp/opt/rbo/frontend/grammar/default/SQLv1Antlr4Lexer.h>
-#include <ydb/core/kqp/opt/rbo/frontend/grammar/default/SQLv1Antlr4Parser.h>
-#include <ydb/core/kqp/opt/rbo/frontend/grammar/ansi/SQLv1Antlr4Lexer.h>
-#include <ydb/core/kqp/opt/rbo/frontend/grammar/ansi/SQLv1Antlr4Parser.h>
+#include <ydb/core/kqp/opt/rbo/frontend/grammar/NativeRboDefaultLexer.h>
+#include <ydb/core/kqp/opt/rbo/frontend/grammar/NativeRboDefaultParser.h>
+#include <ydb/core/kqp/opt/rbo/frontend/grammar/NativeRboAnsiLexer.h>
+#include <ydb/core/kqp/opt/rbo/frontend/grammar/NativeRboAnsiParser.h>
 
 #include <algorithm>
 #include <sstream>
@@ -623,8 +622,8 @@ TParsedQuery Run(std::string_view sql, const TParseSettings& settings, bool tran
 }
 
 TParsedQuery Run(std::string_view sql, const TParseSettings& settings, bool translate) {
-    if (settings.AnsiQuotes) return Run<NativeRboAnsi::SQLv1Antlr4Lexer, NativeRboAnsi::SQLv1Antlr4Parser>(sql, settings, translate);
-    return Run<NativeRboDefault::SQLv1Antlr4Lexer, NativeRboDefault::SQLv1Antlr4Parser>(sql, settings, translate);
+    if (settings.AnsiQuotes) return Run<NativeRboAnsi::NativeRboAnsiLexer, NativeRboAnsi::NativeRboAnsiParser>(sql, settings, translate);
+    return Run<NativeRboDefault::NativeRboDefaultLexer, NativeRboDefault::NativeRboDefaultParser>(sql, settings, translate);
 }
 } // namespace
 

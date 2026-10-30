@@ -23,7 +23,7 @@ NFrontend::TExprId Projection(const NFrontend::TBoundProgram& program) {
 // Compile and execute the terminal scalar graph directly: no YQL annotation,
 // expression peepholes, SQL translation or compatibility transformer.
 void CheckScalar(std::string_view sql) {
-    auto program = NFrontend::Compile(sql, [](auto, auto pos) -> NFrontend::TCatalogTable {
+    auto program = NFrontend::NDetail::Compile(sql, [](auto, auto pos) -> NFrontend::TCatalogTable {
         throw NFrontend::TFrontendError(pos, "unexpected table");
     });
     const auto id = Projection(program);

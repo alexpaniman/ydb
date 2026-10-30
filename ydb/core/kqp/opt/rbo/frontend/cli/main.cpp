@@ -1,4 +1,4 @@
-#include <ydb/core/kqp/opt/rbo/frontend/compiler/compiler.h>
+#include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
 
 #include <charconv>
 #include <chrono>
@@ -89,14 +89,14 @@ int main(int argc, char** argv) {
             std::cout << "\nCLI reports the routing decision; it does not execute the legacy compiler.\n";
             return 0;
         }
-        auto& program = *result.Program;
+        const auto& program = result.Program->Get();
         if (!benchmark) std::cout << Explain(program);
         else {
             std::size_t expressions = 0, relations = 0;
             const auto start = std::chrono::steady_clock::now();
             for (unsigned i = 0; i < iterations; ++i) {
                 auto result = CompileNative(sql, resolve, settings);
-                auto& compiled = result.Program.value();
+                const auto& compiled = result.Program->Get();
                 expressions += compiled.Expressions.Size();
                 relations += compiled.Relations.size();
             }

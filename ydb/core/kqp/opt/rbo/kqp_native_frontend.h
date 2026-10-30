@@ -1,6 +1,6 @@
 #pragma once
 
-#include "frontend/binder.h"
+#include "frontend/frontend.h"
 #include "kqp_operator.h"
 
 namespace NKikimr::NKqp {
@@ -15,7 +15,7 @@ using TNativeTableResolver = std::function<TNativeTable(std::string_view, NFront
 
 // Consumes an already bound program after asynchronous native catalog binding.
 // This is the boundary at which existing RBO table/type wrappers may be used.
-TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TBoundProgram program,
+TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram program,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx);
 
 // Tables must be resolved through the caller's normal catalog/authorization

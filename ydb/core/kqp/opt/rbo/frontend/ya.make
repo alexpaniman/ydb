@@ -1,22 +1,24 @@
 LIBRARY()
 
 RUN_PYTHON3(
-    tools/grammar_keywords.py
-    ${ARCADIA_ROOT}/yql/essentials/sql/v1/SQLv1Antlr4.g.in
+    tools/generate.py
+    ${ARCADIA_ROOT}/yql/essentials/sql/v1/SQLv1Antlr4.g.in keywords
     IN ${ARCADIA_ROOT}/yql/essentials/sql/v1/SQLv1Antlr4.g.in
     STDOUT grammar_keywords.inc
 )
 
 SRCS(
-    binder.cpp
+    frontend.cpp
     expression.cpp
     parser.cpp
+    grammar.cpp
+)
+
+PEERDIR(
+    ydb/core/kqp/opt/rbo/frontend/grammar
+    contrib/libs/antlr4_cpp_runtime
 )
 
 END()
 
-RECURSE_FOR_TESTS(
-    ut
-    grammar/ut
-    compiler/ut
-)
+RECURSE_FOR_TESTS(ut)
