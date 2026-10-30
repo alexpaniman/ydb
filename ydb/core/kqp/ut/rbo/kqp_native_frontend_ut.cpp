@@ -371,6 +371,39 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         }
     }
 
+    Y_UNIT_TEST(DateTextMatchesRuntimeLexicalContract) {
+        using namespace NFrontend;
+        TExpressionArena arena;
+        const auto parsed = arena.Cast(arena.Parameter("text", {ETypeKind::String, true}), {ETypeKind::Date});
+        auto check = [&](std::string text, bool lower = false) {
+            TEvaluationContext context;
+            context.Parameter = [&](std::string_view) { return TValue{{ETypeKind::String, true}, text}; };
+            const auto actual = Evaluate(arena, parsed, context);
+            const auto expected = NMiniKQL::ValueFromString(NUdf::EDataSlot::Date, NUdf::TStringRef(text.data(), text.size()));
+            UNIT_ASSERT_VALUES_EQUAL_C(actual.IsNull(), !expected, text);
+            if (expected) UNIT_ASSERT_VALUES_EQUAL_C(std::get<std::uint64_t>(actual.Data), expected.Get<ui16>(), text);
+            if (lower) {
+                TExpressionArena direct;
+                // Keep parsing as a runtime cast; literal casts fold in binding.
+                const auto input = direct.Binary(EOpcode::Concat, direct.Literal({ETypeKind::String}, text),
+                    direct.Literal({ETypeKind::String}, std::string{}));
+                CheckScalar(direct, direct.Cast(input, {ETypeKind::Date}), text);
+            }
+        };
+        for (int year = 1969; year <= 2106; ++year) for (int month = 0; month <= 13; ++month) for (int day = 0; day <= 32; ++day) {
+            check(std::to_string(year) + '-' + std::to_string(month) + '-' + std::to_string(day));
+            check(std::to_string(year) + '-' + (month < 10 ? "0" : "") + std::to_string(month) + '-' + (day < 10 ? "0" : "") + std::to_string(day));
+        }
+        for (const std::string text : {"", " ", "1970-01-01", "1969-12-31", "2105-12-31", "2106-01-01", "2000-02-29", "2100-02-29",
+                "1998-3-18", "1998-03-8", "01998-03-18", "+1998-03-18", "1998--03-18", "1998-003-18", "1998-03-018",
+                " 1998-03-18", "1998-03-18 ", "1998-03-18\n", "1998-03-18Z", "1998-03-18T00:00:00Z", "1998/03/18", "１９９８-03-18"}) check(text, true);
+        check(std::string{"1998-03-18\0", 11}, true);
+        check(std::string{"1998-03-18\xff", 11}, true);
+        TEvaluationContext null;
+        null.Parameter = [](std::string_view) { return TValue{{ETypeKind::String, true}, {}}; };
+        UNIT_ASSERT(Evaluate(arena, parsed, null).IsNull());
+    }
+
     Y_UNIT_TEST(TextCastsMatchRuntimeLexicalContract) {
         using namespace NFrontend;
         for (const auto kind : {ETypeKind::Bool, ETypeKind::Float, ETypeKind::Double}) {
@@ -518,6 +551,12 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT CAST(CAST('nan' AS Decimal(8,2)) AS Float)",
             "SELECT CAST(CAST('inf' AS Decimal(8,2)) AS String)",
             "SELECT Date('2020-01-01') + Interval('P1D')",
+            "SELECT Date('2020-01-01') + DateTime::IntervalFromDays(60)",
+            "SELECT DateTime::IntervalFromDays(-49672)",
+            "SELECT DateTime::IntervalFromDays(49673)",
+            "SELECT DateTime::IntervalFromDays(213503982)",
+            "SELECT DateTime::IntervalFromHours(1)",
+            "SELECT DateTime2::IntervalFromMinutes(IF(false, 1))",
             "SELECT CAST(Date('2020-01-02') AS Timestamp)",
             "SELECT DateTime::GetYear(Timestamp('2000-02-29T12:34:56.123456Z'))",
             "SELECT DateTime::MakeDate(DateTime::ShiftMonths(Date('2020-01-31'), 1))",

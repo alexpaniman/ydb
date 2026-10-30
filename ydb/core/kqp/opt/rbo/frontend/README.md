@@ -119,7 +119,7 @@ byte-string concatenation, Length, StartsWith/EndsWith, ASCII case functions,
 and constant LIKE patterns containing literal text and % wildcards have native operations. Primitive data
 constructors require string literals and produce required values. Explicit
 casts cover integers, Bool, Float/Double, Decimal, String/Utf8, and narrow temporal
-types (text parsing still requires literals). Temporal inputs may be cast to other
+types (text parsing requires literals except for Date). Temporal inputs may be cast to other
 temporal types. Total casts preserve non-nullability, including integer to
 floating point. Floating division preserves IEEE infinity/NaN. Substring slices
 String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
@@ -154,6 +154,12 @@ evaluator preserves month-end clamping, microseconds, range failures and the
 existing narrow runtime's 12-bit year wraparound for large shifts. Terminal
 lowering constructs fully typed runtime calls directly, with no annotation or
 semantic rewrite pass. Timezone and wide-date types remain outside the profile.
+
+Runtime String/Utf8-to-Date casts use the same bounded numeric date contract as
+literal parsing; malformed or out-of-range dates produce NULL. DateTime's
+IntervalFromDays/Hours/Minutes accept Int32 (including nullable inputs) or fitting
+integer literals. They become ordinary widening, wrapping integer multiplication
+and a checked Interval cast, with no extra expression kind or runtime UDF.
 
 LIKE compiles to ordered byte searches and prefix/suffix checks, with no regex
 object or runtime semantic lowering. It preserves YQL's pattern-dependent NULL
@@ -221,7 +227,7 @@ Explicitly outside the profile:
   (which require YQL's column-name coalescing rules).
 - UDFs, higher-order values, containers/structs/tuples, nested optionals.
 - Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
-  text parsing, and runtime casts from temporal inputs to non-temporal types.
+  text parsing to types other than Date, and runtime casts from temporal inputs to non-temporal types.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
   conversions are excluded. Apart from integer multiplication factors, Decimal
   arithmetic and COALESCE require matching input types or explicit casts; their mixed-type rules differ from comparison
@@ -311,7 +317,7 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 40/99 | 59 |
+| TPC-DS | 49/99 | 50 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
@@ -321,6 +327,16 @@ tables. The accepted TPC-DS and ClickBench queries still need that validation. T
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+The runtime Date/interval extension passed all 112 native tests. Native Date
+parsing matches the existing runtime on 127,512 padded/unpadded date strings
+across and beyond the supported range, plus malformed and binary suffix cases.
+Direct MiniKQL tests keep casts dynamic and need no annotation pass. Host tests
+compare 1,540 values and their types across nullable String/Utf8 inputs, interval
+boundaries and 64-bit wrapping before interval validation. All 22 populated
+TPC-H queries remain passing. TPC-DS frontend acceptance is now 49/99; Q21,
+Q32, Q37, Q40, Q58, Q72, Q82, Q83 and Q92 are newly accepted, with populated
+execution validation still pending.
 
 The integer-factor extension passed all 109 native tests. It compares 1,600
 arithmetic cases with the existing runtime across all eight integer widths,

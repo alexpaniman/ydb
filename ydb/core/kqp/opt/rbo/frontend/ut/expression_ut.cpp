@@ -197,7 +197,7 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Binary(O::Add, narrow, arena.Literal({K::Int8}, std::int64_t{1})))), "-128");
     }
 
-    Y_UNIT_TEST(TextCastsFoldAndDynamicParsingIsRejected) {
+    Y_UNIT_TEST(TextCastsFoldAndDynamicNumbersAreRejected) {
         TExpressionArena arena;
         auto text = arena.Literal({K::String}, std::string{"123"});
         auto converted = arena.Cast(text, {K::Int32});
@@ -225,6 +225,11 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         auto utf8 = arena.Cast(dynamic, {K::Utf8});
         UNIT_ASSERT(arena[utf8].Op == O::Cast);
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, utf8, context)), std::string{"\xD0\xAF"});
+        const auto runtimeDate = arena.Cast(dynamic, {K::Date});
+        context.Parameter = [](std::string_view) { return TValue{{K::String}, std::string{"1998-3-18"}}; };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, runtimeDate, context)), "10303");
+        context.Parameter = [](std::string_view) { return TValue{{K::String}, std::string{"1998-2-30"}}; };
+        UNIT_ASSERT(Evaluate(arena, runtimeDate, context).IsNull());
     }
 
     Y_UNIT_TEST(DecimalScaleAndOverflowAreExplicit) {

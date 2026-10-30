@@ -113,8 +113,8 @@ public:
     TExprId Binary(EOpcode op, TExprId left, TExprId right, TSourcePosition position = {});
     // Total numeric conversion/optional lifting; rejects conversions that can fail.
     TExprId Convert(TExprId input, TType target, TSourcePosition position = {});
-    // Text-to-number/Boolean/temporal casts require literals and fold here.
-    // String/Utf8 conversion remains a checked runtime operation.
+    // Text-to-number/Boolean/Datetime/Timestamp casts require literals and fold
+    // here. Date parsing and String/Utf8 conversion also support runtime input.
     TExprId Cast(TExprId input, TType target, TSourcePosition position = {});
     TExprId If(TExprId condition, TExprId thenExpr, TExprId elseExpr, TSourcePosition position = {});
     TExprId Coalesce(std::span<const TExprId> arguments, TSourcePosition position = {});

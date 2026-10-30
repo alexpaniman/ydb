@@ -850,14 +850,14 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
     if (source.IsString() && !target.IsString()) {
         const auto& node = (*this)[input];
         if (node.Op != O::Literal) {
+            if (target.Kind == K::Date) return Append({O::Cast, target.Optional(), position, {input}, {}, {}, 0});
             throw TUnsupportedFeature(EFeature::Expression, position, "Text conversion to " + target.ToString() + " requires a literal; dynamic text parsing is not supported");
         }
         if (target.Kind == K::Decimal && std::holds_alternative<std::string>(node.Value) &&
             !IsCanonicalDecimalText(std::get<std::string>(node.Value)))
             throw TUnsupportedFeature(EFeature::Expression, position, "native Decimal text requires canonical digits or inf/nan; exponent and malformed text parsing are not supported");
-        // Parse text once with this frontend's explicit lexical contract.
-        // The execution model carries only the resulting typed value, so it
-        // never depends on the backend's more permissive string parsers.
+        // Literal text is converted once with the native lexical contract.
+        // Runtime Date parsing uses this same parser in reference execution.
         auto converted = ConvertValue({source, node.Value}, target.Optional());
         return Literal(converted.Type, std::move(converted.Data), position);
     }
@@ -1033,6 +1033,26 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
     };
     if (lowered.starts_with("datetime::") || lowered.starts_with("datetime2::")) {
         const auto function = lowered.substr(lowered.find("::") + 2);
+        if (function == "intervalfromdays" || function == "intervalfromhours" || function == "intervalfromminutes") {
+            arity(1);
+            auto amount = arguments[0];
+            const auto value = (*this)[amount];
+            if (value.Type.Required() != TType{K::Int32}) {
+                if (value.Op != O::Literal || !value.Type.IsIntegral() || value.Type.Nullable)
+                    throw TUnsupportedFeature(EFeature::Type, position, "native interval constructors require Int32 amounts or fitting integer literals");
+                const auto number = IntegralValue({value.Type, value.Value});
+                if (!number || !FitsSigned(*number, 32)) Fail(position, "interval amount must fit Int32");
+                amount = Literal({K::Int32}, static_cast<std::int64_t>(*number), position);
+            }
+            const auto scale = function == "intervalfromdays" ? MicrosPerDay :
+                function == "intervalfromhours" ? 3'600'000'000LL : 60'000'000LL;
+            const auto wide = Convert(amount, {K::Int64, (*this)[amount].Type.Nullable}, position);
+            const auto factor = Literal({K::Int64}, static_cast<std::int64_t>(scale), position);
+            // Runtime constructors multiply in their signed 64-bit layout,
+            // then check the narrow interval range. Ordinary native operations
+            // preserve that wrapping and NULL behavior without a resource/UDF.
+            return Cast(Binary(O::Multiply, wide, factor, position), {K::Interval}, position);
+        }
         auto calendar = [&](TExprId value) {
             if ((*this)[value].Type.Kind == K::Calendar) return value;
             return Unary(O::CalendarSplit, value, position);

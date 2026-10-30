@@ -1123,6 +1123,34 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         UNIT_ASSERT_C(failures.empty(), failures);
     }
 
+    Y_UNIT_TEST(RuntimeDateParsingAndIntervalsMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        for (const bool utf8 : {false, true}) {
+            const TString sql = TStringBuilder() << "DECLARE $s AS " << (utf8 ? "Utf8" : "String") << R"(?;
+                DECLARE $amount AS Int32?;
+                SELECT CAST($s AS Date), DateTime::IntervalFromDays($amount),
+                    DateTime::IntervalFromHours($amount), DateTime2::IntervalFromMinutes($amount),
+                    CAST($s AS Date) + DateTime::IntervalFromDays($amount)
+            )";
+            for (const auto& text : TVector<std::optional<std::string>>{std::nullopt, "", "1970-1-1", "1998-3-18", "2000-02-29",
+                    "2100-02-29", "2105-12-31", "2106-1-1", "1998-003-18", " 1998-03-18", "1998-03-18T00:00:00Z"}) {
+                for (const auto amount : std::initializer_list<std::optional<i32>>{std::nullopt, std::numeric_limits<i32>::lowest(),
+                        -213503983, -213503982, -49673, -49672, -1, 0, 1, 49672, 49673, 213503982, 213503983, std::numeric_limits<i32>::max()}) {
+                    auto builder = TParamsBuilder();
+                    if (utf8) builder.AddParam("$s").OptionalUtf8(text).Build();
+                    else builder.AddParam("$s").OptionalString(text).Build();
+                    builder.AddParam("$amount").OptionalInt32(amount).Build();
+                    const auto params = builder.Build();
+                    AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                        Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(RuntimeCalendarOperationsMatchLegacy) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));

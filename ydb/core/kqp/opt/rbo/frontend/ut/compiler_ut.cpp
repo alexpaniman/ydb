@@ -31,6 +31,22 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(RuntimeDatesAndIntervalsUseExecutionOperations) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto result = CompileNative("DECLARE $s AS Utf8?; DECLARE $d AS Int32?; SELECT CAST($s AS Date), CAST($s AS Date) + DateTime::IntervalFromDays($d), DateTime::IntervalFromHours($d), DateTime::IntervalFromMinutes($d)", Catalog, settings);
+            UNIT_ASSERT(!result.UsesLegacy());
+            const auto& columns = result.Program->Get().Results[0].Columns;
+            UNIT_ASSERT(columns[0].Type == (TType{ETypeKind::Date, true}));
+            UNIT_ASSERT(columns[1].Type == (TType{ETypeKind::Date, true}));
+            UNIT_ASSERT(columns[2].Type == (TType{ETypeKind::Interval, true}));
+            UNIT_ASSERT(columns[3].Type == (TType{ETypeKind::Interval, true}));
+            UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $s AS String; SELECT CAST($s AS Timestamp)", Catalog, settings), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $n AS Int64; SELECT DateTime::IntervalFromDays($n)", Catalog, settings), TUnsupportedFeature);
+        }
+    }
+
     Y_UNIT_TEST(CalendarBindingsAreScalarAndCannotBePersisted) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings;
