@@ -323,10 +323,23 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. The accepted TPC-DS and ClickBench queries still need that validation. The report preserves
+tables. TPC-DS Q21, Q32, Q37, Q40, Q82 and Q92 also have populated native-required
+execution checks; the other accepted TPC-DS and ClickBench queries still need
+that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+Six TPC-DS queries (Q21, Q32, Q37, Q40, Q82 and Q92) pass populated execution
+against explicit expected values and the existing frontend plus new RBO, with
+identical result values, column names/types/order and successful CBO invariants.
+They retain the original SQL, full schema, helpers and benchmark settings.
+Fixtures exercise date/price/quantity bounds, invalid and NULL dates, duplicate
+sales, missing matches, strict correlated-average thresholds, NULL refunds and
+negative net sales. All values also agree with the old optimizer. Q21 pins an
+existing metadata difference: the old optimizer alphabetizes SELECT * columns,
+whereas new RBO preserves the derived table's projection order. Native retains
+the existing RBO order; neither older compiler is changed.
 
 The runtime Date/interval extension passed all 112 native tests. Native Date
 parsing matches the existing runtime on 127,512 padded/unpadded date strings
@@ -335,8 +348,7 @@ Direct MiniKQL tests keep casts dynamic and need no annotation pass. Host tests
 compare 1,540 values and their types across nullable String/Utf8 inputs, interval
 boundaries and 64-bit wrapping before interval validation. All 22 populated
 TPC-H queries remain passing. TPC-DS frontend acceptance is now 49/99; Q21,
-Q32, Q37, Q40, Q58, Q72, Q82, Q83 and Q92 are newly accepted, with populated
-execution validation still pending.
+Q32, Q37, Q40, Q58, Q72, Q82, Q83 and Q92 were newly accepted by that increment.
 
 The integer-factor extension passed all 109 native tests. It compares 1,600
 arithmetic cases with the existing runtime across all eight integer widths,
@@ -350,8 +362,8 @@ exact expected results, complete value/type/name parity against both legacy
 paths, and RBO CBO invariants. Q11 includes positive inventory values and NULL,
 zero and negative groups rejected by HAVING. Fast and generated grammar modes
 agree on all 164 corpus routing decisions; the standalone CLI still contains
-no YQL or MiniKQL symbols. TPC-DS acceptance is 40/99, with Q61, Q64 and Q93
-newly accepted, but populated TPC-DS execution is not yet validated.
+no YQL or MiniKQL symbols. That increment raised TPC-DS acceptance to 40/99,
+with Q61, Q64 and Q93 newly accepted.
 
 The calendar extension passed all 107 native tests. Direct MiniKQL execution
 requires no graph annotation or peephole pass. Runtime parameter tests compare
