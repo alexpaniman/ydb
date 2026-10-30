@@ -32,6 +32,34 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(UnnamedGroupingCapturesItsDefinitionScope) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                    "PRAGMA YqlSelectAllowUnnamedGroupByExpr; SELECT value + 1 AS k, COUNT(*) FROM t GROUP BY value + 1 HAVING value + 1 > 0 ORDER BY value + 1",
+                    "PRAGMA YqlSelectAllowUnnamedGroupByExpr; SELECT value + 1 AS k, COUNT(*), GROUPING(value + 1) FROM t GROUP BY ROLLUP(value + 1)",
+                    "PRAGMA YqlSelectAllowUnnamedGroupByExpr; $q = (SELECT value + 1 AS k FROM t GROUP BY value + 1); PRAGMA DisableYqlSelectAllowUnnamedGroupByExpr; SELECT k FROM $q",
+                    "PRAGMA YqlSelectAllowUnnamedGroupByExpr; SELECT k FROM (SELECT value + 1 AS k FROM t GROUP BY value + 1) AS q"})
+                UNIT_ASSERT_C(!CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+            const auto duplicate = CompileNative("PRAGMA YqlSelectAllowUnnamedGroupByExpr; SELECT value + 1 FROM t GROUP BY value + 1, value + 1", Catalog, settings);
+            for (const auto& relation : duplicate.Program->Get().Relations)
+                if (relation.Kind == ERelation::Aggregate) UNIT_ASSERT_VALUES_EQUAL(relation.GroupKeys.size(), 1);
+            for (const auto* sql : {
+                    "SELECT value + 1 FROM t GROUP BY value + 1",
+                    "$q = (SELECT value + 1 AS k FROM t GROUP BY value + 1); PRAGMA YqlSelectAllowUnnamedGroupByExpr; SELECT k FROM $q",
+                    "PRAGMA YqlSelectAllowUnnamedGroupByExpr; PRAGMA DisableYqlSelectAllowUnnamedGroupByExpr; SELECT value + 1 FROM t GROUP BY value + 1",
+                    "PRAGMA YqlSelectAllowUnnamedGroupByExpr='false'; SELECT 1"})
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TUnsupportedFeature, sql);
+            for (const auto* sql : {
+                    "PRAGMA YqlSelectAllowUnnamedGroupByExpr; SELECT value FROM t GROUP BY value + 1",
+                    "PRAGMA YqlSelectAllowUnnamedGroupByExpr; SELECT expr2 FROM t GROUP BY value + 1"}) {
+                try { CompileNative(sql, Catalog, settings); UNIT_FAIL(sql); }
+                catch (const TUnsupportedFeature&) { UNIT_FAIL("invalid grouped column delegated"); }
+                catch (const TFrontendError&) {}
+            }
+        }
+    }
+
     Y_UNIT_TEST(GroupingSetsBindNullableOutputsAndExecutableMasks) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;

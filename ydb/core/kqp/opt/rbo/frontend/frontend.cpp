@@ -46,6 +46,8 @@ public:
             if (statement.Kind == EStatementKind::Pragma && statement.Value.empty()) {
                 const auto name = Lower(statement.Name);
                 if (name == "ansicurrentrow" || name == "disableansicurrentrow") AnsiCurrentRow = name == "ansicurrentrow";
+                if (name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr")
+                    AllowUnnamedGroups = name == "yqlselectallowunnamedgroupbyexpr";
             }
             Arguments.clear();
             if (statement.Lambda) for (const auto& name : statement.Parameters) {
@@ -61,6 +63,7 @@ public:
     std::uint32_t operator[](TSyntaxId expression) const { return References.at(expression); }
     bool IsReferenced(TSyntaxId expression) const { return Seen.at(expression); }
     bool WindowUsesAnsi(TSyntaxId expression) const { return WindowDefaults.at(expression); }
+    bool AllowsUnnamedGroups(const TSelect& query) const { return UnnamedGroups.contains(&query); }
     std::shared_ptr<TSelect> Query(const TSource& source) const {
         if (source.Query || !source.Name.starts_with('$')) return source.Query;
         const auto binding = Sources.at(&source);
@@ -98,6 +101,7 @@ private:
     }
     void Select(const TSelect& query) {
         if (++Depth > Settings.MaxExpansionDepth) throw TResourceLimitError(query.Position, "binding scope depth limit exceeded");
+        if (AllowUnnamedGroups) UnnamedGroups.insert(&query);
         for (const auto& [name, cte] : query.Ctes) Select(*cte);
         if (query.Source) Source(*query.Source);
         for (const auto& join : query.Joins) { Source(join.Source); Expression(join.Predicate); }
@@ -118,6 +122,8 @@ private:
     std::vector<bool> Seen;
     std::vector<bool> WindowDefaults;
     bool AnsiCurrentRow;
+    bool AllowUnnamedGroups = false;
+    std::unordered_set<const TSelect*> UnnamedGroups;
     std::unordered_map<std::string, std::uint32_t> Names;
     std::unordered_set<std::string> Arguments;
     std::unordered_map<const TSource*, std::uint32_t> Sources;
@@ -329,7 +335,8 @@ public:
                         // Comma joins have one unambiguous cross-product meaning.
                     } else if ((name == "ansiinforemptyornullableitemscollections" || name == "disableansiinforemptyornullableitemscollections") && statement.Value.empty()) {
                         AnsiIn = name == "ansiinforemptyornullableitemscollections";
-                    } else if ((name == "ansicurrentrow" || name == "disableansicurrentrow") && statement.Value.empty()) {
+                    } else if ((name == "ansicurrentrow" || name == "disableansicurrentrow" ||
+                            name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr") && statement.Value.empty()) {
                         // Captured with the syntax at its definition site.
                     } else throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "unsupported pragma: " + statement.Name);
                     break;
@@ -554,9 +561,10 @@ private:
             std::vector<TScopeColumn> keyNames;
             sourceContext.AllowSubqueries = false;
             for (const auto& key : query.GroupBy) {
-                if (key.Alias.empty() && Syntax.Expressions[key.Expression].Kind != ESyntaxKind::Column)
+                const bool unnamed = key.Alias.empty() && Syntax.Expressions[key.Expression].Kind != ESyntaxKind::Column;
+                if (unnamed && !Bindings.AllowsUnnamedGroups(query))
                     throw TUnsupportedFeature(EFeature::Expression, Syntax.Expressions[key.Expression].Position,
-                        "computed GROUP BY keys require an explicit alias in native-read-v1");
+                        "computed GROUP BY keys require an explicit alias or PRAGMA YqlSelectAllowUnnamedGroupByExpr");
                 const auto canonical = Canonical[key.Expression];
                 auto found = bound.find(canonical);
                 const auto id = found == bound.end() ? Materialize(Expr(key.Expression, sourceContext), aggregation.Definitions,
@@ -565,6 +573,7 @@ private:
                 if (seen.insert(id).second) aggregation.Keys.push_back(id);
                 auto column = ScopeColumn(id);
                 if (!key.Alias.empty()) column.Name = key.Alias;
+                if (unnamed) { column.Name.clear(); column.Qualifier.clear(); }
                 keyNames.push_back(std::move(column));
             }
             std::unordered_map<TColumnId, std::size_t> frequency;
@@ -597,7 +606,7 @@ private:
                 auto column = keyNames[i];
                 column.Id = outward.at(column.Id); column.Type = Program.Columns[column.Id].Type;
                 aggregation.Groups.emplace(Canonical[query.GroupBy[i].Expression], column);
-                if (names.emplace(column.Id, column.Name, column.Qualifier).second) grouped.Add(std::move(column));
+                if (!column.Name.empty() && names.emplace(column.Id, column.Name, column.Qualifier).second) grouped.Add(std::move(column));
             }
             sourceContext.AllowSubqueries = true;
         }
@@ -1735,8 +1744,8 @@ std::string_view SupportManifest() {
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],
 "windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
-"pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow"],
-"restrictions":["mixed DISTINCT aggregates support scalar states; combinations containing AVG require a tuple state and delegate","computed GROUP BY keys require aliases; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","no stars over joins","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; no implicit signed/unsigned promotion elsewhere or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
+"restrictions":["mixed DISTINCT aggregates support scalar states; combinations containing AVG require a tuple state and delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","no stars over joins","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; no implicit signed/unsigned promotion elsewhere or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

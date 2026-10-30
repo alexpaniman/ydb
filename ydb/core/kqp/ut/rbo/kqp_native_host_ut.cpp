@@ -4,6 +4,7 @@
 #include <util/stream/file.h>
 #include <util/string/subst.h>
 
+#include <array>
 #include <limits>
 
 namespace NKikimr::NKqp {
@@ -787,6 +788,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {972, "P", "Other", "C1", "Roll B"}, {973, "Q", nullptr, nullptr, "Roll B"},
             {974, nullptr, nullptr, "C3", nullptr}, {975, "R", "B", "C4", "Roll C"}, {976, "S", "B", "C5", "Roll D"}})
         appendItem(id, nullptr, std::nullopt, category, itemClass, brand, std::nullopt, {product, nullptr, nullptr, nullptr, nullptr});
+    for (const i64 id : {1100, 1101, 1102, 1103, 1104})
+        appendItem(id, nullptr, std::nullopt, "Frequent", nullptr);
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -821,7 +824,17 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     warehouse.BeginList().AddListItem().BeginStruct().AddMember("w_warehouse_sk").Int64(1)
         .AddMember("w_warehouse_id").Utf8("WH001").AddMember("w_warehouse_name").OptionalUtf8("Warehouse A")
         .AddMember("w_state").OptionalUtf8("CA").EndStruct();
+    for (const auto& [id, name] : std::initializer_list<std::pair<i64, const char*>>{
+            {90, "xABCDEFGHIJKLMNOPQRST-A"}, {91, "yABCDEFGHIJKLMNOPQRST-B"}, {92, nullptr}, {93, "xOther"}})
+        warehouse.AddListItem().BeginStruct().AddMember("w_warehouse_sk").Int64(id)
+            .AddMember("w_warehouse_id").Utf8("Warehouse" + std::to_string(id)).AddMember("w_warehouse_name").OptionalUtf8(optionalText(name))
+            .AddMember("w_state").OptionalUtf8(std::nullopt).EndStruct();
     load("warehouse", warehouse);
+    TValueBuilder modes; modes.BeginList();
+    for (const auto& [id, name] : std::initializer_list<std::pair<i64, const char*>>{{90, "AIR"}, {91, "SEA"}, {92, nullptr}})
+        modes.AddListItem().BeginStruct().AddMember("sm_ship_mode_sk").Int64(id).AddMember("sm_ship_mode_id").Utf8("Mode" + std::to_string(id))
+            .AddMember("sm_type").OptionalUtf8(optionalText(name)).EndStruct();
+    load("ship_mode", modes);
     TValueBuilder inventory;
     inventory.BeginList();
     // Q37/Q82: both date/price/quantity boundaries, invalid and NULL dates,
@@ -851,7 +864,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     struct TSale {
         i64 Item;
         i64 Order;
-        i64 Date;
+        std::optional<i64> Date;
         std::optional<i64> Warehouse;
         const char* Price;
         const char* Discount;
@@ -868,6 +881,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         const char* ListPrice = nullptr;
         const char* Coupon = nullptr;
         std::optional<i64> Demographics = std::nullopt;
+        std::optional<i64> ShipMode = std::nullopt;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -976,6 +990,9 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {1008, "Removed", "Catalog"}, {1009, "Removed", "Web"}, {1010, "Outside", "Low"}, {1011, "Outside", "High"},
             {1012, "Missing", "Date"}})
         appendCustomer(id, std::nullopt, nullptr, first, last);
+    for (const auto& [id, last] : std::initializer_list<std::pair<i64, const char*>>{
+            {1100, "A"}, {1101, "B"}, {1102, "Threshold"}, {1103, "Null"}, {1104, "E"}})
+        appendCustomer(id, std::nullopt, nullptr, "Buyer", last);
     for (const auto& [id, state] : std::initializer_list<std::pair<i64, const char*>>{
             {90, "IL"}, {91, "TX"}, {92, "CA"}, {93, nullptr}})
         addresses.AddListItem().BeginStruct().AddMember("ca_address_sk").Int64(id)
@@ -987,10 +1004,20 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     for (i64 id = 10; id <= 12; ++id) {
         centers.AddListItem().BeginStruct().AddMember("cc_call_center_sk").Int64(id)
             .AddMember("cc_call_center_id").Utf8("Center" + std::to_string(id))
-            .AddMember("cc_county").OptionalUtf8(optionalText(id == 10 ? "Williamson County" : id == 11 ? "Other" : nullptr)).EndStruct();
+            .AddMember("cc_county").OptionalUtf8(optionalText(id == 10 ? "Williamson County" : id == 11 ? "Other" : nullptr))
+            .AddMember("cc_name").OptionalUtf8(std::nullopt).EndStruct();
         sites.AddListItem().BeginStruct().AddMember("web_site_sk").Int64(id)
             .AddMember("web_site_id").Utf8("Site" + std::to_string(id))
-            .AddMember("web_company_name").OptionalUtf8(optionalText(id == 10 ? "pri" : id == 11 ? "Other" : nullptr)).EndStruct();
+            .AddMember("web_company_name").OptionalUtf8(optionalText(id == 10 ? "pri" : id == 11 ? "Other" : nullptr))
+            .AddMember("web_name").OptionalUtf8(std::nullopt).EndStruct();
+    }
+    for (const auto& [id, name] : std::initializer_list<std::pair<i64, const char*>>{{90, "A"}, {91, "B"}, {92, nullptr}}) {
+        centers.AddListItem().BeginStruct().AddMember("cc_call_center_sk").Int64(id)
+            .AddMember("cc_call_center_id").Utf8("Center" + std::to_string(id)).AddMember("cc_county").OptionalUtf8(std::nullopt)
+            .AddMember("cc_name").OptionalUtf8(optionalText(name)).EndStruct();
+        sites.AddListItem().BeginStruct().AddMember("web_site_sk").Int64(id)
+            .AddMember("web_site_id").Utf8("Site" + std::to_string(id)).AddMember("web_company_name").OptionalUtf8(std::nullopt)
+            .AddMember("web_name").OptionalUtf8(optionalText(name)).EndStruct();
     }
     load("call_center", centers); load("web_site", sites);
     for (const auto& [shop, date, profit] : std::initializer_list<std::tuple<i64, i64, const char*>>{
@@ -1092,6 +1119,69 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {65, 100, "999"}, {66, 100, "999"}, {4, 100, "999"}, {999, 100, "999"},
             {60, 92, "999"}, {60, 999, "999"}, {60, std::nullopt, "999"}})
         store.push_back({99990, order++, date, 1, nullptr, nullptr, nullptr, shop, profit});
+    // Q23: >4 frequent-item rows and >95% customer revenue are strict.
+    // Its maximum uses the year filter; the best-customer sum uses all years.
+    auto frequentSale = [&](i64 item, std::optional<i64> buyer, i64 date, std::optional<i64> quantity, const char* price) {
+        TSale sale{item, order++, date, 1, price, nullptr}; sale.Customer = buyer; sale.Quantity = quantity;
+        store.push_back(sale);
+    };
+    for (int i = 0; i < 5; ++i) frequentSale(1100, 1100, 73, 2, "10");
+    frequentSale(1100, 1101, 73, 1, "96");
+    frequentSale(1100, 1102, 73, 1, "95");
+    frequentSale(1100, 1103, 73, std::nullopt, "999");
+    for (int i = 0; i < 5; ++i) {
+        frequentSale(1102, 1104, 92, 20, "10");
+        frequentSale(1103, std::nullopt, 999, std::nullopt, nullptr);
+        frequentSale(1104, std::nullopt, 73, std::nullopt, nullptr);
+        if (i < 4) frequentSale(1101, std::nullopt, 73, std::nullopt, nullptr);
+    }
+    auto channelSale = [&](bool online, i64 item, std::optional<i64> buyer, std::optional<i64> date,
+            std::optional<i64> quantity, const char* listPrice) {
+        TSale sale{item, order++, date, 1, nullptr, nullptr};
+        sale.Customer = buyer; sale.Quantity = quantity; sale.ListPrice = listPrice;
+        (online ? web : catalog).push_back(sale);
+    };
+    channelSale(false, 1100, 1100, 73, 2, "10");
+    channelSale(false, 1100, 1100, 73, 1, "10");
+    channelSale(false, 1100, 1101, 73, 3, "10");
+    channelSale(false, 1100, 1104, 73, 1, "7");
+    channelSale(true, 1100, 1100, 73, 1, "4");
+    channelSale(true, 1100, 1101, 73, 2, "5");
+    channelSale(true, 1100, 1104, 73, 3, "2");
+    channelSale(false, 1104, 1100, 73, std::nullopt, "100");
+    channelSale(true, 1104, 1101, 73, 1, nullptr);
+    for (const bool online : {false, true}) {
+        for (const auto buyer : std::initializer_list<std::optional<i64>>{1102, 1103, 99999, std::nullopt})
+            channelSale(online, 1100, buyer, 73, 9, "99");
+        for (const i64 item : {1101, 1102, 1103, 99999}) channelSale(online, item, 1100, 73, 9, "99");
+        for (const auto date : std::initializer_list<std::optional<i64>>{90, 70, 80, 4, 999, std::nullopt})
+            channelSale(online, 1100, 1100, date, 9, "99");
+    }
+    // Q62/Q99 group on the computed warehouse substring. Two different full
+    // names collapse to one key. Cover every bucket boundary and NULL delta,
+    // NULL grouping fields, both month bounds and each missing dimension.
+    for (const bool online : {false, true}) {
+        auto shipment = [&](std::optional<i64> shipDate, std::optional<i64> delta,
+                std::optional<i64> warehouse, std::optional<i64> mode, std::optional<i64> site) {
+            TSale sale{99990, order++, shipDate && delta ? std::optional<i64>{*shipDate - *delta} : std::nullopt,
+                warehouse, nullptr, nullptr};
+            sale.ShipDate = shipDate; sale.ShipMode = mode; sale.Site = site;
+            (online ? web : catalog).push_back(sale);
+        };
+        for (const i64 delta : {-1, 0, 30, 31, 60, 61, 90, 91, 120, 121}) shipment(60, delta, 90, 90, 90);
+        shipment(64, 30, 91, 90, 90);
+        shipment(60, std::nullopt, 90, 90, 90);
+        shipment(60, std::nullopt, 92, 92, 92);
+        shipment(64, 121, 92, 92, 92);
+        shipment(60, 0, 93, 90, 92);
+        shipment(60, 61, 93, 91, 91);
+        for (const auto date : std::initializer_list<std::optional<i64>>{65, 66, 4, 999, std::nullopt}) shipment(date, 1, 90, 90, 90);
+        for (const auto missing : std::initializer_list<std::optional<i64>>{999, std::nullopt}) {
+            shipment(60, 1, missing, 90, 90);
+            shipment(60, 1, 90, missing, 90);
+            shipment(60, 1, 90, 90, missing);
+        }
+    }
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -1101,6 +1191,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             if (prefix != "ss_") {
                 rows.AddMember(prefix + "warehouse_sk").OptionalInt64(row.Warehouse)
                     .AddMember(prefix + "ship_date_sk").OptionalInt64(row.ShipDate)
+                    .AddMember(prefix + "ship_mode_sk").OptionalInt64(row.ShipMode)
                     .AddMember(prefix + "ship_addr_sk").OptionalInt64(row.ShipAddress)
                     .AddMember(prefix + (prefix == "cs_" ? "call_center_sk" : "web_site_sk")).OptionalInt64(row.Site)
                     .AddMember(prefix + "ext_ship_cost");
@@ -1108,10 +1199,10 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             }
             if (prefix == "ss_") {
                 rows.AddMember("ss_store_sk").OptionalInt64(row.Store)
-                    .AddMember("ss_quantity").OptionalInt64(row.Quantity).AddMember("ss_cdemo_sk").OptionalInt64(row.Demographics)
-                    .AddMember("ss_list_price"); decimal(rows, row.ListPrice);
+                    .AddMember("ss_cdemo_sk").OptionalInt64(row.Demographics);
                 rows.AddMember("ss_coupon_amt"); decimal(rows, row.Coupon);
             }
+            rows.AddMember(prefix + "quantity").OptionalInt64(row.Quantity).AddMember(prefix + "list_price"); decimal(rows, row.ListPrice);
             if (prefix == "ws_") { rows.AddMember("ws_net_paid"); decimal(rows, row.NetPaid); }
             rows.AddMember(prefix + (prefix == "ss_" ? "customer_sk" : "bill_customer_sk")).OptionalInt64(row.Customer);
             rows.AddMember(prefix + "sales_price"); decimal(rows, row.Price);
@@ -1148,13 +1239,13 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
         UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
         UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
-        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), query == 23 ? 2 : 1);
         UNIT_ASSERT_VALUES_EQUAL_C(result.GetResultSet(0).RowsCount(), expectedRows, SnapshotRows(result.GetResultSet(0)).Values);
         TResultSetParser values(result.GetResultSet(0));
         auto assertDecimal = [&](const char* column, const std::optional<std::string>& expected) {
@@ -1162,7 +1253,31 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 70) {
+        if (query == 23) {
+            UNIT_ASSERT(values.TryNextRow());
+            UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(0).GetOptionalDecimal()->ToString(), "87");
+            UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(1).RowsCount(), 6);
+            TResultSetParser buyers(result.GetResultSet(1));
+            for (const auto& [last, revenue] : std::initializer_list<std::pair<const char*, const char*>>{
+                    {"A", "4"}, {"A", "30"}, {"B", "10"}, {"B", "30"}, {"E", "6"}, {"E", "7"}}) {
+                UNIT_ASSERT(buyers.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(buyers.ColumnParser("c_last_name").GetOptionalUtf8().value(), last);
+                UNIT_ASSERT_VALUES_EQUAL(buyers.ColumnParser("c_first_name").GetOptionalUtf8().value(), "Buyer");
+                UNIT_ASSERT_VALUES_EQUAL(buyers.ColumnParser("sales").GetOptionalDecimal()->ToString(), revenue);
+            }
+        } else if (query == 62 || query == 99) {
+            for (const auto& [warehouse, modeName, site, buckets] :
+                    std::initializer_list<std::tuple<const char*, const char*, const char*, std::array<i64, 5>>>{
+                    {nullptr, nullptr, nullptr, {0, 0, 0, 0, 1}},
+                    {"ABCDEFGHIJKLMNOPQRST", "AIR", "A", {4, 2, 2, 2, 1}},
+                    {"Other", "AIR", nullptr, {1, 0, 0, 0, 0}}, {"Other", "SEA", "B", {0, 0, 1, 0, 0}}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT(values.ColumnParser(0).GetOptionalString() == optionalText(warehouse));
+                UNIT_ASSERT(values.ColumnParser("sm_type").GetOptionalUtf8() == optionalText(modeName));
+                UNIT_ASSERT(values.ColumnParser(query == 62 ? "web_name" : "cc_name").GetOptionalUtf8() == optionalText(site));
+                for (std::size_t i = 0; i < buckets.size(); ++i) UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(i + 3).GetInt64(), buckets[i]);
+            }
+        } else if (query == 70) {
             for (const auto& [state, county, total, hierarchy, rank] :
                     std::initializer_list<std::tuple<const char*, const char*, const char*, ui64, ui64>>{
                     {nullptr, nullptr, "1018", 2, 1},
@@ -1399,7 +1514,7 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_C(total > 0, plan);
             UNIT_ASSERT_VALUES_EQUAL_C(stats.at("CBOTreesOptimized").GetUIntegerSafe(), total, plan);
         }
-        snapshots.push_back(SnapshotRows(result.GetResultSet(0)));
+        for (const auto& set : result.GetResultSets()) snapshots.push_back(SnapshotRows(set));
     }
     return snapshots;
 }
@@ -1526,14 +1641,18 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                 {"k, GROUPING(k) AS g, COUNT(*) AS n", "GROUPING SETS ((k,k),(k),()) ORDER BY g,k"},
                 {"COUNT(*) AS n, SUM(w) AS s", "GROUPING SETS ((),())"},
                 {"k, GROUPING(k) AS g, SUM(w) AS w", "ROLLUP(k) ORDER BY g,w + 1,k"},
+                {"k % 2 AS x, COUNT(*) AS n, SUM(w) AS s", "k % 2 ORDER BY x"},
+                {"k % 2 AS x, v + 1 AS y, COUNT(*) AS n", "k % 2, v + 1 ORDER BY x,y"},
+                {"k % 2 AS x, COUNT(*) AS n", "k % 2 HAVING k % 2 = 1 ORDER BY x"},
             };
             for (const auto& [projection, grouping] : cases) for (const bool empty : {false, true}) {
-                const TString sql = TStringBuilder() << "SELECT " << projection << " FROM `/Root/Grouping`"
+                const auto caseIndex = index / 2;
+                const TString sql = TStringBuilder() << (caseIndex >= 21 ? "PRAGMA YqlSelect='force'; PRAGMA YqlSelectAllowUnnamedGroupByExpr; " : "")
+                    << "SELECT " << projection << " FROM `/Root/Grouping`"
                     << (empty ? " WHERE id < 0" : "") << " GROUP BY " << grouping;
                 Cerr << "grouping sets strategy " << strategy << ": " << sql << Endl;
                 const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
                 // Pin existing compiler failures independently of native success.
-                const auto caseIndex = index / 2;
                 const char* failure = nullptr;
                 if (strategy == 0) switch (caseIndex) {
                     case 10: failure = "Member not found: GroupingHint0"; break;
@@ -1543,7 +1662,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                 }
                 if (strategy == 1) switch (caseIndex) {
                     case 4: case 5: failure = "Unsupported grouping sets. Only rollup is supported."; break;
-                    case 10: failure = "Invalid number of filters for HAVING."; break;
+                    case 10: case 23: failure = "Invalid number of filters for HAVING."; break;
                     case 14: failure = "IsGroupByColumn(): requirement !GroupingCols_.empty() failed"; break;
                     case 15: failure = "Translate(): requirement !\"Unexpected usage\" failed"; break;
                     case 16: failure = "GROUPING SETS with nested ROLLUP/CUBE/GROUPING SETS"; break;
@@ -1558,6 +1677,8 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                 UNIT_ASSERT_C(result.IsSuccess(), sql << "\n" << result.GetIssues().ToString());
                 UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
                 const auto actual = SnapshotRows(result.GetResultSet(0));
+                if (caseIndex == 21) UNIT_ASSERT_VALUES_EQUAL(actual.Values, empty ? "[]" : "[[#;2u;12];[[0];2u;0];[[1];4u;4]]");
+                if (caseIndex == 23) UNIT_ASSERT_VALUES_EQUAL(actual.Values, empty ? "[]" : "[[[1];4u]]");
                 if (index == 0) UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;0u;2u;[12]];[[1];0u;3u;[3]];[[2];0u;2u;[0]];[[3];0u;1u;[1]];[#;1u;8u;[16]]]");
                 if (index == 1) UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;1u;0u;#]]");
                 if (strategy == 2 && index == 18) UNIT_ASSERT_VALUES_EQUAL(actual.Values,

@@ -124,7 +124,11 @@ can be combined with ordinary aggregates when their intermediate states are
 scalar (COUNT, SUM, MIN, MAX, SOME). A combination containing both DISTINCT and
 AVG is explicitly unsupported unless AVG is the sole aggregate: its tuple state
 still needs native representation. Computed GROUP BY keys require explicit
-aliases (`GROUP BY expression AS key`, then `SELECT key`). Scan queries require one result.
+aliases (`GROUP BY expression AS key`, then `SELECT key`) or
+`PRAGMA YqlSelectAllowUnnamedGroupByExpr`. Its enable/disable state is captured
+when a query is defined, including named queries. Unnamed keys are materialized
+once and referenced by their canonical expression; internal column names are
+not exposed as SQL bindings. Scan queries require one result.
 
 Both parsers expand grouping syntax into bounded key lists, preserving duplicate
 sets. Binding assigns outward key/result IDs and nullable types once; GROUPING
@@ -136,7 +140,7 @@ keys in grouping sets require an explicit scalar cast; GROUP BY modifiers and
 hopping-window grouping remain outside the profile. ORDER BY expressions can
 refer to output aliases; their map is placed above the projection map.
 
-The grouping matrix exercises 21 query forms on populated and empty row/column
+The grouping matrix exercises 24 query forms on populated and empty row/column
 tables: duplicate sets/keys, composite keys, common required keys, nullable
 measures, mixed DISTINCT, HAVING, windows and alias shadowing. Known older-path
 failures are asserted separately. The old optimizer drops duplicate empty sets;
@@ -422,13 +426,13 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 81/99 | 18 |
-| ClickBench | 38/43 | 5 |
+| TPC-DS | 84/99 | 15 |
+| ClickBench | 39/43 | 4 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Twenty-five TPC-DS queries also have populated native-required execution
+tables. Twenty-eight TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -527,8 +531,8 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Twenty-five TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q27, Q32, Q36, Q37, Q38,
-Q40, Q41, Q51, Q53, Q63, Q70, Q82, Q86, Q87, Q89, Q92, Q94, Q95 and Q98) pass populated execution
+Twenty-eight TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q27, Q32, Q36, Q37,
+Q38, Q40, Q41, Q51, Q53, Q62, Q63, Q70, Q82, Q86, Q87, Q89, Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
 Q22, Q27, Q36 and Q86 check four-key inventory rollup, demographic-filtered
@@ -542,6 +546,14 @@ NULL states excluded by IN, NULL counties, all-NULL measures and month bounds.
 Separate scalar/EXISTS/IN window-subquery tests cover empty inputs, duplicate
 values, named query bindings and row/column storage. Existing RBO's projected
 EXISTS failure is pinned separately; native matches the legacy optimizer.
+Q62/Q99 cover all shipping-duration bucket bounds, duplicate computed warehouse
+keys, NULL deltas and grouping fields, date bounds and missing dimensions. Q23
+checks both result statements, a total of 87 and six customer/channel totals,
+strict item-frequency and 95% revenue thresholds, all-NULL inputs and distinct
+year filters for maximum versus qualifying-customer revenue. All three retain
+the original SQL and match both older compiler paths in values, metadata and
+ordering. The computed-grouping matrix also pins an existing RBO failure for
+HAVING on a computed key; native matches the old optimizer on that case.
 Q41 checks all eight correlated predicate branches, numeric manufacturer-range
 boundaries, inner matches outside that range, duplicate products, NULL product
 and manufacturer values, missing matches and individual invalid/NULL predicate
