@@ -165,8 +165,12 @@ String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
 other integral offsets must be literals that fit Uint32.
 Integer comparisons preserve each operand's width and signedness and compare
 their mathematical values, including Int64 against Uint64. They return nullable
-Bool when either input is nullable; no common-type casts are needed. Other
-implicit signed/unsigned promotions remain outside the native profile.
+Bool when either input is nullable; no common-type casts are needed. Arithmetic,
+IF/COALESCE and set operands use SQL numeric rank: wider integers win, signed
+wins at equal width, then Float and Double. Implicit integer conversions wrap
+modulo the target width; explicit CAST remains checked. Float/integer promotion
+converts directly to Float, avoiding intermediate Double rounding. All these
+conversions preserve input NULLs and lower directly to a typed runtime Convert.
 Numeric text conversion uses the generic `double-conversion` library with the
 runtime's lexical policy, including leading spaces, hexadecimal integers,
 and overflow/underflow to infinity/zero; it imports no YQL conversion code.
@@ -300,7 +304,7 @@ Explicitly outside the profile:
   subqueries in window arguments/keys, and direct window calls in ORDER BY are
   excluded; ordering by a projected window alias is supported.
 - UDFs, higher-order values, containers/structs/tuples, nested optionals.
-- Mixed signed/unsigned promotion outside integer comparisons, mixed Float promotion, bare-NULL arithmetic, dynamic
+- Bare-NULL arithmetic, dynamic
   text parsing to types other than Date, and runtime casts from temporal inputs to non-temporal types.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
   conversions are excluded. Apart from integer multiplication factors, Decimal
@@ -426,7 +430,7 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 84/99 | 15 |
+| TPC-DS | 87/99 | 12 |
 | ClickBench | 39/43 | 4 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding

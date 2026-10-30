@@ -166,7 +166,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         }
     }
 
-    Y_UNIT_TEST(MixedIntegerComparisonsDoNotEnableMixedArithmetic) {
+    Y_UNIT_TEST(MixedNumericOperationsUseNativePromotion) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser; settings.Mode = ECompilerMode::Auto;
             for (const auto* sql : {"SELECT id < value, value >= id, id = value, value != id FROM t",
@@ -176,10 +176,17 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 const auto result = CompileNative(sql, Catalog, settings);
                 UNIT_ASSERT_C(!result.UsesLegacy(), sql);
             }
-            for (const auto* sql : {"SELECT id + value FROM t", "SELECT IF(true, id, value) FROM t", "SELECT COALESCE(value, id) FROM t"}) {
+            for (const auto& [sql, nullable] : {std::pair{"SELECT id + value FROM t", true},
+                    {"SELECT IF(true, id, value) FROM t", true}, {"SELECT COALESCE(value, id) FROM t", false}}) {
                 const auto result = CompileNative(sql, Catalog, settings);
-                UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported->Feature == EFeature::Type, sql);
+                UNIT_ASSERT_C(!result.UsesLegacy(), sql);
+                UNIT_ASSERT((result.Program->Get().Results[0].Columns[0].Type == TType{ETypeKind::Uint64, nullable}));
             }
+            const auto floating = CompileNative("SELECT id + Float('1'), value + Double('1'), Float('1') + Double('2') FROM t", Catalog, settings);
+            const auto& columns = floating.Program->Get().Results[0].Columns;
+            UNIT_ASSERT((columns[0].Type == TType{ETypeKind::Float}));
+            UNIT_ASSERT((columns[1].Type == TType{ETypeKind::Double, true}));
+            UNIT_ASSERT((columns[2].Type == TType{ETypeKind::Double}));
         }
     }
 
@@ -489,7 +496,10 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         UNIT_ASSERT(scalarColumns[0].Type == (TType{ETypeKind::Double}));
         UNIT_ASSERT(scalarColumns[1].Type == (TType{ETypeKind::String}));
         UNIT_ASSERT(scalarColumns[2].Type == (TType{ETypeKind::Double}));
-        for (const auto* sql : {"SELECT 1u + 2", "SELECT IF(true, 1L, 2ul)", "SELECT LOWER('ABC')",
+        auto promoted = CompileNative("SELECT 1u + 2, IF(true, 1L, 2ul)", Catalog, settings);
+        UNIT_ASSERT((promoted.Program->Get().Results[0].Columns[0].Type == TType{ETypeKind::Int32}));
+        UNIT_ASSERT((promoted.Program->Get().Results[0].Columns[1].Type == TType{ETypeKind::Int64}));
+        for (const auto* sql : {"SELECT LOWER('ABC')",
             "SELECT CAST(Float('1') AS Int32)", "SELECT CAST(Float('1') AS Uint64)"}) {
             UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
         }

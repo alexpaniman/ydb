@@ -2118,6 +2118,50 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         }
     }
 
+    Y_UNIT_TEST(RuntimeMixedNumericPromotionMatchesBothLegacyPaths) {
+        TString sql = "DECLARE $s AS Int64?; DECLARE $u AS Uint64?; SELECT ";
+        size_t column = 0;
+        auto append = [&](const TString& expression) {
+            if (column) sql += ",";
+            sql += TStringBuilder() << expression << " AS c" << column++;
+        };
+        for (const auto* a : {"Int8", "Int16", "Int32", "Int64"}) for (const auto* b : {"Uint8", "Uint16", "Uint32", "Uint64"})
+            for (const bool reverse : {false, true}) {
+                const TString signedInput = TStringBuilder() << "CAST($s AS " << a << ")";
+                const TString unsignedInput = TStringBuilder() << "CAST($u AS " << b << ")";
+                const auto& left = reverse ? unsignedInput : signedInput;
+                const auto& right = reverse ? signedInput : unsignedInput;
+                for (const auto* op : {"+", "-", "*", "/", "%"}) append(TStringBuilder() << left << op << right);
+                append(TStringBuilder() << "IF($s < 0," << left << "," << right << ")");
+                append(TStringBuilder() << "COALESCE(" << left << "," << right << ")");
+            }
+        for (const auto* expression : {"CAST($s AS Float) + $u", "$s + CAST($u AS Float)",
+                "CAST($s AS Float) + CAST($u AS Double)", "IF($s < 0, Float('inf'), $u)",
+                "COALESCE(CAST($s AS Float), $u)", "CAST($s AS Float) < $u"}) append(expression);
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto session = runner.GetTableClient().CreateSession().GetValueSync().GetSession();
+            size_t index = 0;
+            for (const auto& [s, u] : std::initializer_list<std::pair<std::optional<i64>, std::optional<ui64>>>{
+                    {-1, std::numeric_limits<ui64>::max()}, {std::numeric_limits<i64>::lowest(), ui64{1} << 63},
+                    {std::numeric_limits<i64>::max(), ui64{1} << 63}, {-1, 0}, {0, 0}, {1, 1},
+                    {-128, 255}, {-32768, 65535}, {-2147483648, 4294967295}, {127, 128}, {32767, 32768},
+                    {2147483647, 2147483648}, {4611686293305294849LL, 9223372586610589697ULL},
+                    {std::nullopt, 1}, {1, std::nullopt}, {std::nullopt, std::nullopt}}) {
+                const auto params = TParamsBuilder().AddParam("$s").OptionalInt64(s).Build().AddParam("$u").OptionalUint64(u).Build().Build();
+                const auto actual = Snapshot(session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync());
+                if (strategy == 2) reference.push_back(actual); else AssertSame(actual, reference.at(index));
+                ++index;
+            }
+        }
+    }
+
     Y_UNIT_TEST(RuntimeMixedIntegerComparisonsMatchLegacy) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
@@ -2821,6 +2865,12 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             "SELECT CAST(Decimal('1.5',8,2) AS Int32), CAST(Decimal('9.9',2,1) AS Int32), CAST(Decimal('1.50',8,2) AS String)",
             "SELECT CAST(Decimal('1.25',8,2) AS Float), CAST(Decimal('1.25',8,2) AS Double), CAST(Decimal('99.9',3,1) AS Decimal(2,1))",
             "SELECT 1 + 2, Length('abc')",
+            "SELECT Int8('-1') + Uint16('0'), Uint8('255') + Int8('0'), Uint64('18446744073709551615') + Int64('0')",
+            "SELECT IF(true, Int8('-1'), Uint16('0')), IF(false, Int64('0'), Uint64('18446744073709551615'))",
+            "SELECT CAST(Int8('-1') AS Uint16), CAST(Uint8('255') AS Int8), CAST(Uint64('18446744073709551615') AS Int64)",
+            "SELECT Int8('-1') AS x UNION ALL SELECT Uint16('0') AS x ORDER BY x",
+            "SELECT Uint64('18446744073709551615') AS x UNION SELECT Int64('-1') AS x",
+            "SELECT Float('1') + 2, Float('1') + Double('2'), IF(false, 1, Float('nan'))",
             "SELECT Length(Utf8('hello')), StartsWith('abc', 'a'), EndsWith('abc', 'c'), String::AsciiToLower('ABC'), String::AsciiToUpper('abc')",
             "SELECT -128t, -2147483648, -9223372036854775808, -1u",
             "SELECT 7 / 2, 7 % 2, 1 / 0, 1 % 0",

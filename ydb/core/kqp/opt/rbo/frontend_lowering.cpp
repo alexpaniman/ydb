@@ -281,7 +281,17 @@ private:
                 return Call("Ensure", std::move(args), type);
             case O::StablePickle: return Call("StablePickle", std::move(args), type);
             case O::Unwrap: return Call("Unwrap", std::move(args), type);
-            case O::Convert: case O::Cast: return Cast(args[0], Arena[node.Arguments[0]].Type, type);
+            case O::Convert: {
+                const auto from = Arena[node.Arguments[0]].Type;
+                if (from.IsNumeric() && type.IsNumeric() && from.Kind != K::Decimal && type.Kind != K::Decimal && from.Kind != type.Kind) {
+                    auto actual = type; actual.Nullable = from.Nullable;
+                    // Terminal MiniKQL conversion: implicit integer promotion
+                    // wraps and preserves NULL; explicit CAST remains checked.
+                    return Lift(Call("Convert", {args[0], Type(type.Required())}, actual), type);
+                }
+                return Cast(args[0], from, type);
+            }
+            case O::Cast: return Cast(args[0], Arena[node.Arguments[0]].Type, type);
             case O::Negate: return Call("Minus", std::move(args), type);
             case O::Not: return Call("Not", std::move(args), type);
             case O::Add: case O::Subtract: case O::Multiply: case O::Divide: case O::Modulo: {

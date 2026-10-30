@@ -296,18 +296,12 @@ TType ComputeCommonType(TType a, TType b, TSourcePosition position) {
         return {K::Decimal, nullable, static_cast<std::uint8_t>(precision), static_cast<std::uint8_t>(scale)};
     }
     if (a.Kind == K::Double || b.Kind == K::Double || a.Kind == K::Float || b.Kind == K::Float) {
-        return {a.Kind == K::Float && b.Kind == K::Float ? K::Float : K::Double, nullable};
+        return {a.Kind == K::Double || b.Kind == K::Double ? K::Double : K::Float, nullable};
     }
-    int width = std::max(Width(a.Kind), Width(b.Kind));
-    const bool isSigned = a.IsSigned() || b.IsSigned();
-    if (a.IsSigned() != b.IsSigned()) {
-        const int unsignedWidth = a.IsSigned() ? Width(b.Kind) : Width(a.Kind);
-        if (unsignedWidth == 64) {
-            throw TUnsupportedFeature(EFeature::Type, position, "implicit signed/unsigned promotion is outside the native profile");
-        }
-        width = std::max(width, unsignedWidth * 2);
-    }
-    return {IntegerKind(width, isSigned), nullable};
+    // SQL's numeric rank prefers width, then signedness at equal width.
+    // This is an implicit bit conversion, not a lossless integer supertype.
+    if (Width(a.Kind) != Width(b.Kind)) return Width(a.Kind) > Width(b.Kind) ? a : b;
+    return {IntegerKind(Width(a.Kind), a.IsSigned() || b.IsSigned()), nullable};
 }
 
 bool IsComparison(O op) {
@@ -1413,6 +1407,11 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
             Fail(node.Position, std::move(message));
         }
         return {node.Type, argument(0).Data};
+    }
+    if (node.Op == O::Convert && argument(0).Type.IsIntegral() && node.Type.IsIntegral()) {
+        const auto& value = argument(0);
+        return value.IsNull() ? NullValue(node.Type) :
+            TValue{node.Type, WrapInteger(static_cast<unsigned __int128>(*IntegralValue(value)), node.Type)};
     }
     if (node.Op == O::Cast || node.Op == O::Convert) {
         return ConvertValue(argument(0), node.Type);

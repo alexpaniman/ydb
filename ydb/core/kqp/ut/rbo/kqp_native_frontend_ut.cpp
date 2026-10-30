@@ -242,7 +242,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT(!CanLowerNativeOlapPredicate(*arena, parameter));
     }
 
-    Y_UNIT_TEST(IntegerComparisonsLowerDirectlyForEveryWidth) {
+    Y_UNIT_TEST(IntegerOperationsLowerDirectlyForEveryWidth) {
         using namespace NFrontend;
         using K = ETypeKind;
         for (const auto a : {K::Int8, K::Uint8, K::Int16, K::Uint16, K::Int32, K::Uint32, K::Int64, K::Uint64})
@@ -265,11 +265,31 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                         return arena.Literal(type, value);
                     };
                     const auto left = input(a, false), right = input(b, true);
-                    for (const auto op : {EOpcode::Equal, EOpcode::NotEqual, EOpcode::Less, EOpcode::LessEqual, EOpcode::Greater, EOpcode::GreaterEqual}) {
+                    for (const auto op : {EOpcode::Equal, EOpcode::NotEqual, EOpcode::Less, EOpcode::LessEqual, EOpcode::Greater, EOpcode::GreaterEqual,
+                            EOpcode::Add, EOpcode::Subtract, EOpcode::Multiply, EOpcode::Divide, EOpcode::Modulo}) {
                         const auto root = arena.Binary(op, left, right);
-                        CheckScalar(arena, root, "heterogeneous integer comparison");
+                        CheckScalar(arena, root, "heterogeneous integer operation");
                     }
+                    CheckScalar(arena, arena.If(arena.Literal({K::Bool}, false), left, right), "heterogeneous conditional");
+                    const TExprId alternatives[]{left, right};
+                    CheckScalar(arena, arena.Coalesce(alternatives), "heterogeneous coalesce");
                 }
+    }
+
+    Y_UNIT_TEST(FloatingPromotionLowersWithoutAnnotation) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        for (const bool nullable : {false, true}) {
+            TExpressionArena arena;
+            const auto integer = arena.Literal({K::Uint64, nullable}, std::uint64_t{9223372586610589697ULL});
+            for (const auto kind : {K::Float, K::Double}) for (const double value : {0.0, -1.0,
+                    std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+                const auto number = arena.Literal({kind}, value);
+                CheckScalar(arena, arena.Binary(EOpcode::Add, integer, number), "integer/floating promotion");
+                CheckScalar(arena, arena.Binary(EOpcode::Add, arena.Literal({K::Float, true}, value), arena.Literal({K::Double}, 1.0)),
+                    "Float/Double promotion with optional lifting");
+            }
+        }
     }
 
     Y_UNIT_TEST(OptionalBooleanLiftsPreserveJoinKeys) {

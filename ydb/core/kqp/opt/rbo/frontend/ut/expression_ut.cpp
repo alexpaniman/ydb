@@ -156,15 +156,52 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         auto a = arena.Literal({K::Int32}, std::int64_t{4});
         auto b = arena.Literal({K::Uint32}, std::uint64_t{5});
         auto sum = arena.Binary(O::Add, a, b);
-        UNIT_ASSERT(arena[sum].Type == TType{K::Int64});
+        UNIT_ASSERT(arena[sum].Type == TType{K::Int32});
         for (auto arg : arena[sum].Arguments) {
-            UNIT_ASSERT(arena[arg].Op == O::Convert);
+            UNIT_ASSERT(arena[arg].Type == TType{K::Int32});
             UNIT_ASSERT(arg < sum);
         }
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, sum)), "9");
-        UNIT_ASSERT_EXCEPTION(CommonType({K::Int64}, {K::Uint64}), TUnsupportedFeature);
+        UNIT_ASSERT((CommonType({K::Int64}, {K::Uint64}) == TType{K::Int64}));
         UNIT_ASSERT((CommonType({K::Decimal, false, 8, 2}, {K::Int64}) == TType{K::Decimal, false, 22, 2}));
         UNIT_ASSERT((CommonType({K::Decimal, false, 8, 2}, {K::Uint64}) == TType{K::Decimal, false, 22, 2}));
+    }
+
+    Y_UNIT_TEST(NumericPromotionUsesSqlRankAndWrappingConversion) {
+        const std::array rank{K::Uint8, K::Int8, K::Uint16, K::Int16, K::Uint32, K::Int32, K::Uint64, K::Int64, K::Float, K::Double};
+        for (std::size_t i = 0; i < rank.size(); ++i) for (std::size_t j = 0; j < rank.size(); ++j)
+            for (const bool a : {false, true}) for (const bool b : {false, true})
+                UNIT_ASSERT((CommonType({rank[i], a}, {rank[j], b}) == TType{rank[std::max(i, j)], a || b}));
+        struct TCase { K From, To; TScalar Input, Expected; };
+        for (const auto& test : std::initializer_list<TCase>{
+                {K::Uint8, K::Int8, std::uint64_t{255}, std::int64_t{-1}},
+                {K::Int8, K::Uint16, std::int64_t{-1}, std::uint64_t{65535}},
+                {K::Uint16, K::Int16, std::uint64_t{32768}, std::int64_t{-32768}},
+                {K::Int16, K::Uint32, std::int64_t{-32768}, std::uint64_t{4294934528}},
+                {K::Uint32, K::Int32, std::uint64_t{4294967295}, std::int64_t{-1}},
+                {K::Int32, K::Uint64, std::int64_t{-2147483648}, std::uint64_t{18446744071562067968ULL}},
+                {K::Uint64, K::Int64, std::uint64_t{18446744073709551615ULL}, std::int64_t{-1}},
+                {K::Uint64, K::Int64, std::uint64_t{9223372036854775808ULL}, std::numeric_limits<std::int64_t>::lowest()}}) {
+            for (const bool nullable : {false, true}) {
+                TExpressionArena arena;
+                const TType from{test.From, nullable}, to{test.To, nullable};
+                const auto input = arena.Column(0, from), converted = arena.Convert(input, to);
+                TEvaluationContext context; context.Column = [&](auto) { return TValue{from, test.Input}; };
+                UNIT_ASSERT(Evaluate(arena, converted, context).Data == test.Expected);
+                UNIT_ASSERT(Evaluate(arena, arena.Cast(input, to), context).IsNull());
+                const TExprId literal[]{arena.Convert(arena.Literal(from, test.Input), to)};
+                UNIT_ASSERT(arena[arena.FoldConstants(literal).front()].Value == test.Expected);
+                if (nullable) {
+                    context.Column = [&](auto) { return TValue{from, std::monostate{}}; };
+                    UNIT_ASSERT(Evaluate(arena, converted, context).IsNull());
+                }
+            }
+        }
+        TExpressionArena arena;
+        const auto large = arena.Literal({K::Uint64}, std::uint64_t{9223372586610589697ULL});
+        const auto sum = arena.Binary(O::Add, large, arena.Literal({K::Float}, 0.0));
+        UNIT_ASSERT(arena[sum].Type == TType{K::Float});
+        UNIT_ASSERT_VALUES_EQUAL(std::get<double>(Evaluate(arena, sum).Data), double(float(9223372586610589697ULL)));
     }
 
     Y_UNIT_TEST(ThreeValuedBooleanTables) {
