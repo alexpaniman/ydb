@@ -137,6 +137,10 @@ and casts, without finite-only guards or extra rounding wrappers. Comparisons,
 IF/CASE branches and UNION ALL use an exact common Decimal type with integers
 or other Decimals. Integer widths follow SQL metadata (including 20 digits for
 both 64-bit integer types), without conversion through floating point.
+Decimal multiplication also accepts integer factors in either order, preserving
+the Decimal operand's precision and scale. The factor remains integral: a large
+integer cannot overflow an intermediate Decimal cast and change a zero product
+into NaN. Overflow, infinity, NaN and NULL follow the existing runtime directly.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
 DisableAnsiInForEmptyOrNullableItemsCollections.
@@ -219,8 +223,8 @@ Explicitly outside the profile:
 - Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
   text parsing, and runtime casts from temporal inputs to non-temporal types.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
-  conversions are excluded. Decimal arithmetic and COALESCE require matching
-  input types or explicit casts; their mixed-type rules differ from comparison
+  conversions are excluded. Apart from integer multiplication factors, Decimal
+  arithmetic and COALESCE require matching input types or explicit casts; their mixed-type rules differ from comparison
   and IF/UNION promotion.
 - Float to Int32/Uint32/Int64/Uint64: the existing runtime rounds the upper
   integer bound to Float before checking, admitting an out-of-range value.
@@ -306,17 +310,32 @@ and generated modes currently agree on these frontend routing counts:
 
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
-| TPC-H | 21/22 (all except Q11) | 1 |
-| TPC-DS | 37/99 | 62 |
+| TPC-H | 22/22 | 0 |
+| TPC-DS | 40/99 | 59 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
-and profile validation, not RBO optimization or execution. All 21 accepted TPC-H
+and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
 tables. The accepted TPC-DS and ClickBench queries still need that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+The integer-factor extension passed all 109 native tests. It compares 1,600
+arithmetic cases with the existing runtime across all eight integer widths,
+four Decimal shapes, both operand orders and constant folding. Direct MiniKQL
+tests require no annotation or semantic lowering. Parameterized SQL compares
+900 values and their types with YQL, including NULLs, zero, full-width factors,
+overflow, infinity and NaN.
+
+All 22 checked-in TPC-H queries now pass populated native-required execution,
+exact expected results, complete value/type/name parity against both legacy
+paths, and RBO CBO invariants. Q11 includes positive inventory values and NULL,
+zero and negative groups rejected by HAVING. Fast and generated grammar modes
+agree on all 164 corpus routing decisions; the standalone CLI still contains
+no YQL or MiniKQL symbols. TPC-DS acceptance is 40/99, with Q61, Q64 and Q93
+newly accepted, but populated TPC-DS execution is not yet validated.
 
 The calendar extension passed all 107 native tests. Direct MiniKQL execution
 requires no graph annotation or peephole pass. Runtime parameter tests compare
@@ -337,7 +356,7 @@ Brazilian/non-Brazilian market shares, promotional date boundaries, and nested
 IN with correlated SUM: duplicate qualifying supplier keys, equality excluded
 by a strict comparison, and empty aggregate inputs. Their exact ratios and
 supplier results are checked alongside all earlier cases, bringing populated
-TPC-H execution coverage to 21/22; Q11 still requires mixed Decimal arithmetic.
+TPC-H execution coverage to 21/22 in that increment.
 
 The LIKE extension passed all 103 native tests. The standalone matcher compares
 all 121 patterns of up to four characters over `ab%` against all 31 strings over
@@ -376,7 +395,7 @@ The Decimal extension passed all 79 native tests, plus 10 compiler checks after
 correcting unsupported statistical-aggregate routing. Tests compare native
 Decimal values with the existing arithmetic implementation, execute terminal
 MiniKQL graphs without annotation, and compare runtime parameters with legacy
-SQL values/types. The 21 validated checked-in TPC-H queries run with the complete schema,
+SQL values/types. All 22 checked-in TPC-H queries run with the complete schema,
 helper prelude, maximum language version, and 16-partition column tables. Their
 nonempty results match both the legacy optimizer and the old frontend with new
 RBO. The fixture covers duplicate line items, nulls, date/quantity boundaries,

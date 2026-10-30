@@ -197,8 +197,13 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             const auto common = CompileNative("DECLARE $i AS Int64; SELECT IF(true, Decimal('1.25',8,2), $i), Decimal('1',8,2) < $i", Catalog, settings);
             UNIT_ASSERT(common.Program->Get().Results[0].Columns[0].Type == (TType{ETypeKind::Decimal, false, 22, 2}));
             UNIT_ASSERT(common.Program->Get().Results[0].Columns[1].Type == TType{ETypeKind::Bool});
+            const auto products = CompileNative("DECLARE $i AS Int64; DECLARE $u AS Uint64?; SELECT Decimal('1.25',3,2) * $i, $i * Decimal('1.25',3,2), Decimal('0',3,2) * $u", Catalog, settings);
+            const auto& productColumns = products.Program->Get().Results[0].Columns;
+            for (std::size_t i = 0; i < productColumns.size(); ++i)
+                UNIT_ASSERT(productColumns[i].Type == (TType{ETypeKind::Decimal, i == 2, 3, 2}));
             for (const auto* sql : {"SELECT Decimal('1e2',8,2)", "SELECT CAST('1e2' AS Decimal(8,2))",
                 "SELECT Decimal('1',8,2) + 1", "SELECT Decimal('1',8,2) + Decimal('1',12,2)",
+                "SELECT Decimal('1',8,2) / 2", "SELECT Decimal('1',8,2) % 2",
                 "SELECT COALESCE(IF(false, Decimal('1.25',8,2)), 1L)",
                 "DECLARE $s AS String; SELECT CAST($s AS Decimal(8,2))"})
                 UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);

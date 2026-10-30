@@ -4,6 +4,8 @@
 #include <util/stream/file.h>
 #include <util/string/subst.h>
 
+#include <limits>
+
 namespace NKikimr::NKqp {
 namespace {
 
@@ -404,10 +406,13 @@ TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
             // a reversed comment pattern, and filtered brand/type/size values.
             {7, 2, "9"}, {7, 3, "8"}, {9, 1, "9"}, {9, 4, "10"}, {9, 6, "10"},
             {10, 1, "10"}, {11, 1, "10"}, {12, 2, "10"}, {50, 1, "2"}, {50, 2, "2"}, {50, 3, "2"},
-            {50, 8, "2"}, {50, 9, "2"}, {50, 10, "2"}, {50, 11, "2"}, {51, 9, "2"}}) {
+            {50, 8, "2"}, {50, 9, "2"}, {50, 10, "2"}, {50, 11, "2"}, {51, 9, "2"},
+            // Q11 must exclude NULL, zero and negative grouped values.
+            {1, 1, nullptr}, {3, 1, "-1"}, {4, 1, "0"}}) {
         partsupp.AddListItem().BeginStruct()
             .AddMember("ps_partkey").Int64(part).AddMember("ps_suppkey").Int64(supplier)
-            .AddMember("ps_availqty").OptionalInt32(100).AddMember("ps_comment").OptionalUtf8(std::nullopt)
+            // Distinct positive totals make Q11's ORDER BY value deterministic.
+            .AddMember("ps_availqty").OptionalInt32(part == 8 || part == 11 ? 99 : 100).AddMember("ps_comment").OptionalUtf8(std::nullopt)
             .AddMember("ps_supplycost");
         if (cost) partsupp.BeginOptional().Decimal(TDecimalValue(cost, 12, 2)).EndOptional();
         else partsupp.EmptyOptional(decimalType);
@@ -426,7 +431,7 @@ $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{1, 4}, {2, 3}, {3, 2}, {4, 2}, {5, 1}, {6, 1}, {7, 3}, {8, 2}, {9, 15}, {10, 2},
-            {12, 2}, {13, 4}, {14, 1}, {15, 2}, {16, 2}, {17, 1}, {18, 3}, {19, 1}, {20, 1}, {21, 2}, {22, 2}}) {
+            {11, 8}, {12, 2}, {13, 4}, {14, 1}, {15, 2}, {16, 2}, {17, 1}, {18, 3}, {19, 1}, {20, 1}, {21, 2}, {22, 2}}) {
         Cerr << "TPC-H Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpch/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -496,6 +501,15 @@ $round = ($x,$y) -> {return $x;};
                 UNIT_ASSERT(values.TryNextRow());
                 UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("c_custkey").GetInt64(), customer);
                 UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("revenue").GetOptionalDecimal()->ToString(), revenue);
+            }
+        }
+        if (query == 11) {
+            TResultSetParser values(result.GetResultSet(0));
+            for (const auto& [part, value] : {std::pair{5, "2100"}, {6, "2000"}, {9, "1900"}, {10, "1000"},
+                    {11, "990"}, {50, "200"}, {7, "100"}, {8, "99"}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("ps_partkey").GetInt64(), part);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("value").GetOptionalDecimal()->ToString(), value);
             }
         }
         if (query == 12) {
@@ -1216,6 +1230,36 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                 .Build();
             AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
                 Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+        }
+    }
+
+    Y_UNIT_TEST(RuntimeDecimalIntegerProductsMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const TString sql = R"(
+            DECLARE $a AS Decimal(3,2)?;
+            DECLARE $i AS Int64?;
+            DECLARE $u AS Uint64?;
+            SELECT $a * CAST($i AS Int8), $a * CAST($i AS Int16), $a * CAST($i AS Int32), $a * $i, $i * $a,
+                $a * CAST($u AS Uint8), $a * CAST($u AS Uint16), $a * CAST($u AS Uint32), $a * $u, $u * $a
+        )";
+        for (const auto* decimal : {static_cast<const char*>(nullptr), "0", "0.01", "-0.01", "9.99", "-9.99", "inf", "-inf", "nan"}) {
+            for (const auto& [signedValue, unsignedValue] : std::initializer_list<std::pair<std::optional<i64>, std::optional<ui64>>>{
+                    {std::nullopt, std::nullopt}, {0, 0}, {1, 1}, {-2, 2}, {127, 255}, {-128, 256},
+                    {32767, 65535}, {-32768, 65536}, {2147483647, 4294967295ULL},
+                    {std::numeric_limits<i64>::lowest(), std::numeric_limits<ui64>::max()}}) {
+                auto builder = TParamsBuilder();
+                auto& value = builder.AddParam("$a");
+                if (decimal) value.BeginOptional().Decimal(TDecimalValue(decimal, 3, 2)).EndOptional().Build();
+                else value.EmptyOptional(TTypeBuilder().Decimal({3, 2}).Build()).Build();
+                builder.AddParam("$i").OptionalInt64(signedValue).Build();
+                builder.AddParam("$u").OptionalUint64(unsignedValue).Build();
+                const auto params = builder.Build();
+                AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                    Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+            }
         }
     }
 

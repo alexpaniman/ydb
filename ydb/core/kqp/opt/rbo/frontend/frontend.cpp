@@ -1034,14 +1034,15 @@ void CheckProgram(const TBoundProgram& program) {
     for (const auto& node : program.Expressions.Nodes()) {
         if ((node.Op >= EOpcode::Add && node.Op <= EOpcode::Modulo) || node.Op == EOpcode::Concat ||
             (node.Op == EOpcode::Coalesce && node.Type.Kind == ETypeKind::Decimal)) {
+            const bool integerFactor = node.Op == EOpcode::Multiply && program.Expressions[node.Arguments[1]].Type.IsIntegral();
             for (auto id : node.Arguments) {
                 while (program.Expressions[id].Op == EOpcode::Convert) id = program.Expressions[id].Arguments[0];
                 const auto from = program.Expressions[id].Type;
                 if (from.Kind == ETypeKind::Null && node.Op != EOpcode::Coalesce)
                     throw TUnsupportedFeature(EFeature::Expression, node.Position, "bare NULL arithmetic is outside native-read-v1");
-                if (node.Type.Kind == ETypeKind::Decimal && from.Kind != ETypeKind::Null && from.Required() != node.Type.Required())
+                if (node.Type.Kind == ETypeKind::Decimal && !integerFactor && from.Kind != ETypeKind::Null && from.Required() != node.Type.Required())
                     throw TUnsupportedFeature(EFeature::Type, node.Position,
-                        "native Decimal arithmetic and COALESCE require matching types or explicit casts");
+                        "native Decimal arithmetic and COALESCE require matching types or explicit casts, except integer multiplication factors");
             }
         }
         if (node.Op == EOpcode::Convert && !node.Arguments.empty()) {
@@ -1229,7 +1230,7 @@ std::string_view SupportManifest() {
 "aggregates":["count","sum","avg","min","max","some"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

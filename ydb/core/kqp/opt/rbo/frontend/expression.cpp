@@ -933,6 +933,15 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
     if (op == O::Subtract && IsDate(leftType.Kind) && IsDate(rightType.Kind)) {
         return Append({op, {K::Interval, true}, position, {left, right}, {}, {}, 0});
     }
+    if (op == O::Multiply && ((leftType.Kind == K::Decimal && rightType.IsIntegral()) ||
+        (rightType.Kind == K::Decimal && leftType.IsIntegral()))) {
+        // An integer factor does not change Decimal precision or scale. Keep
+        // it integral: converting a large factor first can turn 0 * n into NaN.
+        auto result = leftType.Kind == K::Decimal ? leftType : rightType;
+        result.Nullable = leftType.Nullable || rightType.Nullable;
+        if (leftType.IsIntegral()) std::swap(left, right);
+        return Append({op, result, position, {left, right}, {}, {}, 0});
+    }
     auto common = CommonType(leftType, rightType, position);
     auto result = common;
     if (op == O::And || op == O::Or) {
@@ -1453,7 +1462,7 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
     }
     const bool decimal = left.Type.Kind == K::Decimal;
     const __int128 a = decimal ? std::get<TDecimal>(left.Data).Coefficient : *IntegralValue(left);
-    const __int128 b = decimal ? std::get<TDecimal>(right.Data).Coefficient : *IntegralValue(right);
+    const __int128 b = right.Type.Kind == K::Decimal ? std::get<TDecimal>(right.Data).Coefficient : *IntegralValue(right);
     if (!decimal && (node.Op == O::Divide || node.Op == O::Modulo) && b == 0) {
         return NullValue(node.Type);
     }
@@ -1487,7 +1496,7 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
     }
     if (node.Op == O::Multiply) {
         if (specialA || specialB) return decimalResult(!a || !b ? nan : signedInf);
-        const auto result = DecimalProduct(a, b, node.Type.Scale);
+        const auto result = DecimalProduct(a, b, right.Type.IsIntegral() ? 0 : node.Type.Scale);
         return decimalResult(result ? BoundDecimal(*result, node.Type) : signedInf);
     }
     if (node.Op == O::Divide) {

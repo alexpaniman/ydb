@@ -11,6 +11,7 @@
 #include <cmath>
 #include <bit>
 #include <limits>
+#include <type_traits>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -281,6 +282,51 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         }
         UNIT_ASSERT(folded && filterFolded && limitFolded);
         UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+    }
+
+    Y_UNIT_TEST(DecimalIntegerFactorsMatchRuntimeArithmetic) {
+        namespace D = NYql::NDecimal;
+        using namespace NFrontend;
+        auto check = []<class T>(ETypeKind kind) {
+            for (const auto [precision, scale] : {std::pair{3, 2}, {8, 2}, {35, 2}, {35, 35}}) {
+                const TType type{ETypeKind::Decimal, false, static_cast<std::uint8_t>(precision), static_cast<std::uint8_t>(scale)};
+                const auto bound = D::GetDivider(precision);
+                const __int128 inputs[]{0, 1, -1, 2, -2, bound - 1, 1 - bound, D::Inf(), -D::Inf(), D::Nan()};
+                for (const auto a : inputs) for (const T b : {T{0}, T{1}, T{2}, std::numeric_limits<T>::lowest(), std::numeric_limits<T>::max()}) {
+                    TExpressionArena arena;
+                    const auto left = arena.Literal(type, TDecimal{a});
+                    const TScalar factor = [&]() -> TScalar {
+                        if constexpr (std::is_signed_v<T>) return std::int64_t{b};
+                        else return std::uint64_t{b};
+                    }();
+                    const auto right = arena.Literal({kind}, factor);
+                    const auto expected = D::TDecimalMultiplicator<T>(precision).Do(a, b);
+                    for (const auto result : {arena.Binary(EOpcode::Multiply, left, right), arena.Binary(EOpcode::Multiply, right, left)}) {
+                        UNIT_ASSERT(arena[result].Type == type);
+                        const auto value = Evaluate(arena, result);
+                        UNIT_ASSERT_C(std::get<TDecimal>(value.Data).Coefficient == expected,
+                            TStringBuilder() << type.ToString() << " * " << TType{kind}.ToString() << ": " << FormatValue({type, TDecimal{a}})
+                                << " * " << FormatValue({{kind}, factor}) << " -> " << FormatValue(value));
+                        const TExprId roots[]{result};
+                        const auto folded = arena.FoldConstants(roots).front();
+                        UNIT_ASSERT(arena[folded].Type == type);
+                        UNIT_ASSERT(std::get<TDecimal>(Evaluate(arena, folded).Data).Coefficient == expected);
+                    }
+                }
+            }
+        };
+        check.operator()<i8>(ETypeKind::Int8); check.operator()<ui8>(ETypeKind::Uint8);
+        check.operator()<i16>(ETypeKind::Int16); check.operator()<ui16>(ETypeKind::Uint16);
+        check.operator()<i32>(ETypeKind::Int32); check.operator()<ui32>(ETypeKind::Uint32);
+        check.operator()<i64>(ETypeKind::Int64); check.operator()<ui64>(ETypeKind::Uint64);
+        for (const auto* type : {"Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64"}) {
+            for (const auto* value : {"0", "0.01", "-0.01", "9.99", "inf", "nan"}) {
+                const auto sql = TStringBuilder() << "SELECT Decimal('" << value << "',3,2) * " << type << "('127')";
+                CheckScalar(std::string_view{sql.data(), sql.size()});
+            }
+        }
+        CheckScalar("SELECT Decimal('0',3,2) * Uint64('18446744073709551615')");
+        CheckScalar("SELECT IF(false, Int64('1')) * Decimal('1.25',3,2)");
     }
 
     Y_UNIT_TEST(DecimalValuesMatchRuntimeArithmetic) {
