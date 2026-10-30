@@ -55,6 +55,8 @@ TType CommonType(TType left, TType right, TSourcePosition position = {});
 
 struct TDecimal {
     __int128 Coefficient = 0;
+    static constexpr __int128 Inf() { return __int128{100000000000000000ULL} * 1000000000000000000ULL; }
+    static constexpr __int128 NaN() { return Inf() + 1; }
     bool operator==(const TDecimal&) const = default;
 };
 
@@ -70,8 +72,8 @@ struct TValue {
 // identifiers, lambda applications, type expressions, or optimizer macros here.
 // Integral add/subtract/multiply/negate use two's-complement wrapping. Division
 // and remainder return NULL for zero divisors and signed division overflow.
-// Decimal scale reductions round to nearest, ties to even; finite precision
-// overflow is an execution error, and division by zero still returns NULL.
+// Decimal scale reductions round to nearest, ties to even. Decimal arithmetic
+// preserves infinity/NaN; overflow and division by zero do not introduce NULL.
 enum class EOpcode : std::uint8_t {
     Literal, Column, Parameter, Convert, Cast,
     Negate, Not, Add, Subtract, Multiply, Divide, Modulo,

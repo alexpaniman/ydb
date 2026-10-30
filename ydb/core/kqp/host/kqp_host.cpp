@@ -1493,8 +1493,11 @@ private:
             options.Binding.TablePathPrefix = std::string(Config->_KqpTablePathPrefix.Get().GetOrElse(SessionCtx->GetDatabase()));
             if (query.ParameterTypes) for (const auto& [name, supplied] : *query.ParameterTypes) {
                 const auto& type = supplied.has_optional_type() ? supplied.optional_type().item() : supplied;
-                if (!type.has_type_id()) throw F::TUnsupportedFeature(F::EFeature::Type, {}, "native parameters require scalar types");
-                auto native = F::ParseType(Ydb::Type_PrimitiveTypeId_Name(type.type_id()));
+                if (!type.has_type_id() && !type.has_decimal_type())
+                    throw F::TUnsupportedFeature(F::EFeature::Type, {}, "native parameters require scalar types");
+                auto native = type.has_decimal_type() ? F::ParseType("Decimal(" +
+                    std::to_string(type.decimal_type().precision()) + "," + std::to_string(type.decimal_type().scale()) + ")") :
+                    F::ParseType(Ydb::Type_PrimitiveTypeId_Name(type.type_id()));
                 native.Nullable = supplied.has_optional_type();
                 auto key = std::string(name);
                 if (key.starts_with('$')) key.erase(0, 1);

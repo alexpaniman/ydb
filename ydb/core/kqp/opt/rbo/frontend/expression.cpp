@@ -317,6 +317,36 @@ bool FitsDecimal(__int128 value, TType type) {
     return value > -limit && value < limit;
 }
 
+bool IsDecimalSpecial(__int128 value) {
+    return value == TDecimal::Inf() || value == -TDecimal::Inf() || value == TDecimal::NaN();
+}
+
+__int128 BoundDecimal(__int128 value, TType type) {
+    if (FitsDecimal(value, type)) return value;
+    return value < 0 ? -TDecimal::Inf() : TDecimal::Inf();
+}
+
+bool IsCanonicalDecimalText(std::string_view text) {
+    if (!text.empty() && (text.front() == '-' || text.front() == '+')) text.remove_prefix(1);
+    if (const auto lower = Lower(text); lower == "inf" || lower == "nan") return true;
+    bool digit = false, dot = false;
+    for (const char c : text) {
+        if (c == '.' && !dot) dot = true;
+        else if (c >= '0' && c <= '9') digit = true;
+        else return false;
+    }
+    return digit;
+}
+
+template <class T>
+T DecimalFloat(__int128 value, unsigned scale) {
+    if (value == TDecimal::NaN()) return std::numeric_limits<T>::quiet_NaN();
+    if (value == TDecimal::Inf()) return std::numeric_limits<T>::infinity();
+    if (value == -TDecimal::Inf()) return -std::numeric_limits<T>::infinity();
+    while (scale && value % 10 == 0) { value /= 10; --scale; }
+    return static_cast<T>(value) / static_cast<T>(Power10(scale));
+}
+
 std::string Int128ToString(__int128 value) {
     const bool negative = value < 0;
     // Decimal values have at most 35 digits, so negation cannot overflow.
@@ -379,10 +409,11 @@ std::optional<__int128> ParseDecimal(std::string_view text, TType type) {
         negative = text.front() == '-';
         text.remove_prefix(1);
     }
-    if (text.empty()) {
-        return {};
-    }
+    if (text.empty()) return {};
+    if (const auto lower = Lower(text); lower == "nan") return TDecimal::NaN();
+    else if (lower == "inf") return negative ? -TDecimal::Inf() : TDecimal::Inf();
     __int128 result = 0;
+    bool overflow = false;
     unsigned fractional = 0;
     bool dot = false;
     bool digit = false;
@@ -402,22 +433,19 @@ std::optional<__int128> ParseDecimal(std::string_view text, TType type) {
             else discardedTail |= ch != '0';
             continue;
         }
-        if (__builtin_mul_overflow(result, __int128{10}, &result) ||
-            __builtin_add_overflow(result, __int128{ch - '0'}, &result)) {
-            return {};
-        }
+        if (!overflow) overflow = __builtin_mul_overflow(result, __int128{10}, &result) ||
+            __builtin_add_overflow(result, __int128{ch - '0'}, &result);
         fractional += dot;
     }
-    if (!digit || __builtin_mul_overflow(result, Power10(type.Scale - fractional), &result)) {
-        return {};
-    }
-    if (discarded > 5 || (discarded == 5 && (discardedTail || result % 2))) {
-        if (__builtin_add_overflow(result, __int128{1}, &result)) return {};
-    }
+    if (!digit) return {};
+    if (!overflow) overflow = __builtin_mul_overflow(result, Power10(type.Scale - fractional), &result);
+    if (!overflow && (discarded > 5 || (discarded == 5 && (discardedTail || result % 2))))
+        overflow = __builtin_add_overflow(result, __int128{1}, &result);
+    if (overflow) return negative ? -TDecimal::Inf() : TDecimal::Inf();
     if (negative) {
         result = -result;
     }
-    return FitsDecimal(result, type) ? std::optional<__int128>{result} : std::nullopt;
+    return BoundDecimal(result, type);
 }
 
 std::optional<__int128> IntegralValue(const TValue& value) {
@@ -431,8 +459,12 @@ std::optional<__int128> IntegralValue(const TValue& value) {
         return *p ? 1 : 0;
     }
     if (auto p = std::get_if<TDecimal>(&value.Data)) {
-        return RoundedDecimalQuotient(Int128ToString(p->Coefficient < 0 ? -p->Coefficient : p->Coefficient),
+        if (IsDecimalSpecial(p->Coefficient)) return {};
+        const auto rounded = RoundedDecimalQuotient(Int128ToString(p->Coefficient < 0 ? -p->Coefficient : p->Coefficient),
             Power10(value.Type.Scale), p->Coefficient < 0);
+        // The runtime first rounds to Decimal(p-s,0), then converts to integer.
+        const TType integral{K::Decimal, false, static_cast<std::uint8_t>(value.Type.Precision - value.Type.Scale), 0};
+        return rounded && FitsDecimal(*rounded, integral) ? rounded : std::nullopt;
     }
     if (auto p = std::get_if<double>(&value.Data)) {
         if (std::isfinite(*p) && *p >= -std::ldexp(1.0, 63) && *p < std::ldexp(1.0, 64)) {
@@ -454,7 +486,7 @@ std::optional<double> FloatingValue(const TValue& value) {
         return *p;
     }
     if (auto p = std::get_if<TDecimal>(&value.Data)) {
-        return static_cast<double>(p->Coefficient) / static_cast<double>(Power10(value.Type.Scale));
+        return DecimalFloat<double>(p->Coefficient, value.Type.Scale);
     }
     if (auto p = std::get_if<std::string>(&value.Data)) {
         auto special = Lower(*p);
@@ -513,16 +545,14 @@ TValue ConvertValue(const TValue& value, TType target) {
     if (target.Kind == K::Decimal) {
         if (auto decimal = std::get_if<TDecimal>(&value.Data)) {
             auto coefficient = decimal->Coefficient;
+            if (IsDecimalSpecial(coefficient)) return {target, *decimal};
             if (target.Scale < value.Type.Scale) {
                 coefficient = *RoundedDecimalQuotient(Int128ToString(coefficient < 0 ? -coefficient : coefficient),
                     Power10(value.Type.Scale - target.Scale), coefficient < 0);
             } else if (__builtin_mul_overflow(coefficient, Power10(target.Scale - value.Type.Scale), &coefficient)) {
-                return NullValue(target);
+                coefficient = decimal->Coefficient < 0 ? -TDecimal::Inf() : TDecimal::Inf();
             }
-            if (FitsDecimal(coefficient, target)) {
-                return {target, TDecimal{coefficient}};
-            }
-            return NullValue(target);
+            return {target, TDecimal{BoundDecimal(coefficient, target)}};
         }
         if (auto decimal = ParseDecimal(FormatValue(value), target)) {
             return {target, TDecimal{*decimal}};
@@ -531,6 +561,8 @@ TValue ConvertValue(const TValue& value, TType target) {
     }
     if (target.Kind == K::Double || target.Kind == K::Float) {
         if (target.Kind == K::Float) {
+            if (const auto* decimal = std::get_if<TDecimal>(&value.Data))
+                return {target, static_cast<double>(DecimalFloat<float>(decimal->Coefficient, value.Type.Scale))};
             // Convert integers directly: an intermediate Double can round a
             // large integer onto a Float halfway point and change the result.
             if (const auto* integer = std::get_if<std::int64_t>(&value.Data))
@@ -613,7 +645,8 @@ void ValidateValue(const TValue& value, TSourcePosition position) {
     } else if (value.Type.Kind == K::Double || value.Type.Kind == K::Float) {
         valid = std::holds_alternative<double>(value.Data);
     } else if (value.Type.Kind == K::Decimal) {
-        valid = std::holds_alternative<TDecimal>(value.Data) && FitsDecimal(std::get<TDecimal>(value.Data).Coefficient, value.Type);
+        valid = std::holds_alternative<TDecimal>(value.Data) && (FitsDecimal(std::get<TDecimal>(value.Data).Coefficient, value.Type) ||
+            IsDecimalSpecial(std::get<TDecimal>(value.Data).Coefficient));
     }
     if (!valid) {
         Fail(position, "Value does not match " + value.Type.ToString());
@@ -753,6 +786,8 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
     if (target.IsString() && (source.Kind == K::Float || source.Kind == K::Double)) {
         throw TUnsupportedFeature(EFeature::Expression, position, "Floating point to string formatting is not supported");
     }
+    if (source.Kind == K::Decimal && target.IsIntegral() && source.Precision == source.Scale)
+        Fail(position, "Decimal to integer cast requires integral digits");
     if (target.Kind == K::Decimal && ((source.IsIntegral() && target.Precision == target.Scale) ||
         (source.Kind == K::Decimal && !std::min(source.Precision - source.Scale, target.Precision - target.Scale) &&
             !std::min(source.Scale, target.Scale)))) {
@@ -785,6 +820,9 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
         if (node.Op != O::Literal) {
             throw TUnsupportedFeature(EFeature::Expression, position, "Text conversion to " + target.ToString() + " requires a literal; dynamic text parsing is not supported");
         }
+        if (target.Kind == K::Decimal && std::holds_alternative<std::string>(node.Value) &&
+            !IsCanonicalDecimalText(std::get<std::string>(node.Value)))
+            throw TUnsupportedFeature(EFeature::Expression, position, "native Decimal text requires canonical digits or inf/nan; exponent and malformed text parsing are not supported");
         // Parse text once with this frontend's explicit lexical contract.
         // The execution model carries only the resulting typed value, so it
         // never depends on the backend's more permissive string parsers.
@@ -796,10 +834,11 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
     const bool sourceFloat = source.Kind == K::Float || source.Kind == K::Double;
     const bool targetFloat = target.Kind == K::Float || target.Kind == K::Double;
     const bool total =
-        (targetFloat && (source.IsIntegral() || sourceFloat || source.Kind == K::Bool)) ||
+        (targetFloat && (source.IsIntegral() || sourceFloat || source.Kind == K::Bool || source.Kind == K::Decimal)) ||
+        (target.Kind == K::Decimal && (source.IsIntegral() || source.Kind == K::Decimal)) ||
         (source.Kind == K::Bool && target.IsIntegral()) ||
         (target.Kind == K::Bool && source.IsIntegral()) ||
-        (target.IsString() && (source.IsIntegral() || source.Kind == K::Bool || source.Kind == K::Utf8));
+        (target.IsString() && (source.IsIntegral() || source.Kind == K::Bool || source.Kind == K::Utf8 || source.Kind == K::Decimal));
     target.Nullable |= source.Nullable || !total;
     return Append({O::Cast, target, position, {input}, {}, {}, 0});
 }
@@ -861,10 +900,10 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
         if (!common.IsNumeric() && !(common.Kind == K::Interval && (op == O::Add || op == O::Subtract))) {
             Fail(position, "Arithmetic expects numeric operands");
         }
-        if (op == O::Modulo && !common.IsIntegral()) {
+        if (op == O::Modulo && !common.IsIntegral() && common.Kind != K::Decimal) {
             Fail(position, "Modulo expects integral operands");
         }
-        if (op == O::Modulo || (op == O::Divide && common.Kind != K::Float && common.Kind != K::Double)) {
+        if ((op == O::Modulo || op == O::Divide) && common.IsIntegral()) {
             result.Nullable = true;
         }
         if (common.Kind == K::Interval) result.Nullable = true;
@@ -915,6 +954,22 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
             Fail(position, std::string(name) + " expects " + std::to_string(expected) + " arguments");
         }
     };
+    if (lowered == "decimal") {
+        arity(3);
+        const auto text = (*this)[arguments[0]];
+        const auto precision = (*this)[arguments[1]], scale = (*this)[arguments[2]];
+        if (text.Op != O::Literal || !text.Type.IsString() || text.Type.Nullable ||
+            precision.Op != O::Literal || !precision.Type.IsIntegral() || precision.Type.Nullable ||
+            scale.Op != O::Literal || !scale.Type.IsIntegral() || scale.Type.Nullable)
+            throw TUnsupportedFeature(EFeature::Expression, position, "Decimal constructor requires literal text, precision and scale");
+        const auto p = *IntegralValue({precision.Type, precision.Value}), s = *IntegralValue({scale.Type, scale.Value});
+        if (p < 1 || p > 35 || s < 0 || s > p) Fail(position, "Decimal requires 1 <= precision <= 35 and scale <= precision");
+        const auto& value = std::get<std::string>(text.Value);
+        if (!IsCanonicalDecimalText(value))
+            throw TUnsupportedFeature(EFeature::Expression, position, "native Decimal text requires canonical digits or inf/nan");
+        const TType type{K::Decimal, false, static_cast<std::uint8_t>(p), static_cast<std::uint8_t>(s)};
+        return Literal(type, TDecimal{*ParseDecimal(value, type)}, position);
+    }
     if (lowered == "coalesce") {
         return Coalesce(arguments, position);
     }
@@ -1097,6 +1152,9 @@ std::string FormatValue(const TValue& value) {
         return out.str();
     }
     const auto coefficient = std::get<TDecimal>(value.Data).Coefficient;
+    if (coefficient == TDecimal::NaN()) return "nan";
+    if (coefficient == TDecimal::Inf()) return "inf";
+    if (coefficient == -TDecimal::Inf()) return "-inf";
     auto text = Int128ToString(coefficient < 0 ? -coefficient : coefficient);
     if (value.Type.Scale) {
         if (text.size() <= value.Type.Scale) {
@@ -1151,9 +1209,8 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
             return {node.Type, node.Op == O::Negate ? -*number : std::abs(*number)};
         }
         __int128 number = left.Type.Kind == K::Decimal ? std::get<TDecimal>(left.Data).Coefficient : *IntegralValue(left);
-        if (node.Op == O::Negate || number < 0) {
-            number = -number;
-        }
+        if (left.Type.Kind == K::Decimal && number == TDecimal::NaN()) return {node.Type, TDecimal{number}};
+        if (node.Op == O::Negate || number < 0) number = -number;
         if (node.Type.Kind == K::Decimal) {
             return {node.Type, TDecimal{number}};
         }
@@ -1180,6 +1237,8 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         return {node.Type, node.Op == O::Contains ? a.find(b) != std::string::npos : node.Op == O::StartsWith ? a.starts_with(b) : a.ends_with(b)};
     }
     if (IsComparison(node.Op)) {
+        if (left.Type.Kind == K::Decimal && (std::get<TDecimal>(left.Data).Coefficient == TDecimal::NaN() ||
+            std::get<TDecimal>(right.Data).Coefficient == TDecimal::NaN())) return {node.Type, node.Op == O::NotEqual};
         int order = 0;
         if (auto a = std::get_if<std::string>(&left.Data)) {
             order = a->compare(std::get<std::string>(right.Data));
@@ -1205,7 +1264,7 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
     const bool decimal = left.Type.Kind == K::Decimal;
     const __int128 a = decimal ? std::get<TDecimal>(left.Data).Coefficient : *IntegralValue(left);
     const __int128 b = decimal ? std::get<TDecimal>(right.Data).Coefficient : *IntegralValue(right);
-    if ((node.Op == O::Divide || node.Op == O::Modulo) && b == 0) {
+    if (!decimal && (node.Op == O::Divide || node.Op == O::Modulo) && b == 0) {
         return NullValue(node.Type);
     }
     if (!decimal) {
@@ -1226,29 +1285,30 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         }
         return {node.Type, WrapInteger(static_cast<unsigned __int128>(result), node.Type)};
     }
-    __int128 result = 0;
-    bool overflow = false;
-    switch (node.Op) {
-        case O::Add: overflow = __builtin_add_overflow(a, b, &result); break;
-        case O::Subtract: overflow = __builtin_sub_overflow(a, b, &result); break;
-        case O::Multiply:
-            if (const auto product = DecimalProduct(a, b, node.Type.Scale)) result = *product;
-            else overflow = true;
-            break;
-        case O::Divide:
-            if (const auto quotient = RoundedDecimalQuotient(Int128ToString(a < 0 ? -a : a) + std::string(node.Type.Scale, '0'),
-                b < 0 ? -b : b, (a < 0) != (b < 0))) result = *quotient;
-            else overflow = true;
-            break;
-        case O::Modulo: result = a % b; break;
-        default: Fail(node.Position, "Invalid execution opcode");
+    const auto nan = TDecimal::NaN(), inf = TDecimal::Inf();
+    auto decimalResult = [&](const __int128 result) -> TValue { return {node.Type, TDecimal{result}}; };
+    if (a == nan || b == nan) return decimalResult(nan);
+    const bool specialA = IsDecimalSpecial(a), specialB = IsDecimalSpecial(b);
+    const auto signedInf = (a < 0) != (b < 0) ? -inf : inf;
+    if (node.Op == O::Add || node.Op == O::Subtract) {
+        const auto result = node.Op == O::Add ? a + b : a - b;
+        if (specialA || specialB) return decimalResult(!result ? nan : result < 0 ? -inf : inf);
+        return decimalResult(BoundDecimal(result, node.Type));
     }
-    if (decimal) {
-        if (overflow || !FitsDecimal(result, node.Type)) {
-            Fail(node.Position, "Decimal arithmetic overflow");
-        }
-        return {node.Type, TDecimal{result}};
+    if (node.Op == O::Multiply) {
+        if (specialA || specialB) return decimalResult(!a || !b ? nan : signedInf);
+        const auto result = DecimalProduct(a, b, node.Type.Scale);
+        return decimalResult(result ? BoundDecimal(*result, node.Type) : signedInf);
     }
+    if (node.Op == O::Divide) {
+        if (!b) return decimalResult(!a ? nan : a < 0 ? -inf : inf);
+        if (specialB) return decimalResult(specialA ? nan : 0);
+        if (specialA) return decimalResult(signedInf);
+        const auto result = RoundedDecimalQuotient(Int128ToString(a < 0 ? -a : a) + std::string(node.Type.Scale, '0'),
+            b < 0 ? -b : b, (a < 0) != (b < 0));
+        return decimalResult(result ? BoundDecimal(*result, node.Type) : signedInf);
+    }
+    if (node.Op == O::Modulo) return decimalResult(!b || specialA || specialB ? nan : a % b);
     Fail(node.Position, "Invalid arithmetic type");
 }
 

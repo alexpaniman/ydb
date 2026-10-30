@@ -1,4 +1,7 @@
 #include <ydb/core/kqp/ut/common/kqp_ut_common.h>
+#include <yql/essentials/public/langver/yql_langver.h>
+#include <util/stream/file.h>
+#include <util/string/subst.h>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -100,6 +103,88 @@ TResultSnapshot TableQuery(TMode mode) {
         TTxControl::BeginTx().CommitTx()).GetValueSync());
 }
 
+TResultSnapshot TpchQ1(TMode mode, bool newRbo) {
+    NKikimrConfig::TAppConfig config;
+    auto* service = config.MutableTableServiceConfig();
+    service->SetEnableNewRBO(newRbo);
+    service->SetNativeFrontendMode(mode);
+    service->SetEnableFallbackToYqlOptimizer(false);
+    service->SetEnableInlineJoinFiltersAfterCBO(false);
+    service->SetEnableFallbackOnMultipleStatements(false);
+    service->SetAllowOlapDataQuery(true);
+    service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+    service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+    TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+    auto client = kikimr.GetTableClient();
+    auto session = client.CreateSession().GetValueSync().GetSession();
+    auto schema = TFileInput(SRC_("data/schema/tpch.sql")).ReadAll();
+    // Same schema and storage settings as RunPerf_YqlTest.
+    SubstGlobal(schema, "\n);", "\n) WITH (STORE = COLUMN, AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 16);");
+    const auto created = session.ExecuteSchemeQuery(schema).GetValueSync();
+    UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+    struct TRow {
+        const char* Flag;
+        const char* Status;
+        const char* Quantity;
+        const char* Price;
+        const char* Discount;
+        const char* Tax;
+        const char* ShipDate;
+    };
+    const TRow data[]{
+        {"A", "F", "17", "100", "0.05", "0.02", "1998-09-01"},
+        {"A", "F", "20", "200", "0.10", "0.05", "1998-09-02"},
+        {"A", "F", "99", "999", "0.90", "0.90", "1998-09-03"}, // outside inclusive date boundary
+        {"R", "F", "20", "200", "0.10", "0.05", "1997-01-01"},
+        {"R", "F", nullptr, "50", nullptr, "0.03", "1997-01-01"},
+        {nullptr, "F", "1", "10", "0", "0", "1997-01-01"},
+        {"N", "O", nullptr, nullptr, nullptr, nullptr, "1997-01-01"}, // all-null measures
+        {"A", "F", "99", "999", "0.90", "0.90", nullptr},
+        {"A", "F", "17", "100", "0.05", "0.02", "1998-09-01"}, // duplicate payload, distinct key
+    };
+    const auto decimalType = TTypeBuilder().Decimal({12, 2}).Build();
+    TValueBuilder rows;
+    rows.BeginList();
+    i64 key = 0;
+    for (const auto& row : data) {
+        rows.AddListItem().BeginStruct()
+            .AddMember("l_orderkey").Int64(++key)
+            .AddMember("l_linenumber").Int32(1)
+            .AddMember("l_comment").OptionalUtf8(std::nullopt)
+            .AddMember("l_partkey").OptionalInt64(std::nullopt)
+            .AddMember("l_suppkey").OptionalInt64(std::nullopt)
+            .AddMember("l_shipinstruct").OptionalUtf8(std::nullopt)
+            .AddMember("l_shipmode").OptionalUtf8(std::nullopt)
+            .AddMember("l_commitdate").OptionalDate(std::nullopt)
+            .AddMember("l_receiptdate").OptionalDate(std::nullopt)
+            .AddMember("l_returnflag").OptionalUtf8(row.Flag ? std::optional<std::string>{row.Flag} : std::nullopt)
+            .AddMember("l_linestatus").OptionalUtf8(row.Status)
+            .AddMember("l_shipdate").OptionalDate(row.ShipDate ?
+                std::optional<TInstant>{TInstant::ParseIso8601(TString(row.ShipDate) + "T00:00:00Z")} : std::nullopt);
+        for (const auto [name, value] : {std::pair{"l_quantity", row.Quantity}, {"l_extendedprice", row.Price},
+                {"l_discount", row.Discount}, {"l_tax", row.Tax}}) {
+            rows.AddMember(name);
+            if (value) rows.BeginOptional().Decimal(TDecimalValue(value, 12, 2)).EndOptional();
+            else rows.EmptyOptional(decimalType);
+        }
+        rows.EndStruct();
+    }
+    rows.EndList();
+    const auto inserted = client.BulkUpsert("/Root/lineitem", rows.Build()).GetValueSync();
+    UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+    const TString prelude = R"($to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };
+$to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
+$round = ($x,$y) -> {return $x;};
+)";
+    const auto sql = prelude + TFileInput(SRC_("data/yql-tpch/q1.yql")).ReadAll();
+    const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+    UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), 4);
+    return SnapshotRows(result.GetResultSet(0));
+}
+
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
@@ -138,6 +223,11 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             "SELECT COUNT(DISTINCT x) AS n FROM (SELECT 1 AS x UNION ALL SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q",
             "SELECT k, COUNT(*) AS n FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q GROUP BY x % 2 AS k HAVING COUNT(*) > 0ul ORDER BY k",
             "SELECT x FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q ORDER BY x LIMIT 1 OFFSET 1",
+            "SELECT Decimal('1.25',8,2), CAST(1 AS Decimal(8,2)), CAST('1.25' AS Decimal(8,2))",
+            "SELECT Decimal('1',8,2) / Decimal('0',8,2), Decimal('0',8,2) / Decimal('0',8,2)",
+            "SELECT -Decimal('nan',8,2), Abs(Decimal('-inf',8,2)), Decimal('inf',8,2) - Decimal('inf',8,2)",
+            "SELECT CAST(Decimal('1.5',8,2) AS Int32), CAST(Decimal('9.9',2,1) AS Int32), CAST(Decimal('1.50',8,2) AS String)",
+            "SELECT CAST(Decimal('1.25',8,2) AS Float), CAST(Decimal('1.25',8,2) AS Double), CAST(Decimal('99.9',3,1) AS Decimal(2,1))",
             "SELECT 1 + 2, Length('abc')",
             "SELECT Length(Utf8('hello')), StartsWith('abc', 'a'), EndsWith('abc', 'c'), String::AsciiToLower('ABC'), String::AsciiToUpper('abc')",
             "SELECT -128t, -2147483648, -9223372036854775808, -1u",
@@ -203,6 +293,39 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
                 Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
         }
+    }
+
+    Y_UNIT_TEST(RuntimeDecimalMatchesLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const TString sql = R"(
+            DECLARE $a AS Decimal(8,2);
+            DECLARE $b AS Decimal(8,2)?;
+            SELECT $a + $b, $a - $b, $a * $b, $a / $b, $a % $b,
+                $a = $b, $a != $b, $a < $b, $a <= $b, -$a, Abs($a),
+                CAST($a AS Int32), CAST($a AS Float), CAST($a AS Double),
+                CAST($a AS String), CAST($a AS Decimal(2,1))
+        )";
+        for (const auto [a, b] : {std::pair{"1.25", "2.00"}, {"999999.99", "999999.99"},
+                {"-1.25", "0"}, {"0", "0"}, {"nan", "inf"}, {"inf", "inf"}, {"-inf", "inf"},
+                {"1.25", static_cast<const char*>(nullptr)}}) {
+            auto builder = TParamsBuilder();
+            builder.AddParam("$a").Decimal(TDecimalValue(a, 8, 2)).Build();
+            auto& optional = builder.AddParam("$b");
+            if (b) optional.BeginOptional().Decimal(TDecimalValue(b, 8, 2)).EndOptional().Build();
+            else optional.EmptyOptional(TTypeBuilder().Decimal({8, 2}).Build()).Build();
+            const auto params = builder.Build();
+            AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+        }
+    }
+
+    Y_UNIT_TEST(TpchQ1MatchesLegacyOnPopulatedColumnTables) {
+        const auto legacy = TpchQ1(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, false);
+        AssertSame(TpchQ1(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, true), legacy);
+        AssertSame(TpchQ1(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED, true), legacy);
     }
 
     Y_UNIT_TEST(ConstantResultsMatchLegacy) {

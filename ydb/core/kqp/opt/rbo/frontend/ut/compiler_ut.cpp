@@ -116,7 +116,9 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                                "SELECT value IN (SELECT value FROM b) FROM a", "PRAGMA foo='x'; SELECT 1",
                                "SELECT CASE WHEN true THEN 1 END", "SELECT * FROM a CROSS JOIN b",
                                "SELECT 'a''b'", "SELECT 1 AS 'answer'", "$'x' = 1; SELECT 1",
-                               "SELECT value + 1 FROM a GROUP BY value + 1"}) {
+                               "SELECT value + 1 FROM a GROUP BY value + 1",
+                               "SELECT id, STDDEV_SAMPLE(value) FROM a GROUP BY id",
+                               "SELECT id, STDDEV_SAMP(value) FROM a GROUP BY id"}) {
             const auto result = CompileNative(sql, Catalog, settings);
             UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported, sql);
         }
@@ -161,9 +163,24 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         UNIT_ASSERT(scalarColumns[0].Type == (TType{ETypeKind::Double}));
         UNIT_ASSERT(scalarColumns[1].Type == (TType{ETypeKind::String}));
         UNIT_ASSERT(scalarColumns[2].Type == (TType{ETypeKind::Double}));
-        for (const auto* sql : {"SELECT 1u + 2", "SELECT CAST('1' AS Decimal(8,2))", "SELECT LOWER('ABC')",
+        for (const auto* sql : {"SELECT 1u + 2", "SELECT LOWER('ABC')",
             "SELECT CAST(Float('1') AS Int32)", "SELECT CAST(Float('1') AS Uint64)"}) {
             UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
+        }
+    }
+
+    Y_UNIT_TEST(DecimalProfileIsExplicit) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto result = CompileNative("SELECT Decimal('1.25',8,2), CAST(1 AS Decimal(8,2)), CAST('inf' AS Decimal(8,2)), Decimal('1',8,2) / Decimal('0',8,2)", Catalog, settings);
+            const auto& columns = result.Program->Get().Results[0].Columns;
+            for (std::size_t i = 0; i < columns.size(); ++i)
+                UNIT_ASSERT(columns[i].Type == (TType{ETypeKind::Decimal, i == 2, 8, 2}));
+            for (const auto* sql : {"SELECT Decimal('1e2',8,2)", "SELECT CAST('1e2' AS Decimal(8,2))",
+                "SELECT Decimal('1',8,2) + 1", "SELECT Decimal('1',8,2) + Decimal('1',12,2)",
+                "DECLARE $s AS String; SELECT CAST($s AS Decimal(8,2))"})
+                UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
         }
     }
 

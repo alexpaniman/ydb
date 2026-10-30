@@ -6,6 +6,7 @@
 #include <yql/essentials/minikql/mkql_type_ops.h>
 #include <yql/essentials/providers/common/mkql/yql_provider_mkql.h>
 #include <yql/essentials/core/yql_expr_type_annotation.h>
+#include <yql/essentials/public/decimal/yql_decimal.h>
 
 #include <cmath>
 
@@ -75,6 +76,48 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(DecimalValuesMatchRuntimeArithmetic) {
+        namespace D = NYql::NDecimal;
+        using namespace NFrontend;
+        using O = EOpcode;
+        for (const auto [precision, scale] : {std::pair{2, 0}, {8, 2}, {35, 2}, {35, 35}}) {
+            const TType type{ETypeKind::Decimal, false, static_cast<std::uint8_t>(precision), static_cast<std::uint8_t>(scale)};
+            __int128 bound = 1;
+            for (int i = 0; i < precision; ++i) bound *= 10;
+            const __int128 inputs[]{0, 1, -1, 2, -2, bound - 1, 1 - bound, D::Inf(), -D::Inf(), D::Nan()};
+            for (const auto a : inputs) for (const auto b : inputs) {
+                TExpressionArena arena;
+                const auto left = arena.Literal(type, TDecimal{a}), right = arena.Literal(type, TDecimal{b});
+                const std::pair<O, __int128> arithmetic[]{
+                    {O::Add, D::Add(a, b, precision)}, {O::Subtract, D::Sub(a, b, precision)},
+                    {O::Multiply, D::TDecimalMultiplicator<D::TInt128>(precision, scale).Do(a, b)},
+                    {O::Divide, D::TDecimalDivisor<D::TInt128>(precision, scale).Do(a, b)}, {O::Modulo, D::Mod(a, b)}};
+                for (const auto [op, expected] : arithmetic) {
+                    const auto result = arena.Binary(op, left, right);
+                    UNIT_ASSERT(arena[result].Type == type);
+                    const auto value = Evaluate(arena, result);
+                    UNIT_ASSERT_C(std::get<TDecimal>(value.Data).Coefficient == expected,
+                        TStringBuilder() << type.ToString() << " op " << int(op) << " ("
+                            << FormatValue({type, TDecimal{a}}) << ", " << FormatValue({type, TDecimal{b}}) << ") -> " << FormatValue(value));
+                }
+                const std::pair<O, bool> comparisons[]{
+                    {O::Equal, D::IsEqual(a, b, 0)}, {O::NotEqual, !D::IsEqual(a, b, 0)},
+                    {O::Less, D::IsLess(a, b, 0)}, {O::LessEqual, D::IsLessOrEqual(a, b, 0)},
+                    {O::Greater, D::IsGreater(a, b, 0)}, {O::GreaterEqual, D::IsGreaterOrEqual(a, b, 0)}};
+                for (const auto [op, expected] : comparisons)
+                    UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, arena.Binary(op, left, right)).Data), expected);
+            }
+            for (const std::string text : {"0", "+0", "-0", "1", "1.25", "-.5", "0.005", "0.015", "999.995", "inf", "-INF", "+NaN",
+                "99999999999999999999999999999999999", "100000000000000000000000000000000001", "0000000000000000000000001.2300"}) {
+                TExpressionArena arena;
+                const auto input = arena.Literal({ETypeKind::String}, text);
+                const auto value = Evaluate(arena, arena.Cast(input, type));
+                UNIT_ASSERT_C(std::get<TDecimal>(value.Data).Coefficient == D::FromString(TString(text), precision, scale),
+                    TStringBuilder() << text << " as " << type.ToString());
+            }
+        }
+    }
+
     Y_UNIT_TEST(TextCastsMatchRuntimeLexicalContract) {
         using namespace NFrontend;
         for (const auto kind : {ETypeKind::Bool, ETypeKind::Float, ETypeKind::Double}) {
@@ -210,7 +253,17 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT CAST('1.23' AS Decimal(10,2)) * CAST('2' AS Decimal(10,2))",
             "SELECT CAST('999' AS Decimal(2,0))",
             "SELECT CAST(CAST('9.9' AS Decimal(2,1)) AS Int32)",
-            "SELECT CAST(CAST('0.9' AS Decimal(1,1)) AS Int32)",
+            "SELECT CAST(CAST('0.9' AS Decimal(2,1)) AS Int32)",
+            "SELECT CAST('inf' AS Decimal(8,2)) - CAST('inf' AS Decimal(8,2))",
+            "SELECT CAST('inf' AS Decimal(8,2)) * CAST('0' AS Decimal(8,2))",
+            "SELECT CAST('1' AS Decimal(8,2)) / CAST('0' AS Decimal(8,2))",
+            "SELECT CAST('0' AS Decimal(8,2)) / CAST('0' AS Decimal(8,2))",
+            "SELECT CAST('1' AS Decimal(8,2)) % CAST('0' AS Decimal(8,2))",
+            "SELECT -CAST('nan' AS Decimal(8,2))",
+            "SELECT CAST('nan' AS Decimal(8,2)) != CAST('nan' AS Decimal(8,2))",
+            "SELECT CAST(CAST('inf' AS Decimal(8,2)) AS Double)",
+            "SELECT CAST(CAST('nan' AS Decimal(8,2)) AS Float)",
+            "SELECT CAST(CAST('inf' AS Decimal(8,2)) AS String)",
             "SELECT Date('2020-01-01') + Interval('P1D')",
             "SELECT CAST(Date('2020-01-02') AS Timestamp)",
             "SELECT Lower('AbC')", "SELECT Upper('AbC')", "SELECT Lower(CAST(NULL AS String))",

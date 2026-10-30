@@ -807,13 +807,6 @@ std::string Explain(const TBoundProgram& program) {
 
 namespace {
 
-void CheckType(TType type, TSourcePosition pos) {
-    if (type.Kind == ETypeKind::Decimal) {
-        throw TUnsupportedFeature(EFeature::Type, pos,
-            "Decimal is outside native-read-v1: finite-only arithmetic does not implement YQL special values");
-    }
-}
-
 void CheckSyntax(const TParsedQuery& syntax) {
     for (const auto& node : syntax.Expressions) {
         if (node.Kind == ESyntaxKind::Case && node.Text == "implicit_else")
@@ -829,6 +822,11 @@ void CheckSyntax(const TParsedQuery& syntax) {
         }
         if (node.Kind == ESyntaxKind::Call) {
             const auto name = Lower(node.Text);
+            // Unavailable aggregates must be rejected before their row arguments
+            // are resolved in the post-aggregation scope.
+            if (name == "stddev_sample" || name == "stddev_samp" || name == "stddev" || name == "stddev_pop" ||
+                name == "variance" || name == "var_samp" || name == "var_pop")
+                throw TUnsupportedFeature(EFeature::Function, node.Position, "aggregate is outside the native profile: " + node.Text);
             // These convenience aliases in the experimental expression API do
             // not have the same meaning (or do not exist) in YQL SQL.
             if (name == "lower" || name == "upper" || name == "substr" || name == "contains" ||
@@ -838,17 +836,14 @@ void CheckSyntax(const TParsedQuery& syntax) {
         if (node.Kind == ESyntaxKind::Cast) {
             const auto target = ParseType(node.Text, node.Position);
             if (!target.IsIntegral() && !target.IsString() && target.Kind != ETypeKind::Bool &&
-                target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double)
+                target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double && target.Kind != ETypeKind::Decimal)
                 throw TUnsupportedFeature(EFeature::Expression, node.Position, "explicit cast target is outside the native scalar profile");
         }
     }
 }
 
 void CheckProgram(const TBoundProgram& program) {
-    for (const auto& column : program.Columns) CheckType(column.Type, {});
-    for (const auto& [name, type] : program.Parameters) CheckType(type, {});
     for (const auto& node : program.Expressions.Nodes()) {
-        CheckType(node.Type, node.Position);
         if ((node.Op >= EOpcode::Add && node.Op <= EOpcode::Modulo) || node.Op == EOpcode::Concat) {
             for (auto id : node.Arguments) {
                 while (program.Expressions[id].Op == EOpcode::Convert) id = program.Expressions[id].Arguments[0];
@@ -858,6 +853,10 @@ void CheckProgram(const TBoundProgram& program) {
         }
         if (node.Op == EOpcode::Convert && !node.Arguments.empty()) {
             const auto from = program.Expressions[node.Arguments[0]].Type;
+            if (node.Type.Kind == ETypeKind::Decimal && from.Kind != ETypeKind::Null &&
+                node.Type.Required() != from.Required())
+                throw TUnsupportedFeature(EFeature::Type, node.Position,
+                    "implicit Decimal promotion requires explicit casts in the native profile");
             if ((node.Type.Kind == ETypeKind::Double && from.Kind == ETypeKind::Float) ||
                 (node.Type.Kind == ETypeKind::Float && from.Kind != ETypeKind::Float))
                 throw TUnsupportedFeature(EFeature::Type, node.Position, "mixed Float promotion is outside native-read-v1");
@@ -867,14 +866,14 @@ void CheckProgram(const TBoundProgram& program) {
         if (node.Op == EOpcode::Cast) {
             const auto from = program.Expressions[node.Arguments[0]].Type;
             if (!from.IsIntegral() && !from.IsString() && from.Kind != ETypeKind::Null &&
-                from.Kind != ETypeKind::Bool && from.Kind != ETypeKind::Float && from.Kind != ETypeKind::Double)
+                from.Kind != ETypeKind::Bool && from.Kind != ETypeKind::Float && from.Kind != ETypeKind::Double && from.Kind != ETypeKind::Decimal)
                 throw TUnsupportedFeature(EFeature::Expression, node.Position, "runtime cast input is outside the native scalar profile");
         }
         if ((node.Op == EOpcode::Lower || node.Op == EOpcode::Upper) && node.Type.Kind != ETypeKind::String)
             throw TUnsupportedFeature(EFeature::Function, node.Position, "native ASCII case functions require String input");
         if (node.Op == EOpcode::Cast && node.Type.IsString()) {
             const auto input = program.Expressions[node.Arguments[0]].Type;
-            if (!input.IsString() && !input.IsIntegral() && input.Kind != ETypeKind::Bool) {
+            if (!input.IsString() && !input.IsIntegral() && input.Kind != ETypeKind::Bool && input.Kind != ETypeKind::Decimal) {
                 throw TUnsupportedFeature(EFeature::Expression, node.Position,
                     "native-read-v1 does not implement this type's YQL text formatting");
             }
@@ -994,11 +993,7 @@ std::vector<TTableRequest> CollectTables(const TParsedQuery& syntax, const TBind
 
 TCompiledProgram BindNative(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings) {
     CheckSyntax(syntax);
-    auto program = NDetail::Bind(syntax, [&](std::string_view name, TSourcePosition pos) {
-        auto table = catalog(name, pos);
-        for (const auto& column : table.Columns) CheckType(column.Type, pos);
-        return table;
-    }, settings);
+    auto program = NDetail::Bind(syntax, catalog, settings);
     CheckProgram(program);
     return TCompiledProgram(std::move(program));
 }
@@ -1017,10 +1012,10 @@ std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
 "relations":["read","project","filter","on-join","aggregate","sort","limit","union-all"],
-"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Null","single-optional"],
+"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no windows, subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers, PostgreSQL or Decimal","no floating or temporal text formatting","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no windows, subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","no implicit Decimal promotion; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

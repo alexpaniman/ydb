@@ -161,17 +161,18 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(roundedInteger, {K::Int64}))), "2");
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(roundedInteger, {K::String}))), "1.5");
         auto carry = arena.Literal({K::Decimal, false, 2, 1}, TDecimal{99});
-        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(carry, {K::Int64}))), "10");
+        UNIT_ASSERT(Evaluate(arena, arena.Cast(carry, {K::Int64})).IsNull());
         auto fractional = arena.Literal({K::Decimal, false, 2, 2}, TDecimal{99});
-        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(fractional, {K::Int64}))), "1");
+        UNIT_ASSERT_EXCEPTION(arena.Cast(fractional, {K::Int64}), TFrontendError);
         __int128 oneCoefficient = 1;
         for (unsigned i = 0; i < 30; ++i) oneCoefficient *= 10;
         auto one = arena.Literal({K::Decimal, false, 35, 30}, TDecimal{oneCoefficient});
         UNIT_ASSERT(std::get<TDecimal>(Evaluate(arena, arena.Binary(O::Multiply, one, one)).Data).Coefficient == oneCoefficient);
         UNIT_ASSERT(std::get<TDecimal>(Evaluate(arena, arena.Binary(O::Divide, one, one)).Data).Coefficient == oneCoefficient);
         auto huge = arena.Literal({K::Decimal, false, 2, 0}, TDecimal{99});
-        UNIT_ASSERT_EXCEPTION(Evaluate(arena, arena.Binary(O::Add, huge, huge)), TFrontendError);
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Binary(O::Add, huge, huge))), "inf");
         UNIT_ASSERT_EXCEPTION(arena.Cast(arena.Literal({K::Double}, 1.2), {K::Decimal, false, 8, 2}), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.Cast(arena.Literal({K::String}, std::string{"1e2"}), {K::Decimal, false, 8, 2}), TUnsupportedFeature);
     }
 
     Y_UNIT_TEST(SharedSubexpressionsAreEvaluatedOnce) {

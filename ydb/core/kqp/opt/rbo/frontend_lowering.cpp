@@ -123,27 +123,11 @@ private:
         optionals.push_back(Nothing(resultType));
         return Call("IfPresent", std::move(optionals), resultType);
     }
-    TExprNode::TPtr DecimalFinite(TExprNode::TPtr value, NFrontend::TType type) {
-        __int128 maximum = 1;
-        for (unsigned i = 0; i < type.Precision; ++i) maximum *= 10;
-        --maximum;
-        auto below = Call("<=", {value, Literal(type.Required(), NFrontend::TDecimal{maximum})}, {K::Bool, type.Nullable});
-        auto above = Call(">=", {value, Literal(type.Required(), NFrontend::TDecimal{-maximum})}, {K::Bool, type.Nullable});
-        return Call("And", {below, above}, {K::Bool, type.Nullable});
-    }
     TExprNode::TPtr Cast(TExprNode::TPtr value, NFrontend::TType source, NFrontend::TType target) {
         if (source == target) return value;
         if (source.Kind == K::Null) return Nothing(target);
         if (source.Required() == target.Required()) {
             return !source.Nullable && target.Nullable ? Call("Just", {value}, target) : value;
-        }
-        if (source.Kind == K::Decimal && source.Scale && target.IsIntegral()) {
-            // Round once with room for a carry before narrowing. The generic
-            // backend integer cast otherwise rounds through Decimal(p-s,0),
-            // which can overflow even when the requested integer fits.
-            NFrontend::TType rounded{K::Decimal, source.Nullable, 35, 0};
-            auto integral = Call("SafeCast", {value, Type(rounded)}, rounded);
-            return Cast(integral, rounded, target);
         }
         // Native temporal values format their numeric execution payload. Keep
         // formatting independent from YQL's ISO string conversion policy.
@@ -158,16 +142,6 @@ private:
             throw NFrontend::TFrontendError({}, "unsupported execution cast from " + source.ToString() + " to " + target.ToString());
         }
         const bool mayFail = options & NUdf::ECastOptions::MayFail;
-        if (target.Kind == K::Decimal) {
-            auto actual = target.Required();
-            actual.Nullable = source.Nullable || source.IsString();
-            auto converted = Call("SafeCast", {value, Type(actual)}, actual);
-            if (!target.Nullable) return converted;
-            return Present({converted}, {actual}, target, [&](TExprNode::TListType args) {
-                auto finite = DecimalFinite(args[0], target.Required());
-                return Call("If", {finite, Call("Just", {args[0]}, target), Nothing(target)}, target);
-            });
-        }
         // Emit optional lifting immediately. SafeCast's MiniKQL implementation
         // preserves optionality on total conversions such as integer widening.
         auto actual = target;
@@ -199,25 +173,6 @@ private:
         });
     }
 
-    TExprNode::TPtr DecimalArithmetic(const NFrontend::TExprNode& node, TExprNode::TListType args) {
-        const auto output = node.Type;
-        std::vector<NFrontend::TType> types;
-        for (auto id : node.Arguments) types.push_back(Arena[id].Type);
-        return Present(std::move(args), types, output, [&](TExprNode::TListType values) {
-            const char* name = node.Op == O::Add ? "+" : node.Op == O::Subtract ? "-" :
-                node.Op == O::Multiply ? "DecimalMul" : node.Op == O::Divide ? "DecimalDiv" : "DecimalMod";
-            auto result = Call(name, values, output.Required());
-            auto checked = Call("Ensure", {result, DecimalFinite(result, output.Required()),
-                Literal({K::String}, std::string{"Decimal arithmetic overflow"})}, output.Required());
-            if (node.Op == O::Divide || node.Op == O::Modulo) {
-                auto zero = Literal(types[1].Required(), NFrontend::TDecimal{0});
-                return Call("If", {Call("==", {values[1], zero}, {K::Bool}), Nothing(output),
-                    Call("Just", {checked}, output)}, output);
-            }
-            return checked;
-        });
-    }
-
     TExprNode::TPtr Lower(const NFrontend::TExprNode& node) {
         TExprNode::TListType args;
         std::vector<NFrontend::TType> types;
@@ -240,7 +195,8 @@ private:
             case O::Negate: return Call("Minus", std::move(args), type);
             case O::Not: return Call("Not", std::move(args), type);
             case O::Add: case O::Subtract: case O::Multiply: case O::Divide: case O::Modulo: {
-                if (type.Kind == K::Decimal) return DecimalArithmetic(node, std::move(args));
+                if (type.Kind == K::Decimal && (node.Op == O::Multiply || node.Op == O::Divide || node.Op == O::Modulo))
+                    return Call(node.Op == O::Multiply ? "DecimalMul" : node.Op == O::Divide ? "DecimalDiv" : "DecimalMod", std::move(args), type);
                 const char* name = node.Op == O::Add ? "+" : node.Op == O::Subtract ? "-" : node.Op == O::Multiply ? "*" : node.Op == O::Divide ? "/" : "%";
                 return Call(name, std::move(args), type);
             }

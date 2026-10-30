@@ -112,12 +112,12 @@ the only aggregate in that aggregation. Computed GROUP BY keys require explicit
 aliases (`GROUP BY expression AS key`, then `SELECT key`). Scan queries require one result.
 
 Scalar types are Bool, signed/unsigned integers, Float/Double, String/Utf8,
-Date/Datetime/Timestamp/Interval, Null, and one optional layer. Arithmetic,
+Date/Datetime/Timestamp/Interval, Decimal, Null, and one optional layer. Arithmetic,
 comparisons, Boolean logic, CASE/IF, COALESCE, IN lists, BETWEEN, null tests,
 byte-string concatenation, Length, StartsWith/EndsWith, ASCII case functions,
 and simple constant LIKE patterns have native operations. Primitive data
 constructors require string literals and produce required values. Explicit
-casts cover integers, Bool, Float/Double, and String/Utf8 (text parsing still
+casts cover integers, Bool, Float/Double, Decimal, and String/Utf8 (text parsing still
 requires literals). Total casts preserve non-nullability, including integer to
 floating point. Floating division preserves IEEE infinity/NaN. Substring slices
 String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
@@ -125,6 +125,13 @@ other integral offsets must be literals that fit Uint32.
 Numeric text conversion uses the generic `double-conversion` library with the
 runtime's lexical policy, including leading spaces, hexadecimal integers,
 and overflow/underflow to infinity/zero; it imports no YQL conversion code.
+Decimal arithmetic preserves YQL infinity/NaN and rounds scale reductions to
+nearest with ties to even. Precision overflow produces infinity; Decimal
+arithmetic does not add a nullable layer. Constructors accept canonical literal
+digits/dot or inf/nan, with literal precision/scale. Decimal-to-integer conversion
+rounds through the source's integral precision before checking the integer range,
+matching the existing runtime. Backend lowering emits direct typed arithmetic
+and casts, without finite-only guards or extra rounding wrappers.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin.
 
@@ -140,9 +147,11 @@ Explicitly outside the profile:
 - Scalar/IN/EXISTS subqueries, correlation, JOIN USING, windows, grouping sets,
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
-- UDFs, higher-order values, containers/structs/tuples, nested optionals, Decimal.
-- Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
-  text parsing, and runtime casts from temporal/Decimal inputs.
+- UDFs, higher-order values, containers/structs/tuples, nested optionals.
+- Mixed signed/unsigned, mixed Float or implicit Decimal promotion, bare-NULL
+  arithmetic, dynamic text parsing, and runtime casts from temporal inputs.
+  Decimal text with exponents or malformed text and Float/Double-to-Decimal
+  conversions are excluded. Different Decimal types require explicit casts.
 - Float to Int32/Uint32/Int64/Uint64: the existing runtime rounds the upper
   integer bound to Float before checking, admitting an out-of-range value.
   These casts remain explicit unsupported features; no existing runtime fix is
@@ -209,13 +218,20 @@ do not interpret grammar acceptance or parse/bind success as execution coverage.
 `python3 ydb/core/kqp/opt/rbo/frontend/tools/probe_corpus.py --output /tmp/native-coverage.json`
 reports per-query native/legacy/error routing against the checked-in benchmark
 schemas and prepends the same three scalar helpers as `RunPerf_YqlTest`.
-`--bare` measures the SQL files alone. The initial bare-file profile accepted 36/43 ClickBench queries
-and explicitly delegated all 22 TPC-H and 99 TPC-DS queries, primarily because
-Decimal/casts are excluded. These numbers measure frontend acceptance only;
-they supersede the broader prototype's unverified parse/bind counts.
-With the benchmark helper prelude, all three suites currently delegate because
-it declares Decimal casts, including for ClickBench. Bare-file acceptance must
-not be presented as acceptance of the complete benchmark harness input.
+`--bare` measures the SQL files alone. With the complete helper prelude, fast
+and generated modes currently agree on these frontend routing counts:
+
+| Suite | Native | Explicit legacy delegation |
+| --- | ---: | ---: |
+| TPC-H | 3/22 (Q1, Q3, Q19) | 19 |
+| TPC-DS | 20/99 | 79 |
+| ClickBench | 36/43 | 7 |
+
+There are no hard errors in this probe. Acceptance here means parsing, binding
+and profile validation, not RBO optimization or execution. TPC-H Q1 separately
+has native-required execution parity on populated column tables; the remaining
+accepted benchmark queries still need that validation. The report preserves
+unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
 
@@ -234,10 +250,17 @@ to Float rounding, and legacy-optimizer result/type parity with runtime
 parameters. It enables floating division, scalar casts and Substring without
 enabling Decimal or the remaining relational features.
 
-Fast and generated modes have identical bare-file routing on all 164 queries:
-36 native and 128 explicit legacy delegations, with no hard errors. The standalone
-CLI contains no YQL or MiniKQL symbols; the frontend's only parser runtime
+The standalone CLI contains no YQL or MiniKQL symbols; the frontend's only parser runtime
 dependency is generic ANTLR.
+
+The Decimal extension passed all 79 native tests, plus 10 compiler checks after
+correcting unsupported statistical-aggregate routing. Tests compare native
+Decimal values with the existing arithmetic implementation, execute terminal
+MiniKQL graphs without annotation, and compare runtime parameters with legacy
+SQL values/types. The unchanged checked-in TPC-H Q1 runs with its complete schema,
+helper prelude, maximum language version, and 16-partition column tables. Its
+four nonempty result groups match both the legacy optimizer and the old frontend
+with new RBO, including duplicate payloads, nulls and the inclusive date boundary.
 
 Run `python3 ydb/core/kqp/opt/rbo/frontend/tools/bench_parsers.py --output /tmp/native-parser-bench.json`
 with an idle machine to compare generated parsing with fast mode. A local
@@ -272,8 +295,8 @@ or a directory per feature.
 
 The unchanged baseline at `f9967857753` passed all 357 RBO tests on 2026-10-30.
 Existing benchmark expectations are 22/22 TPC-H and 97/99 TPC-DS explain
-successes; TPC-DS 17 and 44 are expected failures, not native successes. The
-migration target is all 121 queries with native-required compilation and
+successes. TPC-DS 17 and 44 are omitted from the success requirement; that
+does not itself establish that either query fails. The migration target is all 121 queries with native-required compilation and
 execution validation, plus previously working YQL read-query tests. Writes
 and PostgreSQL are tracked separately. Pre-existing RBO/backend defects remain
 outside this patch; failures caused by native translation or migration are fixed.
