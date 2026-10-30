@@ -1,5 +1,6 @@
 #include <ydb/core/kqp/ut/common/kqp_ut_common.h>
 #include <yql/essentials/public/langver/yql_langver.h>
+#include <library/cpp/json/json_reader.h>
 #include <util/stream/file.h>
 #include <util/string/subst.h>
 
@@ -103,7 +104,7 @@ TResultSnapshot TableQuery(TMode mode) {
         TTxControl::BeginTx().CommitTx()).GetValueSync());
 }
 
-TResultSnapshot TpchQ1(TMode mode, bool newRbo) {
+TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
     NKikimrConfig::TAppConfig config;
     auto* service = config.MutableTableServiceConfig();
     service->SetEnableNewRBO(newRbo);
@@ -130,6 +131,9 @@ TResultSnapshot TpchQ1(TMode mode, bool newRbo) {
         const char* Discount;
         const char* Tax;
         const char* ShipDate;
+        i64 Part = 2;
+        const char* ShipMode = "AIR";
+        const char* Instruction = "DELIVER IN PERSON";
     };
     const TRow data[]{
         {"A", "F", "17", "100", "0.05", "0.02", "1998-09-01"},
@@ -140,21 +144,29 @@ TResultSnapshot TpchQ1(TMode mode, bool newRbo) {
         {nullptr, "F", "1", "10", "0", "0", "1997-01-01"},
         {"N", "O", nullptr, nullptr, nullptr, nullptr, "1997-01-01"}, // all-null measures
         {"A", "F", "99", "999", "0.90", "0.90", nullptr},
-        {"A", "F", "17", "100", "0.05", "0.02", "1998-09-01"}, // duplicate payload, distinct key
+        {"A", "F", "17", "100", "0.05", "0.02", "1998-09-01"}, // second line in the same order
+        {"A", "F", "1", "10", "0", "0", "1999-01-01", 1}, // first Q19 branch
+        {"A", "F", "25", "100", "0.10", "0", "1999-01-01", 3, "AIR REG"}, // third branch
+        {"A", "F", "25", "100", "0.10", "0", "1999-01-01", 3, "TRUCK"},
+        {"A", "F", "25", "100", "0.10", "0", "1999-01-01", 3, "AIR", "COLLECT COD"},
+        {"A", "F", "25", "100", "0.10", "0", "1999-01-01", 999}, // unmatched part
+        {"A", "F", "11", "100", "0", "0", "1999-01-01", 1}, // inclusive quantity boundary
+        {"A", "F", "12", "100", "0", "0", "1999-01-01", 1},
     };
     const auto decimalType = TTypeBuilder().Decimal({12, 2}).Build();
     TValueBuilder rows;
     rows.BeginList();
     i64 key = 0;
     for (const auto& row : data) {
+        ++key;
         rows.AddListItem().BeginStruct()
-            .AddMember("l_orderkey").Int64(++key)
-            .AddMember("l_linenumber").Int32(1)
+            .AddMember("l_orderkey").Int64(key == 9 ? 1 : key)
+            .AddMember("l_linenumber").Int32(key == 9 ? 2 : 1)
             .AddMember("l_comment").OptionalUtf8(std::nullopt)
-            .AddMember("l_partkey").OptionalInt64(std::nullopt)
+            .AddMember("l_partkey").OptionalInt64(row.Part)
             .AddMember("l_suppkey").OptionalInt64(std::nullopt)
-            .AddMember("l_shipinstruct").OptionalUtf8(std::nullopt)
-            .AddMember("l_shipmode").OptionalUtf8(std::nullopt)
+            .AddMember("l_shipinstruct").OptionalUtf8(row.Instruction)
+            .AddMember("l_shipmode").OptionalUtf8(row.ShipMode)
             .AddMember("l_commitdate").OptionalDate(std::nullopt)
             .AddMember("l_receiptdate").OptionalDate(std::nullopt)
             .AddMember("l_returnflag").OptionalUtf8(row.Flag ? std::optional<std::string>{row.Flag} : std::nullopt)
@@ -172,17 +184,96 @@ TResultSnapshot TpchQ1(TMode mode, bool newRbo) {
     rows.EndList();
     const auto inserted = client.BulkUpsert("/Root/lineitem", rows.Build()).GetValueSync();
     UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+    TValueBuilder customers, orders, parts;
+    customers.BeginList();
+    for (const i64 id : {101, 102, 103}) {
+        customers.AddListItem().BeginStruct()
+            .AddMember("c_custkey").Int64(id)
+            .AddMember("c_mktsegment").OptionalUtf8(id == 103 ? std::nullopt :
+                std::optional<std::string>{id == 101 ? "BUILDING" : "AUTOMOBILE"})
+            .AddMember("c_acctbal").EmptyOptional(decimalType)
+            .AddMember("c_address").OptionalUtf8(std::nullopt)
+            .AddMember("c_comment").OptionalUtf8(std::nullopt)
+            .AddMember("c_name").OptionalUtf8(std::nullopt)
+            .AddMember("c_nationkey").OptionalInt32(std::nullopt)
+            .AddMember("c_phone").OptionalUtf8(std::nullopt)
+            .EndStruct();
+    }
+    customers.EndList();
+    orders.BeginList();
+    for (const i64 id : {1, 2, 3, 4, 5, 6, 8, 99}) {
+        orders.AddListItem().BeginStruct()
+            .AddMember("o_orderkey").Int64(id)
+            .AddMember("o_custkey").OptionalInt64(id == 4 ? 102 : id == 5 ? 999 : id == 6 ? 103 : 101)
+            .AddMember("o_orderdate").OptionalDate(id == 8 ? std::nullopt :
+                std::optional<TInstant>{TInstant::ParseIso8601(id == 3 ? "1995-03-15T00:00:00Z" : "1995-03-14T00:00:00Z")})
+            .AddMember("o_shippriority").OptionalInt32(0)
+            .AddMember("o_clerk").OptionalUtf8(std::nullopt)
+            .AddMember("o_comment").OptionalUtf8(std::nullopt)
+            .AddMember("o_orderpriority").OptionalUtf8(std::nullopt)
+            .AddMember("o_orderstatus").OptionalUtf8(std::nullopt)
+            .AddMember("o_totalprice").EmptyOptional(decimalType)
+            .EndStruct();
+    }
+    orders.EndList();
+    parts.BeginList();
+    for (const i64 id : {1, 2, 3, 4}) {
+        parts.AddListItem().BeginStruct()
+            .AddMember("p_partkey").Int64(id)
+            .AddMember("p_brand").OptionalUtf8(id == 1 ? "Brand#12" : id == 2 ? "Brand#23" : "Brand#34")
+            .AddMember("p_container").OptionalUtf8(id == 1 ? "SM BOX" : id == 2 ? "MED BOX" : "LG BOX")
+            .AddMember("p_size").OptionalInt32(3)
+            .AddMember("p_comment").OptionalUtf8(std::nullopt)
+            .AddMember("p_mfgr").OptionalUtf8(std::nullopt)
+            .AddMember("p_name").OptionalUtf8(std::nullopt)
+            .AddMember("p_retailprice").EmptyOptional(decimalType)
+            .AddMember("p_type").OptionalUtf8(std::nullopt)
+            .EndStruct();
+    }
+    parts.EndList();
+    for (auto& [table, values] : TVector<std::pair<TString, TValue>>{
+            {"/Root/customer", customers.Build()}, {"/Root/orders", orders.Build()}, {"/Root/part", parts.Build()}}) {
+        const auto loaded = client.BulkUpsert(table, std::move(values)).GetValueSync();
+        UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+    }
     const TString prelude = R"($to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };
 $to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
 $round = ($x,$y) -> {return $x;};
 )";
-    const auto sql = prelude + TFileInput(SRC_("data/yql-tpch/q1.yql")).ReadAll();
-    const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
-    UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
-    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
-    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
-    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), 4);
-    return SnapshotRows(result.GetResultSet(0));
+    TVector<TResultSnapshot> snapshots;
+    for (const auto [query, expectedRows] : {std::pair{1, 4}, {3, 2}, {19, 1}}) {
+        Cerr << "TPC-H Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
+        const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpch/q" << query << ".yql")).ReadAll();
+        const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+        UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), expectedRows);
+        if (query == 3 || query == 19) {
+            TResultSetParser values(result.GetResultSet(0));
+            for (const auto* expected : query == 3 ? TVector<const char*>{"190", "180"} : TVector<const char*>{"750"}) {
+                UNIT_ASSERT(values.TryNextRow());
+                const auto revenue = values.ColumnParser(query == 3 ? 1 : 0).GetOptionalDecimal();
+                UNIT_ASSERT(revenue);
+                UNIT_ASSERT_VALUES_EQUAL(revenue->ToString(), expected);
+            }
+        }
+        if (newRbo) {
+            const auto explain = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+            UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+            UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetPlan());
+            const TString plan{*explain.GetStats()->GetPlan()};
+            NJson::TJsonValue root;
+            NJson::ReadJsonTree(plan, &root, true);
+            const auto& stats = root.GetMapSafe().at("SimplifiedPlan").GetMapSafe().at("OptimizerStats").GetMapSafe();
+            const auto total = stats.at("CBOTreesTotal").GetUIntegerSafe();
+            UNIT_ASSERT_VALUES_EQUAL_C(stats.at("CBOTreesOptimized").GetUIntegerSafe(), total, plan);
+            if (query != 1) UNIT_ASSERT_C(total > 0, plan);
+        }
+        snapshots.push_back(SnapshotRows(result.GetResultSet(0)));
+    }
+    return snapshots;
 }
 
 } // namespace
@@ -322,10 +413,14 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         }
     }
 
-    Y_UNIT_TEST(TpchQ1MatchesLegacyOnPopulatedColumnTables) {
-        const auto legacy = TpchQ1(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, false);
-        AssertSame(TpchQ1(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, true), legacy);
-        AssertSame(TpchQ1(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED, true), legacy);
+    Y_UNIT_TEST(TpchReadQueriesMatchLegacyOnPopulatedColumnTables) {
+        const auto legacy = TpchReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, false);
+        for (const auto mode : {NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY,
+                               NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED}) {
+            const auto actual = TpchReadQueries(mode, true);
+            UNIT_ASSERT_VALUES_EQUAL(actual.size(), legacy.size());
+            for (std::size_t i = 0; i < legacy.size(); ++i) AssertSame(actual[i], legacy[i]);
+        }
     }
 
     Y_UNIT_TEST(ConstantResultsMatchLegacy) {
