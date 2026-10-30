@@ -181,9 +181,12 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
             converted.emplace(id, op);
             if (const auto call = subplanBindings.find(id); call != subplanBindings.end()) {
                 const auto& subplan = program.Subplans.at(call->second);
-                const auto kind = subplan.Kind == NFrontend::ESubquery::Exists ? ESubplanType::EXISTS : ESubplanType::EXPR;
-                props.Subplans.Add(call->second, std::move(op), kind, {},
-                    kind == ESubplanType::EXPR ? std::optional<TInfoUnitId>{subplan.Result} : std::nullopt);
+                const auto kind = subplan.Kind == NFrontend::ESubquery::Exists ? ESubplanType::EXISTS :
+                    subplan.Kind == NFrontend::ESubquery::In ? ESubplanType::IN_SUBPLAN : ESubplanType::EXPR;
+                TOrderedIUs<> tuple;
+                if (subplan.Lookup) tuple.Append(*subplan.Lookup);
+                props.Subplans.Add(call->second, std::move(op), kind, std::move(tuple),
+                    kind != ESubplanType::EXISTS ? std::optional<TInfoUnitId>{subplan.Result} : std::nullopt);
                 props.Subplans.RefreshDependencies(call->second);
             }
         }

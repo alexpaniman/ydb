@@ -106,7 +106,7 @@ result/type parity tests.
 Supported relational forms include SELECT and FROM-first SELECT, projection,
 filters, aliases/stars, ordinary table reads, CTEs/derived tables, scalar/query
 bindings, simple scalar lambdas, ON joins (inner/cross/outer/semi/only), grouping,
-HAVING, DISTINCT, UNION ALL, ordering, limits, scalar subqueries with correlation,
+HAVING, DISTINCT, UNION ALL, ordering, limits, scalar/EXISTS/IN subqueries with correlation,
 and multiple result statements.
 Aggregates are COUNT, SUM, AVG, MIN, MAX, and SOME. A DISTINCT aggregate must be
 the only aggregate in that aggregation. Computed GROUP BY keys require explicit
@@ -137,7 +137,8 @@ IF/CASE branches and UNION ALL use an exact common Decimal type with integers
 or other Decimals. Integer widths follow SQL metadata (including 20 digits for
 both 64-bit integer types), without conversion through floating point.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
-AnsiImplicitCrossJoin.
+AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
+DisableAnsiInForEmptyOrNullableItemsCollections.
 
 Scalar subqueries bind to typed relational results and use RBO's existing
 cardinality check: no row yields NULL and more than one row raises a runtime
@@ -151,6 +152,17 @@ subqueries under both null-safe join settings. The old frontend/RBO still fails
 projected EXISTS cases; the old optimizer incorrectly returns false for EXISTS
 of a global aggregate over an empty correlated input. Tests pin those existing
 boundaries and require correct native results.
+
+Single-column IN subqueries also bind to Boolean columns. Computed lookup keys
+and common-type conversions are materialized once as ordinary native Maps;
+nested IN expressions use the same mechanism. The existing RBO subplan rules
+handle empty sets, nullable keys/items and correlated inputs. Generic queries
+default to ANSI IN semantics; data/scan queries preserve their legacy default,
+with either explicit pragma overriding it. IN lists obey the same setting.
+Lookup filters retain native expressions through typing and lower only at the
+physical boundary. Tests require correct native truth tables and separately pin
+existing old-frontend failures for projected/computed lookups and inconsistent
+legacy NOT IN filters; those older components are unchanged.
 
 Table discovery includes nested query bodies. ORDER BY may reference a projected
 subquery result through its alias, but direct scalar subqueries in sort keys
@@ -180,7 +192,7 @@ Explicitly outside the profile:
 
 - DML/DDL, USE, scripting effects, arbitrary pragmas/settings, views, temporary
   and external tables, table hints, sampling, and PostgreSQL syntax/types.
-- IN subqueries; subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
+- Tuple IN subqueries; subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
   scalar bindings or lambda bodies, JOIN USING, windows, grouping sets,
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
@@ -275,17 +287,22 @@ and generated modes currently agree on these frontend routing counts:
 
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
-| TPC-H | 7/22 (Q1, Q2, Q3, Q17, Q19, Q21, Q22) | 15 |
-| TPC-DS | 33/99 | 66 |
+| TPC-H | 8/22 (Q1, Q2, Q3, Q17, Q18, Q19, Q21, Q22) | 14 |
+| TPC-DS | 37/99 | 62 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. TPC-H Q1, Q2, Q3, Q17, Q19, Q21 and Q22 separately
-have native-required execution parity on populated column tables; the accepted
+have native-required execution parity on populated column tables; Q18 and the accepted
 TPC-DS and ClickBench queries still need that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+The IN extension passed 124 selected native, decorrelation and lookup tests,
+including 208 native populated executions across API defaults, explicit ANSI
+settings, projected/filter predicates and both null-safe join settings. Fast
+and generated parsing agree on all 164 corpus routes, with no hard errors.
 
 The EXISTS extension passed 121 selected native and decorrelation tests,
 including 22 native populated execution cases and unchanged legacy regressions.

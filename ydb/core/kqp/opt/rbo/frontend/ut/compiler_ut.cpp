@@ -113,7 +113,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         TCompilerSettings settings;
         settings.Mode = ECompilerMode::Auto;
         for (const auto* sql : {"SELECT ListLength([1, 2])", "SELECT row_number() OVER ()", "SELECT * FROM a JOIN b USING(id)",
-                               "SELECT value IN (SELECT value FROM b) FROM a", "PRAGMA foo='x'; SELECT 1",
+                               "PRAGMA foo='x'; SELECT 1",
                                "SELECT CASE WHEN true THEN 1 END", "SELECT * FROM a CROSS JOIN b",
                                "SELECT 'a''b'", "SELECT 1 AS 'answer'", "$'x' = 1; SELECT 1",
                                "SELECT value + 1 FROM a GROUP BY value + 1",

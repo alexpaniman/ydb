@@ -295,7 +295,7 @@ TExprNode::TPtr TPhysicalIndexLookupJoinBuilder::ProcessFetchedRows(TExprNode::T
         for (const auto id : lookup.FetchedRowFilter->GetRawInputIUs()) {
             fields.Add(id, Build<TCoMember>(Ctx, Pos).Struct(row).Name().Build(Names.Get(id)).Done().Ptr());
         }
-        const auto predicate = TExprBase(NPhysicalConvertionUtils::LowerRowLambdaBody(lookup.FetchedRowFilter->Node, fields, Ctx));
+        const auto predicate = TExprBase(NPhysicalConvertionUtils::LowerRowLambdaBody(lookup.FetchedRowFilter->GetLambda(), fields, Ctx));
         // clang-format off
         processedRow = Build<TCoFlatMap>(Ctx, Pos)
             .Input(processedRow)

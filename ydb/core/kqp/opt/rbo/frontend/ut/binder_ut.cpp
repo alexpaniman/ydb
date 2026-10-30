@@ -19,6 +19,37 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(InSubplansMaterializeTypedLookupInputs) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto compiled = CompileNative("SELECT value + 1 IN (SELECT CAST(b.value AS Int64) FROM b WHERE b.id = a.id) AS yes FROM a", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            UNIT_ASSERT_VALUES_EQUAL(program.Subplans.size(), 1);
+            const auto& [binding, subplan] = *program.Subplans.begin();
+            UNIT_ASSERT(subplan.Kind == ESubquery::In && subplan.Lookup);
+            UNIT_ASSERT(program.Columns[binding].Type == (TType{ETypeKind::Bool, true}));
+            UNIT_ASSERT(program.Columns[*subplan.Lookup].Type == (TType{ETypeKind::Int64, true}));
+            UNIT_ASSERT(program.Columns[subplan.Result].Type == (TType{ETypeKind::Int64, true}));
+            bool materialized = false;
+            for (const auto& relation : program.Relations) for (const auto& definition : relation.Definitions)
+                materialized |= definition.Column == *subplan.Lookup;
+            UNIT_ASSERT(materialized);
+            UNIT_ASSERT_VALUES_EQUAL(Find(program, ERelation::Capture).Captures.size(), 1);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT id IN (SELECT id, value FROM b) FROM a", Catalog, settings), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT id IN (SELECT missing FROM b) FROM a", Catalog, settings), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT a.id FROM a JOIN b ON a.id IN (SELECT id FROM a)", Catalog, settings), TUnsupportedFeature);
+            UNIT_ASSERT(!CompileNative("SELECT NULL IN (SELECT NULL), (value IN (SELECT value FROM b)) IN (SELECT true) FROM a", Catalog, settings).UsesLegacy());
+            for (const bool ansi : {false, true}) {
+                settings.Binding.AnsiIn = ansi;
+                const auto value = CompileNative("SELECT id IN (SELECT CAST(value AS Uint64) FROM b) AS v FROM a", Catalog, settings);
+                UNIT_ASSERT(value.Program->Get().Results[0].Columns[0].Type == (TType{ETypeKind::Bool, ansi}));
+                const auto overridden = CompileNative("PRAGMA AnsiInForEmptyOrNullableItemsCollections; SELECT id IN (SELECT CAST(value AS Uint64) FROM b) AS v FROM a", Catalog, settings);
+                UNIT_ASSERT(overridden.Program->Get().Results[0].Columns[0].Type == (TType{ETypeKind::Bool, true}));
+            }
+        }
+    }
+
     Y_UNIT_TEST(ExistsSubplansAreRequiredBooleanRelationalBindings) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings;

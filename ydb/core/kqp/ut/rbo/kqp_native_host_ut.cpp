@@ -381,6 +381,132 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(InSubqueriesMatchLegacyOnPopulatedTables, EqualNullsJoinKeys) {
+        using TBool = std::optional<bool>;
+        const TBool n = std::nullopt;
+        struct TCase {
+            const char* Expression;
+            TVector<TBool> Ansi;
+            TVector<TBool> Legacy;
+        };
+        const TVector<TCase> cases{
+            {"a.id IN (SELECT b.id FROM `/Root/InRows` AS b WHERE b.id < 3ul)", {true, true, false, false, false, false}, {}},
+            {"a.value IN (SELECT b.value FROM `/Root/InRows` AS b WHERE b.id <= 2ul)", {true, n, n, true, n, n}, {true, n, false, true, n, false}},
+            {"a.value NOT IN (SELECT b.value FROM `/Root/InRows` AS b WHERE b.id <= 2ul)", {false, n, n, false, n, n}, {false, n, true, false, n, true}},
+            {"a.value IN (SELECT b.value FROM `/Root/InRows` AS b WHERE b.id = 99ul)", {false, false, false, false, false, false}, {false, n, false, false, n, false}},
+            {"a.value IN (SELECT b.value FROM `/Root/InRows` AS b WHERE b.id < a.id)", {false, n, n, true, n, n}, {false, n, false, true, n, false}},
+            {"CAST(a.id AS Int32) IN (SELECT b.value FROM `/Root/InRows` AS b)", {n, n, n, n, n, n}, {false, false, false, false, false, false}},
+            {"a.value + 1 IN (SELECT b.value + 1 FROM `/Root/InRows` AS b WHERE b.id <= 2ul)", {true, n, n, true, n, n}, {true, n, false, true, n, false}},
+            {"(a.value IN (SELECT b.value FROM `/Root/InRows` AS b WHERE b.id <= 2ul)) IN (SELECT true)", {true, n, n, true, n, n}, {true, n, false, true, n, false}},
+            {"a.value IN (SELECT CAST(b.value AS Int64) FROM `/Root/InRows` AS b WHERE b.id <= 2ul)", {true, n, n, true, n, n}, {true, n, false, true, n, false}},
+            {"CAST(a.value AS Decimal(8,2)) IN (SELECT CAST(b.value AS Decimal(10,3)) FROM `/Root/InRows` AS b WHERE b.id <= 2ul)", {true, n, n, true, n, n}, {true, n, false, true, n, false}},
+            {"NULL IN (SELECT b.value FROM `/Root/InRows` AS b WHERE b.id = 99ul)", {false, false, false, false, false, false}, {n, n, n, n, n, n}},
+            {"a.value IN (10, NULL)", {true, n, n, true, n, n}, {true, n, false, true, n, false}},
+            {"CAST(a.id AS String) IN (SELECT CAST(b.id AS Utf8) FROM `/Root/InRows` AS b WHERE b.id < 3ul)", {true, true, false, false, false, false}, {}},
+        };
+        TVector<std::optional<TResultSnapshot>> reference(cases.size() * 8);
+        for (const int strategy : {0, 2, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableBlockHashJoinEqualNulls(EqualNullsJoinKeys);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
+                NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto schema = session.ExecuteSchemeQuery(
+                "CREATE TABLE `/Root/InRows` (id Uint64 NOT NULL, value Int32, PRIMARY KEY(id))").GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            TValueBuilder rows;
+            rows.BeginList();
+            const std::optional<i32> values[]{10, std::nullopt, 30, 10, std::nullopt, 0};
+            for (ui64 id = 1; id <= 6; ++id) rows.AddListItem().BeginStruct()
+                .AddMember("id").Uint64(id).AddMember("value").OptionalInt32(values[id - 1]).EndStruct();
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/InRows", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            for (size_t api = 0; api < 4; ++api) {
+                const bool generic = api % 2;
+                const bool ansi = api == 1 || api == 2;
+                for (size_t index = 0; index < cases.size(); ++index) for (const bool projection : {false, true}) {
+                    const auto& test = cases[index];
+                    const auto& expected = !ansi && !test.Legacy.empty() ? test.Legacy : test.Ansi;
+                    const auto key = (api * cases.size() + index) * 2 + projection;
+                    const TString context = TStringBuilder() << "IN strategy=" << strategy << ", api=" << api << ", case=" << index << ", projection=" << projection;
+                    TString sql = "PRAGMA YqlSelect='force'; ";
+                    if (api == 2) sql += "PRAGMA AnsiInForEmptyOrNullableItemsCollections; ";
+                    if (api == 3) sql += "PRAGMA DisableAnsiInForEmptyOrNullableItemsCollections; ";
+                    sql += projection ? TStringBuilder() << "SELECT a.id, " << test.Expression << " AS v FROM `/Root/InRows` AS a ORDER BY a.id" :
+                        TStringBuilder() << "SELECT a.id FROM `/Root/InRows` AS a WHERE " << test.Expression << " ORDER BY a.id";
+                    Cerr << context << ": " << sql << Endl;
+                    const char* expectedError = nullptr;
+                    // Preserve existing frontend/backend boundaries. Native cases
+                    // always execute, with their values checked independently.
+                    if (strategy == 0) {
+                        if (index == 4) expectedError = "Member not found: _yql_join_sublink_0__alias_a.value";
+                        if (index == 7) expectedError = "Expected persistable data, but got: Unit";
+                        if (index == 10) expectedError = "Only SqlIn for any/all is supported on YqlSelect";
+                    } else if (strategy == 1) {
+                        if (index == 7) expectedError = "Expected persistable data, but got: Unit";
+                        else if (projection && index == 0) expectedError = "column not found";
+                        else if (projection && index != 11 && index != 12 && !(index == 10 && !ansi))
+                            expectedError = "Rewrite error, type should be";
+                        else if (index == 5 || index == 6 || index == 9 || index == 10 || index == 12)
+                            expectedError = "Only a single column reference in the IN clause is supported";
+                    }
+                    auto inspect = [&](const auto& result) {
+                        if (expectedError) {
+                            UNIT_ASSERT_C(!result.IsSuccess(), context);
+                            UNIT_ASSERT_C(result.GetIssues().ToString().find(expectedError) != std::string::npos, context + ": " + result.GetIssues().ToString());
+                            return;
+                        }
+                        UNIT_ASSERT_C(result.IsSuccess(), context + ": " + result.GetIssues().ToString());
+                        UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, context);
+                        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                        const auto& resultSet = result.GetResultSet(0);
+                        const auto actual = SnapshotRows(resultSet);
+                        TVector<ui64> ids;
+                        for (size_t row = 0; row < expected.size(); ++row)
+                            if (projection || expected[row].value_or(false)) ids.push_back(row + 1);
+                        // Non-ANSI NOT IN on this nullable input is inconsistent
+                        // in the old filter rewrites: the old optimizer keeps NULL
+                        // lookups, and old RBO uses ANSI NULL-item semantics.
+                        const bool legacyNotInBoundary = !projection && !ansi && index == 2;
+                        if (legacyNotInBoundary && strategy != 2) ids = strategy == 0 ? TVector<ui64>{2, 3, 5, 6} : TVector<ui64>{};
+                        UNIT_ASSERT_VALUES_EQUAL_C(resultSet.RowsCount(), ids.size(), context);
+                        {
+                            TResultSetParser parser(resultSet);
+                            for (const auto id : ids) {
+                                UNIT_ASSERT(parser.TryNextRow());
+                                UNIT_ASSERT_VALUES_EQUAL_C(parser.ColumnParser("id").GetUint64(), id, context);
+                                if (projection) {
+                                    TTypeParser type(resultSet.GetColumnsMeta()[1].Type);
+                                    const TBool value = type.GetKind() == TTypeParser::ETypeKind::Optional ? parser.ColumnParser("v").GetOptionalBool() : TBool{parser.ColumnParser("v").GetBool()};
+                                    UNIT_ASSERT_C(value == expected[id - 1], context + ": " + actual.Values);
+                                }
+                            }
+                        }
+                        if (strategy == 0) reference[key] = actual;
+                        else if (reference[key]) {
+                            if (legacyNotInBoundary) UNIT_ASSERT(actual.Columns == reference[key]->Columns);
+                            else AssertSame(actual, *reference[key]);
+                        }
+                    };
+                    if (generic) inspect(runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync());
+                    else {
+                        const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                        inspect(result);
+                        if (!result.IsSuccess()) session = client.CreateSession().GetValueSync().GetSession();
+                    }
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(ExistsSubqueriesMatchLegacyOnPopulatedTables, EqualNullsJoinKeys) {
         struct TCase {
             const char* Sql;

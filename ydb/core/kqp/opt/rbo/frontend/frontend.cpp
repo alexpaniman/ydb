@@ -200,13 +200,14 @@ struct TExprContext {
     TExprContext* Outer = nullptr;
     std::unordered_map<TColumnId, TColumnId> Captured;
     std::vector<TCapture> PendingCaptures;
+    std::vector<TDefinition> PendingDefinitions;
     bool AllowSubqueries = true;
 };
 
 class TBinder {
 public:
     TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings)
-        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), Prefix(settings.TablePathPrefix), Values(syntax.Statements.size())
+        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), Prefix(settings.TablePathPrefix), AnsiIn(settings.AnsiIn), Values(syntax.Statements.size())
     {
         Program.Parameters = settings.ParameterTypes;
         Canonical.reserve(syntax.Expressions.size());
@@ -261,6 +262,8 @@ public:
                         // This selects relational translation, which is intrinsic here.
                     } else if (name == "ansiimplicitcrossjoin" && statement.Value.empty()) {
                         // Comma joins have one unambiguous cross-product meaning.
+                    } else if ((name == "ansiinforemptyornullableitemscollections" || name == "disableansiinforemptyornullableitemscollections") && statement.Value.empty()) {
+                        AnsiIn = name == "ansiinforemptyornullableitemscollections";
                     } else throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "unsupported pragma: " + statement.Name);
                     break;
                 }
@@ -317,14 +320,20 @@ private:
         }
         return ScopeColumn(it->second);
     }
-    TRelId Capture(TRelId input, TExprContext& context, TSourcePosition pos) {
-        if (context.PendingCaptures.empty()) return input;
-        TRelation capture{ERelation::Capture, pos};
-        capture.Inputs = {input};
-        capture.Columns = Program.Relations[input].Columns;
-        capture.Captures = std::exchange(context.PendingCaptures, {});
-        for (const auto& binding : capture.Captures) capture.Columns.push_back(binding.Local);
-        return Relation(std::move(capture));
+    TRelId BindInput(TRelId input, TExprContext& context, TSourcePosition pos) {
+        if (!context.PendingCaptures.empty()) {
+            TRelation capture{ERelation::Capture, pos};
+            capture.Inputs = {input};
+            capture.Columns = Program.Relations[input].Columns;
+            capture.Captures = std::exchange(context.PendingCaptures, {});
+            for (const auto& binding : capture.Captures) capture.Columns.push_back(binding.Local);
+            input = Relation(std::move(capture));
+        }
+        // Nested IN lookups can depend on earlier materializations. Each Map
+        // sees its input's definitions; sibling Map elements are independent.
+        for (const auto& definition : std::exchange(context.PendingDefinitions, {}))
+            input = Map(input, {definition}, pos);
+        return input;
     }
     TColumnId Materialize(TExprId expr, std::vector<TDefinition>& definitions, TSourcePosition pos, std::string name = {}) {
         const auto& node = Program.Expressions[expr];
@@ -390,7 +399,7 @@ private:
             context.AllowSubqueries = false;
             std::optional<TExprId> predicate;
             if (join.Predicate != NoSyntax) predicate = Expr(join.Predicate, context);
-            current.Relation = Capture(current.Relation, context, join.Source.Position);
+            current.Relation = BindInput(current.Relation, context, join.Source.Position);
             if (!join.Using.empty()) {
                 // USING also changes unqualified projection/star semantics.
                 // Do not accept it until that output coalescing is represented.
@@ -427,7 +436,7 @@ private:
         sourceContext.Outer = outer;
         if (query.Where != NoSyntax) {
             const auto predicate = Expr(query.Where, sourceContext);
-            source.Relation = Filter(Capture(source.Relation, sourceContext, query.Position), predicate, Syntax.Expressions[query.Where].Position);
+            source.Relation = Filter(BindInput(source.Relation, sourceContext, query.Position), predicate, Syntax.Expressions[query.Where].Position);
         }
 
         bool aggregate = !query.GroupBy.empty();
@@ -519,7 +528,7 @@ private:
             }
         }
         context.AllowSubqueries = true;
-        auto root = Capture(source.Relation, sourceContext, query.Position);
+        auto root = BindInput(source.Relation, sourceContext, query.Position);
         if (aggregate) {
             root = Map(root, std::move(aggregation.Definitions), query.Position);
             TRelation node{ERelation::Aggregate, query.Position}; node.Inputs = {root}; node.GroupKeys = std::move(aggregation.Keys);
@@ -527,7 +536,7 @@ private:
             for (const auto& agg : node.Aggregates) node.Columns.push_back(agg.Output);
             root = Relation(std::move(node));
         }
-        root = Capture(root, context, query.Position);
+        root = BindInput(root, context, query.Position);
         if (having) root = Filter(root, *having, query.Position);
         root = Map(root, std::move(definitions), query.Position);
         if (query.Distinct) {
@@ -668,6 +677,22 @@ private:
         return negative ? Program.Expressions.Unary(EOpcode::Negate, literal, syntax.Position) : literal;
     }
 
+    TExprId InResult(TExprId lookup, TExprId result, TSourcePosition pos) {
+        if (AnsiIn) return result;
+        auto& arena = Program.Expressions;
+        // Legacy SQL treats a NULL lookup as unknown even for an empty set;
+        // NULL items alone never make a non-NULL lookup unknown.
+        if (arena[result].Type.Nullable) {
+            const TExprId args[]{result, arena.Literal({ETypeKind::Bool}, false, pos)};
+            result = arena.Coalesce(args, pos);
+        }
+        if (arena[lookup].Type.Nullable || arena[lookup].Type.Kind == ETypeKind::Null) {
+            const auto missing = arena.Unary(EOpcode::IsNull, lookup, pos);
+            result = arena.If(missing, arena.Literal({ETypeKind::Bool, true}, std::monostate{}, pos), result, pos);
+        }
+        return result;
+    }
+
     TExprId Expr(TSyntaxId id, TExprContext& context) {
         if (auto it = context.Cache.find(id); it != context.Cache.end()) return it->second;
         const auto& syntax = Syntax.Expressions.at(id);
@@ -777,13 +802,37 @@ private:
                 result = arena.Binary(EOpcode::And, a, b, syntax.Position); break;
             }
             case ESyntaxKind::In: {
-                if (syntax.Query) throw TUnsupportedFeature(EFeature::Subquery, syntax.Position, "IN subqueries are not supported yet");
+                if (syntax.Query && !context.AllowSubqueries)
+                    throw TUnsupportedFeature(EFeature::Subquery, syntax.Position, "subqueries in this expression context are outside the native profile");
                 auto value = Expr(syntax.Arguments[0], context);
+                if (syntax.Query) {
+                    auto query = Select(*syntax.Query, &context);
+                    if (query.Columns.size() != 1) throw TFrontendError(syntax.Position, "IN subquery must return exactly one column");
+                    const auto output = query.Columns.front();
+                    auto common = CommonType(arena[value].Type, output.Type, syntax.Position);
+                    // Both sides may be bare NULL. Use an ordinary nullable key
+                    // type so the empty-set case still has a Boolean result.
+                    if (common.Kind == ETypeKind::Null) common = {ETypeKind::Bool, true};
+                    const TType type{ETypeKind::Bool, common.Nullable};
+                    common.Nullable = arena[value].Type.Nullable || arena[value].Type.Kind == ETypeKind::Null;
+                    value = arena.Convert(value, common, syntax.Position);
+                    const auto lookup = Materialize(value, context.PendingDefinitions, syntax.Position);
+                    common.Nullable = output.Type.Nullable || output.Type.Kind == ETypeKind::Null;
+                    const auto item = arena.Convert(arena.Column(output.Column, output.Type, syntax.Position), common, syntax.Position);
+                    std::vector<TDefinition> conversions;
+                    const auto resultColumn = Materialize(item, conversions, syntax.Position);
+                    const auto root = Map(query.Root, std::move(conversions), syntax.Position);
+                    const auto binding = Column("in", {}, type, syntax.Position);
+                    Program.Subplans.emplace(binding, TSubplan{root, resultColumn, ESubquery::In, lookup});
+                    result = InResult(Access(ScopeColumn(lookup), syntax.Position), Access(ScopeColumn(binding), syntax.Position), syntax.Position);
+                    break;
+                }
                 result = arena.Literal({ETypeKind::Bool}, false, syntax.Position);
                 for (std::size_t i = 1; i < syntax.Arguments.size(); ++i) {
                     auto item = Expr(syntax.Arguments[i], context), equal = arena.Binary(EOpcode::Equal, value, item, syntax.Position);
                     result = arena.Binary(EOpcode::Or, result, equal, syntax.Position);
                 }
+                result = InResult(value, result, syntax.Position);
                 break;
             }
             case ESyntaxKind::Call: {
@@ -822,7 +871,7 @@ private:
                 if (!exists && query.Columns.size() != 1) throw TFrontendError(syntax.Position, "scalar subquery must return exactly one column");
                 const auto& output = query.Columns.front();
                 const auto binding = Column(exists ? "exists" : "scalar", {}, exists ? TType{ETypeKind::Bool} : output.Type.Optional(), syntax.Position);
-                Program.Subplans.emplace(binding, TSubplan{query.Root, output.Column, exists ? ESubquery::Exists : ESubquery::Scalar});
+                Program.Subplans.emplace(binding, TSubplan{query.Root, output.Column, exists ? ESubquery::Exists : ESubquery::Scalar, std::nullopt});
                 result = Access(ScopeColumn(binding), syntax.Position);
                 break;
             }
@@ -836,6 +885,7 @@ private:
     TGlobalBindings Bindings;
     TBoundProgram Program;
     std::string Prefix;
+    bool AnsiIn;
     std::vector<std::uint32_t> Canonical;
     std::vector<bool> ContainsAggregate;
     std::vector<std::optional<TExprId>> Values;
@@ -876,7 +926,9 @@ std::string Explain(const TBoundProgram& program) {
     std::sort(bindings.begin(), bindings.end());
     for (const auto binding : bindings) {
         const auto& subplan = program.Subplans.at(binding);
-        out << (subplan.Kind == ESubquery::Exists ? "exists " : "scalar ") << binding << " root=" << subplan.Root << " result=" << subplan.Result << '\n';
+        out << (subplan.Kind == ESubquery::Exists ? "exists " : subplan.Kind == ESubquery::In ? "in " : "scalar ") << binding << " root=" << subplan.Root << " result=" << subplan.Result;
+        if (subplan.Lookup) out << " lookup=" << *subplan.Lookup;
+        out << '\n';
     }
     for (std::size_t i = 0; i < program.Results.size(); ++i) {
         out << "result " << i << " root=" << program.Results[i].Root << ':';
@@ -1115,11 +1167,11 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
-"relations":["read","project","filter","on-join","aggregate","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery","exists-subquery"],
+"relations":["read","project","filter","on-join","aggregate","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
-"pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

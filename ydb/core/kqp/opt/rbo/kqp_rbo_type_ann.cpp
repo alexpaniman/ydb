@@ -199,6 +199,14 @@ const TStructExprType* AddSubplanTypes(const TStructExprType* itemType, const TU
         } else {
             if (!props.PgSyntax) {
                 subplanType = ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Bool);
+                if (props.NativeExpressions && subplanEntry.Type == ESubplanType::IN_SUBPLAN) {
+                    Y_ENSURE(subplanEntry.Tuple.Items().size() == 1 && subplanEntry.ResultIU, "Missing native IN bindings");
+                    const auto* lookup = itemType->FindItemType(ctx.ExprCtx.GetIndexAsString(subplanEntry.Tuple.Items()[0]));
+                    const auto* item = subplanEntry.Plan->GetIUType(*subplanEntry.ResultIU, ctx.ExprCtx);
+                    Y_ENSURE(lookup && item, "Missing native IN operand type");
+                    if (lookup->IsOptionalOrNull() || item->IsOptionalOrNull())
+                        subplanType = ctx.ExprCtx.MakeType<TOptionalExprType>(subplanType);
+                }
             } else {
                 subplanType = ctx.ExprCtx.MakeType<TPgExprType>(NYql::NPg::LookupType("bool").TypeId);
             }
@@ -684,19 +692,25 @@ TStatus ComputeTypes(TIntrusivePtr<TOpTableLookup> lookup, TRBOContext& ctx, TPl
     }
 
     if (lookup->FetchedRowFilter) {
-        auto& lambda = lookup->FetchedRowFilter->Node;
-        if (!UpdateLambdaAllArgumentsTypes(lambda, {newStructType}, ctx.ExprCtx)) {
-            YQL_CLOG(TRACE, CoreDq) << "Could not update the lookup join filter lambda arg types";
-            return TStatus::Error;
-        }
+        if (lookup->FetchedRowFilter->IsNative()) {
+            auto typed = BindNativeTypes(*lookup->FetchedRowFilter, *newStructType, ctx.ExprCtx);
+            Y_ENSURE(typed.GetNativeType().Kind == NFrontend::ETypeKind::Bool, "Native lookup filter must be Bool");
+            lookup->FetchedRowFilter = std::move(typed);
+        } else {
+            auto& lambda = lookup->FetchedRowFilter->Node;
+            if (!UpdateLambdaAllArgumentsTypes(lambda, {newStructType}, ctx.ExprCtx)) {
+                YQL_CLOG(TRACE, CoreDq) << "Could not update the lookup join filter lambda arg types";
+                return TStatus::Error;
+            }
 
-        AnnotateLambdaIfNeeded(lambda, ctx);
-        if (!lambda->GetTypeAnn()) {
-            YQL_CLOG(TRACE, CoreDq) << "Could not infer the lookup join filter lambda type";
-            return TStatus::Error;
-        }
-        if (!EnsureSpecificDataType(*lambda, EDataSlot::Bool, ctx.ExprCtx, true)) {
-            return TStatus::Error;
+            AnnotateLambdaIfNeeded(lambda, ctx);
+            if (!lambda->GetTypeAnn()) {
+                YQL_CLOG(TRACE, CoreDq) << "Could not infer the lookup join filter lambda type";
+                return TStatus::Error;
+            }
+            if (!EnsureSpecificDataType(*lambda, EDataSlot::Bool, ctx.ExprCtx, true)) {
+                return TStatus::Error;
+            }
         }
     }
 

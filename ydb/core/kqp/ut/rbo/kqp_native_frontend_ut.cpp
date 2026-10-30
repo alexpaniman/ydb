@@ -82,6 +82,15 @@ void CheckScalar(std::string_view sql) {
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     Y_UNIT_TEST(CorrelatedRewritesKeepNativeExpressionsAndBindings) {
         for (const auto* sql : {
+            "SELECT o.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o WHERE o.id IN (SELECT 1 UNION ALL SELECT CAST(NULL AS Int32))",
+            "SELECT o.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o WHERE o.id NOT IN (SELECT 1 UNION ALL SELECT CAST(NULL AS Int32))",
+            "SELECT o.id + 1 IN (SELECT CAST(2 AS Int64)) AS v FROM (SELECT 1 AS id) AS o",
+            "SELECT (o.id IN (SELECT 1)) IN (SELECT true) AS v FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
+            "SELECT NULL IN (SELECT NULL) AS v",
+            "SELECT o.id IN (SELECT i.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS i WHERE i.id <= o.id) AS v FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
+            "SELECT o.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o WHERE o.id NOT IN (SELECT i.id FROM (SELECT 1 AS id) AS i WHERE i.id < o.id)",
+            "SELECT Decimal('1.25',8,2) IN (SELECT Decimal('1.250',9,3)) AS v",
+            "PRAGMA DisableAnsiInForEmptyOrNullableItemsCollections; SELECT o.id IN (SELECT CAST(NULL AS Int32)) AS v FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
             "SELECT o.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o WHERE EXISTS(SELECT i.id FROM (SELECT 1 AS id) AS i WHERE i.id = o.id)",
             "SELECT o.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o WHERE NOT EXISTS(SELECT i.id FROM (SELECT 1 AS id) AS i WHERE i.id = o.id)",
             "SELECT o.id FROM (SELECT 1 AS id) AS o WHERE EXISTS(SELECT 1 WHERE false) OR EXISTS(SELECT 1 WHERE o.id = 1)",
