@@ -124,6 +124,10 @@ temporal types. Total casts preserve non-nullability, including integer to
 floating point. Floating division preserves IEEE infinity/NaN. Substring slices
 String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
 other integral offsets must be literals that fit Uint32.
+Integer comparisons preserve each operand's width and signedness and compare
+their mathematical values, including Int64 against Uint64. They return nullable
+Bool when either input is nullable; no common-type casts are needed. Other
+implicit signed/unsigned promotions remain outside the native profile.
 Numeric text conversion uses the generic `double-conversion` library with the
 runtime's lexical policy, including leading spaces, hexadecimal integers,
 and overflow/underflow to infinity/zero; it imports no YQL conversion code.
@@ -248,7 +252,7 @@ Explicitly outside the profile:
   subqueries in window arguments/keys, and direct window calls in ORDER BY are
   excluded; ordering by a projected window alias is supported.
 - UDFs, higher-order values, containers/structs/tuples, nested optionals.
-- Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
+- Mixed signed/unsigned promotion outside integer comparisons, mixed Float promotion, bare-NULL arithmetic, dynamic
   text parsing to types other than Date, and runtime casts from temporal inputs to non-temporal types.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
   conversions are excluded. Apart from integer multiplication factors, Decimal
@@ -339,8 +343,8 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 56/99 | 43 |
-| ClickBench | 36/43 | 7 |
+| TPC-DS | 62/99 | 37 |
+| ClickBench | 37/43 | 6 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
@@ -378,6 +382,20 @@ Fast and generated parser routes agree on all 164 corpus decisions with no
 hard errors. Windows newly admit TPC-DS Q12, Q20, Q51, Q53, Q63, Q89 and Q98,
 bringing frontend acceptance to 56/99; their populated benchmark execution is
 verified for all seven. The standalone CLI still has no YQL or MiniKQL symbols.
+
+Integer comparisons additionally admit TPC-DS Q6, Q9, Q34, Q41, Q44 and Q73,
+and ClickBench Q28. These additions have frontend acceptance, not yet populated
+benchmark execution coverage. Fast and generated parsers agree on all 164 routes
+with no hard errors, and the standalone CLI has no YQL or MiniKQL symbols.
+The comparison increment passed 102 compiler/expression/integration tests,
+including all eight integer widths, constant folding, 1,920 direct runtime
+evaluations and 3,072 parameterized result comparisons. Eight join kinds in both
+operand orders pass explicit value checks on row and column tables, including
+negative values, signed/unsigned limits, duplicate keys and NULLs. Native matches
+the legacy optimizer for all these joins and the old frontend plus RBO for
+ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
+syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
+queries were rerun successfully. No existing frontend or backend was fixed.
 
 Thirteen TPC-DS queries (Q12, Q20, Q21, Q32, Q37, Q40, Q51, Q53, Q63, Q82,
 Q89, Q92 and Q98) pass populated execution

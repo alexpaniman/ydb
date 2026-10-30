@@ -82,6 +82,36 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(IntegerComparisonsLowerDirectlyForEveryWidth) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        for (const auto a : {K::Int8, K::Uint8, K::Int16, K::Uint16, K::Int32, K::Uint32, K::Int64, K::Uint64})
+            for (const auto b : {K::Int8, K::Uint8, K::Int16, K::Uint16, K::Int32, K::Uint32, K::Int64, K::Uint64})
+                for (const int test : {0, 1, 2, 3, 4}) {
+                    TExpressionArena arena;
+                    auto input = [&](K kind, bool right) {
+                        const unsigned width = kind == K::Int8 || kind == K::Uint8 ? 8 : kind == K::Int16 || kind == K::Uint16 ? 16 :
+                            kind == K::Int32 || kind == K::Uint32 ? 32 : 64;
+                        const TType type{kind, test == 2 || test == (right ? 4 : 3)};
+                        if (test == (right ? 4 : 3)) return arena.Literal(type, std::monostate{});
+                        TScalar value;
+                        if (type.IsSigned()) {
+                            const auto high = static_cast<std::int64_t>((std::uint64_t{1} << (width - 1)) - 1);
+                            value = test == 0 ? std::int64_t{-1} : test == 1 ? high : test == 2 ? -high - 1 : std::int64_t{0};
+                        } else {
+                            const auto high = width == 64 ? std::numeric_limits<std::uint64_t>::max() : (std::uint64_t{1} << width) - 1;
+                            value = test == 0 ? high : test == 1 ? high / 2 + 1 : std::uint64_t{0};
+                        }
+                        return arena.Literal(type, value);
+                    };
+                    const auto left = input(a, false), right = input(b, true);
+                    for (const auto op : {EOpcode::Equal, EOpcode::NotEqual, EOpcode::Less, EOpcode::LessEqual, EOpcode::Greater, EOpcode::GreaterEqual}) {
+                        const auto root = arena.Binary(op, left, right);
+                        CheckScalar(arena, root, "heterogeneous integer comparison");
+                    }
+                }
+    }
+
     Y_UNIT_TEST(OptionalBooleanLiftsPreserveJoinKeys) {
         using namespace NFrontend;
         for (const auto& [condition, keys] : std::initializer_list<std::pair<const char*, std::size_t>>{

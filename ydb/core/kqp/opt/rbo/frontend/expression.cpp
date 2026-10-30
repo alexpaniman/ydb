@@ -937,6 +937,11 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
     if (op == O::Subtract && IsDate(leftType.Kind) && IsDate(rightType.Kind)) {
         return Append({op, {K::Interval, true}, position, {left, right}, {}, {}, 0});
     }
+    if (IsComparison(op) && leftType.IsIntegral() && rightType.IsIntegral()) {
+        // Compare mathematical values without narrowing or changing signedness.
+        // In particular, Int64 and Uint64 have no lossless common integer type.
+        return Append({op, {K::Bool, leftType.Nullable || rightType.Nullable}, position, {left, right}, {}, {}, 0});
+    }
     if (op == O::Multiply && ((leftType.Kind == K::Decimal && rightType.IsIntegral()) ||
         (rightType.Kind == K::Decimal && leftType.IsIntegral()))) {
         // An integer factor does not change Decimal precision or scale. Keep

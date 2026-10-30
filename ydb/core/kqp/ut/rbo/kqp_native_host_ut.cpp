@@ -1049,6 +1049,101 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(MixedIntegerJoinsMatchLegacyOnPopulatedTables, ColumnStore) {
+        TVector<TResultSnapshot> expected;
+        for (const int strategy : {0, 1, 2}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableInlineJoinFiltersAfterCBO(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            for (const bool right : {false, true}) {
+                const TString path = right ? "/Root/UnsignedKeys" : "/Root/SignedKeys";
+                const auto created = session.ExecuteSchemeQuery("CREATE TABLE `" + path + "` (id Int32 NOT NULL, k " +
+                    (right ? "Uint64" : "Int64") + ", PRIMARY KEY(id))" + (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+                UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+                TValueBuilder rows;
+                rows.BeginList();
+                if (right) {
+                    i32 id = 10;
+                    for (const auto value : std::initializer_list<std::optional<ui64>>{0, 1, ui64(std::numeric_limits<i64>::max()),
+                            ui64(std::numeric_limits<i64>::max()) + 1, std::numeric_limits<ui64>::max(), std::nullopt, 1})
+                        rows.AddListItem().BeginStruct().AddMember("id").Int32(id++).AddMember("k").OptionalUint64(value).EndStruct();
+                } else {
+                    i32 id = 1;
+                    for (const auto value : std::initializer_list<std::optional<i64>>{std::numeric_limits<i64>::lowest(), -1, 0, 1, std::numeric_limits<i64>::max(), std::nullopt})
+                        rows.AddListItem().BeginStruct().AddMember("id").Int32(id++).AddMember("k").OptionalInt64(value).EndStruct();
+                }
+                rows.EndList();
+                const auto loaded = client.BulkUpsert(path, rows.Build()).GetValueSync();
+                UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            }
+            size_t index = 0;
+            for (const auto& [kind, projection, values] : std::initializer_list<std::tuple<const char*, const char*, const char*>>{
+                    {"INNER", "a.id AS l, b.id AS r", "[[3;10];[4;11];[4;16];[5;12]]"},
+                    {"LEFT", "a.id AS l, b.id AS r", "[[1;#];[2;#];[3;[10]];[4;[11]];[4;[16]];[5;[12]];[6;#]]"},
+                    {"RIGHT", "a.id AS l, b.id AS r", "[[#;13];[#;14];[#;15];[[3];10];[[4];11];[[4];16];[[5];12]]"},
+                    {"FULL", "a.id AS l, b.id AS r", "[[#;[13]];[#;[14]];[#;[15]];[[1];#];[[2];#];[[3];[10]];[[4];[11]];[[4];[16]];[[5];[12]];[[6];#]]"},
+                    {"LEFT SEMI", "a.id AS l", "[[3];[4];[5]]"}, {"LEFT ONLY", "a.id AS l", "[[1];[2];[6]]"},
+                    {"RIGHT SEMI", "b.id AS r", "[[10];[11];[12];[16]]"}, {"RIGHT ONLY", "b.id AS r", "[[13];[14];[15]]"}}) {
+                for (const bool reverse : {false, true}) {
+                    const TString sql = TStringBuilder() << "SELECT " << projection << " FROM `/Root/SignedKeys` AS a " << kind
+                        << " JOIN `/Root/UnsignedKeys` AS b ON " << (reverse ? "b.k = a.k" : "a.k = b.k") << " ORDER BY "
+                        << (TString(kind).Contains("RIGHT ") ? "r" : TString(kind).Contains("LEFT ") ? "l" : "l,r");
+                    const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                    if (strategy == 1 && (TString(kind).Contains("SEMI") || TString(kind).Contains("ONLY"))) {
+                        // The existing YqlSelect translator rejects explicit
+                        // SEMI/ONLY syntax. Native still executes the original
+                        // query and matches the legacy optimizer below.
+                        UNIT_ASSERT(!result.IsSuccess());
+                        UNIT_ASSERT_C(result.GetIssues().ToString().find("YqlSelect unsupported: (ONLY | SEMI)") != std::string::npos,
+                            result.GetIssues().ToString());
+                        ++index;
+                        continue;
+                    }
+                    UNIT_ASSERT_C(result.IsSuccess(), TStringBuilder() << "strategy=" << strategy << " " << sql << ": " << result.GetIssues().ToString());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+                    const auto actual = SnapshotRows(result.GetResultSet(0));
+                    UNIT_ASSERT_VALUES_EQUAL_C(actual.Values, values, TStringBuilder() << "strategy=" << strategy << " " << sql);
+                    if (strategy == 0) expected.push_back(actual);
+                    else AssertSame(actual, expected.at(index));
+                    ++index;
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(RuntimeMixedIntegerComparisonsMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        TString sql = "DECLARE $s AS Int64?; DECLARE $u AS Uint64?; SELECT ";
+        size_t column = 0;
+        for (const auto* a : {"Int8", "Int16", "Int32", "Int64"}) for (const auto* b : {"Uint8", "Uint16", "Uint32", "Uint64"})
+            for (const auto* op : {"=", "!=", "<", "<=", ">", ">="}) for (const bool reverse : {false, true}) {
+                const TString left = TStringBuilder() << "CAST($s AS " << a << ")", right = TStringBuilder() << "CAST($u AS " << b << ")";
+                if (column) sql += ",";
+                sql += TStringBuilder() << (reverse ? right : left) << op << (reverse ? left : right) << " AS c" << column++;
+            }
+        for (const auto& [signedValue, unsignedValue] : std::initializer_list<std::pair<std::optional<i64>, std::optional<ui64>>>{
+                {-1, std::numeric_limits<ui64>::max()}, {std::numeric_limits<i64>::lowest(), ui64{1} << 63},
+                {std::numeric_limits<i64>::max(), ui64{1} << 63}, {std::numeric_limits<i64>::max(), ui64(std::numeric_limits<i64>::max())},
+                {-1, 0}, {0, 0}, {1, 1}, {127, 128}, {255, 255}, {32767, 32768}, {65535, 65535},
+                {2147483647, 2147483648}, {4294967295, 4294967295}, {std::nullopt, 1}, {1, std::nullopt}, {std::nullopt, std::nullopt}}) {
+            const auto params = TParamsBuilder().AddParam("$s").OptionalInt64(signedValue).Build().AddParam("$u").OptionalUint64(unsignedValue).Build().Build();
+            AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+        }
+    }
+
     Y_UNIT_TEST_TWIN(FullJoinResidualsAreRejectedOrDelegated, ColumnStore) {
         std::optional<TResultSnapshot> legacy;
         for (const int strategy : {0, 1, 2, 3}) {

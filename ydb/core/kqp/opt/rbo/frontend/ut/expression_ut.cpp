@@ -20,6 +20,57 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(IntegerComparisonsPreserveOperandTypesAndValues) {
+        struct TInput { TType Type; std::vector<TScalar> Values; };
+        std::vector<TInput> inputs;
+        for (const auto kind : {K::Int8, K::Uint8, K::Int16, K::Uint16, K::Int32, K::Uint32, K::Int64, K::Uint64}) {
+            const TType type{kind};
+            const unsigned width = kind == K::Int8 || kind == K::Uint8 ? 8 : kind == K::Int16 || kind == K::Uint16 ? 16 :
+                kind == K::Int32 || kind == K::Uint32 ? 32 : 64;
+            if (type.IsSigned()) {
+                const auto high = static_cast<std::int64_t>((std::uint64_t{1} << (width - 1)) - 1);
+                inputs.push_back({type, {std::monostate{}, -high - 1, std::int64_t{-1}, std::int64_t{0}, std::int64_t{1}, high}});
+            } else {
+                const auto high = width == 64 ? std::numeric_limits<std::uint64_t>::max() : (std::uint64_t{1} << width) - 1;
+                inputs.push_back({type, {std::monostate{}, std::uint64_t{0}, std::uint64_t{1}, high / 2, high / 2 + 1, high}});
+            }
+        }
+        auto integer = [](const TScalar& value) -> __int128 {
+            if (const auto* signedValue = std::get_if<std::int64_t>(&value)) return *signedValue;
+            return std::get<std::uint64_t>(value);
+        };
+        for (const auto& a : inputs) for (const auto& b : inputs) for (const bool nullableA : {false, true}) for (const bool nullableB : {false, true}) {
+            TExpressionArena arena;
+            const TType leftType = nullableA ? a.Type.Optional() : a.Type, rightType = nullableB ? b.Type.Optional() : b.Type;
+            const auto left = arena.Column(0, leftType), right = arena.Column(1, rightType);
+            for (const auto op : {O::Equal, O::NotEqual, O::Less, O::LessEqual, O::Greater, O::GreaterEqual}) {
+                const auto root = arena.Binary(op, left, right);
+                UNIT_ASSERT(arena[root].Arguments == (std::vector<TExprId>{left, right}));
+                UNIT_ASSERT(arena[root].Type == (TType{K::Bool, nullableA || nullableB}));
+                for (const auto& x : a.Values) for (const auto& y : b.Values) {
+                    if ((!nullableA && std::holds_alternative<std::monostate>(x)) || (!nullableB && std::holds_alternative<std::monostate>(y))) continue;
+                    TEvaluationContext context;
+                    context.Column = [&](auto id) { return id == 0 ? TValue{leftType, x} : TValue{rightType, y}; };
+                    const auto value = Evaluate(arena, root, context);
+                    if (std::holds_alternative<std::monostate>(x) || std::holds_alternative<std::monostate>(y)) UNIT_ASSERT(value.IsNull());
+                    else {
+                        const auto av = integer(x), bv = integer(y);
+                        const bool expected = op == O::Equal ? av == bv : op == O::NotEqual ? av != bv : op == O::Less ? av < bv :
+                            op == O::LessEqual ? av <= bv : op == O::Greater ? av > bv : av >= bv;
+                        UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(value.Data), expected);
+                    }
+                    const auto constant = arena.RewriteColumns(root, [&](auto, auto id, auto type, auto pos) {
+                        return arena.Literal(type, id == 0 ? x : y, pos);
+                    });
+                    const TExprId roots[]{constant};
+                    const auto folded = arena.FoldConstants(roots).front();
+                    UNIT_ASSERT(arena[folded].Type == arena[root].Type);
+                    UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), FormatValue(value));
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(CalendarClampingRangesAndReconstruction) {
         struct TCase { const char* Input; i32 Months; i32 Years; const char* MonthResult; const char* YearResult; };
         for (const auto& test : {

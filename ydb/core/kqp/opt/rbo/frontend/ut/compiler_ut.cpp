@@ -31,6 +31,23 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(MixedIntegerComparisonsDoNotEnableMixedArithmetic) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser; settings.Mode = ECompilerMode::Auto;
+            for (const auto* sql : {"SELECT id < value, value >= id, id = value, value != id FROM t",
+                    "SELECT id FROM t WHERE id BETWEEN -1 AND 100",
+                    "SELECT COUNT(*) AS n FROM t HAVING COUNT(*) > 0",
+                    "SELECT a.id FROM t AS a FULL JOIN t AS b ON a.id = b.value"}) {
+                const auto result = CompileNative(sql, Catalog, settings);
+                UNIT_ASSERT_C(!result.UsesLegacy(), sql);
+            }
+            for (const auto* sql : {"SELECT id + value FROM t", "SELECT IF(true, id, value) FROM t", "SELECT COALESCE(value, id) FROM t"}) {
+                const auto result = CompileNative(sql, Catalog, settings);
+                UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported->Feature == EFeature::Type, sql);
+            }
+        }
+    }
+
     Y_UNIT_TEST(InvalidJoinConstraintsAreErrorsWithoutDelegation) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser; settings.Mode = ECompilerMode::Auto;
