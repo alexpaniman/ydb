@@ -684,7 +684,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {74, "2002-04-01"}, {75, "2001-02-30"},
             {80, "1999-02-01"}, {81, "1999-04-02"}, {82, "1999-01-31"}, {83, "1999-04-03"},
             {84, "1999-05-01"}, {85, "1999-06-30"}, {86, "1999-04-30"}, {87, "1999-07-01"},
-            {90, "1998-01-01"}, {91, "1998-12-31"}, {92, "1997-12-31"}, {93, "1999-01-01"}}) {
+            {90, "1998-01-01"}, {91, "1998-12-31"}, {92, "1997-12-31"}, {93, "1999-01-01"}, {94, "1999-12-01"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -790,6 +790,10 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         appendItem(id, nullptr, std::nullopt, category, itemClass, brand, std::nullopt, {product, nullptr, nullptr, nullptr, nullptr});
     for (const i64 id : {1100, 1101, 1102, 1103, 1104})
         appendItem(id, nullptr, std::nullopt, "Frequent", nullptr);
+    for (const auto& [id, brand] : std::initializer_list<std::pair<i64, const char*>>{
+            {1200, "Main"}, {1201, "Threshold"}, {1202, "Zero"}, {1203, "Null"}, {1204, nullptr}, {1206, "Missing"}})
+        appendItem(id, nullptr, std::nullopt, "Adjacent", nullptr, brand);
+    appendItem(1205, nullptr, std::nullopt, nullptr, nullptr, "Main");
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -798,7 +802,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {80, "Intersect A", nullptr, "x94"}, {81, "Intersect A", nullptr, "x94"}, {82, "Intersect B", nullptr, "x08"},
             {83, "Excluded count", nullptr, "x50"}, {84, "Excluded flag", nullptr, "x29"}, {85, "Excluded list", nullptr, "x00"},
             {86, "Excluded null", nullptr, nullptr}, {87, "Intersect null", nullptr, "x39"},
-            {90, "Grouping TN", nullptr, nullptr}, {91, "Grouping TX", nullptr, nullptr}, {92, "Grouping null", nullptr, nullptr}}) {
+            {90, "Grouping TN", nullptr, nullptr}, {91, "Grouping TX", nullptr, nullptr}, {92, "Grouping null", nullptr, nullptr},
+            {110, "Adjacent", "Adjacent Company", nullptr}}) {
         stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
             .AddMember("s_store_name").OptionalUtf8(optionalText(name)).AddMember("s_company_name").OptionalUtf8(optionalText(company))
             .AddMember("s_zip").OptionalUtf8(optionalText(zip))
@@ -820,6 +825,22 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             .AddMember("cd_gender").OptionalUtf8(optionalText(gender)).AddMember("cd_marital_status").OptionalUtf8(optionalText(marital))
             .AddMember("cd_education_status").OptionalUtf8(optionalText(education)).EndStruct();
     load("customer_demographics", demographics);
+    TValueBuilder households; households.BeginList();
+    for (const auto& [id, dependents] : std::initializer_list<std::pair<i64, std::optional<i64>>>{{1, 8}, {2, 7}, {3, 9}, {4, std::nullopt}})
+        households.AddListItem().BeginStruct().AddMember("hd_demo_sk").Int64(id).AddMember("hd_dep_count").OptionalInt64(dependents).EndStruct();
+    load("household_demographics", households);
+    TValueBuilder times; times.BeginList();
+    for (const auto& [id, hour] : std::initializer_list<std::pair<i64, std::optional<i64>>>{
+            {1, 6}, {2, 7}, {3, 14}, {4, 15}, {5, 5}, {6, 8}, {7, 13}, {8, 16}, {9, std::nullopt}})
+        times.AddListItem().BeginStruct().AddMember("t_time_sk").Int64(id).AddMember("t_time_id").Utf8("Time" + std::to_string(id))
+            .AddMember("t_hour").OptionalInt64(hour).EndStruct();
+    load("time_dim", times);
+    TValueBuilder pages; pages.BeginList();
+    for (const auto& [id, characters] : std::initializer_list<std::pair<i64, std::optional<i64>>>{
+            {1, 5000}, {2, 5200}, {3, 4999}, {4, 5201}, {5, std::nullopt}})
+        pages.AddListItem().BeginStruct().AddMember("wp_web_page_sk").Int64(id).AddMember("wp_web_page_id").Utf8("Page" + std::to_string(id))
+            .AddMember("wp_char_count").OptionalInt64(characters).EndStruct();
+    load("web_page", pages);
     TValueBuilder warehouse;
     warehouse.BeginList().AddListItem().BeginStruct().AddMember("w_warehouse_sk").Int64(1)
         .AddMember("w_warehouse_id").Utf8("WH001").AddMember("w_warehouse_name").OptionalUtf8("Warehouse A")
@@ -882,6 +903,9 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         const char* Coupon = nullptr;
         std::optional<i64> Demographics = std::nullopt;
         std::optional<i64> ShipMode = std::nullopt;
+        std::optional<i64> SoldTime = std::nullopt;
+        std::optional<i64> ShipHousehold = std::nullopt;
+        std::optional<i64> WebPage = std::nullopt;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -1011,7 +1035,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             .AddMember("web_company_name").OptionalUtf8(optionalText(id == 10 ? "pri" : id == 11 ? "Other" : nullptr))
             .AddMember("web_name").OptionalUtf8(std::nullopt).EndStruct();
     }
-    for (const auto& [id, name] : std::initializer_list<std::pair<i64, const char*>>{{90, "A"}, {91, "B"}, {92, nullptr}}) {
+    for (const auto& [id, name] : std::initializer_list<std::pair<i64, const char*>>{{90, "A"}, {91, "B"}, {92, nullptr}, {93, "Adjacent"}}) {
         centers.AddListItem().BeginStruct().AddMember("cc_call_center_sk").Int64(id)
             .AddMember("cc_call_center_id").Utf8("Center" + std::to_string(id)).AddMember("cc_county").OptionalUtf8(std::nullopt)
             .AddMember("cc_name").OptionalUtf8(optionalText(name)).EndStruct();
@@ -1182,6 +1206,40 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             shipment(60, 1, 90, 90, missing);
         }
     }
+    // Q47/Q57: rank offsets must mix Uint64 ranks with integer literals.
+    // Duplicate January sales aggregate to 10; the 2000 mean is 25. Missing
+    // adjacent ranks, exactly 10% deviation, zero/NULL means and NULL join keys
+    // must not leak into the result. Existing benchmark fixtures remain intact.
+    auto adjacentSale = [&](i64 item, i64 date, const char* price, bool nullLocation = false) {
+        store.push_back({item, order++, date, 1, price, nullptr, nullptr, nullLocation ? 4 : 110});
+        TSale sale{item, order++, date, 1, price, nullptr}; sale.Site = nullLocation ? 92 : 93;
+        catalog.push_back(sale);
+    };
+    for (const auto& [date, price] : std::initializer_list<std::pair<i64, const char*>>{
+            {94, "8"}, {70, "5"}, {70, "5"}, {71, "30"}, {72, "20"}, {65, "40"}})
+        adjacentSale(1200, date, price);
+    for (const auto& [item, first, second, last] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
+            {1201, "9", "11", "10"}, {1202, "-1", "1", "0"}, {1203, nullptr, nullptr, nullptr}}) {
+        adjacentSale(item, 94, "2"); adjacentSale(item, 70, first); adjacentSale(item, 71, second); adjacentSale(item, 65, last);
+    }
+    adjacentSale(1206, 70, "3"); adjacentSale(1206, 71, "9");
+    for (const i64 item : {1200, 1204, 1205}) for (const auto& [date, price] :
+            std::initializer_list<std::pair<i64, const char*>>{{94, "1"}, {70, "10"}, {71, "30"}})
+        adjacentSale(item, date, price, item == 1200);
+    // Q90: five morning rows and three afternoon rows yield 5/(1+3)=1.25.
+    // Exercise both hour/character-count bounds, duplicates, NULLs and each
+    // missing dimension. Other web queries cannot join these item/date keys.
+    auto hourlySale = [&](std::optional<i64> time, std::optional<i64> household, std::optional<i64> page) {
+        TSale sale{99990, order++, 4, 1, nullptr, nullptr};
+        sale.SoldTime = time; sale.ShipHousehold = household; sale.WebPage = page; web.push_back(sale);
+    };
+    for (const auto& [time, page] : std::initializer_list<std::pair<i64, i64>>{
+            {1, 1}, {1, 1}, {1, 2}, {2, 1}, {2, 2}, {3, 1}, {3, 2}, {4, 2}}) hourlySale(time, 1, page);
+    for (const auto time : std::initializer_list<std::optional<i64>>{5, 6, 7, 8, 9, 999, std::nullopt}) hourlySale(time, 1, 1);
+    for (const i64 time : {1, 3}) {
+        for (const auto household : std::initializer_list<std::optional<i64>>{2, 3, 4, 999, std::nullopt}) hourlySale(time, household, 1);
+        for (const auto page : std::initializer_list<std::optional<i64>>{3, 4, 5, 999, std::nullopt}) hourlySale(time, 1, page);
+    }
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -1203,7 +1261,11 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
                 rows.AddMember("ss_coupon_amt"); decimal(rows, row.Coupon);
             }
             rows.AddMember(prefix + "quantity").OptionalInt64(row.Quantity).AddMember(prefix + "list_price"); decimal(rows, row.ListPrice);
-            if (prefix == "ws_") { rows.AddMember("ws_net_paid"); decimal(rows, row.NetPaid); }
+            if (prefix == "ws_") {
+                rows.AddMember("ws_net_paid"); decimal(rows, row.NetPaid);
+                rows.AddMember("ws_sold_time_sk").OptionalInt64(row.SoldTime).AddMember("ws_ship_hdemo_sk").OptionalInt64(row.ShipHousehold)
+                    .AddMember("ws_web_page_sk").OptionalInt64(row.WebPage);
+            }
             rows.AddMember(prefix + (prefix == "ss_" ? "customer_sk" : "bill_customer_sk")).OptionalInt64(row.Customer);
             rows.AddMember(prefix + "sales_price"); decimal(rows, row.Price);
             rows.AddMember(prefix + "ext_discount_amt"); decimal(rows, row.Discount);
@@ -1239,7 +1301,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1253,7 +1315,23 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 23) {
+        if (query == 90) {
+            UNIT_ASSERT(values.TryNextRow());
+            UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("am_pm_ratio").GetDecimal().ToString(), "1.25");
+        } else if (query == 47 || query == 57) {
+            for (const auto& [month, sum, previous, next] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
+                    {1, "10", "8", "30"}, {3, "20", "30", "40"}, {2, "30", "10", "20"}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                if (query == 47) {
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_category").GetOptionalUtf8().value(), "Adjacent");
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_brand").GetOptionalUtf8().value(), "Main");
+                } else UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("cc_name").GetOptionalUtf8().value(), "Adjacent");
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("d_year").GetOptionalInt64().value(), 2000);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("d_moy").GetOptionalInt64().value(), month);
+                assertDecimal("avg_monthly_sales", "25"); assertDecimal("sum_sales", sum);
+                assertDecimal("psum", previous); assertDecimal("nsum", next);
+            }
+        } else if (query == 23) {
             UNIT_ASSERT(values.TryNextRow());
             UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(0).GetOptionalDecimal()->ToString(), "87");
             UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(1).RowsCount(), 6);
@@ -1491,10 +1569,12 @@ $round = ($x,$y) -> {return $x;};
                 assertDecimal("avg_monthly_sales", optionalText(mean));
             }
         }
-        if (query == 51 || query == 53 || query == 63 || query == 89) {
+        if (query == 47 || query == 57 || query == 51 || query == 53 || query == 63 || query == 89) {
             TVector<TString> names = query == 51 ? TVector<TString>{"item_sk", "d_date", "web_sales", "store_sales", "web_cumulative", "store_cumulative"} :
                 query == 53 ? TVector<TString>{"i_manufact_id", "sum_sales", "avg_quarterly_sales"} :
                 query == 63 ? TVector<TString>{"i_manager_id", "sum_sales", "avg_monthly_sales"} :
+                query == 47 ? TVector<TString>{"i_category", "i_brand", "d_year", "d_moy", "avg_monthly_sales", "sum_sales", "psum", "nsum"} :
+                query == 57 ? TVector<TString>{"cc_name", "d_year", "d_moy", "avg_monthly_sales", "sum_sales", "psum", "nsum"} :
                 TVector<TString>{"i_category", "i_class", "i_brand", "s_store_name", "s_company_name", "d_moy", "sum_sales", "avg_monthly_sales"};
             if (!newRbo) std::sort(names.begin(), names.end());
             const auto& columns = result.GetResultSet(0).GetColumnsMeta();
@@ -3158,7 +3238,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             // two existing compilers. The fixture pins both orders and every
             // value by name; also compare all named types. Native must preserve
             // the existing RBO order exactly.
-            if (i != 0 && (i < 9 || i >= 13)) AssertSame(native[i], legacy[i]);
+            if (i != 0 && (i < 9 || i >= 13) && i != 29 && i != 30) AssertSame(native[i], legacy[i]);
             else {
                 auto actual = native[i].Columns, expected = legacy[i].Columns;
                 std::sort(actual.begin(), actual.end());

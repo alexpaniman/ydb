@@ -436,7 +436,7 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Twenty-eight TPC-DS queries also have populated native-required execution
+tables. Thirty-one TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -535,10 +535,16 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Twenty-eight TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q27, Q32, Q36, Q37,
-Q38, Q40, Q41, Q51, Q53, Q62, Q63, Q70, Q82, Q86, Q87, Q89, Q92, Q94, Q95, Q98 and Q99) pass populated execution
+Thirty-one TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q27, Q32, Q36, Q37,
+Q38, Q40, Q41, Q47, Q51, Q53, Q57, Q62, Q63, Q70, Q82, Q86, Q87, Q89, Q90,
+Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
+Q47/Q57 exercise mixed signed/unsigned rank offsets and adjacent-month joins,
+with duplicate sales, missing ranks, NULL keys, zero/NULL means and exact
+deviation thresholds. Q90 checks the count ratio 5/(1+3)=1.25, including both
+hour/character bounds and missing/NULL dimension rows. All 31 pass together
+through all three compiler paths with the original SQL, schemas and helpers.
 Q22, Q27, Q36 and Q86 check four-key inventory rollup, demographic-filtered
 averages, hierarchy margins and sales ranks. Their independent expected values
 cover real NULL keys versus subtotal NULLs, all-NULL measures, shared prefixes,
