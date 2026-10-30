@@ -676,12 +676,19 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {10, "2002-05-30"}, {11, "2002-07-29"}, {12, "2002-07-30"}, {13, "2002-05-29"}, {14, "2002-6-1"},
             {20, "1998-03-19"}, {21, "1998-04-07"}, {22, "1998-04-08"}, {23, "1998-04-28"}, {24, "1998-03-18"}, {25, "1998-04-29"},
             {30, "1998-06-16"}, {31, "1998-06-17"}, {32, "1998-03-17"}, {33, "1998-5-1"},
-            {40, "1998-03-09"}, {41, "1998-05-08"}, {42, "1998-03-08"}, {43, "1998-05-09"}}) {
+            {40, "1998-03-09"}, {41, "1998-05-08"}, {42, "1998-03-08"}, {43, "1998-05-09"},
+            {50, "2001-01-12"}, {51, "2001-02-11"}, {52, "2001-01-11"}, {53, "2001-02-12"}, {54, "2001-1-20"}}) {
         dates.AddListItem().BeginStruct().AddMember("d_date_sk").Int64(id)
             .AddMember("d_date_id").Utf8("Date" + std::to_string(id))
             .AddMember("d_date").OptionalUtf8(text ? std::optional<std::string>{text} : std::nullopt).EndStruct();
     }
     load("date_dim", dates);
+    const TVector<std::pair<const char*, const char*>> revenueItems{
+        {"Books", "Shared"}, {"Sports", "Shared"}, {"Jewelry", "Shared"},
+        {"Books", nullptr}, {"Jewelry", nullptr}, {"Sports", "AllNull"},
+        {"Books", "Shared"}, {"Jewelry", "Single"}, {"Music", "Shared"},
+        {nullptr, "Shared"}, {"Books", "Shared"}, {"Books", "Shared"}, {"Books", "Shared"}};
+    auto optionalText = [](const char* text) { return text ? std::optional<std::string>{text} : std::nullopt; };
     TValueBuilder items;
     items.BeginList();
     for (const auto& [id, price, manufacturer] : std::initializer_list<std::tuple<i64, const char*, i64>>{
@@ -692,9 +699,13 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {27, "43", 663}, {28, "43", 663}, {29, "43", 663}, {30, "43", 663}, {31, "43", 663}, {32, "43", 663},
             {33, "43", 663}, {34, nullptr, 663}, {35, "38", 663},
             {101, "1", 0}, {102, "1.49", 0}, {103, "1", 0}, {104, "1", 0}, {105, "1", 0}, {106, "0.98", 0}, {107, "1.50", 0}, {108, "1", 0},
-            {300, "10", 269}, {301, "20", 269}, {302, "25", 269}, {303, "25", 999}, {304, "25", 269}, {305, "25", 269}}) {
+            {300, "10", 269}, {301, "20", 269}, {302, "25", 269}, {303, "25", 999}, {304, "25", 269}, {305, "25", 269},
+            {400, "10", 0}, {401, "20", 0}, {402, nullptr, 0}, {403, "30", 0}, {404, "40", 0}, {405, "50", 0},
+            {406, "60", 0}, {407, "70", 0}, {408, "80", 0}, {409, "90", 0}, {410, "100", 0}, {411, "110", 0}, {412, "120", 0}}) {
+        const auto [category, itemClass] = id >= 400 ? revenueItems.at(id - 400) : std::pair<const char*, const char*>{nullptr, nullptr};
         items.AddListItem().BeginStruct().AddMember("i_item_sk").Int64(id).AddMember("i_item_id").Utf8(itemName(id))
             .AddMember("i_item_desc").OptionalUtf8("Description" + std::to_string(id))
+            .AddMember("i_category").OptionalUtf8(optionalText(category)).AddMember("i_class").OptionalUtf8(optionalText(itemClass))
             .AddMember("i_manufact_id").OptionalInt64(manufacturer).AddMember("i_current_price");
         decimal(items, price);
         items.EndStruct();
@@ -733,6 +744,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         i64 Warehouse;
         const char* Price;
         const char* Discount;
+        const char* ExtendedPrice = nullptr;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -762,6 +774,28 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {101, 4007, 4, 1, "999", nullptr}, {101, 4008, 5, 1, "999", nullptr}, {101, 4009, 22, 999, "999", nullptr},
             {102, 4010, 21, 1, "40", nullptr}, {102, 4011, 22, 1, nullptr, nullptr}, {104, 4012, 21, 1, nullptr, nullptr},
             {106, 4013, 21, 1, "100", nullptr}, {107, 4014, 21, 1, "100", nullptr}}) catalog.push_back(row);
+    // Q12/Q20/Q98: identical item groups with distinct channel totals, shared
+    // classes across categories, NULL partitions/inputs, zero and negative
+    // revenue, inclusive dates, invalid dates and missing dimension rows.
+    order = 5000;
+    for (const auto& [item, date, webPrice, catalogPrice, storePrice] :
+            std::initializer_list<std::tuple<i64, i64, const char*, const char*, const char*>>{
+            {400, 50, "10", "20", "30"}, {400, 51, "5", "10", "15"}, {400, 54, nullptr, nullptr, nullptr},
+            {400, 52, "999", "999", "999"}, {400, 53, "999", "999", "999"},
+            {400, 4, "999", "999", "999"}, {400, 5, "999", "999", "999"}, {400, 999, "999", "999", "999"},
+            {401, 50, "30", "60", "90"}, {401, 54, "15", "30", "45"}, {402, 50, nullptr, nullptr, nullptr},
+            {403, 50, "20", "40", "60"}, {404, 51, "60", "120", "180"},
+            {405, 50, nullptr, nullptr, nullptr}, {405, 51, nullptr, nullptr, nullptr},
+            {406, 50, "0", "0", "0"}, {407, 50, "-4", "-8", "-12"},
+            {408, 50, "999", "999", "999"}, {409, 50, "999", "999", "999"},
+            {410, 52, "999", "999", "999"}, {410, 53, "999", "999", "999"},
+            {411, 4, "999", "999", "999"}, {411, 5, "999", "999", "999"}, {412, 999, "999", "999", "999"},
+            {999, 50, "999", "999", "999"}}) {
+        web.push_back({item, order, date, 1, nullptr, nullptr, webPrice});
+        catalog.push_back({item, order, date, 1, nullptr, nullptr, catalogPrice});
+        store.push_back({item, order, date, 1, nullptr, nullptr, storePrice});
+        ++order;
+    }
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -771,6 +805,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             if (prefix == "cs_") rows.AddMember("cs_warehouse_sk").OptionalInt64(row.Warehouse);
             rows.AddMember(prefix + "sales_price"); decimal(rows, row.Price);
             rows.AddMember(prefix + "ext_discount_amt"); decimal(rows, row.Discount);
+            rows.AddMember(prefix + "ext_sales_price"); decimal(rows, row.ExtendedPrice);
             rows.EndStruct();
         }
         load(table, rows);
@@ -793,7 +828,7 @@ $to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
 $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
-    for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1}}) {
+    for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1}, {12, 8}, {20, 8}, {98, 8}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -838,6 +873,29 @@ $round = ($x,$y) -> {return $x;};
                 if (before) UNIT_ASSERT_VALUES_EQUAL(actualBefore->ToString(), before);
                 else UNIT_ASSERT(!actualBefore);
                 UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("sales_after").GetOptionalDecimal()->ToString(), after);
+            }
+        }
+        if (query == 12 || query == 20 || query == 98) {
+            const int multiplier = query == 12 ? 1 : query == 20 ? 2 : 3;
+            for (const auto& [item, price, revenue, ratio] :
+                    std::initializer_list<std::tuple<i64, const char*, std::optional<i64>, const char*>>{
+                    {403, "30", 20, "25"}, {400, "10", 15, "25"}, {406, "60", 0, "0"},
+                    {404, "40", 60, "75"}, {402, nullptr, std::nullopt, nullptr}, {407, "70", -4, "100"},
+                    {405, "50", std::nullopt, nullptr}, {401, "20", 45, "75"}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_item_id").GetUtf8(), itemName(item));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_item_desc").GetOptionalUtf8().value(), "Description" + std::to_string(item));
+                const auto [category, itemClass] = revenueItems.at(item - 400);
+                UNIT_ASSERT(values.ColumnParser("i_category").GetOptionalUtf8() == optionalText(category));
+                UNIT_ASSERT(values.ColumnParser("i_class").GetOptionalUtf8() == optionalText(itemClass));
+                auto assertDecimal = [&](const char* column, const std::optional<std::string>& expected) {
+                    const auto actual = values.ColumnParser(column).GetOptionalDecimal();
+                    UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
+                    if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
+                };
+                assertDecimal("i_current_price", optionalText(price));
+                assertDecimal("itemrevenue", revenue ? std::optional<std::string>{std::to_string(*revenue * multiplier)} : std::nullopt);
+                assertDecimal("revenueratio", optionalText(ratio));
             }
         }
         if (newRbo) {

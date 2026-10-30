@@ -364,11 +364,16 @@ through native window expansion and copying; terminal unwrap is tested directly.
 Fast and generated parser routes agree on all 164 corpus decisions with no
 hard errors. Windows newly admit TPC-DS Q12, Q20, Q51, Q53, Q63, Q89 and Q98,
 bringing frontend acceptance to 56/99; their populated benchmark execution is
-still pending. The standalone CLI still has no YQL or MiniKQL symbols.
+verified for Q12, Q20 and Q98 and still pending for the other four. The standalone
+CLI still has no YQL or MiniKQL symbols.
 
-Six TPC-DS queries (Q21, Q32, Q37, Q40, Q82 and Q92) pass populated execution
+Nine TPC-DS queries (Q12, Q20, Q21, Q32, Q37, Q40, Q82, Q92 and Q98) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
+The three revenue/window queries also match the legacy optimizer exactly on
+eight result rows each, with different totals for each sales channel, shared
+classes across categories, NULL partitions and all-NULL groups, zero/negative
+revenue, date boundaries, invalid dates and missing dimension rows.
 They retain the original SQL, full schema, helpers and benchmark settings.
 Fixtures exercise date/price/quantity bounds, invalid and NULL dates, duplicate
 sales, missing matches, strict correlated-average thresholds, NULL refunds and
