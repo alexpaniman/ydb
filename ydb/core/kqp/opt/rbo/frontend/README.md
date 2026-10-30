@@ -311,8 +311,8 @@ and generated modes currently agree on these frontend routing counts:
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
-and profile validation, not RBO optimization or execution. Ten TPC-H queries
-(Q1, Q2, Q3, Q13, Q16, Q17, Q18, Q19, Q21, Q22) separately have native-required
+and profile validation, not RBO optimization or execution. Eighteen TPC-H queries
+(all except Q8, Q11, Q14, Q20) separately have native-required
 execution parity on populated column tables. The remaining accepted TPC-H,
 TPC-DS and ClickBench queries still need that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -326,6 +326,12 @@ month-end clamping, microseconds, nested shifts and range/wrap boundaries.
 Additional tests check constant results, total cast metadata, rejection of
 untyped NULL arguments, constant folding and scalar reconstruction. Both parser
 routes agree on all 164 corpus routing decisions, with no hard errors.
+
+The populated TPC-H fixture also passes Q4, Q5, Q6, Q7, Q9, Q10, Q12 and Q15
+through all three compiler paths. It checks exact revenues, counts, profits,
+years and tied maxima on 27 additional joined rows, with date boundaries,
+nonqualifying rows and NULLs. All 18 queries retain matching values, metadata,
+and successful CBO invariants on the unchanged benchmark SQL and schema.
 
 The LIKE extension passed all 103 native tests. The standalone matcher compares
 all 121 patterns of up to four characters over `ab%` against all 31 strings over
@@ -364,7 +370,7 @@ The Decimal extension passed all 79 native tests, plus 10 compiler checks after
 correcting unsupported statistical-aggregate routing. Tests compare native
 Decimal values with the existing arithmetic implementation, execute terminal
 MiniKQL graphs without annotation, and compare runtime parameters with legacy
-SQL values/types. The ten accepted checked-in TPC-H queries run with the complete schema,
+SQL values/types. The eighteen validated checked-in TPC-H queries run with the complete schema,
 helper prelude, maximum language version, and 16-partition column tables. Their
 nonempty results match both the legacy optimizer and the old frontend with new
 RBO. The fixture covers duplicate line items, nulls, date/quantity boundaries,
