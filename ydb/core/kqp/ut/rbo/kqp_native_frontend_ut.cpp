@@ -219,6 +219,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT Substring('abcdef', IF(false, 2u), IF(false, 3u))",
             "SELECT CAST(12 AS Double)", "SELECT CAST(12 AS Bool)", "SELECT CAST(true AS Int32)",
             "SELECT CAST(9223372586610589697ul AS Float)", "SELECT CAST(4611686293305294849L AS Float)",
+            "SELECT CAST(Double('-4.9406564584124654e-324') AS Uint64)",
+            "SELECT CAST(Float('-1e-40') AS Uint8)",
             "SELECT CAST(12 AS String)", "SELECT CAST(Utf8('hello') AS String)",
             "SELECT 'abc' LIKE '%b%'"
         }) {

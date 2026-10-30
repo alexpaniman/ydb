@@ -142,6 +142,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             "SELECT Float('1') / Float('0'), Float('0') / Float('0'), IF(false, 1.0) / 2.0",
             "SELECT CAST(42 AS Double), CAST(42 AS Float), CAST(1.5 AS Float), CAST(Float('1.5') AS Double)",
             "SELECT CAST(9223372586610589697ul AS Float), CAST(4611686293305294849L AS Float)",
+            "SELECT CAST(Double('-4.9406564584124654e-324') AS Uint64), CAST(Float('-1e-40') AS Uint8)",
             "SELECT CAST(1.5 AS Int32), CAST(127.5 AS Int8), CAST(-0.5 AS Uint64), CAST(Double('nan') AS Int32)",
             "SELECT CAST(42 AS Bool), CAST(0 AS Bool), CAST(true AS Int32), CAST(false AS Double), CAST(Double('nan') AS Bool)",
             "SELECT CAST(42 AS String), CAST(true AS Utf8), CAST('abc' AS Utf8), CAST(Utf8('abc') AS String)",

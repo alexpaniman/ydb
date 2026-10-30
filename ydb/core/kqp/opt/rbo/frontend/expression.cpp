@@ -560,6 +560,10 @@ TValue ConvertValue(const TValue& value, TType target) {
                 if (const auto* text = std::get_if<std::string>(&value.Data); text && text->starts_with('-')) return NullValue(target);
             }
             if (const auto* number = std::get_if<double>(&value.Data)) {
+                const int category = value.Type.Kind == K::Float ? std::fpclassify(static_cast<float>(*number)) : std::fpclassify(*number);
+                if (category == FP_ZERO || category == FP_SUBNORMAL) {
+                    return target.IsSigned() ? TValue{target, std::int64_t{0}} : TValue{target, std::uint64_t{0}};
+                }
                 const int width = Width(target.Kind);
                 const __int128 minimum = target.IsSigned() ? -(__int128{1} << (width - 1)) : 0;
                 const __int128 maximum = (__int128{1} << (width - target.IsSigned())) - 1;
@@ -741,6 +745,10 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
     const auto source = (*this)[input].Type;
     if (target.Kind == K::Null) {
         Fail(position, "Cannot cast to Null");
+    }
+    if (source.Kind == K::Float && target.IsIntegral() && Width(target.Kind) >= 32) {
+        throw TUnsupportedFeature(EFeature::Expression, position,
+            "Float to 32/64-bit integers is outside the native profile pending runtime boundary semantics");
     }
     if (target.IsString() && (source.Kind == K::Float || source.Kind == K::Double)) {
         throw TUnsupportedFeature(EFeature::Expression, position, "Floating point to string formatting is not supported");

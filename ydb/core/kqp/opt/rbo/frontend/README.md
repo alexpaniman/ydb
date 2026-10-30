@@ -138,6 +138,10 @@ Explicitly outside the profile:
 - UDFs, higher-order values, containers/structs/tuples, nested optionals, Decimal.
 - Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
   text parsing, and runtime casts from temporal/Decimal inputs.
+- Float to Int32/Uint32/Int64/Uint64: the existing runtime rounds the upper
+  integer bound to Float before checking, admitting an out-of-range value.
+  These casts remain explicit unsupported features; no existing runtime fix is
+  included. Double to integer and Float to 8/16-bit integer casts are supported.
 - General LIKE patterns and unverified function aliases. Invalid aliases are
   delegated in auto mode so legacy YQL supplies its own diagnostic.
 - String literals used as identifiers (use backticks), system columns,
