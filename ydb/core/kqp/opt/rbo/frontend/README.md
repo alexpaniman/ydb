@@ -106,7 +106,7 @@ result/type parity tests.
 Supported relational forms include SELECT and FROM-first SELECT, projection,
 filters, aliases/stars, ordinary table reads, CTEs/derived tables, scalar/query
 bindings, simple scalar lambdas, ON joins (inner/cross/outer/semi/only), grouping,
-HAVING, DISTINCT, UNION ALL, ordering, limits, scalar/EXISTS/IN subqueries with correlation,
+HAVING, inline windows, DISTINCT, UNION ALL, ordering, limits, scalar/EXISTS/IN subqueries with correlation,
 and multiple result statements.
 Aggregates are COUNT, SUM, AVG, MIN, MAX, and SOME. A DISTINCT aggregate must be
 the only aggregate in that aggregation. Computed GROUP BY keys require explicit
@@ -143,7 +143,20 @@ integer cannot overflow an intermediate Decimal cast and change a zero product
 into NaN. Overflow, infinity, NaN and NULL follow the existing runtime directly.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
-DisableAnsiInForEmptyOrNullableItemsCollections.
+DisableAnsiInForEmptyOrNullableItemsCollections, AnsiCurrentRow and DisableAnsiCurrentRow.
+
+Inline OVER supports COUNT, numeric SUM/AVG, MIN/MAX, Rank, DenseRank and
+RowNumber, with partitioning, ordering, ROWS and RANGE frames. Frame offsets
+are nonnegative integer literals within Int32; ROWS literals must have Int32
+type. RANGE offsets require one integer or floating order key. Functions with
+the same specification share an RBO window operator, and repeated calls share
+one result. Window inputs and grouped aggregates are ordinary typed columns;
+the scalar model has no window macro. Window syntax currently uses the shared
+grammar route. Generic queries default ordered windows to RANGE; data/scan
+queries default to ROWS. Explicit pragmas override that choice, and named query
+bindings retain the default from their definition site. The whole-partition
+rewrite constructs native expressions, including checked optional unwrapping,
+which executes and lowers directly and keeps failed constant checks lazy.
 
 DateTime::Split, GetYear, MakeDate/MakeDatetime/MakeTimestamp, ShiftMonths and
 ShiftYears have typed native operations for UTC Date/Datetime/Timestamp inputs.
@@ -222,9 +235,14 @@ Explicitly outside the profile:
 - DML/DDL, USE, scripting effects, arbitrary pragmas/settings, views, temporary
   and external tables, table hints, sampling, and PostgreSQL syntax/types.
 - Tuple IN subqueries; subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
-  scalar bindings or lambda bodies, JOIN USING, windows, grouping sets,
+  scalar bindings or lambda bodies, JOIN USING, grouping sets,
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
+- Named/inherited windows, DISTINCT or filtered window functions, NULL treatment,
+  frame exclusions, GROUPS frames other than whole partitions, and RANGE without
+  ordering other than whole partitions. Windows inside scalar/EXISTS/IN subqueries,
+  subqueries in window arguments/keys, and direct window calls in ORDER BY are
+  excluded; ordering by a projected window alias is supported.
 - UDFs, higher-order values, containers/structs/tuples, nested optionals.
 - Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
   text parsing to types other than Date, and runtime casts from temporal inputs to non-temporal types.
@@ -317,7 +335,7 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 49/99 | 50 |
+| TPC-DS | 56/99 | 43 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
@@ -329,6 +347,24 @@ that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+The window increment passed 74 standalone frontend tests, 45 native/RBO
+tests and eight unchanged window regressions. Its populated matrix executes 160 native queries across row/column
+tables, both window engines, and data/scan/generic APIs. It compares values and
+metadata, with NULL partitions/keys/measures, ties, grouped inputs, empty and
+sliding frames, Decimal aggregates, required inputs, outer joins, retained pragma
+settings and an IN lookup above a window. The old frontend incorrectly leaves
+SUM(required) non-nullable for potentially empty frames, so both existing
+optimizer paths fail type checking in five cases. Tests pin those original
+failures, obtain reference values by widening only the argument's nullability,
+and require native to execute the original required-input query. No older
+compiler or runtime is fixed. Separate RBO tests forbid YQL expression annotation
+through native window expansion and copying; terminal unwrap is tested directly.
+
+Fast and generated parser routes agree on all 164 corpus decisions with no
+hard errors. Windows newly admit TPC-DS Q12, Q20, Q51, Q53, Q63, Q89 and Q98,
+bringing frontend acceptance to 56/99; their populated benchmark execution is
+still pending. The standalone CLI still has no YQL or MiniKQL symbols.
 
 Six TPC-DS queries (Q21, Q32, Q37, Q40, Q82 and Q92) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with

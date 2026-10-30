@@ -75,7 +75,13 @@ TIntrusivePtr<IOperator> TExpandWholePartitionWindowRule::SimpleMatchAndApply(co
 
         // A scalar aggregate is optional even where the window aggregate is not, but every
         // row joined to it comes from a non-empty input, so the value is never NULL.
-        auto value = MakeColumnAccess(aggregated, pos, &ctx, &props);
+        const TTypeAnnotationNode* aggregateType = nullptr;
+        if (props.NativeExpressions) {
+            aggregateType = window->GetIUType(output, ctx);
+            if (func.Function != "count" && !grouped && !aggregateType->IsOptionalOrNull())
+                aggregateType = ctx.MakeType<TOptionalExprType>(aggregateType);
+        }
+        auto value = MakeColumnAccess(aggregated, aggregateType, pos, &ctx, &props);
         if (func.Function != "count" && !grouped && !IsNullableIU(input, output, ctx)) {
             value = MakeUnaryCallable("Unwrap", value);
         }

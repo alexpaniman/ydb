@@ -861,6 +861,156 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(WindowsMatchLegacyOnPopulatedTables, ColumnStore) {
+        TVector<std::pair<TString, size_t>> queries;
+        const TVector<TString> specifications{
+            "", "PARTITION BY p", "PARTITION BY p + 1", "PARTITION BY p ORDER BY k",
+            "PARTITION BY p ORDER BY k DESC", "PARTITION BY p ORDER BY k, id",
+            "PARTITION BY p ORDER BY CAST(k AS String)",
+            "PARTITION BY p ORDER BY k, id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+            "PARTITION BY p ORDER BY k, id ROWS BETWEEN 2 PRECEDING AND CURRENT ROW",
+            "PARTITION BY p ORDER BY k, id ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING",
+            "PARTITION BY p ORDER BY k, id ROWS BETWEEN 1 FOLLOWING AND 3 FOLLOWING",
+            "PARTITION BY p ORDER BY k, id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING",
+            "PARTITION BY p ORDER BY k, id ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+            "PARTITION BY p ORDER BY k, id ROWS BETWEEN 1 PRECEDING AND 2 PRECEDING",
+            "PARTITION BY p ORDER BY k, id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
+            "PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+            "PARTITION BY p ORDER BY k RANGE BETWEEN 10 PRECEDING AND 10 FOLLOWING",
+            "PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 10 PRECEDING",
+            "PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 10 FOLLOWING",
+            "PARTITION BY p ORDER BY k RANGE BETWEEN 5 FOLLOWING AND 15 FOLLOWING",
+            "PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+            "PARTITION BY p ORDER BY k DESC RANGE BETWEEN 10 PRECEDING AND CURRENT ROW",
+            "PARTITION BY p ORDER BY CAST(k AS Double) RANGE BETWEEN 10 PRECEDING AND CURRENT ROW"};
+        for (const auto& spec : specifications) {
+            TString sql = "SELECT id";
+            size_t index = 0;
+            for (const auto* function : {"SUM(v)", "AVG(v)", "COUNT(v)", "COUNT(*)", "MIN(v)", "MAX(v)", "SUM(id)", "AVG(d)", "SUM(d)"})
+                sql += TStringBuilder() << ", " << function << " OVER(" << spec << ") AS f" << index++;
+            queries.emplace_back(sql + " FROM `/Root/WindowRows` ORDER BY id", 12);
+        }
+        queries.emplace_back("SELECT id, Rank() OVER(PARTITION BY p ORDER BY k) AS r, DenseRank() OVER(PARTITION BY p ORDER BY k) AS d, RowNumber() OVER(PARTITION BY p ORDER BY k, id) AS n FROM `/Root/WindowRows` ORDER BY id", 12);
+        queries.emplace_back("SELECT p, SUM(v) AS s, SUM(SUM(v)) OVER() AS total, AVG(SUM(v)) OVER() AS mean, Rank() OVER(ORDER BY SUM(v) DESC) AS r FROM `/Root/WindowRows` GROUP BY p HAVING COUNT(*) > 0ul ORDER BY p", 5);
+        queries.emplace_back("SELECT id, SUM(v) OVER() + SUM(v) OVER() AS doubled, SUM(v) OVER(PARTITION BY p) AS partial FROM `/Root/WindowRows` ORDER BY id", 12);
+        queries.emplace_back("SELECT id, total FROM (SELECT id, SUM(v) OVER(PARTITION BY p) AS total FROM `/Root/WindowRows`) AS x WHERE total > 10 ORDER BY id", 6);
+        queries.emplace_back("SELECT a.id, SUM(b.id) OVER(PARTITION BY a.p) AS total FROM `/Root/WindowRows` AS a LEFT JOIN `/Root/WindowRows` AS b ON a.id = b.id AND b.id < 2ul ORDER BY a.id", 12);
+        queries.emplace_back("SELECT id, SUM(v) OVER() AS s FROM `/Root/WindowRows` WHERE id = 99ul ORDER BY id", 0);
+        queries.emplace_back("$q = (SELECT k, SUM(1) OVER(ORDER BY k) AS n FROM `/Root/WindowRows`); PRAGMA DisableAnsiCurrentRow; SELECT k, n FROM $q ORDER BY k, n", 12);
+        TVector<std::optional<TResultSnapshot>> reference(queries.size());
+        std::optional<TResultSnapshot> apiReference[2];
+        for (const bool windowV2 : {false, true}) for (const int strategy : {0, 1, 2}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetEnableWindowFunctionsV2(windowV2);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto schema = session.ExecuteSchemeQuery(TString(
+                "CREATE TABLE `/Root/WindowRows` (id Uint64 NOT NULL, p Int32, k Int32, v Int32, d Decimal(7,2), PRIMARY KEY(id))") +
+                (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            using TCell = std::optional<i32>;
+            const TCell n = std::nullopt;
+            const TVector<std::tuple<TCell, TCell, TCell, const char*>> data{
+                {1, 10, 5, "1.5"}, {1, 20, 3, "3.5"}, {1, 20, 7, "2.5"}, {1, 30, n, nullptr},
+                {2, 10, n, nullptr}, {2, n, 4, "4.5"}, {n, 10, 1, "1"}, {n, 20, 2, "2"},
+                {3, 10, n, nullptr}, {3, 20, n, nullptr}, {4, 10, 42, "42.5"}, {1, 30, -2, "-2.5"}};
+            TValueBuilder rows;
+            rows.BeginList();
+            ui64 id = 0;
+            for (const auto& [p, k, v, d] : data) {
+                rows.AddListItem().BeginStruct().AddMember("id").Uint64(++id).AddMember("p").OptionalInt32(p)
+                    .AddMember("k").OptionalInt32(k).AddMember("v").OptionalInt32(v).AddMember("d");
+                if (d) rows.BeginOptional().Decimal(TDecimalValue(d, 7, 2)).EndOptional();
+                else rows.EmptyOptional(TTypeBuilder().Decimal({7, 2}).Build());
+                rows.EndStruct();
+            }
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/WindowRows", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            for (size_t index = 0; index < queries.size(); ++index) {
+                const auto& [sql, count] = queries[index];
+                Cerr << "Window query " << index << ", strategy " << strategy << ", v2 " << windowV2 << ": " << sql << Endl;
+                auto result = runner.GetQueryClient().ExecuteQuery("PRAGMA YqlSelect='force'; " + sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                // Existing legacy window annotation leaves SUM(required) required
+                // even for a frame that can be empty; physical rewriting rejects it.
+                if (strategy != 2 && (index == 10 || index == 11 || index == 13 || index == 17 || index == 19)) {
+                    UNIT_ASSERT(!result.IsSuccess());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("Rewrite error, type should be") != std::string::npos, result.GetIssues().ToString());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("'f6':Uint64?") != std::string::npos, result.GetIssues().ToString());
+                    // Both old paths fail the original query. Widen only the
+                    // reference argument's nullability, preserving every value;
+                    // native must execute the original required-input query.
+                    auto referenceSql = sql;
+                    SubstGlobal(referenceSql, "SUM(id)", "SUM(CAST(id AS Uint64?))");
+                    result = runner.GetQueryClient().ExecuteQuery("PRAGMA YqlSelect='force'; " + referenceSql,
+                        NQuery::TTxControl::NoTx()).GetValueSync();
+                }
+                UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), count);
+                const auto actual = SnapshotRows(result.GetResultSet(0));
+                if (!reference[index]) reference[index] = actual;
+                else AssertSame(actual, *reference[index]);
+            }
+            // Ordered default frames differ by API. Tied rows select the same
+            // key and are sorted by the running count, so ROWS is deterministic.
+            for (size_t api = 0; api < 3; ++api) for (size_t pragma = 0; pragma < 3; ++pragma) {
+                const bool ansi = pragma == 1 || (pragma == 0 && api == 1);
+                const TString sql = TString("PRAGMA YqlSelect='force'; ") +
+                    (pragma == 1 ? "PRAGMA AnsiCurrentRow; " : pragma == 2 ? "PRAGMA DisableAnsiCurrentRow; " : "") +
+                    "SELECT k, SUM(1) OVER(ORDER BY k) AS n FROM `/Root/WindowRows` ORDER BY k, n";
+                if (api == 2) {
+                    auto scan = client.StreamExecuteScanQuery(sql).GetValueSync();
+                    UNIT_ASSERT_C(scan.IsSuccess(), scan.GetIssues().ToString());
+                    UNIT_ASSERT_VALUES_EQUAL(StreamResultToYson(scan), apiReference[ansi]->Values);
+                    continue;
+                }
+                const auto resultSet = [&] {
+                    if (api == 0) {
+                        const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                        Snapshot(result);
+                        return result.GetResultSet(0);
+                    }
+                    const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                    UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                    return result.GetResultSet(0);
+                }();
+                UNIT_ASSERT_VALUES_EQUAL(resultSet.RowsCount(), 12);
+                TResultSetParser values(resultSet);
+                for (i64 row = 0; row < 12; ++row) {
+                    UNIT_ASSERT(values.TryNextRow());
+                    const auto expected = ansi ? (row == 0 ? 1 : row < 6 ? 6 : row < 10 ? 10 : 12) : row + 1;
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("n").GetInt64(), expected);
+                }
+                const auto actual = SnapshotRows(resultSet);
+                if (!apiReference[ansi]) apiReference[ansi] = actual;
+                else AssertSame(actual, *apiReference[ansi]);
+            }
+            if (strategy == 2) {
+                const auto result = runner.GetQueryClient().ExecuteQuery(
+                    "SELECT id, SUM(v) OVER(PARTITION BY p) + 1 IN (SELECT 14L) AS matched FROM `/Root/WindowRows` ORDER BY id",
+                    NQuery::TTxControl::NoTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), 12);
+                TResultSetParser values(result.GetResultSet(0));
+                for (const std::optional<bool> expected : std::initializer_list<std::optional<bool>>{true, true, true, true, false, false,
+                        false, false, std::nullopt, std::nullopt, false, true}) {
+                    UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT(values.ColumnParser("matched").GetOptionalBool() == expected);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(InSubqueriesMatchLegacyOnPopulatedTables, EqualNullsJoinKeys) {
         using TBool = std::optional<bool>;
         const TBool n = std::nullopt;

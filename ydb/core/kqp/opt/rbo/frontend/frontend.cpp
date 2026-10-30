@@ -17,6 +17,14 @@ std::string Lower(std::string_view value) {
     return result;
 }
 
+void WindowChildren(const TSyntaxExpr& node, std::vector<TSyntaxId>& out) {
+    if (!node.Window) return;
+    out.insert(out.end(), node.Window->Partition.begin(), node.Window->Partition.end());
+    for (const auto& key : node.Window->Order) out.push_back(key.Expression);
+    if (node.Window->BeginOffset != NoSyntax) out.push_back(node.Window->BeginOffset);
+    if (node.Window->EndOffset != NoSyntax) out.push_back(node.Window->EndOffset);
+}
+
 // Resolve each global reference to its defining statement once. Closures keep
 // these IDs when later statements shadow a name; expanding a lambda or query
 // never copies an environment or re-resolves its free names.
@@ -27,10 +35,15 @@ public:
     static constexpr std::uint32_t Argument = Unknown - 2;
 
     TGlobalBindings(const TParsedQuery& syntax, const TBindSettings& settings)
-        : Syntax(syntax), Settings(settings), References(syntax.Expressions.size(), Unknown), Seen(syntax.Expressions.size()) {
+        : Syntax(syntax), Settings(settings), References(syntax.Expressions.size(), Unknown), Seen(syntax.Expressions.size()),
+          WindowDefaults(syntax.Expressions.size(), settings.AnsiCurrentRow), AnsiCurrentRow(settings.AnsiCurrentRow) {
         for (const auto& [name, type] : settings.ParameterTypes) Names[name] = Parameter;
         for (std::uint32_t i = 0; i < syntax.Statements.size(); ++i) {
             const auto& statement = syntax.Statements[i];
+            if (statement.Kind == EStatementKind::Pragma && statement.Value.empty()) {
+                const auto name = Lower(statement.Name);
+                if (name == "ansicurrentrow" || name == "disableansicurrentrow") AnsiCurrentRow = name == "ansicurrentrow";
+            }
             Arguments.clear();
             if (statement.Lambda) for (const auto& name : statement.Parameters) {
                 if (!Arguments.insert(name).second) throw TFrontendError(statement.Position, "duplicate lambda parameter");
@@ -44,6 +57,7 @@ public:
 
     std::uint32_t operator[](TSyntaxId expression) const { return References.at(expression); }
     bool IsReferenced(TSyntaxId expression) const { return Seen.at(expression); }
+    bool WindowUsesAnsi(TSyntaxId expression) const { return WindowDefaults.at(expression); }
     std::shared_ptr<TSelect> Query(const TSource& source) const {
         if (source.Query || !source.Name.starts_with('$')) return source.Query;
         const auto binding = Sources.at(&source);
@@ -67,9 +81,11 @@ private:
             if (Seen.at(id)) continue;
             Seen[id] = true;
             const auto& node = Syntax.Expressions[id];
+            if (node.Window) WindowDefaults[id] = AnsiCurrentRow;
             if (node.Kind == ESyntaxKind::Variable) References[id] = Resolve(node.Text);
             if (node.Kind == ESyntaxKind::Call && node.Text.starts_with('$')) References[id] = Resolve(node.Text.substr(1));
             pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
+            WindowChildren(node, pending);
             if (node.Query) Select(*node.Query);
         }
     }
@@ -97,6 +113,8 @@ private:
     const TBindSettings& Settings;
     std::vector<std::uint32_t> References;
     std::vector<bool> Seen;
+    std::vector<bool> WindowDefaults;
+    bool AnsiCurrentRow;
     std::unordered_map<std::string, std::uint32_t> Names;
     std::unordered_set<std::string> Arguments;
     std::unordered_map<const TSource*, std::uint32_t> Sources;
@@ -166,14 +184,23 @@ struct TSyntaxKey {
     bool Distinct;
     std::uint32_t Binding;
     const TSelect* Query;
+    std::uint32_t Window = NoSyntax;
     bool operator==(const TSyntaxKey&) const = default;
 };
 
 struct TSyntaxHash {
     std::size_t operator()(const TSyntaxKey& key) const {
         std::size_t value = std::hash<std::string>{}(key.Text) ^ static_cast<unsigned>(key.Kind) ^ key.Distinct ^ key.Binding;
-        value ^= std::hash<const TSelect*>{}(key.Query);
+        value ^= std::hash<const TSelect*>{}(key.Query) ^ key.Window;
         for (auto arg : key.Arguments) value ^= arg + 0x9e3779b9 + (value << 6) + (value >> 2);
+        return value;
+    }
+};
+
+struct TWindowKeyHash {
+    std::size_t operator()(const std::vector<std::uint32_t>& key) const {
+        std::size_t value = 0;
+        for (auto part : key) value ^= part + 0x9e3779b9 + (value << 6) + (value >> 2);
         return value;
     }
 };
@@ -189,6 +216,16 @@ struct TAggregationContext {
     std::unordered_map<std::uint32_t, TExprId> Calls;
 };
 
+struct TWindowContext {
+    TExprContext* Source = nullptr;
+    std::vector<TDefinition> Definitions;
+    std::vector<TRelation> Groups;
+    std::unordered_map<std::uint32_t, TColumnId> Inputs;
+    std::unordered_map<TColumnId, TType> InputTypes;
+    std::unordered_map<std::uint32_t, TExprId> Calls;
+    std::unordered_map<std::uint32_t, std::size_t> Specifications;
+};
+
 struct TExprContext {
     TExprContext(const TScope& scope, TAggregationContext* aggregation = nullptr,
         const std::unordered_map<std::string, TExprId>* arguments = nullptr)
@@ -202,6 +239,7 @@ struct TExprContext {
     std::vector<TCapture> PendingCaptures;
     std::vector<TDefinition> PendingDefinitions;
     bool AllowSubqueries = true;
+    TWindowContext* Windows = nullptr;
 };
 
 class TBinder {
@@ -211,8 +249,10 @@ public:
     {
         Program.Parameters = settings.ParameterTypes;
         Canonical.reserve(syntax.Expressions.size());
+        CanonicalWindows.reserve(syntax.Expressions.size());
         ContainsAggregate.reserve(syntax.Expressions.size());
         std::unordered_map<TSyntaxKey, std::uint32_t, TSyntaxHash> interned;
+        std::unordered_map<std::vector<std::uint32_t>, std::uint32_t, TWindowKeyHash> windows;
         for (std::size_t i = 0; i < syntax.Expressions.size(); ++i) {
             const auto& expr = syntax.Expressions[i];
             const auto normalized = (expr.Kind == ESyntaxKind::Call && !expr.Text.starts_with('$')) || expr.Kind == ESyntaxKind::Cast;
@@ -220,12 +260,27 @@ public:
                 Bindings[i] == TGlobalBindings::Unknown)
                 throw TFrontendError(expr.Position, "unknown binding: " + expr.Text);
             TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i], expr.Query.get()};
-            bool aggregate = expr.Kind == ESyntaxKind::Call && IsAggregate(Lower(expr.Text));
+            bool aggregate = expr.Kind == ESyntaxKind::Call && !expr.Window && IsAggregate(Lower(expr.Text));
             for (auto child : expr.Arguments) {
                 if (child >= i) throw TFrontendError(expr.Position, "syntax tree is not topologically ordered");
                 key.Arguments.push_back(Canonical[child]);
                 aggregate = aggregate || ContainsAggregate[child];
             }
+            if (expr.Window) {
+                const auto& w = *expr.Window;
+                auto canonical = [&](TSyntaxId child) {
+                    if (child == NoSyntax) return NoSyntax;
+                    if (child >= i) throw TFrontendError(expr.Position, "window syntax is not topologically ordered");
+                    aggregate = aggregate || ContainsAggregate[child];
+                    return Canonical[child];
+                };
+                std::vector<std::uint32_t> spec{static_cast<std::uint32_t>(w.Frame.Type), static_cast<std::uint32_t>(w.Frame.Begin),
+                    static_cast<std::uint32_t>(w.Frame.End), canonical(w.BeginOffset), canonical(w.EndOffset), static_cast<std::uint32_t>(w.Partition.size())};
+                for (auto child : w.Partition) spec.push_back(canonical(child));
+                for (const auto& child : w.Order) { spec.push_back(canonical(child.Expression)); spec.push_back(child.Descending); }
+                key.Window = windows.emplace(std::move(spec), windows.size()).first->second;
+            }
+            CanonicalWindows.push_back(key.Window);
             auto [it, inserted] = interned.emplace(std::move(key), static_cast<std::uint32_t>(interned.size()));
             Canonical.push_back(it->second);
             ContainsAggregate.push_back(aggregate);
@@ -264,6 +319,8 @@ public:
                         // Comma joins have one unambiguous cross-product meaning.
                     } else if ((name == "ansiinforemptyornullableitemscollections" || name == "disableansiinforemptyornullableitemscollections") && statement.Value.empty()) {
                         AnsiIn = name == "ansiinforemptyornullableitemscollections";
+                    } else if ((name == "ansicurrentrow" || name == "disableansicurrentrow") && statement.Value.empty()) {
+                        // Captured with the syntax at its definition site.
                     } else throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "unsupported pragma: " + statement.Name);
                     break;
                 }
@@ -466,6 +523,12 @@ private:
         }
         TExprContext context{aggregate ? grouped : source.Scope, aggregate ? &aggregation : nullptr};
         context.Outer = outer;
+        TExprContext windowInput{context.Scope, context.Aggregation};
+        windowInput.Outer = outer;
+        windowInput.AllowSubqueries = false;
+        TWindowContext windows;
+        windows.Source = &windowInput;
+        context.Windows = &windows;
         std::vector<TDefinition> definitions;
         std::vector<TResultColumn> outputs;
         TScope outputScope;
@@ -505,6 +568,10 @@ private:
             outputScope.Add({output.Column, output.Name, {}, output.Type});
         }
 
+        context.Windows = nullptr;
+        // Projected IN lookups may use a window result. Their materializations
+        // belong above the windows; HAVING lookups remain below them.
+        auto afterWindows = windows.Groups.empty() ? std::vector<TDefinition>{} : std::exchange(context.PendingDefinitions, {});
         std::optional<TExprId> having;
         if (query.Having != NoSyntax) {
             if (!aggregate) throw TFrontendError(query.Position, "HAVING requires grouping or aggregation");
@@ -538,6 +605,18 @@ private:
         }
         root = BindInput(root, context, query.Position);
         if (having) root = Filter(root, *having, query.Position);
+        if (!windows.Groups.empty()) {
+            if (outer) throw TUnsupportedFeature(EFeature::Window, query.Position, "windows inside scalar, EXISTS or IN subqueries are outside the native profile");
+            root = BindInput(root, windowInput, query.Position);
+            root = Map(root, std::move(windows.Definitions), query.Position);
+            for (auto& window : windows.Groups) {
+                window.Inputs = {root};
+                window.Columns = Program.Relations[root].Columns;
+                for (const auto& function : window.WindowFunctions) window.Columns.push_back(function.Output);
+                root = Relation(std::move(window));
+            }
+        }
+        for (const auto& definition : afterWindows) root = Map(root, {definition}, query.Position);
         root = Map(root, std::move(definitions), query.Position);
         if (query.Distinct) {
             TRelation node{ERelation::Aggregate, query.Position}; node.Inputs = {root};
@@ -615,6 +694,17 @@ private:
         return Program.Expressions.Convert(expression, {ETypeKind::Uint64}, pos);
     }
 
+    TType AggregateType(std::string_view name, TType type, bool mayBeEmpty, TSourcePosition position) {
+        if (name == "count") return {ETypeKind::Uint64};
+        if (name == "sum" || name == "avg") {
+            if (!type.IsNumeric()) throw TFrontendError(position, std::string(name) + " expects a numeric argument");
+            if (name == "avg" && type.Kind != ETypeKind::Decimal) type = {ETypeKind::Double, type.Nullable};
+            else if (type.IsIntegral()) type.Kind = type.IsSigned() ? ETypeKind::Int64 : ETypeKind::Uint64;
+            if (type.Kind == ETypeKind::Decimal && name == "sum") type.Precision = 35;
+        }
+        return mayBeEmpty ? type.Optional() : type;
+    }
+
     TExprId Aggregate(const TSyntaxExpr& syntax, std::uint32_t canonical, TAggregationContext& context) {
         if (auto it = context.Calls.find(canonical); it != context.Calls.end()) return it->second;
         const auto name = Lower(syntax.Text);
@@ -627,20 +717,103 @@ private:
         } else {
             input = Expr(arg, *context.Source);
         }
-        const auto inputType = Program.Expressions[input].Type;
-        auto type = inputType;
-        if (name == "count") type = {ETypeKind::Uint64};
-        else if (name == "sum" || name == "avg") {
-            if (!type.IsNumeric()) throw TFrontendError(syntax.Position, name + " expects a numeric argument");
-            if (name == "avg" && type.Kind != ETypeKind::Decimal) type = {ETypeKind::Double, type.Nullable};
-            else if (type.IsIntegral()) type.Kind = type.IsSigned() ? ETypeKind::Int64 : ETypeKind::Uint64;
-            if (type.Kind == ETypeKind::Decimal && name == "sum") type.Precision = 35;
-        }
-        if (name != "count" && context.Keys.empty()) type = type.Optional();
+        const auto type = AggregateType(name, Program.Expressions[input].Type, context.Keys.empty(), syntax.Position);
         auto inputColumn = Materialize(input, context.Definitions, syntax.Position);
         auto output = Column(name + std::to_string(Program.Columns.size()), {}, type, syntax.Position);
         context.Aggregates.push_back({output, inputColumn, name, syntax.Distinct});
         auto result = Program.Expressions.Column(output, type, syntax.Position); context.Calls.emplace(canonical, result); return result;
+    }
+
+    TExprId Window(TSyntaxId id, TWindowContext& context) {
+        if (const auto call = context.Calls.find(Canonical[id]); call != context.Calls.end()) return call->second;
+        const auto& syntax = Syntax.Expressions[id];
+        const auto& spec = *syntax.Window;
+        const auto name = Lower(syntax.Text);
+        const bool rank = name == "rank" || name == "denserank" || name == "rownumber";
+        if (!rank && name != "count" && name != "sum" && name != "avg" && name != "min" && name != "max")
+            throw TUnsupportedFeature(EFeature::Window, syntax.Position, "unsupported native window function: " + syntax.Text);
+        if (syntax.Distinct) throw TUnsupportedFeature(EFeature::Window, syntax.Position, "DISTINCT window aggregate");
+        if (syntax.Arguments.size() != (rank ? 0 : 1)) throw TFrontendError(syntax.Position, "invalid window function argument count");
+        auto materialize = [&](TSyntaxId arg) {
+            if (const auto found = context.Inputs.find(Canonical[arg]); found != context.Inputs.end()) return found->second;
+            const auto expression = Syntax.Expressions[arg].Kind == ESyntaxKind::Star ?
+                Program.Expressions.Literal({ETypeKind::Uint64}, std::uint64_t{1}, syntax.Position) : Expr(arg, *context.Source);
+            const auto column = Materialize(expression, context.Definitions, syntax.Position);
+            context.InputTypes[column] = Program.Expressions[expression].Type;
+            context.Inputs.emplace(Canonical[arg], column);
+            return column;
+        };
+        std::optional<TColumnId> input;
+        if (!rank) {
+            if (Syntax.Expressions[syntax.Arguments[0]].Kind == ESyntaxKind::Star && name != "count")
+                throw TFrontendError(syntax.Position, "only COUNT(*) accepts star");
+            input = materialize(syntax.Arguments[0]);
+        }
+        auto [group, fresh] = context.Specifications.emplace(CanonicalWindows[id], context.Groups.size());
+        if (fresh) {
+            TRelation window{ERelation::Window, syntax.Position};
+            std::unordered_set<TColumnId> partitions, order;
+            for (auto key : spec.Partition) {
+                if (Syntax.Expressions[key].Kind == ESyntaxKind::Star) throw TFrontendError(syntax.Position, "star is not a window partition key");
+                const auto column = materialize(key);
+                if (partitions.insert(column).second) window.GroupKeys.push_back(column);
+            }
+            for (const auto& key : spec.Order) {
+                if (Syntax.Expressions[key.Expression].Kind == ESyntaxKind::Star) throw TFrontendError(syntax.Position, "star is not a window order key");
+                const auto column = materialize(key.Expression);
+                if (order.insert(column).second) window.SortKeys.push_back({column, key.Descending});
+            }
+            auto frame = spec.Frame;
+            using B = EWindowBound;
+            using F = EWindowFrame;
+            if (frame.Type == F::Default) {
+                frame.Type = !window.SortKeys.empty() && Bindings.WindowUsesAnsi(id) ? F::Range : F::Rows;
+                frame.End = window.SortKeys.empty() ? B::UnboundedFollowing : B::CurrentRow;
+            }
+            if (frame.Begin == B::UnboundedFollowing || frame.End == B::UnboundedPreceding ||
+                (frame.Begin >= B::CurrentRow && frame.End < B::CurrentRow) ||
+                (frame.Begin > B::CurrentRow && frame.End == B::CurrentRow))
+                throw TFrontendError(syntax.Position, "invalid window frame bounds");
+            auto offset = [&](TSyntaxId expr) -> std::uint64_t {
+                if (expr == NoSyntax) return 0;
+                const TScope empty;
+                TExprContext constants{empty}; constants.AllowSubqueries = false;
+                const auto value = Expr(expr, constants);
+                const auto& node = Program.Expressions[value];
+                if (node.Op != EOpcode::Literal || !node.Type.IsIntegral() || node.Type.Nullable)
+                    throw TUnsupportedFeature(EFeature::Window, syntax.Position, "window offsets require nonnegative integer literals");
+                if (frame.Type != F::Range && node.Type.Kind != ETypeKind::Int32)
+                    throw TFrontendError(syntax.Position, "ROWS/GROUPS window offset literals require Int32");
+                if (node.Type.IsSigned() && std::get<std::int64_t>(node.Value) < 0)
+                    throw TFrontendError(syntax.Position, "negative window offset");
+                const auto amount = node.Type.IsSigned() ? static_cast<std::uint64_t>(std::get<std::int64_t>(node.Value)) : std::get<std::uint64_t>(node.Value);
+                if (amount > INT32_MAX) throw TUnsupportedFeature(EFeature::Window, syntax.Position, "native window offset exceeds Int32");
+                return amount;
+            };
+            frame.BeginOffset = offset(spec.BeginOffset); frame.EndOffset = offset(spec.EndOffset);
+            if (frame.Begin == B::UnboundedPreceding && frame.End == B::UnboundedFollowing) frame.Type = F::Rows;
+            if (frame.Type == F::Groups) throw TUnsupportedFeature(EFeature::Window, syntax.Position, "GROUPS window frame");
+            if (frame.Type == F::Range && window.SortKeys.empty())
+                throw TUnsupportedFeature(EFeature::Window, syntax.Position, "RANGE without window ordering");
+            if (frame.Type == F::Range && (spec.BeginOffset != NoSyntax || spec.EndOffset != NoSyntax)) {
+                if (window.SortKeys.size() != 1) throw TFrontendError(syntax.Position, "RANGE offsets require one order key");
+                const auto type = context.InputTypes.at(window.SortKeys[0].Column);
+                if (!type.IsIntegral() && type.Kind != ETypeKind::Float && type.Kind != ETypeKind::Double)
+                    throw TUnsupportedFeature(EFeature::Window, syntax.Position, "RANGE offsets require an integer or floating order key");
+            }
+            window.WindowFrame = frame;
+            context.Groups.push_back(std::move(window));
+        }
+        auto& window = context.Groups[group->second];
+        const auto& frame = window.WindowFrame;
+        const bool mayBeEmpty = (frame.Begin == EWindowBound::Following && frame.BeginOffset > 0) ||
+            (frame.End == EWindowBound::Preceding && frame.EndOffset > 0);
+        const auto type = rank ? TType{ETypeKind::Uint64} : AggregateType(name, context.InputTypes.at(*input), mayBeEmpty, syntax.Position);
+        const auto output = Column(name + std::to_string(Program.Columns.size()), {}, type, syntax.Position);
+        window.WindowFunctions.push_back({output, input, name});
+        const auto value = Program.Expressions.Column(output, type, syntax.Position);
+        context.Calls.emplace(Canonical[id], value);
+        return value;
     }
 
     TExprId Integer(const TSyntaxExpr& syntax, bool negative = false) {
@@ -889,6 +1062,10 @@ private:
             }
             case ESyntaxKind::Call: {
                 const auto name = Lower(syntax.Text);
+                if (syntax.Window) {
+                    if (!context.Windows) throw TUnsupportedFeature(EFeature::Window, syntax.Position, "window function is not allowed in this expression context");
+                    result = Window(id, *context.Windows); break;
+                }
                 if (IsAggregate(name)) {
                     if (!context.Aggregation) throw TFrontendError(syntax.Position, "aggregate is not allowed in this expression");
                     result = Aggregate(syntax, Canonical[id], *context.Aggregation); break;
@@ -939,6 +1116,7 @@ private:
     std::string Prefix;
     bool AnsiIn;
     std::vector<std::uint32_t> Canonical;
+    std::vector<std::uint32_t> CanonicalWindows;
     std::vector<bool> ContainsAggregate;
     std::vector<std::optional<TExprId>> Values;
     std::unordered_map<std::string, std::shared_ptr<TSelect>> Queries;
@@ -959,7 +1137,7 @@ TBoundProgram NDetail::Compile(std::string_view sql, const TTableResolver& catal
 }
 
 std::string Explain(const TBoundProgram& program) {
-    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture"};
+    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture", "Window"};
     std::ostringstream out;
     for (std::size_t i = 0; i < program.Relations.size(); ++i) {
         const auto& relation = program.Relations[i];
@@ -971,6 +1149,7 @@ std::string Explain(const TBoundProgram& program) {
         for (std::size_t j = 0; j < relation.Columns.size(); ++j) out << (j ? "," : "") << relation.Columns[j];
         out << ']';
         for (const auto& capture : relation.Captures) out << " capture=" << capture.Local << "<-" << capture.Outer;
+        for (const auto& function : relation.WindowFunctions) out << " window=" << function.Output << ':' << function.Function;
         out << '\n';
     }
     std::vector<TColumnId> bindings;
@@ -1096,7 +1275,7 @@ private:
     void Expression(TSyntaxId root) {
         if (root == NoSyntax) return;
         const auto& expression = Syntax.Expressions[root];
-        if (expression.Arguments.empty() && !expression.Query) return;
+        if (expression.Arguments.empty() && !expression.Query && !expression.Window) return;
         std::vector<TSyntaxId> pending{root};
         std::unordered_set<TSyntaxId> seen;
         while (!pending.empty()) {
@@ -1105,6 +1284,7 @@ private:
             const auto& node = Syntax.Expressions[id];
             if (++Nodes > Settings.MaxNodes) throw TResourceLimitError(node.Position, "table discovery expansion limit exceeded");
             pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
+            WindowChildren(node, pending);
             if (node.Query) Select(*node.Query);
         }
     }
@@ -1225,12 +1405,13 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
-"relations":["read","project","filter","on-join","aggregate","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
+"relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
+"windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
-"pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

@@ -1491,6 +1491,7 @@ private:
                 throw F::TUnsupportedFeature(F::EFeature::Statement, {}, "native frontend supports data, scan and generic read queries");
             F::TCompilerSettings options;
             options.Binding.AnsiIn = queryType == EKikimrQueryType::Query;
+            options.Binding.AnsiCurrentRow = queryType == EKikimrQueryType::Query;
             options.Binding.TablePathPrefix = std::string(Config->_KqpTablePathPrefix.Get().GetOrElse(SessionCtx->GetDatabase()));
             if (query.ParameterTypes) for (const auto& [name, supplied] : *query.ParameterTypes) {
                 const auto& type = supplied.has_optional_type() ? supplied.optional_type().item() : supplied;

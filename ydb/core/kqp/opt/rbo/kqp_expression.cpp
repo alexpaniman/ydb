@@ -477,6 +477,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::CalendarYear: return "CalendarYear";
         case TNativeOp::CalendarShiftMonths: return "CalendarShiftMonths";
         case TNativeOp::CalendarShiftYears: return "CalendarShiftYears";
+        case TNativeOp::Unwrap: return "Unwrap";
     }
     Y_UNREACHABLE();
 }
@@ -1169,6 +1170,8 @@ TExpression MakeUnaryCallable(const TString& callable, const TExpression& arg) {
             root = arena->Unary(TNativeOp::IsNotNull, input);
         } else if (callable == "StablePickle") {
             root = arena->Unary(TNativeOp::StablePickle, input);
+        } else if (callable == "Unwrap") {
+            root = arena->Unary(TNativeOp::Unwrap, input);
         } else {
             const std::array<TNativeId, 1> arguments{input};
             root = arena->Call(std::string_view(callable.data(), callable.size()), arguments);

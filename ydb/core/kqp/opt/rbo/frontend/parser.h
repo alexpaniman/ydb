@@ -12,6 +12,18 @@ using TSyntaxId = std::uint32_t;
 inline constexpr TSyntaxId NoSyntax = std::numeric_limits<TSyntaxId>::max();
 
 struct TSelect;
+struct TSyntaxWindow;
+
+enum class EWindowFrame : std::uint8_t { Default, Rows, Range, Groups };
+enum class EWindowBound : std::uint8_t { UnboundedPreceding, Preceding, CurrentRow, Following, UnboundedFollowing };
+
+struct TWindowFrame {
+    EWindowFrame Type = EWindowFrame::Default;
+    EWindowBound Begin = EWindowBound::UnboundedPreceding;
+    EWindowBound End = EWindowBound::CurrentRow;
+    std::uint64_t BeginOffset = 0;
+    std::uint64_t EndOffset = 0;
+};
 
 enum class ESyntaxKind : std::uint8_t {
     Integer, Real, String, Boolean, Null, Column, Variable, Star,
@@ -25,6 +37,7 @@ struct TSyntaxExpr {
     std::vector<TSyntaxId> Arguments;
     std::shared_ptr<TSelect> Query;
     bool Distinct = false;
+    std::shared_ptr<TSyntaxWindow> Window = {};
 };
 
 struct TNamedExpr {
@@ -51,6 +64,14 @@ struct TJoin {
 struct TSortKey {
     TSyntaxId Expression;
     bool Descending = false;
+};
+
+struct TSyntaxWindow {
+    std::vector<TSyntaxId> Partition;
+    std::vector<TSortKey> Order;
+    TWindowFrame Frame;
+    TSyntaxId BeginOffset = NoSyntax;
+    TSyntaxId EndOffset = NoSyntax;
 };
 
 struct TSelect {

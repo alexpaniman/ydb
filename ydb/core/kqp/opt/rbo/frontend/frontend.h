@@ -44,7 +44,13 @@ struct TBoundSortKey {
     bool Descending;
 };
 
-enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture };
+struct TWindowFunction {
+    TColumnId Output;
+    std::optional<TColumnId> Input;
+    std::string Function;
+};
+
+enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture, Window };
 
 struct TCapture {
     TColumnId Local;
@@ -69,6 +75,9 @@ struct TRelation {
     std::optional<TExprId> Offset;
     // Union outputs bind positionally to each input's columns.
     std::vector<std::vector<TColumnId>> UnionInputs;
+    // Window partition/order keys use GroupKeys/SortKeys; arguments are ordinary columns.
+    std::vector<TWindowFunction> WindowFunctions;
+    TWindowFrame WindowFrame;
 };
 
 struct TResultColumn {
@@ -104,6 +113,7 @@ struct TBoundProgram {
 struct TBindSettings {
     // Generic-query semantics; data/scan APIs select the legacy IN default.
     bool AnsiIn = true;
+    bool AnsiCurrentRow = true;
     std::string TablePathPrefix;
     std::unordered_map<std::string, TType> ParameterTypes;
     std::size_t MaxNodes = 1'000'000;

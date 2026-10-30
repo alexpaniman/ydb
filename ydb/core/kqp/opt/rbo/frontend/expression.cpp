@@ -880,7 +880,11 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
 
 TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
     auto type = (*this)[input].Type;
-    if (op == O::CalendarSplit) {
+    if (op == O::Unwrap) {
+        if (type.Kind == K::Null) Fail(position, "Unwrap requires a typed value");
+        if (!type.Nullable) return input;
+        type = type.Required();
+    } else if (op == O::CalendarSplit) {
         if (!IsDate(type.Kind)) Fail(position, "DateTime::Split requires Date, Datetime or Timestamp");
         type = {K::Calendar, type.Nullable};
     } else if (op == O::CalendarDate || op == O::CalendarDatetime || op == O::CalendarTimestamp || op == O::CalendarYear) {
@@ -1371,6 +1375,10 @@ std::string StablePickle(const TValue& value) {
 
 TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& values) {
     auto argument = [&](std::size_t index) -> const TValue& { return *values[node.Arguments[index]]; };
+    if (node.Op == O::Unwrap) {
+        if (argument(0).IsNull()) Fail(node.Position, "cannot unwrap NULL");
+        return {node.Type, argument(0).Data};
+    }
     if (node.Op == O::Cast || node.Op == O::Convert) {
         return ConvertValue(argument(0), node.Type);
     }
@@ -1670,6 +1678,10 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             const auto& condition = (*this)[node.Arguments[1]];
             // Failed assertions remain runtime errors, even inside dead branches.
             return condition.Op == O::Literal && std::get<bool>(condition.Value) ? node.Arguments[0] : retain();
+        }
+        if (node.Op == O::Unwrap) {
+            const auto& value = (*this)[node.Arguments[0]];
+            return value.Op == O::Literal && !std::holds_alternative<std::monostate>(value.Value) ? literal(value.Value) : retain();
         }
         if (node.Op == O::And || node.Op == O::Or) {
             const auto& left = (*this)[node.Arguments[0]];

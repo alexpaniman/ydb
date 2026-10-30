@@ -82,6 +82,58 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(CheckedUnwrapIsExecutableAndPreservesLazyFailures) {
+        using namespace NFrontend;
+        TExpressionArena arena;
+        for (const auto value : {std::int64_t{-5}, std::int64_t{0}, std::int64_t{12}}) {
+            const auto unwrapped = arena.Unary(EOpcode::Unwrap, arena.Literal({ETypeKind::Int64, true}, value));
+            UNIT_ASSERT(arena[unwrapped].Type == (TType{ETypeKind::Int64}));
+            CheckScalar(arena, unwrapped, "internal checked unwrap");
+            const TExprId roots[]{unwrapped};
+            const auto folded = arena.FoldConstants(roots).front();
+            UNIT_ASSERT(arena[folded].Op == EOpcode::Literal);
+            UNIT_ASSERT(arena[folded].Type == arena[unwrapped].Type);
+        }
+        const auto failed = arena.Unary(EOpcode::Unwrap, arena.Literal({ETypeKind::Int64, true}, std::monostate{}));
+        UNIT_ASSERT_EXCEPTION(Evaluate(arena, failed), TFrontendError);
+        const TExprId roots[]{failed};
+        UNIT_ASSERT_VALUES_EQUAL(arena.FoldConstants(roots).front(), failed);
+        const auto lazy = arena.If(arena.Literal({ETypeKind::Bool}, false), failed, arena.Literal({ETypeKind::Int64}, std::int64_t{7}));
+        CheckScalar(arena, lazy, "unused failing unwrap");
+    }
+
+    Y_UNIT_TEST(WindowConversionKeepsTypedNativeExpressions) {
+        for (const auto* sql : {
+            "SELECT x, SUM(x) OVER() AS s, COUNT(*) OVER() AS n FROM (SELECT 1 AS x UNION ALL SELECT 2) AS t",
+            "SELECT p, SUM(x) OVER(PARTITION BY p) AS s FROM (SELECT CAST(NULL AS Int32) AS p, 1 AS x UNION ALL SELECT CAST(NULL AS Int32), 2) AS t",
+            "SELECT x, SUM(x) OVER(ORDER BY x ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) AS s, Rank() OVER(ORDER BY x) AS r FROM (SELECT 1 AS x UNION ALL SELECT 2) AS t",
+            "SELECT SUM(x) OVER() + 1 IN (SELECT CAST(4 AS Int64)) FROM (SELECT 1 AS x UNION ALL SELECT 2) AS t"}) {
+            NTests::TIdTestContext f;
+            f.Config->SetEnableWindowFunctionsV2(true);
+            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx);
+            auto& root = *roots.front();
+            auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+                UNIT_FAIL("native window invoked YQL expression annotation");
+                return IGraphTransformer::TStatus::Error;
+            });
+            TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            TVector<std::unique_ptr<IRule>> windows;
+            windows.emplace_back(std::make_unique<TExpandWholePartitionWindowRule>());
+            TRuleBasedStage("native whole-partition windows", std::move(windows)).RunStage(root, context);
+            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            TVector<std::unique_ptr<IRule>> copies;
+            copies.emplace_back(std::make_unique<TExpandReplicateRule>());
+            TRuleBasedStage("native window copies", std::move(copies)).RunStage(root, context);
+            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
+                UNIT_ASSERT(expression.get().IsNative());
+                UNIT_ASSERT(!expression.get().Node);
+            }
+            NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
+        }
+    }
+
     Y_UNIT_TEST(CorrelatedRewritesKeepNativeExpressionsAndBindings) {
         for (const auto* sql : {
             "SELECT o.id FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o WHERE o.id IN (SELECT 1 UNION ALL SELECT CAST(NULL AS Int32))",

@@ -293,7 +293,8 @@ private:
                     if (Result.Expressions[value].Kind != ESyntaxKind::Column && Result.Expressions[value].Kind != ESyntaxKind::Variable)
                         Unsupported(child, EFeature::Expression, "higher-order invocation");
                     auto* tail = Child(child, "invoke_expr_tail");
-                    if (tail && !tail->getText().empty()) Unsupported(tail, EFeature::Window, "window or filtered function");
+                    if (tail && (Child(tail, "null_treatment") || Child(tail, "filter_clause")))
+                        Unsupported(tail, EFeature::Window, "window NULL treatment or FILTER clause");
                     std::vector<TSyntaxId> args;
                     if (Has(child, "*")) args.push_back(Add(ESyntaxKind::Star, child));
                     if (auto* list = Child(child, "named_expr_list")) {
@@ -304,7 +305,10 @@ private:
                     }
                     auto function = Result.Expressions[value].Text;
                     if (Result.Expressions[value].Kind == ESyntaxKind::Variable) function = "$" + function;
+                    auto window = tail && Child(tail, "window_name_or_specification") ?
+                        Window(Child(tail, "window_name_or_specification")) : nullptr;
                     value = Add(ESyntaxKind::Call, node, std::move(function), std::move(args));
+                    Result.Expressions[value].Window = std::move(window);
                     if (auto* q = Child(child, "opt_set_quantifier")) Result.Expressions[value].Distinct = Has(q, "DISTINCT");
                 } else if (member) {
                     if (Result.Expressions[value].Kind != ESyntaxKind::Column) Unsupported(child, EFeature::Type, "member access on a value");
@@ -436,6 +440,45 @@ private:
             }
         }
         if (join) result.Joins.push_back(std::move(*join));
+    }
+    std::shared_ptr<TSyntaxWindow> Window(TTree* node) {
+        auto* spec = Child(node, "window_specification");
+        if (!spec) Unsupported(node, EFeature::Window, "named windows are outside the native profile");
+        auto* details = Child(spec, "window_specification_details");
+        if (Child(details, "existing_window_name")) Unsupported(details, EFeature::Window, "inherited window specification");
+        auto result = std::make_shared<TSyntaxWindow>();
+        if (auto* partition = Child(details, "window_partition_clause")) {
+            if (Has(partition, "COMPACT")) Unsupported(partition, EFeature::Window, "compact window partition");
+            for (auto* key : Children(Child(partition, "named_expr_list"), "named_expr")) {
+                if (Child(key, "an_id_or_type")) Unsupported(key, EFeature::Window, "aliased window partition key");
+                result->Partition.push_back(Expr(Child(key, "expr")));
+            }
+        }
+        if (auto* order = Child(details, "window_order_clause")) {
+            for (auto* key : Children(Child(Child(order, "order_by_clause"), "sort_specification_list"), "sort_specification"))
+                result->Order.push_back({Expr(Child(key, "expr")), Has(key, "DESC")});
+        }
+        if (auto* frame = Child(details, "window_frame_clause")) {
+            if (Child(frame, "window_frame_exclusion")) Unsupported(frame, EFeature::Window, "window frame exclusion");
+            auto* units = Child(frame, "window_frame_units");
+            result->Frame.Type = Has(units, "ROWS") ? EWindowFrame::Rows : Has(units, "RANGE") ? EWindowFrame::Range : EWindowFrame::Groups;
+            auto bound = [&](TTree* node, EWindowBound& kind, TSyntaxId& offset) {
+                if (Has(node, "CURRENT")) kind = EWindowBound::CurrentRow;
+                else {
+                    const bool preceding = Has(node, "PRECEDING");
+                    kind = Has(node, "UNBOUNDED") ? (preceding ? EWindowBound::UnboundedPreceding : EWindowBound::UnboundedFollowing) :
+                        (preceding ? EWindowBound::Preceding : EWindowBound::Following);
+                    if (auto* expr = Child(node, "expr")) offset = Expr(expr);
+                }
+            };
+            auto* extent = Child(frame, "window_frame_extent");
+            if (auto* between = Child(extent, "window_frame_between")) {
+                const auto bounds = Children(between, "window_frame_bound");
+                bound(bounds[0], result->Frame.Begin, result->BeginOffset);
+                bound(bounds[1], result->Frame.End, result->EndOffset);
+            } else bound(Child(extent, "window_frame_bound"), result->Frame.Begin, result->BeginOffset);
+        }
+        return result;
     }
     std::shared_ptr<TSelect> Select(TTree* node) {
         if (!node) throw std::logic_error("missing select grammar node");
@@ -640,6 +683,14 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         out << '(' << static_cast<int>(node.Kind) << ',' << node.Distinct;
         text(node.Text);
         for (auto arg : node.Arguments) expr(arg);
+        if (node.Window) {
+            const auto& w = *node.Window;
+            out << "window[" << static_cast<int>(w.Frame.Type) << ',' << static_cast<int>(w.Frame.Begin) << ',' << static_cast<int>(w.Frame.End) << ':';
+            expr(w.BeginOffset); expr(w.EndOffset);
+            out << '['; for (auto key : w.Partition) expr(key); out << ']';
+            for (const auto& key : w.Order) { out << key.Descending; expr(key.Expression); }
+            out << ']';
+        }
         if (node.Query) select(*node.Query);
         out << ')';
     };

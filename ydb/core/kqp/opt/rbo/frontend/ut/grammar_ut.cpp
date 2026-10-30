@@ -41,7 +41,7 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
         for (auto sql : {
             "CREATE TABLE t (id Uint64, PRIMARY KEY(id));",
             "UPSERT INTO t (id) VALUES (1);",
-            "SELECT ROW_NUMBER() OVER () FROM t;",
+            "SELECT RowNumber() OVER w FROM t WINDOW w AS ();",
             "SELECT id FROM t GROUP BY ROLLUP(id);",
             "SELECT 1 INTERSECT SELECT 2;",
         }) {

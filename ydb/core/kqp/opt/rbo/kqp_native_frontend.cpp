@@ -162,6 +162,34 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                     TSortIUs keys; for (const auto& key : relation.SortKeys) keys.Append(key.Column, TSortOrder{!key.Descending, !key.Descending});
                     op = MakeIntrusive<TOpSort>(input(), pos, std::move(keys), std::nullopt); break;
                 }
+                case R::Window: {
+                    TWindowIUs functions;
+                    for (const auto& function : relation.WindowFunctions) {
+                        TOrderedIUs<> arguments;
+                        if (function.Input) arguments.Append(*function.Input);
+                        functions.Add(function.Output, TOpWindowFunc{String(function.Function),
+                            function.Input ? EWindowFuncKind::Aggregate : EWindowFuncKind::Native, std::move(arguments)});
+                    }
+                    TOrderedIUs<> partitions; for (auto key : relation.GroupKeys) partitions.Append(key);
+                    TSortIUs order; for (const auto& key : relation.SortKeys) order.Append(key.Column, TSortOrder{!key.Descending, !key.Descending});
+                    auto bound = [](NFrontend::EWindowBound kind) {
+                        using B = NFrontend::EWindowBound;
+                        switch (kind) {
+                            case B::UnboundedPreceding: return EWindowFrameBound::UnboundedPreceding;
+                            case B::Preceding: return EWindowFrameBound::Preceding;
+                            case B::CurrentRow: return EWindowFrameBound::CurrentRow;
+                            case B::Following: return EWindowFrameBound::Following;
+                            case B::UnboundedFollowing: return EWindowFrameBound::UnboundedFollowing;
+                        }
+                        Y_UNREACHABLE();
+                    };
+                    const auto& frame = relation.WindowFrame;
+                    Y_ENSURE(frame.Type == NFrontend::EWindowFrame::Rows || frame.Type == NFrontend::EWindowFrame::Range);
+                    op = MakeIntrusive<TOpWindow>(input(), pos, std::move(functions), std::move(partitions), std::move(order),
+                        TOpWindowFrame{frame.Type == NFrontend::EWindowFrame::Rows ? EWindowFrameType::Rows : EWindowFrameType::Range,
+                            bound(frame.Begin), frame.BeginOffset, bound(frame.End), frame.EndOffset});
+                    break;
+                }
                 case R::Limit: {
                     if (relation.Offset) op = MakeIntrusive<TOpLimit>(input(), pos, expression(*relation.Count), expression(*relation.Offset), EOpPhase::Undefined);
                     else op = MakeIntrusive<TOpLimit>(input(), pos, expression(*relation.Count), EOpPhase::Undefined);

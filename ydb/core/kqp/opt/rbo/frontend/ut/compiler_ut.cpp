@@ -31,6 +31,81 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(WindowsBindToSharedRelationalOperators) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto plain = CompileNative("SELECT SUM(value) OVER(PARTITION BY id), AVG(value) OVER(PARTITION BY id), SUM(value) OVER(PARTITION BY id) FROM t", Catalog, settings);
+            std::size_t groups = 0;
+            for (const auto& relation : plain.Program->Get().Relations) {
+                UNIT_ASSERT(relation.Kind != ERelation::Aggregate);
+                if (relation.Kind == ERelation::Window) {
+                    ++groups;
+                    UNIT_ASSERT_VALUES_EQUAL(relation.WindowFunctions.size(), 2);
+                    UNIT_ASSERT_VALUES_EQUAL(relation.GroupKeys.size(), 1);
+                    UNIT_ASSERT(relation.WindowFrame.End == EWindowBound::UnboundedFollowing);
+                }
+            }
+            UNIT_ASSERT_VALUES_EQUAL(groups, 1);
+            const auto& outputs = plain.Program->Get().Results[0].Columns;
+            UNIT_ASSERT(outputs[0].Type == (TType{ETypeKind::Int64, true}));
+            UNIT_ASSERT(outputs[1].Type == (TType{ETypeKind::Double, true}));
+            const auto grouped = CompileNative("SELECT id, SUM(value), AVG(SUM(value)) OVER(), Rank() OVER(ORDER BY SUM(value) DESC) AS r FROM t GROUP BY id HAVING SUM(value) > 0 ORDER BY r", Catalog, settings);
+            std::size_t aggregates = 0, windows = 0;
+            for (const auto& relation : grouped.Program->Get().Relations) {
+                if (relation.Kind == ERelation::Aggregate) { ++aggregates; UNIT_ASSERT_VALUES_EQUAL(relation.Aggregates.size(), 1); }
+                if (relation.Kind == ERelation::Window) ++windows;
+            }
+            UNIT_ASSERT_VALUES_EQUAL(aggregates, 1);
+            UNIT_ASSERT_VALUES_EQUAL(windows, 2);
+            const auto forward = CompileNative("SELECT SUM(id) OVER(ORDER BY id ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING), COUNT(*) OVER(), Rank() OVER(ORDER BY id DESC), DenseRank() OVER(ORDER BY id) FROM t", Catalog, settings);
+            UNIT_ASSERT(forward.Program->Get().Results[0].Columns[0].Type == (TType{ETypeKind::Uint64, true}));
+            UNIT_ASSERT(forward.Program->Get().Results[0].Columns[1].Type == (TType{ETypeKind::Uint64}));
+        }
+    }
+
+    Y_UNIT_TEST(WindowDefaultsAndExplicitUnsupportedBoundaries) {
+        for (const bool ansi : {false, true}) {
+            TCompilerSettings settings; settings.Binding.AnsiCurrentRow = ansi;
+            const auto captured = CompileNative(std::string("$q = (SELECT SUM(value) OVER(ORDER BY id) AS s FROM t); ") +
+                (ansi ? "PRAGMA DisableAnsiCurrentRow; " : "PRAGMA AnsiCurrentRow; ") + "SELECT s FROM $q", Catalog, settings);
+            for (const auto& relation : captured.Program->Get().Relations) if (relation.Kind == ERelation::Window)
+                UNIT_ASSERT(relation.WindowFrame.Type == (ansi ? EWindowFrame::Range : EWindowFrame::Rows));
+            for (const std::string pragma : {"", "PRAGMA AnsiCurrentRow; ", "PRAGMA DisableAnsiCurrentRow; "}) {
+                const auto result = CompileNative(pragma + "SELECT SUM(value) OVER(ORDER BY id) FROM t", Catalog, settings);
+                bool found = false;
+                for (const auto& relation : result.Program->Get().Relations) if (relation.Kind == ERelation::Window) {
+                    const bool expectedAnsi = pragma.empty() ? ansi : pragma == "PRAGMA AnsiCurrentRow; ";
+                    UNIT_ASSERT(relation.WindowFrame.Type == (expectedAnsi ? EWindowFrame::Range : EWindowFrame::Rows));
+                    found = true;
+                }
+                UNIT_ASSERT(found);
+            }
+        }
+        for (const auto* sql : {
+            "SELECT SUM(value) OVER w FROM t WINDOW w AS ()",
+            "SELECT SUM(DISTINCT value) OVER() FROM t",
+            "SELECT Lag(value) OVER(ORDER BY id) FROM t",
+            "SELECT SUM(value) FILTER(WHERE value > 0) OVER() FROM t",
+            "SELECT SUM(value) OVER(ORDER BY id GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM t",
+            "SELECT SUM(value) OVER(ORDER BY id ROWS UNBOUNDED PRECEDING EXCLUDE CURRENT ROW) FROM t",
+            "SELECT SUM(value) OVER(RANGE UNBOUNDED PRECEDING) FROM t",
+            "DECLARE $n AS Int32; SELECT SUM(value) OVER(ORDER BY id ROWS $n PRECEDING) FROM t",
+            "SELECT SUM(SUM(value) OVER()) OVER() FROM t",
+            "SELECT id FROM t WHERE RowNumber() OVER() > 0ul",
+            "SELECT SUM((SELECT 1)) OVER() FROM t",
+            "SELECT (SELECT SUM(value) OVER() FROM t LIMIT 1)",
+            "SELECT id FROM t ORDER BY SUM(value) OVER()"})
+            UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog), TUnsupportedFeature, sql);
+        for (const auto* sql : {
+            "SELECT SUM(value) OVER(ROWS BETWEEN UNBOUNDED FOLLOWING AND CURRENT ROW) FROM t",
+            "SELECT SUM(value) OVER(ROWS BETWEEN CURRENT ROW AND UNBOUNDED PRECEDING) FROM t",
+            "SELECT SUM(value) OVER(ROWS BETWEEN CURRENT ROW AND 1 PRECEDING) FROM t",
+            "SELECT SUM(value) OVER(ROWS -1 PRECEDING) FROM t",
+            "SELECT SUM(value) OVER(ROWS 1L PRECEDING) FROM t",
+            "SELECT SUM(value) OVER(ORDER BY id, value RANGE 1 PRECEDING) FROM t"})
+            UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog), TFrontendError, sql);
+    }
+
     Y_UNIT_TEST(RuntimeDatesAndIntervalsUseExecutionOperations) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings;
