@@ -117,8 +117,14 @@ comparisons, Boolean logic, CASE/IF, COALESCE, IN lists, BETWEEN, null tests,
 byte-string concatenation, Length, StartsWith/EndsWith, ASCII case functions,
 and simple constant LIKE patterns have native operations. Primitive data
 constructors require string literals and produce required values. Explicit
-casts in this profile currently target integer types; runtime inputs to those
-casts must be integral. Widening integral casts preserve non-nullability.
+casts cover integers, Bool, Float/Double, and String/Utf8 (text parsing still
+requires literals). Total casts preserve non-nullability, including integer to
+floating point. Floating division preserves IEEE infinity/NaN. Substring slices
+String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
+other integral offsets must be literals that fit Uint32.
+Numeric text conversion uses the generic `double-conversion` library with the
+runtime's lexical policy, including leading spaces, hexadecimal integers,
+and overflow/underflow to infinity/zero; it imports no YQL conversion code.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin.
 
@@ -130,8 +136,8 @@ Explicitly outside the profile:
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
 - UDFs, higher-order values, containers/structs/tuples, nested optionals, Decimal.
-- Mixed signed/unsigned or mixed Float promotion, floating division, substring,
-  bare-NULL arithmetic, dynamic text parsing, and nonintegral runtime casts.
+- Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
+  text parsing, and runtime casts from temporal/Decimal inputs.
 - General LIKE patterns and unverified function aliases. Invalid aliases are
   delegated in auto mode so legacy YQL supplies its own diagnostic.
 - String literals used as identifiers (use backticks), system columns,
@@ -208,6 +214,12 @@ ordering, limits, generic multiple results, scans, and explicit fallback.
 They also check handwritten/generated parser selection through explain output
 and execute both routes. This is a regression suite, not proof of complete YQL
 compatibility.
+
+The scalar extension subsequently passed 72 native tests, including direct
+MiniKQL execution, numeric-text comparisons with the runtime, large integer
+to Float rounding, and legacy-optimizer result/type parity with runtime
+parameters. It enables floating division, scalar casts and Substring without
+enabling Decimal or the remaining relational features.
 
 Fast and generated modes have identical routing on all 164 benchmark queries:
 36 native and 128 explicit legacy delegations, with no hard errors. The standalone

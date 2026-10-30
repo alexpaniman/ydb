@@ -1,5 +1,7 @@
 #include "expression.h"
 
+#include <contrib/libs/double-conversion/double-conversion/string-to-double.h>
+
 #include <algorithm>
 #include <bit>
 #include <charconv>
@@ -462,14 +464,16 @@ std::optional<double> FloatingValue(const TValue& value) {
             const double result = special == "inf" ? std::numeric_limits<double>::infinity() : std::numeric_limits<double>::quiet_NaN();
             return negative ? -result : result;
         }
-        double result;
-        std::istringstream input(*p);
-        input.imbue(std::locale::classic());
-        input >> std::noskipws >> result;
-        if (!input.fail() && input.eof() && std::isfinite(result)) {
-            return result;
-        }
-        return {};
+        // Match the runtime's numeric text contract with the generic numeric
+        // parser: leading spaces and hexadecimal integers are accepted, as are
+        // overflow/underflow to infinity/zero. No locale or YQL parser is used.
+        using TParser = double_conversion::StringToDoubleConverter;
+        static const TParser parser(TParser::ALLOW_TRAILING_JUNK | TParser::ALLOW_HEX | TParser::ALLOW_LEADING_SPACES,
+            0.0, std::numeric_limits<double>::quiet_NaN(), nullptr, nullptr);
+        if (p->empty() || p->size() > std::numeric_limits<int>::max()) return {};
+        int consumed = 0;
+        const auto result = parser.StringToDouble(p->data(), static_cast<int>(p->size()), &consumed);
+        return consumed == static_cast<int>(p->size()) ? std::optional<double>{result} : std::nullopt;
     }
     const auto integral = IntegralValue(value);
     return integral ? std::optional<double>{static_cast<double>(*integral)} : std::nullopt;
@@ -526,6 +530,14 @@ TValue ConvertValue(const TValue& value, TType target) {
         return NullValue(target);
     }
     if (target.Kind == K::Double || target.Kind == K::Float) {
+        if (target.Kind == K::Float) {
+            // Convert integers directly: an intermediate Double can round a
+            // large integer onto a Float halfway point and change the result.
+            if (const auto* integer = std::get_if<std::int64_t>(&value.Data))
+                return {target, static_cast<double>(static_cast<float>(*integer))};
+            if (const auto* integer = std::get_if<std::uint64_t>(&value.Data))
+                return {target, static_cast<double>(static_cast<float>(*integer))};
+        }
         if (auto number = FloatingValue(value)) {
             const double result = target.Kind == K::Float ? static_cast<float>(*number) : *number;
             return {target, result};
@@ -771,8 +783,17 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
         auto converted = ConvertValue({source, node.Value}, target.Optional());
         return Literal(converted.Type, std::move(converted.Data), position);
     }
-    // Explicit casts are checked execution operations: conversion failure is NULL.
-    return Append({O::Cast, target.Optional(), position, {input}, {}, {}, 0});
+    // A potentially lossy conversion is not necessarily nullable: integer to
+    // float, float narrowing and integral truth conversion are total in YQL.
+    const bool sourceFloat = source.Kind == K::Float || source.Kind == K::Double;
+    const bool targetFloat = target.Kind == K::Float || target.Kind == K::Double;
+    const bool total =
+        (targetFloat && (source.IsIntegral() || sourceFloat || source.Kind == K::Bool)) ||
+        (source.Kind == K::Bool && target.IsIntegral()) ||
+        (target.Kind == K::Bool && source.IsIntegral()) ||
+        (target.IsString() && (source.IsIntegral() || source.Kind == K::Bool || source.Kind == K::Utf8));
+    target.Nullable |= source.Nullable || !total;
+    return Append({O::Cast, target, position, {input}, {}, {}, 0});
 }
 
 TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
@@ -835,7 +856,7 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
         if (op == O::Modulo && !common.IsIntegral()) {
             Fail(position, "Modulo expects integral operands");
         }
-        if (op == O::Divide || op == O::Modulo) {
+        if (op == O::Modulo || (op == O::Divide && common.Kind != K::Float && common.Kind != K::Double)) {
             result.Nullable = true;
         }
         if (common.Kind == K::Interval) result.Nullable = true;
@@ -916,21 +937,34 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
         if (arguments.size() != 2 && arguments.size() != 3) {
             Fail(position, "Substring expects two or three arguments");
         }
-        auto type = (*this)[arguments[0]].Type;
-        if (!type.IsString()) {
-            Fail(position, "Substring expects a string");
-        }
-        // This primitive slices bytes; an arbitrary slice of UTF-8 need not
-        // contain whole code points, so its result is a binary String.
-        type.Kind = K::String;
-        std::vector<TExprId> args(arguments.begin(), arguments.end());
-        for (std::size_t i = 1; i < args.size(); ++i) {
-            const auto argType = (*this)[args[i]].Type;
-            if (!argType.IsIntegral()) {
-                Fail(position, "Substring offsets must be integral");
+        const auto type = (*this)[arguments[0]].Type;
+        if (type.Kind == K::Null) return arguments[0];
+        if (type.Kind != K::String) Fail(position, "Substring expects String");
+        std::vector<TExprId> args{arguments[0]};
+        for (std::size_t i = 1; i != 3; ++i) {
+            const std::uint64_t defaultValue = i == 1 ? 0 : std::numeric_limits<std::uint32_t>::max();
+            if (i == arguments.size()) {
+                args.push_back(Literal({K::Uint32}, defaultValue, position));
+                continue;
             }
-            args[i] = Cast(args[i], {K::Uint64}, position);
-            type.Nullable = true;
+            const auto input = arguments[i];
+            const auto node = (*this)[input];
+            if (node.Type.Kind == K::Null || (node.Op == O::Literal && std::holds_alternative<std::monostate>(node.Value))) {
+                args.push_back(Literal({K::Uint32}, defaultValue, position));
+            } else if (node.Op == O::Literal && node.Type.IsIntegral()) {
+                const auto number = IntegralValue({node.Type, node.Value});
+                if (!number || !FitsUnsigned(*number, 32)) Fail(position, "Substring offset/length must fit Uint32");
+                args.push_back(Literal({K::Uint32}, static_cast<std::uint64_t>(*number), position));
+            } else if (node.Type.Kind == K::Uint8 || node.Type.Kind == K::Uint16 || node.Type.Kind == K::Uint32) {
+                auto value = Convert(input, {K::Uint32, node.Type.Nullable}, position);
+                if (node.Type.Nullable) {
+                    const TExprId alternatives[]{value, Literal({K::Uint32}, defaultValue, position)};
+                    value = Coalesce(alternatives, position);
+                }
+                args.push_back(value);
+            } else if (node.Type.IsIntegral()) {
+                throw TUnsupportedFeature(EFeature::Expression, position, "dynamic Substring offsets require Uint8/16/32");
+            } else Fail(position, "Substring offsets must be integral");
         }
         return Append({O::Substring, type, position, std::move(args), {}, {}, 0});
     }
@@ -1157,9 +1191,6 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
     }
     if (auto a = std::get_if<double>(&left.Data)) {
         const auto b = std::get<double>(right.Data);
-        if (node.Op == O::Divide && b == 0) {
-            return NullValue(node.Type);
-        }
         const auto result = node.Op == O::Add ? *a + b : node.Op == O::Subtract ? *a - b : node.Op == O::Multiply ? *a * b : *a / b;
         return {node.Type, node.Type.Kind == K::Float ? static_cast<double>(static_cast<float>(result)) : result};
     }

@@ -138,6 +138,18 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             "SELECT Length(Utf8('hello')), StartsWith('abc', 'a'), EndsWith('abc', 'c'), String::AsciiToLower('ABC'), String::AsciiToUpper('abc')",
             "SELECT -128t, -2147483648, -9223372036854775808, -1u",
             "SELECT 7 / 2, 7 % 2, 1 / 0, 1 % 0",
+            "SELECT 7.0 / 2.0, 1.0 / 0.0, 0.0 / 0.0, -1.0 / 0.0, 1.0 / Double('-0')",
+            "SELECT Float('1') / Float('0'), Float('0') / Float('0'), IF(false, 1.0) / 2.0",
+            "SELECT CAST(42 AS Double), CAST(42 AS Float), CAST(1.5 AS Float), CAST(Float('1.5') AS Double)",
+            "SELECT CAST(9223372586610589697ul AS Float), CAST(4611686293305294849L AS Float)",
+            "SELECT CAST(1.5 AS Int32), CAST(127.5 AS Int8), CAST(-0.5 AS Uint64), CAST(Double('nan') AS Int32)",
+            "SELECT CAST(42 AS Bool), CAST(0 AS Bool), CAST(true AS Int32), CAST(false AS Double), CAST(Double('nan') AS Bool)",
+            "SELECT CAST(42 AS String), CAST(true AS Utf8), CAST('abc' AS Utf8), CAST(Utf8('abc') AS String)",
+            "SELECT CAST(' 1.5' AS Double), CAST('0x10' AS Float), CAST('1e9999' AS Double), CAST('-1e-9999' AS Double)",
+            "SELECT CAST('TRUE' AS Bool), CAST('yes' AS Bool), CAST('1' AS Bool), CAST('nan' AS Double)",
+            "SELECT Substring('abcdef', 2), Substring('abcdef', 2, 3), Substring('abcdef', 99), Substring('abcdef', 0, 0)",
+            "SELECT Substring('abcdef', NULL), Substring('abcdef', NULL, 2), Substring('abcdef', 2, NULL), Substring(NULL, 2)",
+            "SELECT Substring(IF(false, 'abcdef'), 2), Substring('abcdef', IF(false, 2u), IF(false, 3u))",
             "SELECT CAST(1 AS Int64), CAST(300 AS Uint8), CAST(-1 AS Uint32), CAST('123' AS Int32)",
             "SELECT Int32('-2147483648'), Uint64('18446744073709551615'), Utf8('hello'), Date('2024-02-29')",
             "SELECT Datetime('1970-01-01T01:30:00+01:30'), Timestamp('1970-01-01T00:00:01.23456789Z')",
@@ -159,6 +171,33 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             }
         }
         UNIT_ASSERT_C(failures.empty(), failures);
+    }
+
+    Y_UNIT_TEST(RuntimeFloatingCastsAndSubstringMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const TString sql = R"(
+            DECLARE $x AS Double;
+            DECLARE $y AS Double?;
+            DECLARE $text AS String?;
+            DECLARE $start AS Uint32?;
+            DECLARE $count AS Uint32?;
+            SELECT $x / $y AS ratio, CAST($x AS Int32) AS integral,
+                CAST($x AS Float) AS rounded, Substring($text, $start, $count) AS part
+        )";
+        for (const double x : {7.5, -0.5, 2147483648.0}) for (const unsigned scenario : {0, 1, 2, 3}) {
+            const auto params = TParamsBuilder()
+                .AddParam("$x").Double(x).Build()
+                .AddParam("$y").OptionalDouble(scenario == 0 ? std::nullopt : std::optional<double>{scenario == 1 ? 0.0 : 2.0}).Build()
+                .AddParam("$text").OptionalString(scenario == 3 ? std::nullopt : std::optional<TString>{"abcdef"}).Build()
+                .AddParam("$start").OptionalUint32(scenario == 1 ? std::nullopt : std::optional<ui32>{2}).Build()
+                .AddParam("$count").OptionalUint32(scenario == 2 ? std::nullopt : std::optional<ui32>{3}).Build()
+                .Build();
+            AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+        }
     }
 
     Y_UNIT_TEST(ConstantResultsMatchLegacy) {

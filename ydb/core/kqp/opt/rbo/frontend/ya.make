@@ -17,6 +17,7 @@ SRCS(
 PEERDIR(
     ydb/core/kqp/opt/rbo/frontend/grammar
     contrib/libs/antlr4_cpp_runtime
+    contrib/libs/double-conversion
 )
 
 END()

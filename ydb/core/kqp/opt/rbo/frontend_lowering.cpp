@@ -199,21 +199,6 @@ private:
         });
     }
 
-    TExprNode::TPtr Substring(TExprNode::TListType args, const std::vector<NFrontend::TType>& types, NFrontend::TType resultType) {
-        return Present(std::move(args), types, resultType, [&](TExprNode::TListType values) {
-            auto string = Cast(values[0], types[0].Required(), {K::String});
-            auto maximum = Literal({K::Uint64}, std::uint64_t{std::numeric_limits<std::uint32_t>::max()});
-            auto tooLarge = Call(">", {values[1], maximum}, {K::Bool});
-            auto clamp = [&](TExprNode::TPtr number) {
-                auto bounded = Call("If", {Call(">", {number, maximum}, {K::Bool}), maximum, number}, {K::Uint64});
-                return Call("Unwrap", {Cast(bounded, {K::Uint64}, {K::Uint32, true})}, {K::Uint32});
-            };
-            auto count = values.size() == 3 ? clamp(values[2]) : Literal({K::Uint32}, std::uint64_t{std::numeric_limits<std::uint32_t>::max()});
-            auto slice = Call("Substring", {string, clamp(values[1]), count}, {K::String});
-            return Call("If", {tooLarge, Literal({K::String}, std::string{}), slice}, {K::String});
-        });
-    }
-
     TExprNode::TPtr DecimalArithmetic(const NFrontend::TExprNode& node, TExprNode::TListType args) {
         const auto output = node.Type;
         std::vector<NFrontend::TType> types;
@@ -257,15 +242,6 @@ private:
             case O::Add: case O::Subtract: case O::Multiply: case O::Divide: case O::Modulo: {
                 if (type.Kind == K::Decimal) return DecimalArithmetic(node, std::move(args));
                 const char* name = node.Op == O::Add ? "+" : node.Op == O::Subtract ? "-" : node.Op == O::Multiply ? "*" : node.Op == O::Divide ? "/" : "%";
-                if (node.Op == O::Divide && (type.Kind == K::Float || type.Kind == K::Double)) {
-                    auto actual = type; actual.Nullable = Arena[node.Arguments[0]].Type.Nullable || Arena[node.Arguments[1]].Type.Nullable;
-                    auto quotient = Call(name, args, actual);
-                    if (!actual.Nullable) quotient = Call("Just", {quotient}, type);
-                    auto zero = Literal(Arena[node.Arguments[1]].Type.Required(), 0.0);
-                    auto condition = Call("==", {args[1], zero}, {K::Bool, Arena[node.Arguments[1]].Type.Nullable});
-                    if (Arena[node.Arguments[1]].Type.Nullable) condition = Call("Coalesce", {condition, Literal({K::Bool}, false)}, {K::Bool});
-                    return Call("If", {condition, Nothing(type), quotient}, type);
-                }
                 return Call(name, std::move(args), type);
             }
             case O::Equal: return Call("==", std::move(args), type);
@@ -305,7 +281,7 @@ private:
             case O::EndsWith: return Call("EndsWith", std::move(args), type);
             case O::Concat: return Call("Concat", std::move(args), type);
             case O::Lower: case O::Upper: return StringCase(args[0], type, node.Op == O::Upper);
-            case O::Substring: return Substring(std::move(args), types, type);
+            case O::Substring: return Call("Substring", std::move(args), type);
         }
         throw NFrontend::TFrontendError(node.Position, "unknown native opcode");
     }

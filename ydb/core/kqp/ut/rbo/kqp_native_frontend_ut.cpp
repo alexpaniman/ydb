@@ -3,8 +3,11 @@
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.h>
 #include <ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h>
 #include <yql/essentials/minikql/comp_nodes/ut/mkql_computation_node_ut.h>
+#include <yql/essentials/minikql/mkql_type_ops.h>
 #include <yql/essentials/providers/common/mkql/yql_provider_mkql.h>
 #include <yql/essentials/core/yql_expr_type_annotation.h>
+
+#include <cmath>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -58,8 +61,12 @@ void CheckScalar(std::string_view sql) {
         case K::Uint16: case K::Date: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<ui16>(), std::get<std::uint64_t>(expected.Data), sql); break;
         case K::Uint32: case K::Datetime: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<ui32>(), std::get<std::uint64_t>(expected.Data), sql); break;
         case K::Uint64: case K::Timestamp: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<ui64>(), std::get<std::uint64_t>(expected.Data), sql); break;
-        case K::Float: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<float>(), std::get<double>(expected.Data), sql); break;
-        case K::Double: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<double>(), std::get<double>(expected.Data), sql); break;
+        case K::Float: case K::Double: {
+            const auto actual = expected.Type.Kind == K::Float ? double(value.Get<float>()) : value.Get<double>();
+            const auto number = std::get<double>(expected.Data);
+            UNIT_ASSERT_C((std::isnan(actual) && std::isnan(number)) || actual == number, sql);
+            break;
+        }
         case K::String: case K::Utf8: UNIT_ASSERT_VALUES_EQUAL_C(TString(value.AsStringRef()), TString(std::get<std::string>(expected.Data)), sql); break;
         case K::Decimal: UNIT_ASSERT_C(value.GetInt128() == std::get<NFrontend::TDecimal>(expected.Data).Coefficient, sql); break;
         case K::Null: UNIT_FAIL("unexpected non-null Null");
@@ -68,6 +75,35 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(TextCastsMatchRuntimeLexicalContract) {
+        using namespace NFrontend;
+        for (const auto kind : {ETypeKind::Bool, ETypeKind::Float, ETypeKind::Double}) {
+            const auto slot = kind == ETypeKind::Bool ? NUdf::EDataSlot::Bool :
+                kind == ETypeKind::Float ? NUdf::EDataSlot::Float : NUdf::EDataSlot::Double;
+            for (const std::string text : {"", " ", " 1", "1 ", "\t1", "1\n", "0", "-0", "+0", "1", "-1", "+1",
+                ".5", "1.", "1e2", "-1.25E-2", "1e9999", "-1e9999", "1e-9999", "-1e-9999",
+                "0x10", "-0x10", "0x1p2", "nan", "+NaN", "-NaN", "NaN(1)", "inf", "+Inf", "-Inf",
+                "infinity", " inf", " true", "true", "TRUE", "false", "FALSE", "yes", "no", "bad", "1junk",
+                "3.4028234663852886e38", "1.7976931348623157e308", "2.2250738585072014e-308", "4.9406564584124654e-324"}) {
+                TExpressionArena arena;
+                const auto input = arena.Literal({ETypeKind::String}, text);
+                const auto result = Evaluate(arena, arena.Cast(input, {kind}));
+                const auto expected = NMiniKQL::ValueFromString(slot, NUdf::TStringRef(text.data(), text.size()));
+                const auto context = TStringBuilder() << TType{kind}.ToString() << ": '" << text << "'";
+                UNIT_ASSERT_VALUES_EQUAL_C(result.IsNull(), !expected, context);
+                if (!expected) continue;
+                if (kind == ETypeKind::Bool) {
+                    UNIT_ASSERT_VALUES_EQUAL_C(std::get<bool>(result.Data), expected.Get<bool>(), context);
+                } else {
+                    const auto value = std::get<double>(result.Data);
+                    const auto number = kind == ETypeKind::Float ? double(expected.Get<float>()) : expected.Get<double>();
+                    UNIT_ASSERT_C((std::isnan(value) && std::isnan(number)) || value == number, context);
+                    if (value == 0) UNIT_ASSERT_VALUES_EQUAL_C(std::signbit(value), std::signbit(number), context);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(DirectRboAndNoYqlAnnotation) {
         NTests::TIdTestContext f;
         auto roots = CompileNativeToRbo(R"(
@@ -159,7 +195,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         TString failures;
         for (auto sql : {
             "SELECT 1 + 2 * 3", "SELECT 1 / 0", "SELECT 7 / 2", "SELECT 9 % 4",
-            "SELECT 1.0 / 0.0", "SELECT 7.0 / 2.0", "SELECT -3 + 2L",
+            "SELECT 1.0 / 0.0", "SELECT 0.0 / 0.0", "SELECT -1.0 / 0.0", "SELECT 7.0 / 2.0", "SELECT -3 + 2L",
             "SELECT CAST('123' AS Int64)", "SELECT CAST('bad' AS Int32)",
             "SELECT CAST(1 AS Int64)", "SELECT CAST(1 AS Uint8)",
             "SELECT COALESCE(NULL, CAST('bad' AS Int32), 7)",
@@ -178,8 +214,12 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT Date('2020-01-01') + Interval('P1D')",
             "SELECT CAST(Date('2020-01-02') AS Timestamp)",
             "SELECT Lower('AbC')", "SELECT Upper('AbC')", "SELECT Lower(CAST(NULL AS String))",
-            "SELECT Substring('abcdef', 2, 3)", "SELECT Substring('abcdef', -1, 3)",
-            "SELECT Substring('abcdef', 999999999999ul, 3)", "SELECT Substring('abcdef', 2, 999999999999ul)",
+            "SELECT Substring('abcdef', 2, 3)", "SELECT Substring('abcdef', NULL, 3)",
+            "SELECT Substring('abcdef', 4294967295u, 3)", "SELECT Substring('abcdef', 2, NULL)",
+            "SELECT Substring('abcdef', IF(false, 2u), IF(false, 3u))",
+            "SELECT CAST(12 AS Double)", "SELECT CAST(12 AS Bool)", "SELECT CAST(true AS Int32)",
+            "SELECT CAST(9223372586610589697ul AS Float)", "SELECT CAST(4611686293305294849L AS Float)",
+            "SELECT CAST(12 AS String)", "SELECT CAST(Utf8('hello') AS String)",
             "SELECT 'abc' LIKE '%b%'"
         }) {
             try {

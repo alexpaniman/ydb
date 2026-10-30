@@ -265,7 +265,7 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         auto single = arena.Literal({K::Float}, 0.1);
         UNIT_ASSERT(std::get<double>(arena[single].Value) == static_cast<double>(0.1F));
         auto utf8 = arena.Literal({K::Utf8}, std::string{"\xD0\xAF"});
-        const std::array<TExprId, 3> args{utf8, Integer(arena, 1), Integer(arena, 1)};
+        const std::array<TExprId, 3> args{arena.Cast(utf8, {K::String}), Integer(arena, 1), Integer(arena, 1)};
         auto byteSlice = arena.Call("Substring", args);
         UNIT_ASSERT(arena[byteSlice].Type.Kind == K::String);
         UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(Evaluate(arena, byteSlice).Data), std::string{"\xAF"});
@@ -284,6 +284,49 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(denormal, {K::Bool}))), "false");
         auto text = arena.Literal({K::String}, std::string{"-Inf"});
         UNIT_ASSERT(std::isinf(std::get<double>(Evaluate(arena, arena.Cast(text, {K::Double})).Data)));
+    }
+
+    Y_UNIT_TEST(FloatingDivisionPreservesIeeeValuesAndNullability) {
+        TExpressionArena arena;
+        for (const auto kind : {K::Float, K::Double}) {
+            const auto one = arena.Literal({kind}, 1.0);
+            const auto zero = arena.Literal({kind}, 0.0);
+            const auto infinity = arena.Binary(O::Divide, one, zero);
+            UNIT_ASSERT(arena[infinity].Type == (TType{kind}));
+            UNIT_ASSERT(std::isinf(std::get<double>(Evaluate(arena, infinity).Data)));
+            UNIT_ASSERT(std::isnan(std::get<double>(Evaluate(arena, arena.Binary(O::Divide, zero, zero)).Data)));
+            const auto absent = arena.Cast(arena.Null(), {kind});
+            const auto nullable = arena.Binary(O::Divide, one, absent);
+            UNIT_ASSERT(arena[nullable].Type == (TType{kind, true}));
+            UNIT_ASSERT(Evaluate(arena, nullable).IsNull());
+            const auto converted = arena.Cast(Integer(arena, 7), {kind});
+            UNIT_ASSERT(arena[converted].Type == (TType{kind}));
+        }
+    }
+
+    Y_UNIT_TEST(SubstringDefaultsAndTypeAreResolvedAtConstruction) {
+        TExpressionArena arena;
+        const auto text = arena.Literal({K::String}, std::string{"abcdef"});
+        const auto null = arena.Null();
+        for (const auto& [args, expected] : std::vector<std::pair<std::vector<TExprId>, std::string>>{
+            {{text, null}, "abcdef"}, {{text, Integer(arena, 2), null}, "cdef"},
+            {{text, null, Integer(arena, 2)}, "ab"}, {{text, Integer(arena, 99)}, ""}}) {
+            const auto result = arena.Call("Substring", args);
+            UNIT_ASSERT(arena[result].Type == (TType{K::String}));
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, result)), expected);
+        }
+        const auto offset = arena.Parameter("start", {K::Uint32, true});
+        const auto count = arena.Parameter("count", {K::Uint32, true});
+        const TExprId args[]{text, offset, count};
+        const auto result = arena.Call("Substring", args);
+        UNIT_ASSERT(arena[result].Type == (TType{K::String}));
+        TEvaluationContext context;
+        context.Parameter = [](std::string_view) { return TValue{{K::Uint32, true}, {}}; };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, result, context)), "abcdef");
+        const TExprId invalid[]{text, Integer(arena, -1)};
+        UNIT_ASSERT_EXCEPTION(arena.Call("Substring", invalid), TFrontendError);
+        const TExprId wide[]{text, arena.Parameter("wide", {K::Uint64})};
+        UNIT_ASSERT_EXCEPTION(arena.Call("Substring", wide), TUnsupportedFeature);
     }
 
     Y_UNIT_TEST(SubstitutionRetypesAndPreservesSharing) {

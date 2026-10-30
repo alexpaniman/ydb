@@ -150,7 +150,12 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         UNIT_ASSERT(columns[0].Type == (TType{ETypeKind::Int32}));
         UNIT_ASSERT(columns[1].Type == (TType{ETypeKind::Int64}));
         UNIT_ASSERT(columns[2].Type == (TType{ETypeKind::Uint32}));
-        for (const auto* sql : {"SELECT 1u + 2", "SELECT 1.0 / 2.0", "SELECT Substring('abc', 1)", "SELECT CAST('1' AS Decimal(8,2))", "SELECT LOWER('ABC')"}) {
+        auto scalar = CompileNative("SELECT 1.0 / 2.0 AS ratio, Substring('abc', 1) AS part, CAST(1 AS Double) AS converted", Catalog, settings);
+        const auto& scalarColumns = scalar.Program->Get().Results[0].Columns;
+        UNIT_ASSERT(scalarColumns[0].Type == (TType{ETypeKind::Double}));
+        UNIT_ASSERT(scalarColumns[1].Type == (TType{ETypeKind::String}));
+        UNIT_ASSERT(scalarColumns[2].Type == (TType{ETypeKind::Double}));
+        for (const auto* sql : {"SELECT 1u + 2", "SELECT CAST('1' AS Decimal(8,2))", "SELECT LOWER('ABC')"}) {
             UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
         }
     }
