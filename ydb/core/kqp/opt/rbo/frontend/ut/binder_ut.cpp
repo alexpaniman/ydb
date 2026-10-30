@@ -38,14 +38,49 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT id, value FROM a)", Catalog, settings), TFrontendError);
             UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT missing FROM a)", Catalog, settings), TFrontendError);
             settings.Mode = ECompilerMode::Auto;
-            const auto unsupported = CompileNative("SELECT (SELECT b.value FROM b WHERE b.id = a.id) FROM a", Catalog, settings);
-            UNIT_ASSERT(unsupported.UsesLegacy() && unsupported.Unsupported->Feature == EFeature::Subquery);
+            const auto correlated = CompileNative("SELECT (SELECT b.value FROM b WHERE b.id = a.id) FROM a", Catalog, settings);
+            UNIT_ASSERT(!correlated.UsesLegacy());
+            UNIT_ASSERT_VALUES_EQUAL(Find(correlated.Program->Get(), ERelation::Capture).Captures.size(), 1);
             const auto sort = CompileNative("SELECT id FROM a ORDER BY (SELECT MAX(value) FROM b)", Catalog, settings);
             UNIT_ASSERT(sort.UsesLegacy() && sort.Unsupported->Feature == EFeature::Subquery);
             const auto group = CompileNative("SELECT k, COUNT(*) FROM a GROUP BY (SELECT MAX(value) FROM b) AS k", Catalog, settings);
             UNIT_ASSERT(group.UsesLegacy() && group.Unsupported->Feature == EFeature::Subquery);
             UNIT_ASSERT(!CompileNative("SELECT (SELECT MAX(value) FROM b) AS x FROM a ORDER BY x", Catalog, settings).UsesLegacy());
             UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT missing FROM a)", Catalog, settings), TFrontendError);
+        }
+    }
+
+    Y_UNIT_TEST(CapturesForwardThroughNestedScopesAndRespectGrouping) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto compiled = CompileNative("SELECT (SELECT (SELECT a.id + a.id)) FROM a", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            UNIT_ASSERT_VALUES_EQUAL(program.Subplans.size(), 2);
+            std::unordered_map<TColumnId, TColumnId> captures;
+            for (const auto& relation : program.Relations) for (const auto& capture : relation.Captures) {
+                UNIT_ASSERT(captures.emplace(capture.Local, capture.Outer).second);
+                UNIT_ASSERT(capture.Outer < capture.Local);
+                UNIT_ASSERT(program.Columns[capture.Local].Type == program.Columns[capture.Outer].Type);
+                UNIT_ASSERT(std::find(relation.Columns.begin(), relation.Columns.end(), capture.Local) != relation.Columns.end());
+            }
+            UNIT_ASSERT_VALUES_EQUAL(captures.size(), 2);
+            size_t forwarded = 0;
+            for (const auto& [local, outer] : captures) forwarded += captures.contains(outer);
+            UNIT_ASSERT_VALUES_EQUAL(forwarded, 1);
+            for (const auto* sql : {
+                "SELECT (SELECT SUM(b.value) FROM b WHERE b.id > a.id) FROM a",
+                "SELECT (SELECT SUM(a.value) FROM b) FROM a",
+                "SELECT (SELECT a.id) FROM a GROUP BY a.id"}) {
+                UNIT_ASSERT(!CompileNative(sql, Catalog, settings).UsesLegacy());
+            }
+            const auto shadowed = CompileNative("SELECT (SELECT id FROM b WHERE id = 1ul) FROM a", Catalog, settings);
+            for (const auto& relation : shadowed.Program->Get().Relations) UNIT_ASSERT(relation.Captures.empty());
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT a.value) FROM a GROUP BY a.id", Catalog, settings), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT SUM(b.value) + a.value FROM b) FROM a", Catalog, settings), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT MAX(b.value) FROM b HAVING MAX(b.value) > a.value) FROM a", Catalog, settings), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT a.name FROM (SELECT 1 AS id) AS a) FROM a", Catalog, settings), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT missing FROM b) FROM a", Catalog, settings), TFrontendError);
         }
     }
 

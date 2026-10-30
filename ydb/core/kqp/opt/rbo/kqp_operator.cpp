@@ -1,4 +1,5 @@
 #include "kqp_operator.h"
+#include "frontend_lowering.h"
 #include "kqp_expression.h"
 #include "kqp_rbo_utils.h"
 #include <ydb/core/base/table_index.h>
@@ -38,11 +39,56 @@ TString FormatSortElements(const TSortIUs& keys, const TInfoUnitRegistry& regist
     return result;
 }
 
+NFrontend::TType GetNativeColumnType(IOperator& input, TInfoUnitId column, TExprContext& ctx) {
+    if (input.Type) {
+        if (const auto* type = input.GetIUType(column, ctx)) return ImportNativeType(*type);
+    }
+    if (input.Kind == EOperator::Map) {
+        if (const auto* value = CastOperator<TOpMap>(input).FindOutputElement(column)) {
+            Y_ENSURE(value->GetExpression().IsNative(), "Expected a native map definition");
+            return value->GetExpression().GetNativeType();
+        }
+    } else if (input.Kind == EOperator::AddDependencies) {
+        if (const auto* capture = CastOperator<TOpAddDependencies>(input).GetDependencies().Find(column))
+            return ImportNativeType(*capture->Type);
+    } else if (input.Kind == EOperator::Replicate) {
+        auto& port = CastOperator<TOpReplicate>(input);
+        const auto source = port.MapToInput({column});
+        Y_ENSURE(source.Size() == 1, "Missing native replicate binding");
+        return GetNativeColumnType(*port.GetInput(), *source.begin(), ctx);
+    } else if (input.Kind == EOperator::UnionAll) {
+        auto& unionAll = CastOperator<TOpUnionAll>(input);
+        const auto& row = unionAll.GetColumns().At(column);
+        auto type = GetNativeColumnType(*unionAll.GetChild(0), row.Inputs[0], ctx);
+        for (size_t i = 1; i < row.Inputs.size(); ++i)
+            type = NFrontend::CommonType(type, GetNativeColumnType(*unionAll.GetChild(i), row.Inputs[i], ctx));
+        return type;
+    }
+    for (size_t i = 0; i < input.GetChildCount(); ++i) {
+        auto& child = *input.GetChild(i);
+        if (!child.GetOutputIUs().Contains(column)) continue;
+        auto type = GetNativeColumnType(child, column, ctx);
+        if (input.Kind == EOperator::Join) {
+            const auto& kind = CastOperator<TOpJoin>(input).JoinKind;
+            if (kind == "Full" || (i == 0 && kind == "Right") || (i == 1 && kind == "Left")) type = type.Optional();
+        }
+        return type;
+    }
+    Y_ENSURE(false, "Missing native type for column " << column << " in " << input.GetExplainName());
+}
+
 } // namespace
 
 /**
  * Base class Operator methods
  */
+
+TExpression MakeColumnAccess(TInfoUnitId column, IOperator& input,
+    TPositionHandle pos, TExprContext* ctx, TPlanProps* props) {
+    if (!props || !props->NativeExpressions) return MakeColumnAccess(column, pos, ctx, props);
+    const auto& arena = props->NativeExpressions;
+    return TExpression::FromNative(arena, arena->Column(column, GetNativeColumnType(input, column, *ctx)), ctx, props, pos);
+}
 
 const TTypeAnnotationNode* IOperator::GetIUType(TInfoUnitId iu, TExprContext& ctx) const {
     auto structType = Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
@@ -168,7 +214,7 @@ bool TOpReplicate::TryCollapse(TIntrusivePtr<IOperator>& slot, TExprContext& ctx
     if (!port.IsPrimary()) {
         const auto& bindings = port.GetRebindings();
         for (const auto source : hub.GetInput()->GetOutputIUs()) {
-            copies.Add(*bindings.Find(source), MakeColumnAccess(source, port.Pos, &ctx, &props));
+            copies.Add(*bindings.Find(source), MakeColumnAccess(source, *hub.GetInput(), port.Pos, &ctx, &props));
         }
     }
     auto replacement = hub.GetInput();

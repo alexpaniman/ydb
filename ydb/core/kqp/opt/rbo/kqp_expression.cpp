@@ -1106,6 +1106,11 @@ TExpression MakeBinaryPredicate(const TString& callable, const TExpression& left
         auto arena = left.GetNativeArena();
         const auto lhs = ImportNative(*arena, left);
         const auto rhs = ImportNative(*arena, right);
+        if (callable == "Coalesce") {
+            const TNativeId args[]{lhs, rhs};
+            const auto root = arena->Coalesce(args);
+            return TExpression::FromNative(std::move(arena), root, left.Ctx, left.PlanProps ? left.PlanProps : right.PlanProps, left.Pos());
+        }
         std::optional<TNativeOp> op;
         for (auto candidate : {TNativeOp::Equal, TNativeOp::NotEqual, TNativeOp::Less, TNativeOp::LessEqual,
             TNativeOp::Greater, TNativeOp::GreaterEqual, TNativeOp::And, TNativeOp::Or, TNativeOp::Add, TNativeOp::Subtract,

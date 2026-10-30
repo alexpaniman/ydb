@@ -123,7 +123,10 @@ public:
             if (!inserted) it->second = Ambiguous;
         };
         addName(column.Name);
-        if (!column.Qualifier.empty()) addName(column.Qualifier + "." + column.Name);
+        if (!column.Qualifier.empty()) {
+            addName(column.Qualifier + "." + column.Name);
+            Qualifiers.insert(column.Qualifier);
+        }
         Columns.push_back(std::move(column));
     }
 
@@ -132,6 +135,10 @@ public:
         if (it == Names.end()) return nullptr;
         if (it->second == Ambiguous) throw TFrontendError(pos, "ambiguous column: " + std::string(name));
         return &Columns[it->second];
+    }
+    bool ShadowsQualifier(std::string_view name) const {
+        const auto dot = name.rfind('.');
+        return dot != name.npos && Qualifiers.contains(std::string(name.substr(0, dot)));
     }
 
     std::vector<TColumnId> Ids() const {
@@ -144,6 +151,7 @@ public:
 private:
     static constexpr std::size_t Ambiguous = std::numeric_limits<std::size_t>::max();
     std::unordered_map<std::string, std::size_t> Names;
+    std::unordered_set<std::string> Qualifiers;
 };
 
 struct TBoundSource {
@@ -173,8 +181,7 @@ struct TSyntaxHash {
 struct TExprContext;
 
 struct TAggregationContext {
-    TScope Source;
-    TExprContext* Outer = nullptr;
+    TExprContext* Source = nullptr;
     std::vector<TDefinition> Definitions;
     std::vector<TColumnId> Keys;
     std::vector<TAggregate> Aggregates;
@@ -191,6 +198,8 @@ struct TExprContext {
     const std::unordered_map<std::string, TExprId>* Arguments = nullptr;
     std::unordered_map<TSyntaxId, TExprId> Cache;
     TExprContext* Outer = nullptr;
+    std::unordered_map<TColumnId, TColumnId> Captured;
+    std::vector<TCapture> PendingCaptures;
     bool AllowSubqueries = true;
 };
 
@@ -291,6 +300,32 @@ private:
     TExprId Access(const TScopeColumn& column, TSourcePosition pos) {
         return Program.Expressions.Column(column.Id, column.Type, pos);
     }
+    std::optional<TScopeColumn> ResolveColumn(TExprContext& context, std::string_view name, TSourcePosition pos) {
+        if (const auto* column = context.Scope.Find(name, pos)) return *column;
+        if (context.Scope.ShadowsQualifier(name) ||
+            (context.Aggregation && context.Aggregation->Source->Scope.Find(name, pos)))
+            throw TFrontendError(pos, "unknown or ungrouped column: " + std::string(name));
+        if (!context.Outer) return {};
+        const auto outer = ResolveColumn(*context.Outer, name, pos);
+        if (!outer) return {};
+        if (context.Aggregation) throw TUnsupportedFeature(EFeature::Subquery, pos,
+            "outer references after aggregation require explicit grouping in the native profile");
+        auto [it, inserted] = context.Captured.try_emplace(outer->Id);
+        if (inserted) {
+            it->second = Column(outer->Name, outer->Qualifier, outer->Type, pos);
+            context.PendingCaptures.push_back({it->second, outer->Id});
+        }
+        return ScopeColumn(it->second);
+    }
+    TRelId Capture(TRelId input, TExprContext& context, TSourcePosition pos) {
+        if (context.PendingCaptures.empty()) return input;
+        TRelation capture{ERelation::Capture, pos};
+        capture.Inputs = {input};
+        capture.Columns = Program.Relations[input].Columns;
+        capture.Captures = std::exchange(context.PendingCaptures, {});
+        for (const auto& binding : capture.Captures) capture.Columns.push_back(binding.Local);
+        return Relation(std::move(capture));
+    }
     TColumnId Materialize(TExprId expr, std::vector<TDefinition>& definitions, TSourcePosition pos, std::string name = {}) {
         const auto& node = Program.Expressions[expr];
         if (node.Op == EOpcode::Column && !Program.Subplans.contains(node.ColumnId)) return node.ColumnId;
@@ -355,6 +390,7 @@ private:
             context.AllowSubqueries = false;
             std::optional<TExprId> predicate;
             if (join.Predicate != NoSyntax) predicate = Expr(join.Predicate, context);
+            current.Relation = Capture(current.Relation, context, join.Source.Position);
             if (!join.Using.empty()) {
                 // USING also changes unqualified projection/star semantics.
                 // Do not accept it until that output coalescing is represented.
@@ -389,7 +425,10 @@ private:
         auto source = From(query, outer);
         TExprContext sourceContext{source.Scope};
         sourceContext.Outer = outer;
-        if (query.Where != NoSyntax) source.Relation = Filter(source.Relation, Expr(query.Where, sourceContext), Syntax.Expressions[query.Where].Position);
+        if (query.Where != NoSyntax) {
+            const auto predicate = Expr(query.Where, sourceContext);
+            source.Relation = Filter(Capture(source.Relation, sourceContext, query.Position), predicate, Syntax.Expressions[query.Where].Position);
+        }
 
         bool aggregate = !query.GroupBy.empty();
         for (const auto& projection : query.Projection) aggregate = aggregate || ContainsAggregate[projection.Expression];
@@ -398,8 +437,7 @@ private:
         TAggregationContext aggregation;
         TScope grouped;
         if (aggregate) {
-            aggregation.Source = source.Scope;
-            aggregation.Outer = outer;
+            aggregation.Source = &sourceContext;
             std::unordered_set<TColumnId> seen;
             sourceContext.AllowSubqueries = false;
             for (const auto& key : query.GroupBy) {
@@ -415,6 +453,7 @@ private:
                 if (!key.Alias.empty()) column.Name = key.Alias;
                 grouped.Add(std::move(column));
             }
+            sourceContext.AllowSubqueries = true;
         }
         TExprContext context{aggregate ? grouped : source.Scope, aggregate ? &aggregation : nullptr};
         context.Outer = outer;
@@ -480,7 +519,7 @@ private:
             }
         }
         context.AllowSubqueries = true;
-        auto root = source.Relation;
+        auto root = Capture(source.Relation, sourceContext, query.Position);
         if (aggregate) {
             root = Map(root, std::move(aggregation.Definitions), query.Position);
             TRelation node{ERelation::Aggregate, query.Position}; node.Inputs = {root}; node.GroupKeys = std::move(aggregation.Keys);
@@ -488,6 +527,7 @@ private:
             for (const auto& agg : node.Aggregates) node.Columns.push_back(agg.Output);
             root = Relation(std::move(node));
         }
+        root = Capture(root, context, query.Position);
         if (having) root = Filter(root, *having, query.Position);
         root = Map(root, std::move(definitions), query.Position);
         if (query.Distinct) {
@@ -576,9 +616,7 @@ private:
             if (name != "count" || syntax.Distinct) throw TFrontendError(syntax.Position, "only COUNT(*) accepts star");
             input = Program.Expressions.Literal({ETypeKind::Uint64}, std::uint64_t{1}, syntax.Position);
         } else {
-            TExprContext sourceContext{context.Source};
-            sourceContext.Outer = context.Outer;
-            input = Expr(arg, sourceContext);
+            input = Expr(arg, *context.Source);
         }
         const auto inputType = Program.Expressions[input].Type;
         auto type = inputType;
@@ -657,12 +695,8 @@ private:
             }
             case ESyntaxKind::String: result = arena.Literal({ETypeKind::String}, syntax.Text, syntax.Position); break;
             case ESyntaxKind::Column: {
-                auto column = context.Scope.Find(syntax.Text, syntax.Position);
+                const auto column = ResolveColumn(context, syntax.Text, syntax.Position);
                 if (!column) {
-                    for (auto* outer = context.Outer; outer; outer = outer->Outer) {
-                        if (outer->Scope.Find(syntax.Text, syntax.Position))
-                            throw TUnsupportedFeature(EFeature::Subquery, syntax.Position, "correlated subqueries are outside the native profile");
-                    }
                     throw TFrontendError(syntax.Position, "unknown or ungrouped column: " + syntax.Text);
                 }
                 result = Access(*column, syntax.Position); break;
@@ -823,7 +857,7 @@ TBoundProgram NDetail::Compile(std::string_view sql, const TTableResolver& catal
 }
 
 std::string Explain(const TBoundProgram& program) {
-    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll"};
+    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture"};
     std::ostringstream out;
     for (std::size_t i = 0; i < program.Relations.size(); ++i) {
         const auto& relation = program.Relations[i];
@@ -833,7 +867,9 @@ std::string Explain(const TBoundProgram& program) {
         for (std::size_t j = 0; j < relation.Inputs.size(); ++j) out << (j ? "," : "") << relation.Inputs[j];
         out << "] columns=[";
         for (std::size_t j = 0; j < relation.Columns.size(); ++j) out << (j ? "," : "") << relation.Columns[j];
-        out << "]\n";
+        out << ']';
+        for (const auto& capture : relation.Captures) out << " capture=" << capture.Local << "<-" << capture.Outer;
+        out << '\n';
     }
     std::vector<TColumnId> bindings;
     for (const auto& [binding, subplan] : program.Subplans) bindings.push_back(binding);
@@ -1079,11 +1115,11 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
-"relations":["read","project","filter","on-join","aggregate","sort","limit","union-all","uncorrelated-scalar-subquery"],
+"relations":["read","project","filter","on-join","aggregate","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no scalar subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","no windows, IN/EXISTS subqueries, correlation, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant simple LIKE pattern","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no scalar subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, IN/EXISTS subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

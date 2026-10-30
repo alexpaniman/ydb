@@ -106,7 +106,7 @@ result/type parity tests.
 Supported relational forms include SELECT and FROM-first SELECT, projection,
 filters, aliases/stars, ordinary table reads, CTEs/derived tables, scalar/query
 bindings, simple scalar lambdas, ON joins (inner/cross/outer/semi/only), grouping,
-HAVING, DISTINCT, UNION ALL, ordering, limits, uncorrelated scalar subqueries,
+HAVING, DISTINCT, UNION ALL, ordering, limits, scalar subqueries with correlation,
 and multiple result statements.
 Aggregates are COUNT, SUM, AVG, MIN, MAX, and SOME. A DISTINCT aggregate must be
 the only aggregate in that aggregation. Computed GROUP BY keys require explicit
@@ -145,6 +145,21 @@ error. Scalar DAGs reference these results as columns; they contain no opaque
 SQL or subquery execution node. Table discovery includes nested query bodies. ORDER BY may reference a projected
 subquery result through its alias, but direct scalar subqueries in sort keys
 are excluded because the existing RBO backend fails their physical typing.
+Outer columns receive typed local captures below their consumers; nested
+subqueries forward captures through each caller scope. Aggregate arguments use
+the input scope, and grouped callers expose their grouping keys. Ungrouped
+outer references in a grouped projection or HAVING are explicitly unsupported,
+matching YQL's grouping restriction. Existing RBO decorrelation and replicate
+expansion construct native scalars without invoking YQL expression annotation.
+
+Populated correlation tests compare the old frontend plus new RBO with native
+execution under both null-safe join settings. They also pin existing legacy
+differences: the old optimizer returns NULL for empty correlated COUNT groups
+and fails ordered correlated LIMIT with a missing sort member. New RBO and
+native preserve zero counts and correct ordered results. The old frontend also
+rejects a grandparent reference through SELECT without FROM; native execution
+of that case is checked against explicit table values, not counted as legacy
+parity. These existing components are unchanged.
 
 Named scalars, lambdas and queries may be rebound. References resolve to
 definition IDs in one walk; lambda/query captures keep their original IDs
@@ -155,7 +170,7 @@ Explicitly outside the profile:
 
 - DML/DDL, USE, scripting effects, arbitrary pragmas/settings, views, temporary
   and external tables, table hints, sampling, and PostgreSQL syntax/types.
-- IN/EXISTS subqueries, correlation, scalar subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
+- IN/EXISTS subqueries, scalar subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
   scalar bindings or lambda bodies, JOIN USING, windows, grouping sets,
   UNION DISTINCT/INTERSECT/EXCEPT, ordering across UNION ALL, and stars over joins
   (which require YQL's column-name coalescing rules).
@@ -212,8 +227,9 @@ The internal StablePickle opcode produces the backend's exact scalar key
 encoding, including nullable values and normalization of floating NaNs and
 signed zero. It has native reference execution and constant folding, lowers
 directly to MiniKQL, and is checked byte-for-byte for every native scalar type.
-This supplies null-safe keys for migration of the existing decorrelation rules;
-it does not yet enable correlated SQL queries in the execution profile.
+The existing decorrelation rules use these keys when equal-NULL join keys are
+disabled. Fresh forwarding operators supply native column types directly to
+scalar factories, without an additional plan annotation pass.
 
 **Plan-quality limitation:** legacy scalar peepholes, range extraction, and
 OLAP predicate/projection pushdown are currently skipped for native scalars.
@@ -249,8 +265,8 @@ and generated modes currently agree on these frontend routing counts:
 
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
-| TPC-H | 3/22 (Q1, Q3, Q19) | 19 |
-| TPC-DS | 30/99 | 69 |
+| TPC-H | 5/22 (Q1, Q2, Q3, Q17, Q19) | 17 |
+| TPC-DS | 33/99 | 66 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding

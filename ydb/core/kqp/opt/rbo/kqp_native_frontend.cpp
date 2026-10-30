@@ -122,6 +122,12 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                     for (const auto& definition : relation.Definitions) definitions.Add(definition.Column, TMapElement(expression(definition.Expression)));
                     op = MakeIntrusive<TOpMap>(input(), pos, std::move(definitions)); break;
                 }
+                case R::Capture: {
+                    TDependencyIUs captures;
+                    for (const auto& capture : relation.Captures) captures.Add(capture.Local,
+                        TCapturedIU{capture.Outer, ExportNativeType(program.Columns.at(capture.Local).Type, ctx)});
+                    op = MakeIntrusive<TOpAddDependencies>(input(), pos, std::move(captures)); break;
+                }
                 case R::Filter: op = MakeIntrusive<TOpFilter>(input(), pos, expression(*relation.Predicate)); break;
                 case R::Join: {
                     TJoinIUs keys;
@@ -176,6 +182,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
             if (const auto call = subplanBindings.find(id); call != subplanBindings.end()) {
                 const auto& subplan = program.Subplans.at(call->second);
                 props.Subplans.Add(call->second, std::move(op), ESubplanType::EXPR, {}, subplan.Result);
+                props.Subplans.RefreshDependencies(call->second);
             }
         }
         TOrderedIUs<TString> columns;

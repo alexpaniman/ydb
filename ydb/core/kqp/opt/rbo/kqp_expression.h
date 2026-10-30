@@ -164,6 +164,10 @@ TExpression MakeColumnAccess(TInfoUnitId column, TPositionHandle pos, TExprConte
 // Typed optimizer factories append directly to a native plan's arena.
 TExpression MakeColumnAccess(TInfoUnitId column, const TTypeAnnotationNode* type,
     TPositionHandle pos, TExprContext* ctx, TPlanProps* props);
+// Follow freshly constructed forwarding operators to their typed producer.
+// Native factories need this before the next whole-plan property refresh.
+TExpression MakeColumnAccess(TInfoUnitId column, IOperator& input,
+    TPositionHandle pos, TExprContext* ctx, TPlanProps* props);
 
 // Create a constant expression; native plans supply their destination arena through properties.
 TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TExprContext* ctx, TPlanProps* props = nullptr);

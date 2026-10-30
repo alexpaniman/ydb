@@ -279,6 +279,126 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(CorrelatedScalarSubqueriesMatchLegacyOnPopulatedTables, EqualNullsJoinKeys) {
+        TVector<std::optional<TResultSnapshot>> reference;
+        TString failures;
+        for (const int strategy : {1, 2, 0}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableBlockHashJoinEqualNulls(EqualNullsJoinKeys);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
+                NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto schema = session.ExecuteSchemeQuery(
+                "CREATE TABLE `/Root/CorrelatedRows` (id Uint64 NOT NULL, value Int32, PRIMARY KEY(id))").GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            const std::optional<i32> values[]{10, {}, 30, 10, {}, 0};
+            TValueBuilder rows;
+            rows.BeginList();
+            for (ui64 i = 0; i < std::size(values); ++i) rows.AddListItem().BeginStruct()
+                .AddMember("id").Uint64(i + 1).AddMember("value").OptionalInt32(values[i]).EndStruct();
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/CorrelatedRows", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            const std::pair<const char*, size_t> cases[]{
+                {"SELECT a.id, (SELECT b.value FROM `/Root/CorrelatedRows` AS b WHERE b.id = a.id) AS v FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT MAX(b.value) FROM `/Root/CorrelatedRows` AS b WHERE b.value = a.value) AS v FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT MAX(b.value) FROM `/Root/CorrelatedRows` AS b WHERE b.id < a.id) AS v FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT COUNT(*) FROM `/Root/CorrelatedRows` AS b WHERE b.id < a.id) AS n FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT COUNT(*) FROM `/Root/CorrelatedRows` AS b WHERE b.value = a.value) AS n FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT (SELECT a.value)) AS v FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT MAX(b.value) + a.value FROM `/Root/CorrelatedRows` AS b) AS v FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT SUM(a.value) FROM `/Root/CorrelatedRows` AS b WHERE b.id < 3ul) AS v FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT MAX(b.value) FROM `/Root/CorrelatedRows` AS b HAVING MAX(b.value) > a.value) AS v FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.id, (SELECT b.value FROM `/Root/CorrelatedRows` AS b WHERE b.id < a.id ORDER BY b.id DESC LIMIT 1) AS v FROM `/Root/CorrelatedRows` AS a ORDER BY a.id", 6},
+                {"SELECT a.value, (SELECT COUNT(*) FROM `/Root/CorrelatedRows` AS b WHERE b.value = a.value) AS n FROM `/Root/CorrelatedRows` AS a GROUP BY a.value ORDER BY a.value", 4},
+                {"SELECT a.id FROM `/Root/CorrelatedRows` AS a WHERE a.value > (SELECT AVG(b.value) FROM `/Root/CorrelatedRows` AS b WHERE b.id <= a.id) ORDER BY a.id", 1},
+            };
+            size_t index = 0;
+            for (const auto& [sql, rowCount] : cases) {
+                Cerr << "Correlated scalar strategy=" << strategy << ", case=" << index << ": " << sql << Endl;
+                const auto result = session.ExecuteDataQuery(TString("PRAGMA YqlSelect='force'; ") + sql,
+                    TTxControl::BeginTx().CommitTx()).GetValueSync();
+                if (strategy == 1) reference.emplace_back();
+                // The existing SQL frontend cannot resolve this grandparent
+                // reference through a SELECT without FROM. Its failure is not
+                // a native execution reference; the result is checked below.
+                if (index == 5 && strategy != 2) {
+                    UNIT_ASSERT(!result.IsSuccess());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("No such column: value") != std::string::npos, result.GetIssues().ToString());
+                    ++index;
+                    continue;
+                }
+                if (index == 6 || index == 8) {
+                    UNIT_ASSERT(!result.IsSuccess());
+                    const auto* message = strategy == 2 ? "outer references after aggregation" : "must appear in GROUP BY";
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find(message) != std::string::npos, result.GetIssues().ToString());
+                    ++index;
+                    continue;
+                }
+                if (index == 9 && strategy == 0) {
+                    UNIT_ASSERT(!result.IsSuccess());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("Member not found: _alias_b.id") != std::string::npos, result.GetIssues().ToString());
+                    ++index;
+                    continue;
+                }
+                if (!result.IsSuccess()) {
+                    failures += TStringBuilder() << "strategy=" << strategy << ", case=" << index << ": " << result.GetIssues().ToString() << '\n';
+                    session = client.CreateSession().GetValueSync().GetSession();
+                    ++index;
+                    continue;
+                }
+                const auto actual = Snapshot(result);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), rowCount);
+                if (index == 0 || index == 3 || index == 4 || index == 5 || index == 10) {
+                    TResultSetParser data(result.GetResultSet(0));
+                    const ui64 counts[]{2, 0, 1, 2, 0, 1};
+                    const std::optional<i32> groups[]{std::nullopt, 0, 10, 30};
+                    const ui64 groupCounts[]{0, 1, 2, 1};
+                    for (ui64 i = 0; i < rowCount; ++i) {
+                        UNIT_ASSERT(data.TryNextRow());
+                        if (index == 0 || index == 5) UNIT_ASSERT(data.ColumnParser("v").GetOptionalInt32() == values[i]);
+                        else {
+                            if (index == 10) UNIT_ASSERT(data.ColumnParser("value").GetOptionalInt32() == groups[i]);
+                            else UNIT_ASSERT_VALUES_EQUAL(data.ColumnParser("id").GetUint64(), i + 1);
+                            const auto count = index == 3 ? i : index == 4 ? counts[i] : groupCounts[i];
+                            // The legacy optimizer loses empty correlated COUNT groups.
+                            // Existing new RBO restores zero, which native must preserve.
+                            const auto expected = strategy == 0 && count == 0 ? std::optional<ui64>{} : std::optional<ui64>{count};
+                            UNIT_ASSERT_C(data.ColumnParser("n").GetOptionalUint64() == expected,
+                                TStringBuilder() << "strategy=" << strategy << ", case=" << index << ", row=" << i);
+                        }
+                    }
+                }
+                if (strategy == 1) reference[index] = actual;
+                else if (reference.at(index)) {
+                    if (strategy == 0 && (index == 3 || index == 4 || index == 10)) UNIT_ASSERT(actual.Columns == reference[index]->Columns);
+                    else AssertSame(actual, *reference[index]);
+                }
+                ++index;
+            }
+            const auto invalid = session.ExecuteDataQuery(
+                "PRAGMA YqlSelect='force'; SELECT (SELECT b.id FROM `/Root/CorrelatedRows` AS b WHERE b.value = a.value) AS invalid FROM `/Root/CorrelatedRows` AS a",
+                TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT(!invalid.IsSuccess());
+            if (strategy != 0) UNIT_ASSERT_C(invalid.GetIssues().ToString().find("more than one row") != std::string::npos, invalid.GetIssues().ToString());
+            for (const auto* sql : {
+                "SELECT (SELECT a.value FROM (SELECT 1 AS id) AS a) FROM `/Root/CorrelatedRows` AS a",
+                "SELECT (SELECT a.value) FROM `/Root/CorrelatedRows` AS a GROUP BY a.id"}) {
+                const auto invalidScope = session.ExecuteDataQuery(TString("PRAGMA YqlSelect='force'; ") + sql,
+                    TTxControl::BeginTx().CommitTx()).GetValueSync();
+                UNIT_ASSERT_C(!invalidScope.IsSuccess(), sql);
+            }
+        }
+        UNIT_ASSERT_C(failures.empty(), failures);
+    }
+
     Y_UNIT_TEST(ScalarSubqueriesMatchLegacyOnPopulatedTables) {
         struct TCase {
             const char* Sql;

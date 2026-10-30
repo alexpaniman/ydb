@@ -163,9 +163,10 @@ TIntrusivePtr<IOperator> RestoreEmptyGroupCounts(const TIntrusivePtr<TOpDependen
     auto join = MakeIntrusive<TOpJoin>(leftInput, rightInput, pos, "Left", joinKeys);
 
     TMapIUs resultElements;
+    const auto* optionalCount = ctx.ExprCtx.MakeType<TOptionalExprType>(ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64));
     for (const auto& [resultIU, renamedIU] : renamedCounts.Items()) {
         resultElements.Add(
-            renamedIU, MakeBinaryPredicate("Coalesce", MakeColumnAccess(resultIU, pos, &ctx.ExprCtx, &props), MakeConstant("Uint64", "0", pos, &ctx.ExprCtx)));
+            renamedIU, MakeBinaryPredicate("Coalesce", MakeColumnAccess(resultIU, optionalCount, pos, &ctx.ExprCtx, &props), MakeConstant("Uint64", "0", pos, &ctx.ExprCtx, &props)));
     }
 
     // Consumers read the domain from the left side and the restored counts.
@@ -211,7 +212,7 @@ TIntrusivePtr<IOperator> LimitPerDomainValue(const TIntrusivePtr<TOpDependentJoi
     auto window = MakeIntrusive<TOpWindow>(PushInto(dependentJoin, input), pos, std::move(functions),
                                            TOrderedIUs<>(domainColumns.begin(), domainColumns.end()), sortKeys, TOpWindowFrame{});
 
-    auto position = MakeColumnAccess(rowNumber, pos, &ctx.ExprCtx, &props);
+    auto position = MakeColumnAccess(rowNumber, ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64), pos, &ctx.ExprCtx, &props);
     TVector<TExpression> conjuncts;
     if (offset) {
         conjuncts.push_back(MakeBinaryPredicate(">", position, *offset));
@@ -249,10 +250,10 @@ TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr
     TMapIUs leftElements;
     TMapIUs rightElements;
 
-    auto encode = [&](TInfoUnitId iu, TMapIUs& elements) {
+    auto encode = [&](TInfoUnitId iu, IOperator& input, TMapIUs& elements) {
         auto encodedIU = props.InfoUnitRegistry.AddGenerated("null_safe_key");
         // Emulates null == null.
-        elements.Add(encodedIU, MakeUnaryCallable("StablePickle", MakeColumnAccess(iu, pos, &ctx.ExprCtx, &props)));
+        elements.Add(encodedIU, MakeUnaryCallable("StablePickle", MakeColumnAccess(iu, input, pos, &ctx.ExprCtx, &props)));
         return encodedIU;
     };
 
@@ -265,7 +266,7 @@ TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr
         if (nativeEqualNulls) {
             result.Add({leftKey, rightKey, /*equalNulls=*/true});
         } else {
-            result.Add(encode(leftKey, leftElements), encode(rightKey, rightElements));
+            result.Add(encode(leftKey, *leftInput, leftElements), encode(rightKey, *rightInput, rightElements));
         }
     }
 
@@ -418,11 +419,12 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
     TMapIUs bindingElements;
     for (const auto iu : captures.Keys()) {
         const auto& source = bindings.at(iu);
-        bindingElements.Add(iu, MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props));
+        const auto value = MakeColumnAccess(source, *correlatedInput, filter->Pos, &ctx.ExprCtx, &props);
+        bindingElements.Add(iu, value);
 
         // Special case for optional column.
         if (IsNullableIU(correlatedInput, source, ctx.ExprCtx)) {
-            restConjuncts.push_back(MakeUnaryCallable("Exists", MakeColumnAccess(source, filter->Pos, &ctx.ExprCtx, &props)));
+            restConjuncts.push_back(MakeUnaryCallable("Exists", value));
         }
     }
 

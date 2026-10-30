@@ -44,7 +44,12 @@ struct TBoundSortKey {
     bool Descending;
 };
 
-enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll };
+enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture };
+
+struct TCapture {
+    TColumnId Local;
+    TColumnId Outer;
+};
 
 struct TRelation {
     TRelation(ERelation kind, TSourcePosition position) : Kind(kind), Position(position) {}
@@ -54,6 +59,7 @@ struct TRelation {
     std::vector<TColumnId> Columns;
     std::string Table;
     std::vector<TDefinition> Definitions;
+    std::vector<TCapture> Captures;
     std::optional<TExprId> Predicate;
     EJoinKind JoinKind = EJoinKind::Inner;
     std::vector<TColumnId> GroupKeys;

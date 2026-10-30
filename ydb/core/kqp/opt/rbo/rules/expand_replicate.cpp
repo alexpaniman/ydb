@@ -23,7 +23,7 @@ TIntrusivePtr<IOperator> CopyProducer(TOpReplicate& port, TExprContext& ctx, TPl
     for (const auto source : producer.GetOutputIUs()) {
         const auto output = bindings.At(source);
         if (const auto copied = renames.At(source); copied != output) {
-            copies.Add(output, MakeColumnAccess(copied, port.Pos, &ctx, &props));
+            copies.Add(output, MakeColumnAccess(source, producer, port.Pos, &ctx, &props).ApplyRenames({{source, copied}}));
         }
     }
     if (copies.Keys().Empty()) {
@@ -39,9 +39,6 @@ bool TExpandReplicateRule::QuickMatch(const TIntrusivePtr<IOperator>& input) con
 }
 
 bool TExpandReplicateRule::MatchAndApply(TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
-    if (props.NativeExpressions) {
-        return false;
-    }
     if (input->Kind != EOperator::Replicate) {
         return false;
     }

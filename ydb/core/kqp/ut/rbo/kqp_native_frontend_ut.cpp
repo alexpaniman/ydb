@@ -80,6 +80,59 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(CorrelatedRewritesKeepNativeExpressionsAndBindings) {
+        for (const auto* sql : {
+            "SELECT (SELECT COUNT(*) FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id > o.id) AS n FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
+            "SELECT (SELECT MAX(i.id) FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id = o.id) AS n FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
+            "SELECT (SELECT (SELECT o.id)) AS n FROM (SELECT 1 AS id) AS o",
+            "SELECT (SELECT i.id FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id > o.id ORDER BY i.id DESC LIMIT 1) AS n FROM (SELECT 1 AS id) AS o"}) {
+            NTests::TIdTestContext f;
+            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx);
+            auto& root = *roots.front();
+            auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+                UNIT_FAIL("native correlation invoked YQL annotation");
+                return IGraphTransformer::TStatus::Error;
+            });
+            TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+            TGlobalPruningStage("native capture pruning").RunStage(root, context);
+            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            TVector<std::unique_ptr<IRule>> inlineRules;
+            inlineRules.emplace_back(std::make_unique<TInlineScalarSubplanRule>());
+            TRuleBasedStage("native scalar inlining", std::move(inlineRules)).RunStage(root, context);
+            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            TConstantFoldingStage().RunStage(root, context);
+            TVector<std::unique_ptr<IRule>> rules;
+            rules.emplace_back(std::make_unique<TRewriteDependentJoinToCrossJoinNoFreeVarsRule>());
+            rules.emplace_back(std::make_unique<TRewriteDependentJoinToCrossJoinRule>());
+            rules.emplace_back(std::make_unique<TEliminateDependentJoinDomainRule>());
+            rules.emplace_back(std::make_unique<TPushDependentJoinThroughFilterRule>());
+            rules.emplace_back(std::make_unique<TPushDependentJoinThroughMapRule>());
+            rules.emplace_back(std::make_unique<TPushDependentJoinThroughAggregateRule>());
+            rules.emplace_back(std::make_unique<TPushDependentJoinThroughUnionAllRule>());
+            rules.emplace_back(std::make_unique<TPushDependentJoinThroughJoinRule>());
+            rules.emplace_back(std::make_unique<TPushDependentJoinThroughReplicateRule>());
+            rules.emplace_back(std::make_unique<TPushDependentJoinThroughSortRule>());
+            rules.emplace_back(std::make_unique<TPushDependentJoinThroughLimitRule>());
+            rules.emplace_back(std::make_unique<TDependentJoinNotSupportedRule>());
+            TRuleBasedStage("native decorrelation", std::move(rules)).RunStage(root, context);
+            TGlobalPruningStage("native correlation pruning").RunStage(root, context);
+            TVector<std::unique_ptr<IRule>> copies;
+            copies.emplace_back(std::make_unique<TExpandReplicateRule>());
+            TRuleBasedStage("native replicate expansion", std::move(copies)).RunStage(root, context);
+            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(root.PlanProps.Subplans.Empty());
+            NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
+            for (const auto& item : root) {
+                UNIT_ASSERT(item.Current->Kind != EOperator::DependentJoin);
+                UNIT_ASSERT(item.Current->Kind != EOperator::AddDependencies);
+                for (const auto& expression : item.Current->GetExpressions()) {
+                    UNIT_ASSERT(expression.get().IsNative());
+                    UNIT_ASSERT(!expression.get().Node);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(StableScalarKeysMatchRuntimeBytes) {
         using namespace NFrontend;
         using K = ETypeKind;
