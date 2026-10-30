@@ -69,6 +69,10 @@ private:
         // expressions before marking the parent complete, so the backend's
         // constraint pass never encounters untyped descendants of typed nodes.
         if (type->GetKind() == ETypeAnnotationKind::Optional) Type(type->Cast<TOptionalExprType>()->GetItemType());
+        if (type->GetKind() == ETypeAnnotationKind::Tuple)
+            for (const auto* item : type->Cast<TTupleExprType>()->GetItems()) Type(item);
+        if (type->GetKind() == ETypeAnnotationKind::Struct)
+            for (const auto* item : type->Cast<TStructExprType>()->GetItems()) Type(item->GetItemType());
         if (type->GetKind() == ETypeAnnotationKind::Callable) {
             const auto* callable = type->Cast<TCallableExprType>();
             Type(callable->GetReturnType());
@@ -87,6 +91,8 @@ private:
         if (std::holds_alternative<std::monostate>(value)) {
             return type.Kind == K::Null ? Call("Null", {}, type) : Nothing(type);
         }
+        if (type.Kind == K::Calendar)
+            return Lift(CalendarApply("DateTime2.Split", {Literal({K::Timestamp}, value)}, {{K::Timestamp}}, {K::Calendar}), type);
         const auto text = NFrontend::FormatValue({type, value});
         TExprNode::TListType args{Atom(String(text))};
         if (type.Kind == K::Decimal) {
@@ -150,6 +156,34 @@ private:
         return actual != target ? Call("Just", {result}, target) : result;
     }
 
+    TExprNode::TPtr CalendarApply(TStringBuf name, TExprNode::TListType values,
+        const std::vector<NFrontend::TType>& types, NFrontend::TType resultType) {
+        return Present(std::move(values), types, resultType, [&](TExprNode::TListType args) {
+            auto returned = resultType.Required();
+            if (name == "DateTime2.ShiftMonths" || name == "DateTime2.ShiftYears") returned.Nullable = true;
+            TVector<const TTypeAnnotationNode*> argumentTypes;
+            TVector<TCallableExprType::TArgumentInfo> arguments;
+            for (std::size_t i = 0; i < args.size(); ++i) {
+                const TTypeAnnotationNode* type = args[i]->GetTypeAnn();
+                argumentTypes.push_back(type);
+                arguments.push_back({type, {}, i == 0 ? ui64{NUdf::ICallablePayload::TArgumentFlags::AutoMap} : ui64{0}});
+            }
+            const auto* voidType = Ctx.MakeType<TVoidExprType>();
+            const TTypeAnnotationNode* userType = voidType;
+            if (name == "DateTime2.Split" || name == "DateTime2.GetYear" || name == "DateTime2.ShiftMonths" || name == "DateTime2.ShiftYears")
+                userType = Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
+                    Ctx.MakeType<TTupleExprType>(argumentTypes), Ctx.MakeType<TStructExprType>(TVector<const TItemExprType*>{}), voidType});
+            const auto* signature = Ctx.MakeType<TCallableExprType>(ExportNativeType(returned, Ctx), arguments, 0, TStringBuf{});
+            auto voidValue = Ctx.NewCallable(Pos, "Void", {});
+            voidValue->SetTypeAnn(voidType);
+            auto settings = Ctx.NewList(Pos, {Ctx.NewList(Pos, {Atom("strict")})});
+            AnnotateTypeSyntax(*settings);
+            auto udf = Ctx.NewCallable(Pos, "Udf", {Atom(name), voidValue, Type(userType), Atom(""), Type(signature), Type(voidType), Atom(""), settings});
+            udf->SetTypeAnn(signature);
+            args.insert(args.begin(), std::move(udf));
+            return Call("Apply", std::move(args), returned);
+        });
+    }
     TExprNode::TPtr StringCase(TExprNode::TPtr value, NFrontend::TType type, bool upper) {
         return Present({value}, {type}, type, [&](TExprNode::TListType args) {
             const auto* stringType = ExportNativeType({K::String}, Ctx);
@@ -243,6 +277,13 @@ private:
             case O::Lower: case O::Upper: return StringCase(args[0], type, node.Op == O::Upper);
             case O::Substring: return Call("Substring", std::move(args), type);
             case O::Find: return Call("Find", std::move(args), type);
+            case O::CalendarSplit: return CalendarApply("DateTime2.Split", std::move(args), types, type);
+            case O::CalendarDate: return CalendarApply("DateTime2.MakeDate", std::move(args), types, type);
+            case O::CalendarDatetime: return CalendarApply("DateTime2.MakeDatetime", std::move(args), types, type);
+            case O::CalendarTimestamp: return CalendarApply("DateTime2.MakeTimestamp", std::move(args), types, type);
+            case O::CalendarYear: return CalendarApply("DateTime2.GetYear", std::move(args), types, type);
+            case O::CalendarShiftMonths: return CalendarApply("DateTime2.ShiftMonths", std::move(args), types, type);
+            case O::CalendarShiftYears: return CalendarApply("DateTime2.ShiftYears", std::move(args), types, type);
         }
         throw NFrontend::TFrontendError(node.Position, "unknown native opcode");
     }
@@ -260,6 +301,7 @@ const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::T
     const NYql::TTypeAnnotationNode* result;
     if (type.Kind == K::Null) return ctx.MakeType<NYql::TNullExprType>();
     if (type.Kind == K::Decimal) result = ctx.MakeType<NYql::TDataExprParamsType>(NYql::EDataSlot::Decimal, ToString(type.Precision), ToString(type.Scale));
+    else if (type.Kind == K::Calendar) result = ctx.MakeType<NYql::TResourceExprType>("DateTime2.TM");
     else {
         const auto slot = NUdf::FindDataSlot(String(type.Required().ToString()));
         Y_ENSURE(slot, "Unknown native type"); result = ctx.MakeType<NYql::TDataExprType>(*slot);
@@ -274,6 +316,8 @@ NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type) {
         return ImportNativeType(*item).Optional();
     }
     if (type.GetKind() == NYql::ETypeAnnotationKind::Null) return {};
+    if (type.GetKind() == NYql::ETypeAnnotationKind::Resource && type.Cast<NYql::TResourceExprType>()->GetTag() == "DateTime2.TM")
+        return {K::Calendar};
     if (type.GetKind() != NYql::ETypeAnnotationKind::Data) throw NFrontend::TFrontendError({}, "unsupported native scalar type");
     const auto* data = type.Cast<NYql::TDataExprType>();
     auto text = std::string(data->GetName());

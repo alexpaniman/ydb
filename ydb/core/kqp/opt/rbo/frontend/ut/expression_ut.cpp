@@ -20,6 +20,40 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(CalendarClampingRangesAndReconstruction) {
+        struct TCase { const char* Input; i32 Months; i32 Years; const char* MonthResult; const char* YearResult; };
+        for (const auto& test : {
+                TCase{"2020-02-29T12:34:56.123456Z", 12, 1, "2021-02-28T12:34:56.123456Z", "2021-02-28T12:34:56.123456Z"},
+                TCase{"2020-01-31T23:59:59.999999Z", 1, -1, "2020-02-29T23:59:59.999999Z", "2019-01-31T23:59:59.999999Z"},
+                TCase{"1970-01-01T00:00:00Z", -1, -1, nullptr, nullptr},
+                TCase{"2105-12-31T23:59:59.999999Z", 1, 1, nullptr, nullptr},
+                TCase{"2000-02-29T01:02:03Z", -12, 100, "1999-02-28T01:02:03Z", "2100-02-28T01:02:03Z"},
+                TCase{"2000-02-29T01:02:03Z", 49152, 4096, "2000-02-29T01:02:03Z", "2000-02-29T01:02:03Z"}}) {
+            TExpressionArena arena;
+            auto timestamp = [&](const char* text) {
+                const TExprId args[]{arena.Literal({K::String}, std::string{text})};
+                return arena.Call("Timestamp", args);
+            };
+            const auto input = timestamp(test.Input);
+            for (const bool years : {false, true}) {
+                const TExprId args[]{input, arena.Literal({K::Int32}, std::int64_t{years ? test.Years : test.Months})};
+                const auto shifted = arena.Call(years ? "DateTime::ShiftYears" : "DateTime::ShiftMonths", args);
+                const TExprId convert[]{shifted};
+                const auto result = arena.Call("DateTime::MakeTimestamp", convert);
+                UNIT_ASSERT(arena[result].Type == (TType{K::Timestamp, true}));
+                const auto expected = years ? test.YearResult : test.MonthResult;
+                if (expected) UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, result)), FormatValue(Evaluate(arena, timestamp(expected))));
+                else UNIT_ASSERT(Evaluate(arena, result).IsNull());
+                const TExprId roots[]{result};
+                const auto folded = arena.FoldConstants(roots).front();
+                UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), FormatValue(Evaluate(arena, result)));
+                TExpressionArena copy;
+                const auto imported = copy.Import(arena, result, [](auto, auto, auto) -> TExprId { UNIT_FAIL("unexpected column"); return 0; });
+                UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(copy, imported)), FormatValue(Evaluate(arena, result)));
+            }
+        }
+    }
+
     Y_UNIT_TEST(CoalesceNullabilitySurvivesReconstruction) {
         TExpressionArena arena;
         const auto optional = arena.Column(0, {K::Uint32, true});
@@ -418,6 +452,21 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
             UNIT_ASSERT(Evaluate(arena, nullable).IsNull());
             const auto converted = arena.Cast(Integer(arena, 7), {kind});
             UNIT_ASSERT(arena[converted].Type == (TType{kind}));
+        }
+    }
+
+    Y_UNIT_TEST(UnsignedTemporalCastsPreserveTotality) {
+        TExpressionArena arena;
+        for (const auto source : {K::Uint8, K::Uint16, K::Uint32, K::Uint64}) {
+            for (const auto target : {K::Date, K::Datetime, K::Timestamp}) {
+                const bool total = source == K::Uint8 ||
+                    (source == K::Uint16 && target != K::Date) ||
+                    (source == K::Uint32 && target == K::Timestamp);
+                for (const bool nullable : {false, true}) {
+                    const auto result = arena.Cast(arena.Parameter("x", {source, nullable}), {target});
+                    UNIT_ASSERT(arena[result].Type == (TType{target, nullable || !total}));
+                }
+            }
         }
     }
 

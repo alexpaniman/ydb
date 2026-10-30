@@ -923,6 +923,56 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         UNIT_ASSERT_C(failures.empty(), failures);
     }
 
+    Y_UNIT_TEST(RuntimeCalendarOperationsMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const TString sql = R"(
+            DECLARE $date AS Date?;
+            DECLARE $time AS Datetime?;
+            DECLARE $stamp AS Timestamp?;
+            DECLARE $shift AS Int32;
+            $calendar = DateTime::ShiftMonths($stamp, $shift);
+            SELECT DateTime::GetYear($stamp), DateTime::GetYear($calendar),
+                DateTime::MakeTimestamp($calendar), DateTime::MakeDate($calendar),
+                DateTime::MakeDate(DateTime::ShiftYears($date, $shift)),
+                DateTime::MakeDatetime(DateTime::ShiftMonths($time, $shift)),
+                DateTime::MakeTimestamp(DateTime::ShiftYears($calendar, $shift)),
+                DateTime::MakeDate(DateTime::Split($stamp)),
+                CAST($date AS Timestamp), CAST($stamp AS Date), CAST($stamp AS Datetime)
+        )";
+        for (const auto* text : {static_cast<const char*>(nullptr), "1970-01-01T00:00:00Z", "2000-02-29T12:34:56.123456Z",
+                "2020-01-31T23:59:59.999999Z", "2020-03-31T12:34:56.123456Z", "2105-12-31T23:59:59.999999Z"}) {
+            for (const i32 shift : {-49152, -4096, -13, -1, 0, 1, 12, 100, 4096, 49152}) {
+                const auto instant = text ? std::optional<TInstant>{TInstant::ParseIso8601(text)} : std::nullopt;
+                auto builder = TParamsBuilder();
+                builder.AddParam("$date").OptionalDate(instant).Build();
+                builder.AddParam("$time").OptionalDatetime(instant).Build();
+                builder.AddParam("$stamp").OptionalTimestamp(instant).Build();
+                builder.AddParam("$shift").Int32(shift).Build();
+                const auto params = builder.Build();
+                AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                    Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+            }
+        }
+        for (const auto* query : {
+                "SELECT DateTime::GetYear(Date('2020-02-29')), DateTime::MakeTimestamp(DateTime::Split(Date('2020-02-29')))",
+                "SELECT DateTime::MakeDate(Date('2020-02-29')), DateTime::MakeDatetime(Timestamp('2020-02-29T12:34:56.123456Z'))",
+                "SELECT CAST(Date('2020-01-01') AS Timestamp), CAST(Timestamp('2020-01-01T23:59:59.999999Z') AS Datetime), CAST(Timestamp('2020-01-01T23:59:59.999999Z') AS Date)",
+                "SELECT CAST(1 AS Date), CAST(1 AS Datetime), CAST(1 AS Timestamp), CAST(-1 AS Date), CAST(49673 AS Date), CAST(4291747200ul AS Datetime), CAST(4291747200000000ul AS Timestamp)",
+                "SELECT CAST(Uint8('1') AS Date), CAST(Uint16('1') AS Datetime), CAST(Uint32('1') AS Timestamp), CAST('2020-02-29' AS Date), CAST('2020-02-30' AS Date), CAST(NULL AS Timestamp)",
+                "SELECT DateTime::GetYear(CAST(NULL AS Date)), DateTime::MakeDate(DateTime::ShiftMonths(CAST(NULL AS Timestamp), 1))"}) {
+            AssertSame(Snapshot(native.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync()),
+                Snapshot(legacy.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync()));
+        }
+        // Bare NULL has no temporal type for these polymorphic operations.
+        for (const auto* query : {"SELECT DateTime::GetYear(NULL)", "SELECT DateTime::MakeDate(DateTime::ShiftMonths(NULL, 1))"}) {
+            UNIT_ASSERT(!native.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync().IsSuccess());
+            UNIT_ASSERT(!legacy.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync().IsSuccess());
+        }
+    }
+
     Y_UNIT_TEST(RuntimePercentLikePatternsMatchLegacy) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));

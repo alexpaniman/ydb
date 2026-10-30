@@ -69,6 +69,7 @@ void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id
         case K::String: case K::Utf8: UNIT_ASSERT_VALUES_EQUAL_C(TString(value.AsStringRef()), TString(std::get<std::string>(expected.Data)), sql); break;
         case K::Decimal: UNIT_ASSERT_C(value.GetInt128() == std::get<NFrontend::TDecimal>(expected.Data).Coefficient, sql); break;
         case K::Null: UNIT_FAIL("unexpected non-null Null");
+        case K::Calendar: UNIT_FAIL("calendar values must be consumed by scalar date operations");
     }
 }
 void CheckScalar(std::string_view sql) {
@@ -472,6 +473,15 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT CAST(CAST('inf' AS Decimal(8,2)) AS String)",
             "SELECT Date('2020-01-01') + Interval('P1D')",
             "SELECT CAST(Date('2020-01-02') AS Timestamp)",
+            "SELECT DateTime::GetYear(Timestamp('2000-02-29T12:34:56.123456Z'))",
+            "SELECT DateTime::MakeDate(DateTime::ShiftMonths(Date('2020-01-31'), 1))",
+            "SELECT DateTime::MakeDatetime(DateTime::ShiftYears(Timestamp('2000-02-29T12:34:56.123456Z'), 100))",
+            "SELECT DateTime::MakeTimestamp(DateTime::ShiftMonths(Timestamp('2020-03-31T12:34:56.123456Z'), -1))",
+            "SELECT DateTime::MakeTimestamp(DateTime::ShiftYears(Timestamp('2000-02-29T12:34:56.123456Z'), 4096))",
+            "SELECT DateTime::MakeDate(DateTime::ShiftYears(Date('1970-01-01'), -1))",
+            "SELECT DateTime::MakeDate(DateTime::ShiftMonths(Date('2105-12-31'), 1))",
+            "SELECT DateTime::GetYear(DateTime::ShiftMonths(IF(false, Date('2000-02-29')), 1))",
+            "SELECT DateTime::MakeTimestamp(DateTime::Split(IF(false, Timestamp('2020-01-01T00:00:00Z'))))",
             "SELECT Lower('AbC')", "SELECT Upper('AbC')", "SELECT Lower(CAST(NULL AS String))",
             "SELECT Substring('abcdef', 2, 3)", "SELECT Substring('abcdef', NULL, 3)",
             "SELECT Substring('abcdef', 4294967295u, 3)", "SELECT Substring('abcdef', 2, NULL)",

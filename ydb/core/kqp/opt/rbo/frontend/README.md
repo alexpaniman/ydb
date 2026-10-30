@@ -118,8 +118,9 @@ comparisons, Boolean logic, CASE/IF, COALESCE, IN lists, BETWEEN, null tests,
 byte-string concatenation, Length, StartsWith/EndsWith, ASCII case functions,
 and constant LIKE patterns containing literal text and % wildcards have native operations. Primitive data
 constructors require string literals and produce required values. Explicit
-casts cover integers, Bool, Float/Double, Decimal, and String/Utf8 (text parsing still
-requires literals). Total casts preserve non-nullability, including integer to
+casts cover integers, Bool, Float/Double, Decimal, String/Utf8, and narrow temporal
+types (text parsing still requires literals). Temporal inputs may be cast to other
+temporal types. Total casts preserve non-nullability, including integer to
 floating point. Floating division preserves IEEE infinity/NaN. Substring slices
 String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
 other integral offsets must be literals that fit Uint32.
@@ -139,6 +140,16 @@ both 64-bit integer types), without conversion through floating point.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
 DisableAnsiInForEmptyOrNullableItemsCollections.
+
+DateTime::Split, GetYear, MakeDate/MakeDatetime/MakeTimestamp, ShiftMonths and
+ShiftYears have typed native operations for UTC Date/Datetime/Timestamp inputs.
+Calendar values are scalar intermediates, including inside bindings and lambdas;
+they must be converted to a temporal value before crossing a relational boundary.
+Shifts accept required Int32 amounts or fitting integer literals. The reference
+evaluator preserves month-end clamping, microseconds, range failures and the
+existing narrow runtime's 12-bit year wraparound for large shifts. Terminal
+lowering constructs fully typed runtime calls directly, with no annotation or
+semantic rewrite pass. Timezone and wide-date types remain outside the profile.
 
 LIKE compiles to ordered byte searches and prefix/suffix checks, with no regex
 object or runtime semantic lowering. It preserves YQL's pattern-dependent NULL
@@ -206,7 +217,7 @@ Explicitly outside the profile:
   (which require YQL's column-name coalescing rules).
 - UDFs, higher-order values, containers/structs/tuples, nested optionals.
 - Mixed signed/unsigned or mixed Float promotion, bare-NULL arithmetic, dynamic
-  text parsing, and runtime casts from temporal inputs.
+  text parsing, and runtime casts from temporal inputs to non-temporal types.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
   conversions are excluded. Decimal arithmetic and COALESCE require matching
   input types or explicit casts; their mixed-type rules differ from comparison
@@ -295,17 +306,26 @@ and generated modes currently agree on these frontend routing counts:
 
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
-| TPC-H | 10/22 (Q1, Q2, Q3, Q13, Q16, Q17, Q18, Q19, Q21, Q22) | 12 |
+| TPC-H | 21/22 (all except Q11) | 1 |
 | TPC-DS | 37/99 | 62 |
 | ClickBench | 36/43 | 7 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
-and profile validation, not RBO optimization or execution. All ten accepted TPC-H queries separately
-have native-required execution parity on populated column tables; the accepted
+and profile validation, not RBO optimization or execution. Ten TPC-H queries
+(Q1, Q2, Q3, Q13, Q16, Q17, Q18, Q19, Q21, Q22) separately have native-required
+execution parity on populated column tables. The remaining accepted TPC-H,
 TPC-DS and ClickBench queries still need that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 ## Validation and measurements
+
+The calendar extension passed all 107 native tests. Direct MiniKQL execution
+requires no graph annotation or peephole pass. Runtime parameter tests compare
+660 calendar/cast values and their types with YQL, including NULLs, leap years,
+month-end clamping, microseconds, nested shifts and range/wrap boundaries.
+Additional tests check constant results, total cast metadata, rejection of
+untyped NULL arguments, constant folding and scalar reconstruction. Both parser
+routes agree on all 164 corpus routing decisions, with no hard errors.
 
 The LIKE extension passed all 103 native tests. The standalone matcher compares
 all 121 patterns of up to four characters over `ab%` against all 31 strings over

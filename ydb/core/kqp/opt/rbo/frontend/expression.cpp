@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <bit>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <locale>
@@ -87,6 +88,31 @@ std::int64_t DateUnit(K kind) {
 bool FitsTemporal(__int128 value, K kind) {
     return kind == K::Interval ? value > -TimestampLimit && value < TimestampLimit :
         value >= 0 && value < TimestampLimit / DateUnit(kind);
+}
+
+std::chrono::year_month_day CalendarDate(std::uint64_t micros) {
+    return std::chrono::year_month_day{std::chrono::sys_days{std::chrono::days{micros / MicrosPerDay}}};
+}
+
+std::optional<std::uint64_t> ShiftCalendar(std::uint64_t micros, std::int64_t amount, bool years) {
+    using namespace std::chrono;
+    const auto date = CalendarDate(micros);
+    std::int64_t y = int(date.year()), m = unsigned(date.month());
+    // Preserve the existing narrow calendar's 12-bit year field, including
+    // wraparound for large shifts, then apply its normal date-range check.
+    if (years) y = (y + amount) & 4095;
+    else {
+        const auto next = m + amount;
+        y = (y + (next - 1) / 12) & 4095;
+        m = 1 + (next - 1) % 12;
+        if (m <= 0) { y = (y - 1) & 4095; m += 12; }
+    }
+    if (y < 1970 || y > 2105) return {};
+    const auto ym = year{int(y)} / month{unsigned(m)};
+    const auto d = std::min(unsigned(date.day()), unsigned(year_month_day_last{ym / last}.day()));
+    const auto days = sys_days{ym / day{d}}.time_since_epoch().count();
+    const auto result = days * MicrosPerDay + micros % MicrosPerDay;
+    return result < TimestampLimit ? std::optional<std::uint64_t>{result} : std::nullopt;
 }
 
 std::optional<std::int64_t> ParseTemporal(std::string_view text, K kind) {
@@ -632,6 +658,9 @@ void ValidateValue(const TValue& value, TSourcePosition position) {
         if (const auto* number = std::get_if<std::int64_t>(&value.Data)) {
             valid = value.Type.Kind == K::Interval ? FitsTemporal(*number, K::Interval) : FitsSigned(*number, Width(value.Type.Kind));
         }
+    } else if (value.Type.Kind == K::Calendar) {
+        const auto* micros = std::get_if<std::uint64_t>(&value.Data);
+        valid = micros && *micros < TimestampLimit;
     } else if (value.Type.IsIntegral() || IsDate(value.Type.Kind)) {
         if (const auto* number = std::get_if<std::uint64_t>(&value.Data)) {
             const int width = value.Type.Kind == K::Date ? 16 : value.Type.Kind == K::Datetime ? 32 :
@@ -683,7 +712,7 @@ bool TType::IsSigned() const { return Kind >= K::Int8 && Kind <= K::Int64; }
 
 std::string TType::ToString() const {
     static constexpr const char* Names[] = {"Null", "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
-        "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval"};
+        "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval", "Calendar"};
     std::string result = Names[static_cast<unsigned>(Kind)];
     if (Kind == K::Decimal) {
         result += "(" + std::to_string(Precision) + "," + std::to_string(Scale) + ")";
@@ -777,6 +806,8 @@ TExprId TExpressionArena::Convert(TExprId input, TType target, TSourcePosition p
 TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition position) {
     ValidateType(target, position);
     const auto source = (*this)[input].Type;
+    if (source.Kind == K::Calendar || target.Kind == K::Calendar)
+        throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime accessors or constructors");
     if (target.Kind == K::Null) {
         Fail(position, "Cannot cast to Null");
     }
@@ -835,6 +866,9 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
     const bool sourceFloat = source.Kind == K::Float || source.Kind == K::Double;
     const bool targetFloat = target.Kind == K::Float || target.Kind == K::Double;
     const bool total =
+        (IsDate(source.Kind) && IsDate(target.Kind)) ||
+        (source.IsIntegral() && !source.IsSigned() && IsDate(target.Kind) &&
+            FitsTemporal((static_cast<__int128>(1) << Width(source.Kind)) - 1, target.Kind)) ||
         (targetFloat && (source.IsIntegral() || sourceFloat || source.Kind == K::Bool || source.Kind == K::Decimal)) ||
         (target.Kind == K::Decimal && (source.IsIntegral() || source.Kind == K::Decimal)) ||
         (source.Kind == K::Bool && target.IsIntegral()) ||
@@ -846,7 +880,14 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
 
 TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
     auto type = (*this)[input].Type;
-    if (op == O::StablePickle) {
+    if (op == O::CalendarSplit) {
+        if (!IsDate(type.Kind)) Fail(position, "DateTime::Split requires Date, Datetime or Timestamp");
+        type = {K::Calendar, type.Nullable};
+    } else if (op == O::CalendarDate || op == O::CalendarDatetime || op == O::CalendarTimestamp || op == O::CalendarYear) {
+        if (type.Kind != K::Calendar) Fail(position, "calendar operation requires a calendar value");
+        type = {op == O::CalendarDate ? K::Date : op == O::CalendarDatetime ? K::Datetime : op == O::CalendarTimestamp ? K::Timestamp : K::Uint16, type.Nullable};
+    } else if (op == O::StablePickle) {
+        if (type.Kind == K::Calendar) throw TUnsupportedFeature(EFeature::Type, position, "calendar values cannot be persisted");
         type = {K::String};
     } else if (op == O::IsNull || op == O::IsNotNull) {
         type = {K::Bool};
@@ -876,6 +917,13 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
 TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosition position) {
     const auto leftType = (*this)[left].Type;
     const auto rightType = (*this)[right].Type;
+    if (op == O::CalendarShiftMonths || op == O::CalendarShiftYears) {
+        if (leftType.Kind != K::Calendar || rightType != TType{K::Int32})
+            Fail(position, "calendar shift requires a calendar value and non-null Int32 amount");
+        return Append({op, {K::Calendar, true}, position, {left, right}, {}, {}, 0});
+    }
+    if (leftType.Kind == K::Calendar || rightType.Kind == K::Calendar)
+        throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime operations");
     if ((op == O::Add || op == O::Subtract) && IsDate(leftType.Kind) && rightType.Kind == K::Interval) {
         return Append({op, leftType.Optional(), position, {left, right}, {}, {}, 0});
     }
@@ -974,6 +1022,31 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
             Fail(position, std::string(name) + " expects " + std::to_string(expected) + " arguments");
         }
     };
+    if (lowered.starts_with("datetime::") || lowered.starts_with("datetime2::")) {
+        const auto function = lowered.substr(lowered.find("::") + 2);
+        auto calendar = [&](TExprId value) {
+            if ((*this)[value].Type.Kind == K::Calendar) return value;
+            return Unary(O::CalendarSplit, value, position);
+        };
+        if (function == "split") { arity(1); return Unary(O::CalendarSplit, arguments[0], position); }
+        if (function == "shiftmonths" || function == "shiftyears") {
+            arity(2);
+            auto amount = arguments[1];
+            const auto value = (*this)[amount];
+            if (value.Type != TType{K::Int32}) {
+                if (value.Op != O::Literal || !value.Type.IsIntegral() || value.Type.Nullable)
+                    throw TUnsupportedFeature(EFeature::Type, position, "native calendar shifts require Int32 amounts or fitting integer literals");
+                const auto number = IntegralValue({value.Type, value.Value});
+                if (!number || !FitsSigned(*number, 32)) Fail(position, "calendar shift amount must fit Int32");
+                amount = Literal({K::Int32}, static_cast<std::int64_t>(*number), position);
+            }
+            return Binary(function == "shiftmonths" ? O::CalendarShiftMonths : O::CalendarShiftYears, calendar(arguments[0]), amount, position);
+        }
+        for (const auto& [functionName, op] : {std::pair{"makedate", O::CalendarDate}, {"makedatetime", O::CalendarDatetime},
+            {"maketimestamp", O::CalendarTimestamp}, {"getyear", O::CalendarYear}}) {
+            if (function == functionName) { arity(1); return Unary(op, calendar(arguments[0]), position); }
+        }
+    }
     if (lowered == "decimal") {
         arity(3);
         const auto text = (*this)[arguments[0]];
@@ -1284,6 +1357,16 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         }
     }
     const auto& left = argument(0);
+    if (node.Op == O::CalendarSplit)
+        return {node.Type, std::get<std::uint64_t>(left.Data) * DateUnit(left.Type.Kind)};
+    if (node.Op == O::CalendarDate || node.Op == O::CalendarDatetime || node.Op == O::CalendarTimestamp)
+        return {node.Type, std::get<std::uint64_t>(left.Data) / DateUnit(node.Type.Kind)};
+    if (node.Op == O::CalendarYear)
+        return {node.Type, static_cast<std::uint64_t>(int(CalendarDate(std::get<std::uint64_t>(left.Data)).year()))};
+    if (node.Op == O::CalendarShiftMonths || node.Op == O::CalendarShiftYears) {
+        const auto shifted = ShiftCalendar(std::get<std::uint64_t>(left.Data), std::get<std::int64_t>(argument(1).Data), node.Op == O::CalendarShiftYears);
+        return shifted ? TValue{node.Type, *shifted} : NullValue(node.Type);
+    }
     if (node.Op == O::Not) {
         return {node.Type, !std::get<bool>(left.Data)};
     }

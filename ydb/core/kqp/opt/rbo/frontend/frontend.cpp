@@ -1021,13 +1021,16 @@ void CheckSyntax(const TParsedQuery& syntax) {
         if (node.Kind == ESyntaxKind::Cast) {
             const auto target = ParseType(node.Text, node.Position);
             if (!target.IsIntegral() && !target.IsString() && target.Kind != ETypeKind::Bool &&
-                target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double && target.Kind != ETypeKind::Decimal)
+                target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double && target.Kind != ETypeKind::Decimal &&
+                target.Kind != ETypeKind::Date && target.Kind != ETypeKind::Datetime && target.Kind != ETypeKind::Timestamp)
                 throw TUnsupportedFeature(EFeature::Expression, node.Position, "explicit cast target is outside the native scalar profile");
         }
     }
 }
 
 void CheckProgram(const TBoundProgram& program) {
+    for (const auto& column : program.Columns) if (column.Type.Kind == ETypeKind::Calendar)
+        throw TUnsupportedFeature(EFeature::Type, {}, "native calendar values must remain inside scalar expressions; use DateTime::MakeDate/MakeDatetime/MakeTimestamp before a relational boundary");
     for (const auto& node : program.Expressions.Nodes()) {
         if ((node.Op >= EOpcode::Add && node.Op <= EOpcode::Modulo) || node.Op == EOpcode::Concat ||
             (node.Op == EOpcode::Coalesce && node.Type.Kind == ETypeKind::Decimal)) {
@@ -1051,8 +1054,10 @@ void CheckProgram(const TBoundProgram& program) {
         }
         if (node.Op == EOpcode::Cast) {
             const auto from = program.Expressions[node.Arguments[0]].Type;
+            const bool temporal = (from.Kind == ETypeKind::Date || from.Kind == ETypeKind::Datetime || from.Kind == ETypeKind::Timestamp) &&
+                (node.Type.Kind == ETypeKind::Date || node.Type.Kind == ETypeKind::Datetime || node.Type.Kind == ETypeKind::Timestamp);
             if (!from.IsIntegral() && !from.IsString() && from.Kind != ETypeKind::Null &&
-                from.Kind != ETypeKind::Bool && from.Kind != ETypeKind::Float && from.Kind != ETypeKind::Double && from.Kind != ETypeKind::Decimal)
+                from.Kind != ETypeKind::Bool && from.Kind != ETypeKind::Float && from.Kind != ETypeKind::Double && from.Kind != ETypeKind::Decimal && !temporal)
                 throw TUnsupportedFeature(EFeature::Expression, node.Position, "runtime cast input is outside the native scalar profile");
         }
         if ((node.Op == EOpcode::Lower || node.Op == EOpcode::Upper) && node.Type.Kind != ETypeKind::String)
@@ -1222,8 +1227,9 @@ std::string_view SupportManifest() {
 "relations":["read","project","filter","on-join","aggregate","sort","limit","union-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some"],
+"calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections"],
-"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["one DISTINCT aggregate, alone","computed GROUP BY keys require aliases","CASE requires ELSE","no stars over joins","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer or dynamic text parsing","unsigned dynamic LIMIT/OFFSET","no implicit signed/unsigned or mixed Float promotion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","no UNION ordering","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no windows, tuple IN subqueries, JOIN USING, grouping sets, DML, DDL, UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

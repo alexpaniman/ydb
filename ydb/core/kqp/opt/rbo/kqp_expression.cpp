@@ -470,6 +470,13 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::Ensure: return "Ensure";
         case TNativeOp::StablePickle: return "StablePickle";
         case TNativeOp::Find: return "Find";
+        case TNativeOp::CalendarSplit: return "CalendarSplit";
+        case TNativeOp::CalendarDate: return "CalendarDate";
+        case TNativeOp::CalendarDatetime: return "CalendarDatetime";
+        case TNativeOp::CalendarTimestamp: return "CalendarTimestamp";
+        case TNativeOp::CalendarYear: return "CalendarYear";
+        case TNativeOp::CalendarShiftMonths: return "CalendarShiftMonths";
+        case TNativeOp::CalendarShiftYears: return "CalendarShiftYears";
     }
     Y_UNREACHABLE();
 }

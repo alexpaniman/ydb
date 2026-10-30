@@ -31,6 +31,23 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(CalendarBindingsAreScalarAndCannotBePersisted) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings;
+            settings.Parser = parser;
+            const auto result = CompileNative("$d = DateTime::ShiftMonths(Date('2020-01-31'), 1); $f = ($x)->{RETURN DateTime::MakeDate($x);}; SELECT $f($d), DateTime::GetYear($d), CAST(Date('2020-01-01') AS Timestamp)", Catalog, settings);
+            UNIT_ASSERT(!result.UsesLegacy());
+            UNIT_ASSERT(result.Program->Get().Results[0].Columns[0].Type == (TType{ETypeKind::Date, true}));
+            UNIT_ASSERT(result.Program->Get().Results[0].Columns[1].Type == (TType{ETypeKind::Uint16, true}));
+            UNIT_ASSERT(result.Program->Get().Results[0].Columns[2].Type == (TType{ETypeKind::Timestamp}));
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT DateTime::Split(Date('2020-01-01'))", Catalog, settings), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT DateTime::MakeDate(d) FROM (SELECT DateTime::Split(Date('2020-01-01')) AS d)", Catalog, settings), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT DateTime::ShiftMonths(Date('2020-01-01'), 2147483648L)", Catalog, settings), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT DateTime::GetYear(NULL)", Catalog, settings), TFrontendError);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT DateTime::MakeDate(DateTime::ShiftMonths(NULL, 1))", Catalog, settings), TFrontendError);
+        }
+    }
+
     Y_UNIT_TEST(FastParserAndGrammarRouting) {
         for (const auto* sql : {"SELECT 1", "SELECT value FROM t WHERE value > 0", "SELECT Int32('1')", "SELECT 1 IN (1, 2,)",
                                "SELECT 'x' AS `from`", "SELECT x FROM t AS a JOIN t AS b ON a.id = b.id"}) {
