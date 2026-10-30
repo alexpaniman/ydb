@@ -349,7 +349,7 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Thirteen TPC-DS queries also have populated native-required execution
+tables. Fourteen TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -384,8 +384,8 @@ bringing frontend acceptance to 56/99; their populated benchmark execution is
 verified for all seven. The standalone CLI still has no YQL or MiniKQL symbols.
 
 Integer comparisons additionally admit TPC-DS Q6, Q9, Q34, Q41, Q44 and Q73,
-and ClickBench Q28. These additions have frontend acceptance, not yet populated
-benchmark execution coverage. Fast and generated parsers agree on all 164 routes
+and ClickBench Q28. Apart from Q41, these additions have frontend acceptance,
+not yet populated benchmark execution coverage. Fast and generated parsers agree on all 164 routes
 with no hard errors, and the standalone CLI has no YQL or MiniKQL symbols.
 The comparison increment passed 102 compiler/expression/integration tests,
 including all eight integer widths, constant folding, 1,920 direct runtime
@@ -397,10 +397,15 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Thirteen TPC-DS queries (Q12, Q20, Q21, Q32, Q37, Q40, Q51, Q53, Q63, Q82,
+Fourteen TPC-DS queries (Q12, Q20, Q21, Q32, Q37, Q40, Q41, Q51, Q53, Q63, Q82,
 Q89, Q92 and Q98) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
+Q41 checks all eight correlated predicate branches, numeric manufacturer-range
+boundaries, inner matches outside that range, duplicate products, NULL product
+and manufacturer values, missing matches and individual invalid/NULL predicate
+components. Its nine expected result rows and metadata match both existing
+compiler paths; all fourteen populated queries pass together without fallback.
 The three revenue/window queries also match the legacy optimizer exactly on
 eight result rows each, with different totals for each sales channel, shared
 classes across categories, NULL partitions and all-NULL groups, zero/negative

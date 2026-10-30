@@ -701,12 +701,17 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     auto optionalText = [](const char* text) { return text ? std::optional<std::string>{text} : std::nullopt; };
     TValueBuilder items;
     items.BeginList();
+    struct TItemDetails { const char* Product; const char* Manufacturer; const char* Color; const char* Units; const char* Size; };
     auto appendItem = [&](i64 id, const char* price, std::optional<i64> manufacturer,
-            const char* category, const char* itemClass, const char* brand = nullptr, std::optional<i64> manager = std::nullopt) {
+            const char* category, const char* itemClass, const char* brand = nullptr, std::optional<i64> manager = std::nullopt,
+            TItemDetails details = {}) {
         items.AddListItem().BeginStruct().AddMember("i_item_sk").Int64(id).AddMember("i_item_id").Utf8(itemName(id))
             .AddMember("i_item_desc").OptionalUtf8("Description" + std::to_string(id))
             .AddMember("i_category").OptionalUtf8(optionalText(category)).AddMember("i_class").OptionalUtf8(optionalText(itemClass))
             .AddMember("i_brand").OptionalUtf8(optionalText(brand)).AddMember("i_manager_id").OptionalInt64(manager)
+            .AddMember("i_product_name").OptionalUtf8(optionalText(details.Product)).AddMember("i_manufact").OptionalUtf8(optionalText(details.Manufacturer))
+            .AddMember("i_color").OptionalUtf8(optionalText(details.Color)).AddMember("i_units").OptionalUtf8(optionalText(details.Units))
+            .AddMember("i_size").OptionalUtf8(optionalText(details.Size))
             .AddMember("i_manufact_id").OptionalInt64(manufacturer).AddMember("i_current_price");
         decimal(items, price);
         items.EndStruct();
@@ -741,6 +746,36 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     appendItem(705, "10", 0, "Books", "parenting", "Null");
     appendItem(706, "10", 0, "Music", "parenting", "Family");
     appendItem(707, "10", 0, "Books", "excluded class", "Family");
+    // Q41: every disjunct has its own correlated manufacturer. Inner matches
+    // deliberately lie outside the outer manufacturer's numeric range.
+    i64 branch = 0;
+    for (const auto& [category, color, units, size] : std::initializer_list<std::tuple<const char*, const char*, const char*, const char*>>{
+            {"Women", "orchid", "Pound", "petite"}, {"Women", "navy", "Each", "extra large"},
+            {"Men", "bisque", "N/A", "small"}, {"Men", "cornflower", "Gross", "medium"},
+            {"Women", "salmon", "Oz", "petite"}, {"Women", "steel", "Tbl", "extra large"},
+            {"Men", "purple", "Dram", "small"}, {"Men", "forest", "Ounce", "medium"}}) {
+        const auto product = "Product" + std::to_string(branch), manufacturer = "Match" + std::to_string(branch);
+        appendItem(800 + branch, nullptr, branch == 0 ? 742 : branch == 7 ? 782 : 760, "Other", nullptr, nullptr, std::nullopt,
+            {product.c_str(), manufacturer.c_str(), nullptr, nullptr, nullptr});
+        appendItem(820 + branch, nullptr, 999, category, nullptr, nullptr, std::nullopt,
+            {nullptr, manufacturer.c_str(), color, units, size});
+        ++branch;
+    }
+    appendItem(808, nullptr, 760, "Other", nullptr, nullptr, std::nullopt, {nullptr, "Match0", nullptr, nullptr, nullptr});
+    appendItem(809, nullptr, 760, "Other", nullptr, nullptr, std::nullopt, {"Product0", "Match0", nullptr, nullptr, nullptr});
+    appendItem(810, nullptr, 741, "Other", nullptr, nullptr, std::nullopt, {"OutsideLow", "Match0", nullptr, nullptr, nullptr});
+    appendItem(811, nullptr, 783, "Other", nullptr, nullptr, std::nullopt, {"OutsideHigh", "Match7", nullptr, nullptr, nullptr});
+    appendItem(812, nullptr, 760, "Women", nullptr, nullptr, std::nullopt, {"NullManufacturer", nullptr, "orchid", "Pound", "petite"});
+    appendItem(813, nullptr, 760, "Other", nullptr, nullptr, std::nullopt, {"MissingMatch", "Missing", nullptr, nullptr, nullptr});
+    i64 rejected = 814;
+    for (const auto& [category, color, units, size] : std::initializer_list<std::tuple<const char*, const char*, const char*, const char*>>{
+            {"Women", "orchid", "Pound", "large"}, {"Women", "orchid", "Bucket", "petite"}, {"Women", "red", "Pound", "petite"},
+            {"Music", "orchid", "Pound", "petite"}, {"Women", "orchid", "Pound", nullptr}, {"Women", nullptr, "Pound", "petite"}}) {
+        const auto name = "Excluded" + std::to_string(rejected);
+        appendItem(rejected, nullptr, 760, "Other", nullptr, nullptr, std::nullopt, {name.c_str(), name.c_str(), nullptr, nullptr, nullptr});
+        appendItem(rejected + 20, nullptr, 999, category, nullptr, nullptr, std::nullopt, {nullptr, name.c_str(), color, units, size});
+        ++rejected;
+    }
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -900,7 +935,7 @@ $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
-            {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}}) {
+            {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -930,6 +965,12 @@ $round = ($x,$y) -> {return $x;};
         if (query == 32 || query == 92) {
             UNIT_ASSERT(values.TryNextRow());
             UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(0).GetOptionalDecimal()->ToString(), query == 32 ? "18" : "36");
+        }
+        if (query == 41) {
+            for (const auto* product : std::initializer_list<const char*>{nullptr, "Product0", "Product1", "Product2", "Product3", "Product4", "Product5", "Product6", "Product7"}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT(values.ColumnParser("i_product_name").GetOptionalUtf8() == optionalText(product));
+            }
         }
         if (query == 37 || query == 82) {
             for (const auto& [item, price] : query == 37 ? TVector<std::pair<i64, const char*>>{{1, "22"}, {2, "52"}, {15, "30"}} :
@@ -2068,7 +2109,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             // two existing compilers. The fixture pins both orders and every
             // value by name; also compare all named types. Native must preserve
             // the existing RBO order exactly.
-            if (i != 0 && i < 9) AssertSame(native[i], legacy[i]);
+            if (i != 0 && (i < 9 || i >= 13)) AssertSame(native[i], legacy[i]);
             else {
                 auto actual = native[i].Columns, expected = legacy[i].Columns;
                 std::sort(actual.begin(), actual.end());
