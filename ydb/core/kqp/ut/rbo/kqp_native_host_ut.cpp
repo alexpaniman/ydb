@@ -799,8 +799,15 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
             .AddMember("s_store_name").OptionalUtf8(optionalText(name)).AddMember("s_company_name").OptionalUtf8(optionalText(company))
             .AddMember("s_zip").OptionalUtf8(optionalText(zip))
-            .AddMember("s_state").OptionalUtf8(id == 90 ? optionalText("TN") : id == 91 ? optionalText("TX") : std::nullopt).EndStruct();
+            .AddMember("s_state").OptionalUtf8(id == 90 ? optionalText("TN") : id == 91 ? optionalText("TX") : std::nullopt)
+            .AddMember("s_county").OptionalUtf8(std::nullopt).EndStruct();
     }
+    for (const auto& [id, state, county] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
+            {100, "CA", "Alpha"}, {101, "CA", "Beta"}, {102, "WA", "Alpha"}, {103, "WA", nullptr}, {104, "OR", nullptr}})
+        stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
+            .AddMember("s_store_name").OptionalUtf8(std::nullopt).AddMember("s_company_name").OptionalUtf8(std::nullopt)
+            .AddMember("s_zip").OptionalUtf8(std::nullopt).AddMember("s_state").OptionalUtf8(optionalText(state))
+            .AddMember("s_county").OptionalUtf8(optionalText(county)).EndStruct();
     load("store", stores);
     TValueBuilder demographics; demographics.BeginList();
     for (const auto& [id, gender, marital, education] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
@@ -1075,6 +1082,16 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         demographicSale(970, 90, shop, 90, 999, "999", "999", "999");
     for (const auto date : {92, 93, 4, 999}) demographicSale(970, date, 90, 90, 999, "999", "999", "999");
     demographicSale(99999, 90, 90, 90, 999, "999", "999", "999");
+    // Q70: the IN lookup contains an uncorrelated window. New sales have no
+    // matching item/customer and leave the earlier benchmark fixtures unchanged.
+    // The existing TN sale in month 1212 contributes 999; NULL states must not
+    // match the lookup, even though its window produces a NULL-state group.
+    for (const auto& [date, shop, profit] : std::initializer_list<std::tuple<i64, std::optional<i64>, const char*>>{
+            {60, 100, "2"}, {64, 100, "3"}, {61, 101, "10"}, {62, 102, "-4"},
+            {63, 103, "0"}, {60, 104, nullptr}, {64, 91, "8"},
+            {65, 100, "999"}, {66, 100, "999"}, {4, 100, "999"}, {999, 100, "999"},
+            {60, 92, "999"}, {60, 999, "999"}, {60, std::nullopt, "999"}})
+        store.push_back({99990, order++, date, 1, nullptr, nullptr, nullptr, shop, profit});
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -1131,7 +1148,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1145,7 +1162,22 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 16 || query == 94 || query == 95) {
+        if (query == 70) {
+            for (const auto& [state, county, total, hierarchy, rank] :
+                    std::initializer_list<std::tuple<const char*, const char*, const char*, ui64, ui64>>{
+                    {nullptr, nullptr, "1018", 2, 1},
+                    {"TN", nullptr, "999", 1, 1}, {"CA", nullptr, "15", 1, 2}, {"TX", nullptr, "8", 1, 3},
+                    {"WA", nullptr, "-4", 1, 4}, {"OR", nullptr, nullptr, 1, 5},
+                    {"CA", "Beta", "10", 0, 1}, {"CA", "Alpha", "5", 0, 2}, {"OR", nullptr, nullptr, 0, 1},
+                    {"TN", nullptr, "999", 0, 1}, {"TX", nullptr, "8", 0, 1}, {"WA", nullptr, "0", 0, 1}, {"WA", "Alpha", "-4", 0, 2}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT(values.ColumnParser("s_state").GetOptionalUtf8() == optionalText(state));
+                UNIT_ASSERT(values.ColumnParser("s_county").GetOptionalUtf8() == optionalText(county));
+                assertDecimal("total_sum", optionalText(total));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("lochierarchy").GetUint64(), hierarchy);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("rank_within_parent").GetUint64(), rank);
+            }
+        } else if (query == 16 || query == 94 || query == 95) {
             UNIT_ASSERT(values.TryNextRow());
             UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("order count").GetUint64(), query == 95 ? 2 : 3);
             assertDecimal("total shipping cost", query == 95 ? "5" : "3");
@@ -1375,6 +1407,73 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(WindowSubqueriesMatchLegacyOnPopulatedTables, ColumnStore) {
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto created = session.ExecuteSchemeQuery(TString(
+                "CREATE TABLE `/Root/WindowSubqueries` (id Int32 NOT NULL, p Int32, v Int32, PRIMARY KEY(id))")
+                + (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            TValueBuilder rows; rows.BeginList();
+            i32 id = 0;
+            for (const auto& [p, v] : std::initializer_list<std::pair<std::optional<i32>, std::optional<i32>>>{
+                    {1, 10}, {1, std::nullopt}, {2, 30}, {2, 10}, {std::nullopt, 5}})
+                rows.AddListItem().BeginStruct().AddMember("id").Int32(++id)
+                    .AddMember("p").OptionalInt32(p).AddMember("v").OptionalInt32(v).EndStruct();
+            rows.EndList();
+            const auto loaded = client.BulkUpsert("/Root/WindowSubqueries", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            const std::pair<const char*, const char*> cases[]{
+                {"SELECT (SELECT SUM(v) OVER() FROM `/Root/WindowSubqueries` LIMIT 1) AS s", "[[[55]]]"},
+                {"SELECT (SELECT SUM(v) OVER() FROM `/Root/WindowSubqueries` WHERE id > 99 LIMIT 1) AS s", "[[#]]"},
+                {"SELECT (SELECT n FROM (SELECT id, RowNumber() OVER(ORDER BY id) AS n FROM `/Root/WindowSubqueries`) AS w WHERE id = 3) AS n", "[[[3u]]]"},
+                {"SELECT (SELECT r FROM (SELECT p, Rank() OVER(ORDER BY SUM(v) DESC) AS r FROM `/Root/WindowSubqueries` GROUP BY p) AS w WHERE p = 1) AS r", "[[[2u]]]"},
+                {"SELECT id, (SELECT SUM(v) OVER() FROM `/Root/WindowSubqueries` LIMIT 1) AS s FROM `/Root/WindowSubqueries` ORDER BY id", "[[1;[55]];[2;[55]];[3;[55]];[4;[55]];[5;[55]]]"},
+                {"SELECT id FROM `/Root/WindowSubqueries` WHERE v IN (SELECT v FROM (SELECT v, Rank() OVER(ORDER BY v DESC) AS r FROM `/Root/WindowSubqueries`) AS w WHERE r <= 2ul) ORDER BY id", "[[1];[3];[4]]"},
+                {"SELECT id FROM `/Root/WindowSubqueries` WHERE v NOT IN (SELECT v FROM (SELECT v, Rank() OVER(ORDER BY v DESC) AS r FROM `/Root/WindowSubqueries`) AS w WHERE r <= 2ul) ORDER BY id", "[[5]]"},
+                {"SELECT id FROM `/Root/WindowSubqueries` WHERE v IN (SELECT SUM(v) OVER() FROM `/Root/WindowSubqueries` WHERE id > 99)", "[]"},
+                {"SELECT EXISTS (SELECT id FROM (SELECT id, RowNumber() OVER(ORDER BY id) AS n FROM `/Root/WindowSubqueries`) AS w WHERE n = 2ul) AS found", "[[%true]]"},
+                {"SELECT EXISTS (SELECT id FROM (SELECT id, RowNumber() OVER(ORDER BY id) AS n FROM `/Root/WindowSubqueries`) AS w WHERE n = 99ul) AS found", "[[%false]]"},
+                {"SELECT EXISTS (SELECT SUM(v) OVER() FROM `/Root/WindowSubqueries` WHERE id > 99) AS found", "[[%false]]"},
+                {"$w = (SELECT v, RowNumber() OVER(ORDER BY id) AS n FROM `/Root/WindowSubqueries`); SELECT (SELECT v FROM $w WHERE n = 2ul) AS s", "[[#]]"},
+                {"SELECT id FROM `/Root/WindowSubqueries` WHERE p IN (SELECT p FROM (SELECT p, Rank() OVER(ORDER BY SUM(v) DESC) AS r FROM `/Root/WindowSubqueries` GROUP BY p) AS w WHERE r <= 2ul) ORDER BY id", "[[1];[2];[3];[4]]"},
+            };
+            size_t index = 0;
+            for (const auto& [sql, values] : cases) {
+                Cerr << "window subquery strategy " << strategy << ": " << sql << Endl;
+                const auto result = runner.GetQueryClient().ExecuteQuery(TString("PRAGMA YqlSelect='force'; ") + sql,
+                    NQuery::TTxControl::NoTx()).GetValueSync();
+                // The old RBO path does not inline projected EXISTS; the
+                // existing non-window EXISTS matrix pins the same failure.
+                if (strategy == 1 && index >= 8 && index <= 10) {
+                    UNIT_ASSERT_C(!result.IsSuccess(), sql);
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("column not found") != std::string::npos,
+                        sql << "\n" << result.GetIssues().ToString());
+                    ++index;
+                    continue;
+                }
+                UNIT_ASSERT_C(result.IsSuccess(), sql << "\n" << result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+                const auto actual = SnapshotRows(result.GetResultSet(0));
+                UNIT_ASSERT_VALUES_EQUAL_C(actual.Values, values, sql);
+                if (strategy == 2) reference.push_back(actual);
+                else AssertSame(actual, reference.at(index));
+                ++index;
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(GroupingSetsMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<TResultSnapshot> reference;
         for (const int strategy : {2, 0, 1}) {

@@ -253,7 +253,6 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             "SELECT SUM(SUM(value) OVER()) OVER() FROM t",
             "SELECT id FROM t WHERE RowNumber() OVER() > 0ul",
             "SELECT SUM((SELECT 1)) OVER() FROM t",
-            "SELECT (SELECT SUM(value) OVER() FROM t LIMIT 1)",
             "SELECT id FROM t ORDER BY SUM(value) OVER()"})
             UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog), TUnsupportedFeature, sql);
         for (const auto* sql : {
@@ -264,6 +263,37 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             "SELECT SUM(value) OVER(ROWS 1L PRECEDING) FROM t",
             "SELECT SUM(value) OVER(ORDER BY id, value RANGE 1 PRECEDING) FROM t"})
             UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog), TFrontendError, sql);
+    }
+
+    Y_UNIT_TEST(WindowSubqueriesRequireNoExternalCaptures) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                    "SELECT (SELECT SUM(value) OVER() FROM t LIMIT 1)",
+                    "SELECT id FROM t WHERE value IN (SELECT s FROM (SELECT SUM(value) OVER() AS s FROM t) AS w)",
+                    "SELECT EXISTS (SELECT id FROM (SELECT id, RowNumber() OVER(ORDER BY id) AS n FROM t) AS w WHERE n = 1ul)",
+                    "$w = (SELECT value, RowNumber() OVER(ORDER BY id) AS n FROM t); SELECT (SELECT value FROM $w WHERE n = 1ul)",
+                    "SELECT (SELECT (SELECT SUM(value) OVER() FROM t LIMIT 1))",
+                    "SELECT (SELECT SUM(value) OVER() FROM t AS a LIMIT 1) FROM t AS a"}) {
+                const auto result = CompileNative(sql, Catalog, settings);
+                UNIT_ASSERT_C(!result.UsesLegacy(), sql);
+                const auto& relations = result.Program->Get().Relations;
+                UNIT_ASSERT_C(std::any_of(relations.begin(), relations.end(), [](const auto& r) { return r.Kind == ERelation::Window; }), sql);
+            }
+            settings.Mode = ECompilerMode::Auto;
+            for (const auto* sql : {
+                    "SELECT (SELECT SUM(b.value) OVER() FROM t AS b WHERE b.id = a.id LIMIT 1) FROM t AS a",
+                    "SELECT EXISTS (SELECT RowNumber() OVER(PARTITION BY a.id ORDER BY b.id) FROM t AS b) FROM t AS a",
+                    "SELECT a.id FROM t AS a WHERE a.value IN (SELECT s FROM (SELECT SUM(b.value) OVER() AS s FROM t AS b WHERE b.id = a.id) AS w)",
+                    "SELECT (SELECT w.s FROM (SELECT SUM(value) OVER() AS s, id FROM t) AS w WHERE w.id = a.id LIMIT 1) FROM t AS a",
+                    "SELECT (SELECT (SELECT SUM(b.value) OVER() FROM t AS b WHERE b.id = a.id LIMIT 1)) FROM t AS a",
+                    "SELECT (SELECT SUM(value) OVER() AS v FROM t UNION ALL SELECT a.value AS v) FROM t AS a"}) {
+                const auto result = CompileNative(sql, Catalog, settings);
+                UNIT_ASSERT_C(result.UsesLegacy(), sql);
+                UNIT_ASSERT_C(result.Unsupported->Feature == EFeature::Backend, sql);
+                UNIT_ASSERT_C(result.Unsupported->Message.find("window decorrelation") != std::string::npos, sql);
+            }
+        }
     }
 
     Y_UNIT_TEST(RuntimeDatesAndIntervalsUseExecutionOperations) {

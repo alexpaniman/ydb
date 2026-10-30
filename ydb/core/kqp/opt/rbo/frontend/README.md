@@ -234,6 +234,12 @@ projected EXISTS cases; the old optimizer incorrectly returns false for EXISTS
 of a global aggregate over an empty correlated input. Tests pin those existing
 boundaries and require correct native results.
 
+Uncorrelated scalar/EXISTS/IN subqueries may contain windows, including windows
+inside derived tables or named query bindings. The binder checks actual external
+column captures after binding the subquery. Correlated subqueries containing
+windows remain explicitly unsupported because the existing backend cannot
+decorrelate them; merely having an enclosing query does not imply correlation.
+
 Single-column IN subqueries also bind to Boolean columns. Computed lookup keys
 and common-type conversions are materialized once as ordinary native Maps;
 nested IN expressions use the same mechanism. The existing RBO subplan rules
@@ -286,7 +292,7 @@ Explicitly outside the profile:
   query to the legacy optimizer. The pre-existing backend is unchanged.
 - Named/inherited windows, DISTINCT or filtered window functions, NULL treatment,
   frame exclusions, GROUPS frames other than whole partitions, and RANGE without
-  ordering other than whole partitions. Windows inside scalar/EXISTS/IN subqueries,
+  ordering other than whole partitions. Windows inside correlated scalar/EXISTS/IN subqueries,
   subqueries in window arguments/keys, and direct window calls in ORDER BY are
   excluded; ordering by a projected window alias is supported.
 - UDFs, higher-order values, containers/structs/tuples, nested optionals.
@@ -416,13 +422,13 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 80/99 | 19 |
+| TPC-DS | 81/99 | 18 |
 | ClickBench | 38/43 | 5 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Twenty-four TPC-DS queries also have populated native-required execution
+tables. Twenty-five TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -521,8 +527,8 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Twenty-four TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q27, Q32, Q36, Q37, Q38,
-Q40, Q41, Q51, Q53, Q63, Q82, Q86, Q87, Q89, Q92, Q94, Q95 and Q98) pass populated execution
+Twenty-five TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q27, Q32, Q36, Q37, Q38,
+Q40, Q41, Q51, Q53, Q63, Q70, Q82, Q86, Q87, Q89, Q92, Q94, Q95 and Q98) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
 Q22, Q27, Q36 and Q86 check four-key inventory rollup, demographic-filtered
@@ -530,6 +536,12 @@ averages, hierarchy margins and sales ranks. Their independent expected values
 cover real NULL keys versus subtotal NULLs, all-NULL measures, shared prefixes,
 negative/zero amounts, date boundaries and missing dimension rows. All four
 match both existing compiler paths, with the original SQL and full schemas.
+Q70 adds an uncorrelated window inside IN and state/county hierarchy ranks. Its
+13 rows match explicit totals and ranks on all three compiler paths, including
+NULL states excluded by IN, NULL counties, all-NULL measures and month bounds.
+Separate scalar/EXISTS/IN window-subquery tests cover empty inputs, duplicate
+values, named query bindings and row/column storage. Existing RBO's projected
+EXISTS failure is pinned separately; native matches the legacy optimizer.
 Q41 checks all eight correlated predicate branches, numeric manufacturer-range
 boundaries, inner matches outside that range, duplicate products, NULL product
 and manufacturer values, missing matches and individual invalid/NULL predicate
