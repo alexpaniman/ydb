@@ -181,37 +181,66 @@ TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
         }
         rows.EndStruct();
     }
+    // Q21: duplicate qualifying late lines; two late suppliers; one supplier
+    // only; an unfinished order; a NULL competitor date; and a missing nation.
+    for (const auto& [order, line, supplier, receipt] : std::initializer_list<std::tuple<i64, i32, i64, const char*>>{
+            {100, 1, 6, "1999-01-03"}, {100, 2, 6, "1999-01-03"}, {100, 3, 1, "1999-01-02"},
+            {101, 1, 6, "1999-01-03"}, {101, 2, 7, "1999-01-03"},
+            {102, 1, 6, "1999-01-03"}, {102, 2, 6, "1999-01-03"},
+            {103, 1, 7, "1999-01-03"}, {103, 2, 1, "1999-01-02"},
+            {104, 1, 6, "1999-01-03"}, {104, 2, 1, "1999-01-02"},
+            {105, 1, 6, "1999-01-03"}, {105, 2, 1, nullptr},
+            {106, 1, 5, "1999-01-03"}, {106, 2, 6, "1999-01-02"}}) {
+        rows.AddListItem().BeginStruct()
+            .AddMember("l_orderkey").Int64(order).AddMember("l_linenumber").Int32(line)
+            .AddMember("l_suppkey").OptionalInt64(supplier).AddMember("l_partkey").OptionalInt64(std::nullopt)
+            .AddMember("l_commitdate").OptionalDate(TInstant::ParseIso8601("1999-01-02T00:00:00Z"))
+            .AddMember("l_receiptdate").OptionalDate(receipt ? std::optional<TInstant>{TInstant::ParseIso8601(TString(receipt) + "T00:00:00Z")} : std::nullopt)
+            .AddMember("l_shipdate").OptionalDate(TInstant::ParseIso8601("1999-01-01T00:00:00Z"));
+        for (const auto* column : {"l_quantity", "l_extendedprice", "l_discount", "l_tax"}) rows.AddMember(column).EmptyOptional(decimalType);
+        for (const auto* column : {"l_comment", "l_shipinstruct", "l_shipmode", "l_returnflag", "l_linestatus"}) rows.AddMember(column).OptionalUtf8(std::nullopt);
+        rows.EndStruct();
+    }
     rows.EndList();
     const auto inserted = client.BulkUpsert("/Root/lineitem", rows.Build()).GetValueSync();
     UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
     TValueBuilder customers, orders, parts;
     customers.BeginList();
-    for (const i64 id : {101, 102, 103}) {
+    // Q22 positive in-country balances average 180. Customers 105 and 113
+    // exceed it without orders; 106 exceeds it but has orders. NULLs, zero,
+    // negative balances and excluded phone prefixes must not skew that mean.
+    for (const auto& [id, phone, balance] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
+            {101, nullptr, nullptr}, {102, nullptr, nullptr}, {103, nullptr, nullptr},
+            {104, "131234", "100"}, {105, "139876", "200"}, {106, "311234", "300"},
+            {107, "231234", "50"}, {108, "991234", "1000"}, {109, nullptr, "100"},
+            {110, "311234", nullptr}, {111, "311234", "-10"}, {112, "131234", "0"}, {113, "319876", "250"}}) {
         customers.AddListItem().BeginStruct()
             .AddMember("c_custkey").Int64(id)
             .AddMember("c_mktsegment").OptionalUtf8(id == 103 ? std::nullopt :
                 std::optional<std::string>{id == 101 ? "BUILDING" : "AUTOMOBILE"})
-            .AddMember("c_acctbal").EmptyOptional(decimalType)
-            .AddMember("c_address").OptionalUtf8(std::nullopt)
+            .AddMember("c_acctbal");
+        if (balance) customers.BeginOptional().Decimal(TDecimalValue(balance, 12, 2)).EndOptional();
+        else customers.EmptyOptional(decimalType);
+        customers.AddMember("c_address").OptionalUtf8(std::nullopt)
             .AddMember("c_comment").OptionalUtf8(std::nullopt)
             .AddMember("c_name").OptionalUtf8(std::nullopt)
             .AddMember("c_nationkey").OptionalInt32(std::nullopt)
-            .AddMember("c_phone").OptionalUtf8(std::nullopt)
+            .AddMember("c_phone").OptionalUtf8(phone ? std::optional<std::string>{phone} : std::nullopt)
             .EndStruct();
     }
     customers.EndList();
     orders.BeginList();
-    for (const i64 id : {1, 2, 3, 4, 5, 6, 8, 99}) {
+    for (const i64 id : {1, 2, 3, 4, 5, 6, 8, 99, 100, 101, 102, 103, 104, 105, 106}) {
         orders.AddListItem().BeginStruct()
             .AddMember("o_orderkey").Int64(id)
-            .AddMember("o_custkey").OptionalInt64(id == 4 ? 102 : id == 5 ? 999 : id == 6 ? 103 : 101)
+            .AddMember("o_custkey").OptionalInt64(id >= 100 ? 106 : id == 4 ? 102 : id == 5 ? 999 : id == 6 ? 103 : 101)
             .AddMember("o_orderdate").OptionalDate(id == 8 ? std::nullopt :
-                std::optional<TInstant>{TInstant::ParseIso8601(id == 3 ? "1995-03-15T00:00:00Z" : "1995-03-14T00:00:00Z")})
+                std::optional<TInstant>{TInstant::ParseIso8601(id >= 100 ? "1999-01-01T00:00:00Z" : id == 3 ? "1995-03-15T00:00:00Z" : "1995-03-14T00:00:00Z")})
             .AddMember("o_shippriority").OptionalInt32(0)
             .AddMember("o_clerk").OptionalUtf8(std::nullopt)
             .AddMember("o_comment").OptionalUtf8(std::nullopt)
             .AddMember("o_orderpriority").OptionalUtf8(std::nullopt)
-            .AddMember("o_orderstatus").OptionalUtf8(std::nullopt)
+            .AddMember("o_orderstatus").OptionalUtf8(id < 100 ? std::nullopt : std::optional<std::string>{id == 104 ? "O" : "F"})
             .AddMember("o_totalprice").EmptyOptional(decimalType)
             .EndStruct();
     }
@@ -239,17 +268,17 @@ TVector<TResultSnapshot> TpchReadQueries(TMode mode, bool newRbo) {
         .AddMember("r_comment").OptionalUtf8(std::nullopt).EndStruct();
     regions.EndList();
     nations.BeginList();
-    for (const i32 id : {1, 2, 3}) nations.AddListItem().BeginStruct()
+    for (const i32 id : {1, 2, 3, 4}) nations.AddListItem().BeginStruct()
         .AddMember("n_nationkey").Int32(id)
-        .AddMember("n_name").OptionalUtf8(id == 1 ? "GERMANY" : id == 2 ? "FRANCE" : "JAPAN")
-        .AddMember("n_regionkey").OptionalInt32(id == 3 ? 2 : 1)
+        .AddMember("n_name").OptionalUtf8(id == 1 ? "GERMANY" : id == 2 ? "FRANCE" : id == 3 ? "JAPAN" : "SAUDI ARABIA")
+        .AddMember("n_regionkey").OptionalInt32(id >= 3 ? 2 : 1)
         .AddMember("n_comment").OptionalUtf8(std::nullopt).EndStruct();
     nations.EndList();
     suppliers.BeginList();
-    for (const i64 id : {1, 2, 3, 4, 5}) suppliers.AddListItem().BeginStruct()
+    for (const i64 id : {1, 2, 3, 4, 5, 6, 7}) suppliers.AddListItem().BeginStruct()
         .AddMember("s_suppkey").Int64(id)
         .AddMember("s_name").OptionalUtf8("Supplier" + std::to_string(id))
-        .AddMember("s_nationkey").OptionalInt32(id == 5 ? std::nullopt : std::optional<i32>{id == 4 ? 1 : i32(id)})
+        .AddMember("s_nationkey").OptionalInt32(id == 5 ? std::nullopt : std::optional<i32>{id >= 6 ? 4 : id == 4 ? 1 : i32(id)})
         .AddMember("s_acctbal").BeginOptional().Decimal(TDecimalValue(id == 2 ? "200" : id == 3 ? "999" : "100", 12, 2)).EndOptional()
         .AddMember("s_address").OptionalUtf8("Address")
         .AddMember("s_phone").OptionalUtf8("Phone")
@@ -282,7 +311,7 @@ $to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
 $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
-    for (const auto [query, expectedRows] : {std::pair{1, 4}, {2, 3}, {3, 2}, {17, 1}, {19, 1}}) {
+    for (const auto [query, expectedRows] : {std::pair{1, 4}, {2, 3}, {3, 2}, {17, 1}, {19, 1}, {21, 2}, {22, 2}}) {
         Cerr << "TPC-H Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpch/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -304,6 +333,23 @@ $round = ($x,$y) -> {return $x;};
             const auto average = values.ColumnParser("avg_yearly").GetOptionalDecimal();
             UNIT_ASSERT(average);
             UNIT_ASSERT_VALUES_EQUAL(average->ToString(), "1.43");
+        }
+        if (query == 21) {
+            TResultSetParser values(result.GetResultSet(0));
+            for (const auto& [supplier, count] : {std::pair{"Supplier6", 3}, {"Supplier7", 1}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("s_name").GetOptionalUtf8().value(), supplier);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("numwait").GetUint64(), count);
+            }
+        }
+        if (query == 22) {
+            TResultSetParser values(result.GetResultSet(0));
+            for (const auto& [country, total] : {std::pair{"13", "200"}, {"31", "250"}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("cntrycode").GetOptionalString().value(), country);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("numcust").GetUint64(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("totacctbal").GetOptionalDecimal()->ToString(), total);
+            }
         }
         if (query == 3 || query == 19) {
             TResultSetParser values(result.GetResultSet(0));
