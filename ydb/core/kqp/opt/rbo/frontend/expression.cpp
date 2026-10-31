@@ -1144,6 +1144,17 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
             input = Literal({K::Utf8}, node.Value, position);
         return Unary(lowered == "unicode::toupper" ? O::UnicodeUpper : O::UnicodeLower, input, position);
     }
+    if (lowered == "math::isnan") {
+        arity(1);
+        const auto type = (*this)[arguments[0]].Type;
+        if (type.Kind == K::Decimal || type.Kind == K::Null)
+            throw TUnsupportedFeature(EFeature::Type, position, "Math::IsNaN requires a typed integer, Float or Double in the native profile");
+        if (!type.IsNumeric()) Fail(position, "Math::IsNaN expects a numeric argument");
+        const auto input = Convert(arguments[0], {K::Double, type.Nullable}, position);
+        // Scalar IEEE inequality is true only for NaN when both operands
+        // are the same value. Reuse the node and preserve optional lifting.
+        return Binary(O::NotEqual, input, input, position);
+    }
     for (const auto& [function, op] : {std::pair{"abs", O::Abs}, {"length", O::Length}, {"lower", O::Lower}, {"upper", O::Upper},
         {"string::tolower", O::Lower}, {"string::toupper", O::Upper},
         {"string::asciitolower", O::Lower}, {"string::asciitoupper", O::Upper}}) {

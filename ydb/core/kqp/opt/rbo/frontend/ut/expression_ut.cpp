@@ -21,6 +21,37 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(IsNaNUsesScalarIeeeComparisonAndPreservesNulls) {
+        for (const auto kind : {K::Float, K::Double}) for (const bool nullable : {false, true}) {
+            TExpressionArena arena;
+            const TType type{kind, nullable};
+            for (const double value : {0.0, -0.0, 1.5, -1.5, std::numeric_limits<double>::infinity(),
+                    -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN(), -std::numeric_limits<double>::quiet_NaN()}) {
+                const auto literal = arena.Literal(type, value);
+                const TExprId args[]{literal};
+                const auto result = arena.Call("Math::IsNaN", args);
+                UNIT_ASSERT(arena[result].Type == (TType{K::Bool, nullable}));
+                UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, result).Data), std::isnan(value));
+                const TExprId roots[]{result};
+                const auto folded = arena.FoldConstants(roots).front();
+                UNIT_ASSERT(arena[folded].Type == arena[result].Type);
+                UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, folded).Data), std::isnan(value));
+            }
+            if (nullable) {
+                const TExprId args[]{arena.Literal(type, std::monostate{})};
+                UNIT_ASSERT(Evaluate(arena, arena.Call("math::isnan", args)).IsNull());
+            }
+        }
+        TExpressionArena arena;
+        for (const auto type : {TType{K::Int64}, TType{K::Uint64}}) {
+            const TExprId args[]{arena.Literal(type, type.IsSigned() ? TScalar{std::numeric_limits<std::int64_t>::min()} :
+                TScalar{std::numeric_limits<std::uint64_t>::max()})};
+            UNIT_ASSERT(!std::get<bool>(Evaluate(arena, arena.Call("math::isnan", args)).Data));
+        }
+        const TExprId bareNull[]{arena.Null()};
+        UNIT_ASSERT_EXCEPTION(arena.Call("math::isnan", bareNull), TUnsupportedFeature);
+    }
+
     Y_UNIT_TEST(UnicodeCasePreservesCodepointsNullsAndTypes) {
         for (const auto& [input, upper, lower] : std::initializer_list<std::tuple<std::string, std::string, std::string>>{
                 {"", "", ""}, {"AbC", "ABC", "abc"}, {"École", "ÉCOLE", "école"},

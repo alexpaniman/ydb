@@ -119,7 +119,16 @@ duplicate counts require no row-expansion operation. Global ordering/limits and
 parenthesized operand-local clauses are supported. Result field order follows
 YqlSelect's common-prefix rule; the older translator emits lexical order in some
 mixed-schema cases. Tests pin that existing difference explicitly.
-Aggregates are COUNT, SUM, AVG, MIN, MAX, and SOME. Multiple DISTINCT aggregates
+Aggregates are COUNT, SUM, AVG, MIN, MAX, SOME, and sample standard deviation
+(`STDDEV`, `STDDEV_SAMPLE`, `STDDEV_SAMP`, `STDDEV_S`, and their spellings without
+underscores). Standard deviation accepts integer/Float/Double inputs and returns
+Double with ordinary aggregate nullability. Singleton groups produce NaN;
+empty/all-NULL inputs produce NULL. The RBO handoff maps the semantic aggregate
+directly to the existing sample-deviation backend trait. Decimal arguments,
+window forms and mixed aggregate combinations containing DISTINCT explicitly delegate.
+`Math::IsNaN` on typed integer/Float/Double inputs uses native scalar IEEE
+inequality, retaining NULLs; it needs no UDF or semantic lowering pass.
+Multiple DISTINCT aggregates
 can be combined with ordinary aggregates when their intermediate states are
 scalar (COUNT, SUM, MIN, MAX, SOME). A combination containing both DISTINCT and
 AVG is explicitly unsupported unless AVG is the sole aggregate: its tuple state
@@ -442,7 +451,7 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 95/99 | 4 |
+| TPC-DS | 97/99 | 2 |
 | ClickBench | 39/43 | 4 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
@@ -455,8 +464,10 @@ unsupported diagnostics per query, including unavailable statistical aggregates.
 
 Join-star expansion with unique output names admits Q10, Q35, Q69 and Q88.
 Q88 has populated execution coverage; the other three have frontend coverage.
-The remaining frontend rejections are sample standard deviation (Q17/Q39),
-mixed DISTINCT/AVG tuple state (Q28), and mixed Decimal arithmetic (Q78).
+Sample standard deviation and `Math::IsNaN` additionally admit Q17/Q39 at the
+frontend; populated execution of those original queries is still pending.
+The remaining frontend rejections are mixed DISTINCT/AVG tuple state (Q28)
+and mixed Decimal arithmetic (Q78).
 
 Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
 Q24, Q54 and Q66. Q24, Q54 and Q66 have populated execution parity below; Q4
@@ -517,6 +528,17 @@ unchanged aggregation regressions. All 82 standalone frontend tests pass; both
 parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
+
+The sample-deviation increment passed all 95 standalone frontend tests and five
+selected host tests. Row/column fixtures compare all three compiler paths on
+grouped/global/sole-DISTINCT aggregates, required and optional integer inputs,
+Float/Double conversions, singleton/all-NULL/empty groups, infinity and NaN.
+Values, names, types and column order are checked explicitly; floating results
+use a 1e-12 tolerance. Row keys span four uniform partitions. Direct `IsNaN`
+parameter tests compare exact values and metadata for Float/Double, integer
+limits, NULLs, signed zero, infinities and NaNs. All 22 populated TPC-H and
+35 populated TPC-DS regressions pass. Fast/generated parsers agree on all
+164 routes and diagnostics, and the standalone CLI has no YQL/MiniKQL symbols.
 
 The join-star increment passed all 93 standalone frontend tests and six selected
 host tests. Nine join kinds on both row and column storage check values, output

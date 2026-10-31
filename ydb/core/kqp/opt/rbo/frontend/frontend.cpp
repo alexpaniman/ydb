@@ -130,8 +130,13 @@ private:
     std::size_t Depth = 0;
 };
 
+bool IsSampleStddev(std::string_view name) {
+    return name == "stddev" || name == "stddev_sample" || name == "stddev_samp" || name == "stddev_s" ||
+        name == "stddevsample" || name == "stddevsamp" || name == "stddevs";
+}
+
 bool IsAggregate(std::string_view name) {
-    return name == "count" || name == "sum" || name == "avg" || name == "min" || name == "max" || name == "some";
+    return name == "count" || name == "sum" || name == "avg" || name == "min" || name == "max" || name == "some" || IsSampleStddev(name);
 }
 
 struct TScopeColumn {
@@ -953,9 +958,11 @@ private:
 
     TType AggregateType(std::string_view name, TType type, bool mayBeEmpty, TSourcePosition position) {
         if (name == "count") return {ETypeKind::Uint64};
-        if (name == "sum" || name == "avg") {
+        if (name == "sum" || name == "avg" || IsSampleStddev(name)) {
             if (!type.IsNumeric()) throw TFrontendError(position, std::string(name) + " expects a numeric argument");
-            if (name == "avg" && type.Kind != ETypeKind::Decimal) type = {ETypeKind::Double, type.Nullable};
+            if (IsSampleStddev(name) && type.Kind == ETypeKind::Decimal)
+                throw TUnsupportedFeature(EFeature::Type, position, "sample standard deviation of Decimal is outside the native backend profile");
+            if ((name == "avg" && type.Kind != ETypeKind::Decimal) || IsSampleStddev(name)) type = {ETypeKind::Double, type.Nullable};
             else if (type.IsIntegral()) type.Kind = type.IsSigned() ? ETypeKind::Int64 : ETypeKind::Uint64;
             if (type.Kind == ETypeKind::Decimal && name == "sum") type.Precision = 35;
         }
@@ -978,7 +985,7 @@ private:
         auto inputColumn = Materialize(input, context.Definitions, syntax.Position);
         const auto innerType = AggregateType(name, Program.Expressions[input].Type, context.Keys.empty(), syntax.Position);
         auto output = Column(name + std::to_string(Program.Columns.size()), {}, innerType, syntax.Position);
-        context.Aggregates.push_back({output, inputColumn, name, syntax.Distinct});
+        context.Aggregates.push_back({output, inputColumn, IsSampleStddev(name) ? "stddev_samp" : name, syntax.Distinct});
         if (!context.GroupingSets.empty()) {
             const auto inner = output;
             output = Column(name + std::to_string(Program.Columns.size()), {}, type, syntax.Position);
@@ -1494,8 +1501,8 @@ void CheckSyntax(const TParsedQuery& syntax) {
             const auto name = Lower(node.Text);
             // Unavailable aggregates must be rejected before their row arguments
             // are resolved in the post-aggregation scope.
-            if (name == "stddev_sample" || name == "stddev_samp" || name == "stddev" || name == "stddev_pop" ||
-                name == "variance" || name == "var_samp" || name == "var_pop")
+            if (name == "stddev_pop" || name == "stddevpop" || name == "stddevpopulation" || name == "populationstddev" ||
+                name == "stddevp" || name == "variance" || name == "var_samp" || name == "var_pop")
                 throw TUnsupportedFeature(EFeature::Function, node.Position, "aggregate is outside the native profile: " + node.Text);
             // These convenience aliases in the experimental expression API do
             // not have the same meaning (or do not exist) in YQL SQL.
@@ -1585,6 +1592,9 @@ void CheckProgram(const TBoundProgram& program) {
         }
         if (relation.Kind == ERelation::Aggregate && relation.Aggregates.size() > 1) {
             const bool distinct = std::any_of(relation.Aggregates.begin(), relation.Aggregates.end(), [](const auto& agg) { return agg.Distinct; });
+            if (distinct && std::any_of(relation.Aggregates.begin(), relation.Aggregates.end(), [](const auto& agg) { return agg.Function == "stddev_samp"; }))
+                throw TUnsupportedFeature(EFeature::AggregateCombination, relation.Position,
+                    "mixed DISTINCT aggregates with sample standard deviation are outside the native backend profile");
             if (distinct && std::any_of(relation.Aggregates.begin(), relation.Aggregates.end(), [](const auto& agg) { return agg.Function == "avg"; })) {
                 throw TUnsupportedFeature(EFeature::AggregateCombination, relation.Position,
                     "mixed DISTINCT aggregates with AVG require a tuple aggregate state outside the native scalar profile");
@@ -1740,14 +1750,15 @@ std::string_view SupportManifest() {
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
 "relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
-"aggregates":["count","sum","avg","min","max","some"],
+"aggregates":["count","sum","avg","min","max","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
+"math_operations":["Math::IsNaN on typed integer/Float/Double inputs"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],
 "unicode_operations":["Unicode::ToUpper","Unicode::ToLower"],
 "windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
-"restrictions":["mixed DISTINCT aggregates support scalar states; combinations containing AVG require a tuple state and delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, arbitrary UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["mixed DISTINCT aggregates support scalar states; combinations containing AVG require a tuple state and delegate","sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, arbitrary UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

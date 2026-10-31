@@ -32,6 +32,41 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(SampleStandardDeviationHasExplicitTypesAndBoundaries) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* alias : {"STDDEV", "STDDEV_SAMPLE", "stddev_samp", "stddev_s", "StdDevSample", "StdDevSamp", "StdDevS"}) {
+                for (const auto* type : {"Int8", "Uint8", "Int16", "Uint16", "Int32", "Uint32", "Int64", "Uint64", "Float", "Double"}) {
+                    for (const bool nullable : {false, true}) for (const bool grouped : {false, true}) {
+                        const auto catalog = [&](std::string_view name, TSourcePosition) {
+                            auto valueType = ParseType(type); valueType.Nullable = nullable;
+                            return TCatalogTable{std::string(name), {{"k", {ETypeKind::Int32}}, {"v", valueType}}};
+                        };
+                        const auto sql = std::string("SELECT ") + alias + "(v) AS s FROM t" + (grouped ? " GROUP BY k" : "");
+                        const auto compiled = CompileNative(sql, catalog, settings);
+                        const auto& program = compiled.Program->Get();
+                        UNIT_ASSERT(program.Results[0].Columns[0].Type == (TType{ETypeKind::Double, nullable || !grouped}));
+                        for (const auto& relation : program.Relations) if (relation.Kind == ERelation::Aggregate)
+                            UNIT_ASSERT_VALUES_EQUAL(relation.Aggregates[0].Function, "stddev_samp");
+                    }
+                }
+            }
+            for (const auto* sql : {"SELECT STDDEV_SAMPLE(DISTINCT value) FROM t", "SELECT STDDEV(value), AVG(value) FROM t",
+                    "SELECT value, STDDEV(id) FROM t GROUP BY ROLLUP(value)",
+                    "$f = ($x) -> { RETURN CASE WHEN Math::IsNaN($x) THEN NULL ELSE $x END; }; SELECT $f(STDDEV(value)) FROM t"})
+                UNIT_ASSERT(!CompileNative(sql, Catalog, settings).UsesLegacy());
+            settings.Mode = ECompilerMode::Auto;
+            for (const auto* sql : {"SELECT STDDEV(Decimal('1', 3, 2))", "SELECT STDDEV(value), COUNT(DISTINCT id) FROM t",
+                    "SELECT STDDEV(DISTINCT value), COUNT(*) FROM t",
+                    "SELECT STDDEV_POP(value) FROM t", "SELECT VARIANCE(value) FROM t"})
+                UNIT_ASSERT_C(CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+            // Window syntax uses generated-parser dispatch; it is outside
+            // both this aggregate feature and handwritten verification.
+            if (parser != EParser::Verify)
+                UNIT_ASSERT(CompileNative("SELECT STDDEV(value) OVER () FROM t", Catalog, settings).UsesLegacy());
+        }
+    }
+
     Y_UNIT_TEST(JoinStarsRequireUniqueOutputNames) {
         const auto catalog = [](std::string_view name, TSourcePosition) {
             const std::string prefix(name);
@@ -508,8 +543,8 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                                "SELECT CASE WHEN true THEN 1 END", "SELECT * FROM a CROSS JOIN b",
                                "SELECT 'a''b'", "SELECT 1 AS 'answer'", "$'x' = 1; SELECT 1",
                                "SELECT value + 1 FROM a GROUP BY value + 1",
-                               "SELECT id, STDDEV_SAMPLE(value) FROM a GROUP BY id",
-                               "SELECT id, STDDEV_SAMP(value) FROM a GROUP BY id"}) {
+                               "SELECT id, STDDEV_POP(value) FROM a GROUP BY id",
+                               "SELECT id, VAR_SAMP(value) FROM a GROUP BY id"}) {
             const auto result = CompileNative(sql, Catalog, settings);
             UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported, sql);
         }

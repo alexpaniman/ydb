@@ -9,6 +9,11 @@ namespace NKikimr::NKqp {
 namespace {
 TString String(std::string_view text) { return TString(text.data(), text.size()); }
 
+TString AggregateName(std::string_view name) {
+    // This existing backend trait computes sqrt(M2 / (count - 1)).
+    return name == "stddev_samp" ? TString("variance_1_1") : String(name);
+}
+
 NYql::TPositionHandle Position(NFrontend::TSourcePosition pos, NYql::TExprContext& ctx) {
     return ctx.AppendPosition(NYql::TPosition(pos.Column, pos.Line));
 }
@@ -153,7 +158,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                         TOrderedIUs<> keys; for (auto key : relation.GroupKeys) keys.Append(key);
                         TAggregationIUs aggregates;
                         for (const auto& aggregate : relation.Aggregates) aggregates.Add(aggregate.Output,
-                            TOpAggregationTraits{aggregate.Input, String(aggregate.Function), aggregate.Distinct});
+                            TOpAggregationTraits{aggregate.Input, AggregateName(aggregate.Function), aggregate.Distinct});
                         op = MakeIntrusive<TOpAggregate>(input(), std::move(aggregates), std::move(keys), EOpPhase::Undefined, false, pos);
                         break;
                     }
@@ -181,7 +186,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                         TAggregationIUs traits;
                         for (const auto& aggregate : relation.Aggregates) {
                             const auto value = registry.AddCopy(aggregate.Output);
-                            traits.Add(value, TOpAggregationTraits{rebind(aggregate.Input), String(aggregate.Function), aggregate.Distinct});
+                            traits.Add(value, TOpAggregationTraits{rebind(aggregate.Input), AggregateName(aggregate.Function), aggregate.Distinct});
                             values.Add(aggregate.Output, value);
                             auto type = program.Columns[aggregate.Output].Type;
                             if (set.empty() && aggregate.Function != "count") type = type.Optional();

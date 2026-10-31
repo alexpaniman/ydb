@@ -5,6 +5,7 @@
 #include <util/string/subst.h>
 
 #include <array>
+#include <cmath>
 #include <limits>
 
 namespace NKikimr::NKqp {
@@ -1847,6 +1848,119 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(SampleStandardDeviationMatchesExistingCompilers, ColumnStore) {
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto schema = session.ExecuteSchemeQuery(TString("CREATE TABLE `/Root/Deviation` (id Uint64 NOT NULL, g Int32 NOT NULL, v Int64, r Int64 NOT NULL, PRIMARY KEY(id)) WITH (") +
+                (ColumnStore ? "STORE = COLUMN, AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 4);" : "UNIFORM_PARTITIONS = 4);")).GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            TValueBuilder rows; rows.BeginList();
+            ui64 id = 0;
+            for (const auto& [group, value, required] : std::initializer_list<std::tuple<i32, std::optional<i64>, i64>>{
+                    {1, 1, 1}, {1, 3, 3}, {1, 5, 5}, {1, std::nullopt, 3}, {2, 7, 7},
+                    {3, std::nullopt, 0}, {3, std::nullopt, 0}, {4, 2, 2}, {4, 2, 2}}) {
+                ++id;
+                rows.AddListItem().BeginStruct().AddMember("id").Uint64((id % 4) * (ui64{1} << 62) + id).AddMember("g").Int32(group)
+                    .AddMember("v").OptionalInt64(value).AddMember("r").Int64(required).EndStruct();
+            }
+            rows.EndList();
+            const auto loaded = client.BulkUpsert("/Root/Deviation", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            const TString measures = "STDDEV(v) AS s, STDDEV_SAMPLE(r) AS r, STDDEV_SAMP(CAST(v AS Float)) AS f, "
+                "StdDevSample(CAST(v AS Uint64)) AS u, Math::IsNaN(STDDEV(v)) AS n";
+            for (const int scenario : {0, 1, 2, 3, 4, 5, 6}) {
+                const bool grouped = scenario == 0, single = scenario >= 4;
+                const TString sql = "SELECT " + (grouped ? TString("g, ") : TString{}) +
+                    (scenario == 4 ? "STDDEV_S(DISTINCT v) AS s" : scenario == 5 ? "STDDEV(CAST(v AS Double) / 0.0) AS s" :
+                        scenario == 6 ? "STDDEV((CAST(v AS Double) - v) / 0.0) AS s" : measures) + " FROM `/Root/Deviation`" +
+                    (grouped ? " GROUP BY g ORDER BY g" : scenario == 2 ? " WHERE g = 99" : scenario == 3 ? " WHERE g = 3" : " WHERE g = 1");
+                Cerr << "stddev strategy " << strategy << ": " << sql << Endl;
+                const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), grouped ? 4 : 1);
+                TVector<std::pair<TString, TString>> columns;
+                if (grouped) columns.emplace_back("g", "Int32");
+                columns.emplace_back("s", "Double?");
+                if (!single) {
+                    columns.emplace_back("r", grouped ? "Double" : "Double?");
+                    columns.emplace_back("f", "Double?"); columns.emplace_back("u", "Double?"); columns.emplace_back("n", "Bool?");
+                }
+                UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(result.GetResultSet(0)).Columns, columns);
+                const double nan = std::numeric_limits<double>::quiet_NaN();
+                const std::array<std::optional<double>, 4> optional{2.0, nan, std::nullopt, 0.0};
+                const std::array<double, 4> required{std::sqrt(8.0 / 3.0), nan, 0.0, 0.0};
+                TResultSetParser values(result.GetResultSet(0));
+                for (int row = 0; row < (grouped ? 4 : 1); ++row) {
+                    UNIT_ASSERT(values.TryNextRow());
+                    if (grouped) UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("g").GetInt32(), row + 1);
+                    const auto expected = grouped ? optional[row] : scenario == 2 || scenario == 3 ? std::nullopt : std::optional<double>{scenario >= 5 ? nan : 2.0};
+                    auto check = [&](const char* name, std::optional<double> wanted, bool requiredType = false) {
+                        const auto actual = requiredType ? std::optional<double>{values.ColumnParser(name).GetDouble()} : values.ColumnParser(name).GetOptionalDouble();
+                        UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(wanted), name);
+                        if (wanted) {
+                            if (std::isnan(*wanted)) UNIT_ASSERT_C(std::isnan(*actual), name);
+                            else UNIT_ASSERT_C(std::abs(*actual - *wanted) < 1e-12, TStringBuilder() << name << ": " << *actual << " != " << *wanted);
+                        }
+                    };
+                    check("s", expected);
+                    if (!single) {
+                        check("f", expected); check("u", expected);
+                        check("r", grouped ? std::optional<double>{required[row]} : scenario == 2 ? std::nullopt :
+                            std::optional<double>{scenario == 3 ? 0.0 : required[0]}, grouped);
+                        UNIT_ASSERT(values.ColumnParser("n").GetOptionalBool() == (expected ? std::optional<bool>{std::isnan(*expected)} : std::nullopt));
+                    }
+                }
+                UNIT_ASSERT(!values.TryNextRow());
+            }
+        }
+    }
+
+    Y_UNIT_TEST(RuntimeIsNaNMatchesBothExistingCompilers) {
+        const TString sql = "DECLARE $x AS Double; DECLARE $o AS Double?; DECLARE $f AS Float?; DECLARE $i AS Int64; DECLARE $u AS Uint64; "
+            "SELECT Math::IsNaN($x), Math::IsNaN($o), Math::IsNaN($f), Math::IsNaN($i), Math::IsNaN($u), Math::IsNaN(CAST(NULL AS Double))";
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto session = runner.GetTableClient().CreateSession().GetValueSync().GetSession();
+            std::size_t index = 0;
+            for (const double value : {0.0, -0.0, 1.5, -1.5, std::numeric_limits<double>::infinity(),
+                    -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN(), -std::numeric_limits<double>::quiet_NaN()}) {
+                for (const bool present : {false, true}) {
+                    const auto params = TParamsBuilder().AddParam("$x").Double(value).Build()
+                        .AddParam("$o").OptionalDouble(present ? std::optional<double>{value} : std::nullopt).Build()
+                        .AddParam("$f").OptionalFloat(present ? std::optional<float>{static_cast<float>(value)} : std::nullopt).Build()
+                        .AddParam("$i").Int64(std::numeric_limits<i64>::min()).Build()
+                        .AddParam("$u").Uint64(std::numeric_limits<ui64>::max()).Build().Build();
+                    const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                    const auto actual = Snapshot(result);
+                    TResultSetParser values(result.GetResultSet(0)); UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(0).GetBool(), std::isnan(value));
+                    for (const int col : {1, 2}) UNIT_ASSERT(values.ColumnParser(col).GetOptionalBool() == (present ? std::optional<bool>{std::isnan(value)} : std::nullopt));
+                    for (const int col : {3, 4}) UNIT_ASSERT(!values.ColumnParser(col).GetBool());
+                    UNIT_ASSERT(!values.ColumnParser(5).GetOptionalBool());
+                    if (strategy == 2) reference.push_back(actual); else AssertSame(actual, reference.at(index));
+                    ++index;
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(JoinStarsPreserveValuesNamesAndNullability, ColumnStore) {
         struct TRow { i32 Id; std::optional<i32> Key; const char* Value; };
         const std::array<TRow, 4> leftRows{{{1, 10, "A"}, {2, 20, "B"}, {3, std::nullopt, nullptr}, {4, 10, "C"}}};
