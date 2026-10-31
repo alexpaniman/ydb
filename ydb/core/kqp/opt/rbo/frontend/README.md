@@ -208,6 +208,10 @@ either operand. Integer division uses the existing runtime's coefficient
 rounding, including its negative-divisor quirk: non-ties truncate, while exact
 ties round to even. The native evaluator and constant folder preserve that
 behavior; the backend lowers directly to DecimalDiv. No old runtime is changed.
+Decimal COALESCE permits precision widening when all Decimal operands retain
+the same scale. It preserves coefficients and each alternative's nullability,
+including 35-digit SUM results with a narrower zero fallback. Different scales
+and mixed integer/Decimal alternatives still require explicit casts.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
 DisableAnsiInForEmptyOrNullableItemsCollections, AnsiCurrentRow and DisableAnsiCurrentRow.
@@ -329,8 +333,9 @@ Explicitly outside the profile:
   text parsing to types other than Date, and runtime casts from temporal inputs to non-temporal types.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
   conversions are excluded. Apart from integer multiplication factors and divisors, Decimal
-  arithmetic and COALESCE require matching input types or explicit casts; their mixed-type rules differ from comparison
-  and IF/UNION promotion.
+  arithmetic requires matching input types or explicit casts. COALESCE additionally
+  permits same-scale Decimal precision widening; its other mixed-type rules remain
+  outside the profile, independently of comparison and IF/UNION promotion.
 - Float to Int32/Uint32/Int64/Uint64: the existing runtime rounds the upper
   integer bound to Float before checking, admitting an out-of-range value.
   These casts remain explicit unsupported features; no existing runtime fix is
@@ -451,7 +456,7 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 97/99 | 2 |
+| TPC-DS | 98/99 | 1 |
 | ClickBench | 39/43 | 4 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
@@ -466,8 +471,9 @@ Join-star expansion with unique output names admits Q10, Q35, Q69 and Q88.
 Q88 has populated execution coverage; the other three have frontend coverage.
 Sample standard deviation and `Math::IsNaN` additionally admit Q17/Q39 at the
 frontend. Q39 has populated execution coverage below; Q17 is still pending.
-The remaining frontend rejections are mixed DISTINCT/AVG tuple state (Q28)
-and mixed Decimal arithmetic (Q78).
+Same-scale Decimal COALESCE widening additionally admits Q78 at the frontend;
+its populated benchmark execution is still pending. The remaining frontend
+rejection is mixed DISTINCT/AVG tuple state (Q28).
 
 Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
 Q24, Q54 and Q66. Q24, Q54 and Q66 have populated execution parity below; Q4
@@ -528,6 +534,16 @@ unchanged aggregation regressions. All 82 standalone frontend tests pass; both
 parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
+
+The same-scale Decimal COALESCE increment passed all 97 standalone frontend
+tests and four selected runtime/host tests. All three compiler paths agree on
+exact parameterized values and metadata for nullable/required alternatives,
+operand order, three arguments, 35-digit limits, infinities and NaNs. A required
+first alternative keeps an unreachable failing Unwrap unevaluated. Native
+evaluation and constant folding preserve coefficients at scales 0, 2 and 3.
+All 22 populated TPC-H and 36 populated TPC-DS regressions pass. With the corpus
+probe's schema-nullability handling corrected, both parsers agree on all 164
+routes and diagnostics; Q78 now binds natively, and only Q28 delegates in TPC-DS.
 
 The sample-deviation increment passed all 95 standalone frontend tests and five
 selected host tests. Row/column fixtures compare all three compiler paths on

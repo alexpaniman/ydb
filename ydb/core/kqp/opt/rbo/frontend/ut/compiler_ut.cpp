@@ -32,6 +32,27 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(DecimalCoalesceWidensPrecisionWithoutChangingScale) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(R"(
+                DECLARE $a AS Decimal(7,2)?; DECLARE $b AS Decimal(35,2)?; DECLARE $c AS Decimal(12,2);
+                SELECT COALESCE($a,$b), COALESCE($b,$a), COALESCE($a,$c,$b), COALESCE($c,$b),
+                    COALESCE($a,Decimal('0',35,2)), COALESCE(NULL,$a,$b)
+            )", Catalog, settings);
+            const auto& columns = compiled.Program->Get().Results[0].Columns;
+            UNIT_ASSERT_VALUES_EQUAL(columns.size(), 6);
+            for (std::size_t i = 0; i < columns.size(); ++i)
+                UNIT_ASSERT(columns[i].Type == (TType{ETypeKind::Decimal, i < 2 || i == 5, 35, 2}));
+            settings.Mode = ECompilerMode::Auto;
+            for (const auto* sql : {
+                    "SELECT COALESCE(IF(false,Decimal('1',7,2)),Decimal('2',8,3))",
+                    "SELECT COALESCE(IF(false,Decimal('1',7,2)),1)",
+                    "SELECT Decimal('1',7,2) + Decimal('2',12,2)"})
+                UNIT_ASSERT_C(CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+        }
+    }
+
     Y_UNIT_TEST(SampleStandardDeviationHasExplicitTypesAndBoundaries) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;

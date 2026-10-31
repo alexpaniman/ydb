@@ -1910,6 +1910,56 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST(RuntimeDecimalCoalesceWideningMatchesBothExistingCompilers) {
+        const TString sql = R"(
+            DECLARE $a AS Decimal(7,2)?; DECLARE $b AS Decimal(35,2)?; DECLARE $c AS Decimal(12,2);
+            SELECT COALESCE($a,$b) AS c0, COALESCE($b,$a) AS c1, COALESCE($a,$c,$b) AS c2,
+                COALESCE($c,$b) AS c3, COALESCE($a,Decimal('0',35,2)) AS c4, COALESCE(NULL,$a,$b) AS c5,
+                COALESCE($b,Decimal('0',7,2)) AS c6, COALESCE($c,Unwrap(CAST(NULL AS Decimal(35,2)))) AS c7
+        )";
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto session = runner.GetTableClient().CreateSession().GetValueSync().GetSession();
+            std::size_t index = 0;
+            for (const auto* a : {static_cast<const char*>(nullptr), "0", "1.25", "-99999.99", "99999.99", "inf", "-inf", "nan"}) {
+                for (const auto* b : {static_cast<const char*>(nullptr), "0", "-999999999999999999999999999999999.99",
+                        "999999999999999999999999999999999.99", "inf", "-inf", "nan"}) {
+                    auto builder = TParamsBuilder();
+                    for (const auto& [name, text, precision] : std::initializer_list<std::tuple<const char*, const char*, ui8>>{
+                            {"$a", a, 7}, {"$b", b, 35}}) {
+                        auto& value = builder.AddParam(name);
+                        if (text) value.BeginOptional().Decimal(TDecimalValue(text, precision, 2)).EndOptional().Build();
+                        else value.EmptyOptional(TTypeBuilder().Decimal({precision, 2}).Build()).Build();
+                    }
+                    builder.AddParam("$c").Decimal(TDecimalValue("3.25", 12, 2)).Build();
+                    const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), builder.Build()).GetValueSync();
+                    const auto actual = Snapshot(result);
+                    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), 1);
+                    TResultSetParser values(result.GetResultSet(0)); UNIT_ASSERT(values.TryNextRow());
+                    const std::array<const char*, 8> expected{a ? a : b, b ? b : a, a ? a : "3.25", "3.25", a ? a : "0", a ? a : b, b ? b : "0", "3.25"};
+                    TVector<std::pair<TString, TString>> columns;
+                    for (std::size_t col = 0; col < expected.size(); ++col) {
+                        const bool optional = col < 2 || col == 5;
+                        const auto type = TTypeBuilder().Decimal({35, 2}).Build();
+                        columns.emplace_back("c" + ToString(col), (optional ? TTypeBuilder().Optional(type).Build() : type).ToString());
+                        const auto value = optional ? values.ColumnParser(col).GetOptionalDecimal() : std::optional<TDecimalValue>{values.ColumnParser(col).GetDecimal()};
+                        UNIT_ASSERT_VALUES_EQUAL(bool(value), expected[col] != nullptr);
+                        if (value) UNIT_ASSERT_VALUES_EQUAL(value->ToString(), TDecimalValue(expected[col], 35, 2).ToString());
+                    }
+                    UNIT_ASSERT_VALUES_EQUAL(actual.Columns, columns);
+                    if (strategy == 2) reference.push_back(actual); else AssertSame(actual, reference.at(index));
+                    ++index;
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(SampleStandardDeviationMatchesExistingCompilers, ColumnStore) {
         for (const int strategy : {2, 0, 1}) {
             NKikimrConfig::TAppConfig config;

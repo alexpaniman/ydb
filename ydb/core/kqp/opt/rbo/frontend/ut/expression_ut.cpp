@@ -21,6 +21,28 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(DecimalCoalescePreservesCoefficientsAndOptionality) {
+        for (const std::uint8_t scale : {0, 2, 3}) for (const bool fallbackRequired : {false, true}) {
+            TExpressionArena arena;
+            const TType narrow{K::Decimal, true, 3, scale}, wide{K::Decimal, !fallbackRequired, 35, scale};
+            for (const auto& first : {TScalar{std::monostate{}}, TScalar{TDecimal{-999}}, TScalar{TDecimal{0}}, TScalar{TDecimal{999}},
+                    TScalar{TDecimal{TDecimal::Inf()}}, TScalar{TDecimal{-TDecimal::Inf()}}, TScalar{TDecimal{TDecimal::NaN()}}}) {
+                for (const auto& second : {TScalar{std::monostate{}}, TScalar{TDecimal{123456789}}, TScalar{TDecimal{TDecimal::NaN()}}}) {
+                    if (fallbackRequired && std::holds_alternative<std::monostate>(second)) continue;
+                    const TExprId args[]{arena.Literal(narrow, first), arena.Literal(wide, second)};
+                    const auto result = arena.Coalesce(args);
+                    const auto expected = std::holds_alternative<std::monostate>(first) ? second : first;
+                    UNIT_ASSERT(arena[result].Type == wide);
+                    UNIT_ASSERT(Evaluate(arena, result).Data == expected);
+                    const TExprId roots[]{result};
+                    const auto folded = arena.FoldConstants(roots).front();
+                    UNIT_ASSERT(arena[folded].Type == wide);
+                    UNIT_ASSERT(Evaluate(arena, folded).Data == expected);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(IsNaNUsesScalarIeeeComparisonAndPreservesNulls) {
         for (const auto kind : {K::Float, K::Double}) for (const bool nullable : {false, true}) {
             TExpressionArena arena;
