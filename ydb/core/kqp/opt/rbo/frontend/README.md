@@ -457,7 +457,7 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Thirty-five TPC-DS queries also have populated native-required execution
+tables. Thirty-six TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -465,7 +465,7 @@ unsupported diagnostics per query, including unavailable statistical aggregates.
 Join-star expansion with unique output names admits Q10, Q35, Q69 and Q88.
 Q88 has populated execution coverage; the other three have frontend coverage.
 Sample standard deviation and `Math::IsNaN` additionally admit Q17/Q39 at the
-frontend; populated execution of those original queries is still pending.
+frontend. Q39 has populated execution coverage below; Q17 is still pending.
 The remaining frontend rejections are mixed DISTINCT/AVG tuple state (Q28)
 and mixed Decimal arithmetic (Q78).
 
@@ -602,11 +602,19 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Thirty-five TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
-Q38, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q82, Q86, Q87, Q88, Q89, Q90,
+Thirty-six TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
+Q38, Q39, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q82, Q86, Q87, Q88, Q89, Q90,
 Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
+Q39 checks both original result sets against exact expected values, with three
+rows in the first and two in the second. Inventory groups have sample deviations
+2, 4, 6 or 8 and coefficients 2 or 4/3. Exclusions cover zero/negative means,
+the exact coefficient-one threshold, singleton/all-NULL groups, missing months
+and dimensions, and wrong/NULL years. A NULL warehouse name and a shared item
+across warehouses exercise the grouping and self-join keys. All 36 queries pass
+together through all three compiler paths, with the previous 35 expectations
+unchanged and the original SQL, schemas, helpers and settings preserved.
 Q24 checks Unicode country comparison, both return-join keys, NULL dimensions
 and amounts, the strict 5% threshold, and grouped amounts that collapse in the
 outer aggregation; its three paid totals are 30, 50 and 21. Q54 checks duplicate

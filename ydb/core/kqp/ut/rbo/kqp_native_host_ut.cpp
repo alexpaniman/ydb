@@ -689,7 +689,9 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {95, "1999-03-01"}, {96, "1999-03-31"}, {97, "1998-03-01"},
             {100, "2002-01-01"}, {101, "2002-02-01"}, {102, "2002-03-01"}, {103, "2002-04-01"},
             {104, "2002-05-01"}, {105, "2002-06-01"}, {106, "2002-07-01"}, {107, "2002-08-01"},
-            {108, "2002-09-01"}, {109, "2002-10-01"}, {110, "2002-11-01"}, {111, "2002-12-01"}}) {
+            {108, "2002-09-01"}, {109, "2002-10-01"}, {110, "2002-11-01"}, {111, "2002-12-01"},
+            {170, "1998-04-01"}, {171, "1998-04-02"}, {172, "1998-04-03"}, {173, "1998-04-04"},
+            {174, "1998-05-01"}, {175, "1998-05-02"}, {176, "1998-05-03"}, {177, "1998-05-04"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -807,6 +809,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     appendItem(1401, nullptr, std::nullopt, nullptr, nullptr, nullptr, std::nullopt, {nullptr, nullptr, "orchid", nullptr, nullptr});
     appendItem(1402, "1", std::nullopt, nullptr, nullptr, nullptr, 7, {nullptr, nullptr, "red", "Each", "Small"});
     appendItem(1403, nullptr, std::nullopt, nullptr, nullptr);
+    for (i64 id = 1800; id <= 1808; ++id) appendItem(id, nullptr, std::nullopt, nullptr, nullptr);
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -899,6 +902,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {150, "Round", 2}, {151, "Round", 2}, {152, "Negative", -3}, {153, "Zero", 0}, {154, "ZeroZero", 0},
             {155, "Null", std::nullopt}, {156, "NullAmount", 2}, {157, "Qty", 100}})
         appendWarehouse(id, name, nullptr, area);
+    appendWarehouse(170, "Deviation", nullptr);
+    appendWarehouse(171, nullptr, nullptr);
     load("warehouse", warehouse);
     TValueBuilder modes; modes.BeginList();
     for (const auto& [id, name] : std::initializer_list<std::pair<i64, const char*>>{{90, "AIR"}, {91, "SEA"}, {92, nullptr}})
@@ -934,6 +939,33 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             .AddMember("inv_warehouse_sk").Int64(item == 108 ? 999 : 1)
             .AddMember("inv_quantity_on_hand").OptionalInt64(quantity).EndStruct();
     }
+    // Q39: independently known sample deviations in adjacent months. Distinct
+    // warehouses share an item; NULL measures do not change the finite groups.
+    auto inventoryRow = [&](i64 date, i64 item, i64 warehouse, std::optional<i64> quantity) {
+        inventory.AddListItem().BeginStruct().AddMember("inv_date_sk").Int64(date).AddMember("inv_item_sk").Int64(item)
+            .AddMember("inv_warehouse_sk").Int64(warehouse).AddMember("inv_quantity_on_hand").OptionalInt64(quantity).EndStruct();
+    };
+    auto monthInventory = [&](i64 item, i64 warehouse, i64 date, std::initializer_list<std::optional<i64>> quantities) {
+        for (const auto quantity : quantities) inventoryRow(date++, item, warehouse, quantity);
+    };
+    monthInventory(1800, 170, 170, {-1, 1, 3, std::nullopt});
+    monthInventory(1800, 170, 174, {-2, 2, 6, std::nullopt});
+    monthInventory(1801, 170, 170, {-1, 3, 7, std::nullopt});
+    monthInventory(1801, 170, 174, {-2, 6, 14, std::nullopt});
+    monthInventory(1800, 171, 170, {-3, 3, 9, std::nullopt});
+    monthInventory(1800, 171, 174, {-4, 4, 12, std::nullopt});
+    monthInventory(1802, 170, 170, {-2, 0, 2}); // zero mean
+    monthInventory(1803, 170, 170, {-3, -1, 1}); // negative mean
+    monthInventory(1804, 170, 170, {0, 1, 2}); // coefficient exactly one
+    monthInventory(1805, 170, 170, {std::nullopt, std::nullopt});
+    monthInventory(1806, 170, 170, {7, std::nullopt}); // singleton -> NaN
+    for (i64 item = 1802; item <= 1806; ++item) monthInventory(item, 170, 174, {-2, 2, 6});
+    monthInventory(1807, 170, 170, {-1, 1, 3}); // no May group
+    for (const i64 date : {170, 174}) {
+        monthInventory(1808, 99999, date, {-1, 1, 3}); // missing warehouse
+        monthInventory(1809, 170, date, {-1, 1, 3}); // missing item
+    }
+    for (const i64 date : {4, 90, 93, 99999}) inventoryRow(date, 1800, 170, 999); // NULL year, wrong month/year, missing date
     load("inventory", inventory);
     struct TSale {
         i64 Item;
@@ -1492,13 +1524,13 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
         UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
         UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
-        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), query == 23 ? 2 : 1);
+        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), query == 23 || query == 39 ? 2 : 1);
         UNIT_ASSERT_VALUES_EQUAL_C(result.GetResultSet(0).RowsCount(), expectedRows, SnapshotRows(result.GetResultSet(0)).Values);
         TResultSetParser values(result.GetResultSet(0));
         auto assertDecimal = [&](const char* column, const std::optional<std::string>& expected) {
@@ -1506,7 +1538,37 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 88) {
+        if (query == 39) {
+            for (std::size_t setIndex = 0; setIndex < 2; ++setIndex) {
+                const auto& set = result.GetResultSet(setIndex);
+                UNIT_ASSERT_VALUES_EQUAL(set.RowsCount(), setIndex == 0 ? 3 : 2);
+                TVector<std::pair<TString, TString>> columns;
+                for (const auto* prefix : {"inv1_", "inv2_"}) {
+                    columns.emplace_back(TString(prefix) + "w_warehouse_sk", "Int64");
+                    columns.emplace_back(TString(prefix) + "i_item_sk", "Int64");
+                    columns.emplace_back(TString(prefix) + "d_moy", "Int64?");
+                    columns.emplace_back(TString(prefix) + "mean", "Double?");
+                    columns.emplace_back(TString(prefix) + "cov", "Double?");
+                }
+                UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(set).Columns, columns);
+                TResultSetParser pairs(set);
+                for (const auto& [warehouse, item, april, may, coefficient] :
+                        std::initializer_list<std::tuple<i64, i64, double, double, double>>{
+                            {170, 1800, 1, 2, 2}, {170, 1801, 3, 6, 4.0 / 3.0}, {171, 1800, 3, 4, 2}}) {
+                    if (setIndex == 1 && item == 1801) continue;
+                    UNIT_ASSERT(pairs.TryNextRow());
+                    for (const bool second : {false, true}) {
+                        const TString prefix = second ? "inv2_" : "inv1_";
+                        UNIT_ASSERT_VALUES_EQUAL(pairs.ColumnParser(prefix + "w_warehouse_sk").GetInt64(), warehouse);
+                        UNIT_ASSERT_VALUES_EQUAL(pairs.ColumnParser(prefix + "i_item_sk").GetInt64(), item);
+                        UNIT_ASSERT_VALUES_EQUAL(pairs.ColumnParser(prefix + "d_moy").GetOptionalInt64().value(), second ? 5 : 4);
+                        UNIT_ASSERT_VALUES_EQUAL(pairs.ColumnParser(prefix + "mean").GetOptionalDouble().value(), second ? may : april);
+                        UNIT_ASSERT_VALUES_EQUAL(pairs.ColumnParser(prefix + "cov").GetOptionalDouble().value(), coefficient);
+                    }
+                }
+                UNIT_ASSERT(!pairs.TryNextRow());
+            }
+        } else if (query == 88) {
             TVector<TString> names{"h8_30_to_9", "h9_to_9_30", "h9_30_to_10", "h10_to_10_30", "h10_30_to_11", "h11_to_11_30", "h11_30_to_12", "h12_to_12_30"};
             UNIT_ASSERT(values.TryNextRow());
             for (std::size_t i = 0; i < names.size(); ++i) UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(names[i]).GetUint64(), i + 1);
