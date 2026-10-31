@@ -235,9 +235,10 @@ private:
             return Call("Apply", std::move(args), returned);
         });
     }
-    TExprNode::TPtr StringCase(TExprNode::TPtr value, NFrontend::TType type, bool upper) {
+    TExprNode::TPtr StringCase(TExprNode::TPtr value, NFrontend::TType type, bool upper, bool unicode = false) {
         return Present({value}, {type}, type, [&](TExprNode::TListType args) {
-            const auto* stringType = ExportNativeType({K::String}, Ctx);
+            const NFrontend::TType scalar{unicode ? K::Utf8 : K::String};
+            const auto* stringType = ExportNativeType(scalar, Ctx);
             const auto* voidType = Ctx.MakeType<TVoidExprType>();
             auto voidValue = Ctx.NewCallable(Pos, "Void", {});
             voidValue->SetTypeAnn(voidType);
@@ -245,12 +246,14 @@ private:
                 TVector<TCallableExprType::TArgumentInfo>{{stringType, {}, NUdf::ICallablePayload::TArgumentFlags::AutoMap}}, 0, TStringBuf{});
             auto settings = Ctx.NewList(Pos, {Ctx.NewList(Pos, {Atom("strict")})});
             AnnotateTypeSyntax(*settings);
-            auto udf = Ctx.NewCallable(Pos, "Udf", {Atom(upper ? "String.AsciiToUpper" : "String.AsciiToLower"),
+            const auto* name = unicode ? (upper ? "Unicode.ToUpper" : "Unicode.ToLower") :
+                (upper ? "String.AsciiToUpper" : "String.AsciiToLower");
+            auto udf = Ctx.NewCallable(Pos, "Udf", {Atom(name),
                 voidValue, Type(voidType), Atom(""), Type(signature),
                 Type(voidType), Atom(""), settings});
             udf->SetTypeAnn(signature);
-            auto result = Call("Apply", {udf, Cast(args[0], type.Required(), {K::String})}, {K::String});
-            if (type.Kind == K::Utf8) {
+            auto result = Call("Apply", {udf, Cast(args[0], type.Required(), scalar)}, scalar);
+            if (type.Kind == K::Utf8 && !unicode) {
                 // ASCII case changes preserve the validity of the original UTF-8.
                 result = Call("Unwrap", {Cast(result, {K::String}, {K::Utf8, true})}, {K::Utf8});
             }
@@ -337,6 +340,7 @@ private:
             case O::EndsWith: return Call("EndsWith", std::move(args), type);
             case O::Concat: return Call("Concat", std::move(args), type);
             case O::Lower: case O::Upper: return StringCase(args[0], type, node.Op == O::Upper);
+            case O::UnicodeLower: case O::UnicodeUpper: return StringCase(args[0], type, node.Op == O::UnicodeUpper, true);
             case O::Substring: return Call("Substring", std::move(args), type);
             case O::Find: return Call("Find", std::move(args), type);
             case O::CalendarSplit: return CalendarApply("DateTime2.Split", std::move(args), types, type);

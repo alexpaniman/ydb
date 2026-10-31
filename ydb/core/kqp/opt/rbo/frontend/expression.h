@@ -77,6 +77,7 @@ struct TValue {
 // and remainder return NULL for zero divisors and signed division overflow.
 // Decimal scale reductions round to nearest, ties to even. Decimal arithmetic
 // preserves infinity/NaN; overflow and division by zero do not introduce NULL.
+// Division by a negative integer retains the runtime's truncation of non-ties.
 enum class EOpcode : std::uint8_t {
     Literal, Column, Parameter, Convert, Cast,
     Negate, Not, Add, Subtract, Multiply, Divide, Modulo,
@@ -86,7 +87,7 @@ enum class EOpcode : std::uint8_t {
     Concat, Ensure, StablePickle, Find,
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
     CalendarShiftMonths, CalendarShiftYears,
-    Unwrap,
+    Unwrap, UnicodeLower, UnicodeUpper,
 };
 
 struct TExprNode {

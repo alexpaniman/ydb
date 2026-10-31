@@ -32,6 +32,19 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(UnicodeCaseHasUtf8InputsAndResults) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative("DECLARE $x AS Utf8?; SELECT Unicode::ToUpper($x), Unicode::ToLower(Utf8('AZ')), Unicode::ToUpper('a'), Unicode::ToLower(NULL)", Catalog, settings);
+            const auto& columns = compiled.Program->Get().Results[0].Columns;
+            for (std::size_t i = 0; i < columns.size(); ++i)
+                UNIT_ASSERT(columns[i].Type == (TType{ETypeKind::Utf8, i == 0 || i == 3}));
+            for (const auto* sql : {"DECLARE $x AS String; SELECT Unicode::ToUpper($x)", "SELECT Unicode::ToLower(1)",
+                    "SELECT Unicode::ToUpper()", "SELECT Unicode::ToLower('a','b')"})
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TFrontendError, sql);
+        }
+    }
+
     Y_UNIT_TEST(UnnamedGroupingCapturesItsDefinitionScope) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser;
@@ -520,12 +533,37 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             const auto& productColumns = products.Program->Get().Results[0].Columns;
             for (std::size_t i = 0; i < productColumns.size(); ++i)
                 UNIT_ASSERT(productColumns[i].Type == (TType{ETypeKind::Decimal, i == 2, 3, 2}));
+            const auto divisions = CompileNative("DECLARE $i AS Int64; DECLARE $u AS Uint64?; SELECT Decimal('1.25',3,2) / $i, Decimal('0',35,35) / $u, CAST(Decimal('125',8,2) / 50 AS int)", Catalog, settings);
+            const auto& divisionColumns = divisions.Program->Get().Results[0].Columns;
+            UNIT_ASSERT(divisionColumns[0].Type == (TType{ETypeKind::Decimal, false, 3, 2}));
+            UNIT_ASSERT(divisionColumns[1].Type == (TType{ETypeKind::Decimal, true, 35, 35}));
+            UNIT_ASSERT(divisionColumns[2].Type == (TType{ETypeKind::Int32, true}));
             for (const auto* sql : {"SELECT Decimal('1e2',8,2)", "SELECT CAST('1e2' AS Decimal(8,2))",
                 "SELECT Decimal('1',8,2) + 1", "SELECT Decimal('1',8,2) + Decimal('1',12,2)",
-                "SELECT Decimal('1',8,2) / 2", "SELECT Decimal('1',8,2) % 2",
+                "SELECT 2 / Decimal('1',8,2)", "SELECT Decimal('1',8,2) % 2",
                 "SELECT COALESCE(IF(false, Decimal('1.25',8,2)), 1L)",
                 "DECLARE $s AS String; SELECT CAST($s AS Decimal(8,2))"})
                 UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
+        }
+    }
+
+    Y_UNIT_TEST(SqlScalarAliasesUseCanonicalTypes) {
+        using K = ETypeKind;
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto& [alias, kind] : {std::pair{"tinyint", K::Int8}, {"SMALLINT", K::Int16},
+                    {"int", K::Int32}, {"Integer", K::Int32}, {"bigint", K::Int64}, {"varchar", K::String}}) {
+                const auto sql = std::string("DECLARE $x AS ") + alias + "?; SELECT $x, CAST('12' AS " + alias + "), " + alias + "('12')";
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& program = compiled.Program->Get();
+                UNIT_ASSERT(program.Parameters.at("x") == (TType{kind, true}));
+                const auto& columns = program.Results[0].Columns;
+                UNIT_ASSERT(columns[0].Type == (TType{kind, true}));
+                UNIT_ASSERT(columns[1].Type == (TType{kind, kind != K::String}));
+                UNIT_ASSERT(columns[2].Type == (TType{kind}));
+            }
+            for (const auto* sql : {"SELECT CAST(1 AS byte)", "SELECT CAST('a' AS varchar123)", "SELECT CAST('a' AS varchar(12))"})
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TFrontendError, sql);
         }
     }
 

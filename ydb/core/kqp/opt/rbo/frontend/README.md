@@ -163,6 +163,12 @@ temporal types. Total casts preserve non-nullability, including integer to
 floating point. Floating division preserves IEEE infinity/NaN. Substring slices
 String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
 other integral offsets must be literals that fit Uint32.
+Unicode::ToUpper/ToLower accept Utf8 values and valid UTF-8 string literals,
+preserve optionality, and use the runtime's simple Unicode codepoint mapping.
+Native evaluation uses the generic Unicode library; terminal backend lowering
+calls the typed Unicode runtime functions directly.
+The SQL aliases tinyint, smallint, int/integer, bigint and varchar resolve to
+canonical scalar types in declarations, casts and literal constructors.
 Integer comparisons preserve each operand's width and signedness and compare
 their mathematical values, including Int64 against Uint64. They return nullable
 Bool when either input is nullable; no common-type casts are needed. Arithmetic,
@@ -188,6 +194,11 @@ Decimal multiplication also accepts integer factors in either order, preserving
 the Decimal operand's precision and scale. The factor remains integral: a large
 integer cannot overflow an intermediate Decimal cast and change a zero product
 into NaN. Overflow, infinity, NaN and NULL follow the existing runtime directly.
+Decimal division accepts an integer divisor without widening or rescaling
+either operand. Integer division uses the existing runtime's coefficient
+rounding, including its negative-divisor quirk: non-ties truncate, while exact
+ties round to even. The native evaluator and constant folder preserve that
+behavior; the backend lowers directly to DecimalDiv. No old runtime is changed.
 CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
 DisableAnsiInForEmptyOrNullableItemsCollections, AnsiCurrentRow and DisableAnsiCurrentRow.
@@ -303,11 +314,11 @@ Explicitly outside the profile:
   ordering other than whole partitions. Windows inside correlated scalar/EXISTS/IN subqueries,
   subqueries in window arguments/keys, and direct window calls in ORDER BY are
   excluded; ordering by a projected window alias is supported.
-- UDFs, higher-order values, containers/structs/tuples, nested optionals.
+- Arbitrary UDFs, higher-order values, containers/structs/tuples, nested optionals.
 - Bare-NULL arithmetic, dynamic
   text parsing to types other than Date, and runtime casts from temporal inputs to non-temporal types.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
-  conversions are excluded. Apart from integer multiplication factors, Decimal
+  conversions are excluded. Apart from integer multiplication factors and divisors, Decimal
   arithmetic and COALESCE require matching input types or explicit casts; their mixed-type rules differ from comparison
   and IF/UNION promotion.
 - Float to Int32/Uint32/Int64/Uint64: the existing runtime rounds the upper
@@ -430,16 +441,23 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 87/99 | 12 |
+| TPC-DS | 91/99 | 8 |
 | ClickBench | 39/43 | 4 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Thirty-one TPC-DS queries also have populated native-required execution
+tables. Thirty-three TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
+
+Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
+Q24, Q54 and Q66. Q24 and Q54 have populated execution parity below; Q4 and
+Q66 still need execution validation. The original Q4 web-sales branch emits
+`sale_type = 's'`, while its final join requires `'w'`, so that unchanged query
+is logically empty for every dataset. This pre-existing SQL issue is not repaired
+or used as evidence of nonempty-result arithmetic coverage.
 
 The set-operation increment newly admits Q8, Q49 and Q75. Q8 additionally has
 populated execution parity across all three compilers, with duplicate zip
@@ -494,6 +512,17 @@ parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
 
+The Decimal-divisor and Unicode-case increment passed all 92 standalone frontend
+tests and nine selected runtime/host tests. Decimal arithmetic is compared with
+the existing runtime across all eight integer widths and four Decimal shapes,
+including negative-divisor rounding, NULLs, overflow, infinity and NaN. Parameter
+tests compare values and metadata with both existing compiler paths. Unicode
+tests check required/optional inputs, invalid String-to-Utf8 casts, supplementary
+codepoints, combining characters and embedded zero bytes. Terminal runtime
+tests require no expression annotation or semantic lowering pass. All 22
+populated TPC-H and 33 populated TPC-DS queries pass together with their original
+SQL, schemas, helpers and settings.
+
 The full-join boundary passed 20 targeted compiler/integration tests. Row and
 column fixtures pin the old frontend plus new RBO's incorrect residual-filter
 matches, require native-required rejection, and verify explicit whole-query
@@ -535,15 +564,21 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Thirty-one TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q27, Q32, Q36, Q37,
-Q38, Q40, Q41, Q47, Q51, Q53, Q57, Q62, Q63, Q70, Q82, Q86, Q87, Q89, Q90,
+Thirty-three TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
+Q38, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q70, Q82, Q86, Q87, Q89, Q90,
 Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
+Q24 checks Unicode country comparison, both return-join keys, NULL dimensions
+and amounts, the strict 5% threshold, and grouped amounts that collapse in the
+outer aggregation; its three paid totals are 30, 50 and 21. Q54 checks duplicate
+customers across both channels, distinct scalar month queries, date bounds,
+address-based store matching and Decimal-to-integer segment rounding. Its five
+segment/count results are `(NULL,1), (-2,1), (0,1), (2,3), (4,1)`.
 Q47/Q57 exercise mixed signed/unsigned rank offsets and adjacent-month joins,
 with duplicate sales, missing ranks, NULL keys, zero/NULL means and exact
 deviation thresholds. Q90 checks the count ratio 5/(1+3)=1.25, including both
-hour/character bounds and missing/NULL dimension rows. All 31 pass together
+hour/character bounds and missing/NULL dimension rows. All 33 pass together
 through all three compiler paths with the original SQL, schemas and helpers.
 Q22, Q27, Q36 and Q86 check four-key inventory rollup, demographic-filtered
 averages, hierarchy margins and sales ranks. Their independent expected values

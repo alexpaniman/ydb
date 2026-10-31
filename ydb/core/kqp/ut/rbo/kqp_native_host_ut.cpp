@@ -684,7 +684,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {74, "2002-04-01"}, {75, "2001-02-30"},
             {80, "1999-02-01"}, {81, "1999-04-02"}, {82, "1999-01-31"}, {83, "1999-04-03"},
             {84, "1999-05-01"}, {85, "1999-06-30"}, {86, "1999-04-30"}, {87, "1999-07-01"},
-            {90, "1998-01-01"}, {91, "1998-12-31"}, {92, "1997-12-31"}, {93, "1999-01-01"}, {94, "1999-12-01"}}) {
+            {90, "1998-01-01"}, {91, "1998-12-31"}, {92, "1997-12-31"}, {93, "1999-01-01"}, {94, "1999-12-01"},
+            {95, "1999-03-01"}, {96, "1999-03-31"}, {97, "1998-03-01"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -794,6 +795,14 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {1200, "Main"}, {1201, "Threshold"}, {1202, "Zero"}, {1203, "Null"}, {1204, nullptr}, {1206, "Missing"}})
         appendItem(id, nullptr, std::nullopt, "Adjacent", nullptr, brand);
     appendItem(1205, nullptr, std::nullopt, nullptr, nullptr, "Main");
+    for (const auto& [id, category, itemClass] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
+            {1300, "Jewelry", "consignment"}, {1301, "Other", "consignment"}, {1302, "Jewelry", "Other"},
+            {1303, nullptr, "consignment"}, {1304, "Jewelry", nullptr}})
+        appendItem(id, nullptr, std::nullopt, category, itemClass);
+    appendItem(1400, "10", std::nullopt, nullptr, nullptr, nullptr, 7, {nullptr, nullptr, "orchid", "Each", "Small"});
+    appendItem(1401, nullptr, std::nullopt, nullptr, nullptr, nullptr, std::nullopt, {nullptr, nullptr, "orchid", nullptr, nullptr});
+    appendItem(1402, "1", std::nullopt, nullptr, nullptr, nullptr, 7, {nullptr, nullptr, "red", "Each", "Small"});
+    appendItem(1403, nullptr, std::nullopt, nullptr, nullptr);
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -808,14 +817,21 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             .AddMember("s_store_name").OptionalUtf8(optionalText(name)).AddMember("s_company_name").OptionalUtf8(optionalText(company))
             .AddMember("s_zip").OptionalUtf8(optionalText(zip))
             .AddMember("s_state").OptionalUtf8(id == 90 ? optionalText("TN") : id == 91 ? optionalText("TX") : std::nullopt)
-            .AddMember("s_county").OptionalUtf8(std::nullopt).EndStruct();
+            .AddMember("s_county").OptionalUtf8(std::nullopt).AddMember("s_market_id").OptionalInt64(std::nullopt).EndStruct();
     }
     for (const auto& [id, state, county] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
-            {100, "CA", "Alpha"}, {101, "CA", "Beta"}, {102, "WA", "Alpha"}, {103, "WA", nullptr}, {104, "OR", nullptr}})
+            {100, "CA", "Alpha"}, {101, "CA", "Beta"}, {102, "WA", "Alpha"}, {103, "WA", nullptr}, {104, "OR", nullptr},
+            {130, "KS", "Segment"}, {131, "KS", nullptr}, {132, nullptr, "Segment"}})
         stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
             .AddMember("s_store_name").OptionalUtf8(std::nullopt).AddMember("s_company_name").OptionalUtf8(std::nullopt)
             .AddMember("s_zip").OptionalUtf8(std::nullopt).AddMember("s_state").OptionalUtf8(optionalText(state))
-            .AddMember("s_county").OptionalUtf8(optionalText(county)).EndStruct();
+            .AddMember("s_county").OptionalUtf8(optionalText(county)).AddMember("s_market_id").OptionalInt64(std::nullopt).EndStruct();
+    for (i64 id = 140; id <= 144; ++id)
+        stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
+            .AddMember("s_store_name").OptionalUtf8("Case Shop").AddMember("s_company_name").OptionalUtf8(std::nullopt)
+            .AddMember("s_zip").OptionalUtf8(optionalText(id == 143 ? "wrong" : id == 144 ? nullptr : "casezip"))
+            .AddMember("s_state").OptionalUtf8(std::nullopt).AddMember("s_county").OptionalUtf8(std::nullopt)
+            .AddMember("s_market_id").OptionalInt64(id == 142 ? std::nullopt : std::optional<i64>{id == 141 ? 8 : 7}).EndStruct();
     load("store", stores);
     TValueBuilder demographics; demographics.BeginList();
     for (const auto& [id, gender, marital, education] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
@@ -992,11 +1008,12 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     // NULL zip/profit, both date predicates and missing join keys.
     TValueBuilder addresses, customers;
     addresses.BeginList(); customers.BeginList();
-    auto appendCustomer = [&](i64 id, std::optional<i64> address, const char* preferred, const char* first, const char* last) {
+    auto appendCustomer = [&](i64 id, std::optional<i64> address, const char* preferred, const char* first, const char* last, const char* country = nullptr) {
         customers.AddListItem().BeginStruct().AddMember("c_customer_sk").Int64(id)
             .AddMember("c_customer_id").Utf8("Customer" + std::to_string(id)).AddMember("c_current_addr_sk").OptionalInt64(address)
             .AddMember("c_preferred_cust_flag").OptionalUtf8(optionalText(preferred))
-            .AddMember("c_first_name").OptionalUtf8(optionalText(first)).AddMember("c_last_name").OptionalUtf8(optionalText(last)).EndStruct();
+            .AddMember("c_first_name").OptionalUtf8(optionalText(first)).AddMember("c_last_name").OptionalUtf8(optionalText(last))
+            .AddMember("c_birth_country").OptionalUtf8(optionalText(country)).EndStruct();
     };
     i64 customer = 1;
     for (const auto& [id, zip, count] : std::initializer_list<std::tuple<i64, const char*, int>>{
@@ -1004,7 +1021,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {84, "x22977A", 12}, {85, "x00000A", 12}, {86, nullptr, 12}, {87, "x83927A", 11}}) {
         addresses.AddListItem().BeginStruct().AddMember("ca_address_sk").Int64(id)
             .AddMember("ca_address_id").Utf8("Address" + std::to_string(id)).AddMember("ca_zip").OptionalUtf8(optionalText(zip))
-            .AddMember("ca_state").OptionalUtf8(std::nullopt).EndStruct();
+            .AddMember("ca_state").OptionalUtf8(std::nullopt).AddMember("ca_county").OptionalUtf8(std::nullopt)
+            .AddMember("ca_country").OptionalUtf8(std::nullopt).EndStruct();
         for (int i = 0; i < count; ++i, ++customer)
             appendCustomer(customer, id, id == 84 && i >= 10 ? "N" : "Y", nullptr, nullptr);
     }
@@ -1021,7 +1039,35 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {90, "IL"}, {91, "TX"}, {92, "CA"}, {93, nullptr}})
         addresses.AddListItem().BeginStruct().AddMember("ca_address_sk").Int64(id)
             .AddMember("ca_address_id").Utf8("Address" + std::to_string(id)).AddMember("ca_zip").OptionalUtf8(std::nullopt)
-            .AddMember("ca_state").OptionalUtf8(optionalText(state)).EndStruct();
+            .AddMember("ca_state").OptionalUtf8(optionalText(state)).AddMember("ca_county").OptionalUtf8(std::nullopt)
+            .AddMember("ca_country").OptionalUtf8(std::nullopt).EndStruct();
+    for (const auto& [id, state, county] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
+            {1300, "KS", "Segment"}, {1301, "KS", "Other"}, {1302, nullptr, "Segment"}, {1303, "KS", nullptr}})
+        addresses.AddListItem().BeginStruct().AddMember("ca_address_sk").Int64(id)
+            .AddMember("ca_address_id").Utf8("Address" + std::to_string(id)).AddMember("ca_zip").OptionalUtf8(std::nullopt)
+            .AddMember("ca_state").OptionalUtf8(optionalText(state)).AddMember("ca_county").OptionalUtf8(optionalText(county))
+            .AddMember("ca_country").OptionalUtf8(std::nullopt).EndStruct();
+    for (i64 id = 1300; id <= 1322; ++id) {
+        const std::optional<i64> address = id == 1312 ? std::nullopt : std::optional<i64>{
+            id >= 1309 && id <= 1311 ? 1301 + id - 1309 : id == 1313 ? 999 : 1300};
+        appendCustomer(id, address, nullptr, nullptr, nullptr);
+    }
+    for (i64 id = 1400; id <= 1403; ++id)
+        addresses.AddListItem().BeginStruct().AddMember("ca_address_sk").Int64(id).AddMember("ca_address_id").Utf8("Address" + std::to_string(id))
+            .AddMember("ca_zip").OptionalUtf8(optionalText(id == 1402 ? nullptr : id == 1403 ? "wrong" : "casezip"))
+            .AddMember("ca_state").OptionalUtf8(std::nullopt).AddMember("ca_county").OptionalUtf8(std::nullopt)
+            .AddMember("ca_country").OptionalUtf8(optionalText(id == 1401 ? nullptr : "école")).EndStruct();
+    for (const auto& [id, first, last, country] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
+            {1400, "Alice", "Alpha", "Else"}, {1401, "Alice", "Alpha", "Else"}, {1402, nullptr, "Bravo", "Else"},
+            {1403, "Buyer", "Boundary", "Else"}, {1404, "Buyer", "Below", "Else"}, {1405, "Buyer", "Zero", "Else"},
+            {1406, "Buyer", "Negative", "Else"}, {1407, "Buyer", "NullMeasure", "Else"}, {1408, "Country", "Lower", "école"},
+            {1409, "Red", "Other", "Else"}, {1410, "Rejected", "Equal", "ÉCOLE"}, {1411, "Rejected", "NullCountry", "Else"},
+            {1412, "Rejected", "NullBirth", nullptr}, {1413, "Rejected", "NullZip", "Else"}, {1414, "Rejected", "WrongZip", "Else"},
+            {1415, "Rejected", "NullAddress", "Else"}, {1416, "Rejected", "MissingAddress", "Else"}, {1417, "NullColor", "Other", "Else"}}) {
+        const std::optional<i64> address = id == 1415 ? std::nullopt : std::optional<i64>{
+            id == 1411 ? 1401 : id == 1413 ? 1402 : id == 1414 ? 1403 : id == 1416 ? 99999 : 1400};
+        appendCustomer(id, address, nullptr, first, last, country);
+    }
     load("customer_address", addresses); load("customer", customers);
     TValueBuilder centers, sites;
     centers.BeginList(); sites.BeginList();
@@ -1240,6 +1286,57 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         for (const auto household : std::initializer_list<std::optional<i64>>{2, 3, 4, 999, std::nullopt}) hourlySale(time, household, 1);
         for (const auto page : std::initializer_list<std::optional<i64>>{3, 4, 5, 999, std::nullopt}) hourlySale(time, 1, page);
     }
+    // Q54: duplicate customers across both channels must not multiply revenue;
+    // the two March dates require DISTINCT in both scalar month subqueries.
+    // The original SQL joins stores by address county/state, not ss_store_sk.
+    auto segmentCustomer = [&](std::optional<i64> buyer, i64 item, std::optional<i64> date, bool online = false) {
+        TSale sale{item, order++, date, 1, nullptr, nullptr}; sale.Customer = buyer;
+        (online ? web : catalog).push_back(sale);
+    };
+    for (i64 buyer = 1300; buyer <= 1313; ++buyer) segmentCustomer(buyer, 1300, 95, buyer % 2);
+    segmentCustomer(1300, 1300, 95); segmentCustomer(1300, 1300, 96, true);
+    for (i64 buyer = 1314; buyer <= 1317; ++buyer) segmentCustomer(buyer, 1301 + buyer - 1314, 95);
+    segmentCustomer(1318, 99990, 95); segmentCustomer(1319, 1300, 80); segmentCustomer(1320, 1300, 999);
+    segmentCustomer(1321, 1300, std::nullopt); segmentCustomer(1322, 1300, 97);
+    segmentCustomer(99999, 1300, 95); segmentCustomer(std::nullopt, 1300, 95);
+    auto segmentRevenue = [&](std::optional<i64> buyer, i64 date, const char* revenue) {
+        TSale sale{99990, order++, date, 1, nullptr, nullptr, revenue, 999}; sale.Customer = buyer;
+        store.push_back(sale);
+    };
+    for (const auto& [buyer, date, revenue] : std::initializer_list<std::tuple<i64, i64, const char*>>{
+            {1300, 81, "50"}, {1300, 86, "75"}, {1300, 95, "999"}, {1300, 87, "999"},
+            {1301, 84, "125"}, {1302, 85, "175"}, {1303, 81, "-125"}, {1304, 81, nullptr},
+            {1305, 81, "0"}, {1306, 85, "75"}, {1307, 87, "999"}, {1308, 96, "999"}})
+        segmentRevenue(buyer, date, revenue);
+    for (i64 buyer = 1309; buyer <= 1322; ++buyer) segmentRevenue(buyer, 81, "999");
+    segmentRevenue(99999, 81, "999"); segmentRevenue(std::nullopt, 81, "999");
+    // Q24: ten non-null grouped amounts total 1000, so AVG is 100 and the
+    // strict 5% threshold is 5. Red/NULL colors affect that scalar average.
+    // Unicode equality, all join keys and NULLs are exercised before grouping.
+    TValueBuilder storeReturns; storeReturns.BeginList();
+    auto returnedSale = [&](i64 item, i64 ticket) {
+        storeReturns.AddListItem().BeginStruct().AddMember("sr_item_sk").Int64(item).AddMember("sr_ticket_number").Int64(ticket).EndStruct();
+    };
+    auto caseSale = [&](std::optional<i64> buyer, i64 item, const char* price, std::optional<i64> shop = 140, bool returned = true) {
+        const auto ticket = order++;
+        store.push_back({item, ticket, std::nullopt, 1, price, nullptr, nullptr, shop, nullptr, buyer});
+        if (returned) returnedSale(item, ticket);
+        return ticket;
+    };
+    const auto firstCaseTicket = caseSale(1400, 1400, "5");
+    returnedSale(1401, firstCaseTicket); // Same ticket, wrong item must not multiply the sale.
+    caseSale(1400, 1400, "5"); caseSale(1401, 1401, "20");
+    caseSale(1402, 1400, "50"); caseSale(1402, 1400, nullptr);
+    for (const auto& [buyer, price] : std::initializer_list<std::pair<i64, const char*>>{
+            {1403, "5"}, {1404, "4"}, {1405, "0"}, {1406, "-10"}, {1407, nullptr}, {1408, "21"}})
+        caseSale(buyer, 1400, price);
+    caseSale(1409, 1402, "800"); caseSale(1417, 1403, "100");
+    for (i64 buyer = 1410; buyer <= 1416; ++buyer) caseSale(buyer, 1400, "999");
+    for (const auto shop : std::initializer_list<std::optional<i64>>{141, 142, 143, 144, 99999, std::nullopt})
+        caseSale(1400, 1400, "999", shop);
+    caseSale(99999, 1400, "999"); caseSale(std::nullopt, 1400, "999"); caseSale(1400, 99990, "999");
+    caseSale(1400, 1400, "999", 140, false);
+    load("store_returns", storeReturns);
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -1301,7 +1398,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1315,7 +1412,25 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 90) {
+        if (query == 24) {
+            for (const auto& [last, first, paid] : std::initializer_list<std::tuple<const char*, const char*, const char*>>{
+                    {"Alpha", "Alice", "30"}, {"Bravo", nullptr, "50"}, {"Lower", "Country", "21"}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT(values.ColumnParser("c_last_name").GetOptionalUtf8() == optionalText(last));
+                UNIT_ASSERT(values.ColumnParser("c_first_name").GetOptionalUtf8() == optionalText(first));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("s_store_name").GetOptionalUtf8().value(), "Case Shop");
+                assertDecimal("paid", paid);
+            }
+        } else if (query == 54) {
+            for (const auto& [segment, count] : std::initializer_list<std::pair<std::optional<i32>, ui64>>{
+                    {std::nullopt, 1}, {-2, 1}, {0, 1}, {2, 3}, {4, 1}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT(values.ColumnParser("segment").GetOptionalInt32() == segment);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("num_customers").GetUint64(), count);
+                const auto base = segment ? std::optional<i32>{*segment * 50} : std::nullopt;
+                UNIT_ASSERT(values.ColumnParser("segment_base").GetOptionalInt32() == base);
+            }
+        } else if (query == 90) {
             UNIT_ASSERT(values.TryNextRow());
             UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("am_pm_ratio").GetDecimal().ToString(), "1.25");
         } else if (query == 47 || query == 57) {
@@ -3166,32 +3281,93 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         }
     }
 
-    Y_UNIT_TEST(RuntimeDecimalIntegerProductsMatchLegacy) {
-        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
-        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
-        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
-        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+    Y_UNIT_TEST(RuntimeUnicodeCaseMatchesBothLegacyPaths) {
+        const TString sql = R"(
+            DECLARE $x AS Utf8;
+            DECLARE $optional AS Utf8?;
+            DECLARE $bytes AS String?;
+            SELECT Unicode::ToUpper($x), Unicode::ToLower($x),
+                Unicode::ToUpper($optional), Unicode::ToLower($optional), Unicode::ToUpper(CAST($bytes AS Utf8)),
+                Unicode::ToUpper('école'), Unicode::ToLower(Utf8('Σ')), Unicode::ToUpper(NULL)
+        )";
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto session = runner.GetTableClient().CreateSession().GetValueSync().GetSession();
+            size_t index = 0;
+            for (const auto& [input, upper, lower] : std::initializer_list<std::tuple<std::string, std::string, std::string>>{
+                    {"", "", ""}, {"AbC", "ABC", "abc"}, {"École", "ÉCOLE", "école"},
+                    {"Привет", "ПРИВЕТ", "привет"}, {"σςΣ", "ΣΣΣ", "σςσ"}, {"ıIİi", "IIİI", "ıiii"},
+                    {"ſS", "SS", "ſs"}, {"ȿⱾ", "ⱾⱾ", "ȿȿ"}, {"e\u0301", "E\u0301", "e\u0301"},
+                    {"\U00010428\U00010400😀", "\U00010400\U00010400😀", "\U00010428\U00010428😀"},
+                    {std::string("a\0B", 3), std::string("A\0B", 3), std::string("a\0b", 3)}}) {
+                for (const bool present : {false, true}) {
+                    auto builder = TParamsBuilder();
+                    builder.AddParam("$x").Utf8(input).Build();
+                    builder.AddParam("$optional").OptionalUtf8(present ? std::optional<std::string>{input} : std::nullopt).Build();
+                    builder.AddParam("$bytes").OptionalString(present ? input : std::string("\xff", 1)).Build();
+                    const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), builder.Build()).GetValueSync();
+                    const auto actual = Snapshot(result);
+                    TResultSetParser values(result.GetResultSet(0));
+                    UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(0).GetUtf8(), upper);
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(1).GetUtf8(), lower);
+                    UNIT_ASSERT(values.ColumnParser(2).GetOptionalUtf8() == (present ? std::optional<std::string>{upper} : std::nullopt));
+                    UNIT_ASSERT(values.ColumnParser(3).GetOptionalUtf8() == (present ? std::optional<std::string>{lower} : std::nullopt));
+                    UNIT_ASSERT(values.ColumnParser(4).GetOptionalUtf8() == (present ? std::optional<std::string>{upper} : std::nullopt));
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(5).GetUtf8(), "ÉCOLE");
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(6).GetUtf8(), "σ");
+                    UNIT_ASSERT(!values.ColumnParser(7).GetOptionalUtf8());
+                    if (strategy == 2) reference.push_back(actual); else AssertSame(actual, reference.at(index));
+                    ++index;
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(RuntimeDecimalIntegerOperationsMatchBothLegacyPaths) {
         const TString sql = R"(
             DECLARE $a AS Decimal(3,2)?;
-            DECLARE $i AS Int64?;
+            DECLARE $i AS bigint?;
             DECLARE $u AS Uint64?;
             SELECT $a * CAST($i AS Int8), $a * CAST($i AS Int16), $a * CAST($i AS Int32), $a * $i, $i * $a,
-                $a * CAST($u AS Uint8), $a * CAST($u AS Uint16), $a * CAST($u AS Uint32), $a * $u, $u * $a
+                $a * CAST($u AS Uint8), $a * CAST($u AS Uint16), $a * CAST($u AS Uint32), $a * $u, $u * $a,
+                $a / CAST($i AS tinyint), $a / CAST($i AS SMALLINT), $a / CAST($i AS integer), $a / $i,
+                $a / CAST($u AS Uint8), $a / CAST($u AS Uint16), $a / CAST($u AS Uint32), $a / $u,
+                CAST($a / 50 AS int), CAST($i AS varchar), tinyint('12'), SMALLINT('12'),
+                int('12'), Integer('12'), BIGINT('12'), varchar('abc')
         )";
-        for (const auto* decimal : {static_cast<const char*>(nullptr), "0", "0.01", "-0.01", "9.99", "-9.99", "inf", "-inf", "nan"}) {
-            for (const auto& [signedValue, unsignedValue] : std::initializer_list<std::pair<std::optional<i64>, std::optional<ui64>>>{
-                    {std::nullopt, std::nullopt}, {0, 0}, {1, 1}, {-2, 2}, {127, 255}, {-128, 256},
-                    {32767, 65535}, {-32768, 65536}, {2147483647, 4294967295ULL},
-                    {std::numeric_limits<i64>::lowest(), std::numeric_limits<ui64>::max()}}) {
-                auto builder = TParamsBuilder();
-                auto& value = builder.AddParam("$a");
-                if (decimal) value.BeginOptional().Decimal(TDecimalValue(decimal, 3, 2)).EndOptional().Build();
-                else value.EmptyOptional(TTypeBuilder().Decimal({3, 2}).Build()).Build();
-                builder.AddParam("$i").OptionalInt64(signedValue).Build();
-                builder.AddParam("$u").OptionalUint64(unsignedValue).Build();
-                const auto params = builder.Build();
-                AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
-                    Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto session = runner.GetTableClient().CreateSession().GetValueSync().GetSession();
+            size_t index = 0;
+            for (const auto* decimal : {static_cast<const char*>(nullptr), "0", "0.01", "-0.01", "0.02", "-0.02", "1.25", "-1.25", "9.99", "-9.99", "inf", "-inf", "nan"}) {
+                for (const auto& [signedValue, unsignedValue] : std::initializer_list<std::pair<std::optional<i64>, std::optional<ui64>>>{
+                        {std::nullopt, std::nullopt}, {0, 0}, {1, 1}, {-1, 1}, {-2, 2}, {3, 3}, {-3, 3}, {127, 255}, {-128, 256},
+                        {32767, 65535}, {-32768, 65536}, {2147483647, 4294967295ULL},
+                        {std::numeric_limits<i64>::lowest(), std::numeric_limits<ui64>::max()}}) {
+                    auto builder = TParamsBuilder();
+                    auto& value = builder.AddParam("$a");
+                    if (decimal) value.BeginOptional().Decimal(TDecimalValue(decimal, 3, 2)).EndOptional().Build();
+                    else value.EmptyOptional(TTypeBuilder().Decimal({3, 2}).Build()).Build();
+                    builder.AddParam("$i").OptionalInt64(signedValue).Build();
+                    builder.AddParam("$u").OptionalUint64(unsignedValue).Build();
+                    const auto params = builder.Build();
+                    const auto actual = Snapshot(session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync());
+                    if (strategy == 2) reference.push_back(actual); else AssertSame(actual, reference.at(index));
+                    ++index;
+                }
             }
         }
     }

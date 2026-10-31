@@ -82,6 +82,24 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(UnicodeCaseLowersDirectlyToRuntime) {
+        using namespace NFrontend;
+        for (const auto& text : {std::string{}, std::string("AbC"), std::string("Привет École σςΣ ıIİi ſS ȿⱾ e\u0301"),
+                std::string("\U00010428\U00010400😀"), std::string("a\0B", 3)}) {
+            for (const bool nullable : {false, true}) {
+                TExpressionArena arena;
+                const TType type{ETypeKind::Utf8, nullable};
+                const auto value = arena.Literal(type, text);
+                for (const auto op : {EOpcode::UnicodeUpper, EOpcode::UnicodeLower}) {
+                    CheckScalar(arena, arena.Unary(op, value), "Unicode case");
+                    if (nullable) CheckScalar(arena, arena.Unary(op, arena.Literal(type, std::monostate{})), "Unicode NULL");
+                }
+            }
+        }
+        CheckScalar("SELECT Unicode::ToUpper('hello')");
+        CheckScalar("SELECT Unicode::ToLower(NULL)");
+    }
+
     Y_UNIT_TEST(GroupingSetsExpansionKeepsNativeExpressions) {
         for (const auto* clause : {"ROLLUP(k,v)", "CUBE(k,v)", "k, ROLLUP(v)", "GROUPING SETS ((k,v))", "GROUPING SETS ((k,v),())"}) {
             for (const auto* measures : {"SUM(k), SUM(v), AVG(k), COUNT(*)", "COUNT(DISTINCT k), SUM(v), SUM(DISTINCT k)", "1"}) {
@@ -580,7 +598,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
     }
 
-    Y_UNIT_TEST(DecimalIntegerFactorsMatchRuntimeArithmetic) {
+    Y_UNIT_TEST(DecimalIntegerOperationsMatchRuntimeArithmetic) {
         namespace D = NYql::NDecimal;
         using namespace NFrontend;
         auto check = []<class T>(ETypeKind kind) {
@@ -588,7 +606,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 const TType type{ETypeKind::Decimal, false, static_cast<std::uint8_t>(precision), static_cast<std::uint8_t>(scale)};
                 const auto bound = D::GetDivider(precision);
                 const __int128 inputs[]{0, 1, -1, 2, -2, bound - 1, 1 - bound, D::Inf(), -D::Inf(), D::Nan()};
-                for (const auto a : inputs) for (const T b : {T{0}, T{1}, T{2}, std::numeric_limits<T>::lowest(), std::numeric_limits<T>::max()}) {
+                for (const auto a : inputs) for (const T b : {T{0}, T{1}, T{2}, T{3}, T(-1), T(-2), T(-3), std::numeric_limits<T>::lowest(), std::numeric_limits<T>::max()}) {
                     TExpressionArena arena;
                     const auto left = arena.Literal(type, TDecimal{a});
                     const TScalar factor = [&]() -> TScalar {
@@ -596,13 +614,16 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                         else return std::uint64_t{b};
                     }();
                     const auto right = arena.Literal({kind}, factor);
-                    const auto expected = D::TDecimalMultiplicator<T>(precision).Do(a, b);
-                    for (const auto result : {arena.Binary(EOpcode::Multiply, left, right), arena.Binary(EOpcode::Multiply, right, left)}) {
+                    const auto product = D::TDecimalMultiplicator<T>(precision).Do(a, b);
+                    const std::pair<TExprId, __int128> operations[]{
+                        {arena.Binary(EOpcode::Multiply, left, right), product}, {arena.Binary(EOpcode::Multiply, right, left), product},
+                        {arena.Binary(EOpcode::Divide, left, right), D::TDecimalDivisor<T>().Do(a, b)}};
+                    for (const auto& [result, expected] : operations) {
                         UNIT_ASSERT(arena[result].Type == type);
                         const auto value = Evaluate(arena, result);
                         UNIT_ASSERT_C(std::get<TDecimal>(value.Data).Coefficient == expected,
-                            TStringBuilder() << type.ToString() << " * " << TType{kind}.ToString() << ": " << FormatValue({type, TDecimal{a}})
-                                << " * " << FormatValue({{kind}, factor}) << " -> " << FormatValue(value));
+                            TStringBuilder() << type.ToString() << " op " << int(arena[result].Op) << " " << TType{kind}.ToString() << ": "
+                                << FormatValue({type, TDecimal{a}}) << ", " << FormatValue({{kind}, factor}) << " -> " << FormatValue(value));
                         const TExprId roots[]{result};
                         const auto folded = arena.FoldConstants(roots).front();
                         UNIT_ASSERT(arena[folded].Type == type);
@@ -619,10 +640,18 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             for (const auto* value : {"0", "0.01", "-0.01", "9.99", "inf", "nan"}) {
                 const auto sql = TStringBuilder() << "SELECT Decimal('" << value << "',3,2) * " << type << "('127')";
                 CheckScalar(std::string_view{sql.data(), sql.size()});
+                for (const auto* divisor : {"0", "3", std::string_view(type).starts_with("Int") ? "-3" : "255"}) {
+                    const auto division = TStringBuilder() << "SELECT Decimal('" << value << "',3,2) / " << type << "('" << divisor << "')";
+                    CheckScalar(std::string_view{division.data(), division.size()});
+                }
             }
         }
         CheckScalar("SELECT Decimal('0',3,2) * Uint64('18446744073709551615')");
         CheckScalar("SELECT IF(false, Int64('1')) * Decimal('1.25',3,2)");
+        CheckScalar("SELECT Decimal('0',35,35) / Uint64('18446744073709551615')");
+        CheckScalar("SELECT Decimal('1.25',3,2) / Int64('-9223372036854775808')");
+        CheckScalar("SELECT Decimal('1.25',3,2) / IF(false, Int64('1'))");
+        CheckScalar("SELECT IF(false, Decimal('1.25',3,2)) / 2");
     }
 
     Y_UNIT_TEST(DecimalValuesMatchRuntimeArithmetic) {

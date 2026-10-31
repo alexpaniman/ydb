@@ -1,6 +1,7 @@
 #include "expression.h"
 
 #include <contrib/libs/double-conversion/double-conversion/string-to-double.h>
+#include <util/charset/utf8.h>
 
 #include <algorithm>
 #include <bit>
@@ -726,6 +727,10 @@ TType ParseType(std::string_view name, TSourcePosition position) {
             return type;
         }
     }
+    for (const auto& [alias, kind] : {std::pair{"tinyint", K::Int8}, {"smallint", K::Int16},
+            {"int", K::Int32}, {"integer", K::Int32}, {"bigint", K::Int64}, {"varchar", K::String}}) {
+        if (normalized == alias) return {kind, nullable};
+    }
     if (normalized.starts_with("decimal(") && normalized.back() == ')') {
         const auto comma = normalized.find(',');
         if (comma != std::string::npos) {
@@ -899,6 +904,8 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         if (!type.IsNumeric() && type.Kind != K::Interval) {
             Fail(position, "Unary arithmetic expects a number");
         }
+    } else if (op == O::UnicodeLower || op == O::UnicodeUpper) {
+        if (type.Kind != K::Utf8) Fail(position, "Unicode case conversion expects Utf8");
     } else if (op == O::Length || op == O::Lower || op == O::Upper) {
         if (!type.IsString()) {
             Fail(position, "String function expects String or Utf8");
@@ -936,10 +943,10 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
         // In particular, Int64 and Uint64 have no lossless common integer type.
         return Append({op, {K::Bool, leftType.Nullable || rightType.Nullable}, position, {left, right}, {}, {}, 0});
     }
-    if (op == O::Multiply && ((leftType.Kind == K::Decimal && rightType.IsIntegral()) ||
-        (rightType.Kind == K::Decimal && leftType.IsIntegral()))) {
-        // An integer factor does not change Decimal precision or scale. Keep
-        // it integral: converting a large factor first can turn 0 * n into NaN.
+    if (((op == O::Multiply || op == O::Divide) && leftType.Kind == K::Decimal && rightType.IsIntegral()) ||
+        (op == O::Multiply && rightType.Kind == K::Decimal && leftType.IsIntegral())) {
+        // An integer factor or divisor does not change Decimal precision or
+        // scale. Converting it first can overflow and change the result.
         auto result = leftType.Kind == K::Decimal ? leftType : rightType;
         result.Nullable = leftType.Nullable || rightType.Nullable;
         if (leftType.IsIntegral()) std::swap(left, right);
@@ -1127,6 +1134,15 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
         }
         arity(3);
         return If(arguments[0], arguments[1], arguments[2], position);
+    }
+    if (lowered == "unicode::tolower" || lowered == "unicode::toupper") {
+        arity(1);
+        auto input = arguments[0];
+        const auto& node = (*this)[input];
+        if (node.Type.Kind == K::Null) input = Convert(input, {K::Utf8, true}, position);
+        else if (node.Op == O::Literal && node.Type == TType{K::String} && IsUtf8(std::get<std::string>(node.Value)))
+            input = Literal({K::Utf8}, node.Value, position);
+        return Unary(lowered == "unicode::toupper" ? O::UnicodeUpper : O::UnicodeLower, input, position);
     }
     for (const auto& [function, op] : {std::pair{"abs", O::Abs}, {"length", O::Length}, {"lower", O::Lower}, {"upper", O::Upper},
         {"string::tolower", O::Lower}, {"string::toupper", O::Upper},
@@ -1444,6 +1460,12 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
     if (node.Op == O::Length) {
         return {node.Type, static_cast<std::uint64_t>(std::get<std::string>(left.Data).size())};
     }
+    if (node.Op == O::UnicodeLower || node.Op == O::UnicodeUpper) {
+        const auto& text = std::get<std::string>(left.Data);
+        const TStringBuf input(text.data(), text.size());
+        const auto result = node.Op == O::UnicodeUpper ? ToUpperUTF8(input) : ToLowerUTF8(input);
+        return {node.Type, std::string(result.data(), result.size())};
+    }
     if (node.Op == O::Lower || node.Op == O::Upper) {
         auto result = std::get<std::string>(left.Data);
         for (auto& ch : result) {
@@ -1565,6 +1587,17 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         if (!b) return decimalResult(!a ? nan : a < 0 ? -inf : inf);
         if (specialB) return decimalResult(specialA ? nan : 0);
         if (specialA) return decimalResult(signedInf);
+        if (right.Type.IsIntegral()) {
+            auto quotient = a / b;
+            const auto remainder = a % b;
+            const auto twiceRemainder = (remainder < 0 ? -remainder : remainder) * 2;
+            const auto divisor = b < 0 ? -b : b;
+            // Preserve the existing runtime's negative-integral-divisor quirk:
+            // non-ties truncate, while exact ties still round to even.
+            if ((b > 0 && twiceRemainder > divisor) || (twiceRemainder == divisor && quotient % 2))
+                quotient += (a < 0) != (b < 0) ? -1 : 1;
+            return decimalResult(quotient);
+        }
         const auto result = RoundedDecimalQuotient(Int128ToString(a < 0 ? -a : a) + std::string(node.Type.Scale, '0'),
             b < 0 ? -b : b, (a < 0) != (b < 0));
         return decimalResult(result ? BoundDecimal(*result, node.Type) : signedInf);

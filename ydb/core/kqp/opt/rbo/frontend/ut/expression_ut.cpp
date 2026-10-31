@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <tuple>
 
 using namespace NKikimr::NKqp::NFrontend;
 
@@ -20,6 +21,31 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(UnicodeCasePreservesCodepointsNullsAndTypes) {
+        for (const auto& [input, upper, lower] : std::initializer_list<std::tuple<std::string, std::string, std::string>>{
+                {"", "", ""}, {"AbC", "ABC", "abc"}, {"École", "ÉCOLE", "école"},
+                {"Привет", "ПРИВЕТ", "привет"}, {"σςΣ", "ΣΣΣ", "σςσ"}, {"ıIİi", "IIİI", "ıiii"},
+                {"ſS", "SS", "ſs"}, {"ȿⱾ", "ⱾⱾ", "ȿȿ"}, {"e\u0301", "E\u0301", "e\u0301"},
+                {"\U00010428\U00010400😀", "\U00010400\U00010400😀", "\U00010428\U00010428😀"},
+                {std::string("a\0B", 3), std::string("A\0B", 3), std::string("a\0b", 3)}}) {
+            for (const bool nullable : {false, true}) {
+                TExpressionArena arena;
+                const TType type{K::Utf8, nullable};
+                const auto value = arena.Literal(type, input);
+                for (const auto& [op, expected] : {std::pair{O::UnicodeUpper, upper}, {O::UnicodeLower, lower}}) {
+                    const auto result = arena.Unary(op, value);
+                    UNIT_ASSERT(arena[result].Type == type);
+                    UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, result)), expected);
+                    const TExprId roots[]{result};
+                    const auto folded = arena.FoldConstants(roots).front();
+                    UNIT_ASSERT(arena[folded].Type == type);
+                    UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), expected);
+                    if (nullable) UNIT_ASSERT(Evaluate(arena, arena.Unary(op, arena.Literal(type, std::monostate{}))).IsNull());
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(IntegerComparisonsPreserveOperandTypesAndValues) {
         struct TInput { TType Type; std::vector<TScalar> Values; };
         std::vector<TInput> inputs;
@@ -336,6 +362,25 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, runtimeDate, context)), "10303");
         context.Parameter = [](std::string_view) { return TValue{{K::String}, std::string{"1998-2-30"}}; };
         UNIT_ASSERT(Evaluate(arena, runtimeDate, context).IsNull());
+    }
+
+    Y_UNIT_TEST(DecimalIntegerDivisionPreservesScaleAndRuntimeRounding) {
+        const TType type{K::Decimal, false, 3, 2};
+        for (const auto& [numerator, divisor, expected] : std::initializer_list<std::tuple<i64, i64, const char*>>{
+                {125, 2, "0.62"}, {127, 2, "0.64"}, {-125, 2, "-0.62"}, {-127, 2, "-0.64"},
+                {2, 3, "0.01"}, {-2, 3, "-0.01"}, {2, -3, "0.00"}, {-2, -3, "0.00"},
+                {125, -2, "-0.62"}, {127, -2, "-0.64"}, {-125, -2, "0.62"}, {-127, -2, "0.64"},
+                {0, 0, "nan"}, {1, 0, "inf"}, {-1, 0, "-inf"}}) {
+            TExpressionArena arena;
+            const auto result = arena.Binary(O::Divide, arena.Literal(type, TDecimal{numerator}),
+                arena.Literal({K::Int64}, std::int64_t{divisor}));
+            UNIT_ASSERT(arena[result].Type == type);
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, result)), expected);
+            const TExprId roots[]{result};
+            const auto folded = arena.FoldConstants(roots).front();
+            UNIT_ASSERT(arena[folded].Type == type);
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), expected);
+        }
     }
 
     Y_UNIT_TEST(DecimalScaleAndOverflowAreExplicit) {
