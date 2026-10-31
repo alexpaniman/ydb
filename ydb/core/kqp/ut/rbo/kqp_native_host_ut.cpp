@@ -835,6 +835,10 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             .AddMember("s_zip").OptionalUtf8(optionalText(id == 143 ? "wrong" : id == 144 ? nullptr : "casezip"))
             .AddMember("s_state").OptionalUtf8(std::nullopt).AddMember("s_county").OptionalUtf8(std::nullopt)
             .AddMember("s_market_id").OptionalInt64(id == 142 ? std::nullopt : std::optional<i64>{id == 141 ? 8 : 7}).EndStruct();
+    stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(160).AddMember("s_store_id").Utf8("Store160")
+        .AddMember("s_store_name").OptionalUtf8("ese").AddMember("s_company_name").OptionalUtf8(std::nullopt)
+        .AddMember("s_zip").OptionalUtf8(std::nullopt).AddMember("s_state").OptionalUtf8(std::nullopt)
+        .AddMember("s_county").OptionalUtf8(std::nullopt).AddMember("s_market_id").OptionalInt64(std::nullopt).EndStruct();
     load("store", stores);
     TValueBuilder demographics; demographics.BeginList();
     for (const auto& [id, gender, marital, education] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
@@ -846,17 +850,31 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     load("customer_demographics", demographics);
     TValueBuilder households; households.BeginList();
     for (const auto& [id, dependents] : std::initializer_list<std::pair<i64, std::optional<i64>>>{{1, 8}, {2, 7}, {3, 9}, {4, std::nullopt}})
-        households.AddListItem().BeginStruct().AddMember("hd_demo_sk").Int64(id).AddMember("hd_dep_count").OptionalInt64(dependents).EndStruct();
+        households.AddListItem().BeginStruct().AddMember("hd_demo_sk").Int64(id).AddMember("hd_dep_count").OptionalInt64(dependents)
+            .AddMember("hd_vehicle_count").OptionalInt64(std::nullopt).EndStruct();
+    for (const auto& [id, dependents, vehicles] : std::initializer_list<std::tuple<i64, std::optional<i64>, std::optional<i64>>>{
+            {160, 3, 5}, {161, 0, 2}, {162, 1, 3}, {163, 3, 6}, {164, 0, 3}, {165, 1, 4},
+            {166, 2, 0}, {167, std::nullopt, 1}, {168, 3, std::nullopt}, {169, 0, std::nullopt}, {170, 1, std::nullopt}})
+        households.AddListItem().BeginStruct().AddMember("hd_demo_sk").Int64(id).AddMember("hd_dep_count").OptionalInt64(dependents)
+            .AddMember("hd_vehicle_count").OptionalInt64(vehicles).EndStruct();
     load("household_demographics", households);
     TValueBuilder times; times.BeginList();
     for (const auto& [id, hour] : std::initializer_list<std::pair<i64, std::optional<i64>>>{
             {1, 6}, {2, 7}, {3, 14}, {4, 15}, {5, 5}, {6, 8}, {7, 13}, {8, 16}, {9, std::nullopt}})
         times.AddListItem().BeginStruct().AddMember("t_time_sk").Int64(id).AddMember("t_time_id").Utf8("Time" + std::to_string(id))
-            .AddMember("t_hour").OptionalInt64(hour).AddMember("t_time").OptionalInt64(std::nullopt).EndStruct();
+            .AddMember("t_hour").OptionalInt64(hour).AddMember("t_time").OptionalInt64(std::nullopt)
+            .AddMember("t_minute").OptionalInt64(std::nullopt).EndStruct();
     for (const auto& [id, seconds] : std::initializer_list<std::pair<i64, std::optional<i64>>>{
             {150, 49530}, {151, 78330}, {152, 49529}, {153, 78331}, {154, std::nullopt}})
         times.AddListItem().BeginStruct().AddMember("t_time_sk").Int64(id).AddMember("t_time_id").Utf8("Time" + std::to_string(id))
-            .AddMember("t_hour").OptionalInt64(std::nullopt).AddMember("t_time").OptionalInt64(seconds).EndStruct();
+            .AddMember("t_hour").OptionalInt64(std::nullopt).AddMember("t_time").OptionalInt64(seconds)
+            .AddMember("t_minute").OptionalInt64(std::nullopt).EndStruct();
+    for (const auto& [id, hour, minute] : std::initializer_list<std::tuple<i64, std::optional<i64>, std::optional<i64>>>{
+            {160, 8, 30}, {161, 9, 29}, {162, 9, 30}, {163, 10, 29}, {164, 10, 30}, {165, 11, 29}, {166, 11, 30}, {167, 12, 29},
+            {168, 8, 29}, {169, 12, 30}, {170, 7, 59}, {171, 13, 0}, {172, std::nullopt, 30}, {173, 9, std::nullopt}, {174, 9, 0}})
+        times.AddListItem().BeginStruct().AddMember("t_time_sk").Int64(id).AddMember("t_time_id").Utf8("Time" + std::to_string(id))
+            .AddMember("t_hour").OptionalInt64(hour).AddMember("t_time").OptionalInt64(std::nullopt)
+            .AddMember("t_minute").OptionalInt64(minute).EndStruct();
     load("time_dim", times);
     TValueBuilder pages; pages.BeginList();
     for (const auto& [id, characters] : std::initializer_list<std::pair<i64, std::optional<i64>>>{
@@ -941,6 +959,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         std::optional<i64> ShipHousehold = std::nullopt;
         std::optional<i64> WebPage = std::nullopt;
         const char* NetPaidTax = nullptr;
+        std::optional<i64> Household = std::nullopt;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -1394,6 +1413,20 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     }
     monthlySale(true, 157, 105, 150, 150, "2", 3, "4");
     monthlySale(false, 157, 105, 151, 151, "5", 2, "6");
+    // Q88: eight independent scalar counts are cross-joined under SELECT *.
+    // Exercise all household branches and both sides of each half-hour bound.
+    auto halfHourSale = [&](std::optional<i64> time, std::optional<i64> household, std::optional<i64> shop = 160) {
+        TSale sale{99990, order++, std::nullopt, std::nullopt, nullptr, nullptr};
+        sale.SoldTime = time; sale.Household = household; sale.Store = shop;
+        store.push_back(sale);
+    };
+    for (i64 bucket = 0; bucket < 8; ++bucket) for (i64 row = 0; row <= bucket; ++row)
+        halfHourSale(bucket == 1 && row == 0 ? 174 : 160 + bucket, 160 + (bucket + row) % 3);
+    for (const auto time : std::initializer_list<std::optional<i64>>{168, 169, 170, 171, 172, 173, 99999, std::nullopt})
+        halfHourSale(time, 160);
+    for (const auto household : std::initializer_list<std::optional<i64>>{163, 164, 165, 166, 167, 168, 169, 170, 99999, std::nullopt})
+        halfHourSale(160, household);
+    for (const auto shop : std::initializer_list<std::optional<i64>>{1, 99999, std::nullopt}) halfHourSale(160, 160, shop);
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -1413,7 +1446,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             }
             if (prefix == "ss_") {
                 rows.AddMember("ss_store_sk").OptionalInt64(row.Store)
-                    .AddMember("ss_cdemo_sk").OptionalInt64(row.Demographics);
+                    .AddMember("ss_cdemo_sk").OptionalInt64(row.Demographics)
+                    .AddMember("ss_sold_time_sk").OptionalInt64(row.SoldTime).AddMember("ss_hdemo_sk").OptionalInt64(row.Household);
                 rows.AddMember("ss_coupon_amt"); decimal(rows, row.Coupon);
             }
             rows.AddMember(prefix + "quantity").OptionalInt64(row.Quantity).AddMember(prefix + "list_price"); decimal(rows, row.ListPrice);
@@ -1457,7 +1491,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1471,7 +1505,16 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 66) {
+        if (query == 88) {
+            TVector<TString> names{"h8_30_to_9", "h9_to_9_30", "h9_30_to_10", "h10_to_10_30", "h10_30_to_11", "h11_to_11_30", "h11_30_to_12", "h12_to_12_30"};
+            UNIT_ASSERT(values.TryNextRow());
+            for (std::size_t i = 0; i < names.size(); ++i) UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(names[i]).GetUint64(), i + 1);
+            UNIT_ASSERT(!values.TryNextRow());
+            if (!newRbo) std::sort(names.begin(), names.end());
+            const auto& columns = result.GetResultSet(0).GetColumnsMeta();
+            UNIT_ASSERT_VALUES_EQUAL(columns.size(), names.size());
+            for (std::size_t i = 0; i < names.size(); ++i) UNIT_ASSERT_VALUES_EQUAL(columns[i].Name, names[i]);
+        } else if (query == 66) {
             struct TExpectedWarehouse {
                 const char* Name;
                 std::optional<i64> Area;
@@ -1804,6 +1847,109 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(JoinStarsPreserveValuesNamesAndNullability, ColumnStore) {
+        struct TRow { i32 Id; std::optional<i32> Key; const char* Value; };
+        const std::array<TRow, 4> leftRows{{{1, 10, "A"}, {2, 20, "B"}, {3, std::nullopt, nullptr}, {4, 10, "C"}}};
+        const std::array<TRow, 4> rightRows{{{11, 10, "X"}, {12, 30, "Y"}, {13, std::nullopt, nullptr}, {14, 10, nullptr}}};
+        using TPairs = TVector<std::pair<std::optional<i32>, std::optional<i32>>>;
+        TVector<std::pair<TString, TPairs>> cases{
+            {"INNER", {{1, 11}, {1, 14}, {4, 11}, {4, 14}}},
+            {"LEFT", {{1, 11}, {1, 14}, {2, {}}, {3, {}}, {4, 11}, {4, 14}}},
+            {"RIGHT", {{1, 11}, {1, 14}, {4, 11}, {4, 14}, {{}, 12}, {{}, 13}}},
+            {"FULL", {{1, 11}, {1, 14}, {2, {}}, {3, {}}, {4, 11}, {4, 14}, {{}, 12}, {{}, 13}}},
+            {"LEFT SEMI", {{1, {}}, {4, {}}}}, {"RIGHT SEMI", {{{}, 11}, {{}, 14}}},
+            {"LEFT ONLY", {{2, {}}, {3, {}}}}, {"RIGHT ONLY", {{{}, 12}, {{}, 13}}},
+            {"CROSS", {}}};
+        for (const auto& left : leftRows) for (const auto& right : rightRows) cases.back().second.emplace_back(left.Id, right.Id);
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableInlineJoinFiltersAfterCBO(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            for (const bool right : {false, true}) {
+                const TString prefix = right ? "b" : "a", path = right ? "/Root/StarRight" : "/Root/StarLeft";
+                const auto created = session.ExecuteSchemeQuery("CREATE TABLE `" + path + "` (" + prefix + "id Int32 NOT NULL, " +
+                    prefix + "k Int32, " + prefix + "v Utf8, PRIMARY KEY(" + prefix + "id))" +
+                    (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+                UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+                TValueBuilder rows; rows.BeginList();
+                for (const auto& row : right ? rightRows : leftRows)
+                    rows.AddListItem().BeginStruct().AddMember(prefix + "id").Int32(row.Id)
+                        .AddMember(prefix + "k").OptionalInt32(row.Key)
+                        .AddMember(prefix + "v").OptionalUtf8(row.Value ? std::optional<std::string>{row.Value} : std::nullopt).EndStruct();
+                rows.EndList();
+                const auto loaded = client.BulkUpsert(path, rows.Build()).GetValueSync();
+                UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            }
+            for (const auto& [kind, expected] : cases) {
+                const bool onlyLeft = kind.StartsWith("LEFT "), onlyRight = kind.StartsWith("RIGHT ");
+                const bool outerLeft = kind == "RIGHT" || kind == "FULL", outerRight = kind == "LEFT" || kind == "FULL";
+                for (const auto* projection : {"*", "l.*, r.*", "r.*, l.*"}) {
+                    if ((onlyLeft || onlyRight) && TStringBuf(projection) != "*") continue;
+                    // The legacy optimizer resolves ORDER BY against the
+                    // emitted star names, after dropping source qualifiers.
+                    const TString sql = TStringBuilder() << "SELECT " << projection << " FROM `/Root/StarLeft` AS l " << kind
+                        << " JOIN `/Root/StarRight` AS r" << (kind == "CROSS" ? "" : " ON l.ak = r.bk") << " ORDER BY "
+                        << (onlyLeft ? "aid" : onlyRight ? "bid" : "COALESCE(aid,99),COALESCE(bid,99)");
+                    Cerr << "join star strategy " << strategy << ": " << sql << Endl;
+                    const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                    if (strategy == 1 && (onlyLeft || onlyRight || TStringBuf(projection) != "*")) {
+                        // Preserve the old YqlSelect translator's explicit
+                        // rejection of qualified stars and SEMI/ONLY syntax.
+                        UNIT_ASSERT(!result.IsSuccess());
+                        const auto* diagnostic = TStringBuf(projection) == "*" ?
+                            "YqlSelect unsupported: (ONLY | SEMI)" : "YqlSelect unsupported: an_id DOT ASTERISK";
+                        UNIT_ASSERT_C(result.GetIssues().ToString().find(diagnostic) != std::string::npos,
+                            result.GetIssues().ToString());
+                        continue;
+                    }
+                    UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+                    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                    const auto& set = result.GetResultSet(0);
+                    UNIT_ASSERT_VALUES_EQUAL(set.RowsCount(), expected.size());
+                    TVector<std::pair<TString, TString>> columns;
+                    auto appendColumns = [&](bool right) {
+                        if (right ? onlyLeft : onlyRight) return;
+                        const TString prefix = right ? "b" : "a";
+                        columns.emplace_back(prefix + "id", (right ? outerRight : outerLeft) ? "Int32?" : "Int32");
+                        columns.emplace_back(prefix + "k", "Int32?");
+                        columns.emplace_back(prefix + "v", "Utf8?");
+                    };
+                    const bool reversed = TStringBuf(projection).StartsWith("r");
+                    appendColumns(reversed); appendColumns(!reversed);
+                    if (strategy == 0) std::sort(columns.begin(), columns.end());
+                    UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(set).Columns, columns);
+                    TResultSetParser values(set);
+                    for (const auto& [left, right] : expected) {
+                        UNIT_ASSERT(values.TryNextRow());
+                        for (const bool side : {false, true}) {
+                            if (side ? onlyLeft : onlyRight) continue;
+                            const auto id = side ? right : left;
+                            const TRow* row = id ? &(side ? rightRows[*id - 11] : leftRows[*id - 1]) : nullptr;
+                            const TString prefix = side ? "b" : "a";
+                            const auto actualId = (side ? outerRight : outerLeft) ? values.ColumnParser(prefix + "id").GetOptionalInt32() :
+                                std::optional<i32>{values.ColumnParser(prefix + "id").GetInt32()};
+                            UNIT_ASSERT(actualId == id);
+                            UNIT_ASSERT(values.ColumnParser(prefix + "k").GetOptionalInt32() == (row ? row->Key : std::nullopt));
+                            UNIT_ASSERT(values.ColumnParser(prefix + "v").GetOptionalUtf8() ==
+                                (row && row->Value ? std::optional<std::string>{row->Value} : std::nullopt));
+                        }
+                    }
+                    UNIT_ASSERT(!values.TryNextRow());
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(WindowSubqueriesMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<TResultSnapshot> reference;
         for (const int strategy : {2, 0, 1}) {
@@ -3501,7 +3647,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             // two existing compilers. The fixture pins both orders and every
             // value by name; also compare all named types. Native must preserve
             // the existing RBO order exactly.
-            if (i != 0 && (i < 9 || i >= 13) && i != 29 && i != 30) AssertSame(native[i], legacy[i]);
+            if (i != 0 && (i < 9 || i >= 13) && i != 29 && i != 30 && i != 35) AssertSame(native[i], legacy[i]);
             else {
                 auto actual = native[i].Columns, expected = legacy[i].Columns;
                 std::sort(actual.begin(), actual.end());

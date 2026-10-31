@@ -621,12 +621,12 @@ private:
         std::vector<TDefinition> definitions;
         std::vector<TResultColumn> outputs;
         TScope outputScope;
+        bool joinStar = false;
         for (std::size_t index = 0; index < query.Projection.size(); ++index) {
             const auto& projection = query.Projection[index];
             const auto& syntax = Syntax.Expressions[projection.Expression];
             if (syntax.Kind == ESyntaxKind::Star) {
-                if (!query.Joins.empty()) throw TUnsupportedFeature(EFeature::Expression, syntax.Position,
-                    "stars over joins require YQL column-name coalescing and are outside native-read-v1");
+                joinStar = joinStar || !query.Joins.empty();
                 if (!projection.Alias.empty()) throw TFrontendError(syntax.Position, "a star cannot have an alias");
                 bool found = false;
                 for (const auto& column : context.Scope.Columns) if (syntax.Text.empty() || column.Qualifier == syntax.Text) {
@@ -642,6 +642,14 @@ private:
             auto id = Materialize(expr, definitions, syntax.Position, name);
             auto type = Program.Expressions[expr].Type;
             outputs.push_back({id, name, type}); outputScope.Add({id, name, {}, type});
+        }
+
+        if (joinStar) {
+            std::unordered_set<std::string_view> names;
+            names.reserve(outputs.size());
+            for (const auto& output : outputs) if (!names.insert(output.Name).second)
+                throw TUnsupportedFeature(EFeature::Expression, query.Position,
+                    "join-star projections with duplicate output names require column coalescing outside native-read-v1");
         }
 
         // RBO result bindings are unique IDs even when SQL projects one
@@ -1739,7 +1747,7 @@ std::string_view SupportManifest() {
 "windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
-"restrictions":["mixed DISTINCT aggregates support scalar states; combinations containing AVG require a tuple state and delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","no stars over joins","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, arbitrary UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["mixed DISTINCT aggregates support scalar states; combinations containing AVG require a tuple state and delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, arbitrary UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; other Decimal arithmetic and COALESCE require matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

@@ -32,6 +32,51 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(JoinStarsRequireUniqueOutputNames) {
+        const auto catalog = [](std::string_view name, TSourcePosition) {
+            const std::string prefix(name);
+            return TCatalogTable{prefix, {{prefix + "id", {ETypeKind::Int32}},
+                {prefix + "value", {ETypeKind::Utf8, true}}}};
+        };
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* kind : {"CROSS", "INNER", "LEFT", "RIGHT", "FULL", "LEFT SEMI", "RIGHT SEMI", "LEFT ONLY", "RIGHT ONLY"}) {
+                const auto join = std::string(kind);
+                const auto sql = "SELECT * FROM a AS l " + join + " JOIN b AS r" +
+                    (join == "CROSS" ? "" : " ON l.aid = r.bid");
+                const auto compiled = CompileNative(sql, catalog, settings);
+                const auto& columns = compiled.Program->Get().Results[0].Columns;
+                const bool left = join != "RIGHT SEMI" && join != "RIGHT ONLY";
+                const bool right = join != "LEFT SEMI" && join != "LEFT ONLY";
+                UNIT_ASSERT_VALUES_EQUAL_C(columns.size(), 2 * (left + right), sql);
+                std::size_t index = 0;
+                for (const auto side : {std::pair{"a", left}, std::pair{"b", right}}) {
+                    if (!side.second) continue;
+                    const bool outer = join == "FULL" || (side.first == std::string("a") ? join == "RIGHT" : join == "LEFT");
+                    UNIT_ASSERT_VALUES_EQUAL_C(columns[index].Name, std::string(side.first) + "id", sql);
+                    UNIT_ASSERT_C(columns[index++].Type == (TType{ETypeKind::Int32, outer}), sql);
+                    UNIT_ASSERT_VALUES_EQUAL_C(columns[index].Name, std::string(side.first) + "value", sql);
+                    UNIT_ASSERT_C(columns[index++].Type == (TType{ETypeKind::Utf8, true}), sql);
+                }
+            }
+            const auto reversed = CompileNative("SELECT r.*, l.* FROM a AS l LEFT JOIN b AS r ON l.aid = r.bid", catalog, settings);
+            const auto& columns = reversed.Program->Get().Results[0].Columns;
+            UNIT_ASSERT_VALUES_EQUAL(columns[0].Name, "bid");
+            UNIT_ASSERT(columns[0].Type == (TType{ETypeKind::Int32, true}));
+            UNIT_ASSERT_VALUES_EQUAL(columns[2].Name, "aid");
+            UNIT_ASSERT(columns[2].Type == (TType{ETypeKind::Int32}));
+            for (const auto* sql : {
+                    "SELECT * FROM a AS l JOIN a AS r ON l.aid = r.aid",
+                    "SELECT l.*, r.* FROM a AS l JOIN a AS r ON l.aid = r.aid",
+                    "SELECT l.*, l.aid AS aid FROM a AS l JOIN b AS r ON l.aid = r.bid"})
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, catalog, settings), TUnsupportedFeature, sql);
+            for (const auto* sql : {
+                    "SELECT missing.* FROM a AS l JOIN b AS r ON l.aid = r.bid",
+                    "SELECT r.* FROM a AS l LEFT SEMI JOIN b AS r ON l.aid = r.bid"})
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, catalog, settings), TFrontendError, sql);
+        }
+    }
+
     Y_UNIT_TEST(UnicodeCaseHasUtf8InputsAndResults) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;

@@ -300,8 +300,9 @@ Explicitly outside the profile:
   and external tables, table hints, sampling, and PostgreSQL syntax/types.
 - Tuple IN subqueries; subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
   scalar bindings or lambda bodies, JOIN USING,
-  duplicate result names within a set operand, and stars over joins
-  (which require YQL's column-name coalescing rules).
+  duplicate result names within a set operand, and join-star projections with
+  duplicate output names (which require column-name coalescing). Plain and
+  qualified stars over joins with unique output names are supported.
 - Correlated set expressions containing INTERSECT ALL or EXCEPT ALL: the existing
   backend cannot decorrelate their numbering windows. Uncorrelated scalar/EXISTS/IN
   subqueries containing those operations execute natively.
@@ -441,16 +442,21 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 91/99 | 8 |
+| TPC-DS | 95/99 | 4 |
 | ClickBench | 39/43 | 4 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Thirty-four TPC-DS queries also have populated native-required execution
+tables. Thirty-five TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
+
+Join-star expansion with unique output names admits Q10, Q35, Q69 and Q88.
+Q88 has populated execution coverage; the other three have frontend coverage.
+The remaining frontend rejections are sample standard deviation (Q17/Q39),
+mixed DISTINCT/AVG tuple state (Q28), and mixed Decimal arithmetic (Q78).
 
 Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
 Q24, Q54 and Q66. Q24, Q54 and Q66 have populated execution parity below; Q4
@@ -512,6 +518,16 @@ parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
 
+The join-star increment passed all 93 standalone frontend tests and six selected
+host tests. Nine join kinds on both row and column storage check values, output
+names/order and nullability, including qualified and reversed stars, duplicate
+keys and unmatched/NULL keys. Duplicate output names remain explicitly
+unsupported. The legacy optimizer supplies comparison coverage; the existing
+frontend into new RBO's rejection of qualified stars and SEMI/ONLY syntax is
+pinned without changing it. All 22 populated TPC-H and 35 populated TPC-DS
+queries pass, and fast/generated parser routes and diagnostics agree on all
+164 corpus queries with no hard errors.
+
 The Decimal-divisor and Unicode-case increment passed all 92 standalone frontend
 tests and nine selected runtime/host tests. Decimal arithmetic is compared with
 the existing runtime across all eight integer widths and four Decimal shapes,
@@ -564,8 +580,8 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Thirty-four TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
-Q38, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q82, Q86, Q87, Q89, Q90,
+Thirty-five TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
+Q38, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q82, Q86, Q87, Q88, Q89, Q90,
 Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
@@ -581,6 +597,12 @@ quantity multiplication, division before the outer sum, rounding ties, negative,
 zero and NULL areas, all-NULL amounts, identical attributes on distinct warehouse
 IDs, and both time and shipping filters. All 34 queries pass together through
 all three compilers; the previous 33 expectations remain unchanged.
+Q88 adds eight cross-joined scalar counts with expected values 1 through 8.
+It checks half-hour boundaries, all three household branches, wrong stores and
+NULL/missing dimension rows. All 35 queries pass through all three compiler
+paths, preserving the original SQL, schemas, helpers and settings, and all
+previous 34 expectations. The test pins the legacy optimizer's alphabetical
+star-column order separately and requires native to match the existing RBO order.
 Q47/Q57 exercise mixed signed/unsigned rank offsets and adjacent-month joins,
 with duplicate sales, missing ranks, NULL keys, zero/NULL means and exact
 deviation thresholds. Q90 checks the count ratio 5/(1+3)=1.25, including both
