@@ -38,7 +38,7 @@ def catalog_arguments(suite):
             kind = column[2].replace(" ", "")
             if kind == "Bytes":
                 kind = "String"
-            optional = "" if "NOT NULL" in column[3] else "?"
+            optional = "" if "NOT NULL" in column[3].upper() else "?"
             columns.append(f"{column[1]}:{kind}{optional}")
         arguments.extend(("--table", table, ",".join(columns)))
     return arguments
