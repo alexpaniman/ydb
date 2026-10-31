@@ -993,6 +993,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         std::optional<i64> WebPage = std::nullopt;
         const char* NetPaidTax = nullptr;
         std::optional<i64> Household = std::nullopt;
+        const char* WholesaleCost = nullptr;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -1407,6 +1408,45 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         caseSale(1400, 1400, "999", shop);
     caseSale(99999, 1400, "999"); caseSale(std::nullopt, 1400, "999"); caseSale(1400, 99990, "999");
     caseSale(1400, 1400, "999", 140, false);
+    // Q78 needs only fact tables and dates. Unrelated dimension joins exclude
+    // these new item/customer IDs from the earlier populated fixtures.
+    auto unreturnedSale = [&](TVector<TSale>& channel, i64 item, std::optional<i64> quantity,
+            const char* cost, const char* price, std::optional<i64> buyer = 20000,
+            std::optional<i64> date = 70, i64 ticket = 0) {
+        TSale sale{item, ticket ? ticket : order++, date, std::nullopt, price, nullptr};
+        sale.Customer = buyer; sale.Quantity = quantity; sale.WholesaleCost = cost;
+        channel.push_back(sale);
+    };
+    unreturnedSale(store, 20000, 8, "10", "15", 20000, 70, 500000);
+    unreturnedSale(store, 20000, 4, "20", "25", 20000, 71, 500001);
+    unreturnedSale(store, 20000, 999, "999", "999", 20000, 70, 500002);
+    unreturnedSale(web, 20000, 2, "1", "3", 20000, 70, 600000);
+    unreturnedSale(web, 20000, 1, "2", "4", 20000, 72, 600001);
+    unreturnedSale(web, 20000, 999, "999", "999", 20000, 70, 600002);
+    unreturnedSale(catalog, 20000, 2, "5", "6", 20000, 70, 700000);
+    unreturnedSale(catalog, 20000, 999, "999", "999", 20000, 70, 700001);
+    returnedSale(20000, 500002); returnedSale(20099, 500000); returnedSale(20000, 500099);
+    unreturnedSale(store, 20001, 9, nullptr, nullptr); unreturnedSale(web, 20001, 3, nullptr, nullptr);
+    unreturnedSale(store, 20002, 5, "1", "2"); unreturnedSale(catalog, 20002, 2, "4", "6");
+    unreturnedSale(store, 20003, std::nullopt, "-1", "-2");
+    unreturnedSale(web, 20003, 1, "-3", "-4"); unreturnedSale(catalog, 20003, 0, "5", "6");
+    unreturnedSale(store, 20004, 7, "1", "2");
+    unreturnedSale(web, 20004, 1, "1", "1"); unreturnedSale(catalog, 20004, -1, "2", "2");
+    for (i64 item = 20005; item <= 20009; ++item)
+        unreturnedSale(store, item, 999, "999", "999", item == 20008 ? std::nullopt : std::optional<i64>{20000});
+    // No competing channel, nonpositive or NULL quantities, and NULL/mismatched
+    // customer keys must fail the outer WHERE. The zero denominator above passes it.
+    unreturnedSale(web, 20006, -1, "999", "999"); unreturnedSale(catalog, 20006, -2, "999", "999");
+    unreturnedSale(web, 20007, std::nullopt, "999", "999"); unreturnedSale(catalog, 20007, std::nullopt, "999", "999");
+    unreturnedSale(web, 20008, 999, "999", "999", std::nullopt);
+    unreturnedSale(web, 20009, 999, "999", "999", 20001);
+    for (const auto& [item, date] : std::initializer_list<std::pair<i64, std::optional<i64>>>{{20010, 73}, {20011, std::nullopt}, {20012, 99999}}) {
+        unreturnedSale(store, item, 999, "999", "999", 20000, date);
+        unreturnedSale(web, item, 999, "999", "999", 20000, date);
+    }
+    unreturnedSale(web, 20000, 999, "999", "999", 20001); // same year/item, different customer
+    unreturnedSale(web, 20000, 999, "999", "999", 20000, 73); // same item/customer, different year
+    unreturnedSale(web, 20099, 999, "999", "999"); // same year/customer, different item
     load("store_returns", storeReturns);
     // Q66 divides each channel's aggregate before the outer sum. Round's
     // .01/2 + .01/2 is zero; dividing the combined .02 would produce .01.
@@ -1491,6 +1531,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             }
             rows.AddMember(prefix + (prefix == "ss_" ? "customer_sk" : "bill_customer_sk")).OptionalInt64(row.Customer);
             rows.AddMember(prefix + "sales_price"); decimal(rows, row.Price);
+            rows.AddMember(prefix + "wholesale_cost"); decimal(rows, row.WholesaleCost);
             rows.AddMember(prefix + "ext_discount_amt"); decimal(rows, row.Discount);
             rows.AddMember(prefix + "ext_sales_price"); decimal(rows, row.ExtendedPrice);
             rows.AddMember(prefix + "net_profit"); decimal(rows, row.NetProfit);
@@ -1505,7 +1546,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     returns.BeginList();
     for (const auto& [item, order, refund] : std::initializer_list<std::tuple<i64, i64, const char*>>{
             {101, 4001, "20"}, {101, 4003, nullptr}, {101, 4004, "25"}, {102, 4010, "50"}, {102, 4011, "10"},
-            {10000, 100005, nullptr}, {10001, 100005, nullptr}, {10002, 100007, nullptr}, {10003, 100010, nullptr}}) {
+            {10000, 100005, nullptr}, {10001, 100005, nullptr}, {10002, 100007, nullptr}, {10003, 100010, nullptr},
+            {20000, 700001, nullptr}, {20099, 700000, nullptr}, {20000, 700099, nullptr}}) {
         returns.AddListItem().BeginStruct().AddMember("cr_item_sk").Int64(item).AddMember("cr_order_number").Int64(order)
             .AddMember("cr_refunded_cash");
         decimal(returns, refund);
@@ -1514,7 +1556,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     load("catalog_returns", returns);
     TValueBuilder webReturns; webReturns.BeginList();
     for (const auto& [item, number] : std::initializer_list<std::pair<i64, i64>>{
-            {10000, 200005}, {10001, 200005}, {10002, 200007}, {10003, 200010}})
+            {10000, 200005}, {10001, 200005}, {10002, 200007}, {10003, 200010},
+            {20000, 600002}, {20099, 600000}, {20000, 600099}})
         webReturns.AddListItem().BeginStruct().AddMember("wr_item_sk").Int64(item).AddMember("wr_order_number").Int64(number).EndStruct();
     load("web_returns", webReturns);
     const TString prelude = R"($to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };
@@ -1524,7 +1567,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1538,7 +1581,41 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 39) {
+        if (query == 78) {
+            struct TExpectedChannel {
+                std::optional<i64> StoreQuantity;
+                const char* StoreCost;
+                const char* StorePrice;
+                i64 OtherQuantity;
+                const char* OtherCost;
+                const char* OtherPrice;
+                std::optional<i64> Ratio;
+            };
+            i64 item = 20000;
+            for (const auto& row : std::initializer_list<TExpectedChannel>{
+                    {12, "30", "40", 5, "8", "13", 2}, {9, nullptr, nullptr, 3, "0", "0", 3},
+                    {5, "1", "2", 2, "4", "6", 2}, {std::nullopt, "-1", "-2", 1, "2", "2", std::nullopt},
+                    {7, "1", "2", 0, "3", "3", std::nullopt}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("ss_sold_year").GetOptionalInt64().value(), 2000);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("ss_item_sk").GetInt64(), item++);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("ss_customer_sk").GetOptionalInt64().value(), 20000);
+                UNIT_ASSERT(values.ColumnParser("ratio").GetOptionalInt64() == row.Ratio);
+                UNIT_ASSERT(values.ColumnParser("store_qty").GetOptionalInt64() == row.StoreQuantity);
+                assertDecimal("store_wholesale_cost", optionalText(row.StoreCost));
+                assertDecimal("store_sales_price", optionalText(row.StorePrice));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("other_chan_qty").GetInt64(), row.OtherQuantity);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("other_chan_wholesale_cost").GetDecimal().ToString(), row.OtherCost);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("other_chan_sales_price").GetDecimal().ToString(), row.OtherPrice);
+            }
+            UNIT_ASSERT(!values.TryNextRow());
+            const auto decimal = TTypeBuilder().Decimal({35, 2}).Build();
+            const TVector<std::pair<TString, TString>> columns{{"ss_sold_year", "Int64?"}, {"ss_item_sk", "Int64"}, {"ss_customer_sk", "Int64?"},
+                {"ratio", "Int64?"}, {"store_qty", "Int64?"}, {"store_wholesale_cost", TTypeBuilder().Optional(decimal).Build().ToString()},
+                {"store_sales_price", TTypeBuilder().Optional(decimal).Build().ToString()}, {"other_chan_qty", "Int64"},
+                {"other_chan_wholesale_cost", decimal.ToString()}, {"other_chan_sales_price", decimal.ToString()}};
+            UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(result.GetResultSet(0)).Columns, columns);
+        } else if (query == 39) {
             for (std::size_t setIndex = 0; setIndex < 2; ++setIndex) {
                 const auto& set = result.GetResultSet(setIndex);
                 UNIT_ASSERT_VALUES_EQUAL(set.RowsCount(), setIndex == 0 ? 3 : 2);

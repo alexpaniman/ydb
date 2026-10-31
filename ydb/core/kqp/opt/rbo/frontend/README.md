@@ -462,7 +462,7 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Thirty-six TPC-DS queries also have populated native-required execution
+tables. Thirty-seven TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -471,8 +471,8 @@ Join-star expansion with unique output names admits Q10, Q35, Q69 and Q88.
 Q88 has populated execution coverage; the other three have frontend coverage.
 Sample standard deviation and `Math::IsNaN` additionally admit Q17/Q39 at the
 frontend. Q39 has populated execution coverage below; Q17 is still pending.
-Same-scale Decimal COALESCE widening additionally admits Q78 at the frontend;
-its populated benchmark execution is still pending. The remaining frontend
+Same-scale Decimal COALESCE widening additionally admits Q78, with populated
+execution coverage below. The remaining frontend
 rejection is mixed DISTINCT/AVG tuple state (Q28).
 
 Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
@@ -618,11 +618,19 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Thirty-six TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
-Q38, Q39, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q82, Q86, Q87, Q88, Q89, Q90,
+Thirty-seven TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
+Q38, Q39, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q78, Q82, Q86, Q87, Q88, Q89, Q90,
 Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
+Q78 adds five ordered channel-comparison results with exact quantities, Decimal
+costs/prices and integer ratios. It checks all three return anti-joins (including
+wrong item/order keys), missing competing channels, all-NULL amounts, NULL store
+quantity, and a zero denominator despite a positive channel passing the WHERE.
+Wrong customer/item/year keys, NULL customers, nonpositive/NULL channel quantities
+and missing dates are excluded. All 37 queries pass together through all three
+compiler paths with the previous 36 expectations unchanged, original SQL,
+schemas, helpers and settings, exact metadata/order and successful CBO checks.
 Q39 checks both original result sets against exact expected values, with three
 rows in the first and two in the second. Inventory groups have sample deviations
 2, 4, 6 or 8 and coefficients 2 or 4/3. Exclusions cover zero/negative means,
