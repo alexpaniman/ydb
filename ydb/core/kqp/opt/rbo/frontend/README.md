@@ -462,7 +462,7 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Thirty-seven TPC-DS queries also have populated native-required execution
+tables. Thirty-eight TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -473,7 +473,8 @@ Sample standard deviation and `Math::IsNaN` additionally admit Q17/Q39 at the
 frontend. Q39 has populated execution coverage below; Q17 is still pending.
 Same-scale Decimal COALESCE widening additionally admits Q78, with populated
 execution coverage below. Typed AVG states additionally admit TPC-DS Q28 and
-ClickBench Q10 at the frontend; their populated benchmark execution remains pending.
+ClickBench Q10 at the frontend. Q28 has populated execution coverage below;
+ClickBench Q10 execution is still pending.
 
 Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
 Q24, Q54 and Q66. Q24, Q54 and Q66 have populated execution parity below; Q4
@@ -564,7 +565,8 @@ first alternative keeps an unreachable failing Unwrap unevaluated. Native
 evaluation and constant folding preserve coefficients at scales 0, 2 and 3.
 All 22 populated TPC-H and 36 populated TPC-DS regressions pass. With the corpus
 probe's schema-nullability handling corrected, both parsers agree on all 164
-routes and diagnostics; Q78 now binds natively, and only Q28 delegates in TPC-DS.
+routes and diagnostics. At that stage Q78 bound natively and Q28 was the last
+TPC-DS delegation; the typed AVG handoff subsequently removed that boundary.
 
 The sample-deviation increment passed all 95 standalone frontend tests and five
 selected host tests. Row/column fixtures compare all three compiler paths on
@@ -639,11 +641,19 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Thirty-seven TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
+Thirty-eight TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q28, Q32, Q36, Q37,
 Q38, Q39, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q78, Q82, Q86, Q87, Q88, Q89, Q90,
 Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
+Q28 checks all eighteen columns from its six cross-joined scalar aggregates.
+Expected means are 9.75, 57.12, 42.10, -16593.58, 83.50 and 16682.75, each retaining
+Decimal(7,2) optional metadata. Counts distinguish duplicate and NULL prices.
+The fixture covers every quantity range and OR arm, inclusive and excluded
+bounds, NULL quantity, both rounding-tie directions, and a sum exceeding the
+input Decimal precision while the mean fits. Each existing compiler's SELECT *
+column order is pinned. All 38 queries pass together through all three compiler
+paths with the previous 37 expectations unchanged and all CBO invariants intact.
 Q78 adds five ordered channel-comparison results with exact quantities, Decimal
 costs/prices and integer ratios. It checks all three return anti-joins (including
 wrong item/order keys), missing competing channels, all-NULL amounts, NULL store

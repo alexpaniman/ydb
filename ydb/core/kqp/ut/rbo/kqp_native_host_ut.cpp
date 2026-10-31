@@ -1500,6 +1500,57 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     for (const auto household : std::initializer_list<std::optional<i64>>{163, 164, 165, 166, 167, 168, 169, 170, 99999, std::nullopt})
         halfHourSale(160, household);
     for (const auto shop : std::initializer_list<std::optional<i64>>{1, 99999, std::nullopt}) halfHourSale(160, 160, shop);
+    // Q28: all six quantity ranges, duplicate and NULL prices, every OR arm,
+    // inclusive bounds and Decimal rounding. NULL dimension keys keep these
+    // fact-only rows out of the earlier benchmark joins.
+    auto averageBucketSale = [&](std::optional<i64> quantity, const char* price, const char* coupon = nullptr, const char* cost = nullptr) {
+        TSale sale{30000, order++, std::nullopt, std::nullopt, nullptr, nullptr};
+        sale.Quantity = quantity; sale.ListPrice = price; sale.Coupon = coupon; sale.WholesaleCost = cost;
+        store.push_back(sale);
+    };
+    struct TAverageBucket {
+        i64 Low, High;
+        const char *PriceLow, *PriceHigh, *PriceBelow, *PriceAbove;
+        const char *CouponLow, *CouponHigh, *CouponBelow, *CouponAbove;
+        const char *CostLow, *CostHigh, *CostBelow, *CostAbove;
+    };
+    for (const auto& bucket : std::initializer_list<TAverageBucket>{
+            {0, 5, "11", "21", "10.99", "21.01",
+                "460", "1460", "459.99", "1460.01",
+                "14", "34", "13.99", "34.01"},
+            {6, 10, "91", "101", "90.99", "101.01",
+                "1430", "2430", "1429.99", "2430.01",
+                "32", "52", "31.99", "52.01"},
+            {11, 15, "66", "76", "65.99", "76.01",
+                "920", "1920", "919.99", "1920.01",
+                "4", "24", "3.99", "24.01"},
+            {16, 20, "142", "152", "141.99", "152.01",
+                "3054", "4054", "3053.99", "4054.01",
+                "80", "100", "79.99", "100.01"},
+            {21, 25, "135", "145", "134.99", "145.01",
+                "14180", "15180", "14179.99", "15180.01",
+                "38", "58", "37.99", "58.01"},
+            {26, 30, "28", "38", "27.99", "38.01",
+                "2513", "3513", "2512.99", "3513.01",
+                "42", "62", "41.99", "62.01"}}) {
+        averageBucketSale(bucket.Low, bucket.PriceLow);
+        averageBucketSale(bucket.High, bucket.PriceHigh);
+        averageBucketSale(bucket.Low + 1, bucket.PriceLow);
+        averageBucketSale(bucket.Low, "0", bucket.CouponLow);
+        averageBucketSale(bucket.High, "2.50", nullptr, bucket.CostHigh);
+        averageBucketSale(bucket.Low + 2, nullptr, bucket.CouponHigh);
+        averageBucketSale(bucket.High, nullptr, nullptr, bucket.CostLow);
+        averageBucketSale(bucket.Low, bucket.PriceBelow, bucket.CouponBelow, bucket.CostBelow);
+        averageBucketSale(bucket.High, bucket.PriceAbove, bucket.CouponAbove, bucket.CostAbove);
+        averageBucketSale(bucket.Low - 1, bucket.PriceLow);
+        averageBucketSale(bucket.High + 1, bucket.PriceHigh);
+        averageBucketSale(std::nullopt, bucket.PriceLow, bucket.CouponLow, bucket.CostLow);
+    }
+    averageBucketSale(2, "13.01");                         // 58.51 / 6 -> 9.75
+    averageBucketSale(8, "57.19", "1430");               // 342.69 / 6 -> 57.12 (odd tie)
+    averageBucketSale(13, "42.13", "920");               // 252.63 / 6 -> 42.10 (even tie)
+    averageBucketSale(18, "-99999.99", nullptr, "80");    // -99561.49 / 6 -> -16593.58
+    averageBucketSale(28, "99999.99", "3513");           // 100096.49 / 6 -> 16682.75
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -1567,7 +1618,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1581,7 +1632,24 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 78) {
+        if (query == 28) {
+            UNIT_ASSERT(values.TryNextRow());
+            const auto decimal = TTypeBuilder().BeginOptional().Decimal({7, 2}).EndOptional().Build().ToString();
+            TVector<std::pair<TString, TString>> columns;
+            std::size_t bucket = 0;
+            for (const auto* mean : {"9.75", "57.12", "42.1", "-16593.58", "83.5", "16682.75"}) {
+                const TString prefix = TStringBuilder() << "B" << ++bucket << "_";
+                assertDecimal((prefix + "LP").c_str(), std::string(mean));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(prefix + "CNT").GetUint64(), bucket == 5 ? 5 : 6);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(prefix + "CNTD").GetUint64(), bucket == 5 ? 4 : 5);
+                columns.emplace_back(prefix + "LP", decimal);
+                columns.emplace_back(prefix + "CNT", "Uint64");
+                columns.emplace_back(prefix + "CNTD", "Uint64");
+            }
+            UNIT_ASSERT(!values.TryNextRow());
+            if (!newRbo) std::sort(columns.begin(), columns.end());
+            UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(result.GetResultSet(0)).Columns, columns);
+        } else if (query == 78) {
             struct TExpectedChannel {
                 std::optional<i64> StoreQuantity;
                 const char* StoreCost;
@@ -4011,7 +4079,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             // two existing compilers. The fixture pins both orders and every
             // value by name; also compare all named types. Native must preserve
             // the existing RBO order exactly.
-            if (i != 0 && (i < 9 || i >= 13) && i != 29 && i != 30 && i != 35) AssertSame(native[i], legacy[i]);
+            if (i != 0 && (i < 9 || i >= 13) && i != 29 && i != 30 && i != 35 && i != 39) AssertSame(native[i], legacy[i]);
             else {
                 auto actual = native[i].Columns, expected = legacy[i].Columns;
                 std::sort(actual.begin(), actual.end());
