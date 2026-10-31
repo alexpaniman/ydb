@@ -70,7 +70,7 @@ TExpression BindNativeTypes(const TExpression& expression, const TStructExprType
     return expression.WithNativeColumnTypes([&](TInfoUnitId id) {
         const auto* type = row.FindItemType(ctx.GetIndexAsString(id));
         Y_ENSURE(type, "Missing native expression input " << id);
-        return ImportNativeType(*type);
+        return ImportNativeType(*type, expression.GetNativeArena().get());
     });
 }
 
@@ -296,7 +296,7 @@ TStatus ComputeTypes(TIntrusivePtr<TOpMap> map, TRBOContext& ctx, TPlanProps& pr
             auto* expressionType = calls.Empty() ? structType : AddSubplanTypes(structType, calls, ctx, props);
             auto typed = BindNativeTypes(expression, *expressionType, ctx.ExprCtx);
             resStructItemTypes.push_back(ctx.ExprCtx.MakeType<TItemExprType>(ctx.ExprCtx.GetIndexAsString(output),
-                ExportNativeType(typed.GetNativeType(), ctx.ExprCtx)));
+                ExportNativeType(typed.GetNativeType(), ctx.ExprCtx, typed.GetNativeArena().get())));
             map->SetMapElementExpression(output, std::move(typed));
             continue;
         }

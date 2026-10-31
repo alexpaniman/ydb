@@ -82,11 +82,11 @@ public:
             } else Lowered.emplace(id, Lower(node));
         }
         TVector<const TItemExprType*> fields;
-        for (const auto& [id, type] : Columns) fields.push_back(Ctx.MakeType<TItemExprType>(Ctx.GetIndexAsString(id), ExportNativeType(type, Ctx)));
+        for (const auto& [id, type] : Columns) fields.push_back(Ctx.MakeType<TItemExprType>(Ctx.GetIndexAsString(id), ExportNativeType(type, Ctx, &Arena)));
         Row->SetTypeAnn(Ctx.MakeType<TStructExprType>(fields));
         auto args = Ctx.NewArguments(Pos, {Row}); args->SetTypeAnn(Ctx.MakeType<TUnitExprType>());
         auto body = Lowered.at(root);
-        auto lambda = Ctx.NewLambda(Pos, std::move(args), std::move(body)); lambda->SetTypeAnn(ExportNativeType(Arena[root].Type, Ctx));
+        auto lambda = Ctx.NewLambda(Pos, std::move(args), std::move(body)); lambda->SetTypeAnn(ExportNativeType(Arena[root].Type, Ctx, &Arena));
         return lambda;
     }
 
@@ -113,7 +113,7 @@ private:
         }
     }
     TExprNode::TPtr Call(TStringBuf name, TExprNode::TListType args, NFrontend::TType type) {
-        auto result = Ctx.NewCallable(Pos, name, std::move(args)); result->SetTypeAnn(ExportNativeType(type, Ctx)); return result;
+        auto result = Ctx.NewCallable(Pos, name, std::move(args)); result->SetTypeAnn(ExportNativeType(type, Ctx, &Arena)); return result;
     }
     TExprNode::TPtr Type(const TTypeAnnotationNode* type) {
         // ExpandType caches syntax, but leaves it untyped. Complete child type
@@ -134,7 +134,7 @@ private:
         AnnotateTypeSyntax(*result);
         return result;
     }
-    TExprNode::TPtr Type(NFrontend::TType type) { return Type(ExportNativeType(type, Ctx)); }
+    TExprNode::TPtr Type(NFrontend::TType type) { return Type(ExportNativeType(type, Ctx, &Arena)); }
     TExprNode::TPtr Nothing(NFrontend::TType type) {
         return type.Kind == K::Null ? Call("Null", {}, type) : Call("Nothing", {Type(type.Optional())}, type.Optional());
     }
@@ -144,6 +144,13 @@ private:
         }
         if (type.Kind == K::Calendar)
             return Lift(CalendarApply("DateTime2.Split", {Literal({K::Timestamp}, value)}, {{K::Timestamp}}, {K::Calendar}), type);
+        if (type.Kind == K::Tuple) {
+            TExprNode::TListType items;
+            for (const auto& item : std::get<NFrontend::TTuple>(value)->Items) items.push_back(Literal(item.Type, item.Data));
+            auto tuple = Ctx.NewList(Pos, std::move(items));
+            tuple->SetTypeAnn(ExportNativeType(type.Required(), Ctx, &Arena));
+            return Lift(std::move(tuple), type);
+        }
         const auto text = NFrontend::FormatValue({type, value});
         TExprNode::TListType args{Atom(String(text))};
         if (type.Kind == K::Decimal) {
@@ -165,7 +172,7 @@ private:
             if (!types[i].Nullable) continue;
             optionals.push_back(values[i]);
             auto argument = Ctx.NewArgument(Pos, "present");
-            argument->SetTypeAnn(ExportNativeType(types[i].Required(), Ctx));
+            argument->SetTypeAnn(ExportNativeType(types[i].Required(), Ctx, &Arena));
             values[i] = argument;
             arguments.push_back(argument);
         }
@@ -192,8 +199,8 @@ private:
             NFrontend::TType payload{source.Kind == K::Interval ? K::Int64 : K::Uint64, source.Nullable};
             return Cast(Cast(value, source, payload), payload, target);
         }
-        const auto* sourceType = ExportNativeType(source.Required(), Ctx);
-        const auto* requiredTarget = ExportNativeType(target.Required(), Ctx);
+        const auto* sourceType = ExportNativeType(source.Required(), Ctx, &Arena);
+        const auto* requiredTarget = ExportNativeType(target.Required(), Ctx, &Arena);
         const auto options = CastResult<false>(sourceType, requiredTarget);
         if (options & NUdf::ECastOptions::Impossible) {
             throw NFrontend::TFrontendError({}, "unsupported execution cast from " + source.ToString() + " to " + target.ToString());
@@ -224,7 +231,7 @@ private:
             if (name == "DateTime2.Split" || name == "DateTime2.GetYear" || name == "DateTime2.ShiftMonths" || name == "DateTime2.ShiftYears")
                 userType = Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
                     Ctx.MakeType<TTupleExprType>(argumentTypes), Ctx.MakeType<TStructExprType>(TVector<const TItemExprType*>{}), voidType});
-            const auto* signature = Ctx.MakeType<TCallableExprType>(ExportNativeType(returned, Ctx), arguments, 0, TStringBuf{});
+            const auto* signature = Ctx.MakeType<TCallableExprType>(ExportNativeType(returned, Ctx, &Arena), arguments, 0, TStringBuf{});
             auto voidValue = Ctx.NewCallable(Pos, "Void", {});
             voidValue->SetTypeAnn(voidType);
             auto settings = Ctx.NewList(Pos, {Ctx.NewList(Pos, {Atom("strict")})});
@@ -238,7 +245,7 @@ private:
     TExprNode::TPtr StringCase(TExprNode::TPtr value, NFrontend::TType type, bool upper, bool unicode = false) {
         return Present({value}, {type}, type, [&](TExprNode::TListType args) {
             const NFrontend::TType scalar{unicode ? K::Utf8 : K::String};
-            const auto* stringType = ExportNativeType(scalar, Ctx);
+            const auto* stringType = ExportNativeType(scalar, Ctx, &Arena);
             const auto* voidType = Ctx.MakeType<TVoidExprType>();
             auto voidValue = Ctx.NewCallable(Pos, "Void", {});
             voidValue->SetTypeAnn(voidType);
@@ -363,32 +370,50 @@ private:
 };
 } // namespace
 
-const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::TExprContext& ctx) {
-    const NYql::TTypeAnnotationNode* result;
-    if (type.Kind == K::Null) return ctx.MakeType<NYql::TNullExprType>();
-    if (type.Kind == K::Decimal) result = ctx.MakeType<NYql::TDataExprParamsType>(NYql::EDataSlot::Decimal, ToString(type.Precision), ToString(type.Scale));
-    else if (type.Kind == K::Calendar) result = ctx.MakeType<NYql::TResourceExprType>("DateTime2.TM");
+const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::TExprContext& ctx,
+    const NFrontend::TExpressionArena* arena) {
+    const TTypeAnnotationNode* result;
+    if (type.Kind == K::Null) return ctx.MakeType<TNullExprType>();
+    if (type.Kind == K::Tuple) {
+        Y_ENSURE(arena, "Tuple export requires its native arena");
+        TVector<const TTypeAnnotationNode*> items;
+        for (const auto item : arena->TupleItems(type)) items.push_back(ExportNativeType(item, ctx));
+        result = ctx.MakeType<TTupleExprType>(items);
+    } else if (type.Kind == K::Decimal)
+        result = ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, ToString(type.Precision), ToString(type.Scale));
+    else if (type.Kind == K::Calendar) result = ctx.MakeType<TResourceExprType>("DateTime2.TM");
     else {
         const auto slot = NUdf::FindDataSlot(String(type.Required().ToString()));
-        Y_ENSURE(slot, "Unknown native type"); result = ctx.MakeType<NYql::TDataExprType>(*slot);
+        Y_ENSURE(slot, "Unknown native type"); result = ctx.MakeType<TDataExprType>(*slot);
     }
-    return type.Nullable ? ctx.MakeType<NYql::TOptionalExprType>(result) : result;
+    return type.Nullable ? ctx.MakeType<TOptionalExprType>(result) : result;
 }
 
-NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type) {
-    if (type.GetKind() == NYql::ETypeAnnotationKind::Optional) {
-        const auto* item = type.Cast<NYql::TOptionalExprType>()->GetItemType();
-        if (item->GetKind() == NYql::ETypeAnnotationKind::Optional) throw NFrontend::TFrontendError({}, "nested optional types are not native scalar types");
-        return ImportNativeType(*item).Optional();
+NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena) {
+    if (type.GetKind() == ETypeAnnotationKind::Optional) {
+        const auto* item = type.Cast<TOptionalExprType>()->GetItemType();
+        if (item->GetKind() == ETypeAnnotationKind::Optional)
+            throw NFrontend::TFrontendError({}, "nested optional types are not native types");
+        return ImportNativeType(*item, arena).Optional();
     }
-    if (type.GetKind() == NYql::ETypeAnnotationKind::Null) return {};
-    if (type.GetKind() == NYql::ETypeAnnotationKind::Resource && type.Cast<NYql::TResourceExprType>()->GetTag() == "DateTime2.TM")
+    if (type.GetKind() == ETypeAnnotationKind::Tuple) {
+        Y_ENSURE(arena, "Tuple import requires a native arena");
+        std::vector<NFrontend::TType> items;
+        for (const auto* item : type.Cast<TTupleExprType>()->GetItems()) {
+            if (RemoveOptionality(*item).GetKind() == ETypeAnnotationKind::Tuple)
+                throw NFrontend::TFrontendError({}, "nested tuple states are not supported");
+            items.push_back(ImportNativeType(*item, arena));
+        }
+        return arena->TupleType(items);
+    }
+    if (type.GetKind() == ETypeAnnotationKind::Null) return {};
+    if (type.GetKind() == ETypeAnnotationKind::Resource && type.Cast<TResourceExprType>()->GetTag() == "DateTime2.TM")
         return {K::Calendar};
-    if (type.GetKind() != NYql::ETypeAnnotationKind::Data) throw NFrontend::TFrontendError({}, "unsupported native scalar type");
-    const auto* data = type.Cast<NYql::TDataExprType>();
+    if (type.GetKind() != ETypeAnnotationKind::Data) throw NFrontend::TFrontendError({}, "unsupported native type");
+    const auto* data = type.Cast<TDataExprType>();
     auto text = std::string(data->GetName());
-    if (data->GetSlot() == NYql::EDataSlot::Decimal) {
-        const auto* decimal = static_cast<const NYql::TDataExprParamsType*>(data);
+    if (data->GetSlot() == EDataSlot::Decimal) {
+        const auto* decimal = static_cast<const TDataExprParamsType*>(data);
         text += "(" + std::string(decimal->GetParamOne()) + "," + std::string(decimal->GetParamTwo()) + ")";
     }
     return NFrontend::ParseType(text);
@@ -451,7 +476,7 @@ NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena
         }
         else if (const auto name = OlapBinaryName(node.Op); !name.empty()) {
             args.insert(args.begin(), ctx.NewAtom(pos, name));
-            args.push_back(ExpandType(pos, *ExportNativeType(node.Type, ctx), ctx));
+            args.push_back(ExpandType(pos, *ExportNativeType(node.Type, ctx, &arena), ctx));
             value = ctx.NewList(pos, std::move(args));
         } else if (node.Op == O::If) {
             if (arena[node.Arguments[0]].Type.Nullable) {
@@ -464,7 +489,7 @@ NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena
                     ctx.NewAtom(pos, "??"), args[0], otherwise, ExpandType(pos, *boolean, ctx)});
             }
             args.insert(args.begin(), ctx.NewAtom(pos, "if"));
-            args.push_back(ExpandType(pos, *ExportNativeType(node.Type, ctx), ctx));
+            args.push_back(ExpandType(pos, *ExportNativeType(node.Type, ctx, &arena), ctx));
             value = ctx.NewList(pos, std::move(args));
         } else if (node.Op == O::And || node.Op == O::Or || node.Op == O::Not) {
             value = ctx.NewCallable(pos, node.Op == O::And ? "KqpOlapAnd" : node.Op == O::Or ? "KqpOlapOr" : "KqpOlapNot", std::move(args));

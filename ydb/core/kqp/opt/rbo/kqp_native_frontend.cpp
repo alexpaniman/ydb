@@ -130,7 +130,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                 case R::Capture: {
                     TDependencyIUs captures;
                     for (const auto& capture : relation.Captures) captures.Add(capture.Local,
-                        TCapturedIU{capture.Outer, ExportNativeType(program.Columns.at(capture.Local).Type, ctx)});
+                        TCapturedIU{capture.Outer, ExportNativeType(program.Columns.at(capture.Local).Type, ctx, arena.get())});
                     op = MakeIntrusive<TOpAddDependencies>(input(), pos, std::move(captures)); break;
                 }
                 case R::Filter: op = MakeIntrusive<TOpFilter>(input(), pos, expression(*relation.Predicate)); break;

@@ -64,7 +64,7 @@ const TTypeAnnotationNode* GetAggregationType(const TTypeAnnotationNode* inputTy
     } else if (aggFunction == "sum") {
         Y_ENSURE(GetSumResultType(pos, *inputType, resultType, ctx), "Unsupported type for sum aggregation function");
     } else if (aggFunction == "avg") {
-        // Early: (counter, sum)
+        // Early: (sum, count)
         std::vector<const TTypeAnnotationNode*> tupleTypes;
         if (IsDecimalType(inputType)) {
             auto decimalType = inputType->Cast<TDataExprParamsType>();
@@ -97,10 +97,10 @@ TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>
         auto fieldType = inputStructType->FindItemType(originalColName);
         Y_ENSURE(fieldType, "Aggregation column not found in input type:" << output;);
         if (props.NativeExpressions) {
-            // Preserve the existing partial/union/final plan. Only scalar
-            // aggregate states are admitted by the native frontend here.
+            // Preserve the existing partial/union/final plan, including
+            // typed tuple states for AVG.
             const auto& arena = props.NativeExpressions;
-            const auto state = ImportNativeType(*GetAggregationType(&RemoveOptionality(*fieldType), aggTraits.AggFunction, ctx));
+            const auto state = ImportNativeType(*GetAggregationType(&RemoveOptionality(*fieldType), aggTraits.AggFunction, ctx), arena.get());
             NFrontend::TExprId expression;
             if (const auto* partial = realAggTraits.Find(output)) {
                 const bool optional = fieldType->IsOptionalOrNull() && aggTraits.AggFunction != "count";
@@ -281,7 +281,7 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
             const auto* result = aggregate->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>()
                 ->FindItemType(ctx.GetIndexAsString(output));
             Y_ENSURE(result);
-            const auto type = ImportNativeType(*result).Required();
+            const auto type = ImportNativeType(*result, props.NativeExpressions.get()).Required();
             const auto& arena = props.NativeExpressions;
             finalOutput = registry.AddGenerated("distinct_result");
             auto expression = arena->Column(finalOutput, type.Optional());

@@ -3,10 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -28,13 +30,14 @@ public:
 };
 
 // Optionality is one SQL NULL bit. Nested optionals and general YQL containers
-// deliberately do not enter the scalar execution model.
+// deliberately do not enter the execution model. Internal tuples carry typed
+// aggregate states; they do not enable SQL container syntax.
 enum class ETypeKind : std::uint8_t {
     Null, Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64,
     Float, Double, String, Utf8, Decimal, Date, Datetime, Timestamp, Interval,
     // Internal UTC calendar value, carried as timestamp microseconds. It is
     // executable but cannot be stored or cross a relational boundary.
-    Calendar,
+    Calendar, Tuple,
 };
 
 struct TType {
@@ -42,6 +45,9 @@ struct TType {
     bool Nullable = false;
     std::uint8_t Precision = 0;
     std::uint8_t Scale = 0;
+    // Tuple shapes are interned in the owning expression arena. Zero for scalars.
+    // Like expression IDs, a shape ID must be imported when crossing arenas.
+    std::uint32_t Shape = 0;
 
     bool operator==(const TType&) const = default;
     TType Optional() const;
@@ -63,12 +69,18 @@ struct TDecimal {
     bool operator==(const TDecimal&) const = default;
 };
 
-using TScalar = std::variant<std::monostate, bool, std::int64_t, std::uint64_t, double, std::string, TDecimal>;
+struct TTupleValue;
+using TTuple = std::shared_ptr<const TTupleValue>;
+using TScalar = std::variant<std::monostate, bool, std::int64_t, std::uint64_t, double, std::string, TDecimal, TTuple>;
 
 struct TValue {
     TType Type;
     TScalar Data;
     bool IsNull() const { return std::holds_alternative<std::monostate>(Data); }
+};
+
+struct TTupleValue {
+    std::vector<TValue> Items;
 };
 
 // Every opcode is an execution operation. There are no unresolved calls,
@@ -91,13 +103,20 @@ enum class EOpcode : std::uint8_t {
 };
 
 struct TExprNode {
+    // Keep the column ID beside the opcode and the type after the name so the
+    // tuple shape ID uses existing alignment space instead of growing nodes.
     EOpcode Op;
-    TType Type;
+    TColumnId ColumnId;
     TSourcePosition Position;
     std::vector<TExprId> Arguments;
     TScalar Value;
     std::string Name;
-    TColumnId ColumnId = 0;
+    TType Type;
+
+    TExprNode(EOpcode op, TType type, TSourcePosition position, std::vector<TExprId> arguments,
+        TScalar value, std::string name, TColumnId columnId)
+        : Op(op), ColumnId(columnId), Position(position), Arguments(std::move(arguments)),
+          Value(std::move(value)), Name(std::move(name)), Type(type) {}
 };
 
 // Nodes are immutable after construction; all edges point to smaller IDs.
@@ -107,6 +126,13 @@ struct TExprNode {
 // A query may share this append-only arena, with mutation externally serialized.
 class TExpressionArena {
 public:
+    // Flat tuples contain scalar fields, sufficient for aggregate states.
+    // Construction validates and interns each shape once; scalar types need no lookup.
+    TType TupleType(std::span<const TType> items, TSourcePosition position = {});
+    std::span<const TType> TupleItems(TType type) const;
+    TType ImportType(const TExpressionArena& source, TType type);
+    void ValidateType(TType type, TSourcePosition position = {}) const;
+
     TExprId Literal(TType type, TScalar value, TSourcePosition position = {});
     TExprId Null(TSourcePosition position = {});
     TExprId Column(TColumnId column, TType type, TSourcePosition position = {});
@@ -149,6 +175,8 @@ private:
     TExprId Append(TExprNode node);
     TExprId Rebuild(TExprNode node);
     std::vector<TExprNode> Nodes_;
+    std::vector<std::vector<TType>> TupleTypes_;
+    std::unordered_multimap<std::size_t, std::uint32_t> TupleHashes_;
 };
 
 // Small reference executor for the native scalar contract. If/Coalesce/And/Or

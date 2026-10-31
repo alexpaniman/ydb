@@ -242,7 +242,8 @@ std::optional<std::int64_t> ParseTemporal(std::string_view text, K kind) {
     return micros / DateUnit(kind);
 }
 
-void ValidateType(TType type, TSourcePosition position) {
+void ValidateScalarType(TType type, TSourcePosition position) {
+    if (type.Kind != K::Tuple && type.Shape) Fail(position, "Scalar type cannot have a tuple shape");
     if (type.Kind == K::Decimal) {
         if (!type.Precision || type.Precision > 35 || type.Scale > type.Precision) {
             Fail(position, "Decimal requires 1 <= precision <= 35 and scale <= precision");
@@ -640,11 +641,21 @@ TValue ConvertValue(const TValue& value, TType target) {
     return NullValue(target);
 }
 
-void ValidateValue(const TValue& value, TSourcePosition position) {
-    ValidateType(value.Type, position);
+void ValidateValue(const TExpressionArena& arena, const TValue& value, TSourcePosition position) {
+    arena.ValidateType(value.Type, position);
     if (value.IsNull()) {
         if (!value.Type.Nullable && value.Type.Kind != K::Null) {
             Fail(position, "NULL requires an optional type");
+        }
+        return;
+    }
+    if (value.Type.Kind == K::Tuple) {
+        const auto* tuple = std::get_if<TTuple>(&value.Data);
+        const auto fields = arena.TupleItems(value.Type);
+        if (!tuple || !*tuple || (*tuple)->Items.size() != fields.size()) Fail(position, "Tuple value shape mismatch");
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            if ((*tuple)->Items[i].Type != fields[i]) Fail(position, "Tuple element type mismatch");
+            ValidateValue(arena, (*tuple)->Items[i], position);
         }
         return;
     }
@@ -678,6 +689,27 @@ void ValidateValue(const TValue& value, TSourcePosition position) {
     }
 }
 
+bool ChargeStringBytes(const TScalar& value, std::size_t& remaining) {
+    if (const auto* text = std::get_if<std::string>(&value)) {
+        if (text->size() > remaining) return false;
+        remaining -= text->size();
+    } else if (const auto* tuple = std::get_if<TTuple>(&value)) {
+        for (const auto& item : (*tuple)->Items) if (!ChargeStringBytes(item.Data, remaining)) return false;
+    }
+    return true;
+}
+
+TScalar NormalizeValue(TType type, TScalar value) {
+    if (type.Kind == K::Float && std::holds_alternative<double>(value))
+        return static_cast<double>(static_cast<float>(std::get<double>(value)));
+    if (const auto* tuple = std::get_if<TTuple>(&value)) {
+        auto items = (*tuple)->Items;
+        for (auto& item : items) item.Data = NormalizeValue(item.Type, std::move(item.Data));
+        return std::make_shared<const TTupleValue>(TTupleValue{std::move(items)});
+    }
+    return value;
+}
+
 } // namespace
 
 TFrontendError::TFrontendError(TSourcePosition position, std::string message)
@@ -707,11 +739,12 @@ bool TType::IsSigned() const { return Kind >= K::Int8 && Kind <= K::Int64; }
 
 std::string TType::ToString() const {
     static constexpr const char* Names[] = {"Null", "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
-        "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval", "Calendar"};
+        "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval", "Calendar", "Tuple"};
     std::string result = Names[static_cast<unsigned>(Kind)];
     if (Kind == K::Decimal) {
         result += "(" + std::to_string(Precision) + "," + std::to_string(Scale) + ")";
     }
+    if (Kind == K::Tuple) result += "#" + std::to_string(Shape);
     return result + (Nullable ? "?" : "");
 }
 
@@ -740,12 +773,55 @@ TType ParseType(std::string_view name, TSourcePosition position) {
             if (a.ec == std::errc{} && b.ec == std::errc{} && a.ptr == normalized.data() + comma &&
                 b.ptr == normalized.data() + normalized.size() - 1 && precision <= 35 && scale <= precision) {
                 TType type{K::Decimal, nullable, static_cast<std::uint8_t>(precision), static_cast<std::uint8_t>(scale)};
-                ValidateType(type, position);
+                ValidateScalarType(type, position);
                 return type;
             }
         }
     }
     throw TUnsupportedFeature(EFeature::Type, position, "Unsupported scalar type: " + std::string(name));
+}
+
+void TExpressionArena::ValidateType(TType type, TSourcePosition position) const {
+    ValidateScalarType(type, position);
+    if (type.Kind == K::Tuple && (!type.Shape || type.Shape > TupleTypes_.size()))
+        Fail(position, "Invalid tuple shape in expression arena");
+}
+
+TType TExpressionArena::TupleType(std::span<const TType> items, TSourcePosition position) {
+    std::size_t hash = items.size();
+    for (const auto item : items) {
+        ValidateType(item, position);
+        if (item.Kind == K::Calendar) Fail(position, "Calendar values cannot enter tuple states");
+        if (item.Kind == K::Tuple) Fail(position, "Nested tuple states are not supported");
+        const std::uint64_t bits = static_cast<unsigned>(item.Kind) | (std::uint64_t{item.Nullable} << 8) |
+            (std::uint64_t{item.Precision} << 16) | (std::uint64_t{item.Scale} << 24) | (std::uint64_t{item.Shape} << 32);
+        hash ^= std::hash<std::uint64_t>{}(bits) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+    }
+    const auto [begin, end] = TupleHashes_.equal_range(hash);
+    for (auto it = begin; it != end; ++it) {
+        const auto& existing = TupleTypes_[it->second - 1];
+        if (std::equal(items.begin(), items.end(), existing.begin(), existing.end())) return {K::Tuple, false, 0, 0, it->second};
+    }
+    if (TupleTypes_.size() == std::numeric_limits<std::uint32_t>::max())
+        throw TResourceLimitError(position, "Too many native tuple shapes");
+    const auto id = static_cast<std::uint32_t>(TupleTypes_.size() + 1);
+    TupleTypes_.emplace_back(items.begin(), items.end());
+    TupleHashes_.emplace(hash, id);
+    return {K::Tuple, false, 0, 0, id};
+}
+
+std::span<const TType> TExpressionArena::TupleItems(TType type) const {
+    ValidateType(type);
+    if (type.Kind != K::Tuple) Fail({}, "Expected a tuple type");
+    return TupleTypes_[type.Shape - 1];
+}
+
+TType TExpressionArena::ImportType(const TExpressionArena& source, TType type) {
+    source.ValidateType(type);
+    if (&source == this || type.Kind != K::Tuple) return type;
+    auto result = TupleType(source.TupleItems(type));
+    result.Nullable = type.Nullable;
+    return result;
 }
 
 const TExprNode& TExpressionArena::operator[](TExprId id) const {
@@ -770,10 +846,8 @@ TExprId TExpressionArena::Append(TExprNode node) {
 }
 
 TExprId TExpressionArena::Literal(TType type, TScalar value, TSourcePosition position) {
-    ValidateValue({type, value}, position);
-    if (type.Kind == K::Float && std::holds_alternative<double>(value)) {
-        value = static_cast<double>(static_cast<float>(std::get<double>(value)));
-    }
+    ValidateValue(*this, {type, value}, position);
+    if (type.Kind == K::Float || type.Kind == K::Tuple) value = NormalizeValue(type, std::move(value));
     return Append({O::Literal, type, position, {}, std::move(value), {}, 0});
 }
 
@@ -805,6 +879,7 @@ TExprId TExpressionArena::Convert(TExprId input, TType target, TSourcePosition p
 TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition position) {
     ValidateType(target, position);
     const auto source = (*this)[input].Type;
+    if (source.Kind == K::Tuple || target.Kind == K::Tuple) return Convert(input, target, position);
     if (source.Kind == K::Calendar || target.Kind == K::Calendar)
         throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime accessors or constructors");
     if (target.Kind == K::Null) {
@@ -890,6 +965,7 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         if (type.Kind != K::Calendar) Fail(position, "calendar operation requires a calendar value");
         type = {op == O::CalendarDate ? K::Date : op == O::CalendarDatetime ? K::Datetime : op == O::CalendarTimestamp ? K::Timestamp : K::Uint16, type.Nullable};
     } else if (op == O::StablePickle) {
+        if (type.Kind == K::Tuple) Fail(position, "Tuple state serialization is not supported");
         if (type.Kind == K::Calendar) throw TUnsupportedFeature(EFeature::Type, position, "calendar values cannot be persisted");
         type = {K::String};
     } else if (op == O::IsNull || op == O::IsNotNull) {
@@ -927,6 +1003,7 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
             Fail(position, "calendar shift requires a calendar value and non-null Int32 amount");
         return Append({op, {K::Calendar, true}, position, {left, right}, {}, {}, 0});
     }
+    if (leftType.Kind == K::Tuple || rightType.Kind == K::Tuple) Fail(position, "Tuple states do not support scalar binary operations");
     if (leftType.Kind == K::Calendar || rightType.Kind == K::Calendar)
         throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime operations");
     if ((op == O::Add || op == O::Subtract) && IsDate(leftType.Kind) && rightType.Kind == K::Interval) {
@@ -1266,6 +1343,8 @@ TExprId TExpressionArena::Import(const TExpressionArena& source, TExprId root,
         for (auto& arg : node.Arguments) {
             arg = copied.at(arg);
         }
+        // Tuple fields are scalar, so their value types are arena-independent.
+        node.Type = ImportType(source, node.Type);
         const auto result = node.Op == O::Column ? bindColumn(node.ColumnId, node.Type, node.Position) : Rebuild(std::move(node));
         (void)(*this)[result];
         copied.emplace(id, result);
@@ -1327,6 +1406,14 @@ std::string FormatValue(const TValue& value) {
         out.precision(std::numeric_limits<double>::max_digits10);
         out << *p;
         return out.str();
+    }
+    if (const auto* tuple = std::get_if<TTuple>(&value.Data)) {
+        std::string result = "(";
+        for (const auto& item : (*tuple)->Items) {
+            if (result.size() != 1) result += ", ";
+            result += FormatValue(item);
+        }
+        return result + ")";
     }
     const auto coefficient = std::get<TDecimal>(value.Data).Coefficient;
     if (coefficient == TDecimal::NaN()) return "nan";
@@ -1637,10 +1724,9 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
         }
         auto finish = [&](TValue value) {
             value.Type = node.Type;
-            if (node.Type.Kind == K::Float && std::holds_alternative<double>(value.Data)) {
-                value.Data = static_cast<double>(static_cast<float>(std::get<double>(value.Data)));
-            }
-            ValidateValue(value, node.Position);
+            ValidateValue(arena, value, node.Position);
+            if (node.Type.Kind == K::Float || node.Type.Kind == K::Tuple)
+                value.Data = NormalizeValue(node.Type, std::move(value.Data));
             values[id] = std::move(value);
             stack.pop_back();
         };
@@ -1653,7 +1739,7 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
                 Fail(node.Position, node.Op == O::Column ? "Missing column binding" : "Missing parameter binding: " + node.Name);
             }
             auto value = node.Op == O::Column ? context.Column(node.ColumnId) : context.Parameter(node.Name);
-            ValidateValue(value, node.Position);
+            ValidateValue(arena, value, node.Position);
             if (value.Type.Required() != node.Type.Required() || (value.IsNull() && !node.Type.Nullable)) {
                 Fail(node.Position, "Binding type differs from " + node.Type.ToString());
             }
@@ -1749,10 +1835,9 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
     auto fold = [&](TExprNode node, TExprId original, bool changed) {
         auto retain = [&] { return changed ? Rebuild(node) : original; };
         auto literal = [&](TScalar value) {
-            if (const auto* text = std::get_if<std::string>(&value)) {
-                if (text->size() > maxStringBytes) return retain();
-                maxStringBytes -= text->size();
-            }
+            auto remaining = maxStringBytes;
+            if (!ChargeStringBytes(value, remaining)) return retain();
+            maxStringBytes = remaining;
             return Literal(node.Type, std::move(value), node.Position);
         };
         if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) return original;
@@ -1789,14 +1874,11 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             }
             return literal(std::monostate{});
         }
-        std::size_t inputBytes = 0;
+        auto inputBudget = maxStringBytes;
         for (const auto arg : node.Arguments) {
             const auto& value = (*this)[arg];
             if (value.Op != O::Literal) return retain();
-            if (const auto* text = std::get_if<std::string>(&value.Value)) {
-                if (text->size() > maxStringBytes - inputBytes) return retain();
-                inputBytes += text->size();
-            }
+            if (!ChargeStringBytes(value.Value, inputBudget)) return retain();
         }
         // Compact operands avoid allocating a root-sized evaluator cache for
         // every constant operation in a large/shared arena.

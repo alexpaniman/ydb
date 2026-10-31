@@ -9,8 +9,9 @@ namespace NKikimr::NKqp {
 // The execution compatibility boundary. The native frontend and its type
 // checker never include this header or depend on YQL. Each native operation
 // has a finite, explicit lowering; no SQL/YQL normalization is performed here.
-const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::TExprContext& ctx);
-NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type);
+const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::TExprContext& ctx,
+    const NFrontend::TExpressionArena* arena = nullptr);
+NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena = nullptr);
 NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena,
     NFrontend::TExprId root, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
 

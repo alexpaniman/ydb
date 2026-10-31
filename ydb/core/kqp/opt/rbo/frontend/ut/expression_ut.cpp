@@ -21,6 +21,81 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(TupleStatesAreInternedAndHaveValidatedScalarFields) {
+        Cerr << "native layout: type=" << sizeof(TType) << ", node=" << sizeof(TExprNode) << ", value=" << sizeof(TValue) << Endl;
+        TExpressionArena arena;
+        const TType fields[]{{K::Decimal, false, 35, 2}, {K::Uint64}};
+        const auto state = arena.TupleType(fields);
+        UNIT_ASSERT(state == arena.TupleType(fields));
+        UNIT_ASSERT_VALUES_EQUAL(arena.TupleItems(state).size(), 2);
+        UNIT_ASSERT(arena.TupleItems(state)[0] == fields[0]);
+        UNIT_ASSERT(arena.TupleItems(state.Optional())[1] == fields[1]);
+        UNIT_ASSERT(CommonType(state, state.Optional()) == state.Optional());
+        UNIT_ASSERT_EXCEPTION(arena.Column(0, {K::Tuple}), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.Column(0, {K::Tuple, false, 0, 0, 99}), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.Column(0, {K::Int64, false, 0, 0, state.Shape}), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(arena.TupleItems({K::Double}), TFrontendError);
+        const TType malformed[]{{K::Decimal, false, 1, 2}};
+        UNIT_ASSERT_EXCEPTION(arena.TupleType(malformed), TFrontendError);
+        const TType nested[]{state.Optional()};
+        UNIT_ASSERT_EXCEPTION(arena.TupleType(nested), TFrontendError);
+    }
+
+    Y_UNIT_TEST(TupleStatesExecuteFoldRebindAndImportWithoutLosingTypes) {
+        TExpressionArena source, target;
+        const TType unrelated[]{{K::String}};
+        target.TupleType(unrelated); // Source IDs deliberately mean different things here.
+        const TType fields[]{{K::Decimal, false, 35, 2}, {K::Uint64}, {K::Float, true}};
+        const auto state = source.TupleType(fields);
+        const TTuple data = std::make_shared<const TTupleValue>(TTupleValue{{
+            {fields[0], TDecimal{12345}}, {fields[1], std::uint64_t{3}}, {fields[2], 1.1}}});
+        const auto literal = source.Literal(state, data);
+        const auto column = source.Column(7, state);
+        const auto lifted = source.Convert(column, state.Optional());
+        TEvaluationContext bindings;
+        bindings.Column = [&](TColumnId id) -> TValue { UNIT_ASSERT_VALUES_EQUAL(id, 7); return {state, data}; };
+        const auto executed = Evaluate(source, lifted, bindings);
+        UNIT_ASSERT(executed.Type == state.Optional());
+        UNIT_ASSERT_VALUES_EQUAL(std::get<double>(std::get<TTuple>(executed.Data)->Items[2].Data), double(float(1.1)));
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(executed), FormatValue(Evaluate(source, literal)));
+        const TExprId alternatives[]{source.Literal(state.Optional(), std::monostate{}), literal,
+            source.Parameter("unreached", state)};
+        const auto coalesce = source.Coalesce(alternatives);
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(source, coalesce)), FormatValue(executed));
+        const TExprId roots[]{coalesce, source.Convert(literal, state.Optional())};
+        const auto folded = source.FoldConstants(roots);
+        UNIT_ASSERT(source[folded[0]].Type == state);
+        UNIT_ASSERT(source[folded[1]].Type == state.Optional());
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(source, folded[0])), FormatValue(executed));
+        const auto rebound = source.RewriteColumns(lifted, [&](auto, auto, auto, auto) { return literal; });
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(source, rebound)), FormatValue(executed));
+        const auto imported = target.Import(source, literal,
+            [&](auto, auto, auto) -> TExprId { UNIT_FAIL("literal import has no columns"); return 0; });
+        UNIT_ASSERT(target[imported].Type != state);
+        UNIT_ASSERT(target[imported].Type == target.ImportType(source, state));
+        UNIT_ASSERT(target.TupleItems(target[imported].Type)[0] == fields[0]);
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(target, imported)), FormatValue(Evaluate(source, literal)));
+        const auto importedColumn = target.Import(source, lifted, [&](auto id, auto type, auto pos) {
+            UNIT_ASSERT(type == target.ImportType(source, state));
+            return target.Column(id, type, pos);
+        });
+        UNIT_ASSERT(target[importedColumn].Type == target.ImportType(source, state).Optional());
+        const auto bad = std::make_shared<const TTupleValue>(TTupleValue{{{fields[1], std::uint64_t{3}}}});
+        UNIT_ASSERT_EXCEPTION(source.Literal(state, bad), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(source.Literal(state, TTuple{}), TFrontendError);
+        bindings.Column = [&](auto) -> TValue { return {state, bad}; };
+        UNIT_ASSERT_EXCEPTION(Evaluate(source, column, bindings), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(source.Binary(O::Equal, literal, literal), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(source.Unary(O::StablePickle, literal), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(source.Cast(literal, {K::String}), TFrontendError);
+        const TType textFields[]{{K::String}};
+        const auto textType = source.TupleType(textFields);
+        const auto text = source.Literal(textType, std::make_shared<const TTupleValue>(TTupleValue{{{textFields[0], std::string(32, 'x')}}}));
+        const TExprId textRoots[]{source.Convert(text, textType.Optional())};
+        UNIT_ASSERT_VALUES_EQUAL(source.FoldConstants(textRoots, 8).front(), textRoots[0]);
+        UNIT_ASSERT(source[source.FoldConstants(textRoots, 32).front()].Op == O::Literal);
+    }
+
     Y_UNIT_TEST(DecimalCoalescePreservesCoefficientsAndOptionality) {
         for (const std::uint8_t scale : {0, 2, 3}) for (const bool fallbackRequired : {false, true}) {
             TExpressionArena arena;

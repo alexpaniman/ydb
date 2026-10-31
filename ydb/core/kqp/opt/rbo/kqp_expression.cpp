@@ -1018,7 +1018,7 @@ TExpression MakeColumnAccess(TInfoUnitId column, const TTypeAnnotationNode* type
     if (!props || !props->NativeExpressions) return MakeColumnAccess(column, pos, ctx, props);
     Y_ENSURE(type, "Native optimizer column construction requires its known type");
     const auto& arena = props->NativeExpressions;
-    return TExpression::FromNative(arena, arena->Column(column, ImportNativeType(*type)), ctx, props, pos);
+    return TExpression::FromNative(arena, arena->Column(column, ImportNativeType(*type, arena.get())), ctx, props, pos);
 }
 
 TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TExprContext* ctx, TPlanProps* props) {

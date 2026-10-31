@@ -132,7 +132,7 @@ Multiple DISTINCT aggregates
 can be combined with ordinary aggregates when their intermediate states are
 scalar (COUNT, SUM, MIN, MAX, SOME). A combination containing both DISTINCT and
 AVG is explicitly unsupported unless AVG is the sole aggregate: its tuple state
-still needs native representation. Computed GROUP BY keys require explicit
+still needs an accurate state/result type handoff through RBO. Computed GROUP BY keys require explicit
 aliases (`GROUP BY expression AS key`, then `SELECT key`) or
 `PRAGMA YqlSelectAllowUnnamedGroupByExpr`. Its enable/disable state is captured
 when a query is defined, including named queries. Unnamed keys are materialized
@@ -514,8 +514,22 @@ The existing RBO expansion retains its partial-aggregation/union/final-aggregati
 plan. Native padding uses typed NULLs and optional lifts; COUNT's empty-input zero
 and grouped required results use explicit native COALESCE/Unwrap expressions.
 No YQL expression annotation is needed during expansion, pruning or copying,
-and output types remain unchanged before terminal lowering. AVG's tuple state
+and output types remain unchanged before terminal lowering. AVG's state/result handoff
 remains an explicit migration boundary.
+
+The expression arena can carry internal flat tuple states with scalar fields.
+Shapes are interned per query; copying between arenas imports the shape ID.
+NULL padding, optional lifting, lazy IF/COALESCE, reference execution and direct
+MiniKQL lowering retain the field types. Folding counts strings inside tuple
+values against the existing byte budget. This does not enable SQL container
+syntax or mixed DISTINCT/AVG yet: that combination remains rejected until
+aggregate phases carry accurate state and scalar-result types. Nested tuples,
+tuple comparison, arithmetic and serialization are explicitly rejected.
+The extension passes all 99 standalone tests and 27 selected RBO/host tests,
+including direct MiniKQL execution, mixed DISTINCT on row/column tables, and the
+unchanged populated 22 TPC-H / 37 TPC-DS checks across all three compiler paths.
+The Linux build measures 8-byte type handles and 128-byte expression nodes; the
+standalone CLI still contains no YQL or MiniKQL symbols.
 
 Forty mixed-DISTINCT queries run on both row and column tables, checking required
 and nullable inputs, multiple distinct states, computed arguments, Decimal values,
