@@ -180,7 +180,10 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         for (const auto* projection : {
                 "COUNT(DISTINCT v), COUNT(*), SUM(v), SUM(DISTINCT v), MIN(v), MAX(DISTINCT v)",
                 "COUNT(DISTINCT v), SUM(d), SUM(DISTINCT d), MIN(d), MAX(DISTINCT d)",
-                "COUNT(DISTINCT v), SOME(CAST(NULL AS Int32)), SOME(7)"}) {
+                "COUNT(DISTINCT v), SOME(CAST(NULL AS Int32)), SOME(7)",
+                "COUNT(DISTINCT v), AVG(v), AVG(DISTINCT v), AVG(k)",
+                "COUNT(DISTINCT v), AVG(d), AVG(DISTINCT d)",
+                "AVG(DISTINCT v), AVG(DISTINCT d), AVG(DISTINCT k)"}) {
             for (const bool grouped : {false, true}) {
                 NTests::TIdTestContext f;
                 const TString sql = TStringBuilder() << "SELECT " << projection
@@ -212,9 +215,32 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 }
                 NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
                 for (const auto& item : root) {
-                    if (item.Current->Kind == EOperator::Aggregate)
-                        for (const auto& [_, traits] : CastOperator<TOpAggregate>(*item.Current).GetAggregationTraits().Items())
+                    if (item.Current->Kind == EOperator::Aggregate) {
+                        const auto& aggregate = CastOperator<TOpAggregate>(*item.Current);
+                        for (const auto& [output, traits] : aggregate.GetAggregationTraits().Items()) {
                             UNIT_ASSERT(!traits.Distinct);
+                            if (traits.AggFunction != "avg") continue;
+                            UNIT_ASSERT(traits.ResultType);
+                            const auto* type = aggregate.GetIUType(output, f.ExprCtx);
+                            const auto& required = RemoveOptionality(*type);
+                            if (aggregate.GetAggregationPhase() == EOpPhase::Intermediate) {
+                                UNIT_ASSERT(required.GetKind() == ETypeAnnotationKind::Tuple);
+                                const auto& fields = required.Cast<TTupleExprType>()->GetItems();
+                                UNIT_ASSERT_VALUES_EQUAL(fields.size(), 2);
+                                UNIT_ASSERT(fields[1]->Cast<TDataExprType>()->GetSlot() == EDataSlot::Uint64);
+                                const auto* input = aggregate.GetInput()->GetIUType(traits.Input, f.ExprCtx);
+                                UNIT_ASSERT_VALUES_EQUAL(type->IsOptionalOrNull(), input->IsOptionalOrNull());
+                                if (traits.ResultType->Kind == NFrontend::ETypeKind::Decimal) {
+                                    const auto* decimal = fields[0]->Cast<TDataExprParamsType>();
+                                    UNIT_ASSERT_VALUES_EQUAL(decimal->GetParamOne(), "35");
+                                    UNIT_ASSERT_VALUES_EQUAL(decimal->GetParamTwo(), "2");
+                                } else UNIT_ASSERT(fields[0]->Cast<TDataExprType>()->GetSlot() == EDataSlot::Double);
+                            } else {
+                                UNIT_ASSERT(required.GetKind() == ETypeAnnotationKind::Data);
+                                UNIT_ASSERT(ImportNativeType(required) == traits.ResultType->Required());
+                            }
+                        }
+                    }
                     for (const auto& expression : item.Current->GetExpressions()) {
                         UNIT_ASSERT(expression.get().IsNative());
                         UNIT_ASSERT(!expression.get().Node);

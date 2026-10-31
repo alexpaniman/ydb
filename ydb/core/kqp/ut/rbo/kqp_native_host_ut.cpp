@@ -2483,7 +2483,12 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                     "COUNT(DISTINCT w) AS n, SUM(DISTINCT w) AS s, MIN(w) AS lo, MAX(DISTINCT w) AS hi, COUNT(*) AS rows",
                     "COUNT(DISTINCT v) AS n, SUM(d) AS s, SUM(DISTINCT d) AS ds, MIN(DISTINCT d) AS lo, MAX(d) AS hi",
                     "COUNT(DISTINCT v) AS n, SOME(CAST(NULL AS Int32)) AS missing, SOME(7) AS present",
-                    "COUNT(DISTINCT v + 1) AS n, SUM(v + 1) AS s, COUNT(DISTINCT w) AS nw"}) {
+                    "COUNT(DISTINCT v + 1) AS n, SUM(v + 1) AS s, COUNT(DISTINCT w) AS nw",
+                    "COUNT(DISTINCT v) AS n, AVG(v) AS a, AVG(DISTINCT v) AS da, COUNT(*) AS rows",
+                    "COUNT(DISTINCT v) AS n, AVG(d) AS a, AVG(DISTINCT d) AS da, COUNT(d) AS rows",
+                    "COUNT(DISTINCT w) AS n, AVG(w) AS a, AVG(DISTINCT w) AS da, SUM(w) AS s",
+                    "AVG(DISTINCT v) AS av, AVG(DISTINCT d) AS ad, AVG(DISTINCT w) AS aw",
+                    "COUNT(DISTINCT w) AS n, AVG(CAST(w AS Decimal(9,3))) AS a"}) {
                 for (const auto* filter : {"", " WHERE k = 1", " WHERE k = 2", " WHERE id < 0"}) {
                     for (const bool grouped : {false, true}) {
                         const TString sql = TStringBuilder() << "SELECT " << (grouped ? "k, " : "") << projection
@@ -2507,6 +2512,62 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                         ++index;
                     }
                 }
+            }
+        }
+    }
+
+    Y_UNIT_TEST_TWIN(DistinctAverageKeepsOriginalIntegerKeysAcrossPartitions, ColumnStore) {
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto created = session.ExecuteSchemeQuery(TString(
+                "CREATE TABLE `/Root/AverageKeys` (id Uint64 NOT NULL, g Int32 NOT NULL, v Int64 NOT NULL, PRIMARY KEY(id)) WITH (") +
+                (ColumnStore ? "STORE = COLUMN, AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 4);" : "UNIFORM_PARTITIONS = 4);")).GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            constexpr i64 exact = i64{1} << 53;
+            TValueBuilder rows; rows.BeginList();
+            ui64 id = 0;
+            for (const i64 value : {exact, exact + 1, -exact, exact + 1}) {
+                ++id;
+                rows.AddListItem().BeginStruct().AddMember("id").Uint64((id % 4) * (ui64{1} << 62) + id)
+                    .AddMember("g").Int32(1).AddMember("v").Int64(value).EndStruct();
+            }
+            rows.EndList();
+            const auto loaded = client.BulkUpsert("/Root/AverageKeys", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            std::size_t index = 0;
+            for (const bool grouped : {false, true}) for (const bool empty : {false, true}) {
+                const TString sql = TStringBuilder() << "SELECT " << (grouped ? "g, " : "")
+                    << "AVG(DISTINCT v) AS distinct_avg, AVG(v) AS ordinary_avg, COUNT(DISTINCT v) AS n, COUNT(*) AS rows FROM `/Root/AverageKeys`"
+                    << (empty ? " WHERE g = 0" : "") << (grouped ? " GROUP BY g ORDER BY g" : "");
+                const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), sql << "\n" << result.GetIssues().ToString());
+                UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
+                const auto& set = result.GetResultSet(0);
+                UNIT_ASSERT_VALUES_EQUAL(set.RowsCount(), grouped && empty ? 0 : 1);
+                if (!empty) {
+                    TResultSetParser values(set); UNIT_ASSERT(values.TryNextRow());
+                    const auto actual = grouped ? values.ColumnParser("distinct_avg").GetDouble() : values.ColumnParser("distinct_avg").GetOptionalDouble().value();
+                    UNIT_ASSERT_VALUES_EQUAL(actual, double(exact) / 3.0);
+                    const auto ordinary = grouped ? values.ColumnParser("ordinary_avg").GetDouble() : values.ColumnParser("ordinary_avg").GetOptionalDouble().value();
+                    UNIT_ASSERT_VALUES_EQUAL(ordinary, double(exact) / 2.0);
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("n").GetUint64(), 3);
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("rows").GetUint64(), 4);
+                } else if (!grouped) UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(set).Values, "[[#;#;0u;0u]]");
+                const auto snapshot = SnapshotRows(set);
+                if (strategy == 2) reference.push_back(snapshot);
+                else AssertSame(snapshot, reference.at(index));
+                ++index;
             }
         }
     }

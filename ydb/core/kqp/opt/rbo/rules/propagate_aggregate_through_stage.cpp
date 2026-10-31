@@ -74,8 +74,8 @@ TIntrusivePtr<TOpAggregate> EmitFinalAndIntermediateAggregates(const TIntrusiveP
         const auto& originalTraits = *aggregationTraitsList.Find(output);
         const auto intermediateId = registry.AddGenerated("intermediate_agg");
         const auto [interAggFunc, finalAggFunc] = GetAggFunctions(originalTraits.AggFunction);
-        intermediateTraits.Add(intermediateId, TOpAggregationTraits{originalTraits.Input, interAggFunc});
-        finalTraits.Add(output, TOpAggregationTraits{intermediateId, finalAggFunc});
+        intermediateTraits.Add(intermediateId, TOpAggregationTraits{originalTraits.Input, interAggFunc, false, false, originalTraits.ResultType});
+        finalTraits.Add(output, TOpAggregationTraits{intermediateId, finalAggFunc, false, false, originalTraits.ResultType});
 
         if (distinctAll) {
             distKeys.Append(intermediateId);

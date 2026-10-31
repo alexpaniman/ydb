@@ -158,7 +158,8 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                         TOrderedIUs<> keys; for (auto key : relation.GroupKeys) keys.Append(key);
                         TAggregationIUs aggregates;
                         for (const auto& aggregate : relation.Aggregates) aggregates.Add(aggregate.Output,
-                            TOpAggregationTraits{aggregate.Input, AggregateName(aggregate.Function), aggregate.Distinct});
+                            TOpAggregationTraits{aggregate.Input, AggregateName(aggregate.Function), aggregate.Distinct, false,
+                                aggregate.Function == "avg" ? std::optional{program.Columns[aggregate.Output].Type} : std::nullopt});
                         op = MakeIntrusive<TOpAggregate>(input(), std::move(aggregates), std::move(keys), EOpPhase::Undefined, false, pos);
                         break;
                     }
@@ -186,10 +187,11 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                         TAggregationIUs traits;
                         for (const auto& aggregate : relation.Aggregates) {
                             const auto value = registry.AddCopy(aggregate.Output);
-                            traits.Add(value, TOpAggregationTraits{rebind(aggregate.Input), AggregateName(aggregate.Function), aggregate.Distinct});
                             values.Add(aggregate.Output, value);
                             auto type = program.Columns[aggregate.Output].Type;
                             if (set.empty() && aggregate.Function != "count") type = type.Optional();
+                            traits.Add(value, TOpAggregationTraits{rebind(aggregate.Input), AggregateName(aggregate.Function), aggregate.Distinct, false,
+                                aggregate.Function == "avg" ? std::optional{type} : std::nullopt});
                             types.emplace(aggregate.Output, type);
                         }
                         TIntrusivePtr<IOperator> branch = MakeIntrusive<TOpAggregate>(port ? port : input(),

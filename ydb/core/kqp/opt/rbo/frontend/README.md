@@ -128,11 +128,11 @@ directly to the existing sample-deviation backend trait. Decimal arguments,
 window forms and mixed aggregate combinations containing DISTINCT explicitly delegate.
 `Math::IsNaN` on typed integer/Float/Double inputs uses native scalar IEEE
 inequality, retaining NULLs; it needs no UDF or semantic lowering pass.
-Multiple DISTINCT aggregates
-can be combined with ordinary aggregates when their intermediate states are
-scalar (COUNT, SUM, MIN, MAX, SOME). A combination containing both DISTINCT and
-AVG is explicitly unsupported unless AVG is the sole aggregate: its tuple state
-still needs an accurate state/result type handoff through RBO. Computed GROUP BY keys require explicit
+Multiple DISTINCT aggregates can be combined with ordinary COUNT, SUM, MIN,
+MAX, SOME and AVG. AVG carries a typed `(sum, count)` state and preserves its
+original scalar result type, including Decimal precision. DISTINCT groups the
+original input values before conversion into the accumulator type.
+Computed GROUP BY keys require explicit
 aliases (`GROUP BY expression AS key`, then `SELECT key`) or
 `PRAGMA YqlSelectAllowUnnamedGroupByExpr`. Its enable/disable state is captured
 when a query is defined, including named queries. Unnamed keys are materialized
@@ -456,8 +456,8 @@ and generated modes currently agree on these frontend routing counts:
 | Suite | Native | Explicit legacy delegation |
 | --- | ---: | ---: |
 | TPC-H | 22/22 | 0 |
-| TPC-DS | 98/99 | 1 |
-| ClickBench | 39/43 | 4 |
+| TPC-DS | 99/99 | 0 |
+| ClickBench | 40/43 | 3 |
 
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
@@ -472,8 +472,8 @@ Q88 has populated execution coverage; the other three have frontend coverage.
 Sample standard deviation and `Math::IsNaN` additionally admit Q17/Q39 at the
 frontend. Q39 has populated execution coverage below; Q17 is still pending.
 Same-scale Decimal COALESCE widening additionally admits Q78, with populated
-execution coverage below. The remaining frontend
-rejection is mixed DISTINCT/AVG tuple state (Q28).
+execution coverage below. Typed AVG states additionally admit TPC-DS Q28 and
+ClickBench Q10 at the frontend; their populated benchmark execution remains pending.
 
 Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
 Q24, Q54 and Q66. Q24, Q54 and Q66 have populated execution parity below; Q4
@@ -514,24 +514,31 @@ The existing RBO expansion retains its partial-aggregation/union/final-aggregati
 plan. Native padding uses typed NULLs and optional lifts; COUNT's empty-input zero
 and grouped required results use explicit native COALESCE/Unwrap expressions.
 No YQL expression annotation is needed during expansion, pruning or copying,
-and output types remain unchanged before terminal lowering. AVG's state/result handoff
-remains an explicit migration boundary.
+and output types remain unchanged before terminal lowering. AVG partial outputs
+now expose their actual tuple type, while final outputs retain the scalar type.
+The terminal builder uses that scalar type to finish Decimal AVG without
+reconstructing its original precision from an earlier plan.
 
 The expression arena can carry internal flat tuple states with scalar fields.
 Shapes are interned per query; copying between arenas imports the shape ID.
 NULL padding, optional lifting, lazy IF/COALESCE, reference execution and direct
 MiniKQL lowering retain the field types. Folding counts strings inside tuple
-values against the existing byte budget. This does not enable SQL container
-syntax or mixed DISTINCT/AVG yet: that combination remains rejected until
-aggregate phases carry accurate state and scalar-result types. Nested tuples,
-tuple comparison, arithmetic and serialization are explicitly rejected.
+values against the existing byte budget. SQL container syntax, nested tuples,
+tuple comparison, arithmetic and serialization remain explicitly unsupported.
 The extension passes all 99 standalone tests and 27 selected RBO/host tests,
 including direct MiniKQL execution, mixed DISTINCT on row/column tables, and the
 unchanged populated 22 TPC-H / 37 TPC-DS checks across all three compiler paths.
 The Linux build measures 8-byte type handles and 128-byte expression nodes; the
 standalone CLI still contains no YQL or MiniKQL symbols.
+The AVG handoff separately passes 99 frontend and 13 RBO/host tests, including
+all currently populated benchmarks, grouping sets, windows and correlation.
+Four-partition tests preserve DISTINCT on Int64 values above double precision:
+`2^53`, `2^53+1`, `-2^53` must average to `2^53/3`, whereas prematurely deduplicating
+after conversion would give zero. Required/nullable, all-NULL and empty inputs,
+multiple AVG states and original Decimal precisions are compared across all
+three compiler paths.
 
-Forty mixed-DISTINCT queries run on both row and column tables, checking required
+Eighty mixed-DISTINCT queries run on both row and column tables, checking required
 and nullable inputs, multiple distinct states, computed arguments, Decimal values,
 NULL keys, all-NULL groups and empty input. Values and metadata match the old
 optimizer. The old frontend plus RBO also matches except for its existing rejection

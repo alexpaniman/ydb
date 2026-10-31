@@ -1067,7 +1067,8 @@ TExprNode::TPtr TPhysicalAggregationBuilder::BuildFinishHandlerLambda(const TVec
             const auto& traits = aggTraitsList[i];
             if (!needOriginalDecimalType && traits.AggFunc == "avg") {
                 auto typeNode = traits.InputItemType;
-                if (auto fieldType = &RemoveOptionality(*typeNode); fieldType->GetKind() == ETypeAnnotationKind::Tuple && IsDecimalType(fieldType)) {
+                if (auto fieldType = &RemoveOptionality(*typeNode); fieldType->GetKind() == ETypeAnnotationKind::Tuple && IsDecimalType(fieldType) &&
+                    RemoveOptionality(*traits.OutputItemType).GetKind() == ETypeAnnotationKind::Tuple) {
                     needOriginalDecimalType = true;
                 }
             }
@@ -1097,6 +1098,11 @@ TExprNode::TPtr TPhysicalAggregationBuilder::BuildFinishHandlerLambda(const TVec
             TExprNode::TPtr finishState = lambdaArgs[it->second];
 
             if (aggFunction == "avg") {
+                // Native aggregates expose the final scalar type directly,
+                // including Decimal precision lost by the widened state.
+                if (Aggregate.GetAggregationPhase() == EOpPhase::Final &&
+                    RemoveOptionality(*aggTraits.OutputItemType).GetKind() == ETypeAnnotationKind::Data)
+                    typeNode = aggTraits.OutputItemType;
                 finishState = inputIsOptional ? BuildAvgAggregationFinishStateForOptionalType(finishState, typeNode)
                                               : BuildAvgAggregationFinishState(finishState, typeNode);
             } else if (aggFunction == "variance_1_1") {

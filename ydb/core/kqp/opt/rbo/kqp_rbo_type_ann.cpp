@@ -381,7 +381,7 @@ TStatus ComputeTypes(TIntrusivePtr<TOpUnionAll> unionAll, TRBOContext& ctx) {
     return TStatus::Ok;
 }
 
-TStatus ComputeTypes(TIntrusivePtr<TOpAggregate> aggregate, TRBOContext& ctx) {
+TStatus ComputeTypes(TIntrusivePtr<TOpAggregate> aggregate, TRBOContext& ctx, TPlanProps& props) {
     auto inputType = aggregate->GetInput()->Type;
     const auto structType = inputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
     const bool scalarAggregation = aggregate->GetKeyColumns().Items().empty();
@@ -427,7 +427,24 @@ TStatus ComputeTypes(TIntrusivePtr<TOpAggregate> aggregate, TRBOContext& ctx) {
             << " in input type " << *inputType);
         auto aggFieldType = it->second;
 
-        if (aggFunction == "count") {
+        if (props.NativeExpressions && aggFunction == "avg" && aggregationPhase != EOpPhase::Undefined) {
+            auto& arena = *props.NativeExpressions;
+            NFrontend::TType type;
+            if (aggregationPhase == EOpPhase::Intermediate) {
+                const auto source = ImportNativeType(*aggFieldType, &arena);
+                Y_ENSURE(source.IsNumeric(), "Native AVG partial input must be numeric");
+                auto sum = source.Kind == NFrontend::ETypeKind::Decimal ? source.Required() : NFrontend::TType{NFrontend::ETypeKind::Double};
+                if (sum.Kind == NFrontend::ETypeKind::Decimal) sum.Precision = 35;
+                const NFrontend::TType fields[]{sum, {NFrontend::ETypeKind::Uint64}};
+                type = arena.TupleType(fields);
+                type.Nullable = source.Nullable;
+            } else {
+                Y_ENSURE(traits.ResultType, "Native AVG final result type was not preserved");
+                type = *traits.ResultType;
+                type.Nullable |= aggFieldType->IsOptionalOrNull();
+            }
+            aggFieldType = ExportNativeType(type, ctx.ExprCtx, &arena);
+        } else if (aggFunction == "count") {
             aggFieldType = ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64);
         } else if (aggFunction == "sum") {
             Y_ENSURE(GetSumResultType(pos, *it->second, aggFieldType, ctx.ExprCtx), "Unsupported type for sum aggregation function");
@@ -846,7 +863,7 @@ TStatus ComputeTypes(TIntrusivePtr<IOperator> op, TRBOContext& ctx, TPlanProps& 
         return ComputeTypes(CastOperator<TOpGroupingSets>(op), ctx);
     }
     else if(MatchOperator<TOpAggregate>(op)) {
-        return ComputeTypes(CastOperator<TOpAggregate>(op), ctx);
+        return ComputeTypes(CastOperator<TOpAggregate>(op), ctx, props);
     }
     else if (MatchOperator<TOpWindow>(op)) {
         return ComputeTypes(CastOperator<TOpWindow>(op), ctx);

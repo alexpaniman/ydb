@@ -243,7 +243,7 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
         for (const auto output : outputs) {
             const auto& aggTraits = aggTraitsList.At(output);
             const auto partialColName = registry.AddGenerated("distinct_partial");
-            partialAggregationTraitsList.Add(partialColName, TOpAggregationTraits{rebind(aggTraits.Input), GetAggFunctions(aggTraits.AggFunction).first});
+            partialAggregationTraitsList.Add(partialColName, TOpAggregationTraits{rebind(aggTraits.Input), GetAggFunctions(aggTraits.AggFunction).first, false, false, aggTraits.ResultType});
             partialColumns.Add(output, partialColName);
         }
         partialResult = MakeIntrusive<TOpAggregate>(partialResult, partialAggregationTraitsList, keyColumns, EOpPhase::Intermediate,
@@ -272,7 +272,8 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
         const auto intermediateColName = intermediates.At(output);
         auto finalAggTraits = TOpAggregationTraits{
             intermediateColName, aggFunctions.second, false,
-            NeedToUnwrapOptional(aggregate->GetInput()->Type, TString(ctx.GetIndexAsString(aggTraits.Input)), aggFunctions, aggregate->GetKeyColumns())};
+            NeedToUnwrapOptional(aggregate->GetInput()->Type, TString(ctx.GetIndexAsString(aggTraits.Input)), aggFunctions, aggregate->GetKeyColumns()),
+            aggTraits.ResultType};
         auto finalOutput = output;
         if (props.NativeExpressions && finalAggTraits.Unwrap) {
             // Native result types must be correct before terminal lowering.
@@ -293,6 +294,7 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
             }
             nativeResults.Add(output, TExpression::FromNative(arena, expression, &ctx, &props, pos));
             finalAggTraits.Unwrap = false;
+            if (finalAggTraits.ResultType) finalAggTraits.ResultType = finalAggTraits.ResultType->Optional();
         }
         finalAggTraitsList.Add(finalOutput, finalAggTraits);
         if (!isDistinct) {

@@ -835,6 +835,9 @@ struct TOpAggregationTraits {
     TString AggFunction;
     bool Distinct = false;
     bool Unwrap = false;
+    // Retain the scalar result type when a partial state loses information,
+    // such as AVG's original Decimal precision. State types remain phase-local.
+    std::optional<NFrontend::TType> ResultType = std::nullopt;
 };
 
 struct TAggregationDependencies {

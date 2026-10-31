@@ -260,23 +260,19 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         }
     }
 
-    Y_UNIT_TEST(MixedDistinctAggregatesHaveAnExplicitStateBoundary) {
+    Y_UNIT_TEST(MixedDistinctAggregatesIncludeAverageStates) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser; settings.Mode = ECompilerMode::Auto;
             for (const auto* sql : {
                     "SELECT COUNT(DISTINCT value), COUNT(*), SUM(value), MIN(value), MAX(value), SOME(value) FROM t",
                     "SELECT value, SUM(DISTINCT id), COUNT(DISTINCT id), COUNT(*) FROM t GROUP BY value",
                     "SELECT SUM(DISTINCT value), SUM(DISTINCT id) FROM t",
-                    "SELECT AVG(DISTINCT value) FROM t", "SELECT AVG(value), AVG(id) FROM t"}) {
+                    "SELECT AVG(DISTINCT value) FROM t", "SELECT AVG(value), AVG(id) FROM t",
+                    "SELECT COUNT(DISTINCT id), AVG(value) FROM t", "SELECT AVG(DISTINCT value), COUNT(*) FROM t",
+                    "SELECT AVG(DISTINCT id), AVG(DISTINCT value), SUM(value) FROM t"}) {
                 UNIT_ASSERT_C(!CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
             }
-            for (const auto* sql : {"SELECT COUNT(DISTINCT id), AVG(value) FROM t",
-                    "SELECT AVG(DISTINCT value), COUNT(*) FROM t"}) {
-                const auto result = CompileNative(sql, Catalog, settings);
-                UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported->Feature == EFeature::AggregateCombination, sql);
-                auto required = settings; required.Mode = ECompilerMode::NativeRequired;
-                UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, required), TUnsupportedFeature);
-            }
+
         }
     }
 

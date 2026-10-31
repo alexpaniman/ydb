@@ -1,3 +1,4 @@
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_rules.h>
 #include <ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
@@ -71,7 +72,7 @@ TIntrusivePtr<IOperator> TExpandWholePartitionWindowRule::SimpleMatchAndApply(co
         Y_ENSURE(func.Arguments.Items().size() == 1, "Window aggregate " << func.Function << " expects a single argument");
         const auto argument = func.Arguments.Items().front();
         const auto aggregated = registry.AddCopy(output);
-        aggregations.Add(aggregated, TOpAggregationTraits{rebindings.At(argument), func.Function});
+        TOpAggregationTraits traits{rebindings.At(argument), func.Function};
 
         // A scalar aggregate is optional even where the window aggregate is not, but every
         // row joined to it comes from a non-empty input, so the value is never NULL.
@@ -80,7 +81,9 @@ TIntrusivePtr<IOperator> TExpandWholePartitionWindowRule::SimpleMatchAndApply(co
             aggregateType = window->GetIUType(output, ctx);
             if (func.Function != "count" && !grouped && !aggregateType->IsOptionalOrNull())
                 aggregateType = ctx.MakeType<TOptionalExprType>(aggregateType);
+            if (func.Function == "avg") traits.ResultType = ImportNativeType(*aggregateType, props.NativeExpressions.get());
         }
+        aggregations.Add(aggregated, std::move(traits));
         auto value = MakeColumnAccess(aggregated, aggregateType, pos, &ctx, &props);
         if (func.Function != "count" && !grouped && !IsNullableIU(input, output, ctx)) {
             value = MakeUnaryCallable("Unwrap", value);
