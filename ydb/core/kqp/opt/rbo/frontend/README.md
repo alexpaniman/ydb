@@ -447,14 +447,14 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Thirty-three TPC-DS queries also have populated native-required execution
+tables. Thirty-four TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
 
 Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
-Q24, Q54 and Q66. Q24 and Q54 have populated execution parity below; Q4 and
-Q66 still need execution validation. The original Q4 web-sales branch emits
+Q24, Q54 and Q66. Q24, Q54 and Q66 have populated execution parity below; Q4
+still needs execution validation. The original Q4 web-sales branch emits
 `sale_type = 's'`, while its final join requires `'w'`, so that unchanged query
 is logically empty for every dataset. This pre-existing SQL issue is not repaired
 or used as evidence of nonempty-result arithmetic coverage.
@@ -564,8 +564,8 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Thirty-three TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
-Q38, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q70, Q82, Q86, Q87, Q89, Q90,
+Thirty-four TPC-DS queries (Q8, Q12, Q16, Q20, Q21, Q22, Q23, Q24, Q27, Q32, Q36, Q37,
+Q38, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q82, Q86, Q87, Q89, Q90,
 Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
@@ -575,10 +575,16 @@ outer aggregation; its three paid totals are 30, 50 and 21. Q54 checks duplicate
 customers across both channels, distinct scalar month queries, date bounds,
 address-based store matching and Decimal-to-integer segment rounding. Its five
 segment/count results are `(NULL,1), (-2,1), (0,1), (2,3), (4,1)`.
+Q66 adds seven warehouse groups with explicit values for all twelve monthly
+sales, per-area and net-paid measures. It checks channel-specific fields,
+quantity multiplication, division before the outer sum, rounding ties, negative,
+zero and NULL areas, all-NULL amounts, identical attributes on distinct warehouse
+IDs, and both time and shipping filters. All 34 queries pass together through
+all three compilers; the previous 33 expectations remain unchanged.
 Q47/Q57 exercise mixed signed/unsigned rank offsets and adjacent-month joins,
 with duplicate sales, missing ranks, NULL keys, zero/NULL means and exact
 deviation thresholds. Q90 checks the count ratio 5/(1+3)=1.25, including both
-hour/character bounds and missing/NULL dimension rows. All 33 pass together
+hour/character bounds and missing/NULL dimension rows. All 34 pass together
 through all three compiler paths with the original SQL, schemas and helpers.
 Q22, Q27, Q36 and Q86 check four-key inventory rollup, demographic-filtered
 averages, hierarchy margins and sales ranks. Their independent expected values

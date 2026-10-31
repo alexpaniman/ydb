@@ -685,7 +685,10 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {80, "1999-02-01"}, {81, "1999-04-02"}, {82, "1999-01-31"}, {83, "1999-04-03"},
             {84, "1999-05-01"}, {85, "1999-06-30"}, {86, "1999-04-30"}, {87, "1999-07-01"},
             {90, "1998-01-01"}, {91, "1998-12-31"}, {92, "1997-12-31"}, {93, "1999-01-01"}, {94, "1999-12-01"},
-            {95, "1999-03-01"}, {96, "1999-03-31"}, {97, "1998-03-01"}}) {
+            {95, "1999-03-01"}, {96, "1999-03-31"}, {97, "1998-03-01"},
+            {100, "2002-01-01"}, {101, "2002-02-01"}, {102, "2002-03-01"}, {103, "2002-04-01"},
+            {104, "2002-05-01"}, {105, "2002-06-01"}, {106, "2002-07-01"}, {107, "2002-08-01"},
+            {108, "2002-09-01"}, {109, "2002-10-01"}, {110, "2002-11-01"}, {111, "2002-12-01"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -849,7 +852,11 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     for (const auto& [id, hour] : std::initializer_list<std::pair<i64, std::optional<i64>>>{
             {1, 6}, {2, 7}, {3, 14}, {4, 15}, {5, 5}, {6, 8}, {7, 13}, {8, 16}, {9, std::nullopt}})
         times.AddListItem().BeginStruct().AddMember("t_time_sk").Int64(id).AddMember("t_time_id").Utf8("Time" + std::to_string(id))
-            .AddMember("t_hour").OptionalInt64(hour).EndStruct();
+            .AddMember("t_hour").OptionalInt64(hour).AddMember("t_time").OptionalInt64(std::nullopt).EndStruct();
+    for (const auto& [id, seconds] : std::initializer_list<std::pair<i64, std::optional<i64>>>{
+            {150, 49530}, {151, 78330}, {152, 49529}, {153, 78331}, {154, std::nullopt}})
+        times.AddListItem().BeginStruct().AddMember("t_time_sk").Int64(id).AddMember("t_time_id").Utf8("Time" + std::to_string(id))
+            .AddMember("t_hour").OptionalInt64(std::nullopt).AddMember("t_time").OptionalInt64(seconds).EndStruct();
     load("time_dim", times);
     TValueBuilder pages; pages.BeginList();
     for (const auto& [id, characters] : std::initializer_list<std::pair<i64, std::optional<i64>>>{
@@ -857,20 +864,31 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         pages.AddListItem().BeginStruct().AddMember("wp_web_page_sk").Int64(id).AddMember("wp_web_page_id").Utf8("Page" + std::to_string(id))
             .AddMember("wp_char_count").OptionalInt64(characters).EndStruct();
     load("web_page", pages);
-    TValueBuilder warehouse;
-    warehouse.BeginList().AddListItem().BeginStruct().AddMember("w_warehouse_sk").Int64(1)
-        .AddMember("w_warehouse_id").Utf8("WH001").AddMember("w_warehouse_name").OptionalUtf8("Warehouse A")
-        .AddMember("w_state").OptionalUtf8("CA").EndStruct();
+    TValueBuilder warehouse; warehouse.BeginList();
+    auto appendWarehouse = [&](i64 id, const char* name, const char* state, std::optional<i64> area = std::nullopt) {
+        warehouse.AddListItem().BeginStruct().AddMember("w_warehouse_sk").Int64(id)
+            .AddMember("w_warehouse_id").Utf8(id == 1 ? "WH001" : "Warehouse" + std::to_string(id))
+            .AddMember("w_warehouse_name").OptionalUtf8(optionalText(name)).AddMember("w_state").OptionalUtf8(optionalText(state))
+            .AddMember("w_warehouse_sq_ft").OptionalInt64(area).AddMember("w_city").OptionalUtf8(std::nullopt)
+            .AddMember("w_county").OptionalUtf8(std::nullopt).AddMember("w_country").OptionalUtf8(std::nullopt).EndStruct();
+    };
+    appendWarehouse(1, "Warehouse A", "CA");
     for (const auto& [id, name] : std::initializer_list<std::pair<i64, const char*>>{
             {90, "xABCDEFGHIJKLMNOPQRST-A"}, {91, "yABCDEFGHIJKLMNOPQRST-B"}, {92, nullptr}, {93, "xOther"}})
-        warehouse.AddListItem().BeginStruct().AddMember("w_warehouse_sk").Int64(id)
-            .AddMember("w_warehouse_id").Utf8("Warehouse" + std::to_string(id)).AddMember("w_warehouse_name").OptionalUtf8(optionalText(name))
-            .AddMember("w_state").OptionalUtf8(std::nullopt).EndStruct();
+        appendWarehouse(id, name, nullptr);
+    for (const auto& [id, name, area] : std::initializer_list<std::tuple<i64, const char*, std::optional<i64>>>{
+            {150, "Round", 2}, {151, "Round", 2}, {152, "Negative", -3}, {153, "Zero", 0}, {154, "ZeroZero", 0},
+            {155, "Null", std::nullopt}, {156, "NullAmount", 2}, {157, "Qty", 100}})
+        appendWarehouse(id, name, nullptr, area);
     load("warehouse", warehouse);
     TValueBuilder modes; modes.BeginList();
     for (const auto& [id, name] : std::initializer_list<std::pair<i64, const char*>>{{90, "AIR"}, {91, "SEA"}, {92, nullptr}})
         modes.AddListItem().BeginStruct().AddMember("sm_ship_mode_sk").Int64(id).AddMember("sm_ship_mode_id").Utf8("Mode" + std::to_string(id))
-            .AddMember("sm_type").OptionalUtf8(optionalText(name)).EndStruct();
+            .AddMember("sm_type").OptionalUtf8(optionalText(name)).AddMember("sm_carrier").OptionalUtf8(std::nullopt).EndStruct();
+    for (const auto& [id, carrier] : std::initializer_list<std::pair<i64, const char*>>{
+            {150, "DIAMOND"}, {151, "AIRBORNE"}, {152, "Other"}, {153, nullptr}})
+        modes.AddListItem().BeginStruct().AddMember("sm_ship_mode_sk").Int64(id).AddMember("sm_ship_mode_id").Utf8("Mode" + std::to_string(id))
+            .AddMember("sm_type").OptionalUtf8(std::nullopt).AddMember("sm_carrier").OptionalUtf8(optionalText(carrier)).EndStruct();
     load("ship_mode", modes);
     TValueBuilder inventory;
     inventory.BeginList();
@@ -922,6 +940,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         std::optional<i64> SoldTime = std::nullopt;
         std::optional<i64> ShipHousehold = std::nullopt;
         std::optional<i64> WebPage = std::nullopt;
+        const char* NetPaidTax = nullptr;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -1337,6 +1356,44 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     caseSale(99999, 1400, "999"); caseSale(std::nullopt, 1400, "999"); caseSale(1400, 99990, "999");
     caseSale(1400, 1400, "999", 140, false);
     load("store_returns", storeReturns);
+    // Q66 divides each channel's aggregate before the outer sum. Round's
+    // .01/2 + .01/2 is zero; dividing the combined .02 would produce .01.
+    // Distinct warehouse IDs with identical attributes must form one group.
+    auto monthlySale = [&](bool online, std::optional<i64> shop, std::optional<i64> date,
+            std::optional<i64> time, std::optional<i64> mode, const char* price,
+            std::optional<i64> quantity, const char* paid) {
+        TSale sale{99990, order++, date, shop, online ? price : "999", nullptr, online ? "999" : price};
+        sale.SoldTime = time; sale.ShipMode = mode; sale.Quantity = quantity; sale.NetPaidTax = paid;
+        (online ? web : catalog).push_back(sale);
+    };
+    for (i64 date = 100; date <= 111; ++date) {
+        monthlySale(true, 150, date, 150, 150, "0.02", 1, "0.20");
+        monthlySale(true, 151, date, 151, 151, "-0.01", 1, "-0.10");
+        monthlySale(false, 150, date, 151, 151, "0.01", 1, "0.10");
+        monthlySale(true, 152, date, 150, 150, "0.02", 1, "0.20");
+        monthlySale(false, 152, date, 151, 151, "0.04", 1, "0.40");
+        for (const i64 shop : {153, 155}) {
+            monthlySale(true, shop, date, 150, 150, "0.01", 1, "0.10");
+            monthlySale(false, shop, date, 151, 151, "0.02", 1, "0.20");
+        }
+        for (const bool online : {false, true}) monthlySale(online, 154, date, 150, 150, "0", 1, "0");
+    }
+    for (const bool online : {false, true}) {
+        monthlySale(online, 156, 100, 150, 150, nullptr, 1, nullptr);
+        monthlySale(online, 156, 100, 150, 150, "999", std::nullopt, "999");
+        monthlySale(online, 150, 100, 150, 150, nullptr, 1, nullptr);
+        monthlySale(online, 150, 100, 150, 150, "999", std::nullopt, "999");
+        for (const auto date : std::initializer_list<std::optional<i64>>{70, 99999, std::nullopt})
+            monthlySale(online, 150, date, 150, 150, "999", 1, "999");
+        for (const auto time : std::initializer_list<std::optional<i64>>{152, 153, 154, 99999, std::nullopt})
+            monthlySale(online, 150, 100, time, 150, "999", 1, "999");
+        for (const auto mode : std::initializer_list<std::optional<i64>>{152, 153, 99999, std::nullopt})
+            monthlySale(online, 150, 100, 150, mode, "999", 1, "999");
+        for (const auto shop : std::initializer_list<std::optional<i64>>{99999, std::nullopt})
+            monthlySale(online, shop, 100, 150, 150, "999", 1, "999");
+    }
+    monthlySale(true, 157, 105, 150, 150, "2", 3, "4");
+    monthlySale(false, 157, 105, 151, 151, "5", 2, "6");
     auto loadSales = [&](const char* table, const std::string& prefix, const char* number, const TVector<TSale>& data) {
         TValueBuilder rows;
         rows.BeginList();
@@ -1351,6 +1408,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
                     .AddMember(prefix + (prefix == "cs_" ? "call_center_sk" : "web_site_sk")).OptionalInt64(row.Site)
                     .AddMember(prefix + "ext_ship_cost");
                 decimal(rows, row.ShipCost);
+                rows.AddMember(prefix + (prefix == "ws_" ? "net_paid_inc_tax" : "net_paid_inc_ship_tax")); decimal(rows, row.NetPaidTax);
+                if (prefix == "cs_") rows.AddMember("cs_sold_time_sk").OptionalInt64(row.SoldTime);
             }
             if (prefix == "ss_") {
                 rows.AddMember("ss_store_sk").OptionalInt64(row.Store)
@@ -1398,7 +1457,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1412,7 +1471,35 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 24) {
+        if (query == 66) {
+            struct TExpectedWarehouse {
+                const char* Name;
+                std::optional<i64> Area;
+                const char* Sales;
+                const char* PerFoot;
+                const char* Net;
+                int Month = 0;
+            };
+            for (const auto& row : std::initializer_list<TExpectedWarehouse>{
+                    {"Negative", -3, "0.06", "-0.01", "0.6"}, {"Null", std::nullopt, "0.03", nullptr, "0.3"},
+                    {"NullAmount", 2, nullptr, nullptr, nullptr, 1}, {"Qty", 100, "16", "0.16", "24", 6},
+                    {"Round", 2, "0.02", "0", "0.2"}, {"Zero", 0, "0.03", "inf", "0.3"}, {"ZeroZero", 0, "0", "nan", "0"}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("w_warehouse_name").GetOptionalUtf8().value(), row.Name);
+                UNIT_ASSERT(values.ColumnParser("w_warehouse_sq_ft").GetOptionalInt64() == row.Area);
+                for (const auto* column : {"w_city", "w_county", "w_state", "w_country"}) UNIT_ASSERT(!values.ColumnParser(column).GetOptionalUtf8());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("ship_carriers").GetString(), "DIAMOND,AIRBORNE");
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("year").GetOptionalInt64().value(), 2002);
+                int month = 0;
+                for (const auto* name : {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"}) {
+                    ++month;
+                    const bool selected = !row.Month || month == row.Month;
+                    assertDecimal((TString(name) + "_sales").c_str(), optionalText(selected ? row.Sales : "0"));
+                    assertDecimal((TString(name) + "_sales_per_sq_foot").c_str(), optionalText(selected ? row.PerFoot : "0"));
+                    assertDecimal((TString(name) + "_net").c_str(), optionalText(selected ? row.Net : "0"));
+                }
+            }
+        } else if (query == 24) {
             for (const auto& [last, first, paid] : std::initializer_list<std::tuple<const char*, const char*, const char*>>{
                     {"Alpha", "Alice", "30"}, {"Bravo", nullptr, "50"}, {"Lower", "Country", "21"}}) {
                 UNIT_ASSERT(values.TryNextRow());
