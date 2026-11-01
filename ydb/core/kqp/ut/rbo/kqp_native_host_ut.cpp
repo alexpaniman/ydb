@@ -5,6 +5,7 @@
 #include <util/string/subst.h>
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -2321,6 +2322,87 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST(NativeCompilationBenchmark) {
+        const auto& requested = GetTestParam("NATIVE_COMPILATION_BENCH_ITERATIONS");
+        if (requested.empty()) return;
+        const auto iterations = FromString<ui32>(requested);
+        UNIT_ASSERT(iterations > 0 && iterations <= 100);
+        std::array<std::unique_ptr<TKikimrRunner>, 3> runners;
+        const char* modes[]{"legacy", "yql-rbo", "native-rbo"};
+        for (size_t mode = 0; mode < runners.size(); ++mode) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(mode != 0);
+            service->SetNativeFrontendMode(mode == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
+                NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableInlineJoinFiltersAfterCBO(false);
+            service->SetEnableFallbackOnMultipleStatements(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            // Every sample includes parsing and compilation. In particular,
+            // the legacy path cannot reuse a separately cached YQL AST.
+            service->SetCompileQueryCacheSize(0);
+            service->SetEnableAstCache(false);
+            auto settings = TKikimrSettings(config).SetWithSampleTables(false);
+            settings.LogSettings.emplace().DefaultLogPriority = NActors::NLog::EPriority::PRI_CRIT;
+            runners[mode] = std::make_unique<TKikimrRunner>(settings);
+            auto session = runners[mode]->GetTableClient().CreateSession().GetValueSync().GetSession();
+            for (const char* name : {"tpch", "tpcds"}) {
+                auto schema = TFileInput(SRC_(TStringBuilder() << "data/schema/" << name << ".sql")).ReadAll();
+                SubstGlobal(schema, "\n);", "\n) WITH (STORE = COLUMN, AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 16);");
+                const auto created = session.ExecuteSchemeQuery(schema).GetValueSync();
+                UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            }
+        }
+        const TString prelude = R"($to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };
+$to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
+$round = ($x,$y) -> {return $x;};
+)";
+        struct TCase { const char* Suite; int Query; TString Sql; };
+        TVector<TCase> cases;
+        for (const auto& [suite, query] : std::initializer_list<std::pair<const char*, int>>{
+                {"tpch", 1}, {"tpch", 5}, {"tpch", 9}, {"tpch", 21},
+                {"tpcds", 17}, {"tpcds", 28}, {"tpcds", 51}, {"tpcds", 52}})
+            cases.push_back({suite, query, prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-" << suite << "/q" << query << ".yql")).ReadAll()});
+        // Warm all metadata and code paths once, then rotate compiler order
+        // within each query/round. No timing assertion belongs in a unit test.
+        Cout << "native_compile_bench,suite,query,mode,round,compile_cpu_us,compile_wall_us,request_wall_us\n";
+        for (ui32 round = 0; round <= iterations; ++round) {
+            for (size_t query = 0; query < cases.size(); ++query) {
+                const auto& test = cases[query];
+                for (size_t step = 0; step < runners.size(); ++step) {
+                    const size_t mode = (round + query + step) % runners.size();
+                    const auto started = std::chrono::steady_clock::now();
+                    // Explain does not expose compilation counters. Execute on
+                    // empty tables and report compiler counters separately from
+                    // request time, which also includes query execution.
+                    const auto result = runners[mode]->GetQueryClient().ExecuteQuery(test.Sql, NQuery::TTxControl::NoTx(),
+                        NQuery::TExecuteQuerySettings().StatsMode(NQuery::EStatsMode::Full)).GetValueSync();
+                    const auto requestUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - started).count();
+                    const TString context = TStringBuilder() << test.Suite << " Q" << test.Query << " " << modes[mode];
+                    UNIT_ASSERT_C(result.IsSuccess(), context << ": " << result.GetIssues().ToString());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, context);
+                    UNIT_ASSERT_C(result.GetStats() && result.GetStats()->GetCompilation() && result.GetStats()->GetPlan(), context);
+                    const auto compilation = *result.GetStats()->GetCompilation();
+                    UNIT_ASSERT_C(!compilation.IsFromCache(), context);
+                    UNIT_ASSERT_C(compilation.GetCpuTimeUs() > 0 && compilation.GetDurationUs() > 0, context);
+                    if (mode != 0) {
+                        NJson::TJsonValue root;
+                        NJson::ReadJsonTree(TString(*result.GetStats()->GetPlan()), &root, true);
+                        const auto& stats = root.GetMapSafe().at("SimplifiedPlan").GetMapSafe().at("OptimizerStats").GetMapSafe();
+                        const auto total = stats.at("CBOTreesTotal").GetUIntegerSafe();
+                        if (query != 0) UNIT_ASSERT_C(total > 0, context);
+                        UNIT_ASSERT_VALUES_EQUAL_C(stats.at("CBOTreesOptimized").GetUIntegerSafe(), total, context);
+                    }
+                    if (round) Cout << "native_compile_bench," << test.Suite << ',' << test.Query << ',' << modes[mode] << ',' << round << ','
+                        << compilation.GetCpuTimeUs() << ',' << compilation.GetDurationUs() << ',' << requestUs << '\n';
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(NativeKeyRangesMatchBothCompilersOnPopulatedCompositeKeys) {
         struct TCase {
             const char* Predicate;

@@ -634,6 +634,53 @@ parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
 
+`KqpNativeHost::NativeCompilationBenchmark` compares complete compilation through
+the legacy optimizer, the existing YQL frontend into new RBO, and native-required
+mode. It uses the original SQL, schemas and scalar helpers for eight queries
+already validated on populated tables. All paths use column storage with 16
+partitions and the same settings except compiler selection. CBO remains enabled,
+fallback is disabled, and the new-RBO plans must optimize every CBO tree.
+
+One warmup round precedes nine measured rounds, rotating compiler order within
+each query and round. The AST cache is disabled. The bounded query cache is
+evicted by cycling the eight queries, and every request must report a cache miss.
+The harness executes on empty tables because `Explain` does not expose compilation
+counters through this API. Compiler CPU/wall counters are reported separately from
+request wall time, which includes execution. These empty-table runs are timing
+measurements, not additional populated execution coverage.
+
+On the local `relwithdebinfo` build, all 216 measured compilations passed. Median
+compiler CPU times across nine samples, in milliseconds:
+
+| Query | Legacy optimizer | YQL frontend + RBO | Native frontend + RBO |
+| --- | ---: | ---: | ---: |
+| TPC-H Q1 | 143.91 | 58.14 | 31.89 |
+| TPC-H Q5 | 290.62 | 90.27 | 77.44 |
+| TPC-H Q9 | 291.86 | 95.98 | 72.24 |
+| TPC-H Q21 | 625.53 | 112.11 | 83.43 |
+| TPC-DS Q17 | 890.32 | 195.07 | 116.07 |
+| TPC-DS Q28 | 1366.52 | 261.13 | 200.61 |
+| TPC-DS Q51 | 572.63 | 115.55 | 69.11 |
+| TPC-DS Q52 | 153.34 | 57.20 | 41.74 |
+
+The geometric mean ratio against the existing YQL frontend plus RBO is 1.45,
+or about 31% less compilation CPU, with per-query ratios of 1.17–1.82. Against
+the legacy optimizer the ratio is 5.48, which includes the optimizer change and
+must not be attributed solely to the frontend. This small local sample measures
+the current full compilation paths, including their backend and plan differences;
+it is neither an isolated frontend measurement nor an execution-speed guarantee.
+The default test run skips the timing loop. To reproduce it after a balanced build:
+
+```
+./ya make --build relwithdebinfo -tA ydb/core/kqp/ut/rbo \
+  -F '*NativeCompilationBenchmark*' \
+  --test-param NATIVE_COMPILATION_BENCH_ITERATIONS=9 2>&1 | tail -25
+```
+
+The test's stdout contains CSV records with compiler CPU, compiler wall and
+request wall microseconds for every measured request. No timing threshold is
+used as a correctness assertion.
+
 The same-scale Decimal COALESCE increment passed all 97 standalone frontend
 tests and four selected runtime/host tests. All three compiler paths agree on
 exact parameterized values and metadata for nullable/required alternatives,
