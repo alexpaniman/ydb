@@ -1493,14 +1493,24 @@ private:
             options.Binding.AnsiIn = queryType == EKikimrQueryType::Query;
             options.Binding.AnsiCurrentRow = queryType == EKikimrQueryType::Query;
             options.Binding.TablePathPrefix = std::string(Config->_KqpTablePathPrefix.Get().GetOrElse(SessionCtx->GetDatabase()));
-            if (query.ParameterTypes) for (const auto& [name, supplied] : *query.ParameterTypes) {
+            const auto scalarParameterType = [](const auto& supplied) {
                 const auto& type = supplied.has_optional_type() ? supplied.optional_type().item() : supplied;
                 if (!type.has_type_id() && !type.has_decimal_type())
-                    throw F::TUnsupportedFeature(F::EFeature::Type, {}, "native parameters require scalar types");
+                    throw F::TUnsupportedFeature(F::EFeature::Type, {}, "native parameter fields require scalar types");
                 auto native = type.has_decimal_type() ? F::ParseType("Decimal(" +
                     std::to_string(type.decimal_type().precision()) + "," + std::to_string(type.decimal_type().scale()) + ")") :
                     F::ParseType(Ydb::Type_PrimitiveTypeId_Name(type.type_id()));
                 native.Nullable = supplied.has_optional_type();
+                return native;
+            };
+            if (query.ParameterTypes) for (const auto& [name, supplied] : *query.ParameterTypes) {
+                F::TParameterType native;
+                if (supplied.has_list_type() && supplied.list_type().item().has_struct_type()) {
+                    F::TParameterType::TRows fields;
+                    for (const auto& field : supplied.list_type().item().struct_type().members())
+                        fields.push_back({field.name(), scalarParameterType(field.type())});
+                    native = F::TParameterType(std::move(fields));
+                } else native = scalarParameterType(supplied);
                 auto key = std::string(name);
                 if (key.starts_with('$')) key.erase(0, 1);
                 options.Binding.ParameterTypes.emplace(std::move(key), native);
@@ -1587,7 +1597,7 @@ private:
                             param.SetName("$" + TString(name));
                             auto allocatorGuard = SessionCtx->Query().QueryData->TypeEnv().BindAllocator();
                             NMiniKQL::TTypeBuilder builder(SessionCtx->Query().QueryData->TypeEnv());
-                            auto* exported = NCommon::BuildType({}, *ExportNativeType(type, ctx), builder);
+                            auto* exported = NCommon::BuildType({}, *ExportNativeParameterType(type, ctx), builder);
                             YQL_ENSURE(exported);
                             NMiniKQL::ExportTypeToProto(exported, *param.MutableType());
                         }

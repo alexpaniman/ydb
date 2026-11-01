@@ -4,6 +4,7 @@
 #include "kqp_expression.h"
 #include "kqp_rbo_context.h"
 #include "kqp_rbo_statistics.h"
+#include "frontend/frontend.h"
 
 #include <cstddef>
 #include <iterator>
@@ -573,12 +574,23 @@ std::optional<ui32> GetReplicateOutputIndex(const IOperator& op);
 
 class TOpEmptySource: public IOperator {
 public:
+    struct TParameterInput {
+        TString Name;
+        // Source field spellings are fixed independently of mutable IU labels.
+        TMappedIUs<NFrontend::TCatalogColumn> Fields;
+    };
     TOpEmptySource(TPositionHandle pos, TExprNode::TPtr input = nullptr, TUnorderedIUs columns = {})
         : IOperator(EOperator::EmptySource, pos)
         , Input(std::move(input))
         , Columns(std::move(columns)) {
         Y_ENSURE(Input || Columns.Empty(), "A unit source cannot define columns");
     }
+    TOpEmptySource(TPositionHandle pos, TParameterInput input)
+        : IOperator(EOperator::EmptySource, pos), NativeInput(std::move(input)) {
+        Y_ENSURE(!NativeInput->Name.empty(), "A parameter source needs a name");
+        for (const auto& [id, field] : NativeInput->Fields.Items()) { Y_UNUSED(field); Columns.Add(id); }
+    }
+    bool HasInput() const { return Input || NativeInput.has_value(); }
 
     virtual TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
     virtual TString GetExplainName() const override { return "EmptySource"; }
@@ -589,6 +601,7 @@ public:
 
     // Represents a custom input, basically it is an external param.
     TExprNode::TPtr Input;
+    std::optional<TParameterInput> NativeInput;
 
 protected:
     TIntrusivePtr<IOperator> CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const override;

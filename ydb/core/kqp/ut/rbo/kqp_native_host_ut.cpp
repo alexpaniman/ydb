@@ -2689,6 +2689,126 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST_TWIN(RowParametersMatchBothCompilers, Peephole) {
+        const TString declaration = "DECLARE $p AS List<Struct<z:Int32?,a:Int32>>; ";
+        const TString queries[]{
+            "SELECT * FROM AS_TABLE($p) ORDER BY a",
+            "SELECT a+1 AS a, COALESCE(z,0) AS v FROM AS_TABLE($p) ORDER BY a",
+            "SELECT COUNT(*) AS n, SUM(z) AS s FROM AS_TABLE($p)",
+            "SELECT a.a AS a,b.a AS b FROM AS_TABLE($p) a JOIN AS_TABLE($p) b ON a.a=b.a ORDER BY a,b",
+            "$q=SELECT * FROM AS_TABLE($p); SELECT a.a AS a,b.a AS b FROM $q a JOIN $q b ON a.a=b.a ORDER BY a,b",
+            "PRAGMA YqlSelect='force'; WITH q AS (SELECT * FROM AS_TABLE($p)) SELECT a FROM q WHERE z IS NULL ORDER BY a",
+            "SELECT a FROM AS_TABLE($p) UNION ALL SELECT a FROM AS_TABLE($p) ORDER BY a",
+            "SELECT a FROM AS_TABLE($p) WHERE a IN (SELECT a FROM AS_TABLE($p)) ORDER BY a",
+            "DECLARE $x AS Int32; SELECT a FROM AS_TABLE($p) WHERE a > $x ORDER BY a LIMIT 2"
+        };
+        const auto parameters = [&](bool empty, bool scalar, bool dotted = false) {
+            const auto* name = dotted ? "z.z" : "z";
+            TParamsBuilder builder;
+            auto& rows = builder.AddParam("$p");
+            if (empty) rows.EmptyList(TTypeBuilder().BeginStruct()
+                .AddMember(name).BeginOptional().Primitive(EPrimitiveType::Int32).EndOptional()
+                .AddMember("a").Primitive(EPrimitiveType::Int32).EndStruct().Build());
+            else {
+                rows.BeginList();
+                for (const i32 id : {3,1,2}) rows.AddListItem().BeginStruct()
+                    .AddMember(name).OptionalInt32(id == 2 ? std::nullopt : std::optional<i32>{id * 10})
+                    .AddMember("a").Int32(id).EndStruct();
+                rows.EndList();
+            }
+            rows.Build();
+            if (scalar) builder.AddParam("$x").Int32(1).Build();
+            return builder.Build();
+        };
+        TVector<TResultSnapshot> reference;
+        std::string parameterType;
+        for (unsigned strategy = 0; strategy < 3; ++strategy) {
+            NKikimrConfig::TAppConfig app;
+            auto* config = app.MutableTableServiceConfig();
+            config->SetEnableNewRBO(strategy != 0);
+            config->SetEnableFallbackToYqlOptimizer(false);
+            config->SetEnableNewRBOPhysicalStagePeephole(Peephole);
+            config->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            TKikimrRunner kikimr(TKikimrSettings(app).SetWithSampleTables(false));
+            auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+            size_t next = 0;
+            for (const bool declared : {true, false}) for (const bool empty : {false, true}) {
+                for (size_t i = 0; i < std::size(queries); ++i) {
+                    const auto sql = (declared ? declaration : TString{}) + queries[i];
+                    const auto params = parameters(empty, queries[i].Contains("$x"));
+                    Cerr << "ROW_PARAM strategy=" << strategy << " declared=" << declared << " empty=" << empty << " query=" << i << Endl;
+                    const auto result = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx(), params).GetValueSync();
+                    if (strategy == 0 && i == 7) {
+                        // The original optimizer confuses this subquery's row
+                        // with a tuple. Pin that existing failure; both RBO
+                        // paths must still produce the independently known rows.
+                        UNIT_ASSERT(!result.IsSuccess());
+                        UNIT_ASSERT_STRING_CONTAINS(result.GetIssues().ToString(), "Expected tuple type, but got: Struct<'a':Int32>");
+                        reference.push_back({empty ? "[]" : "[[1];[2];[3]]", {{"a", "Int32"}}});
+                        session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+                        ++next;
+                        continue;
+                    }
+                    UNIT_ASSERT_C(result.IsSuccess(), sql << '\n' << result.GetIssues().ToString());
+                    UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+                    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                    const auto snapshot = SnapshotRows(result.GetResultSet(0));
+                    if (i == 0) UNIT_ASSERT_VALUES_EQUAL(snapshot.Values, empty ? "[]" : "[[1;[10]];[2;#];[3;[30]]]");
+                    if (i == 2) UNIT_ASSERT_VALUES_EQUAL(snapshot.Values, empty ? "[[0u;#]]" : "[[3u;[40]]]");
+                    if (strategy == 0) reference.push_back(snapshot); else AssertSame(snapshot, reference.at(next));
+                    ++next;
+                    if (strategy == 2 && !empty) {
+                        const auto explain = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx(), params,
+                            NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                        UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                        UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
+                        UNIT_ASSERT(explain.GetStats()->GetAst()->find("native frontend: native-read-v1") != std::string::npos);
+                    }
+                }
+            }
+            for (const bool empty : {false, true}) {
+                const TString sql = "DECLARE $p AS List<Struct<`z.z`:Int32?,a:Int32>>; SELECT * FROM AS_TABLE($p) ORDER BY a";
+                const auto result = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx(), parameters(empty, false, true)).GetValueSync();
+                if (strategy == 1) {
+                    UNIT_ASSERT(!result.IsSuccess());
+                    UNIT_ASSERT_STRING_CONTAINS(result.GetIssues().ToString(), "Member not found: _yql_source_0.z.z");
+                    session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+                } else {
+                    UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                    const auto actual = SnapshotRows(result.GetResultSet(0));
+                    UNIT_ASSERT_VALUES_EQUAL(actual.Values, empty ? "[]" : "[[1;[10]];[2;#];[3;[30]]]");
+                    UNIT_ASSERT_VALUES_EQUAL(actual.Columns, (TVector<std::pair<TString, TString>>{{"a", "Int32"}, {"z.z", "Int32?"}}));
+                    UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+                }
+            }
+            auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+            const auto prepared = tableSession.PrepareDataQuery(declaration + queries[0]).GetValueSync();
+            UNIT_ASSERT_C(prepared.IsSuccess(), prepared.GetIssues().ToString());
+            auto query = prepared.GetQuery();
+            UNIT_ASSERT_VALUES_EQUAL(query.GetParameterTypes().size(), 1);
+            const auto type = query.GetParameterTypes().at("$p").ToString();
+            if (strategy == 0) parameterType = type;
+            else UNIT_ASSERT_VALUES_EQUAL(type, parameterType);
+            for (const bool empty : {false,true,false}) {
+                const auto actual = Snapshot(query.Execute(TTxControl::BeginTx().CommitTx(), parameters(empty, false)).GetValueSync());
+                AssertSame(actual, reference.at(empty ? std::size(queries) : 0));
+            }
+            // A list of empty rows still has its supplied cardinality.
+            for (const bool empty : {false,true}) {
+                TParamsBuilder builder;
+                auto& rows = builder.AddParam("$p");
+                if (empty) rows.EmptyList(TTypeBuilder().BeginStruct().EndStruct().Build());
+                else rows.BeginList().AddListItem().BeginStruct().EndStruct()
+                    .AddListItem().BeginStruct().EndStruct().EndList();
+                rows.Build();
+                const auto result = session.ExecuteQuery("DECLARE $p AS List<Struct<>>; SELECT COUNT(*) AS n FROM AS_TABLE($p)",
+                    NQuery::TTxControl::NoTx(), builder.Build()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+                UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(result.GetResultSet(0)), empty ? "[[0u]]" : "[[2u]]");
+            }
+        }
+    }
+
     void RunJsonValuesMatchBothCompilersOnPopulatedTables(bool pushProjections) {
         struct TCase { const char* Json; const char* Path; std::optional<std::string> Value; bool StorageWildcard = false; };
         const TCase cases[]{

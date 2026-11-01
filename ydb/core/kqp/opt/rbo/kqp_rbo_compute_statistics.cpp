@@ -238,7 +238,7 @@ void TOpEmptySource::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
     Y_UNUSED(ctx);
     Y_UNUSED(planProps);
     Props.Metadata = TRBOMetadata();
-    Props.Metadata->LogicalCard = Input ? ELogicalCardinality::ZeroOrMore : ELogicalCardinality::One;
+    Props.Metadata->LogicalCard = HasInput() ? ELogicalCardinality::ZeroOrMore : ELogicalCardinality::One;
 }
 
 /***

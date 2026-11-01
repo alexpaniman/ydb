@@ -154,7 +154,10 @@ TStatus ComputeTypes(TIntrusivePtr<TOpRead> read, TRBOContext& ctx, TPlanProps& 
 
 TStatus ComputeTypes(TIntrusivePtr<TOpEmptySource> emptySource, TRBOContext& ctx, TPlanProps& props) {
     TVector<const TItemExprType*> resultItems;
-    if (emptySource->Input) {
+    if (emptySource->NativeInput) {
+        for (const auto& [id, field] : emptySource->NativeInput->Fields.Items())
+            resultItems.push_back(ctx.ExprCtx.MakeType<TItemExprType>(ctx.ExprCtx.GetIndexAsString(id), ExportNativeType(field.Type, ctx.ExprCtx)));
+    } else if (emptySource->Input) {
         const auto* source = emptySource->Input->GetTypeAnn()->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
         for (const auto id : emptySource->GetOutputIUs()) {
             const auto* type = source->FindItemType(props.InfoUnitRegistry.Get(id).GetFullName());

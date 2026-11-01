@@ -229,6 +229,14 @@ private:
     }
     bool Take(std::string_view text) { if (!Is(text)) return false; ++Index; return true; }
     void Expect(std::string_view text) { if (!Take(text)) Fail("expected " + std::string(text)); }
+    bool TakeTypeEnd() {
+        if (Take(">")) return true;
+        if (!Is(">>")) return false;
+        Tokens[Index].Text = ">";
+        ++Tokens[Index].Position.Offset; ++Tokens[Index].Position.Column;
+        return true;
+    }
+    void TypeEnd() { if (!TakeTypeEnd()) Fail("expected >"); }
     [[noreturn]] void Fail(std::string message) const { throw TFrontendError(Token().Position, std::move(message)); }
     std::string Identifier(unsigned category = GeneralIdentifier) {
         if (Token().Kind == EToken::String)
@@ -263,7 +271,7 @@ private:
         TDepth depth(*this);
         std::string name = Identifier();
         if (Upper(name) == "OPTIONAL") {
-            Expect("<"); name = TypeName(); Expect(">"); name += '?';
+            Expect("<"); name = TypeName(); TypeEnd(); name += '?';
         } else if (Upper(name) == "DECIMAL") {
             Expect("(");
             if (Token().Kind != EToken::Number) Fail("expected Decimal precision");
@@ -281,7 +289,22 @@ private:
         const auto pos = Token().Position;
         if (Take("DECLARE")) {
             TStatement result{EStatementKind::Declaration, pos};
-            result.Name = Variable(); Expect("AS"); result.Value = TypeName(); return result;
+            result.Name = Variable(); Expect("AS");
+            if (Take("LIST")) {
+                Expect("<"); Expect("STRUCT"); result.RowFields.emplace();
+                if (!Take("<>")) {
+                    Expect("<");
+                    if (!TakeTypeEnd()) while (true) {
+                        if (result.RowFields->size() >= Settings.MaxNodes) throw TResourceLimitError(pos, "parameter field limit exceeded");
+                        auto name = Identifier(); Expect(":");
+                        result.RowFields->emplace_back(std::move(name), TypeName());
+                        if (TakeTypeEnd()) break;
+                        Expect(","); if (TakeTypeEnd()) break;
+                    }
+                }
+                TypeEnd();
+            } else result.Value = TypeName();
+            return result;
         }
         if (Take("USE")) {
             TStatement result{EStatementKind::Use, pos}; result.Name = Identifier(); return result;
@@ -330,6 +353,9 @@ private:
     TSource Source() {
         TSource result; result.Position = Token().Position;
         if (Take("(")) { result.Query = Select(); Expect(")"); }
+        else if (Is("AS_TABLE") && Is("(", 1)) {
+            ++Index; Expect("("); result.Name = "$" + Variable(); Expect(")"); result.ParameterTable = true;
+        }
         else {
             if (Take("$")) result.Name = "$" + Identifier();
             else {

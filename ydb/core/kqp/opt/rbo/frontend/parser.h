@@ -51,6 +51,7 @@ struct TSource {
     std::string Name;
     std::string Alias;
     std::shared_ptr<TSelect> Query;
+    bool ParameterTable = false;
 };
 
 enum class EJoinKind : std::uint8_t { Inner, Cross, Left, Right, Full, LeftSemi, RightSemi, LeftOnly, RightOnly };
@@ -128,6 +129,9 @@ struct TStatement {
     std::shared_ptr<TSelect> Query;
     std::vector<std::string> Parameters;
     bool Lambda = false;
+    // DECLARE List<Struct<...>> describes an external row source. Its fields
+    // remain scalar type spellings; containers never enter scalar expressions.
+    std::optional<std::vector<std::pair<std::string, std::string>>> RowFields;
 };
 
 struct TParsedQuery {

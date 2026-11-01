@@ -259,7 +259,13 @@ TIntrusivePtr<IOperator> IOperator::CopyImpl(TInfoUnitRegistry&, TSubstitutions&
 }
 
 TIntrusivePtr<IOperator> TOpEmptySource::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {
-    return MakeIntrusive<TOpEmptySource>(Pos, Input, CopyColumns(Columns, registry, renames));
+    auto columns = CopyColumns(Columns, registry, renames);
+    if (NativeInput) {
+        TParameterInput input; input.Name = NativeInput->Name;
+        for (const auto& [id, field] : NativeInput->Fields.Items()) input.Fields.Add(renames.At(id), field);
+        return MakeIntrusive<TOpEmptySource>(Pos, std::move(input));
+    }
+    return MakeIntrusive<TOpEmptySource>(Pos, Input, std::move(columns));
 }
 
 TIntrusivePtr<IOperator> TOpRead::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {

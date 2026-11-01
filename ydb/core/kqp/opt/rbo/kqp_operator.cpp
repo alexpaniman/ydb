@@ -51,6 +51,9 @@ NFrontend::TType GetNativeColumnType(IOperator& input, TInfoUnitId column, TExpr
     } else if (input.Kind == EOperator::AddDependencies) {
         if (const auto* capture = CastOperator<TOpAddDependencies>(input).GetDependencies().Find(column))
             return ImportNativeType(*capture->Type, &arena);
+    } else if (input.Kind == EOperator::EmptySource) {
+        const auto& source = CastOperator<TOpEmptySource>(input);
+        if (source.NativeInput) return source.NativeInput->Fields.At(column).Type;
     } else if (input.Kind == EOperator::Replicate) {
         auto& port = CastOperator<TOpReplicate>(input);
         const auto source = port.MapToInput({column});
@@ -340,7 +343,8 @@ NJson::TJsonValue TOpEmptySource::ToJson(ui32 explainFlags, const TInfoUnitRegis
     if (Input && TCoParameter::Match(Input.Get())) {
         res["Parameter"] = TCoParameter(Input).Name().StringValue();
     }
-    if (Input) {
+    if (NativeInput) res["Parameter"] = NativeInput->Name;
+    if (HasInput()) {
         res["Columns"] = TStringBuilder() << "{" << FormatIds(Columns, &registry) << "}";
     }
     return res;

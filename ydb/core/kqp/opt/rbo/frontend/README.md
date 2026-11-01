@@ -109,6 +109,14 @@ bindings, simple scalar lambdas, ON joins (inner/cross/outer/semi/only), groupin
 HAVING, GROUPING SETS/ROLLUP/CUBE and GROUPING masks, inline windows, DISTINCT, UNION/INTERSECT/EXCEPT (including ALL), ordering, limits, scalar/EXISTS/IN subqueries with correlation,
 and multiple result statements.
 
+`AS_TABLE($rows)` accepts declared or API-supplied `List<Struct<...>>` parameters
+with scalar fields, including nullable fields and empty structs. Field schemas
+are canonical by name. The input is a native relation; it does not add general
+list or struct values to the scalar arena. Its source field names survive aliases,
+pruning and copied column IDs. Only physical conversion emits the fully typed
+backend parameter and iterator. Nested containers, optional rows/lists and
+computed list arguments remain explicitly unsupported.
+
 Set operands align by field name, infer common types once across the chain, and
 fill missing fields with NULL. INTERSECT has higher precedence; UNION and EXCEPT
 associate left. A flat postfix syntax keeps long chains shallow, and consecutive
@@ -737,7 +745,7 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Forty-four TPC-DS queries also have populated native-required execution
+tables. Fifty-four TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -845,6 +853,24 @@ through the legacy optimizer, YQL-to-RBO and native-required compilation, with
 fallback disabled. The shared fixtures retain the original SQL, schemas, scalar
 helpers and settings. Forty-five TPC-DS queries still need populated validation.
 
+The row-parameter increment passes 111 standalone frontend and 496 RBO tests,
+retaining all 599 previous registrations and adding eight. The full RBO run
+passed 484 tests; the exact 12 interrupted or unlaunched by the existing
+600-second shard limit passed separately with unchanged sources and assertions.
+The original `AsTable` fixture also runs in native-required mode. Parameter tests
+cover declared and supplied schemas, field ordering, nullable and dotted fields,
+joins, subqueries, prepared-query reuse, populated/empty inputs and empty structs.
+They pin two pre-existing failures without modifying either old path: the legacy
+optimizer's row-parameter IN subquery and YQL-to-RBO's dotted source field.
+Structural checks require zero YQL expression allocations through native source
+construction, typing and copying, followed by complete terminal type annotation.
+The standalone CLI still contains no YQL/MiniKQL symbols. Original benchmark SQL,
+schemas, helpers, settings and previous host assertions remain unchanged; all
+22 TPC-H and 54 TPC-DS cases passed on each of the three compiler paths.
+The existing Linux/Clang line-table debug policy also covers the modified
+`kqp_rbo_yql_ut.cpp`, retaining source locations while avoiding the test binary's
+32-bit debug-section relocation limit.
+
 Q13, Q26 and Q96 extend the 51-query fixture while retaining every earlier
 expected result. Q13 exercises join equalities shared across demographic and
 address OR branches, all price/profit bands and their inclusive boundaries,
@@ -920,24 +946,24 @@ counters through this API. Compiler CPU/wall counters are reported separately fr
 request wall time, which includes execution. These empty-table runs are timing
 measurements, not additional populated execution coverage.
 
-On 2026-11-01, the common-predicate and bound-sort revision passed all 216 measured
+On 2026-11-01, the row-parameter revision passed all 216 measured
 compilations on the local `relwithdebinfo` build. Median compiler CPU times across
 nine samples, in milliseconds:
 
 | Query | Legacy optimizer | YQL frontend + RBO | Native frontend + RBO |
 | --- | ---: | ---: | ---: |
-| TPC-H Q1 | 194.37 | 76.50 | 40.35 |
-| TPC-H Q5 | 409.46 | 133.48 | 108.64 |
-| TPC-H Q9 | 410.36 | 157.49 | 119.60 |
-| TPC-H Q21 | 895.90 | 174.07 | 124.66 |
-| TPC-DS Q17 | 1221.98 | 292.33 | 164.81 |
-| TPC-DS Q28 | 1779.57 | 360.66 | 294.90 |
-| TPC-DS Q51 | 783.52 | 146.22 | 89.84 |
-| TPC-DS Q52 | 219.25 | 81.58 | 60.35 |
+| TPC-H Q1 | 191.76 | 72.31 | 45.80 |
+| TPC-H Q5 | 408.83 | 134.13 | 127.88 |
+| TPC-H Q9 | 389.77 | 123.01 | 109.92 |
+| TPC-H Q21 | 835.75 | 179.69 | 123.79 |
+| TPC-DS Q17 | 1119.88 | 293.02 | 164.93 |
+| TPC-DS Q28 | 1820.36 | 412.54 | 315.42 |
+| TPC-DS Q51 | 716.55 | 162.74 | 114.37 |
+| TPC-DS Q52 | 200.66 | 74.38 | 57.41 |
 
-The geometric mean ratio against the existing YQL frontend plus RBO is 1.46,
-or about 31% less compilation CPU, with per-query ratios of 1.22–1.90. Against
-the legacy optimizer the ratio is 5.31, which includes the optimizer change and
+The geometric mean ratio against the existing YQL frontend plus RBO is 1.36,
+or about 26% less compilation CPU, with per-query ratios of 1.05–1.78. Against
+the legacy optimizer the ratio is 4.79, which includes the optimizer change and
 must not be attributed solely to the frontend. This small local sample measures
 the current full compilation paths, including their backend and plan differences;
 it is neither an isolated frontend measurement nor an execution-speed guarantee.

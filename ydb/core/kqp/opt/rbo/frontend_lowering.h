@@ -8,6 +8,7 @@ namespace NKikimr::NKqp {
 
 class TOlapProgram;
 class TExpression;
+namespace NFrontend { class TParameterType; }
 
 // The execution compatibility boundary. The native frontend and its type
 // checker never include this header or depend on YQL. Each native operation
@@ -15,6 +16,9 @@ class TExpression;
 const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::TExprContext& ctx,
     const NFrontend::TExpressionArena* arena = nullptr);
 NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena = nullptr);
+const NYql::TTypeAnnotationNode* ExportNativeParameterType(const NFrontend::TParameterType& type, NYql::TExprContext& ctx);
+NYql::TExprNode::TPtr LowerNativeParameter(const TString& name, const NFrontend::TParameterType& type,
+    NYql::TExprContext& ctx, NYql::TPositionHandle pos);
 NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena,
     NFrontend::TExprId root, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
 

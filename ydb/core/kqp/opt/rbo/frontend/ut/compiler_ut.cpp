@@ -32,6 +32,93 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(RowParametersBindAsRelationsWithScalarColumns) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* declaration : {
+                    "List<Struct<value:String?,id:Int32>>",
+                    "List<Struct<value:Optional<String>,id:Int32,>>",
+                    "List<Struct<id:Int32,value:Optional<String>>>"}) {
+                const auto sql = std::string("DECLARE $p AS ") + declaration +
+                    "; SELECT p.id,p.value FROM AS_TABLE($p) AS p WHERE p.id > 0 ORDER BY p.id";
+                const auto syntax = ParseNative(sql, settings);
+                UNIT_ASSERT(CollectTables(syntax).empty());
+                const auto compiled = BindNative(syntax, [](auto, auto) -> TCatalogTable {
+                    throw std::logic_error("row parameter requested catalog metadata");
+                });
+                const auto& program = compiled.Get();
+                const auto& fields = *program.Parameters.at("p").Rows();
+                UNIT_ASSERT_VALUES_EQUAL(fields.size(), 2);
+                UNIT_ASSERT_VALUES_EQUAL(fields[0].Name, "id");
+                UNIT_ASSERT(fields[1].Type == (TType{ETypeKind::String, true}));
+                UNIT_ASSERT(program.Relations.front().Kind == ERelation::Parameter);
+                UNIT_ASSERT_VALUES_EQUAL(program.Relations.front().Table, "p");
+                UNIT_ASSERT(program.Results[0].Columns[0].Type == (TType{ETypeKind::Int32}));
+                UNIT_ASSERT(program.Results[0].Columns[1].Type == (TType{ETypeKind::String, true}));
+                for (const auto& node : program.Expressions.Nodes()) UNIT_ASSERT(node.Op != EOpcode::Parameter);
+            }
+            for (const auto* sql : {
+                    "DECLARE $p AS List<Struct<>>; SELECT COUNT(*) FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct< > >; SELECT 1 FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct<id:Int32,value:Optional<String>>>; SELECT * FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct<`a.b`:Int32>>; SELECT p.`a.b` FROM AS_TABLE($p) p",
+                    "DECLARE $p AS List<Struct<id:Int32>>; DECLARE $x AS Int32; SELECT id + $x FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct<id:Int32>>; $q = SELECT id FROM AS_TABLE($p); $p = 42; SELECT a.id FROM $q a JOIN $q b ON a.id=b.id"})
+                UNIT_ASSERT_C(!CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+            const auto syntax = ParseNative("DECLARE $p AS List<Struct<id:Uint64>>; SELECT a.id FROM AS_TABLE($p) a JOIN t b ON a.id=b.id", settings);
+            const auto tables = CollectTables(syntax);
+            UNIT_ASSERT_VALUES_EQUAL(tables.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "t");
+        }
+    }
+
+    Y_UNIT_TEST(SuppliedRowParameterSchemasMatchDeclarationsByFieldName) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            settings.Binding.ParameterTypes.emplace("p", TParameterType::TRows{{"z", {ETypeKind::String, true}}, {"a", {ETypeKind::Int32}}});
+            for (const auto* sql : {"SELECT * FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct<a:Int32,z:String?>>; SELECT * FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct<z:String?,a:Int32>>; SELECT * FROM AS_TABLE($p)"}) {
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& columns = compiled.Program->Get().Results[0].Columns;
+                UNIT_ASSERT_VALUES_EQUAL(columns.size(), 2);
+                UNIT_ASSERT_VALUES_EQUAL(columns[0].Name, "a");
+                UNIT_ASSERT_VALUES_EQUAL(columns[1].Name, "z");
+            }
+            UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $p AS List<Struct<a:Int64,z:String?>>; SELECT * FROM AS_TABLE($p)", Catalog, settings), TFrontendError);
+            settings.Binding.ParameterTypes["p"] = TParameterType::TRows{{"a", {ETypeKind::Int32}}, {"a", {ETypeKind::Int32}}};
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT * FROM AS_TABLE($p)", Catalog, settings), TFrontendError);
+        }
+    }
+
+    Y_UNIT_TEST(RowParameterErrorsAreDistinctFromUnsupportedContainers) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser; settings.Mode = ECompilerMode::Auto;
+            for (const auto* sql : {
+                    "SELECT * FROM AS_TABLE($unknown)",
+                    "DECLARE $p AS List<Struct<a:Optional<Int32>>>>; SELECT * FROM AS_TABLE($p)",
+                    "DECLARE $p AS Int32; SELECT * FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct<a:Int32,a:Int32>>; SELECT * FROM AS_TABLE($p)"}) {
+                bool failed = false;
+                try { CompileNative(sql, Catalog, settings); }
+                catch (const TUnsupportedFeature&) { UNIT_FAIL(sql); }
+                catch (const TFrontendError&) { failed = true; }
+                UNIT_ASSERT_C(failed, sql);
+            }
+            for (const auto* sql : {
+                    "DECLARE $p AS List<Int32>; SELECT $p",
+                    "DECLARE $p AS List<Struct<a:List<Int32>>>; SELECT * FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct<a:Int32>>?; SELECT * FROM AS_TABLE($p)",
+                    "DECLARE $p AS List<Struct<a:Int32>>; SELECT $p",
+                    "DECLARE $p AS List<Struct<a:Int32>>; $p=1; SELECT * FROM AS_TABLE($p)",
+                    "SELECT * FROM AS_TABLE(AsList(AsStruct(1 AS a)))"})
+                UNIT_ASSERT_C(CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+            settings.Binding.MaxNodes = 1;
+            settings.Binding.ParameterTypes.emplace("p", TParameterType::TRows{{"a", {ETypeKind::Int32}}, {"b", {ETypeKind::String}}});
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT * FROM AS_TABLE($p)", Catalog, settings), TResourceLimitError);
+        }
+    }
+
     Y_UNIT_TEST(JsonValuesHaveAnExplicitNativeExecutionProfile) {
         const auto catalog = [](std::string_view name, TSourcePosition) {
             return TCatalogTable{std::string(name), {{"j", {ETypeKind::Json, true}}, {"d", {ETypeKind::JsonDocument}}}};

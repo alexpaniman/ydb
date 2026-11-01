@@ -169,6 +169,15 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
             using R = NFrontend::ERelation;
             switch (relation.Kind) {
                 case R::Unit: op = MakeIntrusive<TOpEmptySource>(pos); break;
+                case R::Parameter: {
+                    TOpEmptySource::TParameterInput parameter;
+                    parameter.Name = "$" + String(relation.Table);
+                    for (const auto id : relation.Columns) {
+                        const auto& column = program.Columns.at(id);
+                        parameter.Fields.Add(id, NFrontend::TCatalogColumn{column.Name, column.Type});
+                    }
+                    op = MakeIntrusive<TOpEmptySource>(pos, std::move(parameter)); break;
+                }
                 case R::Read: {
                     const auto& table = tables.at(relation.Table);
                     TUnorderedIUs columns; for (auto column : relation.Columns) columns.Add(column);

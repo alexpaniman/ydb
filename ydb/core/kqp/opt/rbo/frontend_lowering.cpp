@@ -66,6 +66,50 @@ bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend
     }
 }
 
+void AnnotateTypeSyntax(TExprNode& node, TExprContext& ctx) {
+    for (const auto& child : node.Children()) AnnotateTypeSyntax(*child, ctx);
+    if (node.GetTypeAnn()) return;
+    if (node.IsAtom()) {
+        node.SetTypeAnn(ctx.MakeType<TUnitExprType>());
+    } else {
+        YQL_ENSURE(node.IsList(), "Unannotated native execution type");
+        TVector<const TTypeAnnotationNode*> items;
+        bool unit = true;
+        for (const auto& child : node.Children()) {
+            items.push_back(child->GetTypeAnn());
+            unit &= child->GetTypeAnn()->GetKind() == ETypeAnnotationKind::Unit;
+        }
+        node.SetTypeAnn(unit ? static_cast<const TTypeAnnotationNode*>(ctx.MakeType<TUnitExprType>()) : ctx.MakeType<TTupleExprType>(items));
+    }
+}
+
+TExprNode::TPtr ExecutionType(const TTypeAnnotationNode* type, TExprContext& ctx, TPositionHandle pos) {
+    const auto child = [&](const TTypeAnnotationNode* value) { return ExecutionType(value, ctx, pos); };
+    // ExpandType caches syntax, but leaves it untyped. Complete child type
+    // expressions before marking the parent complete, so the backend's
+    // constraint pass never encounters untyped descendants of typed nodes.
+    if (type->GetKind() == ETypeAnnotationKind::Optional) child(type->Cast<TOptionalExprType>()->GetItemType());
+    if (type->GetKind() == ETypeAnnotationKind::List) child(type->Cast<TListExprType>()->GetItemType());
+    if (type->GetKind() == ETypeAnnotationKind::Tuple)
+        for (const auto* item : type->Cast<TTupleExprType>()->GetItems()) child(item);
+    if (type->GetKind() == ETypeAnnotationKind::Struct)
+        for (const auto* item : type->Cast<TStructExprType>()->GetItems()) child(item->GetItemType());
+    if (type->GetKind() == ETypeAnnotationKind::Variant) child(type->Cast<TVariantExprType>()->GetUnderlyingType());
+    if (type->GetKind() == ETypeAnnotationKind::Dict) {
+        child(type->Cast<TDictExprType>()->GetKeyType());
+        child(type->Cast<TDictExprType>()->GetPayloadType());
+    }
+    if (type->GetKind() == ETypeAnnotationKind::Callable) {
+        const auto* callable = type->Cast<TCallableExprType>();
+        child(callable->GetReturnType());
+        for (const auto& argument : callable->GetArguments()) child(argument.Type);
+    }
+    auto result = ExpandType(pos, *type, ctx);
+    result->SetTypeAnn(ctx.MakeType<TTypeExprType>(type));
+    AnnotateTypeSyntax(*result, ctx);
+    return result;
+}
+
 class TLowerer {
 public:
     TLowerer(const NFrontend::TExpressionArena& arena, TExprContext& ctx, TPositionHandle pos)
@@ -97,49 +141,10 @@ private:
         result->SetTypeAnn(Ctx.MakeType<TUnitExprType>());
         return result;
     }
-    void AnnotateTypeSyntax(TExprNode& node) {
-        for (const auto& child : node.Children()) AnnotateTypeSyntax(*child);
-        if (node.GetTypeAnn()) return;
-        if (node.IsAtom()) {
-            node.SetTypeAnn(Ctx.MakeType<TUnitExprType>());
-        } else {
-            YQL_ENSURE(node.IsList(), "Unannotated native execution type");
-            TVector<const TTypeAnnotationNode*> items;
-            bool unit = true;
-            for (const auto& child : node.Children()) {
-                items.push_back(child->GetTypeAnn());
-                unit &= child->GetTypeAnn()->GetKind() == ETypeAnnotationKind::Unit;
-            }
-            node.SetTypeAnn(unit ? static_cast<const TTypeAnnotationNode*>(Ctx.MakeType<TUnitExprType>()) : Ctx.MakeType<TTupleExprType>(items));
-        }
-    }
     TExprNode::TPtr Call(TStringBuf name, TExprNode::TListType args, NFrontend::TType type) {
         auto result = Ctx.NewCallable(Pos, name, std::move(args)); result->SetTypeAnn(ExportNativeType(type, Ctx, &Arena)); return result;
     }
-    TExprNode::TPtr Type(const TTypeAnnotationNode* type) {
-        // ExpandType caches syntax, but leaves it untyped. Complete child type
-        // expressions before marking the parent complete, so the backend's
-        // constraint pass never encounters untyped descendants of typed nodes.
-        if (type->GetKind() == ETypeAnnotationKind::Optional) Type(type->Cast<TOptionalExprType>()->GetItemType());
-        if (type->GetKind() == ETypeAnnotationKind::Tuple)
-            for (const auto* item : type->Cast<TTupleExprType>()->GetItems()) Type(item);
-        if (type->GetKind() == ETypeAnnotationKind::Struct)
-            for (const auto* item : type->Cast<TStructExprType>()->GetItems()) Type(item->GetItemType());
-        if (type->GetKind() == ETypeAnnotationKind::Variant) Type(type->Cast<TVariantExprType>()->GetUnderlyingType());
-        if (type->GetKind() == ETypeAnnotationKind::Dict) {
-            Type(type->Cast<TDictExprType>()->GetKeyType());
-            Type(type->Cast<TDictExprType>()->GetPayloadType());
-        }
-        if (type->GetKind() == ETypeAnnotationKind::Callable) {
-            const auto* callable = type->Cast<TCallableExprType>();
-            Type(callable->GetReturnType());
-            for (const auto& argument : callable->GetArguments()) Type(argument.Type);
-        }
-        auto result = ExpandType(Pos, *type, Ctx);
-        result->SetTypeAnn(Ctx.MakeType<TTypeExprType>(type));
-        AnnotateTypeSyntax(*result);
-        return result;
-    }
+    TExprNode::TPtr Type(const TTypeAnnotationNode* type) { return ExecutionType(type, Ctx, Pos); }
     TExprNode::TPtr Type(NFrontend::TType type) { return Type(ExportNativeType(type, Ctx, &Arena)); }
     TExprNode::TPtr Nothing(NFrontend::TType type) {
         return type.Kind == K::Null ? Call("Null", {}, type) : Call("Nothing", {Type(type.Optional())}, type.Optional());
@@ -241,7 +246,7 @@ private:
             auto voidValue = Ctx.NewCallable(Pos, "Void", {});
             voidValue->SetTypeAnn(voidType);
             auto settings = Ctx.NewList(Pos, {Ctx.NewList(Pos, {Atom("strict")})});
-            AnnotateTypeSyntax(*settings);
+            AnnotateTypeSyntax(*settings, Ctx);
             auto udf = Ctx.NewCallable(Pos, "Udf", {Atom(name), voidValue, Type(userType), Atom(""), Type(signature), Type(voidType), Atom(""), settings});
             udf->SetTypeAnn(signature);
             args.insert(args.begin(), std::move(udf));
@@ -258,7 +263,7 @@ private:
             const auto* signature = Ctx.MakeType<TCallableExprType>(stringType,
                 TVector<TCallableExprType::TArgumentInfo>{{stringType, {}, NUdf::ICallablePayload::TArgumentFlags::AutoMap}}, 0, TStringBuf{});
             auto settings = Ctx.NewList(Pos, {Ctx.NewList(Pos, {Atom("strict")})});
-            AnnotateTypeSyntax(*settings);
+            AnnotateTypeSyntax(*settings, Ctx);
             const auto* name = unicode ? (upper ? "Unicode.ToUpper" : "Unicode.ToLower") :
                 (upper ? "String.AsciiToUpper" : "String.AsciiToLower");
             auto udf = Ctx.NewCallable(Pos, "Udf", {Atom(name),
@@ -291,7 +296,7 @@ private:
             const auto* signature = Ctx.MakeType<TCallableExprType>(returned, arguments, 0, TStringBuf{});
             const auto* voidType = Ctx.MakeType<TVoidExprType>();
             auto settings = Ctx.NewList(Pos, strict ? TExprNode::TListType{Ctx.NewList(Pos, {Atom("strict")})} : TExprNode::TListType{});
-            AnnotateTypeSyntax(*settings);
+            AnnotateTypeSyntax(*settings, Ctx);
             auto udf = typed("Udf", {Atom(name), typed("Void", {}, voidType), Type(voidType), Atom(""),
                 Type(signature), Type(voidType), Atom(""), settings}, signature);
             args.insert(args.begin(), std::move(udf));
@@ -444,6 +449,22 @@ const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::T
         Y_ENSURE(slot, "Unknown native type"); result = ctx.MakeType<TDataExprType>(*slot);
     }
     return type.Nullable ? ctx.MakeType<TOptionalExprType>(result) : result;
+}
+
+const NYql::TTypeAnnotationNode* ExportNativeParameterType(const NFrontend::TParameterType& type, NYql::TExprContext& ctx) {
+    if (const auto* scalar = type.Scalar()) return ExportNativeType(*scalar, ctx);
+    TVector<const TItemExprType*> fields;
+    for (const auto& field : *type.Rows()) fields.push_back(ctx.MakeType<TItemExprType>(String(field.Name), ExportNativeType(field.Type, ctx)));
+    return ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(fields));
+}
+
+NYql::TExprNode::TPtr LowerNativeParameter(const TString& name, const NFrontend::TParameterType& type,
+    NYql::TExprContext& ctx, NYql::TPositionHandle pos) {
+    const auto* annotation = ExportNativeParameterType(type, ctx);
+    auto atom = ctx.NewAtom(pos, name); atom->SetTypeAnn(ctx.MakeType<TUnitExprType>());
+    auto parameter = ctx.NewCallable(pos, "Parameter", {std::move(atom), ExecutionType(annotation, ctx, pos)});
+    parameter->SetTypeAnn(annotation);
+    return parameter;
 }
 
 NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena) {

@@ -102,6 +102,57 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(RowParametersStayNativeThroughTypingAndCopy) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto allocated = f.ExprCtx.NodeAllocationCounter;
+        auto roots = CompileNativeToRbo(
+            "DECLARE $p AS List<Struct<value:String?,id:Int32>>; SELECT p.id,p.value FROM AS_TABLE($p) p WHERE p.id > 0",
+            NoTables, f.ExprCtx);
+        auto& root = *roots.front();
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, allocated);
+        TIntrusivePtr<TOpEmptySource> source;
+        for (const auto& item : root) if (item.Current->Kind == EOperator::EmptySource) source = CastOperator<TOpEmptySource>(item.Current);
+        UNIT_ASSERT(source && source->NativeInput && !source->Input);
+        UNIT_ASSERT_VALUES_EQUAL(source->NativeInput->Name, "$p");
+        for (const auto& [id, field] : source->NativeInput->Fields.Items()) {
+            UNIT_ASSERT_VALUES_EQUAL(root.PlanProps.InfoUnitRegistry.Get(id).GetAlias(), "p");
+            const auto column = MakeColumnAccess(id, *source, source->Pos, &f.ExprCtx, &root.PlanProps);
+            UNIT_ASSERT(column.IsNative() && column.GetNativeType() == field.Type);
+        }
+        auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
+            UNIT_FAIL("row parameter invoked YQL annotation");
+            return IGraphTransformer::TStatus::Error;
+        });
+        TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+        UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+        source->ComputeMetadata(context, root.PlanProps);
+        UNIT_ASSERT(source->Props.Metadata->LogicalCard == ELogicalCardinality::ZeroOrMore);
+        TSubstitutions renames;
+        const auto copy = source->Copy(root.PlanProps, renames);
+        UNIT_ASSERT(copy);
+        const auto& copied = CastOperator<TOpEmptySource>(*copy);
+        UNIT_ASSERT(copied.NativeInput && !copied.Input);
+        TParameterType::TRows fields;
+        for (const auto& [id, field] : source->NativeInput->Fields.Items()) {
+            UNIT_ASSERT(renames.At(id) != id);
+            UNIT_ASSERT(copied.NativeInput->Fields.At(renames.At(id)) == field);
+            fields.push_back(field);
+        }
+        for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions())
+            UNIT_ASSERT(expression.get().IsNative() && !expression.get().Node);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, allocated);
+        const auto lowered = LowerNativeParameter(copied.NativeInput->Name, TParameterType(std::move(fields)), f.ExprCtx, {});
+        UNIT_ASSERT(lowered->IsCallable("Parameter"));
+        UNIT_ASSERT(AreAllNodesTypeAnnotated(*lowered));
+        UNIT_ASSERT(!NeedsRboCompatibilityLowering(lowered));
+        UNIT_ASSERT_VALUES_EQUAL(lowered->Head().Content(), "$p");
+        const auto* row = lowered->GetTypeAnn()->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+        UNIT_ASSERT(ImportNativeType(*row->FindItemType("id")) == (TType{ETypeKind::Int32}));
+        UNIT_ASSERT(ImportNativeType(*row->FindItemType("value")) == (TType{ETypeKind::String, true}));
+        UNIT_ASSERT(!source->Input && !copied.Input);
+    }
+
     Y_UNIT_TEST(NativeScalarInspectionAndRebindingDoNotGenerateBackendNodes) {
         using namespace NFrontend;
         NTests::TIdTestContext f;

@@ -12,6 +12,12 @@
 #include <unordered_set>
 
 namespace NKikimr::NKqp::NFrontend {
+
+TParameterType::TParameterType(TRows rows) {
+    std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.Name < b.Name; });
+    Value = std::move(rows);
+}
+
 namespace {
 
 std::string Lower(std::string_view value) {
@@ -116,7 +122,9 @@ public:
     bool IsReferenced(TSyntaxId expression) const { return Seen.at(expression); }
     bool WindowUsesAnsi(TSyntaxId expression) const { return WindowDefaults.at(expression); }
     bool AllowsUnnamedGroups(const TSelect& query) const { return UnnamedGroups.contains(&query); }
+    std::uint32_t SourceBinding(const TSource& source) const { return Sources.at(&source); }
     std::shared_ptr<TSelect> Query(const TSource& source) const {
+        if (source.ParameterTable) return {};
         if (source.Query || !source.Name.starts_with('$')) return source.Query;
         const auto binding = Sources.at(&source);
         if (binding >= Syntax.Statements.size()) throw TFrontendError(source.Position, "unknown query binding: " + source.Name);
@@ -321,6 +329,7 @@ public:
         : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), Prefix(settings.TablePathPrefix), AnsiIn(settings.AnsiIn), Values(syntax.Statements.size())
     {
         Program.Parameters = settings.ParameterTypes;
+        for (const auto& [name, type] : Program.Parameters) ValidateParameter(type, {});
         Canonical.reserve(syntax.Expressions.size());
         CanonicalWindows.reserve(syntax.Expressions.size());
         ContainsAggregate.reserve(syntax.Expressions.size());
@@ -366,7 +375,13 @@ public:
             switch (statement.Kind) {
                 case EStatementKind::Query: Program.Results.push_back(Select(*statement.Query)); break;
                 case EStatementKind::Declaration: {
-                    auto type = ParseType(statement.Value, statement.Position);
+                    TParameterType type;
+                    if (statement.RowFields) {
+                        TParameterType::TRows fields;
+                        for (const auto& [name, value] : *statement.RowFields) fields.push_back({name, ParseType(value, statement.Position)});
+                        type = TParameterType(std::move(fields));
+                    } else type = ParseType(statement.Value, statement.Position);
+                    ValidateParameter(type, statement.Position);
                     auto [it, inserted] = Program.Parameters.emplace(statement.Name, type);
                     if (!inserted && it->second != type) throw TFrontendError(statement.Position, "parameter type does not match DECLARE: " + statement.Name);
                     if (!Declared.insert(statement.Name).second) throw TFrontendError(statement.Position, "duplicate DECLARE: " + statement.Name);
@@ -407,6 +422,17 @@ public:
     }
 
 private:
+    void ValidateParameter(const TParameterType& type, TSourcePosition pos) const {
+        if (const auto* scalar = type.Scalar()) { Program.Expressions.ValidateType(*scalar, pos); return; }
+        const auto& rows = *type.Rows();
+        if (rows.size() > Settings.MaxNodes) throw TResourceLimitError(pos, "parameter field limit exceeded");
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            Program.Expressions.ValidateType(rows[i].Type, pos);
+            if (rows[i].Type.Kind == ETypeKind::Tuple || rows[i].Type.Kind == ETypeKind::Calendar)
+                throw TUnsupportedFeature(EFeature::Type, pos, "parameter rows require scalar fields");
+            if (i && rows[i - 1].Name == rows[i].Name) throw TFrontendError(pos, "duplicate parameter field: " + rows[i].Name);
+        }
+    }
     struct TDepth {
         TBinder& Binder;
         TDepth(TBinder& binder, TSourcePosition pos) : Binder(binder) {
@@ -516,6 +542,22 @@ private:
 
     TBoundSource Source(const TSource& source, TExprContext* outer) {
         TDepth depth(*this, source.Position);
+        if (source.ParameterTable) {
+            const auto binding = Bindings.SourceBinding(source);
+            if (binding == TGlobalBindings::Unknown) throw TFrontendError(source.Position, "unknown parameter: " + source.Name);
+            if (binding != TGlobalBindings::Parameter)
+                throw TUnsupportedFeature(EFeature::Statement, source.Position, "AS_TABLE requires a declared or supplied row-list parameter");
+            const auto name = source.Name.substr(1);
+            const auto* fields = Program.Parameters.at(name).Rows();
+            if (!fields) throw TFrontendError(source.Position, "AS_TABLE requires a List<Struct<...>> parameter");
+            TRelation input{ERelation::Parameter, source.Position}; input.Table = name;
+            TScope scope;
+            for (const auto& field : *fields) {
+                const auto id = Column(field.Name, source.Alias, field.Type, source.Position);
+                input.Columns.push_back(id); scope.Add(ScopeColumn(id));
+            }
+            return {Relation(std::move(input)), std::move(scope)};
+        }
         auto query = Bindings.Query(source);
         if (!query) if (const auto named = Queries.find(source.Name); named != Queries.end()) query = named->second;
         if (query) {
@@ -1333,7 +1375,9 @@ private:
                         throw TUnsupportedFeature(EFeature::Function, syntax.Position, "lambda argument is not a scalar value: " + syntax.Text);
                     result = context.Arguments->at(syntax.Text);
                 } else if (binding == TGlobalBindings::Parameter) {
-                    result = arena.Parameter(syntax.Text, Program.Parameters.at(syntax.Text), syntax.Position);
+                    const auto* scalar = Program.Parameters.at(syntax.Text).Scalar();
+                    if (!scalar) throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "row-list parameters are relational inputs; use AS_TABLE");
+                    result = arena.Parameter(syntax.Text, *scalar, syntax.Position);
                 } else if (binding < Values.size() && Values[binding]) result = *Values[binding];
                 else throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "binding is not a scalar value: $" + syntax.Text);
                 break;
@@ -1513,7 +1557,7 @@ TBoundProgram NDetail::Compile(std::string_view sql, const TTableResolver& catal
 }
 
 std::string Explain(const TBoundProgram& program) {
-    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture", "Window"};
+    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture", "Window", "Parameter"};
     std::ostringstream out;
     for (std::size_t i = 0; i < program.Relations.size(); ++i) {
         const auto& relation = program.Relations[i];
@@ -1716,6 +1760,7 @@ private:
         }
     }
     void Source(const TSource& source) {
+        if (source.ParameterTable) return;
         auto query = Bindings.Query(source);
         if (!query) if (const auto it = Queries.find(source.Name); it != Queries.end()) query = it->second;
         if (query) {
@@ -1832,6 +1877,7 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
+"row_parameters":["AS_TABLE of declared or supplied List<Struct<scalar fields>> parameters; nullable scalar fields and empty structs; no nested containers or optional row/list containers"],
 "relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Json","JsonDocument","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],

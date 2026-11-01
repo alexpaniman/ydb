@@ -11,6 +11,21 @@ namespace NKikimr::NKqp::NFrontend {
 struct TCatalogColumn {
     std::string Name;
     TType Type;
+    bool operator==(const TCatalogColumn&) const = default;
+};
+
+// Parameters are either executable scalars or external lists of flat rows.
+// Row schemas are canonical by field name and do not require an expression arena.
+class TParameterType {
+public:
+    using TRows = std::vector<TCatalogColumn>;
+    TParameterType(TType scalar = {}) : Value(scalar) {}
+    TParameterType(TRows rows);
+    const TType* Scalar() const { return std::get_if<TType>(&Value); }
+    const TRows* Rows() const { return std::get_if<TRows>(&Value); }
+    bool operator==(const TParameterType&) const = default;
+private:
+    std::variant<TType, TRows> Value;
 };
 
 struct TCatalogTable {
@@ -54,7 +69,7 @@ struct TWindowFunction {
     std::string Function;
 };
 
-enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture, Window };
+enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture, Window, Parameter };
 
 struct TCapture {
     TColumnId Local;
@@ -134,7 +149,7 @@ struct TBoundProgram {
     std::vector<TRelation> Relations;
     std::vector<TQueryResult> Results;
     std::unordered_map<TColumnId, TSubplan> Subplans;
-    std::unordered_map<std::string, TType> Parameters;
+    std::unordered_map<std::string, TParameterType> Parameters;
     std::vector<TPlannerSetting> PlannerSettings;
 };
 
@@ -143,7 +158,7 @@ struct TBindSettings {
     bool AnsiIn = true;
     bool AnsiCurrentRow = true;
     std::string TablePathPrefix;
-    std::unordered_map<std::string, TType> ParameterTypes;
+    std::unordered_map<std::string, TParameterType> ParameterTypes;
     std::size_t MaxNodes = 1'000'000;
     std::size_t MaxExpansionDepth = 128;
 };

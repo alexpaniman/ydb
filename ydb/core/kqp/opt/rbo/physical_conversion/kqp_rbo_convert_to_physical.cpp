@@ -113,13 +113,21 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
                 stagePos[opStageId] = op->Pos;
             } else if (op->Kind == EOperator::EmptySource) {
                 const auto emptySource = CastOperator<TOpEmptySource>(op);
-                if (emptySource->Input) {
+                if (emptySource->HasInput()) {
+                    auto input = emptySource->Input;
+                    if (emptySource->NativeInput) {
+                        NFrontend::TParameterType::TRows fields;
+                        for (const auto& [id, field] : emptySource->NativeInput->Fields.Items()) { Y_UNUSED(id); fields.push_back(field); }
+                        input = LowerNativeParameter(emptySource->NativeInput->Name, NFrontend::TParameterType(std::move(fields)), ctx, op->Pos);
+                    }
                     currentStageBody = Build<TCoIterator>(ctx, op->Pos)
-                        .List(emptySource->Input)
+                        .List(input)
                         .Done().Ptr();
                     TVector<std::pair<TString, TString>> columns;
                     for (const auto id : emptySource->GetOutputIUs()) {
-                        columns.emplace_back(root->PlanProps.InfoUnitRegistry.Get(id).GetFullName(), names.Get(id));
+                        const auto source = emptySource->NativeInput ? TString(emptySource->NativeInput->Fields.At(id).Name) :
+                            root->PlanProps.InfoUnitRegistry.Get(id).GetFullName();
+                        columns.emplace_back(source, names.Get(id));
                     }
                     currentStageBody = NPhysicalConvertionUtils::BuildRenameMap(currentStageBody, columns, ctx);
                 } else {

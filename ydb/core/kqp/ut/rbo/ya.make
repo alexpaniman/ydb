@@ -13,7 +13,6 @@ SRCS(
     kqp_rbo_decorrelation_ut.cpp
     kqp_rbo_global_ut.cpp
     kqp_rbo_lowering_ut.cpp
-    kqp_rbo_yql_ut.cpp
     kqp_rbo_lookup_join_ut.cpp
     kqp_rbo_olap_ut.cpp
 )
@@ -24,8 +23,9 @@ SRCS(
 IF (OS_LINUX AND CLANG)
     SRC(kqp_native_frontend_ut.cpp -gline-tables-only)
     SRC(kqp_native_host_ut.cpp -gline-tables-only)
+    SRC(kqp_rbo_yql_ut.cpp -gline-tables-only)
 ELSE()
-    SRCS(kqp_native_frontend_ut.cpp kqp_native_host_ut.cpp)
+    SRCS(kqp_native_frontend_ut.cpp kqp_native_host_ut.cpp kqp_rbo_yql_ut.cpp)
 ENDIF()
 
 PEERDIR(

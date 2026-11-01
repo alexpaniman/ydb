@@ -2735,11 +2735,13 @@ FROM (
         TestParams(ColumnStore);
     }
 
-    Y_UNIT_TEST_TWIN(AsTable, EnablePeepholeNewRbo) {
+    void TestAsTable(bool EnablePeepholeNewRbo, bool native) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBOPhysicalStagePeephole(EnablePeepholeNewRbo);
+
+        if (native) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
 
         TKikimrRunner kikimr(NKqp::TKikimrSettings(appConfig).SetWithSampleTables(false));
         auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
@@ -2772,6 +2774,10 @@ FROM (
         const auto* source = FindOperatorByStringField(simplifiedPlan, "Name", "EmptySource");
         UNIT_ASSERT_C(source, plan);
         UNIT_ASSERT_VALUES_EQUAL(GetStringField(*source, "Parameter"), "$param");
+        if (native) {
+            UNIT_ASSERT_STRING_CONTAINS(*explain.GetStats()->GetAst(), "native frontend: native-read-v1");
+            UNIT_ASSERT_C(explain.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, explain.GetIssues().ToString());
+        }
 
         auto result = session.ExecuteQuery(query, NYdb::NQuery::TTxControl::NoTx(), params).ExtractValueSync();
 
@@ -2828,6 +2834,14 @@ FROM (
 
         UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
         UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(result.GetResultSet(0)), "[]");
+    }
+
+    Y_UNIT_TEST_TWIN(AsTable, EnablePeepholeNewRbo) {
+        TestAsTable(EnablePeepholeNewRbo, false);
+    }
+
+    Y_UNIT_TEST_TWIN(NativeAsTable, EnablePeepholeNewRbo) {
+        TestAsTable(EnablePeepholeNewRbo, true);
     }
 
     constexpr std::array<i64, 7> SqlInLookupValues = {-1, 0, 1, 2, 3, 10, 2147483648LL};

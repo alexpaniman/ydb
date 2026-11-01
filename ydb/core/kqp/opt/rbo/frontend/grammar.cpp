@@ -192,6 +192,13 @@ private:
         }
         return node->getText();
     }
+    TTree* TypeForm(TTree* node) const {
+        while (Name(node) == "type_name" || Name(node) == "type_name_composite" || Name(node) == "type_name_or_bind") {
+            if (Has(node, "?") || Child(node, "bind_parameter")) return node;
+            node = Only(node);
+        }
+        return node;
+    }
     TRule* Unwrap(TTree* node) const {
         while (Name(node) != "tuple_or_expr" && Name(node) != "lambda" && Name(node) != "select_kind_partial") {
             TTree* next = nullptr;
@@ -476,6 +483,20 @@ private:
         if (alias) result.Alias = Id(alias);
         if (auto* query = Child(single, "select_stmt")) result.Query = Select(query);
         else if (auto* table = Child(single, "table_ref")) {
+            if (Has(table, "(") && Child(table, "an_id_expr") && Upper(Id(Child(table, "an_id_expr"))) == "AS_TABLE") {
+                const auto args = Children(table, "table_arg");
+                if (Child(table, "cluster_expr") || Has(table, "@") || args.size() != 1 ||
+                    Has(args.front(), "@") || Has(args.front(), "VIEW"))
+                    Unsupported(table, EFeature::Statement, "AS_TABLE requires one row-list parameter");
+                auto* named = Child(args.front(), "named_expr");
+                if (Has(named, "AS")) Unsupported(named, EFeature::Statement, "AS_TABLE argument alias");
+                const auto argument = Expr(Child(named, "expr"));
+                if (Result.Expressions[argument].Kind != ESyntaxKind::Variable)
+                    Unsupported(table, EFeature::Statement, "AS_TABLE requires a row-list parameter");
+                result.Name = "$" + Result.Expressions[argument].Text;
+                result.ParameterTable = true;
+                return result;
+            }
             if (Child(table, "cluster_expr") || Has(table, "@") || Has(table, "(") || Has(table, "VIEW"))
                 Unsupported(table, EFeature::Backend, "qualified, temporary, or callable source");
             if (auto* binding = Child(table, "bind_parameter")) result.Name = "$" + Variable(binding);
@@ -653,7 +674,21 @@ private:
         if (name == "declare_stmt") {
             if (Has(node, "=")) Unsupported(node, EFeature::Statement, "DECLARE default");
             TStatement result{EStatementKind::Declaration, Position(node)};
-            result.Name = Variable(Child(node, "bind_parameter")); result.Value = Type(Child(node, "type_name")); return result;
+            result.Name = Variable(Child(node, "bind_parameter"));
+            auto* type = Child(node, "type_name");
+            auto* form = TypeForm(type);
+            if (Name(form) == "type_name_list") {
+                auto* row = TypeForm(Child(form, "type_name_or_bind"));
+                if (Name(row) != "type_name_struct") Unsupported(row, EFeature::Type, "native table parameters require List<Struct<...>>");
+                result.RowFields.emplace();
+                for (auto* field : Children(row, "struct_arg")) {
+                    if (result.RowFields->size() >= Settings.MaxNodes) throw TResourceLimitError(Position(field), "parameter field limit exceeded");
+                    auto* tag = Child(field, "type_name_tag");
+                    if (Child(tag, "bind_parameter")) Unsupported(tag, EFeature::Type, "dynamic parameter field name");
+                    result.RowFields->emplace_back(Id(tag), Type(Child(field, "type_name_or_bind")));
+                }
+            } else result.Value = Type(type);
+            return result;
         }
         if (name == "pragma_stmt") {
             TStatement result{EStatementKind::Pragma, Position(node)};
@@ -774,7 +809,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         out << ')';
     };
     auto source = [&](const TSource& value) {
-        text(value.Name); text(value.Alias); if (value.Query) select(*value.Query);
+        text(value.Name); text(value.Alias); out << value.ParameterTable; if (value.Query) select(*value.Query);
     };
     auto named = [&](const std::vector<TNamedExpr>& values) {
         out << '['; for (const auto& value : values) { expr(value.Expression); text(value.Alias); } out << ']';
@@ -798,6 +833,8 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
     for (const auto& statement : query.Statements) {
         out << static_cast<int>(statement.Kind) << ':' << statement.Lambda;
         text(statement.Name); text(statement.Value);
+        out << bool(statement.RowFields);
+        if (statement.RowFields) for (const auto& [name, type] : *statement.RowFields) { text(name); text(type); }
         for (const auto& parameter : statement.Parameters) text(parameter);
         expr(statement.Expression); if (statement.Query) select(*statement.Query);
     }
