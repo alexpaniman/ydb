@@ -4,6 +4,7 @@
 #include <ydb/core/kqp/ut/olap/helpers/writer.h>
 #include <ydb/core/kqp/ut/olap/helpers/test_case.h>
 #include <ydb/core/kqp/common/events/events.h>
+#include <ydb/core/cms/console/console.h>
 #include <ydb/core/kqp/common/simple/query_id.h>
 #include <ydb/core/kqp/common/simple/services.h>
 #include <ydb/core/kqp/common/simple/settings.h>
@@ -9477,7 +9478,21 @@ FROM (
         TestQueryClient(ColumnStore);
     }
 
-    void TestOlapProjectionPushdown(bool explain) {
+    void RequireNativeReadsAfterSetup(TKikimrRunner& kikimr, NKikimrConfig::TAppConfig config) {
+        config.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+        auto& runtime = *kikimr.GetTestServer().GetRuntime();
+        for (ui32 node = 0; node < runtime.GetNodeCount(); ++node) {
+            const auto edge = runtime.AllocateEdgeActor(node);
+            for (const auto& service : {MakeKqpProxyID(runtime.GetNodeId(node)), MakeKqpCompileServiceID(runtime.GetNodeId(node))}) {
+                auto request = MakeHolder<NConsole::TEvConsole::TEvConfigNotificationRequest>();
+                *request->Record.MutableConfig() = config;
+                runtime.Send(service, edge, request.Release());
+                UNIT_ASSERT(runtime.GrabEdgeEvent<NConsole::TEvConsole::TEvConfigNotificationResponse>(edge, TDuration::Seconds(10)));
+            }
+        }
+    }
+
+    void TestOlapProjectionPushdown(bool explain, bool nativeFrontend = false) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         // Fallback is enabled to be able to insert values by `INSERT VALUES`.
@@ -9519,6 +9534,14 @@ FROM (
                 VALUES (3, 11, Timestamp("1970-01-01T00:00:03.000001Z"), JsonDocument('{"b.c.a" : "a3", "b.c.d" : "b3", "c.d.e" : "c3"}'), JsonDocument('{"x" : "3.1", "y" : "1.2", "z" : "1.3"}'));
             )", NYdb::NQuery::TTxControl::NoTx()).GetValueSync();
             UNIT_ASSERT(insertRes.IsSuccess());
+        }
+
+        if (nativeFrontend) {
+            // Keep the original INSERT setup unchanged; writes are outside the
+            // native read profile. All tested reads use a new required session.
+            RequireNativeReadsAfterSetup(kikimr, appConfig);
+            session2 = queryClient.GetSession().GetValueSync().GetSession();
+            ExecuteExplain(session2, "SELECT 1", true);
         }
 
         std::vector<TString> queries = {
@@ -9592,11 +9615,15 @@ FROM (
                 auto result =
                     session2.ExecuteQuery(query, NYdb::NQuery::TTxControl::NoTx(), NYdb::NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain))
                         .ExtractValueSync();
-                UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), EStatus::SUCCESS);
+                UNIT_ASSERT_VALUES_EQUAL_C(result.GetStatus(), EStatus::SUCCESS, result.GetIssues().ToString());
 
                 auto ast = *result.GetStats()->GetAst();
                 UNIT_ASSERT_C(ast.find("KqpOlapProjections") != std::string::npos, TStringBuilder() << "Projections not pushed down. Query: " << query);
                 UNIT_ASSERT_C(ast.find("KqpOlapProjection") != std::string::npos, TStringBuilder() << "Projection not pushed down. Query: " << query);
+                if (nativeFrontend) {
+                    UNIT_ASSERT_C(ast.find("native frontend: native-read-v1") != std::string::npos, query);
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, query);
+                }
 
                 if (i == 0) {
                     UNIT_ASSERT_C(result.GetStats()->GetPlan().has_value(), "Missing explain plan");
@@ -9612,10 +9639,11 @@ FROM (
                 }
             } else {
                 auto result = session2.ExecuteQuery(query, NYdb::NQuery::TTxControl::NoTx(), NYdb::NQuery::TExecuteQuerySettings()).ExtractValueSync();
-                UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), EStatus::SUCCESS);
+                UNIT_ASSERT_VALUES_EQUAL_C(result.GetStatus(), EStatus::SUCCESS, result.GetIssues().ToString());
                 TString output = FormatResultSetYson(result.GetResultSet(0));
                 //Cout << output << Endl;
                 CompareYson(output, results[i]);
+                if (nativeFrontend) UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, query);
             }
         }
     }
@@ -9624,7 +9652,11 @@ FROM (
         TestOlapProjectionPushdown(Explain);
     }
 
-    Y_UNIT_TEST(OlapProjectionPreservesLiveSourceColumn) {
+    Y_UNIT_TEST_TWIN(NativeOlapProjection, Explain) {
+        TestOlapProjectionPushdown(Explain, true);
+    }
+
+    void RunOlapProjectionPreservesLiveSourceColumn(bool nativeFrontend) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(true);
@@ -9640,6 +9672,11 @@ FROM (
             INSERT INTO `/Root/docs` (id, doc) VALUES (1, JsonDocument('{"x":"value"}'));
         )", NYdb::NQuery::TTxControl::NoTx()).GetValueSync();
         UNIT_ASSERT_C(insert.IsSuccess(), insert.GetIssues().ToString());
+        if (nativeFrontend) {
+            RequireNativeReadsAfterSetup(kikimr, appConfig);
+            querySession = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
+            ExecuteExplain(querySession, "SELECT 1", true);
+        }
         const auto before = GetNewRBOCompileCounters(kikimr);
         const auto result = querySession.ExecuteQuery(R"(
             PRAGMA YqlSelect = 'force';
@@ -9659,6 +9696,9 @@ FROM (
         UNIT_ASSERT_VALUES_EQUAL(*parser.ColumnParser(1).GetOptionalUtf8(), "value");
         UNIT_ASSERT(!parser.TryNextRow());
     }
+
+    Y_UNIT_TEST(OlapProjectionPreservesLiveSourceColumn) { RunOlapProjectionPreservesLiveSourceColumn(false); }
+    Y_UNIT_TEST(NativeOlapProjectionPreservesLiveSourceColumn) { RunOlapProjectionPreservesLiveSourceColumn(true); }
 
     ui32 CountNumberOfCallables(const std::string& ast, const std::string_view callable) {
         ui32 count = 0;

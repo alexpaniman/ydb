@@ -591,6 +591,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
 
     Y_UNIT_TEST(FastParserAndGrammarRouting) {
         for (const auto* sql : {"SELECT 1", "SELECT value FROM t WHERE value > 0", "SELECT Int32('1')", "SELECT 1 IN (1, 2,)",
+                               "SELECT 1 IN [1, 2,]", "SELECT NULL IN []", "SELECT 1 NOT IN [,]",
                                "SELECT 'x' AS `from`", "SELECT x FROM t AS a JOIN t AS b ON a.id = b.id"}) {
             UNIT_ASSERT_C(!ParseNative(sql).UsedGeneratedParser, sql);
             AssertParserAgreement(sql);
@@ -601,6 +602,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         }
         for (const auto* sql : {"SELECT * AS x FROM t", "SELECT NOT NOT true", "SELECT FROM FROM t", "SELECT 1 IN ()",
                                "SELECT 'x'u", "SELECT 1 IS NULL = true", "SELECT 1 < 2 < 3", "SELECT 1 == 2 == 3",
+                               "SELECT 1 IN [1,,2]", "SELECT 1 IN [1,2", "SELECT 1 IN [1] + 1",
                                "SELECT 1 UNION ALL SELECT 2 LIMIT 1", "SELECT a.x.y.* FROM a"}) AssertParserAgreement(sql);
     }
 

@@ -52,6 +52,7 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
             "SELECT CASE WHEN true THEN 1 ELSE 2 END",
             "SELECT CASE 1 WHEN 1 THEN 2 WHEN 3 THEN 4 END",
             "SELECT 1 IN (1,2,3), 1 NOT BETWEEN 2 AND 4, NULL IS NOT NULL",
+            "SELECT 'a' IN ['a','b',], NULL NOT IN [NULL], 1 IN [], 1 IN [,]",
             "SELECT 'abc' LIKE '%b%', 1 ?? 2 ?? 3",
             "SELECT t.*, t.id FROM t AS t WHERE t.id > 1 ORDER BY t.id DESC LIMIT 10",
             "SELECT a.id, b.id FROM a LEFT JOIN b ON a.id == b.id",

@@ -123,7 +123,17 @@ TStatus ComputeTypes(TIntrusivePtr<TOpRead> read, TRBOContext& ctx, TPlanProps& 
     }
 
     if (read->OlapProgram.IsNative()) {
-        read->OlapProgram.Native() = BindNativeTypes(read->OlapProgram.Native(), *newStructType, ctx.ExprCtx);
+        auto& program = read->OlapProgram.Native();
+        if (program.Predicate) program.Predicate = BindNativeTypes(*program.Predicate, *newStructType, ctx.ExprCtx);
+        for (const auto id : program.Projections.Keys())
+            program.Projections.At(id) = BindNativeTypes(program.Projections.At(id), *newStructType, ctx.ExprCtx);
+        if (!program.Projections.Keys().Empty()) {
+            for (auto& item : newItemTypes) if (const auto* projection = program.Projections.Find(FromString<TInfoUnitId>(item->GetName()))) {
+                item = ctx.ExprCtx.MakeType<TItemExprType>(item->GetName(),
+                    ExportNativeType(projection->GetNativeType(), ctx.ExprCtx, projection->GetNativeArena().get()));
+            }
+            newStructType = ctx.ExprCtx.MakeType<TStructExprType>(newItemTypes);
+        }
     } else if (IsNeededToUpdateOlapReadType(read->OlapProgram.Legacy())) {
         auto& lambda = read->OlapProgram.Legacy();
         if (!UpdateLambdaAllArgumentsTypes(lambda, {ctx.ExprCtx.MakeType<TFlowExprType>(newStructType)}, ctx.ExprCtx)) {

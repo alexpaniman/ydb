@@ -168,10 +168,15 @@ Scalar types are Bool, signed/unsigned integers, Float/Double, String/Utf8,
 Date/Datetime/Timestamp/Interval, Decimal, Null, and one optional layer. Arithmetic,
 comparisons, Boolean logic, CASE/IF, COALESCE, IN lists, BETWEEN, null tests,
 byte-string concatenation, Length, StartsWith/EndsWith, ASCII case functions,
-and constant LIKE patterns containing literal text and % wildcards have native operations. Primitive data
+and constant LIKE patterns containing literal text and % wildcards have native operations.
+Bracket IN lists accept scalar literals of one type, optionally with NULL, and
+empty lists; mixed-type and dynamic list elements remain explicit unsupported
+features. They lower to native comparisons without general list values. Primitive data
 constructors require string literals and produce required values. Explicit
 casts cover integers, Bool, Float/Double, Decimal, String/Utf8, and narrow temporal
-types (text parsing requires literals except for Date). Temporal inputs may be cast to other
+types (text parsing to Decimal/Datetime/Timestamp requires literals). Text casts to
+integers, Bool, Float/Double and Date also accept runtime String/Utf8 values and
+return NULL when parsing fails. Temporal inputs may be cast to other
 temporal types. Total casts preserve non-nullability, including integer to
 floating point. Floating division preserves IEEE infinity/NaN. Substring slices
 String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
@@ -190,7 +195,14 @@ Escaped member names, general JSONPath expressions, PASSING, RETURNING, explicit
 handlers and JSON constructors remain unsupported. JSON grouping, ordering,
 comparison, DISTINCT, tuple states and correlated captures are excluded; COUNT
 is the only aggregate/window operation on the opaque input itself. Storage
-projection pushdown is not enabled by this scalar support.
+projection pushdown carries native JSON_VALUE expressions through optimization
+and emits storage operations only at physical conversion. It can replace a
+source field when the original value is no longer live. Different paths of the
+same source, direct uses of the original value and multiple IDs for one storage
+field stay in compute. Repeated uses of the same path share one projection.
+Pruning removes unused projections; copying renames their outputs and inputs. Wildcard
+selectors stay in compute because the existing storage path accessor rejects
+them; quoted asterisks are ordinary member names and may be pushed.
 
 JSON validation covers 601 selector comparisons with the original parser, nine
 invalid SQL argument forms, 120 direct MiniKQL executions without semantic
@@ -201,7 +213,26 @@ unlaunched; those exact 18 tests passed in a completion run with unchanged
 sources. The standalone CLI contains no YQL/MiniKQL symbols. Existing host
 fixtures and all 121 benchmark SQL files remain byte-preserved; populated
 coverage remains 22/22 TPC-H and 51/99 TPC-DS. Compilation timings were not
-remeasured for this increment.
+remeasured for that scalar-lowering increment.
+
+Native storage projection validation retains all four original projection queries
+and their plan/result assertions, plus the original live-source regression. Ten
+operator scenarios check native typing, copying, pruning, shared extraction and
+storage eligibility. A 22-case JSON matrix covers Json and JsonDocument on row
+and column tables across all three compiler paths, including scalar roots,
+nested indexes, wildcard paths and quoted asterisks. Runtime text casts are
+checked directly against MiniKQL; bracket IN lists are checked across both
+parsers and ANSI/non-ANSI filter/projection execution. The legacy optimizer
+rejects wildcard storage paths, and the old YQL-to-RBO predicate extractor fails
+on NOT IN [] filters. Tests pin those existing failures while requiring correct
+native results; neither old component is patched.
+
+This revision passed 104 frontend and 468 RBO tests. The full run passed 557
+tests before a 600-second shard limit interrupted ManyJoinsWithDecimalRanges
+and left 14 tests unlaunched; those exact 15 passed in a completion run on
+unchanged sources. The populated 22/22 TPC-H and 51/99 TPC-DS fixtures passed,
+and all 121 benchmark SQL files remain byte-preserved. The standalone CLI still
+contains no YQL/MiniKQL symbols. Refreshed compilation measurements appear below.
 
 Unicode::ToUpper/ToLower accept Utf8 values and valid UTF-8 string literals,
 preserve optionality, and use the runtime's simple Unicode codepoint mapping.
@@ -380,7 +411,7 @@ Explicitly outside the profile:
   excluded; ordering by a projected window alias is supported.
 - Arbitrary UDFs, higher-order values, containers/structs/tuples, nested optionals.
 - Bare-NULL arithmetic, dynamic
-  text parsing to types other than Date, and runtime casts from temporal inputs to non-temporal types.
+  text parsing to Decimal/Datetime/Timestamp, and runtime casts from temporal inputs to non-temporal types.
   Decimal text with exponents or malformed text and Float/Double-to-Decimal
   conversions are excluded. Apart from integer multiplication factors and divisors, Decimal
   arithmetic requires matching input types or explicit casts. COALESCE additionally
@@ -605,11 +636,9 @@ with 16 new registrations. The unchanged populated 22 TPC-H and 49 TPC-DS querie
 passed again across all three compiler paths. Compilation timings were not
 remeasured for this increment.
 
-**Plan-quality limitation:** OLAP projection pushdown remains unfinished.
-The existing projection collector supports `JSON_VALUE`; native JSON types and
-direct scalar lowering are prerequisites, along with dynamic text-to-number casts
-used by the original projection fixtures. Removing the native rule guard alone
-does not provide this support.
+Column-store projection pushdown now carries eligible JSON_VALUE operations in
+the native storage program. The original projection queries retain their SQL,
+schemas, setup, settings, result and plan assertions in native-required variants.
 Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing
 this debt and establishing plan/execution parity remain required before broad
@@ -820,23 +849,24 @@ counters through this API. Compiler CPU/wall counters are reported separately fr
 request wall time, which includes execution. These empty-table runs are timing
 measurements, not additional populated execution coverage.
 
-On the local `relwithdebinfo` build, all 216 measured compilations passed. Median
-compiler CPU times across nine samples, in milliseconds:
+On 2026-11-01, the native storage projection revision passed all 216 measured
+compilations on the local `relwithdebinfo` build. Median compiler CPU times across
+nine samples, in milliseconds:
 
 | Query | Legacy optimizer | YQL frontend + RBO | Native frontend + RBO |
 | --- | ---: | ---: | ---: |
-| TPC-H Q1 | 143.91 | 58.14 | 31.89 |
-| TPC-H Q5 | 290.62 | 90.27 | 77.44 |
-| TPC-H Q9 | 291.86 | 95.98 | 72.24 |
-| TPC-H Q21 | 625.53 | 112.11 | 83.43 |
-| TPC-DS Q17 | 890.32 | 195.07 | 116.07 |
-| TPC-DS Q28 | 1366.52 | 261.13 | 200.61 |
-| TPC-DS Q51 | 572.63 | 115.55 | 69.11 |
-| TPC-DS Q52 | 153.34 | 57.20 | 41.74 |
+| TPC-H Q1 | 200.52 | 74.47 | 40.91 |
+| TPC-H Q5 | 402.38 | 146.29 | 99.72 |
+| TPC-H Q9 | 435.13 | 141.20 | 105.99 |
+| TPC-H Q21 | 867.98 | 177.39 | 135.80 |
+| TPC-DS Q17 | 1167.84 | 274.12 | 143.75 |
+| TPC-DS Q28 | 1817.01 | 364.82 | 329.01 |
+| TPC-DS Q51 | 749.42 | 166.44 | 103.83 |
+| TPC-DS Q52 | 222.72 | 85.49 | 64.47 |
 
-The geometric mean ratio against the existing YQL frontend plus RBO is 1.45,
-or about 31% less compilation CPU, with per-query ratios of 1.17–1.82. Against
-the legacy optimizer the ratio is 5.48, which includes the optimizer change and
+The geometric mean ratio against the existing YQL frontend plus RBO is 1.46,
+or about 32% less compilation CPU, with per-query ratios of 1.11–1.91. Against
+the legacy optimizer the ratio is 5.25, which includes the optimizer change and
 must not be attributed solely to the frontend. This small local sample measures
 the current full compilation paths, including their backend and plan differences;
 it is neither an isolated frontend measurement nor an execution-speed guarantee.

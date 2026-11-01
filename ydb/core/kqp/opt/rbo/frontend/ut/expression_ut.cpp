@@ -502,7 +502,7 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Binary(O::Add, narrow, arena.Literal({K::Int8}, std::int64_t{1})))), "-128");
     }
 
-    Y_UNIT_TEST(TextCastsFoldAndDynamicNumbersAreRejected) {
+    Y_UNIT_TEST(TextCastsFoldAndRuntimeCastsKeepOptionalResults) {
         TExpressionArena arena;
         auto text = arena.Literal({K::String}, std::string{"123"});
         auto converted = arena.Cast(text, {K::Int32});
@@ -517,15 +517,17 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, date)), "1");
 
         auto dynamic = arena.Parameter("text", {K::String});
-        try {
-            arena.Cast(dynamic, {K::Int32}, {12, 3, 5});
-            UNIT_FAIL("Expected dynamic text parsing to be rejected");
-        } catch (const TFrontendError& error) {
-            UNIT_ASSERT_VALUES_EQUAL(error.Position.Offset, 12);
-            UNIT_ASSERT_VALUES_EQUAL(error.Position.Line, 3);
-            UNIT_ASSERT_VALUES_EQUAL(error.Position.Column, 5);
-        }
         TEvaluationContext context;
+        const auto runtimeInteger = arena.Cast(dynamic, {K::Int32}, {12, 3, 5});
+        UNIT_ASSERT(arena[runtimeInteger].Op == O::Cast);
+        UNIT_ASSERT(arena[runtimeInteger].Type == (TType{K::Int32, true}));
+        UNIT_ASSERT_VALUES_EQUAL(arena[runtimeInteger].Position.Offset, 12);
+        context.Parameter = [](std::string_view) { return TValue{{K::String}, std::string{"123"}}; };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, runtimeInteger, context)), "123");
+        context.Parameter = [](std::string_view) { return TValue{{K::String}, std::string{"1.5"}}; };
+        UNIT_ASSERT(Evaluate(arena, runtimeInteger, context).IsNull());
+        for (const auto type : {TType{K::Decimal, false, 10, 2}, TType{K::Datetime}, TType{K::Timestamp}})
+            UNIT_ASSERT_EXCEPTION(arena.Cast(dynamic, type), TUnsupportedFeature);
         context.Parameter = [](std::string_view) { return TValue{{K::String}, std::string{"\xD0\xAF"}}; };
         auto utf8 = arena.Cast(dynamic, {K::Utf8});
         UNIT_ASSERT(arena[utf8].Op == O::Cast);

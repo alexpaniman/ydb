@@ -7,9 +7,15 @@ bool IOperator::PruneOutputs(const TUnorderedIUs&, TExprContext&) {
 }
 
 bool TOpRead::PruneOutputs(const TUnorderedIUs& liveOut, TExprContext& ctx) {
+    bool changed = false;
+    if (OlapProgram.IsNative()) {
+        auto& program = OlapProgram.Native();
+        changed = program.Projections.RetainKeys(liveOut);
+        if (!program.Predicate && program.Projections.Keys().Empty()) OlapProgram = TOlapProgram{};
+    }
     auto keep = GetRequiredColumns(ctx);
     keep.UnionWith(liveOut);
-    return Columns_.IntersectWith(keep);
+    return Columns_.IntersectWith(keep) || changed;
 }
 
 bool TOpMap::PruneOutputs(const TUnorderedIUs& liveOut, TExprContext&) {

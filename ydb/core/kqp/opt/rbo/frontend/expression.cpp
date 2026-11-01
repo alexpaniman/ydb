@@ -992,7 +992,8 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
     if (source.IsString() && !target.IsString()) {
         const auto& node = (*this)[input];
         if (node.Op != O::Literal) {
-            if (target.Kind == K::Date) return Append({O::Cast, target.Optional(), position, {input}, {}, {}, 0});
+            if (target.IsIntegral() || target.Kind == K::Bool || target.Kind == K::Float || target.Kind == K::Double || target.Kind == K::Date)
+                return Append({O::Cast, target.Optional(), position, {input}, {}, {}, 0});
             throw TUnsupportedFeature(EFeature::Expression, position, "Text conversion to " + target.ToString() + " requires a literal; dynamic text parsing is not supported");
         }
         if (target.Kind == K::Decimal && std::holds_alternative<std::string>(node.Value) &&
@@ -1434,6 +1435,13 @@ TExprId TExpressionArena::Import(const TExpressionArena& source, TExprId root,
 
 TExprId TExpressionArena::RewriteColumns(TExprId root,
     const std::function<TExprId(TExprId, TColumnId, TType, TSourcePosition)>& bindColumn) {
+    return Rewrite(root, [&](TExprId id) {
+        const auto& node = (*this)[id];
+        return node.Op == O::Column ? bindColumn(id, node.ColumnId, node.Type, node.Position) : id;
+    });
+}
+
+TExprId TExpressionArena::Rewrite(TExprId root, const std::function<TExprId(TExprId)>& replace) {
     std::unordered_map<TExprId, TExprId> rewritten;
     std::vector<std::pair<TExprId, bool>> stack{{root, false}};
     while (!stack.empty()) {
@@ -1442,11 +1450,15 @@ TExprId TExpressionArena::RewriteColumns(TExprId root,
         if (rewritten.contains(id)) continue;
         // The callback and rebuilding may append and reallocate this arena.
         auto node = (*this)[id];
-        if (node.Op == O::Column) {
-            const auto replacement = bindColumn(id, node.ColumnId, node.Type, node.Position);
+        if (!ready) {
+            const auto replacement = replace(id);
             (void)(*this)[replacement];
-            rewritten.emplace(id, replacement);
-        } else if (!ready && !node.Arguments.empty()) {
+            if (replacement != id) {
+                rewritten.emplace(id, replacement);
+                continue;
+            }
+        }
+        if (!ready && !node.Arguments.empty()) {
             stack.emplace_back(id, true);
             for (auto it = node.Arguments.rbegin(); it != node.Arguments.rend(); ++it) {
                 if (!rewritten.contains(*it)) stack.emplace_back(*it, false);

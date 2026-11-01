@@ -601,17 +601,30 @@ private:
 // preserves existing OLAP programs while the old expression path is migrated.
 class TOlapProgram {
 public:
+    struct TNative {
+        std::optional<TExpression> Predicate;
+        // Storage projections replace a source column only when its original
+        // value is no longer live. Expressions bind to the original read row.
+        TMappedIUs<TExpression> Projections;
+    };
     TOlapProgram(std::nullptr_t = nullptr) {}
     TOlapProgram(TExprNode::TPtr lambda) : Value_(std::move(lambda)) {}
-    explicit TOlapProgram(TExpression predicate) : Value_(std::move(predicate)) { Y_ENSURE(Native().IsNative()); }
-    bool IsNative() const { return std::holds_alternative<TExpression>(Value_); }
+    explicit TOlapProgram(TExpression predicate) : Value_(TNative{std::move(predicate), {}}) { Y_ENSURE(Native().Predicate->IsNative()); }
+    explicit TOlapProgram(TNative program) : Value_(std::move(program)) {
+        Y_ENSURE(!Native().Predicate || Native().Predicate->IsNative());
+        for (const auto& [id, projection] : Native().Projections.Items()) {
+            Y_UNUSED(id);
+            Y_ENSURE(projection.IsNative());
+        }
+    }
+    bool IsNative() const { return std::holds_alternative<TNative>(Value_); }
     explicit operator bool() const { return IsNative() || bool(Legacy()); }
     TExprNode::TPtr& Legacy() { return std::get<TExprNode::TPtr>(Value_); }
     const TExprNode::TPtr& Legacy() const { return std::get<TExprNode::TPtr>(Value_); }
-    TExpression& Native() { return std::get<TExpression>(Value_); }
-    const TExpression& Native() const { return std::get<TExpression>(Value_); }
+    TNative& Native() { return std::get<TNative>(Value_); }
+    const TNative& Native() const { return std::get<TNative>(Value_); }
 private:
-    std::variant<TExprNode::TPtr, TExpression> Value_;
+    std::variant<TExprNode::TPtr, TNative> Value_;
 };
 
 class TOpRead: public IOperator {

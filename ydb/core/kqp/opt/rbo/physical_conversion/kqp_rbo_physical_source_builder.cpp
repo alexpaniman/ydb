@@ -229,8 +229,7 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             if (Read.OlapProgram) {
                 // Do not carry the optimizer's ID-keyed argument type across the
                 // storage-name boundary. The read annotator supplies the storage row.
-                const auto program = Read.OlapProgram.IsNative() ? LowerNativeOlapPredicate(*Read.OlapProgram.Native().GetNativeArena(),
-                    Read.OlapProgram.Native().GetNativeRoot(), Ctx, Pos) : Read.OlapProgram.Legacy();
+                const auto program = Read.OlapProgram.IsNative() ? LowerNativeOlapProgram(Read.OlapProgram, Ctx, Pos) : Read.OlapProgram.Legacy();
                 processLambda = Ctx.DeepCopyLambda(*NOpt::TOlapFilterInspector::RenameColumns(program, olapNames, Ctx));
             }
 

@@ -267,7 +267,14 @@ TIntrusivePtr<IOperator> TOpRead::CopyImpl(TInfoUnitRegistry& registry, TSubstit
         return nullptr;
     }
     auto columns = CopyColumns(Columns_, registry, renames);
-    const auto program = OlapProgram.IsNative() ? TOlapProgram(OlapProgram.Native().ApplyRenames(renames)) : TOlapProgram{};
+    TOlapProgram program;
+    if (OlapProgram.IsNative()) {
+        TOlapProgram::TNative native;
+        if (OlapProgram.Native().Predicate) native.Predicate = OlapProgram.Native().Predicate->ApplyRenames(renames);
+        for (const auto& [id, projection] : OlapProgram.Native().Projections.Items())
+            native.Projections.Add(*renames.Find(id), projection.ApplyRenames(renames));
+        program = TOlapProgram(std::move(native));
+    }
     const auto predicate = OriginalPredicate ? std::optional<TExpression>{OriginalPredicate->ApplyRenames(renames)} : std::nullopt;
     return MakeIntrusive<TOpRead>(Alias, std::move(columns), StorageType,
         TableCallable, program, Limit, RangeInfo, predicate, SortDir, TPhysicalOpProps{}, Pos);

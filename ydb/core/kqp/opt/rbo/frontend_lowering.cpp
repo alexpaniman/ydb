@@ -1,4 +1,5 @@
 #include "frontend_lowering.h"
+#include "kqp_operator.h"
 
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 
@@ -562,6 +563,52 @@ NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena
     auto condition = ctx.NewCallable(pos, "KqpOlapAnd", {lowered.at(root)});
     auto filter = ctx.NewCallable(pos, "KqpOlapFilter", {input, std::move(condition)});
     return ctx.NewLambda(pos, ctx.NewArguments(pos, {input}), std::move(filter));
+}
+
+bool CanLowerNativeOlapProjection(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root) {
+    const auto& node = arena[root];
+    if (node.Op != O::JsonValue || arena[node.Arguments[0]].Op != O::Column) return false;
+    // The storage path accessor accepts members and array indexes, but not
+    // wildcard selectors. Quoted asterisks are ordinary member names. Native
+    // path validation already excludes escapes inside quoted member names.
+    char quote = 0;
+    for (const char c : node.Name) {
+        if (quote) { if (c == quote) quote = 0; }
+        else if (c == '\'' || c == '"') quote = c;
+        else if (c == '*') return false;
+    }
+    return true;
+}
+
+NYql::TExprNode::TPtr LowerNativeOlapProgram(const TOlapProgram& storage,
+    NYql::TExprContext& ctx, NYql::TPositionHandle pos) {
+    Y_ENSURE(storage.IsNative());
+    const auto& program = storage.Native();
+    TExprNode::TPtr lambda;
+    if (program.Predicate) {
+        const auto& predicate = *program.Predicate;
+        lambda = LowerNativeOlapPredicate(*predicate.GetNativeArena(), predicate.GetNativeRoot(), ctx, pos);
+    } else {
+        auto input = ctx.NewArgument(pos, "native_olap_rows");
+        auto arguments = ctx.NewArguments(pos, {input});
+        lambda = ctx.NewLambda(pos, std::move(arguments), std::move(input));
+    }
+    if (program.Projections.Keys().Empty()) return lambda;
+    TExprNode::TListType projections;
+    for (const auto& [column, expression] : program.Projections.Items()) {
+        const auto& arena = *expression.GetNativeArena();
+        const auto& node = arena[expression.GetNativeRoot()];
+        Y_ENSURE(CanLowerNativeOlapProjection(arena, expression.GetNativeRoot()) &&
+            arena[node.Arguments[0]].ColumnId == column, "Unsupported native storage projection");
+        // Storage annotation runs after column-name conversion. Leave value
+        // subtrees unannotated so the backend also visits their literal children.
+        auto path = ctx.NewCallable(pos, "Utf8", {ctx.NewAtom(pos, String(node.Name))});
+        auto operation = ctx.NewCallable(pos, "KqpOlapJsonValue", {ctx.NewAtom(pos, ctx.GetIndexAsString(column)),
+            path, ExpandType(pos, *ExportNativeType({K::Utf8}, ctx), ctx)});
+        projections.push_back(ctx.NewCallable(pos, "KqpOlapProjection", {operation, ctx.NewAtom(pos, ctx.GetIndexAsString(column))}));
+    }
+    auto projected = ctx.NewCallable(pos, "KqpOlapProjections", {lambda->TailPtr(), ctx.NewList(pos, std::move(projections))});
+    return ctx.NewLambda(pos, lambda->HeadPtr(), std::move(projected));
 }
 
 } // namespace NKikimr::NKqp

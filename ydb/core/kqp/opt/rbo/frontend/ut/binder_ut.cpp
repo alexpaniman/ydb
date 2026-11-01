@@ -282,6 +282,25 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(program.Expressions, definitions[1].Expression).Data), 7);
     }
 
+    Y_UNIT_TEST(BracketInListsAreScalarOperationsWithExplicitBoundaries) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Handwritten, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto& [sql, expected] : std::initializer_list<std::pair<const char*, std::optional<bool>>>{
+                    {"SELECT 1 IN [1,2,]", true}, {"SELECT 2 IN [1,NULL]", std::nullopt},
+                    {"SELECT NULL IN []", false}, {"SELECT 3 NOT IN [1,2]", true},
+                    {"SELECT 1 IN [,]", false}, {"SELECT 1 IN [NULL,1]", true}}) {
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& program = compiled.Program->Get();
+                const auto result = Evaluate(program.Expressions, Find(program, ERelation::Map).Definitions.front().Expression);
+                UNIT_ASSERT_VALUES_EQUAL_C(result.IsNull(), !expected, sql);
+                if (expected) UNIT_ASSERT_VALUES_EQUAL_C(std::get<bool>(result.Data), *expected, sql);
+            }
+            for (const auto* sql : {"SELECT 1 IN [1,2L]", "SELECT 1 IN [1,'x']", "SELECT id IN [id] FROM a",
+                    "DECLARE $p AS Int32; SELECT 1 IN [$p]"})
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TUnsupportedFeature, sql);
+        }
+    }
+
     Y_UNIT_TEST(RepeatedProjectionHasDistinctBindings) {
         const auto program = Compile("SELECT id AS a, id AS b FROM a", Catalog);
         UNIT_ASSERT_VALUES_UNEQUAL(program.Results[0].Columns[0].Column, program.Results[0].Columns[1].Column);

@@ -142,8 +142,9 @@ public:
     TExprId Binary(EOpcode op, TExprId left, TExprId right, TSourcePosition position = {});
     // Total numeric conversion/optional lifting; rejects conversions that can fail.
     TExprId Convert(TExprId input, TType target, TSourcePosition position = {});
-    // Text-to-number/Boolean/Datetime/Timestamp casts require literals and fold
-    // here. Date parsing and String/Utf8 conversion also support runtime input.
+    // Text-to-Decimal/Datetime/Timestamp casts require literals and fold here.
+    // Other numeric/Boolean casts, Date parsing and String/Utf8 conversion
+    // also support runtime input, returning NULL when parsing fails.
     TExprId Cast(TExprId input, TType target, TSourcePosition position = {});
     TExprId If(TExprId condition, TExprId thenExpr, TExprId elseExpr, TSourcePosition position = {});
     TExprId Coalesce(std::span<const TExprId> arguments, TSourcePosition position = {});
@@ -171,6 +172,11 @@ public:
     // unchanged subgraphs retain their IDs, and existing roots stay immutable.
     TExprId RewriteColumns(TExprId root,
         const std::function<TExprId(TExprId, TColumnId, TType, TSourcePosition)>& bindColumn);
+
+    // Simultaneous replacement of whole subexpressions in this arena. Return
+    // the original ID to traverse its children; replacements are not traversed.
+    // Changed ancestors are rebuilt with local type checking.
+    TExprId Rewrite(TExprId root, const std::function<TExprId(TExprId)>& replace);
 
     // Fold shared constant DAGs once across all roots. Keep runtime assertions
     // deferred, preserve types, and bound newly materialized string data.

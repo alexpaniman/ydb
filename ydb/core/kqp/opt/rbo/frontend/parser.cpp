@@ -539,15 +539,22 @@ private:
                 auto low = Expression(precedence + 1); Expect("AND"); auto high = Expression(precedence + 1);
                 left = Add(ESyntaxKind::Between, pos, {}, {left, low, high});
             } else if (op == "IN") {
-                Expect("(");
-                if (Is("SELECT") || Is("WITH") || Is("FROM")) {
+                const bool list = Take("[");
+                if (!list) Expect("(");
+                const auto end = list ? "]" : ")";
+                if (!list && (Is("SELECT") || Is("WITH") || Is("FROM"))) {
                     auto query = Select(); Expect(")");
                     auto id = Add(ESyntaxKind::In, pos, {}, {left}); Result.Expressions[id].Query = std::move(query); left = id;
                 } else {
                     std::vector<TSyntaxId> args{left};
-                    if (Is(")")) Fail("empty IN list");
-                    do { args.push_back(Expression()); } while (Take(",") && !Is(")")); Expect(")");
-                    left = Add(ESyntaxKind::In, pos, {}, std::move(args));
+                    if (list && Take(",")) Expect(end);
+                    else if (list && Take(end)) {}
+                    else {
+                        if (Is(end)) Fail("empty IN list");
+                        do { args.push_back(Expression()); } while (Take(",") && !Is(end)); Expect(end);
+                    }
+                    if (list && Precedence() > precedence) Fail("unexpected operator after IN list");
+                    left = Add(ESyntaxKind::In, pos, list ? "list" : "", std::move(args));
                 }
             } else {
                 auto right = Expression(op == "??" ? precedence : precedence + 1);

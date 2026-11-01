@@ -343,18 +343,24 @@ private:
                 left = Add(ESyntaxKind::Between, condition, {}, {left, Expr(arguments[0]), Expr(arguments[1])});
             } else if (auto* in = Child(condition, "in_expr")) {
                 auto* lambda = Unwrap(in);
-                if (Name(lambda) != "lambda" || Has(lambda, "->")) Unsupported(in, EFeature::Expression, "IN requires a literal expression list");
-                auto* paren = Child(lambda, "smart_parenthesis");
-                auto* sub = Child(paren, "select_subexpr");
-                if (!sub) Unsupported(in, EFeature::Expression, "empty IN list");
                 std::vector<TSyntaxId> args{left};
-                if (Name(Unwrap(sub)) == "tuple_or_expr") {
-                    auto list = TupleItems(sub); args.insert(args.end(), list.begin(), list.end());
-                    left = Add(ESyntaxKind::In, condition, {}, std::move(args));
+                if (Name(lambda) == "list_literal") {
+                    if (auto* list = Child(lambda, "expr_list"))
+                        for (auto* item : Children(list, "expr")) args.push_back(Expr(item));
+                    left = Add(ESyntaxKind::In, condition, "list", std::move(args));
                 } else {
-                    auto query = Select(sub);
-                    left = Add(ESyntaxKind::In, condition, {}, std::move(args));
-                    Result.Expressions[left].Query = std::move(query);
+                    if (Name(lambda) != "lambda" || Has(lambda, "->")) Unsupported(in, EFeature::Expression, "IN requires a literal expression list");
+                    auto* paren = Child(lambda, "smart_parenthesis");
+                    auto* sub = Child(paren, "select_subexpr");
+                    if (!sub) Unsupported(in, EFeature::Expression, "empty IN list");
+                    if (Name(Unwrap(sub)) == "tuple_or_expr") {
+                        auto list = TupleItems(sub); args.insert(args.end(), list.begin(), list.end());
+                        left = Add(ESyntaxKind::In, condition, {}, std::move(args));
+                    } else {
+                        auto query = Select(sub);
+                        left = Add(ESyntaxKind::In, condition, {}, std::move(args));
+                        Result.Expressions[left].Query = std::move(query);
+                    }
                 }
             } else if (auto* match = Child(condition, "match_op")) {
                 if (Has(condition, "ESCAPE")) Unsupported(condition, EFeature::Expression, "LIKE ESCAPE");

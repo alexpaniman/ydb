@@ -37,8 +37,10 @@ NFrontend::TExprId Projection(const NFrontend::TBoundProgram& program) {
 
 // Compile and execute the terminal scalar graph directly: no YQL annotation,
 // expression peepholes, SQL translation or compatibility transformer.
-void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id, std::string_view sql) {
-    const auto expected = NFrontend::Evaluate(arena, id);
+void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id, std::string_view sql,
+    const NFrontend::TEvaluationContext& evaluation = {},
+    const std::function<void(NYql::NCommon::TMkqlBuildContext&, NMiniKQL::TProgramBuilder&)>& bind = {}) {
+    const auto expected = NFrontend::Evaluate(arena, id, evaluation);
     TExprContext ctx;
     const auto lambda = LowerNativeLambda(arena, id, ctx, {});
     UNIT_ASSERT_C(AreAllNodesTypeAnnotated(*lambda), sql);
@@ -50,6 +52,7 @@ void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id
     setup.PgmBuilder.Reset(new NMiniKQL::TProgramBuilder(*setup.Env, *registry));
     NYql::NCommon::TMkqlCommonCallableCompiler compiler;
     NYql::NCommon::TMkqlBuildContext build(compiler, *setup.PgmBuilder, ctx);
+    if (bind) bind(build, *setup.PgmBuilder);
     const auto runtime = NYql::NCommon::MkqlBuildLambda(*lambda, build, {setup.PgmBuilder->NewEmptyStruct()});
     auto graph = setup.BuildGraph(runtime);
     const auto value = graph->GetValue();
@@ -74,6 +77,7 @@ void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id
                 const auto actual = expected.Type.Kind == K::Float ? double(value.Get<float>()) : value.Get<double>();
                 const auto number = std::get<double>(expected.Data);
                 UNIT_ASSERT_C((std::isnan(actual) && std::isnan(number)) || actual == number, sql);
+                if (actual == 0) UNIT_ASSERT_VALUES_EQUAL_C(std::signbit(actual), std::signbit(number), sql);
                 break;
             }
             case K::String: case K::Utf8: UNIT_ASSERT_VALUES_EQUAL_C(TString(value.AsStringRef()), TString(std::get<std::string>(expected.Data)), sql); break;
@@ -1326,6 +1330,85 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         check(shared, true);
     }
 
+    Y_UNIT_TEST(OlapProjectionsStayNativeAndPreserveLiveJsonInputs) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        for (int scenario = 0; scenario < 10; ++scenario) {
+            NTests::TIdTestContext f;
+            f.Config->OptEnableOlapPushdown = true;
+            f.Config->OptEnableOlapPushdownProjections = true;
+            const auto key = f.Id("key"), doc = f.Id("doc"), unused = f.Id("unused"), result = f.Id("result"), second = f.Id("second");
+            auto metadata = MakeIntrusive<TKikimrTableMetadata>();
+            metadata->DoesExist = true; metadata->Name = "/Root/table"; metadata->Kind = EKikimrTableKind::Olap;
+            for (const auto* name : {"key", "doc", "unused"}) {
+                auto& column = metadata->Columns[name]; column.Name = name;
+                column.Type = TStringBuf(name) == "doc" ? "JsonDocument" : "Int32";
+            }
+            auto& table = f.Tables->GetOrAddTable("ut", "/Root", metadata->Name);
+            table.Metadata = metadata;
+            UNIT_ASSERT(table.Load(f.ExprCtx, false));
+            auto arena = std::make_shared<TExpressionArena>();
+            f.Props.NativeExpressions = arena;
+            const auto input = arena->Column(doc, {K::JsonDocument, true});
+            const auto json = arena->JsonValue(input, scenario == 7 ? "$.a[*]" :
+                scenario == 8 ? "$.\"*\"" : scenario == 9 ? "$.a[1]" : "$.a");
+            auto value = json;
+            if (scenario == 0) value = arena->Cast(json, {K::Double});
+            if (scenario == 5) value = arena->If(arena->Unary(EOpcode::IsNull, input), json, arena->Literal({K::Utf8}, std::string("fallback")));
+            const auto expression = [&](TExprId id) { return TExpression::FromNative(arena, id, &f.ExprCtx, &f.Props); };
+            auto read = f.Read({key, doc, unused}); read->StorageType = NYql::EStorageType::ColumnStorage;
+            const auto alias = scenario == 6 ? f.Id("doc") : doc;
+            if (scenario == 6) read->GetColumns().Add(alias);
+            const auto predicate = arena->Binary(EOpcode::Greater, arena->Column(key, {K::Int32, true}), arena->Literal({K::Int32}, std::int64_t{0}));
+            read->OlapProgram = TOlapProgram(expression(predicate));
+            TMapIUs definitions; definitions.Add(result, TMapElement(expression(value)));
+            TOrderedIUs<TString> outputs{{result, "result"}};
+            if (scenario == 1) outputs.Append(doc, "original");
+            if (scenario == 6) outputs.Append(alias, "original");
+            if (scenario >= 2 && scenario <= 4) {
+                const auto other = scenario == 2 ? input : arena->JsonValue(input, scenario == 3 ? "$.b" : "$.a");
+                definitions.Add(second, TMapElement(expression(other))); outputs.Append(second, "second");
+            }
+            auto map = MakeIntrusive<TOpMap>(read, f.Pos, std::move(definitions));
+            auto root = f.Root(map, std::move(outputs));
+            auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
+                UNIT_FAIL("native OLAP projection invoked YQL annotation");
+                return IGraphTransformer::TStatus::Error;
+            });
+            TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+            UNIT_ASSERT(root->ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            ComputePlanLiveness(*root);
+            TPushOlapProjectionRule rule;
+            const auto pushed = rule.SimpleMatchAndApply(map, context, root->PlanProps);
+            const bool eligible = scenario == 0 || scenario == 4 || scenario == 8 || scenario == 9;
+            UNIT_ASSERT_VALUES_EQUAL_C(pushed != map, eligible, scenario);
+            root->SetChild(0, pushed); root->RecomputeOutputIUsSubtree(); root->ComputeParents();
+            UNIT_ASSERT(root->ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            TGlobalPruningStage("native projections").RunStage(*root, context);
+            auto& source = CastOperator<TOpRead>(*CastOperator<TOpMap>(*root->GetInput()).GetInput());
+            UNIT_ASSERT(source.GetColumns() == (TUnorderedIUs{key, doc, alias}));
+            UNIT_ASSERT_VALUES_EQUAL(source.OlapProgram.Native().Projections.Items().size(), eligible ? 1 : 0);
+            for (const auto& op : *root) for (const auto& expr : op.Current->GetExpressions())
+                UNIT_ASSERT(expr.get().IsNative() && !expr.get().Node);
+            if (!eligible) continue;
+            const auto& projected = source.OlapProgram.Native().Projections.At(doc);
+            UNIT_ASSERT(projected.GetNativeArena() == arena);
+            UNIT_ASSERT(projected.GetRawInputIUs() == TUnorderedIUs{doc});
+            TSubstitutions renames;
+            const auto copied = source.Copy(root->PlanProps, renames);
+            UNIT_ASSERT(copied);
+            const auto& copy = CastOperator<TOpRead>(*copied);
+            UNIT_ASSERT(copy.OlapProgram.Native().Projections.At(*renames.Find(doc)).GetRawInputIUs() == TUnorderedIUs{*renames.Find(doc)});
+            const auto lowered = LowerNativeOlapProgram(copy.OlapProgram, f.ExprCtx, f.Pos);
+            UNIT_ASSERT_VALUES_EQUAL(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapJsonValue"); }).size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapFilter"); }).size(), 1);
+            UNIT_ASSERT(source.PruneOutputs({key}, f.ExprCtx));
+            UNIT_ASSERT(source.OlapProgram.Native().Predicate);
+            UNIT_ASSERT(source.OlapProgram.Native().Projections.Keys().Empty());
+            UNIT_ASSERT(source.GetColumns() == TUnorderedIUs{key});
+        }
+    }
+
     Y_UNIT_TEST(OlapPredicatesStayNativeThroughPushdownPruningAndCopy) {
         using namespace NFrontend;
         NTests::TIdTestContext f;
@@ -1348,19 +1431,19 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT(pushed->Kind == EOperator::Source);
         auto& source = CastOperator<TOpRead>(*pushed);
         UNIT_ASSERT(source.OlapProgram.IsNative());
-        UNIT_ASSERT(!source.OlapProgram.Native().Node);
+        UNIT_ASSERT(!source.OlapProgram.Native().Predicate->Node);
         UNIT_ASSERT(source.GetRequiredColumns(f.ExprCtx) == TUnorderedIUs{key});
         TSubstitutions renames;
         const auto copied = source.Copy(f.Props, renames);
         UNIT_ASSERT(copied);
         const auto& copy = CastOperator<TOpRead>(*copied);
         UNIT_ASSERT(copy.OlapProgram.IsNative());
-        UNIT_ASSERT(copy.OlapProgram.Native().GetNativeArena() == arena);
+        UNIT_ASSERT(copy.OlapProgram.Native().Predicate->GetNativeArena() == arena);
         UNIT_ASSERT(copy.GetRequiredColumns(f.ExprCtx) == TUnorderedIUs{*renames.Find(key)});
         auto root = f.Root(pushed, {{payload, "payload"}});
         TGlobalPruningStage("prune").RunStage(*root, context);
         UNIT_ASSERT(source.GetColumns() == (TUnorderedIUs{key, payload}));
-        UNIT_ASSERT(!source.OlapProgram.Native().Node);
+        UNIT_ASSERT(!source.OlapProgram.Native().Predicate->Node);
 
         // Discarding NULL before a checked expression could suppress an error.
         const auto checked = arena->Ensure(value, arena->Literal({ETypeKind::Bool}, false), "checked");
@@ -1890,6 +1973,43 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 }
             }
         }
+    }
+
+    Y_UNIT_TEST(RuntimeTextCastsLowerWithoutSemanticAnnotation) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        std::vector<std::optional<std::string>> cases{std::nullopt};
+        for (const char* text : {"", " ", " 1", "1 ", "\t1", "1\n", "0", "-0", "+0", "1", "-1", "+1",
+                ".5", "1.", "1e2", "-1.25E-2", "1e9999", "-1e9999", "1e-9999", "-1e-9999",
+                "0x10", "-0x10", "0x1p2", "nan", "+NaN", "-NaN", "NaN(1)", "inf", "+Inf", "-Inf",
+                "infinity", " inf", " true", "true", "TRUE", "false", "FALSE", "yes", "no", "bad", "1junk",
+                "127", "128", "255", "256", "-128", "-129", "32767", "32768", "65535", "65536",
+                "2147483647", "2147483648", "4294967295", "4294967296", "-2147483648", "-2147483649",
+                "9223372036854775807", "9223372036854775808", "18446744073709551615", "18446744073709551616",
+                "-9223372036854775808", "-9223372036854775809", "1.000000059604644775390625",
+                "1.000000059604644775390626", "3.4028234663852886e38", "4.9406564584124654e-324"}) cases.emplace_back(text);
+        cases.emplace_back(std::string("1\0", 2));
+        for (const auto from : {K::String, K::Utf8}) for (const bool nullable : {false, true})
+            for (const auto to : {K::Bool, K::Int8, K::Int16, K::Int32, K::Int64, K::Uint8, K::Uint16, K::Uint32, K::Uint64, K::Float, K::Double}) {
+                TExpressionArena arena;
+                const TType inputType{from, nullable};
+                const auto root = arena.Cast(arena.Parameter("text", inputType), {to});
+                UNIT_ASSERT(arena[root].Type == (TType{to, true}));
+                for (const auto& text : cases) {
+                    if (!nullable && !text) continue;
+                    TEvaluationContext evaluation;
+                    evaluation.Parameter = [&](std::string_view) { return TValue{inputType, text ? TScalar{*text} : TScalar{}}; };
+                    const auto label = inputType.ToString() + " -> " + TType{to}.ToString() + ": " + text.value_or("NULL");
+                    CheckScalar(arena, root, label, evaluation, [&](auto& build, auto& pb) {
+                        const auto bytes = text.value_or("");
+                        const NUdf::TStringRef ref(bytes.data(), bytes.size());
+                        auto value = from == K::String ? pb.template NewDataLiteral<NUdf::EDataSlot::String>(ref) :
+                            pb.template NewDataLiteral<NUdf::EDataSlot::Utf8>(ref);
+                        if (nullable) value = text ? pb.NewOptional(value) : pb.NewEmptyOptional(pb.NewOptionalType(value.GetStaticType()));
+                        build.Parameters = pb.NewStruct({{"$text", value}});
+                    });
+                }
+            }
     }
 
     Y_UNIT_TEST(DirectRboAndNoYqlAnnotation) {

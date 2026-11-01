@@ -2599,16 +2599,20 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
-    Y_UNIT_TEST(JsonValuesMatchBothCompilersOnPopulatedTables) {
-        struct TCase { const char* Json; const char* Path; std::optional<std::string> Value; };
+    void RunJsonValuesMatchBothCompilersOnPopulatedTables(bool pushProjections) {
+        struct TCase { const char* Json; const char* Path; std::optional<std::string> Value; bool StorageWildcard = false; };
         const TCase cases[]{
             {R"({"a":"alpha"})", "$.a", "alpha"}, {R"({"a.b.c":"dotted"})", "$.\"a.b.c\"", "dotted"},
             {R"({"a":1.25})", "$.a", "1.25"}, {R"({"a":false})", "$.a", "false"},
             {R"({"a":null})", "$.a", std::nullopt}, {"{}", "$.missing", std::nullopt},
             {"{}", "strict $.missing", std::nullopt}, {R"([{"a":"one"}])", "lax $.a", "one"},
-            {R"([{"a":"one"}])", "strict $.a", std::nullopt}, {R"({"a":[1,2]})", "$.a[*]", std::nullopt},
+            {R"([{"a":"one"}])", "strict $.a", std::nullopt}, {R"({"a":[1,2]})", "$.a[*]", std::nullopt, true},
             {R"({"a":[1,2]})", "$.a[1]", "2"}, {nullptr, "$.a", std::nullopt},
-            {R"({"a":"x\u0000y"})", "$.a", std::string("x\0y", 3)}, {R"({"a":""})", "$.a", ""}};
+            {R"({"a":"x\u0000y"})", "$.a", std::string("x\0y", 3)}, {R"({"a":""})", "$.a", ""},
+            {R"({"a":"one","b":"two"})", "$.*", std::nullopt, true}, {R"({"*":"star"})", "$.\"*\"", "star"},
+            {"7", "$", "7"}, {R"("root")", "strict $", "root"}, {R"({"a":1})", "$", std::nullopt},
+            {R"({"a":{"b":[1,2]}})", "$.a.b[1]", "2"}, {"[1,2]", "$[0]", "1"},
+            {"[]", "$[4294967295]", std::nullopt}};
         TVector<TResultSnapshot> reference;
         for (const int strategy : {0, 1, 2}) {
             auto settings = NativeSettings(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
@@ -2616,8 +2620,12 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(strategy != 0);
             settings.AppConfig.MutableTableServiceConfig()->SetAllowOlapDataQuery(true);
             NKikimrKqp::TKqpSetting pushdown;
-            pushdown.SetName("OptEnableOlapPushdown"); pushdown.SetValue("false");
-            settings.SetKqpSettings({pushdown}); // Exercise the scalar execution contract.
+            pushdown.SetName("OptEnableOlapPushdown"); pushdown.SetValue(pushProjections ? "true" : "false");
+            if (pushProjections) {
+                NKikimrKqp::TKqpSetting projections;
+                projections.SetName("OptEnableOlapPushdownProjections"); projections.SetValue("true");
+                settings.SetKqpSettings({pushdown, projections});
+            } else settings.SetKqpSettings({pushdown});
             TKikimrRunner runner(settings);
             auto client = runner.GetTableClient();
             auto session = client.CreateSession().GetValueSync().GetSession();
@@ -2642,6 +2650,18 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                     const TString sql = TStringBuilder() << "SELECT JSON_VALUE(j, '" << test.Path << "') AS text, JSON_VALUE(d, '"
                         << test.Path << "') AS binary FROM `" << table << "` WHERE id = " << id++ << "ul";
                     const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                    if (pushProjections && column && strategy == 0 && test.StorageWildcard) {
+                        // The legacy optimizer sends wildcard paths to a
+                        // storage accessor that rejects them. Pin that failure;
+                        // native must still match the successful row-table
+                        // scalar execution, without optimizer fallback.
+                        UNIT_ASSERT_C(!result.IsSuccess(), sql);
+                        UNIT_ASSERT_C(result.GetIssues().ToString().find("Unsupported path: ") != std::string::npos,
+                            result.GetIssues().ToString());
+                        reference.push_back(reference.at(index - std::size(cases)));
+                        ++index;
+                        continue;
+                    }
                     UNIT_ASSERT_C(result.IsSuccess(), TStringBuilder() << "strategy=" << strategy << " " << sql << ": " << result.GetIssues().ToString());
                     UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
                     UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), 1);
@@ -2679,6 +2699,9 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             }
         }
     }
+
+    Y_UNIT_TEST(JsonValuesMatchBothCompilersOnPopulatedTables) { RunJsonValuesMatchBothCompilersOnPopulatedTables(false); }
+    Y_UNIT_TEST(JsonProjectionsPreserveScalarResultsAndKernelBoundaries) { RunJsonValuesMatchBothCompilersOnPopulatedTables(true); }
 
     Y_UNIT_TEST(NativeCompilationBenchmark) {
         const auto& requested = GetTestParam("NATIVE_COMPILATION_BENCH_ITERATIONS");
@@ -4652,6 +4675,12 @@ $round = ($x,$y) -> {return $x;};
             {"NULL IN (SELECT b.value FROM `/Root/InRows` AS b WHERE b.id = 99ul)", {false, false, false, false, false, false}, {n, n, n, n, n, n}},
             {"a.value IN (10, NULL)", {true, n, n, true, n, n}, {true, n, false, true, n, false}},
             {"CAST(a.id AS String) IN (SELECT CAST(b.id AS Utf8) FROM `/Root/InRows` AS b WHERE b.id < 3ul)", {true, true, false, false, false, false}, {}},
+            {"a.value IN [10, NULL]", {true, n, n, true, n, n}, {true, n, false, true, n, false}},
+            {"a.value NOT IN [10, NULL]", {false, n, n, false, n, n}, {false, n, true, false, n, true}},
+            {"a.value IN []", {false, false, false, false, false, false}, {false, n, false, false, n, false}},
+            {"a.value NOT IN []", {true, true, true, true, true, true}, {true, n, true, true, n, true}},
+            {"a.value IN [NULL]", {n, n, n, n, n, n}, {false, n, false, false, n, false}},
+            {"CAST(a.id AS String) IN ['1','3','1',]", {true, false, true, false, false, false}, {}},
         };
         TVector<std::optional<TResultSnapshot>> reference(cases.size() * 8);
         for (const int strategy : {0, 2, 1}) {
@@ -4699,7 +4728,7 @@ $round = ($x,$y) -> {return $x;};
                         if (index == 4) expectedError = "Member not found: _yql_join_sublink_0__alias_a.value";
                         if (index == 7) expectedError = "Expected persistable data, but got: Unit";
                         if (index == 10) expectedError = "Only SqlIn for any/all is supported on YqlSelect";
-                    } else if (strategy == 1) {
+                    } else if (strategy == 1 && index < 13) {
                         if (index == 7) expectedError = "Expected persistable data, but got: Unit";
                         else if (projection && index == 0) expectedError = "column not found";
                         else if (projection && index != 11 && index != 12 && !(index == 10 && !ansi))
@@ -4707,6 +4736,8 @@ $round = ($x,$y) -> {return $x;};
                         else if (index == 5 || index == 6 || index == 9 || index == 10 || index == 12)
                             expectedError = "Only a single column reference in the IN clause is supported";
                     }
+                    if (strategy == 1 && !projection && TStringBuf(test.Expression) == "a.value NOT IN []")
+                        expectedError = "Unexpected IN collection type: EmptyList";
                     auto inspect = [&](const auto& result) {
                         if (expectedError) {
                             UNIT_ASSERT_C(!result.IsSuccess(), context);

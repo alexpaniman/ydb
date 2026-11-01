@@ -394,7 +394,12 @@ TUnorderedIUs TOpRead::GetRequiredColumns(TExprContext& ctx) const {
         required.IntersectWith(Columns_);
     }
     if (OlapProgram.IsNative()) {
-        required.UnionWith(OlapProgram.Native().GetRawInputIUs());
+        const auto& program = OlapProgram.Native();
+        if (program.Predicate) required.UnionWith(program.Predicate->GetRawInputIUs());
+        for (const auto& [id, projection] : program.Projections.Items()) {
+            Y_UNUSED(id);
+            required.UnionWith(projection.GetRawInputIUs());
+        }
         return required;
     }
     if (!OlapProgram) {
@@ -416,7 +421,14 @@ TUnorderedIUs TOpRead::GetRequiredColumns(TExprContext& ctx) const {
 
 TVector<std::reference_wrapper<const TExpression>> TOpRead::GetExpressions() const {
     TVector<std::reference_wrapper<const TExpression>> result;
-    if (OlapProgram.IsNative()) result.push_back(std::cref(OlapProgram.Native()));
+    if (OlapProgram.IsNative()) {
+        const auto& program = OlapProgram.Native();
+        if (program.Predicate) result.push_back(std::cref(*program.Predicate));
+        for (const auto& [id, projection] : program.Projections.Items()) {
+            Y_UNUSED(id);
+            result.push_back(std::cref(projection));
+        }
+    }
     if (RangeInfo && RangeInfo->NativeRanges) {
         for (const auto& range : *RangeInfo->NativeRanges) for (const auto* bound : {&range.Lower, &range.Upper}) {
             for (const auto& value : bound->Values) result.push_back(std::cref(value));
@@ -434,7 +446,11 @@ void TOpRead::BindExpressionPlanProps(TPlanProps* props) {
 }
 
 void TOpRead::RewriteExpressions(const TExpressionRewrite& rewrite) {
-    if (OlapProgram.IsNative()) OlapProgram.Native() = rewrite(OlapProgram.Native());
+    if (OlapProgram.IsNative()) {
+        auto& program = OlapProgram.Native();
+        if (program.Predicate) program.Predicate = rewrite(*program.Predicate);
+        for (const auto id : program.Projections.Keys()) program.Projections.At(id) = rewrite(program.Projections.At(id));
+    }
     if (OriginalPredicate && OriginalPredicate->IsNative()) OriginalPredicate = rewrite(*OriginalPredicate);
     if (RangeInfo && RangeInfo->NativeRanges) {
         for (auto& range : *RangeInfo->NativeRanges) for (auto* bound : {&range.Lower, &range.Upper}) {
@@ -574,7 +590,10 @@ TString TOpRead::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) 
     const TString storageType = StorageType == NYql::EStorageType::RowStorage ? "Row" : "Column";
     res << " (StorageType: " << storageType << ")";
     if (OlapProgram.IsNative()) {
-        res << " OlapFilter: (" << OlapProgram.Native().ToExplainString(registry) << ")";
+        const auto& program = OlapProgram.Native();
+        if (program.Predicate) res << " OlapFilter: (" << program.Predicate->ToExplainString(registry) << ")";
+        for (const auto& [id, projection] : program.Projections.Items())
+            res << " OlapProjection: (" << registry.GetDebugName(id) << " = " << projection.ToExplainString(registry) << ")";
     } else if (OlapProgram) {
         THashMap<TString, TString> names;
         for (const auto id : GetRequiredColumns(ctx)) {
