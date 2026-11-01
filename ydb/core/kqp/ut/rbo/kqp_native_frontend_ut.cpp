@@ -1596,6 +1596,30 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         }
     }
 
+    Y_UNIT_TEST(CommonConjunctExtractionKeepsNativeBindingsAndAllocatesNoBackendNodes) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto left = f.Id("left"), right = f.Id("right"), first = f.Id("first"), second = f.Id("second");
+        auto arena = std::make_shared<TExpressionArena>();
+        f.Props.NativeExpressions = arena;
+        const auto equality = [&] {
+            return arena->Binary(EOpcode::Equal, arena->Column(left, {ETypeKind::Int32}), arena->Column(right, {ETypeKind::Int32}));
+        };
+        const auto a = arena->Binary(EOpcode::And, equality(), arena->Column(first, {ETypeKind::Bool, true}));
+        const auto b = arena->Binary(EOpcode::And, equality(), arena->Column(second, {ETypeKind::Bool, true}));
+        const auto expression = TExpression::FromNative(arena, arena->Binary(EOpcode::Or, a, b), &f.ExprCtx, &f.Props);
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        const auto factored = expression.TryExtractCommonConjuncts();
+        UNIT_ASSERT(factored && factored->IsNative() && !factored->Node);
+        UNIT_ASSERT(factored->GetNativeType() == expression.GetNativeType());
+        const auto conjuncts = factored->SplitConjunct();
+        UNIT_ASSERT_VALUES_EQUAL(conjuncts.size(), 2);
+        UNIT_ASSERT(conjuncts[0].MaybeEquiJoinCondition());
+        UNIT_ASSERT_VALUES_EQUAL(TEquiJoinCondition(conjuncts[0]).GetLeftIU(), left);
+        UNIT_ASSERT_VALUES_EQUAL(TEquiJoinCondition(conjuncts[0]).GetRightIU(), right);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+    }
+
     Y_UNIT_TEST(ComputedEqualityExtractionUsesTypedDefinitionsWithoutBackendNodes) {
         using namespace NFrontend;
         NTests::TIdTestContext f;

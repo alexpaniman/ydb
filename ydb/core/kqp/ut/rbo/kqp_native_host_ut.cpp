@@ -3572,6 +3572,99 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
+    Y_UNIT_TEST_TWIN(CommonConjunctsProduceKeyedJoinsOnPopulatedTables, ColumnStore) {
+        struct TRow { i32 Id; std::optional<i32> X, Y; };
+        const std::array<TRow, 7> left{{{1, 10, 1}, {2, 10, 0}, {3, 20, {}}, {4, {}, 1}, {5, 30, 0}, {6, 40, {}}, {7, 50, 1}}};
+        const std::array<TRow, 8> right{{{11, 10, 2}, {12, 10, 0}, {13, 20, 2}, {14, {}, 2}, {15, 30, {}}, {16, 40, {}}, {17, 50, {}}, {18, 50, 0}}};
+        const std::array<TString, 4> predicates{{
+            "(a.x = b.x AND a.y = 1) OR (a.x = b.x AND b.y = 2)",
+            "(a.y = 1 AND a.x = b.x) OR (b.y = 2 AND a.x = b.x)",
+            "a.x = b.x OR (a.x = b.x AND a.y = 1)",
+            "(a.x = b.x AND a.id > 1 AND a.y = 1) OR (a.x = b.x AND a.id > 1 AND b.y = 2)"}};
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {0, 1, 2}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableInlineJoinFiltersAfterCBO(false);
+            service->SetAllowOlapDataQuery(true);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto load = [&](const char* path, const auto& data) {
+                const auto created = session.ExecuteSchemeQuery(TString("CREATE TABLE `") + path +
+                    "` (id Int32 NOT NULL, x Int32, y Int32, PRIMARY KEY(id))" +
+                    (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+                UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+                TValueBuilder rows; rows.BeginList();
+                for (const auto& row : data)
+                    rows.AddListItem().BeginStruct().AddMember("id").Int32(row.Id)
+                        .AddMember("x").OptionalInt32(row.X).AddMember("y").OptionalInt32(row.Y).EndStruct();
+                rows.EndList();
+                const auto loaded = client.BulkUpsert(path, rows.Build()).GetValueSync();
+                UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            };
+            load("/Root/FactoredLeft", left); load("/Root/FactoredRight", right);
+            size_t index = 0;
+            for (size_t test = 0; test < predicates.size(); ++test) for (const bool descending : {false, true}) {
+                TVector<std::pair<const TRow*, const TRow*>> expected;
+                for (const auto& a : left) for (const auto& b : right) {
+                    if (!a.X || !b.X || *a.X != *b.X) continue;
+                    if (test != 2 && !(a.Y == 1 || b.Y == 2)) continue;
+                    if (test == 3 && a.Id <= 1) continue;
+                    expected.emplace_back(&a, &b);
+                }
+                UNIT_ASSERT(!expected.empty());
+                Sort(expected, [&](const auto& a, const auto& b) {
+                    if (descending && a.first->X != b.first->X) return a.first->X > b.first->X;
+                    if (descending && a.second->Y != b.second->Y) return a.second->Y > b.second->Y;
+                    return std::pair(a.first->Id, a.second->Id) < std::pair(b.first->Id, b.second->Id);
+                });
+                const TString sql = TStringBuilder() << "SELECT CAST(a.id AS Int32?) AS lid, CAST(b.id AS Int32?) AS rid "
+                    << "FROM `/Root/FactoredLeft` AS a CROSS JOIN `/Root/FactoredRight` AS b WHERE " << predicates[test]
+                    << (descending ? " ORDER BY a.x DESC, b.y DESC, a.id, b.id" : " ORDER BY a.id, b.id");
+                Cerr << "factored join strategy " << strategy << ": " << sql << Endl;
+                const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                    NQuery::TExecuteQuerySettings().StatsMode(NQuery::EStatsMode::Full)).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), sql << result.GetIssues().ToString());
+                UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                const auto& rows = result.GetResultSet(0);
+                UNIT_ASSERT_VALUES_EQUAL_C(rows.RowsCount(), expected.size(), sql << FormatResultSetYson(rows));
+                TResultSetParser values(rows);
+                for (const auto& [a, b] : expected) {
+                    UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT_C(values.ColumnParser("lid").GetOptionalInt32() == a->Id, sql);
+                    UNIT_ASSERT_C(values.ColumnParser("rid").GetOptionalInt32() == b->Id, sql);
+                }
+                const auto actual = SnapshotRows(rows);
+                if (strategy == 0) reference.push_back(actual); else AssertSame(actual, reference.at(index));
+                ++index;
+                if (strategy != 2) continue;
+                UNIT_ASSERT(result.GetStats() && result.GetStats()->GetPlan() && result.GetStats()->GetAst());
+                UNIT_ASSERT(result.GetStats()->GetAst()->find("native frontend: native-read-v1") != std::string::npos);
+                const auto plan = *result.GetStats()->GetPlan();
+                NJson::TJsonValue json; NJson::ReadJsonTree(plan, &json, true);
+                size_t joins = 0;
+                const auto inspect = [&](auto&& self, const NJson::TJsonValue& node) -> void {
+                    if (node.IsMap()) {
+                        const auto& fields = node.GetMapSafe();
+                        if (const auto found = fields.find("JoinKind"); found != fields.end()) {
+                            ++joins;
+                            UNIT_ASSERT_VALUES_EQUAL_C(found->second.GetStringSafe(), "Inner", sql << plan);
+                            UNIT_ASSERT_C(fields.contains("Condition") && fields.at("Condition").GetStringSafe().Contains(" = "), sql << plan);
+                        }
+                        for (const auto& [key, value] : fields) { Y_UNUSED(key); self(self, value); }
+                    } else if (node.IsArray()) for (const auto& value : node.GetArraySafe()) self(self, value);
+                };
+                inspect(inspect, json.GetMapSafe().at("SimplifiedPlan"));
+                UNIT_ASSERT_C(joins > 0, sql << plan);
+            }
+        }
+    }
+
     Y_UNIT_TEST_TWIN(ComputedJoinKeysPreserveResultsAndUseKeyedPlans, ColumnStore) {
         struct TRow { i32 Id; std::optional<i32> X, Y; };
         const std::array<TRow, 7> left{{{1, 0, 2}, {2, 1, 3}, {3, 1, 3}, {4, {}, 2}, {5, -1, {}}, {6, 10, 1}, {7, 2147483647, 0}}};

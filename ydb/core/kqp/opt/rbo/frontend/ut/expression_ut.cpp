@@ -21,6 +21,75 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(CommonConjunctsPreserveThreeValuedLogicAndTypes) {
+        const std::array<TScalar, 3> values{false, true, std::monostate{}};
+        for (const bool nullable : {false, true}) for (const bool absorption : {false, true}) {
+            TExpressionArena arena;
+            const auto column = [&](TColumnId id) { return arena.Column(id, {K::Bool, id != 0 || nullable}); };
+            const auto left = arena.Binary(O::And, column(0), column(1));
+            auto right = absorption ? arena.Binary(O::And, column(0), column(1)) : column(0);
+            right = arena.Binary(O::And, right, column(2));
+            const auto root = arena.Binary(O::Or, left, right);
+            const auto original = arena[root].Arguments;
+            const auto factored = arena.FactorCommonConjuncts(root);
+            UNIT_ASSERT(factored != root);
+            UNIT_ASSERT(arena[factored].Type == arena[root].Type);
+            UNIT_ASSERT(arena[root].Arguments == original);
+            UNIT_ASSERT_VALUES_EQUAL(arena.FactorCommonConjuncts(factored), factored);
+            for (const auto& a : values) for (const auto& b : values) for (const auto& c : values) {
+                if (!nullable && std::holds_alternative<std::monostate>(a)) continue;
+                const std::array<TScalar, 3> bindings{a, b, c};
+                TEvaluationContext context;
+                context.Column = [&](TColumnId id) { return TValue{{K::Bool, id != 0 || nullable}, bindings.at(id)}; };
+                const auto before = Evaluate(arena, root, context), after = Evaluate(arena, factored, context);
+                UNIT_ASSERT(before.Type == after.Type);
+                UNIT_ASSERT_VALUES_EQUAL(FormatValue(before), FormatValue(after));
+            }
+        }
+    }
+
+    Y_UNIT_TEST(CommonConjunctIdentityIncludesPayloadsAndSharedDagsStayBounded) {
+        TExpressionArena arena;
+        const auto a = arena.Column(1, {K::Bool}), b = arena.Column(2, {K::Bool});
+        const auto combine = [&](TExprId first, TExprId second) {
+            return arena.Binary(O::Or, arena.Binary(O::And, first, a), arena.Binary(O::And, second, b));
+        };
+        const auto p = arena.Parameter("p", {K::Bool}), q = arena.Parameter("q", {K::Bool});
+        const auto parameters = combine(p, q);
+        UNIT_ASSERT_VALUES_EQUAL(arena.FactorCommonConjuncts(parameters), parameters);
+        const auto number = arena.Column(0, {K::Double});
+        const auto positive = arena.Binary(O::Equal, number, arena.Literal({K::Double}, 0.0));
+        const auto negative = arena.Binary(O::Equal, number, arena.Literal({K::Double}, -0.0));
+        const auto zeros = combine(positive, negative);
+        UNIT_ASSERT_VALUES_EQUAL(arena.FactorCommonConjuncts(zeros), zeros);
+        const auto repeated = combine(positive,
+            arena.Binary(O::Equal, arena.Column(0, {K::Double}, {123, 4, 5}), arena.Literal({K::Double}, 0.0)));
+        UNIT_ASSERT(arena.FactorCommonConjuncts(repeated) != repeated);
+        const auto shared = arena.Binary(O::And, a, b);
+        auto deep = shared;
+        for (std::size_t i = 0; i < 10'000; ++i) deep = arena.Binary(O::Or, deep, deep);
+        UNIT_ASSERT_VALUES_EQUAL(arena.FactorCommonConjuncts(deep), shared);
+    }
+
+    Y_UNIT_TEST(CommonConjunctsDoNotMoveRuntimeChecksPastGuards) {
+        for (const bool unwrap : {false, true}) {
+            TExpressionArena arena;
+            const auto bad = unwrap ? arena.Unary(O::Unwrap, arena.Literal({K::Bool, true}, std::monostate{})) :
+                arena.Ensure(arena.Literal({K::Bool}, true), arena.Literal({K::Bool}, false), "deferred check");
+            const auto left = arena.Binary(O::And, arena.Column(0, {K::Bool}), bad);
+            const auto right = arena.Binary(O::And, arena.Column(1, {K::Bool}), bad);
+            const auto root = arena.Binary(O::Or, left, right);
+            const auto size = arena.Size();
+            UNIT_ASSERT_VALUES_EQUAL(arena.FactorCommonConjuncts(root), root);
+            UNIT_ASSERT_VALUES_EQUAL(arena.Size(), size);
+            TEvaluationContext context;
+            context.Column = [](TColumnId) { return TValue{{K::Bool}, false}; };
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, root, context)), "false");
+            context.Column = [](TColumnId) { return TValue{{K::Bool}, true}; };
+            UNIT_ASSERT_EXCEPTION(Evaluate(arena, root, context), TFrontendError);
+        }
+    }
+
     Y_UNIT_TEST(JsonValuesRetainTheirRuntimeContractAcrossRewrites) {
         for (const auto kind : {K::Json, K::JsonDocument}) {
             TExpressionArena arena;

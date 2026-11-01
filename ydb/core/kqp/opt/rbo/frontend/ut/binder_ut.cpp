@@ -19,6 +19,28 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(SortNullOrderingUsesTheBoundScope) {
+        struct TCase { const char* Sql; ERelation Kind; std::vector<bool> First; };
+        const TCase cases[]{
+            {"SELECT id FROM a ORDER BY id DESC", ERelation::Sort, {true}},
+            {"SELECT value FROM a ORDER BY value DESC", ERelation::Sort, {false}},
+            {"SELECT b.id AS nullable_id, a.id AS required_id FROM a LEFT JOIN b ON a.id = b.id ORDER BY nullable_id DESC, required_id DESC", ERelation::Sort, {false, true}},
+            {"SELECT a.id FROM a LEFT JOIN b ON a.id = b.id ORDER BY b.id DESC, a.id DESC", ERelation::Sort, {false, true}},
+            {"SELECT ROWNUMBER() OVER(ORDER BY b.id DESC, a.id DESC) AS r FROM a LEFT JOIN b ON a.id = b.id", ERelation::Window, {false, true}},
+            {"SELECT id AS x FROM a UNION ALL SELECT CAST(value AS Uint64) AS x FROM b ORDER BY x DESC", ERelation::Sort, {false}},
+        };
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) for (const auto& test : cases) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(test.Sql, Catalog, settings);
+            const auto& sort = Find(compiled.Program->Get(), test.Kind);
+            UNIT_ASSERT_VALUES_EQUAL_C(sort.SortKeys.size(), test.First.size(), test.Sql);
+            for (std::size_t i = 0; i < test.First.size(); ++i) {
+                UNIT_ASSERT(sort.SortKeys[i].Descending);
+                UNIT_ASSERT_VALUES_EQUAL_C(sort.SortKeys[i].NullsFirst, bool(test.First[i]), test.Sql);
+            }
+        }
+    }
+
     Y_UNIT_TEST(InSubplansMaterializeTypedLookupInputs) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings;

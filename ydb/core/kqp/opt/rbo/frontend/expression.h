@@ -178,6 +178,11 @@ public:
     // Changed ancestors are rebuilt with local type checking.
     TExprId Rewrite(TExprId root, const std::function<TExprId(TExprId)>& replace);
 
+    // Factor structurally equal conjuncts across OR branches. Only reachable
+    // nodes are inspected; runtime assertions retain their evaluation order.
+    // The original root is returned when no factorization applies.
+    TExprId FactorCommonConjuncts(TExprId root);
+
     // Fold shared constant DAGs once across all roots. Keep runtime assertions
     // deferred, preserve types, and bound newly materialized string data.
     std::vector<TExprId> FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes = 1024 * 1024);

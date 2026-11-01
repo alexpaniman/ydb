@@ -741,14 +741,14 @@ private:
         for (const auto& key : query.OrderBy) {
             const auto& syntax = Syntax.Expressions[key.Expression];
             const TScopeColumn* alias = syntax.Kind == ESyntaxKind::Column ? outputScope.Find(syntax.Text, syntax.Position) : nullptr;
-            if (alias) sort.push_back({alias->Id, key.Descending});
+            if (alias) sort.push_back({alias->Id, key.Descending, !key.Descending || !alias->Type.Nullable});
             else {
                 auto expr = Expr(key.Expression, context);
                 auto id = Materialize(expr, sortDefinitions, syntax.Position);
                 if (query.Distinct && std::none_of(outputs.begin(), outputs.end(), [&](const auto& output) { return output.Column == id; })) {
                     throw TFrontendError(syntax.Position, "ORDER BY in SELECT DISTINCT must name a result column");
                 }
-                sort.push_back({id, key.Descending});
+                sort.push_back({id, key.Descending, !key.Descending || !Program.Expressions[expr].Type.Nullable});
             }
         }
         context.AllowSubqueries = true;
@@ -982,7 +982,8 @@ private:
                 const auto column = Materialize(expression, definitions, pos);
                 // Output aliases have distinct IDs but can copy the same
                 // value. Keep only the first ordering of an identical value.
-                if (seen.insert(ColumnOrigins[column]).second) sort.SortKeys.push_back({column, key.Descending});
+                if (seen.insert(ColumnOrigins[column]).second)
+                    sort.SortKeys.push_back({column, key.Descending, !key.Descending || !Program.Expressions[expression].Type.Nullable});
             }
             result.Root = Map(result.Root, std::move(definitions), pos);
             if (!sort.SortKeys.empty()) {
@@ -1111,7 +1112,8 @@ private:
             for (const auto& key : spec.Order) {
                 if (Syntax.Expressions[key.Expression].Kind == ESyntaxKind::Star) throw TFrontendError(syntax.Position, "star is not a window order key");
                 const auto column = materialize(key.Expression);
-                if (order.insert(column).second) window.SortKeys.push_back({column, key.Descending});
+                if (order.insert(column).second)
+                    window.SortKeys.push_back({column, key.Descending, !key.Descending || !context.InputTypes.at(column).Nullable});
             }
             auto frame = spec.Frame;
             using B = EWindowBound;

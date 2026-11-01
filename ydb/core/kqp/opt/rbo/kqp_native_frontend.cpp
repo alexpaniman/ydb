@@ -279,7 +279,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                     break;
                 }
                 case R::Sort: {
-                    TSortIUs keys; for (const auto& key : relation.SortKeys) keys.Append(key.Column, TSortOrder{!key.Descending, !key.Descending});
+                    TSortIUs keys; for (const auto& key : relation.SortKeys) keys.Append(key.Column, TSortOrder{!key.Descending, key.NullsFirst});
                     op = MakeIntrusive<TOpSort>(input(), pos, std::move(keys), std::nullopt); break;
                 }
                 case R::Window: {
@@ -291,7 +291,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                             function.Input ? EWindowFuncKind::Aggregate : EWindowFuncKind::Native, std::move(arguments)});
                     }
                     TOrderedIUs<> partitions; for (auto key : relation.GroupKeys) partitions.Append(key);
-                    TSortIUs order; for (const auto& key : relation.SortKeys) order.Append(key.Column, TSortOrder{!key.Descending, !key.Descending});
+                    TSortIUs order; for (const auto& key : relation.SortKeys) order.Append(key.Column, TSortOrder{!key.Descending, key.NullsFirst});
                     auto bound = [](NFrontend::EWindowBound kind) {
                         using B = NFrontend::EWindowBound;
                         switch (kind) {

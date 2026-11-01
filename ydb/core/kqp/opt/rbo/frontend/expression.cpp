@@ -12,7 +12,9 @@
 #include <locale>
 #include <optional>
 #include <sstream>
+#include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace NKikimr::NKqp::NFrontend {
 namespace {
@@ -1474,6 +1476,117 @@ TExprId TExpressionArena::Rewrite(TExprId root, const std::function<TExprId(TExp
         }
     }
     return rewritten.at(root);
+}
+
+TExprId TExpressionArena::FactorCommonConjuncts(TExprId root) {
+    const auto type = (*this)[root].Type;
+    const auto pos = (*this)[root].Position;
+    const auto unlift = [&](TExprId id) {
+        while ((*this)[id].Op == O::Convert &&
+            (*this)[id].Type.Required() == (*this)[(*this)[id].Arguments[0]].Type.Required())
+            id = (*this)[id].Arguments[0];
+        return id;
+    };
+    if ((*this)[unlift(root)].Op != O::Or) return root;
+
+    // Intern structural identities locally, without changing the arena or
+    // comparing whole subtrees repeatedly. Positions do not affect identity.
+    std::unordered_map<TExprId, TExprId> classes;
+    std::unordered_multimap<std::size_t, TExprId> representatives;
+    std::vector<std::pair<TExprId, bool>> pending{{root, false}};
+    while (!pending.empty()) {
+        const auto [id, ready] = pending.back(); pending.pop_back();
+        if (classes.contains(id)) continue;
+        const auto& node = (*this)[id];
+        // Factoring can move a check ahead of an earlier short-circuit guard.
+        if (node.Op == O::Ensure || node.Op == O::Unwrap) return root;
+        if (!ready) {
+            pending.emplace_back(id, true);
+            for (auto arg : node.Arguments) pending.emplace_back(arg, false);
+            continue;
+        }
+        std::size_t hash = static_cast<std::size_t>(node.Op);
+        const auto mix = [&](std::size_t value) { hash ^= value + 0x9e3779b9u + (hash << 6) + (hash >> 2); };
+        mix(static_cast<std::size_t>(node.Type.Kind)); mix(node.Type.Nullable);
+        mix(node.Type.Precision); mix(node.Type.Scale); mix(node.Type.Shape);
+        mix(node.ColumnId); mix(std::hash<std::string>{}(node.Name)); mix(node.Value.index());
+        std::visit([&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, TDecimal>) {
+                mix(static_cast<std::uint64_t>(value.Coefficient));
+                mix(static_cast<std::uint64_t>(static_cast<unsigned __int128>(value.Coefficient) >> 64));
+            } else if constexpr (std::is_same_v<T, double>) {
+                mix(std::bit_cast<std::uint64_t>(value));
+            } else {
+                mix(std::hash<T>{}(value));
+            }
+        }, node.Value);
+        for (auto arg : node.Arguments) mix(classes.at(arg));
+        auto representative = id;
+        const auto [begin, end] = representatives.equal_range(hash);
+        for (auto it = begin; it != end; ++it) {
+            const auto& other = (*this)[it->second];
+            if (node.Op != other.Op || node.Type != other.Type || node.ColumnId != other.ColumnId ||
+                node.Name != other.Name || node.Arguments.size() != other.Arguments.size()) continue;
+            const auto* number = std::get_if<double>(&node.Value);
+            const auto* otherNumber = std::get_if<double>(&other.Value);
+            const bool sameValue = number && otherNumber ?
+                std::bit_cast<std::uint64_t>(*number) == std::bit_cast<std::uint64_t>(*otherNumber) : node.Value == other.Value;
+            if (!sameValue) continue;
+            if (std::equal(node.Arguments.begin(), node.Arguments.end(), other.Arguments.begin(),
+                    [&](TExprId a, TExprId b) { return classes.at(a) == classes.at(b); })) {
+                representative = it->second;
+                break;
+            }
+        }
+        classes.emplace(id, representative);
+        if (representative == id) representatives.emplace(hash, id);
+    }
+    const auto split = [&](TExprId input, O op) {
+        std::vector<TExprId> terms, stack{input};
+        std::unordered_set<TExprId> visited;
+        while (!stack.empty()) {
+            const auto id = unlift(stack.back()); stack.pop_back();
+            if (!visited.insert(id).second) continue;
+            const auto& node = (*this)[id];
+            if (node.Op == op) stack.insert(stack.end(), node.Arguments.rbegin(), node.Arguments.rend());
+            else terms.push_back(id);
+        }
+        return terms;
+    };
+    const auto disjuncts = split(root, O::Or);
+    if (disjuncts.size() == 1) return Convert(disjuncts.front(), type, pos);
+    std::vector<std::vector<TExprId>> branches;
+    std::unordered_map<TExprId, std::size_t> occurrences;
+    for (auto branch : disjuncts) {
+        auto& terms = branches.emplace_back();
+        std::unordered_set<TExprId> seen;
+        for (auto term : split(branch, O::And)) if (seen.insert(classes.at(term)).second) {
+            terms.push_back(term);
+            ++occurrences[classes.at(term)];
+        }
+    }
+    std::vector<TExprId> common;
+    std::unordered_set<TExprId> extracted;
+    for (auto term : branches.front()) if (occurrences.at(classes.at(term)) == branches.size()) {
+        common.push_back(term);
+        extracted.insert(classes.at(term));
+    }
+    if (common.empty()) return root;
+    const auto join = [&](O op, const std::vector<TExprId>& terms) {
+        auto result = terms.front();
+        for (std::size_t i = 1; i < terms.size(); ++i) result = Binary(op, result, terms[i], pos);
+        return result;
+    };
+    std::vector<TExprId> residuals;
+    for (const auto& branch : branches) {
+        std::vector<TExprId> terms;
+        for (auto term : branch) if (!extracted.contains(classes.at(term))) terms.push_back(term);
+        if (terms.empty()) return Convert(join(O::And, common), type, pos);
+        residuals.push_back(join(O::And, terms));
+    }
+    common.push_back(join(O::Or, residuals));
+    return Convert(join(O::And, common), type, pos);
 }
 
 std::string FormatValue(const TValue& value) {

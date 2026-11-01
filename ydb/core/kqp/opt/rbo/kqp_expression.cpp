@@ -865,7 +865,9 @@ TExpression TExpression::ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOCon
 
 std::optional<TExpression> TExpression::TryExtractCommonConjuncts() const {
     if (IsNative()) {
-        return std::nullopt;
+        const auto factored = NativeArena_->FactorCommonConjuncts(NativeRoot_);
+        if (factored == NativeRoot_) return std::nullopt;
+        return NativePart(*this, factored);
     }
     Y_ENSURE(Node->IsLambda(), "Expression node is not lambda");
     Y_ENSURE(Ctx, "Expression context is null");

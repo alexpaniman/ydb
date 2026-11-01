@@ -459,6 +459,12 @@ bounds generated string payloads. It preserves result types and keeps failing
 runtime assertions deferred, including in conditional branches. The assertion
 opcode also lowers directly to the backend's executable Ensure operation.
 
+Common-conjunct extraction compares typed structural identities over the
+reachable DAG, including literal payloads and parameter names. It factors
+shared predicates out of OR branches without constructing YQL expressions,
+preserves SQL three-valued logic and the result type, and leaves runtime
+Ensure/Unwrap checks behind their original short-circuit guards.
+
 SQL `Unwrap(value[, message])` uses the existing executable unwrap opcode. Its
 optional String/Utf8 message must be non-null and is evaluated only when the
 value is NULL; required values are returned unchanged, as in YQL. Rewrites
@@ -674,6 +680,27 @@ every case. Original populated 22-query TPC-H and 51-query TPC-DS fixtures passe
 across all three compiler paths; archived query markers confirm 66 and 153
 executions respectively.
 
+Thirteen additional original read-query fixtures now also run in native-required
+mode with unchanged SQL, setup and assertions. They cover common join predicates,
+constant propagation, left-join elimination, sorting, read pushdown, aggregates,
+unions, scalar subqueries, stage connections and multiple results. Bound sort
+keys retain null placement from their actual scope, including outer joins,
+aliases, windows and set outputs. Required keys use the canonical nulls-first
+marker; nullable descending keys retain nulls-last and ordered-index selection.
+
+This revision passed all 108 standalone frontend and 491 RBO tests. The full
+run passed 584 tests; the exact 15 tests interrupted or not launched by the
+existing 600-second shard limit passed separately with identical sources and
+assertions. All previous 579 registrations remain, with 20 additions. New
+populated row/column fixtures check 48 query executions across the three compiler
+paths, including 16 native executions, against an independent row-pair oracle.
+They require correct values, types, ordering and keyed join plans. Scalar tests
+cover 90 Boolean/NULL cases, structural identity, a 10,000-level shared DAG and
+deferred runtime checks; the RBO bridge must allocate no YQL expression nodes.
+The unchanged populated 22-query TPC-H and 51-query TPC-DS fixtures passed again
+on all three paths. The reused explain fixtures are not additional populated
+benchmark coverage. The standalone CLI still contains no YQL/MiniKQL symbols.
+
 ## Build and test
 
 ```
@@ -879,24 +906,24 @@ counters through this API. Compiler CPU/wall counters are reported separately fr
 request wall time, which includes execution. These empty-table runs are timing
 measurements, not additional populated execution coverage.
 
-On 2026-11-01, the computed join-key revision passed all 216 measured
+On 2026-11-01, the common-predicate and bound-sort revision passed all 216 measured
 compilations on the local `relwithdebinfo` build. Median compiler CPU times across
 nine samples, in milliseconds:
 
 | Query | Legacy optimizer | YQL frontend + RBO | Native frontend + RBO |
 | --- | ---: | ---: | ---: |
-| TPC-H Q1 | 173.72 | 73.12 | 42.55 |
-| TPC-H Q5 | 365.75 | 106.45 | 91.03 |
-| TPC-H Q9 | 389.91 | 132.88 | 97.98 |
-| TPC-H Q21 | 878.21 | 152.20 | 113.14 |
-| TPC-DS Q17 | 1125.24 | 251.83 | 154.60 |
-| TPC-DS Q28 | 1711.93 | 368.33 | 296.78 |
-| TPC-DS Q51 | 700.68 | 131.45 | 85.67 |
-| TPC-DS Q52 | 210.76 | 85.03 | 63.42 |
+| TPC-H Q1 | 194.37 | 76.50 | 40.35 |
+| TPC-H Q5 | 409.46 | 133.48 | 108.64 |
+| TPC-H Q9 | 410.36 | 157.49 | 119.60 |
+| TPC-H Q21 | 895.90 | 174.07 | 124.66 |
+| TPC-DS Q17 | 1221.98 | 292.33 | 164.81 |
+| TPC-DS Q28 | 1779.57 | 360.66 | 294.90 |
+| TPC-DS Q51 | 783.52 | 146.22 | 89.84 |
+| TPC-DS Q52 | 219.25 | 81.58 | 60.35 |
 
-The geometric mean ratio against the existing YQL frontend plus RBO is 1.41,
-or about 29% less compilation CPU, with per-query ratios of 1.17–1.72. Against
-the legacy optimizer the ratio is 5.25, which includes the optimizer change and
+The geometric mean ratio against the existing YQL frontend plus RBO is 1.46,
+or about 31% less compilation CPU, with per-query ratios of 1.22–1.90. Against
+the legacy optimizer the ratio is 5.31, which includes the optimizer change and
 must not be attributed solely to the frontend. This small local sample measures
 the current full compilation paths, including their backend and plan differences;
 it is neither an isolated frontend measurement nor an execution-speed guarantee.

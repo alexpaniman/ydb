@@ -43,6 +43,9 @@ struct TAggregate {
 struct TBoundSortKey {
     TColumnId Column;
     bool Descending;
+    // Nullable keys retain SQL's NULL ordering. Required keys use the
+    // canonical first marker, since their NULL placement has no effect.
+    bool NullsFirst;
 };
 
 struct TWindowFunction {

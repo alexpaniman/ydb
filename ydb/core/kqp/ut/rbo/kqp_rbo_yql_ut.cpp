@@ -1177,19 +1177,22 @@ FROM (
         UNIT_ASSERT_VALUES_EQUAL_C(GetStringField(*readT, "E-Rows"), "777", plan);
     }
     
-    Y_UNIT_TEST(PushConstantConditionOnJoinKeyBothSides) {
-        TExplainPlanTestContext testContext;
+    void RunPushConstantConditionOnJoinKeyBothSides(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplain(session, R"(
             select t1.a, t1.b
             from `/Root/t1` as t1
              join `/Root/t2` as t2 on t1.a = t2.a
              where t1.a == 1;
-        )");
+        )", nativeFrontend);
 
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         UNIT_ASSERT_C(!FindOperatorByStringFieldContaining(simplifiedPlan, "Name", "TableFullScan"), plan);
     }
+
+    Y_UNIT_TEST(PushConstantConditionOnJoinKeyBothSides) { RunPushConstantConditionOnJoinKeyBothSides(false); }
+    Y_UNIT_TEST(NativePushConstantConditionOnJoinKeyBothSides) { RunPushConstantConditionOnJoinKeyBothSides(true); }
 
     Y_UNIT_TEST_TWIN(PushFilterThroughAggregateOnLeftJoinInput, ColumnStore) {
         TKikimrRunner kikimr(NKqp::TKikimrSettings(CreateExplainPlanTestAppConfig()).SetWithSampleTables(false));
@@ -1370,21 +1373,24 @@ FROM (
         UNIT_ASSERT_VALUES_EQUAL_C(GetStringField(*readT, "E-Rows"), "777", plan);
     }
 
-    Y_UNIT_TEST(EliminateUnusedLeftJoin) {
-        TExplainPlanTestContext testContext;
+    void RunEliminateUnusedLeftJoin(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplain(session, R"(
             select t1.a, t1.b
             from `/Root/t1` as t1
             left join `/Root/t2` as t2 on t1.a = t2.a;
-        )");
+        )", nativeFrontend);
 
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         UNIT_ASSERT_C(!FindOperatorByStringFieldContaining(simplifiedPlan, "Name", "Join"), plan);
     }
 
-    Y_UNIT_TEST(ExplainTopSort) {
-        TExplainPlanTestContext testContext;
+    Y_UNIT_TEST(EliminateUnusedLeftJoin) { RunEliminateUnusedLeftJoin(false); }
+    Y_UNIT_TEST(NativeEliminateUnusedLeftJoin) { RunEliminateUnusedLeftJoin(true); }
+
+    void RunExplainTopSort(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto sortPlan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
@@ -1392,7 +1398,7 @@ FROM (
             from `/Root/t1` as t1
             order by t1.a desc, t1.b asc
             limit 5;
-        )");
+        )", nativeFrontend);
         const auto simplifiedSortPlan = GetSimplifiedPlan(sortPlan);
         const auto* topSortOp = FindOperatorByStringField(simplifiedSortPlan, "Name", "TopSort");
         UNIT_ASSERT_C(topSortOp, sortPlan);
@@ -1409,6 +1415,9 @@ FROM (
         UNIT_ASSERT_C(mergeSortBy.Contains("t1.b asc nulls first"), sortPlan);
         UNIT_ASSERT_C(mergeConnection->GetMapSafe().contains("SortColumns"), sortPlan);
     }
+
+    Y_UNIT_TEST(ExplainTopSort) { RunExplainTopSort(false); }
+    Y_UNIT_TEST(NativeExplainTopSort) { RunExplainTopSort(true); }
 
     Y_UNIT_TEST(TopSortPushedToRowReadAndKept) {
         NKikimrConfig::TAppConfig appConfig;
@@ -1479,8 +1488,8 @@ FROM (
         }
     }
 
-    Y_UNIT_TEST(ExplainReadPushdown) {
-        TExplainPlanTestContext testContext;
+    void RunExplainReadPushdown(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto pushedReadPlan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
@@ -1488,7 +1497,7 @@ FROM (
             from `/Root/t1` as t1
             order by t1.a desc
             limit 5;
-        )");
+        )", nativeFrontend);
         const auto simplifiedPushedReadPlan = GetSimplifiedPlan(pushedReadPlan);
         const auto* readOp = FindOperatorByStringField(simplifiedPushedReadPlan, "Table", "t1");
         UNIT_ASSERT_C(readOp, pushedReadPlan);
@@ -1498,6 +1507,9 @@ FROM (
         UNIT_ASSERT_C(StringArrayFieldContains(*readOp, "ReadColumns", "a"), pushedReadPlan);
         UNIT_ASSERT_C(StringArrayFieldContains(*readOp, "ReadColumns", "b"), pushedReadPlan);
     }
+
+    Y_UNIT_TEST(ExplainReadPushdown) { RunExplainReadPushdown(false); }
+    Y_UNIT_TEST(NativeExplainReadPushdown) { RunExplainReadPushdown(true); }
 
     void RunExplainRangePushdown(bool nativeFrontend) {
         TExplainPlanTestContext testContext(false, nativeFrontend);
@@ -1692,15 +1704,15 @@ FROM (
     Y_UNIT_TEST(ExplainAnalyzeRangePushdown) { RunExplainAnalyzeRangePushdown(false); }
     Y_UNIT_TEST(NativeExplainAnalyzeRangePushdown) { RunExplainAnalyzeRangePushdown(true); }
 
-    Y_UNIT_TEST(ExplainAggregate) {
-        TExplainPlanTestContext testContext;
+    void RunExplainAggregate(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto aggregatePlan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
             select t1.b, sum(t1.a) as total_price, count(t1.a) as cnt
             from `/Root/t1` as t1
             group by t1.b;
-        )");
+        )", nativeFrontend);
         const auto simplifiedAggregatePlan = GetSimplifiedPlan(aggregatePlan);
         const auto* aggregateOp = FindOperatorByStringFieldContaining(simplifiedAggregatePlan, "Aggregation", ": count(");
         UNIT_ASSERT_C(aggregateOp, aggregatePlan);
@@ -1709,30 +1721,36 @@ FROM (
         UNIT_ASSERT_C(aggregation.Contains(": count("), aggregatePlan);
     }
 
-    Y_UNIT_TEST(ExplainUnionAll) {
-        TExplainPlanTestContext testContext;
+    Y_UNIT_TEST(ExplainAggregate) { RunExplainAggregate(false); }
+    Y_UNIT_TEST(NativeExplainAggregate) { RunExplainAggregate(true); }
+
+    void RunExplainUnionAll(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto unionPlan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
             select t1.a from `/Root/t1` as t1
             union all
             select t2.a from `/Root/t2` as t2;
-        )");
+        )", nativeFrontend);
         const auto simplifiedUnionPlan = GetSimplifiedPlan(unionPlan);
         const auto* unionOp = FindOperatorByStringField(simplifiedUnionPlan, "Name", "UnionAll");
         UNIT_ASSERT_C(unionOp, unionPlan);
         UNIT_ASSERT_C(!GetBoolField(*unionOp, "Ordered"), unionPlan);
     }
 
-    Y_UNIT_TEST(ExplainScalarSubquery) {
-        TExplainPlanTestContext testContext;
+    Y_UNIT_TEST(ExplainUnionAll) { RunExplainUnionAll(false); }
+    Y_UNIT_TEST(NativeExplainUnionAll) { RunExplainUnionAll(true); }
+
+    void RunExplainScalarSubquery(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto scalarSubplanPlan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
             select t1.a
             from `/Root/t1` as t1
             where t1.a = (select max(t2.a) from `/Root/t2` as t2);
-        )");
+        )", nativeFrontend);
         const auto simplifiedScalarSubplanPlan = GetSimplifiedPlan(scalarSubplanPlan);
         // The subplan is reduced to a single row by an aggregate that counts its rows along the way, so
         // that a subquery returning several rows fails the query instead of picking one of them.
@@ -1741,15 +1759,18 @@ FROM (
         UNIT_ASSERT_C(FindOperatorByStringFieldContaining(simplifiedScalarSubplanPlan, "Name", "Join"), scalarSubplanPlan);
     }
 
-    Y_UNIT_TEST(ExplainAnalyzeScalarSubquery) {
-        TExplainPlanTestContext testContext;
+    Y_UNIT_TEST(ExplainScalarSubquery) { RunExplainScalarSubquery(false); }
+    Y_UNIT_TEST(NativeExplainScalarSubquery) { RunExplainScalarSubquery(true); }
+
+    void RunExplainAnalyzeScalarSubquery(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplainAnalyze(session, R"(
             PRAGMA YqlSelect = 'force';
             select t1.a
             from `/Root/t1` as t1
             where t1.a = (select max(t2.a) from `/Root/t2` as t2);
-        )");
+        )", nativeFrontend);
 
         NJson::TJsonValue planJson;
         UNIT_ASSERT_C(NJson::ReadJsonTree(plan, &planJson, true), plan);
@@ -1769,10 +1790,13 @@ FROM (
         UNIT_ASSERT_C(simplifiedOperatorIds.empty(), plan);
     }
 
-    Y_UNIT_TEST(ExplainHidesOperatorIds) {
-        TExplainPlanTestContext testContext;
+    Y_UNIT_TEST(ExplainAnalyzeScalarSubquery) { RunExplainAnalyzeScalarSubquery(false); }
+    Y_UNIT_TEST(NativeExplainAnalyzeScalarSubquery) { RunExplainAnalyzeScalarSubquery(true); }
+
+    void RunExplainHidesOperatorIds(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
-        const auto plan = ExecuteExplain(session, "SELECT a FROM `/Root/t1`;");
+        const auto plan = ExecuteExplain(session, "SELECT a FROM `/Root/t1`;", nativeFrontend);
 
         NJson::TJsonValue planJson;
         UNIT_ASSERT_C(NJson::ReadJsonTree(plan, &planJson, true), plan);
@@ -1786,15 +1810,18 @@ FROM (
         UNIT_ASSERT_C(operatorIds.empty(), plan);
     }
 
-    Y_UNIT_TEST(ExplainStageConnections) {
-        TExplainPlanTestContext testContext;
+    Y_UNIT_TEST(ExplainHidesOperatorIds) { RunExplainHidesOperatorIds(false); }
+    Y_UNIT_TEST(NativeExplainHidesOperatorIds) { RunExplainHidesOperatorIds(true); }
+
+    void RunExplainStageConnections(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto connectionPlan = ExecuteExplainAnalyze(session, R"(
             PRAGMA YqlSelect = 'force';
             select count(*)
             from `/Root/t1` as t1
             inner join `/Root/t2` as t2 on t1.a = t2.b;
-        )");
+        )", nativeFrontend);
 
         const auto simplifiedConnectionPlan = GetSimplifiedPlan(connectionPlan);
         const auto* unionAll = FindConnectionNode(simplifiedConnectionPlan, "UnionAll");
@@ -1808,21 +1835,30 @@ FROM (
         UNIT_ASSERT_C(!FindConnectionNode(simplifiedConnectionPlan, "Map"), connectionPlan);
     }
 
-    Y_UNIT_TEST(ExplainMultipleSelect) {
-        TExplainPlanTestContext testContext;
+    Y_UNIT_TEST(ExplainStageConnections) { RunExplainStageConnections(false); }
+    Y_UNIT_TEST(NativeExplainStageConnections) { RunExplainStageConnections(true); }
+
+    void RunExplainMultipleSelect(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplain(session, R"(
             SELECT 1 as x; SELECT 2 as y;
-        )");
+        )", nativeFrontend);
     }
 
-    Y_UNIT_TEST(ExplainAnalyzeMultipleSelect) {
-        TExplainPlanTestContext testContext;
+    Y_UNIT_TEST(ExplainMultipleSelect) { RunExplainMultipleSelect(false); }
+    Y_UNIT_TEST(NativeExplainMultipleSelect) { RunExplainMultipleSelect(true); }
+
+    void RunExplainAnalyzeMultipleSelect(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplainAnalyze(session, R"(
             SELECT * from `/Root/t1`; SELECT * from `/Root/t1`;
-        )");
+        )", nativeFrontend);
     }
+
+    Y_UNIT_TEST(ExplainAnalyzeMultipleSelect) { RunExplainAnalyzeMultipleSelect(false); }
+    Y_UNIT_TEST(NativeExplainAnalyzeMultipleSelect) { RunExplainAnalyzeMultipleSelect(true); }
 
     Y_UNIT_TEST(Explain) {
         NKikimrConfig::TAppConfig appConfig;
@@ -1994,8 +2030,8 @@ FROM (
         UNIT_ASSERT_C(condition.Contains("id") && condition.Contains(" = "), plan);
     }
 
-    Y_UNIT_TEST(CommonConjunctExtractionFeedsJoinKey) {
-        TExplainPlanTestContext testContext;
+    void RunCommonConjunctExtractionFeedsJoinKey(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto plan = ExecuteExplain(testContext.GetSession(), R"(
             PRAGMA YqlSelect = 'force';
             PRAGMA AnsiImplicitCrossJoin;
@@ -2006,7 +2042,7 @@ FROM (
                 (t1.a = t2.a AND t1.b = 1)
                 OR
                 (t1.a = t2.a AND t2.b = 2);
-        )");
+        )", nativeFrontend);
 
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         const auto* joinOp = FindOperatorByStringField(simplifiedPlan, "JoinKind", "Inner");
@@ -2014,6 +2050,9 @@ FROM (
         const auto condition = GetStringField(*joinOp, "Condition");
         UNIT_ASSERT_C(condition == "t1.a = t2.a" || condition == "t2.a = t1.a", plan);
     }
+
+    Y_UNIT_TEST(CommonConjunctExtractionFeedsJoinKey) { RunCommonConjunctExtractionFeedsJoinKey(false); }
+    Y_UNIT_TEST(NativeCommonConjunctExtractionFeedsJoinKey) { RunCommonConjunctExtractionFeedsJoinKey(true); }
 
     void RunComputedEqualityFeedsJoinKey(bool nativeFrontend) {
         TExplainPlanTestContext testContext(false, nativeFrontend);
