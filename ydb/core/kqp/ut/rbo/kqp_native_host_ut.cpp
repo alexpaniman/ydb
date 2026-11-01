@@ -2561,6 +2561,145 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
+    Y_UNIT_TEST(NativeIndexRangesMatchBothCompilersOnPopulatedTables) {
+        struct TRow { std::optional<i64> Id; std::optional<i32> Group, X; const char* Payload; };
+        const TVector<TRow> data{
+            {std::nullopt, 2, 1, "null-key"}, {1, 2, std::nullopt, nullptr}, {2, 2, 0, "zero"}, {3, 2, 2, "two"},
+            {4, 2, 5, "five"}, {5, 1, 2, "one"}, {6, std::nullopt, 2, "null-group"}, {7, 3, -1, "negative"},
+            {8, 3, 2, "three"}, {9007199254740993LL, 2, 2, "large"}, {std::numeric_limits<i64>::max(), 2, 2, "max"},
+            {-1, 2, -5, "minus"}, {9, 2, 2, nullptr}, {10, 2, 2, ""}};
+        const TVector<i32> groupTwo{1, 2, 3, 4, 5, 10, 11, 12, 13, 14};
+        struct TCase {
+            const char* Predicate;
+            TVector<i32> Tags;
+            const char* Index;
+            const char* Tail = "ORDER BY tag";
+            const char* PayloadIndex = nullptr;
+        };
+        const TVector<TCase> cases{
+            {"g = 2", groupTwo, "AGroup"},
+            {"g = 2 AND x >= 0 AND x < 5", {1, 3, 4, 10, 11, 13, 14}, "AGroup"},
+            {"x = 2", {4, 6, 7, 9, 10, 11, 13, 14}, "ByX"},
+            {"g < 3", {1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14}, "AGroup"},
+            {"g = 2 AND Length(payload) > 0", {1, 3, 4, 5, 10, 11, 12}, nullptr},
+            {"g = 2 AND x IS NULL", {2}, "AGroup"},
+            {"g = 2 AND x < 0", {12}, "AGroup"},
+            {"g = 2 AND id = 9007199254740993", {10}, nullptr},
+            {"x = 2 AND id > 3", {6, 7, 9, 10, 11, 13, 14}, "ByX"},
+            {"2 = g AND 5 > x AND x >= 0", {1, 3, 4, 10, 11, 13, 14}, "AGroup"},
+            {"g = 2", {1, 12, 2}, "GroupOrder", "ORDER BY id LIMIT 3", "AGroup"},
+            {"g = 2", {11, 10, 14}, "GroupOrder", "ORDER BY id DESC LIMIT 3", "AGroup"},
+            {"g = 2 AND x > 0", {11, 10}, "AGroup", "ORDER BY id DESC LIMIT 2"},
+            {"id >= 2 AND id <= 4 AND g = 2", {3, 4, 5}, "GroupOrder"},
+            {"g = 2 AND x >= 5 AND x < 0", {}, "AGroup"},
+            {"g = 2 AND x = 2 AND id > 3", {10, 11, 13, 14}, "AGroup"}};
+        TVector<TResultSnapshot> reference;
+        for (int strategy : {0, 1, 2}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
+                NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnablePruneKeyColumns(true);
+            service->SetEnableAutoIndexSelectionForIndexLookupJoin(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = kikimr.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto created = session.ExecuteSchemeQuery(R"(
+                CREATE TABLE `/Root/NativeIndexed` (id Int64, g Int32, x Int32, tag Int32 NOT NULL, payload Utf8, PRIMARY KEY(id));
+            )").GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            TValueBuilder rows;
+            rows.BeginList();
+            for (size_t i = 0; i < data.size(); ++i) rows.AddListItem().BeginStruct()
+                .AddMember("id").OptionalInt64(data[i].Id).AddMember("g").OptionalInt32(data[i].Group)
+                .AddMember("x").OptionalInt32(data[i].X).AddMember("tag").Int32(i + 1)
+                .AddMember("payload").OptionalUtf8(data[i].Payload ? std::optional<std::string>{data[i].Payload} : std::nullopt).EndStruct();
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/NativeIndexed", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            // Load first: row-table BulkUpsert does not maintain secondary indexes.
+            // Declare Z before A to exercise deterministic candidate tie-breaking.
+            for (const char* index : {"ZGroup GLOBAL ON (g, x) COVER (tag)", "ByX GLOBAL ON (x) COVER (tag)",
+                    "GroupOrder GLOBAL ON (g, id) COVER (x, tag)", "AGroup GLOBAL ON (g, x) COVER (tag)"}) {
+                const auto added = session.ExecuteSchemeQuery(TStringBuilder() << "ALTER TABLE `/Root/NativeIndexed` ADD INDEX " << index << ';').GetValueSync();
+                UNIT_ASSERT_C(added.IsSuccess(), added.GetIssues().ToString());
+            }
+            size_t snapshot = 0;
+            const auto compare = [&](const TResultSnapshot& actual) {
+                if (strategy == 0) reference.push_back(actual); else AssertSame(actual, reference.at(snapshot));
+                ++snapshot;
+            };
+            const auto assertRows = [&](const TResultSet& rows, const TVector<i32>& expected, bool payload) {
+                UNIT_ASSERT_VALUES_EQUAL_C(rows.RowsCount(), expected.size(), FormatResultSetYson(rows));
+                TVector<std::pair<TString, TString>> columns{{"tag", "Int32"}};
+                if (payload) columns.emplace_back("payload", "Utf8?");
+                UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(rows).Columns, columns);
+                TResultSetParser parser(rows);
+                for (const auto tag : expected) {
+                    UNIT_ASSERT(parser.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(parser.ColumnParser("tag").GetInt32(), tag);
+                    if (payload) {
+                        const auto* text = data.at(tag - 1).Payload;
+                        UNIT_ASSERT(parser.ColumnParser("payload").GetOptionalUtf8() ==
+                            (text ? std::optional<std::string>{text} : std::nullopt));
+                    }
+                }
+                UNIT_ASSERT(!parser.TryNextRow());
+            };
+            for (const auto& test : cases) for (const bool payload : {false, true}) {
+                const TString sql = TStringBuilder() << "SELECT tag" << (payload ? ", payload" : "")
+                    << " FROM `/Root/NativeIndexed` WHERE " << test.Predicate << ' ' << test.Tail;
+                Cerr << "Native index range strategy " << strategy << ": " << sql << Endl;
+                const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                const auto actual = Snapshot(result);
+                assertRows(result.GetResultSet(0), test.Tags, payload);
+                compare(actual);
+                if (strategy == 2) {
+                    const auto explain = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                        NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                    UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                    UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetPlan() && explain.GetStats()->GetAst());
+                    const TString plan{*explain.GetStats()->GetPlan()}, ast{*explain.GetStats()->GetAst()};
+                    const char* index = payload && test.PayloadIndex ? test.PayloadIndex : test.Index;
+                    if (index) {
+                        UNIT_ASSERT_C(ast.Contains(TStringBuilder() << '/' << index << "/indexImplTable"), sql << '\n' << ast);
+                        UNIT_ASSERT_VALUES_EQUAL_C(plan.Contains("TableLookup"), payload, sql << '\n' << plan);
+                        UNIT_ASSERT_C(plan.Contains("ReadRangeLower") && plan.Contains("ReadRangeUpper"), sql << '\n' << plan);
+                    } else UNIT_ASSERT_C(!ast.Contains("indexImplTable"), sql << '\n' << ast);
+                }
+            }
+            const auto prepared = session.PrepareDataQuery(R"(
+                DECLARE $lo AS Int32; DECLARE $hi AS Int32;
+                SELECT tag, payload FROM `/Root/NativeIndexed` WHERE g >= $lo AND g < $hi ORDER BY tag;
+            )").GetValueSync();
+            UNIT_ASSERT_C(prepared.IsSuccess(), prepared.GetIssues().ToString());
+            auto query = prepared.GetQuery();
+            for (const auto& [lo, hi, tags] : TVector<std::tuple<i32, i32, TVector<i32>>>{
+                    {2, 3, groupTwo}, {1, 2, {6}}, {3, 4, {8, 9}}, {3, 1, {}}, {2, 3, groupTwo}}) {
+                auto params = query.GetParamsBuilder().AddParam("$lo").Int32(lo).Build().AddParam("$hi").Int32(hi).Build().Build();
+                const auto result = query.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                const auto actual = Snapshot(result);
+                assertRows(result.GetResultSet(0), tags, true);
+                compare(actual);
+            }
+            for (const auto& [sql, expected] : std::initializer_list<std::pair<const char*, const char*>>{
+                    {"SELECT l.tag AS ltag, r.tag AS rtag, r.payload AS payload FROM `/Root/NativeIndexed` AS l "
+                     "JOIN `/Root/NativeIndexed` AS r ON l.id = r.id WHERE l.tag = 4 AND r.g = 2 ORDER BY ltag, rtag", "[[4;4;[\"two\"]]]"},
+                    {"$r = (SELECT id, tag, payload FROM `/Root/NativeIndexed` WHERE g = 2); "
+                     "SELECT l.tag AS ltag, r.tag AS rtag, r.payload AS payload FROM `/Root/NativeIndexed` AS l "
+                     "LEFT JOIN $r AS r ON l.id = r.id WHERE l.tag IN (1, 4, 6) ORDER BY ltag", "[[1;#;#];[4;[4];[\"two\"]];[6;#;#]]"}}) {
+                const auto actual = Snapshot(session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync());
+                UNIT_ASSERT_VALUES_EQUAL(actual.Values, expected);
+                compare(actual);
+            }
+            UNIT_ASSERT_VALUES_EQUAL(snapshot, reference.size());
+        }
+    }
+
     Y_UNIT_TEST(NativeColumnKeyRangesMatchBothCompilersOnPopulatedTables) {
         struct TCase {
             const char* Predicate;

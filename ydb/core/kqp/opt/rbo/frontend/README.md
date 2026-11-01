@@ -488,8 +488,32 @@ integers and empty intervals. The existing OLAP test now requires exact range
 bounds when extraction consumes its key predicate; its remaining filter checks
 are retained. These are correctness checks, not a compilation speedup measurement.
 
+Native range extraction also selects ready ordinary synchronous secondary
+indexes, including unique indexes. It collects comparisons once, builds bounds
+in each candidate's physical key order, and shares the existing key-prefix and
+top-sort scoring policy. Main-table ties, covering-index preference and index-name
+tie-breaking remain deterministic. Asynchronous, unready and specialized indexes
+are excluded. A covering index supplies the original outputs directly; a
+non-covering index supplies fresh column IDs and primary keys to a table lookup.
+The latter requires the whole predicate to be evaluable from index columns.
+Bounds and residual filters remain native. The saved full predicate is rebound
+and restored as an ordinary native filter if a lookup join replaces that subtree,
+so replacing its scan cannot discard the range condition.
+
+Sixteen model combinations check index order, covering columns, residuals and
+the disable setting while forbidding YQL annotation. Populated tests compare
+117 executions across all three compiler paths and assert 32 native index/range
+plans. They include NULL primary and secondary keys, exact large integers,
+contradictory ranges, sort/limit choices, prepared-parameter reuse and joins.
+The full 433-test RBO regression run passed, retaining all 431 previous tests and
+the unchanged 22 TPC-H / 44 TPC-DS populated expectations. A final native-only
+restriction excluding specialized indexes subsequently passed 42 focused tests,
+including all native operator-model tests and the populated range comparisons.
+No new files or pre-existing compiler/backend fixes were needed. Compilation
+timings were not remeasured for this increment.
+
 **Plan-quality limitation:** native multi-range extraction,
-range-based index selection, lookup point prefixes and OLAP projection pushdown
+lookup point prefixes and OLAP projection pushdown
 remain unfinished. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing
 this debt and establishing plan/execution parity remain required before broad

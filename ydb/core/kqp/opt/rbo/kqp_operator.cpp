@@ -1215,6 +1215,14 @@ TUnorderedIUs TOpTableLookup::GetUsedIUs(TPlanProps& props) {
 
 void TOpTableLookup::RewriteExpressions(const TExpressionRewrite& rewrite) {
     if (FetchedRowFilter) *FetchedRowFilter = rewrite(*FetchedRowFilter);
+    if (SourceRead && SourceRead->Predicate.IsNative()) SourceRead->Predicate = rewrite(SourceRead->Predicate);
+}
+
+void TOpTableLookup::BindExpressionPlanProps(TPlanProps* props) {
+    IOperator::BindExpressionPlanProps(props);
+    // The saved read predicate describes fetched columns, not dependencies of
+    // the lookup input. Keep it bound for a later lookup-join replacement.
+    if (SourceRead && SourceRead->Predicate.IsNative()) SourceRead->Predicate.BindPlanProps(props);
 }
 
 TVector<std::reference_wrapper<const TExpression>> TOpTableLookup::GetExpressions() const {

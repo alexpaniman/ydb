@@ -1,4 +1,5 @@
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
+#include <ydb/core/kqp/opt/rbo/kqp_rbo_lookup_join.h>
 #include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <ydb/core/kqp/opt/cbo/solver/kqp_opt_predicate_selectivity.h>
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.h>
@@ -640,6 +641,118 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto explain = source.ToJson(0, root->PlanProps.InfoUnitRegistry);
             UNIT_ASSERT_VALUES_EQUAL(explain["ReadRangesExpectedSize"].GetStringSafe(), "1");
             UNIT_ASSERT(!explain["ReadRangeLower"]["Inclusive"].GetBooleanSafe());
+        }
+    }
+
+    Y_UNIT_TEST(NativeIndexRangesKeepPredicatesAndBoundsNative) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        using O = EOpcode;
+        for (const bool covering : {false, true}) for (const bool reverse : {false, true})
+        for (const bool disabled : {false, true}) for (const bool payloadPredicate : {false, true}) {
+            NTests::TIdTestContext f;
+            f.Config->OptDisableAutoIndexSelection = disabled;
+            const auto pk = f.Id("id"), group = f.Id("g"), extra = f.Id("x"), payload = f.Id("payload");
+            auto metadata = MakeIntrusive<TKikimrTableMetadata>();
+            metadata->Name = "/Root/table";
+            metadata->DoesExist = true;
+            metadata->Kind = EKikimrTableKind::Datashard;
+            metadata->KeyColumnNames = {"id"};
+            for (const auto* name : {"id", "g", "x", "payload"}) metadata->Columns.emplace(name, TKikimrColumnMetadata{});
+            f.Tables->GetOrAddTable("ut", "/Root", metadata->Name).Metadata = metadata;
+            for (const char* name : reverse ? TVector<const char*>{"B", "A", "0_async", "0_unready", "0_vector", "0_fulltext"}
+                                           : TVector<const char*>{"0_fulltext", "0_vector", "0_unready", "0_async", "A", "B"}) {
+                auto index = MakeIntrusive<TKikimrTableMetadata>();
+                index->Name = TStringBuilder() << metadata->Name << '/' << name << "/indexImplTable";
+                index->DoesExist = true;
+                index->Kind = EKikimrTableKind::Datashard;
+                index->KeyColumnNames = {"g", "id"};
+                for (const char* column : {"g", "id", "x"}) index->Columns.emplace(column, TKikimrColumnMetadata{});
+                if (covering) index->Columns.emplace("payload", TKikimrColumnMetadata{});
+                const auto indexType = TStringBuf(name) == "0_async" ? TIndexDescription::EType::GlobalAsync
+                    : TStringBuf(name) == "0_vector" ? TIndexDescription::EType::GlobalSyncVectorKMeansTree
+                    : TStringBuf(name) == "0_fulltext" ? TIndexDescription::EType::GlobalFulltextPlain
+                    : TIndexDescription::EType::GlobalSync;
+                metadata->Indexes.emplace_back(name, TVector<TString>{"g"}, TVector<TString>{},
+                    indexType,
+                    TStringBuf(name) == "0_unready" ? TIndexDescription::EIndexState::NotReady : TIndexDescription::EIndexState::Ready,
+                    1, 1, 1, std::monostate{});
+                metadata->ImplTables.push_back(index);
+                f.Tables->GetOrAddTable("ut", "/Root", index->Name).Metadata = index;
+            }
+            auto arena = std::make_shared<TExpressionArena>();
+            const auto equal = arena->Binary(O::Equal, arena->Column(group, {K::Int32, true}),
+                arena->Literal({K::Int32}, std::int64_t{2}));
+            const auto residual = arena->Binary(O::Greater, arena->Column(payloadPredicate ? payload : extra, {K::Int32}),
+                arena->Literal({K::Int32}, std::int64_t{0}));
+            const auto predicate = arena->Binary(O::And, equal, residual);
+            auto read = f.Read({pk, group, extra, payload});
+            f.SetType(*read, {group});
+            auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(arena, predicate, &f.ExprCtx, &f.Props));
+            auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
+                UNIT_FAIL("native index selection invoked YQL annotation");
+                return IGraphTransformer::TStatus::Error;
+            });
+            TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+            const auto pushed = TPushRangesRule(NYql::EStorageType::RowStorage).SimpleMatchAndApply(filter, context, f.Props);
+            if (disabled || (payloadPredicate && !covering)) {
+                UNIT_ASSERT(pushed == filter);
+                continue;
+            }
+            UNIT_ASSERT(pushed->Kind == (covering ? EOperator::Filter : EOperator::TableLookup));
+            const auto indexFilter = covering ? pushed : CastOperator<TOpTableLookup>(*pushed).GetInput();
+            UNIT_ASSERT(indexFilter->Kind == EOperator::Filter);
+            const auto& remaining = CastOperator<TOpFilter>(*indexFilter).GetFilterExpression();
+            auto& source = CastOperator<TOpRead>(*indexFilter->GetChildren().front());
+            UNIT_ASSERT_VALUES_EQUAL(NNodes::TKqpTable(source.TableCallable).Path().Value(), "/Root/table/A/indexImplTable");
+            UNIT_ASSERT(source.RangeInfo && source.RangeInfo->NativeRange);
+            UNIT_ASSERT(!source.RangeInfo->ComputeNode && !source.RangeInfo->LiteralRange);
+            UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->MainTable, "/Root/table");
+            UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->PointPrefixLen, 1);
+            UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->UsedPrefixLen, 1);
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(*arena,
+                source.RangeInfo->NativeRange->Lower.Values.front().GetNativeRoot()).Data), 2);
+            UNIT_ASSERT(remaining.IsNative() && !remaining.Node);
+            UNIT_ASSERT(source.OriginalPredicate && source.OriginalPredicate->IsNative());
+            UNIT_ASSERT(remaining.GetRawInputIUs().IsSubsetOf(source.GetColumns()));
+            UNIT_ASSERT(source.OriginalPredicate->GetRawInputIUs().IsSubsetOf(source.GetColumns()));
+            if (!covering) {
+                auto& lookup = CastOperator<TOpTableLookup>(*pushed);
+                UNIT_ASSERT(lookup.GetColumns() == read->GetColumns());
+                UNIT_ASSERT(!lookup.GetColumns().HasAny(source.GetColumns()));
+                UNIT_ASSERT(lookup.SourceRead && lookup.SourceRead->Predicate.IsNative());
+                UNIT_ASSERT_VALUES_EQUAL(lookup.SourceRead->Predicate.GetNativeRoot(), predicate);
+                UNIT_ASSERT_VALUES_EQUAL(lookup.LookupKeys.Items().size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(lookup.LookupKeys.Items().front().second, "id");
+                UNIT_ASSERT(source.GetColumns().Contains(lookup.LookupKeys.Items().front().first));
+            }
+            auto root = f.Root(pushed, {{payload, "payload"}});
+            NTests::AssertIdInvariants(*root, root->PlanProps);
+            for (const auto& item : *root) for (const auto& expression : item.Current->GetExpressions())
+                UNIT_ASSERT(expression.get().IsNative() && !expression.get().Node);
+            if (covering) {
+                TSubstitutions renames;
+                const auto copy = source.Copy(root->PlanProps, renames);
+                UNIT_ASSERT(copy && CastOperator<TOpRead>(*copy).RangeInfo->NativeRange);
+                UNIT_ASSERT(!CastOperator<TOpRead>(*copy).OriginalPredicate->GetRawInputIUs().Contains(group));
+            } else {
+                auto& lookup = CastOperator<TOpTableLookup>(*pushed);
+                const auto restored = MatchLookupJoinRightSide(pushed);
+                UNIT_ASSERT(restored && restored->Filter && !restored->Read->RangeInfo);
+                UNIT_ASSERT(restored->Filter->GetInput() == restored->Read);
+                UNIT_ASSERT(restored->Filter->GetFilterExpression().IsNative());
+                UNIT_ASSERT_VALUES_EQUAL(restored->Filter->GetFilterExpression().GetNativeRoot(), predicate);
+                UNIT_ASSERT(restored->Read->GetColumns() == lookup.GetColumns());
+                UNIT_ASSERT_VALUES_EQUAL(restored->Read->OriginalPredicate->GetNativeRoot(), predicate);
+                UNIT_ASSERT_VALUES_EQUAL(NNodes::TKqpTable(restored->Read->TableCallable).Path().Value(), "/Root/table");
+                TSubstitutions renames;
+                const auto renamed = root->PlanProps.InfoUnitRegistry.Add(TInfoUnit("renamed"));
+                renames.Add(group, renamed);
+                lookup.RewriteExpressions([&](const TExpression& expression) { return expression.ApplyRenames(renames); });
+                UNIT_ASSERT(lookup.SourceRead->Predicate.GetRawInputIUs().Contains(renamed));
+                UNIT_ASSERT(!lookup.SourceRead->Predicate.GetRawInputIUs().Contains(group));
+                UNIT_ASSERT(lookup.GetExpressions().empty()); // Saved predicate is not a lookup-input dependency.
+            }
         }
     }
 

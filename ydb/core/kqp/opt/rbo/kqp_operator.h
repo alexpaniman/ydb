@@ -1309,6 +1309,7 @@ public:
     const TUnorderedIUs& GetUniqueRawInputIUs() const override;
     TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
     TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
+    void BindExpressionPlanProps(TPlanProps* props) override;
     void RewriteExpressions(const TExpressionRewrite& rewrite) override;
     void PropagateLiveness(ILivenessContext& ctx) override;
     TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;

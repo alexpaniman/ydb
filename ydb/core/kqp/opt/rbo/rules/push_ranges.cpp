@@ -322,22 +322,27 @@ bool HasNoResidualPredicate(const TExprNode::TPtr& prunedLambda) {
     return body.Maybe<TCoArgument>().IsValid();
 }
 
-TIndexScore ScoreKeyOrder(const IPredicateRangeExtractor::TBuildResult& result, size_t keyLen, const TVector<TString>& sortColumns,
-                          const TVector<TString>& keyColumns, bool covering) {
+TIndexScore ScoreKeyOrder(size_t pointPrefix, size_t usedPrefix, bool singleRange, bool noResidual, size_t keyLen,
+                          const TVector<TString>& sortColumns, const TVector<TString>& keyColumns, bool covering) {
     TIndexScore score;
-    score.PointCoversKey = keyLen != 0 && result.PointPrefixLen == keyLen;
-    score.PointPrefixLen = score.PointCoversKey ? 0 : result.PointPrefixLen;
-    score.UsedCoversKey = keyLen != 0 && result.UsedPrefixLen == keyLen;
-    score.UsedPrefixLen = score.UsedCoversKey ? 0 : result.UsedPrefixLen;
+    score.PointCoversKey = keyLen != 0 && pointPrefix == keyLen;
+    score.PointPrefixLen = score.PointCoversKey ? 0 : pointPrefix;
+    score.UsedCoversKey = keyLen != 0 && usedPrefix == keyLen;
+    score.UsedPrefixLen = score.UsedCoversKey ? 0 : usedPrefix;
 
     if (covering && !sortColumns.empty()) {
-        const size_t pointPrefixLen =
-            (result.ExpectedMaxRanges && *result.ExpectedMaxRanges == 1) ? std::min(result.PointPrefixLen, keyColumns.size()) : 0;
+        const size_t pointPrefixLen = singleRange ? std::min(pointPrefix, keyColumns.size()) : 0;
         score.SortMatches = SortMatchesKeyOrder(sortColumns, keyColumns, pointPrefixLen);
-        score.SortMatchesAndNoResidual = score.SortMatches && HasNoResidualPredicate(result.PrunedLambda);
+        score.SortMatchesAndNoResidual = score.SortMatches && noResidual;
     }
 
     return score;
+}
+
+TIndexScore ScoreKeyOrder(const IPredicateRangeExtractor::TBuildResult& result, size_t keyLen, const TVector<TString>& sortColumns,
+                          const TVector<TString>& keyColumns, bool covering) {
+    return ScoreKeyOrder(result.PointPrefixLen, result.UsedPrefixLen, result.ExpectedMaxRanges && *result.ExpectedMaxRanges == 1,
+        covering && !sortColumns.empty() && HasNoResidualPredicate(result.PrunedLambda), keyLen, sortColumns, keyColumns, covering);
 }
 
 // Ties are broken deterministically, independently of the order indexes are declared
@@ -361,7 +366,7 @@ bool IsBetterCandidate(const TIndexScore& score, bool covering, const TString& n
     return name < bestName;
 }
 
-TVector<TString> FindConsumingTopSortColumns(const IOperator* op, TExprContext& ctx) {
+TVector<TString> FindConsumingTopSortColumns(const IOperator* op, TExprContext& ctx, const TInfoUnitRegistry* registry = nullptr) {
     TSubstitutions copies;
     const IOperator* current = op;
 
@@ -400,7 +405,8 @@ TVector<TString> FindConsumingTopSortColumns(const IOperator* op, TExprContext& 
             if (order.Ascending != ascending || order.NullsFirst != ascending) {
                 return {};
             }
-            sortColumns.push_back(TString(ctx.GetIndexAsString(Substitute(id, copies))));
+            const auto source = Substitute(id, copies);
+            sortColumns.push_back(registry ? registry->Get(source).GetColumnName() : TString(ctx.GetIndexAsString(source)));
         }
         return sortColumns;
     }
@@ -583,7 +589,6 @@ TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, 
         std::optional<TCondition> Equal, Lower, Upper;
     };
     THashMap<TString, TConditions> keys;
-    for (const auto& key : table.KeyColumnNames) keys.emplace(key, TConditions{});
     const auto terms = predicate.SplitConjunct();
     for (size_t i = 0; i < terms.size(); ++i) {
         const auto id = StripNativeOptionalLift(*arena, terms[i].GetNativeRoot());
@@ -609,57 +614,123 @@ TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, 
         // stripped here; integer literals alone may change width exactly.
         if (!keyType.IsIntegral() && !keyType.IsString() && keyType.Kind != K::Bool && keyType.Kind != K::Date &&
             keyType.Kind != K::Datetime && keyType.Kind != K::Timestamp && keyType.Kind != K::Interval) continue;
-        const auto it = keys.find(props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName());
-        if (it == keys.end()) continue;
         const auto bound = NativeBoundValue(*arena, value, keyType);
         if (!bound) continue;
-        auto& conditions = it->second;
+        auto& conditions = keys[props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName()];
         auto& slot = op == O::Equal ? conditions.Equal : (op == O::Greater || op == O::GreaterEqual ? conditions.Lower : conditions.Upper);
         if (!slot) slot = TCondition{i, *bound, keyType, op == O::Equal || op == O::GreaterEqual || op == O::LessEqual};
     }
-    TOpRead::TRangeInfo info;
-    info.KeyColumns = table.KeyColumnNames;
-    info.MainTable = table.Name;
-    info.ExpectedMaxRanges = 1;
-    info.NativeRange.emplace();
-    auto& range = *info.NativeRange;
-    THashSet<size_t> consumed;
-    const auto append = [&](TOpRead::TKeyBound& bound, const TCondition& condition) {
-        bound.Values.push_back(TExpression::FromNative(arena, condition.Value, &ctx.ExprCtx, &props, read->Pos));
-        bound.Inclusive = condition.Inclusive;
-        consumed.insert(condition.Term);
+    // Inspect the predicate once, then build each candidate from its physical
+    // key order. Choosing an index does not require another typing/lowering pass.
+    struct TCandidate {
+        TOpRead::TRangeInfo Info;
+        THashSet<size_t> Consumed;
     };
-    for (const auto& key : table.KeyColumnNames) {
-        const auto& conditions = keys.at(key);
-        if (conditions.Equal) {
-            append(range.Lower, *conditions.Equal);
-            append(range.Upper, *conditions.Equal);
-            ++info.UsedPrefixLen;
-            ++info.PointPrefixLen;
-            continue;
-        }
-        if (!conditions.Lower && !conditions.Upper) break;
-        if (conditions.Lower) append(range.Lower, *conditions.Lower);
-        if (conditions.Upper) {
-            append(range.Upper, *conditions.Upper);
-            // NULL sorts before every non-NULL storage value, but a SQL
-            // comparison never accepts it. An upper-only interval must exclude
-            // that NULL key, including all suffixes of a composite key.
-            if (!conditions.Lower && conditions.Upper->KeyType.Nullable) {
-                const auto null = arena->Literal(conditions.Upper->KeyType, {});
-                range.Lower.Values.push_back(TExpression::FromNative(arena, null, &ctx.ExprCtx, &props, read->Pos));
-                range.Lower.Inclusive = false;
+    const auto build = [&](const TKikimrTableMetadata& metadata) {
+        TCandidate result;
+        auto& info = result.Info;
+        info.KeyColumns = metadata.KeyColumnNames;
+        info.MainTable = table.Name;
+        info.ExpectedMaxRanges = 1;
+        info.NativeRange.emplace();
+        auto& range = *info.NativeRange;
+        const auto append = [&](TOpRead::TKeyBound& bound, const TCondition& condition) {
+            bound.Values.push_back(TExpression::FromNative(arena, condition.Value, &ctx.ExprCtx, &props, read->Pos));
+            bound.Inclusive = condition.Inclusive;
+            result.Consumed.insert(condition.Term);
+        };
+        for (const auto& key : metadata.KeyColumnNames) {
+            const auto found = keys.find(key);
+            if (found == keys.end()) break;
+            const auto& conditions = found->second;
+            if (conditions.Equal) {
+                append(range.Lower, *conditions.Equal);
+                append(range.Upper, *conditions.Equal);
+                ++info.UsedPrefixLen;
+                ++info.PointPrefixLen;
+                continue;
             }
+            if (!conditions.Lower && !conditions.Upper) break;
+            if (conditions.Lower) append(range.Lower, *conditions.Lower);
+            if (conditions.Upper) {
+                append(range.Upper, *conditions.Upper);
+                // Exclude SQL NULL from an upper-only interval, including all
+                // suffixes of a composite key.
+                if (!conditions.Lower && conditions.Upper->KeyType.Nullable) {
+                    const auto null = arena->Literal(conditions.Upper->KeyType, {});
+                    range.Lower.Values.push_back(TExpression::FromNative(arena, null, &ctx.ExprCtx, &props, read->Pos));
+                    range.Lower.Inclusive = false;
+                }
+            }
+            ++info.UsedPrefixLen;
+            break;
         }
-        ++info.UsedPrefixLen;
-        break;
+        return result;
+    };
+    const auto sortColumns = read->StorageType == NYql::EStorageType::RowStorage ?
+        FindConsumingTopSortColumns(input.Get(), ctx.ExprCtx, &props.InfoUnitRegistry) : TVector<TString>{};
+    const auto score = [&](const TCandidate& candidate, bool covering) {
+        const auto& info = candidate.Info;
+        return ScoreKeyOrder(info.PointPrefixLen, info.UsedPrefixLen, true, candidate.Consumed.size() == terms.size(),
+            info.KeyColumns.size(), sortColumns, info.KeyColumns, covering);
+    };
+    auto chosen = build(table);
+    auto bestScore = score(chosen, true);
+    TString bestName;
+    bool covering = false;
+    TIntrusivePtr<TKikimrTableMetadata> chosenIndex;
+    TVector<TString> filterColumns;
+    if (!ctx.KqpCtx.Config->IsAutoIndexSelectionDisabled() && !bestScore.PointCoversKey) {
+        filterColumns = FilterPhysicalColumns(*filter, *read, props);
+        for (const auto& index : table.Indexes) {
+            // Specialized text/vector indexes are not ordinary row-range sources.
+            if ((index.Type != TIndexDescription::EType::GlobalSync && index.Type != TIndexDescription::EType::GlobalSyncUnique) ||
+                index.State != TIndexDescription::EIndexState::Ready) continue;
+            const auto metadata = table.GetIndexMetadata(index.Name).first;
+            if (!metadata || IsUselessIndex(metadata->KeyColumnNames, table.KeyColumnNames) || !FindTable(ctx.KqpCtx, metadata->Name)) continue;
+            auto candidate = build(*metadata);
+            if (!candidate.Info.UsedPrefixLen) continue;
+            const bool candidateCovering = IsCovering(*read, *metadata, props.InfoUnitRegistry);
+            if (!candidateCovering && !std::all_of(filterColumns.begin(), filterColumns.end(),
+                    [&](const auto& column) { return metadata->Columns.contains(column); })) continue;
+            const auto candidateScore = score(candidate, candidateCovering);
+            if (!IsBetterCandidate(candidateScore, candidateCovering, index.Name, bestScore, covering, bestName)) continue;
+            chosen = std::move(candidate);
+            chosenIndex = metadata;
+            bestScore = candidateScore;
+            bestName = index.Name;
+            covering = candidateCovering;
+        }
     }
-    if (!info.UsedPrefixLen) return input;
-    auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->StorageType, read->TableCallable,
-        read->OlapProgram, read->Limit, std::move(info), read->OriginalPredicate ? read->OriginalPredicate : std::optional{predicate},
-        read->SortDir, read->Props, read->Pos);
+    if (!chosen.Info.UsedPrefixLen) return input;
     TVector<TExpression> remaining;
-    for (size_t i = 0; i < terms.size(); ++i) if (!consumed.contains(i)) remaining.push_back(terms[i]);
+    for (size_t i = 0; i < terms.size(); ++i) if (!chosen.Consumed.contains(i)) remaining.push_back(terms[i]);
+    const auto original = read->OriginalPredicate ? *read->OriginalPredicate : predicate;
+    if (chosenIndex && !covering) {
+        TUnorderedIUs columns;
+        THashMap<TString, TInfoUnitId> ids;
+        for (const auto& column : BuildIndexReadColumns(table.KeyColumnNames, filterColumns)) {
+            const auto id = props.InfoUnitRegistry.Add(TInfoUnit(read->Alias, column));
+            columns.Add(id);
+            ids.emplace(column, id);
+        }
+        TSubstitutions renames;
+        for (const auto id : predicate.GetRawInputIUs()) renames.Add(id, ids.at(props.InfoUnitRegistry.Get(id).GetColumnName()));
+        TIntrusivePtr<IOperator> indexRead = MakeIntrusive<TOpRead>(read->Alias, std::move(columns), GetStorageType(*chosenIndex),
+            BuildTableCallable(*chosenIndex, read->Pos, ctx.ExprCtx), nullptr, std::nullopt, std::move(chosen.Info),
+            predicate.ApplyRenames(renames), ESortDir::None, read->Props, read->Pos);
+        if (!remaining.empty()) indexRead = MakeIntrusive<TOpFilter>(indexRead, filter->Pos, filter->Props,
+            MakeConjunction(remaining).ApplyRenames(renames), true);
+        TOpTableLookup::TLookupKeys lookupKeys;
+        for (const auto& key : table.KeyColumnNames) lookupKeys.Append(ids.at(key), key);
+        auto lookup = MakeIntrusive<TOpTableLookup>(indexRead, read->Pos, read->TableCallable, read->GetColumns(), std::move(lookupKeys));
+        lookup->SourceRead = TOpTableLookup::TSourceRead{original, {}};
+        return lookup;
+    }
+    auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), chosenIndex ? GetStorageType(*chosenIndex) : read->StorageType,
+        chosenIndex ? BuildTableCallable(*chosenIndex, read->Pos, ctx.ExprCtx) : read->TableCallable,
+        read->OlapProgram, read->Limit, std::move(chosen.Info), original,
+        chosenIndex ? ESortDir::None : read->SortDir, read->Props, read->Pos);
     if (remaining.empty()) return newRead;
     return MakeIntrusive<TOpFilter>(newRead, filter->Pos, filter->Props, MakeConjunction(remaining), true);
 }
