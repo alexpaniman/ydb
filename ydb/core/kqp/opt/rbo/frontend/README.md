@@ -453,7 +453,8 @@ Native and legacy estimation do not promise identical plans. Tests check storage
 widths, key defaults, interval endpoints, NULLs, a 20,000-node shared DAG and
 agreement between ordinary and pushed filters without native-to-YQL lowering.
 The complete 430-test RBO suite passed, including unchanged populated execution
-of all 22 TPC-H and 41 TPC-DS queries across the three compiler paths.
+of all 22 TPC-H and then-covered 41 TPC-DS queries across the three compiler paths.
+Both benchmark fixtures subsequently passed with TPC-DS expanded to 44 queries.
 
 Native row- and column-table range extraction reads the typed DAG directly. Equality
 conjuncts pin a contiguous key prefix, optionally followed by one interval;
@@ -530,7 +531,7 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Forty-one TPC-DS queries also have populated native-required execution
+tables. Forty-four TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -717,8 +718,8 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Forty-one TPC-DS queries (Q8, Q12, Q16, Q17, Q20, Q21, Q22, Q23, Q24, Q25, Q27, Q28, Q29, Q32, Q36, Q37,
-Q38, Q39, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q78, Q82, Q86, Q87, Q88, Q89, Q90,
+Forty-four TPC-DS queries (Q8, Q12, Q16, Q17, Q20, Q21, Q22, Q23, Q24, Q25, Q27, Q28, Q29, Q32, Q36, Q37,
+Q38, Q39, Q40, Q41, Q42, Q47, Q51, Q52, Q53, Q54, Q55, Q57, Q62, Q63, Q66, Q70, Q78, Q82, Q86, Q87, Q88, Q89, Q90,
 Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
 identical result values, column names/types/order and successful CBO invariants.
@@ -739,6 +740,14 @@ filters have explicit expected results. Q25 includes a 399999.96 sum from
 Decimal(7,2) inputs, with Decimal(35,2) output; Q29 includes cancellation of large
 Int64 quantities. All 41 queries pass together through all three compiler paths
 with the previous 39 expectations unchanged, exact metadata/order and CBO checks.
+Q42, Q52 and Q55 each add seven ordered revenue groups. Distinct items share
+group keys, equal names have different IDs, and equal IDs have different names;
+NULL keys, all-NULL sums, negative/zero totals and tied sums remain distinct.
+December endpoints, excluded years/months and managers, and missing/NULL join
+keys have explicit outcomes. All 44 queries pass together through both existing
+compilers and native-required mode, preserving the previous 41 expectations,
+original SQL/schema/helpers/settings, exact metadata/order and CBO checks.
+This increment changes only the shared host fixture and this coverage record.
 Q28 checks all eighteen columns from its six cross-joined scalar aggregates.
 Expected means are 9.75, 57.12, 42.10, -16593.58, 83.50 and 16682.75, each retaining
 Decimal(7,2) optional metadata. Counts distinguish duplicate and NULL prices.

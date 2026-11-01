@@ -695,7 +695,9 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {180, "1998-01-01"}, {181, "1998-04-01"}, {182, "1998-07-01"}, {183, "1998-10-01"}, {184, "1999-01-01"},
             {190, "2000-03-01"}, {191, "2000-04-01"}, {192, "2000-05-01"}, {193, "2000-07-01"},
             {194, "2000-10-01"}, {195, "2000-11-01"}, {200, "1999-03-01"}, {201, "1999-04-01"},
-            {202, "1999-07-01"}, {203, "1999-08-01"}}) {
+            {202, "1999-07-01"}, {203, "1999-08-01"},
+            {210, "1998-12-01"}, {211, "1998-11-30"}, {212, "1999-12-01"},
+            {213, "2001-12-01"}, {214, "2001-11-30"}, {215, "2000-12-01"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -719,7 +721,10 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     auto optionalText = [](const char* text) { return text ? std::optional<std::string>{text} : std::nullopt; };
     TValueBuilder items;
     items.BeginList();
-    struct TItemDetails { const char* Product; const char* Manufacturer; const char* Color; const char* Units; const char* Size; };
+    struct TItemDetails {
+        const char* Product; const char* Manufacturer; const char* Color; const char* Units; const char* Size;
+        std::optional<i64> CategoryId = std::nullopt, BrandId = std::nullopt;
+    };
     auto appendItem = [&](i64 id, const char* price, std::optional<i64> manufacturer,
             const char* category, const char* itemClass, const char* brand = nullptr, std::optional<i64> manager = std::nullopt,
             TItemDetails details = {}) {
@@ -730,6 +735,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             .AddMember("i_product_name").OptionalUtf8(optionalText(details.Product)).AddMember("i_manufact").OptionalUtf8(optionalText(details.Manufacturer))
             .AddMember("i_color").OptionalUtf8(optionalText(details.Color)).AddMember("i_units").OptionalUtf8(optionalText(details.Units))
             .AddMember("i_size").OptionalUtf8(optionalText(details.Size))
+            .AddMember("i_category_id").OptionalInt64(details.CategoryId).AddMember("i_brand_id").OptionalInt64(details.BrandId)
             .AddMember("i_manufact_id").OptionalInt64(manufacturer).AddMember("i_current_price");
         decimal(items, price);
         items.EndStruct();
@@ -817,6 +823,22 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     appendItem(1403, nullptr, std::nullopt, nullptr, nullptr);
     for (i64 id = 1800; id <= 1808; ++id) appendItem(id, nullptr, std::nullopt, nullptr, nullptr);
     for (const i64 id : {1900, 1901, 1902, 2100, 2101, 2102, 2200, 2201, 2202}) appendItem(id, nullptr, std::nullopt, nullptr, nullptr);
+    // Q42/Q52/Q55: distinct items share group keys, IDs can share a name,
+    // and one ID can have different names. Both group-key components matter.
+    for (const i64 first : {2300, 2400}) {
+        const i64 manager = first == 2300 ? 1 : 36;
+        for (const auto& [offset, id, category, brand] :
+                std::initializer_list<std::tuple<i64, std::optional<i64>, const char*, const char*>>{
+                {0, 10, "Revenue A", "Same"}, {1, 10, "Revenue A", "Same"},
+                {2, 20, "Revenue A", "Same"}, {3, 10, "Revenue B", "Other"},
+                {4, 30, "Revenue Negative", "Negative"}, {5, 40, "Revenue Zero", "Zero"},
+                {6, 50, "Revenue Null", "AllNull"}, {7, std::nullopt, nullptr, nullptr},
+                {8, 60, "Revenue Excluded", "Excluded"}, {9, 61, "Revenue Excluded", "ExcludedNull"}}) {
+            appendItem(first + offset, nullptr, std::nullopt, category, nullptr, brand,
+                offset == 9 ? std::nullopt : std::optional<i64>{manager + (offset == 8)},
+                {nullptr, nullptr, nullptr, nullptr, nullptr, id, id});
+        }
+    }
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -1726,6 +1748,26 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         }
         load(table, rows);
     };
+    // Revenue queries use different manager/year predicates. Cover both ends
+    // of December, NULL/negative sums, sort ties, and rejected join/filter rows.
+    // Other fact measures and foreign keys remain NULL on these new rows.
+    for (const i64 first : {2300, 2400}) {
+        const bool recent = first == 2400;
+        const i64 firstDate = recent ? 213 : 210, lastDate = recent ? 64 : 91;
+        auto sale = [&](i64 item, std::optional<i64> date, const char* amount) {
+            store.push_back({item, order++, date, std::nullopt, nullptr, nullptr, amount});
+        };
+        for (const auto& [offset, amount] : std::initializer_list<std::pair<i64, const char*>>{
+                {0, "10.25"}, {0, "-2.50"}, {0, nullptr}, {1, "5.25"}, {2, "13"}, {3, "11"},
+                {4, "-4.50"}, {5, "1.25"}, {5, "-1.25"}, {6, nullptr}, {6, nullptr}, {7, "3"}})
+            sale(first + offset, offset % 2 ? lastDate : firstDate, amount);
+        for (const auto date : std::initializer_list<std::optional<i64>>{
+                recent ? 214 : 211, recent ? 215 : 212, recent ? 210 : 213, 4, 99999, std::nullopt})
+            sale(first, date, "999");
+        sale(first + 8, firstDate, "999"); // Wrong manager.
+        sale(first + 9, firstDate, "999"); // NULL manager.
+        sale(first + 99, firstDate, "999"); // Missing item.
+    }
     loadSales("catalog_sales", "cs_", "cs_order_number", catalog);
     loadSales("store_sales", "ss_", "ss_ticket_number", store);
     loadSales("web_sales", "ws_", "ws_order_number", web);
@@ -1754,7 +1796,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}, {17, 3}, {25, 4}, {29, 4}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}, {17, 3}, {25, 4}, {29, 4}, {42, 7}, {52, 7}, {55, 7}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1768,7 +1810,31 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 25 || query == 29) {
+        if (query == 42 || query == 52 || query == 55) {
+            const bool category = query == 42;
+            const char* idName = category ? "item.i_category_id" : "brand_id";
+            const char* textName = category ? "item.i_category" : "brand";
+            const char* sumName = category ? "column3" : "ext_price";
+            TVector<std::pair<TString, TString>> columns;
+            if (query != 55) columns.emplace_back("dt.d_year", "Int64?");
+            columns.emplace_back(idName, "Int64?");
+            columns.emplace_back(textName, "Utf8?");
+            columns.emplace_back(sumName, TTypeBuilder().BeginOptional().Decimal({35, 2}).EndOptional().Build().ToString());
+            UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(result.GetResultSet(0)).Columns, columns);
+            for (const auto& [id, categoryName, brandName, amount] :
+                    std::initializer_list<std::tuple<std::optional<i64>, const char*, const char*, const char*>>{
+                    {10, "Revenue A", "Same", "13"}, {20, "Revenue A", "Same", "13"},
+                    {10, "Revenue B", "Other", "11"}, {std::nullopt, nullptr, nullptr, "3"},
+                    {40, "Revenue Zero", "Zero", "0"}, {30, "Revenue Negative", "Negative", "-4.5"},
+                    {50, "Revenue Null", "AllNull", nullptr}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                if (query != 55) UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("dt.d_year").GetOptionalInt64().value(), 1998);
+                UNIT_ASSERT(values.ColumnParser(idName).GetOptionalInt64() == id);
+                UNIT_ASSERT(values.ColumnParser(textName).GetOptionalUtf8() == optionalText(category ? categoryName : brandName));
+                assertDecimal(sumName, optionalText(amount));
+            }
+            UNIT_ASSERT(!values.TryNextRow());
+        } else if (query == 25 || query == 29) {
             const bool profits = query == 25;
             const i64 firstItem = profits ? 2100 : 2200;
             const char* profitValues[4][3]{{"-3.75", "4.5", "7.5"}, {"15", "3", "2.5"},
@@ -4601,9 +4667,9 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
     }
 
     Y_UNIT_TEST(TpcdsReadQueriesMatchLegacyOnPopulatedColumnTables) {
-        const auto native = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED, true);
         const auto legacy = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, false);
         const auto rbo = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, true);
+        const auto native = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED, true);
         UNIT_ASSERT_VALUES_EQUAL(rbo.size(), legacy.size());
         UNIT_ASSERT_VALUES_EQUAL(native.size(), legacy.size());
         for (std::size_t i = 0; i < legacy.size(); ++i) {
