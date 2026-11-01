@@ -449,7 +449,7 @@ Native and legacy estimation do not promise identical plans. Tests check storage
 widths, key defaults, interval endpoints, NULLs, a 20,000-node shared DAG and
 agreement between ordinary and pushed filters without native-to-YQL lowering.
 The complete 424-test RBO suite passed, including unchanged populated execution
-of all 22 TPC-H and 38 TPC-DS queries across the three compiler paths.
+of all 22 TPC-H and 41 TPC-DS queries across the three compiler paths.
 
 **Plan-quality limitation:** native range extraction and OLAP projection pushdown
 are still missing. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
@@ -493,7 +493,7 @@ and generated modes currently agree on these frontend routing counts:
 There are no hard errors in this probe. Acceptance here means parsing, binding
 and profile validation, not RBO optimization or execution. All 22 TPC-H
 queries separately have native-required execution parity on populated column
-tables. Thirty-nine TPC-DS queries also have populated native-required execution
+tables. Forty-one TPC-DS queries also have populated native-required execution
 checks (listed below); the other accepted TPC-DS and ClickBench queries still need
 that validation. The report preserves
 unsupported diagnostics per query, including unavailable statistical aggregates.
@@ -672,7 +672,7 @@ ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
 syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
 queries were rerun successfully. No existing frontend or backend was fixed.
 
-Thirty-nine TPC-DS queries (Q8, Q12, Q16, Q17, Q20, Q21, Q22, Q23, Q24, Q27, Q28, Q32, Q36, Q37,
+Forty-one TPC-DS queries (Q8, Q12, Q16, Q17, Q20, Q21, Q22, Q23, Q24, Q25, Q27, Q28, Q29, Q32, Q36, Q37,
 Q38, Q39, Q40, Q41, Q47, Q51, Q53, Q54, Q57, Q62, Q63, Q66, Q70, Q78, Q82, Q86, Q87, Q88, Q89, Q90,
 Q92, Q94, Q95, Q98 and Q99) pass populated execution
 against explicit expected values and the existing frontend plus new RBO, with
@@ -686,6 +686,14 @@ NaN from division by a zero mean. Counts, values and result metadata/order
 match both existing compilers. All 39 queries pass together with the previous
 38 expectations unchanged and successful CBO checks; the original SQL, schema,
 helpers and settings are preserved.
+Q25 and Q29 each check four ordered groups through the same three-fact join,
+with their different original date predicates and Decimal/integer sums. Catalog
+fanout, equal store names on distinct IDs, NULL group attributes, all-NULL
+measures, negative and zero totals, missing/mismatched keys, and all three date
+filters have explicit expected results. Q25 includes a 399999.96 sum from
+Decimal(7,2) inputs, with Decimal(35,2) output; Q29 includes cancellation of large
+Int64 quantities. All 41 queries pass together through all three compiler paths
+with the previous 39 expectations unchanged, exact metadata/order and CBO checks.
 Q28 checks all eighteen columns from its six cross-joined scalar aggregates.
 Expected means are 9.75, 57.12, 42.10, -16593.58, 83.50 and 16682.75, each retaining
 Decimal(7,2) optional metadata. Counts distinguish duplicate and NULL prices.

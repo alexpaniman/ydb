@@ -692,7 +692,10 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {108, "2002-09-01"}, {109, "2002-10-01"}, {110, "2002-11-01"}, {111, "2002-12-01"},
             {170, "1998-04-01"}, {171, "1998-04-02"}, {172, "1998-04-03"}, {173, "1998-04-04"},
             {174, "1998-05-01"}, {175, "1998-05-02"}, {176, "1998-05-03"}, {177, "1998-05-04"},
-            {180, "1998-01-01"}, {181, "1998-04-01"}, {182, "1998-07-01"}, {183, "1998-10-01"}, {184, "1999-01-01"}}) {
+            {180, "1998-01-01"}, {181, "1998-04-01"}, {182, "1998-07-01"}, {183, "1998-10-01"}, {184, "1999-01-01"},
+            {190, "2000-03-01"}, {191, "2000-04-01"}, {192, "2000-05-01"}, {193, "2000-07-01"},
+            {194, "2000-10-01"}, {195, "2000-11-01"}, {200, "1999-03-01"}, {201, "1999-04-01"},
+            {202, "1999-07-01"}, {203, "1999-08-01"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -813,7 +816,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     appendItem(1402, "1", std::nullopt, nullptr, nullptr, nullptr, 7, {nullptr, nullptr, "red", "Each", "Small"});
     appendItem(1403, nullptr, std::nullopt, nullptr, nullptr);
     for (i64 id = 1800; id <= 1808; ++id) appendItem(id, nullptr, std::nullopt, nullptr, nullptr);
-    for (const i64 id : {1900, 1901, 1902}) appendItem(id, nullptr, std::nullopt, nullptr, nullptr);
+    for (const i64 id : {1900, 1901, 1902, 2100, 2101, 2102, 2200, 2201, 2202}) appendItem(id, nullptr, std::nullopt, nullptr, nullptr);
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -1391,10 +1394,12 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     // Unicode equality, all join keys and NULLs are exercised before grouping.
     TValueBuilder storeReturns; storeReturns.BeginList();
     auto returnedSale = [&](i64 item, i64 ticket, std::optional<i64> quantity = std::nullopt,
-            std::optional<i64> customer = std::nullopt, std::optional<i64> date = std::nullopt) {
+            std::optional<i64> customer = std::nullopt, std::optional<i64> date = std::nullopt, const char* loss = nullptr) {
         storeReturns.AddListItem().BeginStruct().AddMember("sr_item_sk").Int64(item).AddMember("sr_ticket_number").Int64(ticket)
             .AddMember("sr_return_quantity").OptionalInt64(quantity).AddMember("sr_customer_sk").OptionalInt64(customer)
-            .AddMember("sr_returned_date_sk").OptionalInt64(date).EndStruct();
+            .AddMember("sr_returned_date_sk").OptionalInt64(date).AddMember("sr_net_loss");
+        decimal(storeReturns, loss);
+        storeReturns.EndStruct();
     };
     auto caseSale = [&](std::optional<i64> buyer, i64 item, const char* price, std::optional<i64> shop = 140, bool returned = true) {
         const auto ticket = order++;
@@ -1457,7 +1462,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     // Q17: store/return tickets join to two catalog rows. The ten joined
     // quantities have exact means 1/2/5 and sample deviations 2/4/0.
     // Separate groups cover singleton NaNs, all-NULL measures and zero means.
-    auto quarterStoreSale = [&](i64 item, std::optional<i64> quantity, std::optional<i64> buyer = 2000,
+    auto joinedStoreSale = [&](i64 item, std::optional<i64> quantity, std::optional<i64> buyer = 2000,
             std::optional<i64> date = 180, std::optional<i64> shop = 1) {
         const auto ticket = order++;
         TSale sale{item, ticket, date, std::nullopt, nullptr, nullptr};
@@ -1465,7 +1470,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         store.push_back(sale);
         return ticket;
     };
-    auto quarterCatalogSale = [&](i64 item, std::optional<i64> quantity, std::optional<i64> date,
+    auto joinedCatalogSale = [&](i64 item, std::optional<i64> quantity, std::optional<i64> date,
             std::optional<i64> buyer = 2000) {
         TSale sale{item, order++, date, std::nullopt, nullptr, nullptr};
         sale.Quantity = quantity; sale.Customer = buyer;
@@ -1473,43 +1478,111 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     };
     i64 quarter = 0;
     for (const i64 quantity : {-2, 1, 1, 1, 4}) {
-        const auto ticket = quarterStoreSale(1900, quantity);
+        const auto ticket = joinedStoreSale(1900, quantity);
         returnedSale(1900, ticket, quantity * 2, 2000, 180 + quarter++ % 3);
     }
-    quarterCatalogSale(1900, 5, 181); quarterCatalogSale(1900, 5, 182);
-    const auto singleton = quarterStoreSale(1901, 7, 2000, 180, 90);
+    joinedCatalogSale(1900, 5, 181); joinedCatalogSale(1900, 5, 182);
+    const auto singleton = joinedStoreSale(1901, 7, 2000, 180, 90);
     returnedSale(1901, singleton, std::nullopt, 2000, 180);
-    quarterCatalogSale(1901, 9, 180);
+    joinedCatalogSale(1901, 9, 180);
     for (const i64 quantity : {1, 3, 5}) {
-        const auto ticket = quarterStoreSale(1902, std::nullopt);
+        const auto ticket = joinedStoreSale(1902, std::nullopt);
         returnedSale(1902, ticket, quantity, 2000, 180 + quantity / 2);
     }
-    quarterCatalogSale(1902, 0, 181);
+    joinedCatalogSale(1902, 0, 181);
     for (const auto date : std::initializer_list<std::optional<i64>>{181, 182, 183, 184, 90, 99999, std::nullopt}) {
-        const auto ticket = quarterStoreSale(1900, 999, 2000, date);
+        const auto ticket = joinedStoreSale(1900, 999, 2000, date);
         returnedSale(1900, ticket, 999, 2000, 180);
     }
     for (const auto date : std::initializer_list<std::optional<i64>>{183, 184, 90, 99999, std::nullopt}) {
-        const auto ticket = quarterStoreSale(1900, 999);
+        const auto ticket = joinedStoreSale(1900, 999);
         returnedSale(1900, ticket, 999, 2000, date);
-        quarterCatalogSale(1900, 999, date);
+        joinedCatalogSale(1900, 999, date);
     }
-    quarterStoreSale(1900, 999); // No matching return ticket.
-    const auto wrongCustomer = quarterStoreSale(1900, 999);
+    joinedStoreSale(1900, 999); // No matching return ticket.
+    const auto wrongCustomer = joinedStoreSale(1900, 999);
     returnedSale(1900, wrongCustomer, 999, 2001, 180);
-    quarterCatalogSale(1900, 999, 180, 2001);
-    const auto wrongItem = quarterStoreSale(1900, 999);
+    joinedCatalogSale(1900, 999, 180, 2001);
+    const auto wrongItem = joinedStoreSale(1900, 999);
     returnedSale(39999, wrongItem, 999, 2000, 180);
-    quarterCatalogSale(39999, 999, 180);
-    const auto missingItem = quarterStoreSale(39999, 999);
+    joinedCatalogSale(39999, 999, 180);
+    const auto missingItem = joinedStoreSale(39999, 999);
     returnedSale(39999, missingItem, 999, 2000, 180);
     for (const auto shop : std::initializer_list<std::optional<i64>>{99999, std::nullopt}) {
-        const auto ticket = quarterStoreSale(1900, 999, 2000, 180, shop);
+        const auto ticket = joinedStoreSale(1900, 999, 2000, 180, shop);
         returnedSale(1900, ticket, 999, 2000, 180);
     }
-    const auto nullCustomer = quarterStoreSale(1900, 999, std::nullopt);
+    const auto nullCustomer = joinedStoreSale(1900, 999, std::nullopt);
     returnedSale(1900, nullCustomer, 999, std::nullopt, 180);
-    quarterCatalogSale(1900, 999, 180, std::nullopt);
+    joinedCatalogSale(1900, 999, 180, std::nullopt);
+    // Q25/Q29 share the three-fact join but use different date bounds and
+    // Decimal profits / integer quantities. Every catalog row multiplies the
+    // matching tickets; equal store names must not collapse distinct IDs.
+    for (const bool profits : {true, false}) {
+        const i64 item = profits ? 2100 : 2200, buyer = profits ? 21000 : 22000;
+        const i64 soldDate = profits ? 191 : 201, lastReturn = profits ? 194 : 202;
+        auto sale = [&](i64 product, std::optional<i64> quantity, const char* profit,
+                std::optional<i64> date, std::optional<i64> shop = 1, std::optional<i64> customer = std::nullopt) {
+            const auto ticket = joinedStoreSale(product, profits ? std::nullopt : quantity,
+                customer, date, shop);
+            store.back().NetProfit = profits ? profit : nullptr;
+            return ticket;
+        };
+        auto catalogSale = [&](i64 product, std::optional<i64> quantity, const char* profit,
+                std::optional<i64> date, std::optional<i64> customer) {
+            joinedCatalogSale(product, profits ? std::nullopt : quantity, date, customer);
+            catalog.back().NetProfit = profits ? profit : nullptr;
+        };
+        auto pair = [&](i64 product, std::optional<i64> quantity, std::optional<i64> returned,
+                const char* profit, const char* loss, i64 returnedDate, i64 shop = 1) {
+            const auto ticket = sale(product, quantity, profit, soldDate, shop, buyer);
+            returnedSale(product, ticket, profits ? std::nullopt : returned, buyer, returnedDate, profits ? loss : nullptr);
+        };
+        pair(item, 1, 2, "1.25", "2", soldDate);
+        pair(item, 3, -1, "-2.50", "-0.50", lastReturn);
+        pair(item, std::nullopt, std::nullopt, nullptr, nullptr, soldDate);
+        pair(item, 7, 5, "5", "1", lastReturn, 2);
+        catalogSale(item, 4, "3.50", profits ? 191 : 73, buyer);
+        catalogSale(item, -1, "-1", profits ? 193 : 70, buyer);
+        catalogSale(item, std::nullopt, nullptr, profits ? 194 : 64, buyer);
+        for (int i = 0; i < 2; ++i) pair(item + 1, std::nullopt, std::nullopt, nullptr, nullptr, soldDate, 4);
+        catalogSale(item + 1, std::nullopt, nullptr, soldDate, buyer);
+        pair(item + 2, 9000000000000LL, 1, "99999.99", "0.01", soldDate);
+        pair(item + 2, -9000000000001LL, -1, "99999.99", "-0.01", lastReturn);
+        catalogSale(item + 2, std::nullopt, nullptr, soldDate, buyer);
+        catalogSale(item + 2, 0, "0.01", profits ? 194 : 64, buyer);
+        for (const auto date : std::initializer_list<std::optional<i64>>{
+                profits ? 190 : 200, profits ? 192 : 202, profits ? 195 : 203,
+                profits ? 201 : 191, 62, 90, 4, 99999, std::nullopt}) {
+            const auto ticket = sale(item, 999, "999", date, 1, buyer);
+            returnedSale(item, ticket, 999, buyer, soldDate, "999");
+        }
+        for (const auto date : std::initializer_list<std::optional<i64>>{
+                profits ? 190 : 200, profits ? 195 : 203, profits ? 201 : 191, 62, 90, 4, 99999, std::nullopt}) {
+            const auto ticket = sale(item, 999, "999", soldDate, 1, buyer);
+            returnedSale(item, ticket, 999, buyer, date, "999");
+        }
+        for (const auto date : (profits ? TVector<std::optional<i64>>{190, 195, 201, 62, 90, 4, 99999, std::nullopt}
+                                       : TVector<std::optional<i64>>{90, 66, 4, 99999, std::nullopt}))
+            catalogSale(item, 999, "999", date, buyer);
+        const auto wrongTicket = sale(item, 999, "999", soldDate, 1, buyer);
+        returnedSale(item, wrongTicket + 1000000, 999, buyer, soldDate, "999");
+        const auto wrongCustomer = sale(item, 999, "999", soldDate, 1, buyer);
+        returnedSale(item, wrongCustomer, 999, buyer + 1, soldDate, "999");
+        catalogSale(item, 999, "999", soldDate, buyer + 1);
+        const auto wrongItem = sale(item, 999, "999", soldDate, 1, buyer);
+        returnedSale(39998, wrongItem, 999, buyer, soldDate, "999");
+        const auto missingItem = sale(39998, 999, "999", soldDate, 1, buyer);
+        returnedSale(39998, missingItem, 999, buyer, soldDate, "999");
+        catalogSale(39998, 999, "999", soldDate, buyer);
+        for (const auto shop : std::initializer_list<std::optional<i64>>{99999, std::nullopt}) {
+            const auto ticket = sale(item, 999, "999", soldDate, shop, buyer);
+            returnedSale(item, ticket, 999, buyer, soldDate, "999");
+        }
+        const auto nullCustomer = sale(item, 999, "999", soldDate);
+        returnedSale(item, nullCustomer, 999, std::nullopt, soldDate, "999");
+        catalogSale(item, 999, "999", soldDate, std::nullopt);
+    }
     load("store_returns", storeReturns);
     // Q66 divides each channel's aggregate before the outer sum. Round's
     // .01/2 + .01/2 is zero; dividing the combined .02 would produce .01.
@@ -1681,7 +1754,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}, {17, 3}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}, {17, 3}, {25, 4}, {29, 4}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1695,7 +1768,36 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 17) {
+        if (query == 25 || query == 29) {
+            const bool profits = query == 25;
+            const i64 firstItem = profits ? 2100 : 2200;
+            const char* profitValues[4][3]{{"-3.75", "4.5", "7.5"}, {"15", "3", "2.5"},
+                {nullptr, nullptr, nullptr}, {"399999.96", "0", "0.02"}};
+            const std::optional<i64> quantities[4][3]{{12, 3, 9}, {21, 15, 3}, {{}, {}, {}}, {-2, 0, 0}};
+            const TString measures[]{profits ? "store_sales_profit" : "store_sales_quantity",
+                profits ? "store_returns_loss" : "store_returns_quantity", profits ? "catalog_sales_profit" : "catalog_sales_quantity"};
+            TVector<std::pair<TString, TString>> columns{{"i_item_id", "Utf8"}, {"i_item_desc", "Utf8?"},
+                {"s_store_id", "Utf8"}, {"s_store_name", "Utf8?"}};
+            for (const auto& measure : measures) columns.emplace_back(measure,
+                profits ? TTypeBuilder().BeginOptional().Decimal({35, 2}).EndOptional().Build().ToString() : "Int64?");
+            UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(result.GetResultSet(0)).Columns, columns);
+            for (std::size_t row = 0; row < 4; ++row) {
+                UNIT_ASSERT(values.TryNextRow());
+                const auto item = firstItem + (row < 2 ? 0 : row - 1);
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_item_id").GetUtf8(), itemName(item));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_item_desc").GetOptionalUtf8().value(), "Description" + std::to_string(item));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("s_store_id").GetUtf8(), row == 1 ? "Store2" : row == 2 ? "Store4" : "Store1");
+                UNIT_ASSERT(values.ColumnParser("s_store_name").GetOptionalUtf8() == optionalText(row == 2 ? nullptr : "Store A"));
+                for (std::size_t channel = 0; channel < 3; ++channel) {
+                    if (profits) {
+                        const auto actual = values.ColumnParser(measures[channel]).GetOptionalDecimal();
+                        UNIT_ASSERT_VALUES_EQUAL(bool(actual), profitValues[row][channel] != nullptr);
+                        if (actual) UNIT_ASSERT_VALUES_EQUAL(actual->ToString(), TDecimalValue(profitValues[row][channel], 35, 2).ToString());
+                    } else UNIT_ASSERT_C(values.ColumnParser(measures[channel]).GetOptionalInt64() == quantities[row][channel], measures[channel]);
+                }
+            }
+            UNIT_ASSERT(!values.TryNextRow());
+        } else if (query == 17) {
             struct TMeasures {
                 ui64 Count;
                 std::optional<double> Mean, Deviation, Coefficient;
