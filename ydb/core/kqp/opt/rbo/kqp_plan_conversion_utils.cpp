@@ -181,7 +181,7 @@ std::pair<TIntrusivePtr<IOperator>, PlanConverter::TBindingScope> PlanConverter:
 TExpression PlanConverter::ConvertExpression(TExprNode::TPtr lambda, const TExpression::TBindings& bindings, bool allowSubqueries) {
     // Scalar Count/Offset nodes use the same one-row import boundary.
     if (!lambda->IsLambda()) {
-        lambda = TExpression(lambda, &Ctx).GetLambda();
+        lambda = TExpression(lambda, &Ctx).GetLegacyLambda();
     }
     Y_ENSURE(lambda->Head().ChildrenSize() == 1);
     TNodeOnNodeOwnedMap replacements;

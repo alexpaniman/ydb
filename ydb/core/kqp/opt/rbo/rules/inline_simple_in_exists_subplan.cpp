@@ -53,7 +53,7 @@ TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(c
             }
             if (arena[root].Op == NFrontend::EOpcode::Column) binding = arena[root].ColumnId;
         } else {
-            auto maybeSubplan = conjunct.GetExpressionBody();
+            auto maybeSubplan = conjunct.GetLegacyBody();
             if (TCoNot::Match(maybeSubplan.Get())) {
                 maybeSubplan = maybeSubplan->ChildPtr(0);
                 conjunctNegated = true;

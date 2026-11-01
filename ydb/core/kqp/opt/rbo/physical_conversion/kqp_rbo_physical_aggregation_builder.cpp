@@ -1464,14 +1464,11 @@ THashMap<TString, const TTypeAnnotationNode*> TPhysicalAggregationBuilder::GetIn
                 auto& map = CastOperator<TOpMap>(*branch);
                 if (const auto* element = map.FindOutputElement(id)) {
                     const auto& expression = element->GetExpression();
-                    auto value = expression.GetExpressionBody();
-                    if (value->IsCallable("Just")) {
-                        value = value->HeadPtr();
-                    }
-                    if (!value->IsCallable("Member") || &value->Head() != &expression.GetLambda()->Head().Head()) {
+                    const auto source = expression.GetColumnId(/*allowOptionalLift=*/true);
+                    if (!source) {
                         continue; // NULL padding, not a partial-state binding.
                     }
-                    id = GetMemberId(*value);
+                    id = *source;
                 }
                 branch = map.GetInput().Get();
             }

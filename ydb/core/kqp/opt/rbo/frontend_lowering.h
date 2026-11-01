@@ -7,6 +7,7 @@
 namespace NKikimr::NKqp {
 
 class TOlapProgram;
+class TExpression;
 
 // The execution compatibility boundary. The native frontend and its type
 // checker never include this header or depend on YQL. Each native operation
@@ -16,6 +17,11 @@ const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::T
 NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena = nullptr);
 NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena,
     NFrontend::TExprId root, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
+
+// Physical builders explicitly cross the scalar execution boundary here.
+// Native lowering produces a fresh backend graph owned by ctx; neither that
+// graph nor its mutable backend annotations are retained in TExpression.
+NYql::TExprNode::TPtr LowerExpressionLambda(const TExpression& expression, NYql::TExprContext& ctx);
 
 // Capability inspection reads only native nodes. Storage opcodes are emitted
 // at physical conversion, never during native optimization or type binding.

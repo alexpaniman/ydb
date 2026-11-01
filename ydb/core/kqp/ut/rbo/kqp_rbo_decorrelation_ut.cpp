@@ -199,12 +199,12 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
         UNIT_ASSERT_VALUES_EQUAL(join.JoinKind, "Inner");
         UNIT_ASSERT_VALUES_EQUAL(join.JoinKeys.Items().size(), 1);
         UNIT_ASSERT_VALUES_EQUAL(join.JoinFilters.size(), 1);
-        UNIT_ASSERT(join.JoinFilters.front().GetExpressionBody()->IsCallable(">"));
+        UNIT_ASSERT(join.JoinFilters.front().GetLegacyBody()->IsCallable(">"));
         for (auto* side : join.GetChildren()) {
             const auto& map = CastOperator<TOpMap>(*side);
             UNIT_ASSERT_VALUES_EQUAL(map.GetMapElements().Keys().Size(), 1);
             const auto& entry = *map.GetMapElements().Items().begin();
-            UNIT_ASSERT(entry.second.GetExpression().GetExpressionBody()->IsCallable("StablePickle"));
+            UNIT_ASSERT(entry.second.GetExpression().GetLegacyBody()->IsCallable("StablePickle"));
         }
         UNIT_ASSERT(!HasFreeCorrelation(plan.Root.GetInput(), {parameter}));
     }
@@ -228,7 +228,7 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
         for (const auto& item : IterateSubtree(&plan.Root)) {
             if (item.Current->Kind == EOperator::Map) {
                 for (const auto& [id, definition] : CastOperator<TOpMap>(*item.Current).GetMapElements().Items()) {
-                    if (definition.GetExpression().GetExpressionBody()->IsCallable("Coalesce")) {
+                    if (definition.GetExpression().GetLegacyBody()->IsCallable("Coalesce")) {
                         restored.Add(id);
                     }
                 }
@@ -285,7 +285,7 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
                 UNIT_ASSERT_VALUES_EQUAL(plan.CountKind(EOperator::Join), 0);
                 UNIT_ASSERT_VALUES_EQUAL(plan.CountKind(EOperator::Replicate), 0);
                 auto& filter = CastOperator<TOpFilter>(*plan.Root.GetInput());
-                UNIT_ASSERT(filter.GetFilterExpression().GetExpressionBody()->IsCallable("Exists"));
+                UNIT_ASSERT(filter.GetFilterExpression().GetLegacyBody()->IsCallable("Exists"));
                 auto& bindings = CastOperator<TOpMap>(*filter.GetInput());
                 UNIT_ASSERT_VALUES_EQUAL(bindings.FindOutputElement(local)->GetColumnAccess(), value);
             }

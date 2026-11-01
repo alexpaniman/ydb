@@ -1,4 +1,5 @@
 #include "kqp_rbo_physical_op_builder.h"
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include "kqp_rbo_physical_convertion_utils.h"
 #include "kqp_rbo_physical_sort_builder.h"
 #include "kqp_rbo_physical_window_builder.h"
@@ -194,7 +195,7 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
                     // clang-format off
                     currentStageBody = Build<TCoSkip>(ctx, op->Pos)
                         .Input(currentStageBody)
-                        .Count(limit.GetOffsetCond()->GetExpressionBody())
+                        .Count(LowerExpressionLambda(*limit.GetOffsetCond(), ctx)->TailPtr())
                     .Done().Ptr();
                     // clang-format on
                 }
@@ -202,7 +203,7 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
                 // clang-format off
                 currentStageBody = Build<TCoTake>(ctx, op->Pos)
                     .Input(currentStageBody)
-                    .Count(limit.LimitCond.GetExpressionBody())
+                    .Count(LowerExpressionLambda(limit.LimitCond, ctx)->TailPtr())
                 .Done().Ptr();
                 // clang-format on
 

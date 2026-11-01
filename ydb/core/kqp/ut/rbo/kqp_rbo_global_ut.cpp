@@ -476,7 +476,7 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
         UNIT_ASSERT(map.GetInput()->Kind == EOperator::Source);
         UNIT_ASSERT(map.GetMapElements().Keys() == TUnorderedIUs{z});
         UNIT_ASSERT(map.GetUniqueRawInputIUs() == (TUnorderedIUs{a, b}));
-        const auto body = map.GetMapElements().Find(z)->GetExpression().GetExpressionBody();
+        const auto body = map.GetMapElements().Find(z)->GetExpression().GetLegacyBody();
         UNIT_ASSERT_VALUES_EQUAL(body->Head().Tail().Content(), f.ExprCtx.GetIndexAsString(b));
         UNIT_ASSERT_VALUES_EQUAL(body->Tail().Tail().Content(), f.ExprCtx.GetIndexAsString(a));
     }

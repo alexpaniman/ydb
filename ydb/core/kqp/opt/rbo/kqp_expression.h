@@ -64,6 +64,9 @@ class TExpression {
 
     // Check if the expression is just getting a single column from a tuple
     bool IsColumnAccess() const;
+    // A direct column, optionally wrapped in a lossless nullable lift. This
+    // inspects the scalar representation without generating backend nodes.
+    std::optional<TInfoUnitId> GetColumnId(bool allowOptionalLift = false) const;
     std::optional<ui64> GetUint64Literal() const;
 
     // Check if the expression is a just a single callable on top of a column expression
@@ -78,11 +81,10 @@ class TExpression {
     // Check if this is a potential comparison of a column with a constant
     bool MaybeConstantCondition() const;
 
-    // Return the full lambda ExprNode of this expression
-    TExprNode::TPtr GetLambda() const;
-
-    // Return just the body part of the lambda
-    TExprNode::TPtr GetExpressionBody() const;
+    // Legacy-only inspection during migration. Native expressions cannot be
+    // converted through these accessors; physical builders use frontend_lowering.
+    TExprNode::TPtr GetLegacyLambda() const;
+    TExprNode::TPtr GetLegacyBody() const;
 
     // Return all column references used in this expression
     // Optionally include columns that bind to subplan results and external columns inside correlated subqueries
@@ -123,7 +125,6 @@ class TExpression {
     std::shared_ptr<NFrontend::TExpressionArena> NativeArena_;
     NFrontend::TExprId NativeRoot_ = 0;
     TPositionHandle NativePos_;
-    mutable TExprNode::TPtr NativeLambda_;
     mutable bool NativeIUsComputed_ = false;
 
     bool MaybeEquiJoinConditionInternal(bool includeExpressions) const;

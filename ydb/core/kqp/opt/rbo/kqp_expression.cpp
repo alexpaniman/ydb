@@ -597,7 +597,7 @@ TVector<TExpression> TExpression::SplitConjunct() const {
     Y_ENSURE(Ctx, "Expression context is null");
 
     TExprNode::TListType terms;
-    GetAndTerms(GetExpressionBody(), terms);
+    GetAndTerms(GetLegacyBody(), terms);
 
     TVector<TExpression> conjuncts;
     conjuncts.reserve(terms.size());
@@ -616,7 +616,7 @@ TVector<TExpression> TExpression::SplitDisjunct() const {
     Y_ENSURE(Ctx, "Expression context is null");
 
     TExprNode::TListType terms;
-    GetOrTerms(GetExpressionBody(), terms);
+    GetOrTerms(GetLegacyBody(), terms);
 
     TVector<TExpression> disjuncts;
     disjuncts.reserve(terms.size());
@@ -642,8 +642,20 @@ bool TExpression::IsColumnAccess() const {
     if (IsNative()) {
         return (*NativeArena_)[NativeRoot_].Op == TNativeOp::Column;
     }
-    Y_ENSURE(Node->IsLambda(), "Expression node is not a lambda");
-    return IsRowMember(*Node->Child(1), Node->Head().Head());
+    const auto lambda = GetLegacyLambda();
+    return IsRowMember(lambda->Tail(), lambda->Head().Head());
+}
+
+std::optional<TInfoUnitId> TExpression::GetColumnId(bool allowOptionalLift) const {
+    if (IsNative()) {
+        const auto root = allowOptionalLift ? UnwrapNativeOptionalLift(*NativeArena_, NativeRoot_) : NativeRoot_;
+        const auto& node = (*NativeArena_)[root];
+        return node.Op == TNativeOp::Column ? std::optional{node.ColumnId} : std::nullopt;
+    }
+    const auto lambda = GetLegacyLambda();
+    auto body = lambda->TailPtr();
+    if (allowOptionalLift && body->IsCallable("Just")) body = body->HeadPtr();
+    return IsRowMember(*body, lambda->Head().Head()) ? std::optional{GetMemberId(*body)} : std::nullopt;
 }
 
  bool TExpression::IsSingleCallable(const THashSet<TString>& allowedCallables) const {
@@ -678,7 +690,7 @@ bool TExpression::MaybeEquiJoinConditionInternal(bool includeExpressions) const 
             NativePart(*this, UnwrapNativeOptionalLift(*NativeArena_, node.Arguments[0])).IsColumnAccess() &&
             NativePart(*this, UnwrapNativeOptionalLift(*NativeArena_, node.Arguments[1])).IsColumnAccess();
     }
-    auto body = GetExpressionBody();
+    auto body = GetLegacyBody();
     TExprNode::TPtr left;
     TExprNode::TPtr right;
     if (!TestAndExtractEqualityPredicate(body, left, right)) {
@@ -721,23 +733,14 @@ bool TExpression::MaybeConstantCondition() const {
     return false;
 }
 
-TExprNode::TPtr TExpression::GetLambda() const {
-    if (IsNative()) {
-        if (!NativeLambda_) {
-            NativeLambda_ = LowerNativeLambda(*NativeArena_, NativeRoot_, *Ctx, NativePos_);
-        }
-        return NativeLambda_;
-    }
-    Y_ENSURE(Node->IsLambda(), "Expression node is not a lambda");
+TExprNode::TPtr TExpression::GetLegacyLambda() const {
+    Y_ENSURE(!IsNative(), "Native expressions require explicit backend lowering");
+    Y_ENSURE(Node && Node->IsLambda(), "Expression node is not a lambda");
     return Node;
 }
 
-TExprNode::TPtr TExpression::GetExpressionBody() const {
-    if (IsNative()) {
-        return GetLambda()->TailPtr();
-    }
-    Y_ENSURE(Node->IsLambda(), "Expression node is not a lambda");
-    return Node->ChildPtr(1);
+TExprNode::TPtr TExpression::GetLegacyBody() const {
+    return GetLegacyLambda()->TailPtr();
 }
 
 const TUnorderedIUs& TExpression::GetInputIUs(bool includeSubplanVars, bool includeCorrelatedDeps) const {
@@ -797,7 +800,7 @@ const TUnorderedIUs& TExpression::GetRawInputIUs() const {
     if (RawInputIUsCacheKey != Node) {
         TUnorderedIUs ids;
         const auto& row = Node->Head().Head();
-        VisitExpr(GetExpressionBody(), [&](const TExprNode::TPtr& node) {
+        VisitExpr(GetLegacyBody(), [&](const TExprNode::TPtr& node) {
             if (IsRowMember(*node, row)) {
                 ids.Add(GetMemberId(*node));
                 return false;
@@ -830,7 +833,7 @@ TExpression TExpression::ApplyRenames(const TSubstitutions& substitutions) const
     Y_ENSURE(Node && Node->IsLambda() && Node->Head().ChildrenSize() == 1, "Expected a single-row lambda");
     const auto& row = Node->Head().Head();
     TNodeOnNodeOwnedMap replacements;
-    VisitExpr(GetExpressionBody(), [&](const TExprNode::TPtr& node) {
+    VisitExpr(GetLegacyBody(), [&](const TExprNode::TPtr& node) {
         if (!IsRowMember(*node, row)) {
             return true;
         }
@@ -867,7 +870,7 @@ std::optional<TExpression> TExpression::TryExtractCommonConjuncts() const {
     Y_ENSURE(Node->IsLambda(), "Expression node is not lambda");
     Y_ENSURE(Ctx, "Expression context is null");
 
-    auto newPredicate = FactorCommonExpressions(GetExpressionBody(), *Ctx);
+    auto newPredicate = FactorCommonExpressions(GetLegacyBody(), *Ctx);
     if (!newPredicate) {
         return std::nullopt;
     }
@@ -944,7 +947,7 @@ TEquiJoinCondition::TEquiJoinCondition(const TExpression& expr) : Expr(expr) {
         IncludesExpressions = !left.IsColumnAccess() || !right.IsColumnAccess();
         return;
     }
-    auto body = Expr.GetExpressionBody();
+    auto body = Expr.GetLegacyBody();
     TExprNode::TPtr left;
     TExprNode::TPtr right;
     if (!TestAndExtractEqualityPredicate(body, left, right)) {
@@ -978,7 +981,7 @@ bool TEquiJoinCondition::ExtractExpressions(TNodeOnNodeOwnedMap& replacements,
     if (!IncludesExpressions) {
         return false;
     }
-    auto body = Expr.GetExpressionBody();
+    auto body = Expr.GetLegacyBody();
     TExprNode::TPtr left;
     TExprNode::TPtr right;
     Y_ENSURE(TestAndExtractEqualityPredicate(body, left, right));
@@ -1087,7 +1090,7 @@ TExpression MakeConjunction(const TVector<TExpression>& vec, bool pgSyntax) {
     TVector<TExprNode::TPtr> conjuncts;
 
     for (auto & expr : vec) {
-        auto exprLambda = expr.GetExpressionBody();
+        auto exprLambda = expr.GetLegacyBody();
         conjuncts.push_back(ReplaceArg(exprLambda, lambda_arg, *ctx));
     }
 
@@ -1119,7 +1122,7 @@ TExpression MakeNegation(const TExpression& expr) {
 
     // clang-format off
     auto negation = Build<TCoNot>(*expr.Ctx, expr.Node->Pos())
-        .Value(expr.GetExpressionBody())
+        .Value(expr.GetLegacyBody())
         .Done().Ptr();
     // clang-format on
 
@@ -1172,7 +1175,7 @@ TExpression MakeBinaryPredicate(const TString& callable, const TExpression& left
     Y_ENSURE(ctx);
     Y_ENSURE(props);
 
-    auto lambda = ctx->NewCallable(pos, callable, {left.GetExpressionBody(), right.GetExpressionBody()});
+    auto lambda = ctx->NewCallable(pos, callable, {left.GetLegacyBody(), right.GetLegacyBody()});
     return TExpression(lambda, ctx, props);
 }
 
@@ -1197,7 +1200,7 @@ TExpression MakeUnaryCallable(const TString& callable, const TExpression& arg) {
     }
     Y_ENSURE(arg.Ctx);
 
-    auto node = arg.Ctx->NewCallable(arg.Node->Pos(), callable, {arg.GetExpressionBody()});
+    auto node = arg.Ctx->NewCallable(arg.Node->Pos(), callable, {arg.GetLegacyBody()});
     return TExpression(node, arg.Ctx, arg.PlanProps);
 }
 
@@ -1228,7 +1231,7 @@ TExpression MakeEnsure(const TExpression& value, const TExpression& predicate, c
 
     auto pos = value.Node->Pos();
     auto messageNode = ctx->NewCallable(pos, "String", {ctx->NewAtom(pos, message)});
-    auto ensure = ctx->NewCallable(pos, "Ensure", {value.GetExpressionBody(), predicate.GetExpressionBody(), messageNode});
+    auto ensure = ctx->NewCallable(pos, "Ensure", {value.GetLegacyBody(), predicate.GetLegacyBody(), messageNode});
     return TExpression(ensure, ctx, props);
 }
 

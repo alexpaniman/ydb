@@ -102,6 +102,75 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(NativeScalarInspectionAndRebindingDoNotGenerateBackendNodes) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto source = f.Id("source"), renamed = f.Id("renamed");
+        auto arena = std::make_shared<TExpressionArena>();
+        const auto expression = [&](TExprId root) {
+            return TExpression::FromNative(arena, root, &f.ExprCtx, &f.Props);
+        };
+        const auto allocated = f.ExprCtx.NodeAllocationCounter;
+        const TType integer{ETypeKind::Int32};
+        const auto column = arena->Column(source, integer);
+        const auto direct = expression(column);
+        const auto lifted = expression(arena->Convert(column, integer.Optional()));
+        UNIT_ASSERT_VALUES_EQUAL(direct.GetColumnId().value(), source);
+        UNIT_ASSERT(!lifted.GetColumnId());
+        UNIT_ASSERT_VALUES_EQUAL(lifted.GetColumnId(true).value(), source);
+        UNIT_ASSERT(!expression(arena->Convert(column, {ETypeKind::Int64, true})).GetColumnId(true));
+        UNIT_ASSERT(!expression(arena->Literal(integer.Optional(), {})).GetColumnId(true));
+        UNIT_ASSERT(!expression(arena->Parameter("p", integer)).GetColumnId(true));
+        const TType items[]{integer, {ETypeKind::Uint64}};
+        const auto state = arena->TupleType(items);
+        const auto stateColumn = arena->Column(source, state);
+        UNIT_ASSERT_VALUES_EQUAL(expression(arena->Convert(stateColumn, state.Optional())).GetColumnId(true).value(), source);
+
+        const auto rebound = lifted.ApplyRenames(TSubstitutions{{source, renamed}});
+        UNIT_ASSERT_VALUES_EQUAL(rebound.GetColumnId(true).value(), renamed);
+        UNIT_ASSERT(rebound.GetRawInputIUs() == TUnorderedIUs{renamed});
+        const auto nullable = direct.WithNativeColumnTypes([&](TInfoUnitId id) {
+            UNIT_ASSERT_VALUES_EQUAL(id, source);
+            return integer.Optional();
+        });
+        UNIT_ASSERT(nullable.GetNativeType() == integer.Optional());
+        UNIT_ASSERT(direct.GetNativeType() == integer);
+        UNIT_ASSERT_VALUES_EQUAL(lifted.GetColumnId(true).value(), source);
+        UNIT_ASSERT_EXCEPTION_CONTAINS(direct.GetLegacyLambda(), yexception, "explicit backend lowering");
+        UNIT_ASSERT_EXCEPTION_CONTAINS(direct.GetLegacyBody(), yexception, "explicit backend lowering");
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, allocated);
+    }
+
+    Y_UNIT_TEST(BackendScalarAnnotationsDoNotLeakIntoNativeExpressions) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto column = f.Id("value");
+        auto arena = std::make_shared<TExpressionArena>();
+        const TType type{ETypeKind::Int32};
+        const auto input = arena->Column(column, type);
+        const auto native = TExpression::FromNative(arena, arena->Convert(input, type.Optional()), &f.ExprCtx, &f.Props);
+        auto first = LowerExpressionLambda(native, f.ExprCtx);
+        UNIT_ASSERT(AreAllNodesTypeAnnotated(*first));
+        UNIT_ASSERT(!NeedsRboCompatibilityLowering(first));
+        UNIT_ASSERT_VALUES_EQUAL(TExpression(first, &f.ExprCtx).GetColumnId(true).value(), column);
+        first->SetTypeAnn(nullptr);
+        first->Tail().SetTypeAnn(nullptr);
+        auto second = LowerExpressionLambda(native, f.ExprCtx);
+        UNIT_ASSERT(AreAllNodesTypeAnnotated(*second));
+        UNIT_ASSERT(first != second);
+        UNIT_ASSERT(first->Head().HeadPtr() != second->Head().HeadPtr());
+        UNIT_ASSERT(!native.Node);
+        UNIT_ASSERT(native.GetNativeType() == type.Optional());
+
+        const TExpression legacy(second, &f.ExprCtx);
+        UNIT_ASSERT(LowerExpressionLambda(legacy, f.ExprCtx) == legacy.GetLegacyLambda());
+        const auto rebound = native.ApplyRenames(TSubstitutions{{column, f.Id("copy")}});
+        const auto lowered = LowerExpressionLambda(rebound, f.ExprCtx);
+        UNIT_ASSERT(AreAllNodesTypeAnnotated(*lowered));
+        UNIT_ASSERT_VALUES_EQUAL(TExpression(lowered, &f.ExprCtx).GetColumnId(true).value(), rebound.GetColumnId(true).value());
+        UNIT_ASSERT_VALUES_EQUAL(native.GetColumnId(true).value(), column);
+    }
+
     Y_UNIT_TEST(JsonValuesExecuteWithoutSemanticLowering) {
         using namespace NFrontend;
         using K = ETypeKind;

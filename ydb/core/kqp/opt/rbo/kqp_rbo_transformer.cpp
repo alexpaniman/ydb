@@ -284,7 +284,7 @@ void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(const TExpression& expr
         collectColumns(usage.HistogramColumns, HistColumnsByTableName);
         for (const auto& [lhs, rhs] : usage.JoinKeys) collectJoinKey(lhs, rhs);
     } else {
-        auto lambda = TCoLambda(expr.GetLambda());
+        auto lambda = TCoLambda(expr.GetLegacyLambda());
 
         // Request only the statistic each filter predicate actually consumes during selectivity estimation:
         // equality predicates probe the count-min sketch, while

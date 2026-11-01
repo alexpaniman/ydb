@@ -1,4 +1,5 @@
 #include "kqp_rbo_physical_join_builder.h"
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include "kqp_rbo_physical_convertion_utils.h"
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_utils.h>
 
@@ -420,17 +421,17 @@ void TPhysicalJoinBuilder::PrepareJoinFilters(TExprNode::TPtr& leftLambda, TExpr
         }
     }
 
-    auto leftFilter = leftFilters.size() ? MakeConjunction(leftFilters).GetLambda() : NPhysicalConvertionUtils::BuildVoidLambda(Ctx, Pos);
+    auto leftFilter = leftFilters.size() ? LowerExpressionLambda(MakeConjunction(leftFilters), Ctx) : NPhysicalConvertionUtils::BuildVoidLambda(Ctx, Pos);
     leftLambda = NPhysicalConvertionUtils::ConvertToWideJoinFilter(leftFilter, leftInputs, unwrapInputs, leftInputColumns.size(), Ctx);
 
-    auto rightFilter = rightFilters.size() ? MakeConjunction(rightFilters).GetLambda() : NPhysicalConvertionUtils::BuildVoidLambda(Ctx, Pos);
+    auto rightFilter = rightFilters.size() ? LowerExpressionLambda(MakeConjunction(rightFilters), Ctx) : NPhysicalConvertionUtils::BuildVoidLambda(Ctx, Pos);
     rightLambda = NPhysicalConvertionUtils::ConvertToWideJoinFilter(rightFilter, rightInputs, unwrapInputs, rightInputColumns.size(), Ctx);
 
     // Cast/duplicate-key temporaries occupy wide slots but have no logical IDs.
     for (const auto& [id, position] : rightInputs.Items()) {
         leftInputs.Add(id, leftInputColumns.size() + position);
     }
-    auto commonFilter = commonFilters.size() ? MakeConjunction(commonFilters).GetLambda() : NPhysicalConvertionUtils::BuildVoidLambda(Ctx, Pos);
+    auto commonFilter = commonFilters.size() ? LowerExpressionLambda(MakeConjunction(commonFilters), Ctx) : NPhysicalConvertionUtils::BuildVoidLambda(Ctx, Pos);
     commonLambda = NPhysicalConvertionUtils::ConvertToWideJoinFilter(commonFilter, leftInputs, unwrapInputs,
         leftInputColumns.size() + rightInputColumns.size(), Ctx);
 }

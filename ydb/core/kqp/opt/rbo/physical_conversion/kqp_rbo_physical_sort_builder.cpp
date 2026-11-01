@@ -1,4 +1,5 @@
 #include "kqp_rbo_physical_sort_builder.h"
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 using namespace NYql::NNodes;
 using namespace NKikimr;
 using namespace NKikimr::NKqp;
@@ -105,7 +106,7 @@ TExprNode::TPtr TPhysicalSortBuilder::BuildPhysicalOp(TExprNode::TPtr input) {
         // clang-format off
         input = Build<TCoWideTopSort>(Ctx, Pos)
             .Input(input)
-            .Count(Sort.LimitCond->GetExpressionBody())
+            .Count(LowerExpressionLambda(*Sort.LimitCond, Ctx)->TailPtr())
             .Keys<TCoSortKeys>()
                 .Add(BuildSortKeysForWideSort(inputs, sortElements))
             .Build()

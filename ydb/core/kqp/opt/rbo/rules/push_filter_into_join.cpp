@@ -103,7 +103,7 @@ bool IsNullRejectingPredicate(const TExpression& filter) {
         }
         return results.at(filter.GetNativeRoot()).NeverTrue;
     }
-    auto lambda = TCoLambda(filter.GetLambda());
+    auto lambda = TCoLambda(filter.GetLegacyLambda());
     auto arg = lambda.Args().Arg(0);
 
     auto predicate = PruneNot(lambda.Body());

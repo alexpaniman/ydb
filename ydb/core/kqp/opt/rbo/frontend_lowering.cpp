@@ -481,6 +481,11 @@ NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena
     return TLowerer(arena, ctx, pos).Run(root);
 }
 
+NYql::TExprNode::TPtr LowerExpressionLambda(const TExpression& expression, NYql::TExprContext& ctx) {
+    return expression.IsNative() ? LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, expression.Pos())
+        : expression.GetLegacyLambda();
+}
+
 bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root) {
     if (arena[root].Type.Kind != K::Bool) return false;
     std::unordered_map<NFrontend::TExprId, bool> hasColumn;

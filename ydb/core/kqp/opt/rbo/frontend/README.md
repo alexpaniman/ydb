@@ -644,6 +644,22 @@ representations still support the existing frontend during migration. Removing
 this debt and establishing plan/execution parity remain required before broad
 rollout. A faster frontend alone does not prove faster complete query execution.
 
+Native scalar handles no longer cache or implicitly generate YQL lambdas.
+Physical builders explicitly call `LowerExpressionLambda` at the execution
+boundary; mutable backend annotations remain in the generated graph. The
+remaining legacy inspection accessors reject native expressions. Aggregate-state
+column inspection reads scalar nodes directly, including nullable lifts, without
+generating backend expressions. RBO schema/type wrappers and the legacy scalar
+alternative remain migration debt.
+The explicit-lowering revision passed all 104 standalone frontend and 470 RBO
+checks. The full run completed 558 tests; the exact 16 tests interrupted or not
+launched by the existing 600-second shard limit passed in a separate completion
+run with identical sources and assertions. All previous 572 tests remain, with
+two additional checks for allocation-free native inspection/rebinding and
+isolation from mutable backend annotations. Original populated 22-query TPC-H
+and 51-query TPC-DS fixtures passed across all three compiler paths; archived
+query markers confirm 66 and 153 executions respectively.
+
 ## Build and test
 
 ```
@@ -849,24 +865,24 @@ counters through this API. Compiler CPU/wall counters are reported separately fr
 request wall time, which includes execution. These empty-table runs are timing
 measurements, not additional populated execution coverage.
 
-On 2026-11-01, the native storage projection revision passed all 216 measured
+On 2026-11-01, the explicit scalar lowering revision passed all 216 measured
 compilations on the local `relwithdebinfo` build. Median compiler CPU times across
 nine samples, in milliseconds:
 
 | Query | Legacy optimizer | YQL frontend + RBO | Native frontend + RBO |
 | --- | ---: | ---: | ---: |
-| TPC-H Q1 | 200.52 | 74.47 | 40.91 |
-| TPC-H Q5 | 402.38 | 146.29 | 99.72 |
-| TPC-H Q9 | 435.13 | 141.20 | 105.99 |
-| TPC-H Q21 | 867.98 | 177.39 | 135.80 |
-| TPC-DS Q17 | 1167.84 | 274.12 | 143.75 |
-| TPC-DS Q28 | 1817.01 | 364.82 | 329.01 |
-| TPC-DS Q51 | 749.42 | 166.44 | 103.83 |
-| TPC-DS Q52 | 222.72 | 85.49 | 64.47 |
+| TPC-H Q1 | 205.28 | 78.94 | 37.25 |
+| TPC-H Q5 | 384.34 | 137.43 | 113.80 |
+| TPC-H Q9 | 433.39 | 140.98 | 95.90 |
+| TPC-H Q21 | 850.60 | 170.31 | 134.25 |
+| TPC-DS Q17 | 1223.01 | 290.90 | 152.59 |
+| TPC-DS Q28 | 1777.07 | 360.15 | 274.89 |
+| TPC-DS Q51 | 704.69 | 155.29 | 103.70 |
+| TPC-DS Q52 | 230.53 | 76.39 | 61.89 |
 
-The geometric mean ratio against the existing YQL frontend plus RBO is 1.46,
-or about 32% less compilation CPU, with per-query ratios of 1.11–1.91. Against
-the legacy optimizer the ratio is 5.25, which includes the optimizer change and
+The geometric mean ratio against the existing YQL frontend plus RBO is 1.47,
+or about 32% less compilation CPU, with per-query ratios of 1.21–2.12. Against
+the legacy optimizer the ratio is 5.38, which includes the optimizer change and
 must not be attributed solely to the frontend. This small local sample measures
 the current full compilation paths, including their backend and plan differences;
 it is neither an isolated frontend measurement nor an execution-speed guarantee.

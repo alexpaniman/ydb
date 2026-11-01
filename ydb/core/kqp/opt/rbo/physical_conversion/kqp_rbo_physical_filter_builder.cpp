@@ -1,4 +1,5 @@
 #include "kqp_rbo_physical_filter_builder.h"
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <yql/essentials/core/yql_expr_optimize.h>
 using namespace NYql::NNodes;
 using namespace NKikimr;
@@ -23,7 +24,7 @@ TExprNode::TPtr TPhysicalFilterBuilder::BuildPhysicalOp(TExprNode::TPtr input) {
         colNamesToIndices.emplace(Names.Get(inputColumns[i]), i);
     }
 
-    auto lambda = TCoLambda(Filter.GetFilterExpression().GetLambda());
+    auto lambda = TCoLambda(LowerExpressionLambda(Filter.GetFilterExpression(), Ctx));
     auto lambdaBody = lambda.Body().Ptr();
 
     auto isMember = [&](const TExprNode::TPtr& node) -> bool {

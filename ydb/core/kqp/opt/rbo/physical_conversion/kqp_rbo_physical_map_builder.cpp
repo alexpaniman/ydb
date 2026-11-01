@@ -1,4 +1,5 @@
 #include "kqp_rbo_physical_map_builder.h"
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <yql/essentials/core/yql_expr_optimize.h>
 using namespace NYql::NNodes;
 using namespace NKikimr;
@@ -44,7 +45,7 @@ TExprNode::TPtr TPhysicalMapBuilder::BuildPhysicalOp(TExprNode::TPtr input) {
             continue;
         }
 
-        auto lambda = TCoLambda(mapElement.GetExpression().GetLambda());
+        auto lambda = TCoLambda(LowerExpressionLambda(mapElement.GetExpression(), Ctx));
         auto lambdaBody = lambda.Body().Ptr();
 
         auto isMember = [&](const TExprNode::TPtr& node) -> bool {
