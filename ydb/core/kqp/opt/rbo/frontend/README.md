@@ -840,10 +840,24 @@ parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
 
-The latest populated benchmark run passes all 22 TPC-H and 51 TPC-DS queries
+Populated validation now covers all 22 TPC-H and 54 TPC-DS queries
 through the legacy optimizer, YQL-to-RBO and native-required compilation, with
 fallback disabled. The shared fixtures retain the original SQL, schemas, scalar
-helpers and settings. Forty-eight TPC-DS queries still need populated validation.
+helpers and settings. Forty-five TPC-DS queries still need populated validation.
+
+Q13, Q26 and Q96 extend the 51-query fixture while retaining every earlier
+expected result. Q13 exercises join equalities shared across demographic and
+address OR branches, all price/profit bands and their inclusive boundaries,
+duplicate dimension attributes, NULL predicates and separate AVG denominators.
+Its independent aggregate sums/counts are 970/28, 200/29 and 385/28, with a
+wholesale-cost sum of 385. Q26 reuses Q7's complete promotion dataset, including
+rejected rows, NULLs, duplicates, Decimal rounding and distinct item keys with
+the same output name, through the catalog-sales columns. Q96 checks time and
+household joins, minute boundaries and NULL/missing keys; exactly five facts
+qualify. All 162 query executions pass their result, metadata, ordering and CBO
+checks across the three compiler paths. This increment changes only the existing
+fixture and documentation; production code and the compilation benchmark remain
+unchanged, and timings were not remeasured.
 
 Q43 and Q48 extend the previous 49-query fixture without changing any earlier
 expected results. Q43 checks seven independent weekday CASE/SUM states, repeated
