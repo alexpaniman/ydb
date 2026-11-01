@@ -684,11 +684,11 @@ bool TExpression::MaybeExprEquiJoinCondition() const {
 bool TExpression::MaybeEquiJoinConditionInternal(bool includeExpressions) const {
     if (IsNative()) {
         const auto& node = (*NativeArena_)[UnwrapNativeOptionalLift(*NativeArena_, NativeRoot_)];
-        // Computed join keys remain residual predicates until the rule can
-        // extract native definitions without a YQL replacement map.
-        return node.Op == TNativeOp::Equal &&
-            NativePart(*this, UnwrapNativeOptionalLift(*NativeArena_, node.Arguments[0])).IsColumnAccess() &&
-            NativePart(*this, UnwrapNativeOptionalLift(*NativeArena_, node.Arguments[1])).IsColumnAccess();
+        if (node.Op != TNativeOp::Equal) return false;
+        const auto left = NativePart(*this, UnwrapNativeOptionalLift(*NativeArena_, node.Arguments[0]));
+        const auto right = NativePart(*this, UnwrapNativeOptionalLift(*NativeArena_, node.Arguments[1]));
+        return includeExpressions ? !left.GetInputIUs(true, false).Empty() && !right.GetInputIUs(true, false).Empty()
+            : left.IsColumnAccess() && right.IsColumnAccess();
     }
     auto body = GetLegacyBody();
     TExprNode::TPtr left;
@@ -971,16 +971,28 @@ TInfoUnitId TEquiJoinCondition::GetRightIU() const {
     return *RightIUs.begin();
 }
 
-bool TEquiJoinCondition::ExtractExpressions(TNodeOnNodeOwnedMap& replacements,
-    TMappedIUs<TExprNode::TPtr>& expressions)
+std::optional<TExpression> TEquiJoinCondition::ExtractExpressions(TMappedIUs<TExpression>& expressions, TRBOContext& ctx)
 {
-    if (Expr.IsNative()) {
-        return false;
-    }
     Y_ENSURE(Expr.PlanProps, "Plan properties null when extracting expressions from join condition");
-    if (!IncludesExpressions) {
-        return false;
+    if (!IncludesExpressions) return std::nullopt;
+    if (Expr.IsNative()) {
+        auto& arena = *Expr.GetNativeArena();
+        // Copy child IDs before appending definitions can relocate arena nodes.
+        const auto operands = arena[UnwrapNativeOptionalLift(arena, Expr.GetNativeRoot())].Arguments;
+        std::unordered_map<TNativeId, TNativeId> replacements;
+        for (auto side : operands) {
+            side = UnwrapNativeOptionalLift(arena, side);
+            if (arena[side].Op == TNativeOp::Column || replacements.contains(side)) continue;
+            const auto column = Expr.PlanProps->InfoUnitRegistry.AddGenerated("join_key");
+            expressions.Add(column, NativePart(Expr, side));
+            replacements.emplace(side, arena.Column(column, arena[side].Type, arena[side].Position));
+        }
+        return NativePart(Expr, arena.Rewrite(Expr.GetNativeRoot(), [&](TNativeId id) {
+            const auto found = replacements.find(id);
+            return found == replacements.end() ? id : found->second;
+        }));
     }
+    TNodeOnNodeOwnedMap replacements;
     auto body = Expr.GetLegacyBody();
     TExprNode::TPtr left;
     TExprNode::TPtr right;
@@ -995,10 +1007,10 @@ bool TEquiJoinCondition::ExtractExpressions(TNodeOnNodeOwnedMap& replacements,
                 .Name().Value(Expr.Ctx->GetIndexAsString(id)).Build()
                 .Done().Ptr();
             // clang-format on
-            expressions.Add(id, side);
+            expressions.Add(id, TExpression(side, &ctx.ExprCtx, Expr.PlanProps));
         }
     }
-    return true;
+    return Expr.ApplyReplaceMap(replacements, ctx);
 }
 
 TExpression MakeColumnAccess(TInfoUnitId column, TPositionHandle pos, TExprContext* ctx, TPlanProps* props) {

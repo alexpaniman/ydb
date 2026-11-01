@@ -651,14 +651,28 @@ remaining legacy inspection accessors reject native expressions. Aggregate-state
 column inspection reads scalar nodes directly, including nullable lifts, without
 generating backend expressions. RBO schema/type wrappers and the legacy scalar
 alternative remain migration debt.
-The explicit-lowering revision passed all 104 standalone frontend and 470 RBO
-checks. The full run completed 558 tests; the exact 16 tests interrupted or not
+
+Computed equality operands now use native definitions in the existing join-key
+extraction rule. WHERE predicates use the ordinary map/filter rewrites; ON
+predicates materialize each operand on its own input before outer-join NULL
+padding. Residual predicates remain attached to the join. Neither path uses a
+YQL replacement map for native scalars.
+
+The computed-key revision passed all 104 standalone frontend and 475 RBO
+checks. The full run completed 565 tests; the exact 14 tests interrupted or not
 launched by the existing 600-second shard limit passed in a separate completion
-run with identical sources and assertions. All previous 572 tests remain, with
-two additional checks for allocation-free native inspection/rebinding and
-isolation from mutable backend annotations. Original populated 22-query TPC-H
-and 51-query TPC-DS fixtures passed across all three compiler paths; archived
-query markers confirm 66 and 153 executions respectively.
+run with identical sources and assertions. All previous 574 tests remain, with
+five additional registrations. Structural checks forbid YQL annotation, verify
+extraction without allocating YQL nodes, and cover 45 join/predicate forms.
+Populated row/column tests check 96 native executions against an independent
+row-pair oracle, including NULLs, wrapping arithmetic, duplicate matches, outer
+padding, semi/anti results, residual predicates and two computed keys. Plans
+must use equality keys and eliminate filtered cross joins. The old paths provide
+130 successful comparisons and 62 explicitly checked, pre-existing rejections
+of residual ON predicates or SEMI/ONLY syntax; native execution must succeed in
+every case. Original populated 22-query TPC-H and 51-query TPC-DS fixtures passed
+across all three compiler paths; archived query markers confirm 66 and 153
+executions respectively.
 
 ## Build and test
 
@@ -865,24 +879,24 @@ counters through this API. Compiler CPU/wall counters are reported separately fr
 request wall time, which includes execution. These empty-table runs are timing
 measurements, not additional populated execution coverage.
 
-On 2026-11-01, the explicit scalar lowering revision passed all 216 measured
+On 2026-11-01, the computed join-key revision passed all 216 measured
 compilations on the local `relwithdebinfo` build. Median compiler CPU times across
 nine samples, in milliseconds:
 
 | Query | Legacy optimizer | YQL frontend + RBO | Native frontend + RBO |
 | --- | ---: | ---: | ---: |
-| TPC-H Q1 | 205.28 | 78.94 | 37.25 |
-| TPC-H Q5 | 384.34 | 137.43 | 113.80 |
-| TPC-H Q9 | 433.39 | 140.98 | 95.90 |
-| TPC-H Q21 | 850.60 | 170.31 | 134.25 |
-| TPC-DS Q17 | 1223.01 | 290.90 | 152.59 |
-| TPC-DS Q28 | 1777.07 | 360.15 | 274.89 |
-| TPC-DS Q51 | 704.69 | 155.29 | 103.70 |
-| TPC-DS Q52 | 230.53 | 76.39 | 61.89 |
+| TPC-H Q1 | 173.72 | 73.12 | 42.55 |
+| TPC-H Q5 | 365.75 | 106.45 | 91.03 |
+| TPC-H Q9 | 389.91 | 132.88 | 97.98 |
+| TPC-H Q21 | 878.21 | 152.20 | 113.14 |
+| TPC-DS Q17 | 1125.24 | 251.83 | 154.60 |
+| TPC-DS Q28 | 1711.93 | 368.33 | 296.78 |
+| TPC-DS Q51 | 700.68 | 131.45 | 85.67 |
+| TPC-DS Q52 | 210.76 | 85.03 | 63.42 |
 
-The geometric mean ratio against the existing YQL frontend plus RBO is 1.47,
-or about 32% less compilation CPU, with per-query ratios of 1.21–2.12. Against
-the legacy optimizer the ratio is 5.38, which includes the optimizer change and
+The geometric mean ratio against the existing YQL frontend plus RBO is 1.41,
+or about 29% less compilation CPU, with per-query ratios of 1.17–1.72. Against
+the legacy optimizer the ratio is 5.25, which includes the optimizer change and
 must not be attributed solely to the frontend. This small local sample measures
 the current full compilation paths, including their backend and plan differences;
 it is neither an isolated frontend measurement nor an execution-speed guarantee.

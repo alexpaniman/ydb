@@ -5,6 +5,7 @@
 #include <util/string/subst.h>
 
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -3566,6 +3567,141 @@ $round = ($x,$y) -> {return $x;};
                     UNIT_ASSERT(!values.ColumnParser(5).GetOptionalBool());
                     if (strategy == 2) reference.push_back(actual); else AssertSame(actual, reference.at(index));
                     ++index;
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST_TWIN(ComputedJoinKeysPreserveResultsAndUseKeyedPlans, ColumnStore) {
+        struct TRow { i32 Id; std::optional<i32> X, Y; };
+        const std::array<TRow, 7> left{{{1, 0, 2}, {2, 1, 3}, {3, 1, 3}, {4, {}, 2}, {5, -1, {}}, {6, 10, 1}, {7, 2147483647, 0}}};
+        const std::array<TRow, 7> right{{{11, 1, 3}, {12, 2, 5}, {13, 2, {}}, {14, {}, 2}, {15, -2147483647 - 1, 0}, {16, 5, 1}, {17, 11, 1}}};
+        const std::array<TString, 6> predicates{{"a.x + 1 = b.x", "a.x + a.y = b.x + b.y",
+            "CAST(a.x AS Int64) + 1L = CAST(b.x AS Int64)", "COALESCE(a.x, 0) + 1 = COALESCE(b.x, 0)",
+            "a.x + 1 = b.x AND a.y < b.y", "a.x + 1 = b.x AND a.y + 2 = b.y"}};
+        const auto add = [](std::optional<i32> a, std::optional<i32> b) -> std::optional<i32> {
+            if (!a || !b) return {};
+            return std::bit_cast<i32>(ui32(*a) + ui32(*b));
+        };
+        const auto matches = [&](const TRow& a, const TRow& b, size_t test) {
+            auto lhs = add(a.X, 1), rhs = b.X;
+            if (test == 1) { lhs = add(a.X, a.Y); rhs = add(b.X, b.Y); }
+            if (test == 2) return a.X && b.X && i64(*a.X) + 1 == i64(*b.X);
+            if (test == 3) { lhs = add(a.X.value_or(0), 1); rhs = b.X.value_or(0); }
+            if (!lhs || !rhs || *lhs != *rhs) return false;
+            if (test == 4) return a.Y && b.Y && *a.Y < *b.Y;
+            if (test == 5) return add(a.Y, 2) && b.Y && *add(a.Y, 2) == *b.Y;
+            return true;
+        };
+        for (size_t test = 0; test < predicates.size(); ++test) {
+            bool positive = false;
+            for (const auto& a : left) for (const auto& b : right) positive |= matches(a, b, test);
+            UNIT_ASSERT_C(positive, predicates[test]);
+        }
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetEnableInlineJoinFiltersAfterCBO(false);
+            service->SetAllowOlapDataQuery(true);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            for (const bool second : {false, true}) {
+                const TString path = second ? "/Root/ComputedRight" : "/Root/ComputedLeft";
+                const auto created = session.ExecuteSchemeQuery("CREATE TABLE `" + path +
+                    "` (id Int32 NOT NULL, x Int32, y Int32, PRIMARY KEY(id))" +
+                    (ColumnStore ? " WITH (STORE = COLUMN);" : ";")).GetValueSync();
+                UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+                TValueBuilder rows; rows.BeginList();
+                for (const auto& row : second ? right : left)
+                    rows.AddListItem().BeginStruct().AddMember("id").Int32(row.Id)
+                        .AddMember("x").OptionalInt32(row.X).AddMember("y").OptionalInt32(row.Y).EndStruct();
+                rows.EndList();
+                const auto loaded = client.BulkUpsert(path, rows.Build()).GetValueSync();
+                UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+            }
+            size_t index = 0;
+            for (const TString kind : {"INNER", "LEFT", "RIGHT", "LEFT SEMI", "RIGHT SEMI", "LEFT ONLY", "RIGHT ONLY", "WHERE"}) {
+                const bool leftOnly = kind.StartsWith("LEFT "), rightOnly = kind.StartsWith("RIGHT ");
+                for (size_t test = 0; test < predicates.size(); ++test, ++index) {
+                    TVector<std::pair<std::optional<i32>, std::optional<i32>>> expected;
+                    std::array<bool, 7> leftMatched{}, rightMatched{};
+                    for (size_t a = 0; a < left.size(); ++a) for (size_t b = 0; b < right.size(); ++b) {
+                        if (!matches(left[a], right[b], test)) continue;
+                        leftMatched[a] = rightMatched[b] = true;
+                        if (!leftOnly && !rightOnly) expected.emplace_back(left[a].Id, right[b].Id);
+                    }
+                    for (size_t a = 0; a < left.size(); ++a)
+                        if ((kind == "LEFT" || kind == "LEFT ONLY") ? !leftMatched[a] : kind == "LEFT SEMI" && leftMatched[a])
+                            expected.emplace_back(left[a].Id, std::nullopt);
+                    for (size_t b = 0; b < right.size(); ++b)
+                        if ((kind == "RIGHT" || kind == "RIGHT ONLY") ? !rightMatched[b] : kind == "RIGHT SEMI" && rightMatched[b])
+                            expected.emplace_back(std::nullopt, right[b].Id);
+                    Sort(expected, [](const auto& a, const auto& b) {
+                        return std::pair(a.first.value_or(99), a.second.value_or(99)) < std::pair(b.first.value_or(99), b.second.value_or(99));
+                    });
+                    const TString sql = TStringBuilder() << "SELECT CAST(" << (rightOnly ? "NULL" : "a.id") << " AS Int32?) AS lid, CAST("
+                        << (leftOnly ? "NULL" : "b.id") << " AS Int32?) AS rid FROM `/Root/ComputedLeft` AS a "
+                        << (kind == "WHERE" ? "CROSS" : kind) << " JOIN `/Root/ComputedRight` AS b "
+                        << (kind == "WHERE" ? "WHERE " : "ON ") << predicates[test] << " ORDER BY COALESCE(lid,99), COALESCE(rid,99)";
+                    Cerr << "computed join strategy " << strategy << ": " << sql << Endl;
+                    const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                        NQuery::TExecuteQuerySettings().StatsMode(NQuery::EStatsMode::Full)).GetValueSync();
+                    if (strategy == 0 && test == 4 && kind != "WHERE") {
+                        // The legacy translator requires equality-only ON
+                        // clauses (translation/join.cpp). Native still checks
+                        // the original residual predicate against the oracle.
+                        UNIT_ASSERT(!result.IsSuccess());
+                        UNIT_ASSERT_C(result.GetIssues().ToString().find("JOIN ON expression must be a conjunction of equality predicates") != std::string::npos,
+                            sql << ": " << result.GetIssues().ToString());
+                        continue;
+                    }
+                    if (strategy == 1 && (leftOnly || rightOnly)) {
+                        // The unchanged YqlSelect translator rejects these
+                        // forms, as in JoinStarsPreserveValuesNamesAndNullability.
+                        UNIT_ASSERT(!result.IsSuccess());
+                        UNIT_ASSERT_C(result.GetIssues().ToString().find("YqlSelect unsupported: (ONLY | SEMI)") != std::string::npos,
+                            sql << ": " << result.GetIssues().ToString());
+                        continue;
+                    }
+                    UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+                    UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+                    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
+                    const auto& rows = result.GetResultSet(0);
+                    UNIT_ASSERT_VALUES_EQUAL_C(rows.RowsCount(), expected.size(), sql << FormatResultSetYson(rows));
+                    TResultSetParser values(rows);
+                    for (const auto& [a, b] : expected) {
+                        UNIT_ASSERT(values.TryNextRow());
+                        UNIT_ASSERT_C(values.ColumnParser("lid").GetOptionalInt32() == a, sql);
+                        UNIT_ASSERT_C(values.ColumnParser("rid").GetOptionalInt32() == b, sql);
+                    }
+                    const auto actual = SnapshotRows(rows);
+                    if (strategy == 2) reference.push_back(actual); else AssertSame(actual, reference.at(index));
+                    if (strategy == 2) {
+                        UNIT_ASSERT(result.GetStats() && result.GetStats()->GetPlan());
+                        const auto plan = *result.GetStats()->GetPlan();
+                        NJson::TJsonValue json; NJson::ReadJsonTree(plan, &json, true);
+                        size_t joins = 0;
+                        const auto inspect = [&](auto&& self, const NJson::TJsonValue& node) -> void {
+                            if (node.IsMap()) {
+                                const auto& fields = node.GetMapSafe();
+                                if (const auto found = fields.find("JoinKind"); found != fields.end()) {
+                                    ++joins;
+                                    UNIT_ASSERT_C(found->second.GetStringSafe() != "Cross", sql << plan);
+                                    UNIT_ASSERT_C(fields.contains("Condition") && fields.at("Condition").GetStringSafe().Contains(" = "), sql << plan);
+                                    const auto& condition = fields.at("Condition").GetStringSafe();
+                                    UNIT_ASSERT_VALUES_EQUAL_C(std::count(condition.begin(), condition.end(), '='), test == 5 ? 2 : 1, sql << plan);
+                                }
+                                for (const auto& [key, value] : fields) { Y_UNUSED(key); self(self, value); }
+                            } else if (node.IsArray()) for (const auto& value : node.GetArraySafe()) self(self, value);
+                        };
+                        inspect(inspect, json.GetMapSafe().at("SimplifiedPlan"));
+                        UNIT_ASSERT_C(joins > 0, sql << plan);
+                    }
                 }
             }
         }

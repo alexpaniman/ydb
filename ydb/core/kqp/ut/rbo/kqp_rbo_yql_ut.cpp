@@ -2015,8 +2015,8 @@ FROM (
         UNIT_ASSERT_C(condition == "t1.a = t2.a" || condition == "t2.a = t1.a", plan);
     }
 
-    Y_UNIT_TEST(ComputedEqualityFeedsJoinKey) {
-        TExplainPlanTestContext testContext;
+    void RunComputedEqualityFeedsJoinKey(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto plan = ExecuteExplain(testContext.GetSession(), R"(
             PRAGMA YqlSelect = 'force';
             PRAGMA AnsiImplicitCrossJoin;
@@ -2024,12 +2024,15 @@ FROM (
             SELECT count(*)
             FROM `/Root/t1` AS t1, `/Root/t2` AS t2
             WHERE t1.a + 1 = t2.a;
-        )");
+        )", nativeFrontend);
 
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         UNIT_ASSERT_C(FindOperatorByStringField(simplifiedPlan, "JoinKind", "Inner"), plan);
         UNIT_ASSERT_C(!FindOperatorByStringField(simplifiedPlan, "JoinKind", "Cross"), plan);
     }
+
+    Y_UNIT_TEST(ComputedEqualityFeedsJoinKey) { RunComputedEqualityFeedsJoinKey(false); }
+    Y_UNIT_TEST(NativeComputedEqualityFeedsJoinKey) { RunComputedEqualityFeedsJoinKey(true); }
 
     Y_UNIT_TEST(ExplainExpressionPrintingJoinFilters) {
         NTests::TIdTestContext f;

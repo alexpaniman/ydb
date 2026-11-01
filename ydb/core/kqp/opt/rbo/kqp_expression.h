@@ -105,7 +105,7 @@ class TExpression {
     // Simultaneous ID substitution, not a change to registry display labels.
     TExpression ApplyRenames(const TSubstitutions& substitutions) const;
 
-    // Apply a generic replace map to the lambda of the expression
+    // Legacy graph replacement used by the old constant-folding path.
     TExpression ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOContext& ctx) const;
 
     // Extract common conjuncts from OR branches.
@@ -151,8 +151,9 @@ class TEquiJoinCondition {
     // In case this is a simple predicate that contains a single column reference on each side, return right column
     TInfoUnitId GetRightIU() const;
 
-    // Find all non-column reference expression in this condition and insert them into a map
-    bool ExtractExpressions(TNodeOnNodeOwnedMap& map, TMappedIUs<TExprNode::TPtr>& expressions);
+    // Materialize computed equality operands as typed definitions and return
+    // the equality over their column bindings. Native rewrites stay in the DAG.
+    std::optional<TExpression> ExtractExpressions(TMappedIUs<TExpression>& expressions, TRBOContext& ctx);
 
     const TExpression& Expr;
     TUnorderedIUs LeftIUs;

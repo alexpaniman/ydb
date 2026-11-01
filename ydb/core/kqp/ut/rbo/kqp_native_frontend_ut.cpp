@@ -1596,6 +1596,93 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         }
     }
 
+    Y_UNIT_TEST(ComputedEqualityExtractionUsesTypedDefinitionsWithoutBackendNodes) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto left = f.Id("left"), right = f.Id("right");
+        auto arena = std::make_shared<TExpressionArena>();
+        f.Props.NativeExpressions = arena;
+        const auto a = arena->Column(left, {ETypeKind::Int32});
+        const auto b = arena->Column(right, {ETypeKind::Int32, true});
+        const auto one = arena->Literal({ETypeKind::Int32}, std::int64_t{1});
+        const auto sum = arena->Binary(EOpcode::Add, a, one);
+        const auto predicate = arena->Binary(EOpcode::Equal, sum, b);
+        const auto expression = TExpression::FromNative(arena, predicate, &f.ExprCtx, &f.Props);
+        UNIT_ASSERT(!expression.MaybeEquiJoinCondition());
+        UNIT_ASSERT(expression.MaybeExprEquiJoinCondition());
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        TMappedIUs<TExpression> definitions;
+        const auto rewritten = TEquiJoinCondition(expression).ExtractExpressions(definitions, f.RboCtx);
+        UNIT_ASSERT(rewritten && rewritten->IsNative() && rewritten->MaybeEquiJoinCondition());
+        UNIT_ASSERT_VALUES_EQUAL(definitions.Keys().Size(), 1);
+        const auto id = *definitions.Keys().begin();
+        UNIT_ASSERT_VALUES_EQUAL(definitions.At(id).GetNativeRoot(), sum);
+        UNIT_ASSERT_VALUES_EQUAL(TEquiJoinCondition(*rewritten).GetLeftIU(), id);
+        UNIT_ASSERT_VALUES_EQUAL(TEquiJoinCondition(*rewritten).GetRightIU(), right);
+        UNIT_ASSERT(rewritten->GetNativeType() == expression.GetNativeType());
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(expression.GetNativeRoot(), predicate);
+        for (const auto value : {std::int64_t{-1}, std::int64_t{0}, std::int64_t{2147483647}}) {
+            for (const auto match : {TScalar{}, TScalar{std::int64_t{0}}, TScalar{std::int64_t{-2147483648LL}}}) {
+                TEvaluationContext source;
+                source.Column = [&](TColumnId col) { return col == left ? TValue{{ETypeKind::Int32}, value} : TValue{{ETypeKind::Int32, true}, match}; };
+                TEvaluationContext materialized;
+                materialized.Column = [&](TColumnId col) { return col == id ? Evaluate(*arena, sum, source) : source.Column(col); };
+                const auto expected = Evaluate(*arena, predicate, source), actual = Evaluate(*arena, rewritten->GetNativeRoot(), materialized);
+                UNIT_ASSERT(actual.Type == expected.Type);
+                UNIT_ASSERT_VALUES_EQUAL(FormatValue(actual), FormatValue(expected));
+            }
+        }
+    }
+
+    Y_UNIT_TEST(ComputedJoinKeysStayOnTheirOwnInputs) {
+        for (const auto* kind : {"INNER", "LEFT", "RIGHT", "LEFT SEMI", "RIGHT SEMI", "LEFT ONLY", "RIGHT ONLY", "WHERE", "FILTERED CROSS"}) {
+            for (const auto* predicate : {"a.x + 1 = b.x", "a.x + a.y = b.x + b.y", "b.x + 1 = a.x", "a.x + 1 = b.x AND a.y < b.y", "a.x + 1 = b.x AND a.y + 2 = b.y"}) {
+                NTests::TIdTestContext f;
+                const bool where = TStringBuf(kind) == "WHERE";
+                const bool filteredCross = TStringBuf(kind) == "FILTERED CROSS";
+                const TString sql = TStringBuilder() << "SELECT 1 AS result FROM "
+                    << "(SELECT 1 AS x, CAST(2 AS Int32?) AS y) AS a " << (where ? "CROSS" : filteredCross ? "INNER" : kind)
+                    << " JOIN (SELECT 2 AS x, CAST(3 AS Int32?) AS y) AS b " << (where ? "WHERE " : "ON ") << predicate;
+                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx);
+                auto& root = *roots.front();
+                if (filteredCross) for (const auto& item : root) if (item.Current->Kind == EOperator::Join)
+                    CastOperator<TOpJoin>(*item.Current).JoinKind = "Cross";
+                auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+                    UNIT_FAIL("computed native join keys invoked YQL annotation");
+                    return IGraphTransformer::TStatus::Error;
+                });
+                TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                TVector<std::unique_ptr<IRule>> rules;
+                rules.emplace_back(std::make_unique<TExtractJoinExpressionsRule>());
+                rules.emplace_back(std::make_unique<TPushMapElementsThroughInputRule>());
+                rules.emplace_back(std::make_unique<TPushMapElementsIntoMapRule>());
+                rules.emplace_back(std::make_unique<TPushFilterUnderMapRule>());
+                rules.emplace_back(std::make_unique<TPushFilterIntoJoinRule>());
+                TRuleBasedStage("native computed keys", std::move(rules)).RunStage(root, context);
+                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                bool found = false;
+                for (const auto& item : root) if (item.Current->Kind == EOperator::Join) {
+                    const auto& join = CastOperator<TOpJoin>(*item.Current);
+                    UNIT_ASSERT_VALUES_EQUAL_C(join.JoinKeys.Items().size(), TStringBuf(predicate).Contains("a.y + 2") ? 2 : 1, sql);
+                    if (where || filteredCross) UNIT_ASSERT_VALUES_EQUAL_C(join.JoinKind, "Inner", sql);
+                    for (const auto& key : join.JoinKeys.Items()) {
+                        UNIT_ASSERT(join.GetLeftInput()->GetOutputIUs().Contains(key.first));
+                        UNIT_ASSERT(join.GetRightInput()->GetOutputIUs().Contains(key.second));
+                    }
+                    found = true;
+                }
+                UNIT_ASSERT_C(found, sql);
+                NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
+                for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
+                    UNIT_ASSERT(expression.get().IsNative());
+                    UNIT_ASSERT(!expression.get().Node);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(OptionalBooleanLiftsPreserveJoinKeys) {
         using namespace NFrontend;
         for (const auto& [condition, keys] : std::initializer_list<std::pair<const char*, std::size_t>>{
