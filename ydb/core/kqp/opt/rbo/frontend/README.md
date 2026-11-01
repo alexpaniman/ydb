@@ -541,6 +541,13 @@ passed, retaining all 438 previous tests and the unchanged 22 TPC-H / 44 TPC-DS
 populated expectations. No new files or pre-existing compiler/backend fixes were
 needed. Compilation timings were not remeasured for this increment.
 
+The original `Indexes_newRbo` fixture also runs in native-required mode. All nine
+queries retain their schema, populated data, settings, expected results and
+index-choice assertions, including main-table preference, deterministic index
+ties, covering indexes and sort/limit choices. Only the compiler mode differs.
+Both original index fixtures, the native variant and the populated native index
+range fixture pass together; this addition required no production changes.
+
 **Plan-quality limitation:** lookup point prefixes and OLAP projection pushdown
 remain unfinished. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing

@@ -4583,9 +4583,11 @@ FROM (
         }
     }
 
-    Y_UNIT_TEST(Indexes_newRbo) {
+    void RunIndexesNewRbo(bool nativeFrontend) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(nativeFrontend ?
+            NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
         appConfig.MutableTableServiceConfig()->SetAllowOlapDataQuery(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetDefaultCostBasedOptimizationLevel(0);
@@ -4772,6 +4774,9 @@ FROM (
             }
         }
     }
+
+    Y_UNIT_TEST(Indexes_newRbo) { RunIndexesNewRbo(false); }
+    Y_UNIT_TEST(NativeIndexes_newRbo) { RunIndexesNewRbo(true); }
 
     Y_UNIT_TEST(Indexes_oldRbo) {
         NKikimrConfig::TAppConfig appConfig;
