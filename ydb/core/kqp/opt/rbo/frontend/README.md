@@ -579,6 +579,10 @@ passed again across all three compiler paths. Compilation timings were not
 remeasured for this increment.
 
 **Plan-quality limitation:** OLAP projection pushdown remains unfinished.
+The existing projection collector supports `JSON_VALUE`; native JSON types and
+direct scalar lowering are prerequisites, along with dynamic text-to-number casts
+used by the original projection fixtures. Removing the native rule guard alone
+does not provide this support.
 Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing
 this debt and establishing plan/execution parity remain required before broad
@@ -723,10 +727,22 @@ parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
 
-The latest populated benchmark run passes all 22 TPC-H and 49 TPC-DS queries
+The latest populated benchmark run passes all 22 TPC-H and 51 TPC-DS queries
 through the legacy optimizer, YQL-to-RBO and native-required compilation, with
 fallback disabled. The shared fixtures retain the original SQL, schemas, scalar
-helpers and settings. Fifty TPC-DS queries still need populated validation.
+helpers and settings. Forty-eight TPC-DS queries still need populated validation.
+
+Q43 and Q48 extend the previous 49-query fixture without changing any earlier
+expected results. Q43 checks seven independent weekday CASE/SUM states, repeated
+sales, negative/zero/NULL values, absent weekdays, NULL grouping keys, and rejected
+date/offset/join rows. Q48 crosses every demographic/price band with every
+state/profit band, checks all nine admitted states and inclusive Decimal bounds,
+and rejects missing or NULL join/filter inputs. Duplicate dimension attributes
+must not multiply facts; the independently calculated quantity sum is 1570.
+All 153 TPC-DS executions and their existing result/metadata/CBO checks pass
+across the three paths, alongside the unchanged 22-query TPC-H fixture. The
+balanced build and both populated benchmark tests passed; this fixture-only
+increment did not rerun the full RBO suite or remeasure compilation timings.
 
 Q1, Q3, Q7, Q15 and Q19 extend the previous 44-query fixture without changing its
 expected results. Q1 checks independently known per-store averages, strict

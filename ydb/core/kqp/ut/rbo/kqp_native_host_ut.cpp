@@ -700,13 +700,19 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {210, "1998-12-01"}, {211, "1998-11-30"}, {212, "1999-12-01"},
             {213, "2001-12-01"}, {214, "2001-11-30"}, {215, "2000-12-01"},
             {216, "1999-11-01"}, {217, "1999-11-30"}, {218, "1999-10-31"}, {219, "1999-12-01"},
-            {220, "1998-11-01"}, {221, "2000-06-30"}}) {
+            {220, "1998-11-01"}, {221, "2000-06-30"},
+            {300, "1998-01-04"}, {301, "1998-01-05"}, {302, "1998-01-06"}, {303, "1998-01-07"},
+            {304, "1998-01-08"}, {305, "1998-01-09"}, {306, "1998-01-10"}, {307, "1998-01-11"},
+            {308, "1998-01-12"}, {309, "1999-01-03"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
             month = FromString<i64>(TStringBuf(text + 5, 2));
         }
-        dates.AddListItem().BeginStruct().AddMember("d_date_sk").Int64(id)
+        const char* days[]{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+        const char* day = id >= 300 && id <= 306 ? days[id - 300] : id == 307 ? "Unknown" : id == 309 ? "Sunday" : nullptr;
+        dates.AddListItem().BeginStruct().AddMember("d_day_name").OptionalUtf8(day ? std::optional<std::string>{day} : std::nullopt)
+            .AddMember("d_date_sk").Int64(id)
             .AddMember("d_date_id").Utf8("Date" + std::to_string(id))
             .AddMember("d_date").OptionalUtf8(text ? std::optional<std::string>{text} : std::nullopt)
             .AddMember("d_year").OptionalInt64(year).AddMember("d_moy").OptionalInt64(month)
@@ -877,7 +883,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             .AddMember("s_store_name").OptionalUtf8(optionalText(name)).AddMember("s_company_name").OptionalUtf8(optionalText(company))
             .AddMember("s_zip").OptionalUtf8(optionalText(zip))
             .AddMember("s_state").OptionalUtf8(id == 90 || (id >= 180 && id <= 182) ? optionalText("TN") : id == 91 ? optionalText("TX") : std::nullopt)
-            .AddMember("s_county").OptionalUtf8(std::nullopt).AddMember("s_market_id").OptionalInt64(std::nullopt).EndStruct();
+            .AddMember("s_county").OptionalUtf8(std::nullopt).AddMember("s_market_id").OptionalInt64(std::nullopt).AddMember("s_gmt_offset").EmptyOptional(TTypeBuilder().Decimal({5, 2}).Build()).EndStruct();
     }
     for (const auto& [id, state, county] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
             {100, "CA", "Alpha"}, {101, "CA", "Beta"}, {102, "WA", "Alpha"}, {103, "WA", nullptr}, {104, "OR", nullptr},
@@ -885,22 +891,34 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
             .AddMember("s_store_name").OptionalUtf8(std::nullopt).AddMember("s_company_name").OptionalUtf8(std::nullopt)
             .AddMember("s_zip").OptionalUtf8(std::nullopt).AddMember("s_state").OptionalUtf8(optionalText(state))
-            .AddMember("s_county").OptionalUtf8(optionalText(county)).AddMember("s_market_id").OptionalInt64(std::nullopt).EndStruct();
+            .AddMember("s_county").OptionalUtf8(optionalText(county)).AddMember("s_market_id").OptionalInt64(std::nullopt).AddMember("s_gmt_offset").EmptyOptional(TTypeBuilder().Decimal({5, 2}).Build()).EndStruct();
     for (i64 id = 140; id <= 144; ++id)
         stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
             .AddMember("s_store_name").OptionalUtf8("Case Shop").AddMember("s_company_name").OptionalUtf8(std::nullopt)
             .AddMember("s_zip").OptionalUtf8(optionalText(id == 143 ? "wrong" : id == 144 ? nullptr : "casezip"))
             .AddMember("s_state").OptionalUtf8(std::nullopt).AddMember("s_county").OptionalUtf8(std::nullopt)
-            .AddMember("s_market_id").OptionalInt64(id == 142 ? std::nullopt : std::optional<i64>{id == 141 ? 8 : 7}).EndStruct();
+            .AddMember("s_market_id").OptionalInt64(id == 142 ? std::nullopt : std::optional<i64>{id == 141 ? 8 : 7}).AddMember("s_gmt_offset").EmptyOptional(TTypeBuilder().Decimal({5, 2}).Build()).EndStruct();
     stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(160).AddMember("s_store_id").Utf8("Store160")
         .AddMember("s_store_name").OptionalUtf8("ese").AddMember("s_company_name").OptionalUtf8(std::nullopt)
         .AddMember("s_zip").OptionalUtf8(std::nullopt).AddMember("s_state").OptionalUtf8(std::nullopt)
-        .AddMember("s_county").OptionalUtf8(std::nullopt).AddMember("s_market_id").OptionalInt64(std::nullopt).EndStruct();
+        .AddMember("s_county").OptionalUtf8(std::nullopt).AddMember("s_market_id").OptionalInt64(std::nullopt).AddMember("s_gmt_offset").EmptyOptional(TTypeBuilder().Decimal({5, 2}).Build()).EndStruct();
+    // Q43 groups by both store fields. Existing stores keep their NULL offset.
+    for (const auto& [id, name, offset] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
+            {3000, "Week A", "-5"}, {3001, "Week A", "-5"}, {3002, nullptr, "-5"},
+            {3003, "AllNull", "-5"}, {3004, "Zero", "-5"}, {3005, "Excluded offset", "-4"}, {3006, "Unknown day", "-5"}})
+        stores.AddListItem().BeginStruct().AddMember("s_store_sk").Int64(id).AddMember("s_store_id").Utf8("Store" + std::to_string(id))
+            .AddMember("s_store_name").OptionalUtf8(optionalText(name)).AddMember("s_company_name").OptionalUtf8(std::nullopt)
+            .AddMember("s_zip").OptionalUtf8(std::nullopt).AddMember("s_state").OptionalUtf8(std::nullopt)
+            .AddMember("s_county").OptionalUtf8(std::nullopt).AddMember("s_market_id").OptionalInt64(std::nullopt)
+            .AddMember("s_gmt_offset").BeginOptional().Decimal(TDecimalValue(offset, 5, 2)).EndOptional().EndStruct();
     load("store", stores);
     TValueBuilder demographics; demographics.BeginList();
     for (const auto& [id, gender, marital, education] : std::initializer_list<std::tuple<i64, const char*, const char*, const char*>>{
             {90, "F", "W", "Primary"}, {91, "M", "W", "Primary"}, {92, "F", "S", "Primary"},
-            {93, "F", "W", "College"}, {94, nullptr, "W", "Primary"}})
+            {93, "F", "W", "College"}, {94, nullptr, "W", "Primary"},
+            {3000, nullptr, "M", "4 yr Degree"}, {3001, nullptr, "D", "Primary"}, {3002, nullptr, "U", "Advanced Degree"},
+            {3003, nullptr, "M", "4 yr Degree"}, {3004, nullptr, "M", "Primary"},
+            {3005, nullptr, nullptr, "4 yr Degree"}, {3006, nullptr, "M", nullptr}})
         demographics.AddListItem().BeginStruct().AddMember("cd_demo_sk").Int64(id)
             .AddMember("cd_gender").OptionalUtf8(optionalText(gender)).AddMember("cd_marital_status").OptionalUtf8(optionalText(marital))
             .AddMember("cd_education_status").OptionalUtf8(optionalText(education)).EndStruct();
@@ -1055,6 +1073,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
         std::optional<i64> Household = std::nullopt;
         const char* WholesaleCost = nullptr;
         std::optional<i64> Promotion = std::nullopt;
+        std::optional<i64> Address = std::nullopt;
     };
     TVector<TSale> catalog, store, web;
     for (i64 item = 1; item <= 15; ++item) {
@@ -1216,6 +1235,17 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     }
     appendCustomer(2805, 99999, nullptr, nullptr, nullptr); appendCustomer(2806, std::nullopt, nullptr, nullptr, nullptr);
     appendCustomer(2914, 99999, nullptr, nullptr, nullptr); appendCustomer(2915, std::nullopt, nullptr, nullptr, nullptr);
+    // Q48 has three independent state/profit bands. Duplicate attributes on
+    // different address keys must not multiply a sale's contribution.
+    for (const auto& [id, state, country] : std::initializer_list<std::tuple<i64, const char*, const char*>>{
+            {3100, "KY", "United States"}, {3101, "MT", "United States"}, {3102, "WI", "United States"},
+            {3103, "KY", "United States"}, {3104, "GA", "United States"}, {3105, "NM", "United States"},
+            {3106, "OR", "United States"}, {3107, "IN", "United States"}, {3108, "MO", "United States"},
+            {3109, "WV", "United States"}, {3110, "KY", "Canada"}, {3111, "KY", "united states"},
+            {3112, "CA", "United States"}, {3113, "KY", nullptr}, {3114, nullptr, "United States"}})
+        addresses.AddListItem().BeginStruct().AddMember("ca_address_sk").Int64(id).AddMember("ca_address_id").Utf8("Address" + std::to_string(id))
+            .AddMember("ca_zip").OptionalUtf8(std::nullopt).AddMember("ca_state").OptionalUtf8(optionalText(state))
+            .AddMember("ca_county").OptionalUtf8(std::nullopt).AddMember("ca_country").OptionalUtf8(optionalText(country)).EndStruct();
     load("customer_address", addresses); load("customer", customers);
     TValueBuilder centers, sites;
     centers.BeginList(); sites.BeginList();
@@ -1793,7 +1823,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             }
             if (prefix == "ss_") {
                 rows.AddMember("ss_store_sk").OptionalInt64(row.Store)
-                    .AddMember("ss_cdemo_sk").OptionalInt64(row.Demographics)
+                    .AddMember("ss_cdemo_sk").OptionalInt64(row.Demographics).AddMember("ss_addr_sk").OptionalInt64(row.Address)
                     .AddMember("ss_sold_time_sk").OptionalInt64(row.SoldTime).AddMember("ss_hdemo_sk").OptionalInt64(row.Household)
                     .AddMember("ss_promo_sk").OptionalInt64(row.Promotion);
                 rows.AddMember("ss_coupon_amt"); decimal(rows, row.Coupon);
@@ -1900,6 +1930,51 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     for (const auto buyer : std::initializer_list<std::optional<i64>>{2914, 2915, 99999, std::nullopt}) zipCatalogSale(buyer, "999");
     for (const auto date : std::initializer_list<std::optional<i64>>{190, 193, 181, 201, 4, 99999, std::nullopt}) zipCatalogSale(2913, "999", date);
     loadSales("catalog_sales", "cs_", "cs_order_number", catalog);
+    // Q43: seven independent CASE/SUM states, duplicate/NULL/negative sales,
+    // absent weekdays, a NULL grouping key, and rejected offset/date/join rows.
+    auto weekdaySale = [&](std::optional<i64> shop, std::optional<i64> date, const char* price) {
+        store.push_back({30000, order++, date, std::nullopt, price, nullptr, nullptr, shop});
+    };
+    const char* daily[]{"10.25", "-2", "0", "3.75", "4", "5", "6"};
+    for (i64 day = 0; day != 7; ++day) weekdaySale(3000, 300 + day, daily[day]);
+    weekdaySale(3000, 300, "1.25"); weekdaySale(3000, 300, nullptr);
+    weekdaySale(3001, 300, "-2"); weekdaySale(3001, 301, "0");
+    weekdaySale(3002, 302, "3"); weekdaySale(3003, 300, nullptr);
+    weekdaySale(3004, 300, "1"); weekdaySale(3004, 300, "-1");
+    weekdaySale(3006, 307, "999"); weekdaySale(3006, 308, "999");
+    for (const auto shop : std::initializer_list<std::optional<i64>>{3005, 1, 99999, std::nullopt}) weekdaySale(shop, 300, "999");
+    for (const auto date : std::initializer_list<std::optional<i64>>{309, 4, 99999, std::nullopt}) weekdaySale(3000, date, "999");
+    // Q48: every demographic/price band crossed with every state/profit band,
+    // inclusive endpoints, duplicate attributes and all nullable join/filter inputs.
+    // Unrelated fact measures and keys remain NULL; Q28 quantities stay out of range.
+    auto bandSale = [&](std::optional<i64> demo, std::optional<i64> address, const char* price, const char* profit,
+            std::optional<i64> quantity, std::optional<i64> date = 300, std::optional<i64> shop = 1) {
+        TSale sale{30000, order++, date, std::nullopt, price, nullptr, nullptr, shop, profit};
+        sale.Demographics = demo; sale.Address = address; sale.Quantity = quantity; store.push_back(sale);
+    };
+    const char* priceBounds[3][4]{{"100", "150", "99.99", "150.01"}, {"50", "100", "49.99", "100.01"},
+        {"150", "200", "149.99", "200.01"}};
+    const char* profitBounds[3][4]{{"0", "2000", "-0.01", "2000.01"}, {"150", "3000", "149.99", "3000.01"},
+        {"50", "25000", "49.99", "25000.01"}};
+    i64 quantity = 40;
+    for (i64 demo = 0; demo != 3; ++demo) for (i64 address = 0; address != 3; ++address)
+        for (i64 endpoint = 0; endpoint != 2; ++endpoint)
+            bandSale(3000 + demo, 3100 + address, priceBounds[demo][endpoint], profitBounds[address][endpoint], quantity++);
+    bandSale(3000, 3100, "100", "0", 40); // A duplicate fact still contributes.
+    bandSale(3000, 3100, "125", "100", -13); bandSale(3000, 3100, "125", "100", 0);
+    bandSale(3000, 3100, "125", "100", std::nullopt); bandSale(3003, 3103, "100", "0", 70);
+    for (i64 address = 3104; address <= 3109; ++address) bandSale(3000, address, "125", "500", 100);
+    for (i64 band = 0; band != 3; ++band) for (i64 endpoint = 2; endpoint != 4; ++endpoint) {
+        bandSale(3000 + band, 3100, priceBounds[band][endpoint], "100", 10000);
+        bandSale(3000, 3100 + band, "125", profitBounds[band][endpoint], 10000);
+    }
+    for (const auto demo : std::initializer_list<std::optional<i64>>{3004, 3005, 3006, 99999, std::nullopt})
+        bandSale(demo, 3100, "125", "100", 10000);
+    for (const auto address : std::initializer_list<std::optional<i64>>{3110, 3111, 3112, 3113, 3114, 99999, std::nullopt})
+        bandSale(3000, address, "125", "100", 10000);
+    bandSale(3000, 3100, nullptr, "100", 10000); bandSale(3000, 3100, "125", nullptr, 10000);
+    for (const auto date : std::initializer_list<std::optional<i64>>{309, 4, 99999, std::nullopt}) bandSale(3000, 3100, "125", "100", 10000, date);
+    for (const auto shop : std::initializer_list<std::optional<i64>>{99999, std::nullopt}) bandSale(3000, 3100, "125", "100", 10000, 300, shop);
     loadSales("store_sales", "ss_", "ss_ticket_number", store);
     loadSales("web_sales", "ws_", "ws_order_number", web);
     TValueBuilder returns;
@@ -1928,7 +2003,7 @@ $round = ($x,$y) -> {return $x;};
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
             {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}, {17, 3}, {25, 4}, {29, 4}, {42, 7}, {52, 7}, {55, 7},
-            {1, 4}, {3, 10}, {7, 5}, {15, 9}, {19, 6}}) {
+            {1, 4}, {3, 10}, {7, 5}, {15, 9}, {19, 6}, {43, 6}, {48, 1}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1994,6 +2069,24 @@ $round = ($x,$y) -> {return $x;};
                 UNIT_ASSERT(values.ColumnParser("i_manufact").GetOptionalUtf8() == optionalText(name));
                 assertDecimal("ext_price", optionalText(amount));
             }
+            UNIT_ASSERT(!values.TryNextRow());
+        } else if (query == 43) {
+            struct TWeek { i64 Store; const char* Name; const char* Sales[7]; };
+            const char* columns[]{"sun_sales", "mon_sales", "tue_sales", "wed_sales", "thu_sales", "fri_sales", "sat_sales"};
+            for (const auto& week : std::initializer_list<TWeek>{
+                    {3002, nullptr, {nullptr, nullptr, "3"}}, {3003, "AllNull", {}}, {3006, "Unknown day", {}},
+                    {3000, "Week A", {"11.5", "-2", "0", "3.75", "4", "5", "6"}},
+                    {3001, "Week A", {"-2", "0"}}, {3004, "Zero", {"0"}}}) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT(values.ColumnParser("s_store_name").GetOptionalUtf8() == optionalText(week.Name));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("s_store_id").GetUtf8(), "Store" + std::to_string(week.Store));
+                for (size_t day = 0; day != 7; ++day) assertDecimal(columns[day], optionalText(week.Sales[day]));
+            }
+            UNIT_ASSERT(!values.TryNextRow());
+        } else if (query == 48) {
+            UNIT_ASSERT(values.TryNextRow());
+            // 40..57 + duplicate 40 - 13 + 70 + six other state matches * 100.
+            UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(0).GetOptionalInt64().value(), 1570);
             UNIT_ASSERT(!values.TryNextRow());
         } else if (query == 42 || query == 52 || query == 55) {
             const bool category = query == 42;
