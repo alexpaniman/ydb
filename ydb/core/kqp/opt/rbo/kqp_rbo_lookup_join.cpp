@@ -210,7 +210,7 @@ std::optional<TLookupJoinTarget> ChooseLookupJoinTarget(const TOpRead& read, con
 
     // Native bounds retain the full predicate for fetched-row filtering, so
     // adding them must not prevent an otherwise available covering-index lookup.
-    if (autoIndexSelection && (!read.RangeInfo || read.RangeInfo->NativeRange)) {
+    if (autoIndexSelection && (!read.RangeInfo || read.RangeInfo->NativeRanges)) {
         if (auto index = TryToFindBestIndexForRightSide(tableDesc, readColumns, joinKeyColumns); index && IsLookupTable(*index)) {
             return TLookupJoinTarget{index, nullptr, nullptr};
         }

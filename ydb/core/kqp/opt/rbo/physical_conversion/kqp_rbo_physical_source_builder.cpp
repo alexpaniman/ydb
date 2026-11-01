@@ -17,10 +17,12 @@ namespace {
 // (lower, upper) pairs. Each bound carries (infinity marker, optional key) for
 // every physical key column, followed by its inclusion marker. The outer
 // optional distinguishes an unbounded suffix from a finite SQL NULL key.
-// Emit this typed execution form directly, without AsRange/RangeFor macros.
-TExprNode::TPtr LowerNativeColumnRange(const TOpRead::TRangeInfo& info, const TStructExprType& schema,
+// RangeUnion sorts and merges singleton intervals before finalization, so
+// overlapping OR branches never cause duplicate reads. Both operations are
+// executable directly, without AsRange/RangeFor macros or annotation passes.
+TExprNode::TPtr LowerNativeRanges(const TOpRead::TRangeInfo& info, const TStructExprType& schema,
     TExprContext& ctx, TPositionHandle pos) {
-    Y_ENSURE(info.NativeRange && !info.ComputeNode && !info.LiteralRange);
+    Y_ENSURE(info.NativeRanges && !info.ComputeNode && !info.LiteralRange);
     NFrontend::TExpressionArena constants;
     const auto scalar = [&](NFrontend::TType type, NFrontend::TScalar value) {
         return LowerNativeLambda(constants, constants.Literal(type, std::move(value)), ctx, pos)->TailPtr();
@@ -41,6 +43,11 @@ TExprNode::TPtr LowerNativeColumnRange(const TOpRead::TRangeInfo& info, const TS
         return result;
     };
     TTypeAnnotationNode::TListType resultTypes;
+    for (const auto& key : info.KeyColumns) {
+        const auto* type = schema.FindItemType(key);
+        Y_ENSURE(type, "Missing native read key type");
+        resultTypes.push_back(ctx.MakeType<TOptionalExprType>(type));
+    }
     const auto lower = [&](const TOpRead::TKeyBound& bound, bool left) {
         Y_ENSURE(bound.Values.size() <= info.KeyColumns.size());
         TExprNode::TListType values;
@@ -49,7 +56,6 @@ TExprNode::TPtr LowerNativeColumnRange(const TOpRead::TRangeInfo& info, const TS
             const auto* keyType = schema.FindItemType(info.KeyColumns[i]);
             Y_ENSURE(keyType, "Missing native read key type");
             const auto* optionalType = ctx.MakeType<TOptionalExprType>(keyType);
-            if (left) resultTypes.push_back(optionalType);
             if (i < bound.Values.size()) {
                 const auto& expression = bound.Values[i];
                 Y_ENSURE(expression.IsNative() && expression.GetRawInputIUs().Empty(), "Read bound depends on a row");
@@ -71,14 +77,21 @@ TExprNode::TPtr LowerNativeColumnRange(const TOpRead::TRangeInfo& info, const TS
                 values.push_back(std::move(empty));
             }
         }
-        values.push_back(bound.Inclusive ? (left ? negative : positive) : zero);
+        // The storage decoder reserves an inclusive empty upper endpoint for
+        // point lookup encoding. Positive infinity must therefore be exclusive,
+        // even though inclusion has no meaning for an infinite native bound.
+        const bool inclusive = bound.Inclusive && (left || !bound.Values.empty());
+        values.push_back(inclusive ? (left ? negative : positive) : zero);
         return tuple(std::move(values));
     };
-    const auto& range = *info.NativeRange;
-    auto from = lower(range.Lower, true);
-    auto to = lower(range.Upper, false);
-    auto pair = tuple({std::move(from), std::move(to)});
-    auto list = call("AsList", {pair}, ctx.MakeType<TListExprType>(pair->GetTypeAnn()));
+    TExprNode::TListType lists;
+    for (const auto& range : *info.NativeRanges) {
+        auto pair = tuple({lower(range.Lower, true), lower(range.Upper, false)});
+        lists.push_back(call("AsList", {pair}, ctx.MakeType<TListExprType>(pair->GetTypeAnn())));
+    }
+    Y_ENSURE(!lists.empty(), "Native range extraction must produce an interval");
+    const TTypeAnnotationNode* listType = lists.front()->GetTypeAnn();
+    auto list = lists.size() == 1 ? lists.front() : call("RangeUnion", std::move(lists), listType);
     resultTypes.push_back(zero->GetTypeAnn());
     const auto* boundaryType = ctx.MakeType<TTupleExprType>(resultTypes);
     const auto* rangeType = ctx.MakeType<TTupleExprType>(TTypeAnnotationNode::TListType{boundaryType, boundaryType});
@@ -123,7 +136,7 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             if (const auto literalRange = Read.GetLiteralRange()) {
                 ranges = literalRange;
             }
-            if (Read.RangeInfo && Read.RangeInfo->NativeRange) {
+            if (Read.RangeInfo && Read.RangeInfo->NativeRanges && Read.RangeInfo->NativeRanges->size() == 1) {
                 Y_ENSURE(!Read.GetRanges() && !Read.GetLiteralRange(), "Mixed native and legacy read ranges");
                 const auto lower = [&](const TOpRead::TKeyBound& bound) {
                     TExprNode::TListType values;
@@ -133,11 +146,14 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
                     }
                     return Ctx.NewCallable(Pos, bound.Inclusive ? "KqlKeyInc" : "KqlKeyExc", std::move(values));
                 };
-                const auto& range = *Read.RangeInfo->NativeRange;
+                const auto& range = Read.RangeInfo->NativeRanges->front();
                 ranges = Build<TKqlKeyRange>(Ctx, Pos)
                     .From(TKqlKeyTuple(lower(range.Lower)))
                     .To(TKqlKeyTuple(lower(range.Upper)))
                     .Done().Ptr();
+            } else if (Read.RangeInfo && Read.RangeInfo->NativeRanges) {
+                Y_ENSURE(TableSchema, "Native ranges require the complete storage key schema");
+                ranges = LowerNativeRanges(*Read.RangeInfo, *TableSchema, Ctx, Pos);
             }
 
             TKqpReadTableSettings settings;
@@ -199,9 +215,9 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             break;
         }
         case NYql::EStorageType::ColumnStorage: {
-            if (Read.RangeInfo && Read.RangeInfo->NativeRange) {
+            if (Read.RangeInfo && Read.RangeInfo->NativeRanges) {
                 Y_ENSURE(TableSchema, "Native column ranges require the complete storage key schema");
-                ranges = LowerNativeColumnRange(*Read.RangeInfo, *TableSchema, Ctx, Pos);
+                ranges = LowerNativeRanges(*Read.RangeInfo, *TableSchema, Ctx, Pos);
             }
             // clang-format off
             auto processLambda = Build<TCoLambda>(Ctx, Pos)

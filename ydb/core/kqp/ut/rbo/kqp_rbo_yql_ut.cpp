@@ -1498,13 +1498,13 @@ FROM (
         UNIT_ASSERT_C(StringArrayFieldContains(*readOp, "ReadColumns", "b"), pushedReadPlan);
     }
 
-    Y_UNIT_TEST(ExplainRangePushdown) {
-        TExplainPlanTestContext testContext;
+    void RunExplainRangePushdown(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
             SELECT t1.a, t1.b FROM `/Root/t1` AS t1 WHERE t1.a > 5;
-        )");
+        )", nativeFrontend);
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         const auto* readOp = FindOperatorByStringField(simplifiedPlan, "Name", "TableRangeScan");
         UNIT_ASSERT_C(readOp, plan);
@@ -1518,7 +1518,7 @@ FROM (
         auto disjointPlan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
             SELECT t1.a, t1.b FROM `/Root/t1` AS t1 WHERE t1.a < 5 OR t1.a >= 10;
-        )");
+        )", nativeFrontend);
         const auto simplifiedDisjointPlan = GetSimplifiedPlan(disjointPlan);
         const auto* disjointReadOp = FindOperatorByStringField(simplifiedDisjointPlan, "Name", "TableRangeScan");
         UNIT_ASSERT_C(disjointReadOp, disjointPlan);
@@ -1528,6 +1528,8 @@ FROM (
         UNIT_ASSERT_C(!disjointReadOp->GetMapSafe().contains("Predicate"), disjointPlan);
         UNIT_ASSERT_C(!disjointReadOp->GetMapSafe().contains("ReadRangesPointPrefixLen"), disjointPlan);
     }
+    Y_UNIT_TEST(ExplainRangePushdown) { RunExplainRangePushdown(false); }
+    Y_UNIT_TEST(NativeExplainRangePushdown) { RunExplainRangePushdown(true); }
 
     Y_UNIT_TEST(ExplainAnalyzeSimplifiedPlanCpuWithActualRows) {
         const TString txPlan = R"({
@@ -1668,14 +1670,14 @@ FROM (
         AssertNoRboCpuValues(scan, simplifiedPlan);
     }
 
-    Y_UNIT_TEST(ExplainAnalyzeRangePushdown) {
-        TExplainPlanTestContext testContext;
+    void RunExplainAnalyzeRangePushdown(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         BulkUpsertExplainPlanTestRows(testContext.GetKikimr());
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplainAnalyze(session, R"(
             PRAGMA YqlSelect = 'force';
             SELECT count(*) FROM `/Root/t1` AS t1 WHERE t1.a > 5;
-        )");
+        )", nativeFrontend);
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         const auto* readOp = FindOperatorByStringField(simplifiedPlan, "Name", "TableRangeScan");
         UNIT_ASSERT_C(readOp, plan);
@@ -1686,6 +1688,8 @@ FROM (
         UNIT_ASSERT_C(readOp->GetMapSafe().contains("A-Size"), plan);
         UNIT_ASSERT_C(readOp->GetMapSafe().at("A-Size").GetDoubleSafe() > 0, plan);
     }
+    Y_UNIT_TEST(ExplainAnalyzeRangePushdown) { RunExplainAnalyzeRangePushdown(false); }
+    Y_UNIT_TEST(NativeExplainAnalyzeRangePushdown) { RunExplainAnalyzeRangePushdown(true); }
 
     Y_UNIT_TEST(ExplainAggregate) {
         TExplainPlanTestContext testContext;

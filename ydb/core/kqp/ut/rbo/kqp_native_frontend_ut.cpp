@@ -673,12 +673,13 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto& remaining = CastOperator<TOpFilter>(*pushed);
             UNIT_ASSERT_VALUES_EQUAL(remaining.GetFilterExpression().GetNativeRoot(), residual);
             auto& source = CastOperator<TOpRead>(*remaining.GetInput());
-            UNIT_ASSERT(source.RangeInfo && source.RangeInfo->NativeRange);
+            UNIT_ASSERT(source.RangeInfo && source.RangeInfo->NativeRanges);
             UNIT_ASSERT(!source.GetRanges() && !source.GetLiteralRange());
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->UsedPrefixLen, 2);
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->PointPrefixLen, 1);
             UNIT_ASSERT_VALUES_EQUAL(*source.RangeInfo->ExpectedMaxRanges, 1);
-            const auto& bounds = *source.RangeInfo->NativeRange;
+            UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->NativeRanges->size(), 1);
+            const auto& bounds = source.RangeInfo->NativeRanges->front();
             UNIT_ASSERT_VALUES_EQUAL(bounds.Lower.Values.size(), 2);
             UNIT_ASSERT_VALUES_EQUAL(bounds.Upper.Values.size(), 2);
             UNIT_ASSERT(!bounds.Lower.Inclusive && !bounds.Upper.Inclusive);
@@ -698,8 +699,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto copied = source.Copy(f.Props, renames);
             UNIT_ASSERT(copied);
             const auto& copy = CastOperator<TOpRead>(*copied);
-            UNIT_ASSERT(copy.RangeInfo->NativeRange);
-            UNIT_ASSERT_VALUES_EQUAL(copy.RangeInfo->NativeRange->Upper.Values[1].GetNativeRoot(), bounds.Upper.Values[1].GetNativeRoot());
+            UNIT_ASSERT(copy.RangeInfo->NativeRanges);
+            UNIT_ASSERT_VALUES_EQUAL(copy.RangeInfo->NativeRanges->front().Upper.Values[1].GetNativeRoot(), bounds.Upper.Values[1].GetNativeRoot());
             UNIT_ASSERT(copy.OriginalPredicate->GetRawInputIUs().Contains(*renames.Find(key)));
             UNIT_ASSERT(!copy.OriginalPredicate->GetRawInputIUs().Contains(key));
             auto root = f.Root(pushed, {{payload, "payload"}});
@@ -773,13 +774,13 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto& remaining = CastOperator<TOpFilter>(*indexFilter).GetFilterExpression();
             auto& source = CastOperator<TOpRead>(*indexFilter->GetChildren().front());
             UNIT_ASSERT_VALUES_EQUAL(NNodes::TKqpTable(source.TableCallable).Path().Value(), "/Root/table/A/indexImplTable");
-            UNIT_ASSERT(source.RangeInfo && source.RangeInfo->NativeRange);
+            UNIT_ASSERT(source.RangeInfo && source.RangeInfo->NativeRanges);
             UNIT_ASSERT(!source.RangeInfo->ComputeNode && !source.RangeInfo->LiteralRange);
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->MainTable, "/Root/table");
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->PointPrefixLen, 1);
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->UsedPrefixLen, 1);
             UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(*arena,
-                source.RangeInfo->NativeRange->Lower.Values.front().GetNativeRoot()).Data), 2);
+                source.RangeInfo->NativeRanges->front().Lower.Values.front().GetNativeRoot()).Data), 2);
             UNIT_ASSERT(remaining.IsNative() && !remaining.Node);
             UNIT_ASSERT(source.OriginalPredicate && source.OriginalPredicate->IsNative());
             UNIT_ASSERT(remaining.GetRawInputIUs().IsSubsetOf(source.GetColumns()));
@@ -801,7 +802,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             if (covering) {
                 TSubstitutions renames;
                 const auto copy = source.Copy(root->PlanProps, renames);
-                UNIT_ASSERT(copy && CastOperator<TOpRead>(*copy).RangeInfo->NativeRange);
+                UNIT_ASSERT(copy && CastOperator<TOpRead>(*copy).RangeInfo->NativeRanges);
                 UNIT_ASSERT(!CastOperator<TOpRead>(*copy).OriginalPredicate->GetRawInputIUs().Contains(group));
             } else {
                 auto& lookup = CastOperator<TOpTableLookup>(*pushed);
@@ -820,6 +821,153 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 UNIT_ASSERT(lookup.SourceRead->Predicate.GetRawInputIUs().Contains(renamed));
                 UNIT_ASSERT(!lookup.SourceRead->Predicate.GetRawInputIUs().Contains(group));
                 UNIT_ASSERT(lookup.GetExpressions().empty()); // Saved predicate is not a lookup-input dependency.
+            }
+        }
+    }
+
+    Y_UNIT_TEST(NativeRangeBranchesPreserveResidualsAndBoundExpansion) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        using O = EOpcode;
+        for (const auto storage : {NYql::EStorageType::RowStorage, NYql::EStorageType::ColumnStorage}) {
+            NTests::TIdTestContext f;
+            const auto key = f.Id("key"), suffix = f.Id("suffix"), payload = f.Id("payload");
+            auto metadata = MakeIntrusive<TKikimrTableMetadata>();
+            metadata->DoesExist = true;
+            metadata->Name = "/Root/table";
+            metadata->Kind = storage == NYql::EStorageType::RowStorage ? EKikimrTableKind::Datashard : EKikimrTableKind::Olap;
+            metadata->KeyColumnNames = {"key", "suffix"};
+            f.Tables->GetOrAddTable("ut", "/Root", metadata->Name).Metadata = metadata;
+            auto arena = std::make_shared<TExpressionArena>();
+            const auto a = arena->Column(key, {K::Int32, true}), b = arena->Column(suffix, {K::Int32, true});
+            const auto v = arena->Column(payload, {K::Int32});
+            const auto compare = [&](O op, TExprId column, i64 value) {
+                return arena->Binary(op, column, arena->Literal({K::Int32}, std::int64_t{value}));
+            };
+            const auto binary = [&](O op, TExprId left, TExprId right) { return arena->Binary(op, left, right); };
+            const auto first = compare(O::Equal, a, 1), second = compare(O::Equal, a, 2);
+            const auto suffixes = binary(O::Or, compare(O::Equal, b, 0), compare(O::Equal, b, 5));
+            const auto keys = binary(O::Or, first, second);
+            const auto residual = binary(O::Or, binary(O::And, first, compare(O::Equal, v, 0)),
+                binary(O::And, second, compare(O::Equal, v, 1)));
+            auto large = suffixes;
+            for (size_t i = 0; i < 20; ++i) large = binary(O::And, large, suffixes);
+            struct TCase { TExprId Predicate; size_t Ranges; bool Residual; ui64 Limit = 10000; };
+            for (const auto test : TVector<TCase>{
+                    {binary(O::Or, compare(O::Less, a, 0), compare(O::GreaterEqual, a, 5)), 2, false},
+                    {binary(O::Or, keys, first), 3, false},
+                    {binary(O::And, first, suffixes), 2, false},
+                    {binary(O::And, keys, suffixes), 4, false},
+                    {residual, 2, true},
+                    {binary(O::Or, first, compare(O::Equal, v, 1)), 0, true},
+                    {binary(O::Or, first, arena->Unary(O::IsNull, a)), 0, true},
+                    {binary(O::And, first, suffixes), 1, true, 1},
+                    {binary(O::And, first, large), 1, true, 0},
+                    {binary(O::Or, first, arena->Ensure(second, arena->Literal({K::Bool}, false), "checked")), 0, true}}) {
+                f.Config->SetExtractPredicateRangesLimit(test.Limit);
+                auto read = f.Read({key, suffix, payload});
+                read->StorageType = storage;
+                f.SetType(*read, {key, suffix});
+                auto filter = MakeIntrusive<TOpFilter>(read, f.Pos,
+                    TExpression::FromNative(arena, test.Predicate, &f.ExprCtx, &f.Props));
+                auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
+                    UNIT_FAIL("native interval unions invoked YQL annotation");
+                    return IGraphTransformer::TStatus::Error;
+                });
+                TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+                TPushRangesRule rule(storage);
+                auto result = rule.SimpleMatchAndApply(filter, context, f.Props);
+                UNIT_ASSERT_VALUES_EQUAL(result->Kind == EOperator::Filter, test.Residual);
+                if (!test.Ranges) { UNIT_ASSERT(result == filter); continue; }
+                auto source = test.Residual ? CastOperator<TOpFilter>(*result).GetInput() : result;
+                auto& extracted = CastOperator<TOpRead>(*source);
+                UNIT_ASSERT(extracted.RangeInfo && extracted.RangeInfo->NativeRanges);
+                UNIT_ASSERT_VALUES_EQUAL(extracted.RangeInfo->NativeRanges->size(), test.Ranges);
+                UNIT_ASSERT(!extracted.GetRanges() && !extracted.GetLiteralRange());
+                UNIT_ASSERT_VALUES_EQUAL(extracted.OriginalPredicate->GetNativeRoot(), test.Predicate);
+                if (test.Predicate == residual)
+                    UNIT_ASSERT_VALUES_EQUAL(CastOperator<TOpFilter>(*result).GetFilterExpression().GetNativeRoot(), residual);
+                for (const auto& expression : extracted.GetExpressions()) {
+                    UNIT_ASSERT(expression.get().IsNative() && !expression.get().Node);
+                    UNIT_ASSERT(expression.get().GetRawInputIUs().Empty());
+                }
+                TSubstitutions renames;
+                const auto copied = extracted.Copy(f.Props, renames);
+                UNIT_ASSERT_VALUES_EQUAL(CastOperator<TOpRead>(*copied).RangeInfo->NativeRanges->size(), test.Ranges);
+                UNIT_ASSERT(CastOperator<TOpRead>(*copied).OriginalPredicate->GetRawInputIUs().Contains(*renames.Find(key)));
+                UNIT_ASSERT_VALUES_EQUAL(extracted.ToJson(0, f.Props.InfoUnitRegistry)["ReadRanges"].GetArraySafe().size(), test.Ranges);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(NativeIntervalUnionsExecuteWithoutSemanticLowering) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        // Duplicate, overlapping, reversed, exclusive equal and unbounded
+        // endpoints. Composite suffixes must retain their infinity markers.
+        for (const auto storage : {NYql::EStorageType::RowStorage, NYql::EStorageType::ColumnStorage}) {
+            for (const bool nullable : {false, true}) for (const bool composite : {false, true}) {
+                NTests::TIdTestContext f;
+                const auto key = f.Id("key");
+                auto read = f.Read({key});
+                read->StorageType = storage;
+                f.SetType(*read, nullable ? TUnorderedIUs{key} : TUnorderedIUs{});
+                TVector<const TItemExprType*> fields{
+                    f.ExprCtx.MakeType<TItemExprType>("key", ExportNativeType({K::Int32, nullable}, f.ExprCtx))};
+                if (composite) fields.push_back(f.ExprCtx.MakeType<TItemExprType>("suffix", ExportNativeType({K::Int32, nullable}, f.ExprCtx)));
+                const auto* schema = f.ExprCtx.MakeType<TStructExprType>(fields);
+                auto arena = std::make_shared<TExpressionArena>();
+                TOpRead::TRangeInfo info;
+                info.KeyColumns = {"key"};
+                if (composite) info.KeyColumns.push_back("suffix");
+                info.NativeRanges.emplace();
+                const auto value = [&](i32 number) {
+                    return TExpression::FromNative(arena, arena->Literal({K::Int32}, std::int64_t{number}), &f.ExprCtx, &f.Props);
+                };
+                for (const auto& [lo, hi, inclusive] : TVector<std::tuple<i32, i32, bool>>{
+                        {3, 7, true}, {9, 10, true}, {1, 5, true}, {3, 7, true}, {8, 0, true}, {8, 8, false}}) {
+                    auto& range = info.NativeRanges->emplace_back();
+                    range.Lower.Values = {value(lo)};
+                    range.Upper.Values = {value(hi)};
+                    range.Lower.Inclusive = range.Upper.Inclusive = inclusive;
+                }
+                auto& below = info.NativeRanges->emplace_back();
+                below.Upper.Values = {value(-3)};
+                below.Upper.Inclusive = false;
+                info.NativeRanges->emplace_back().Lower.Values = {value(20)};
+                read->RangeInfo = std::move(info);
+                const TPhysicalNames names(f.Props.InfoUnitRegistry);
+                const auto physical = TPhysicalSourceBuilder(*read, f.ExprCtx, f.Pos, names,
+                    f.Props.InfoUnitRegistry, "stage", false, {}, schema).BuildPhysicalOp();
+                const auto ranges = FindNode(physical, [](const NYql::TExprNode::TPtr& node) { return node->IsCallable("RangeFinalize"); });
+                UNIT_ASSERT(ranges && ranges->Head().IsCallable("RangeUnion"));
+                UNIT_ASSERT(AreAllNodesTypeAnnotated(*ranges));
+                UNIT_ASSERT(!NeedsRboCompatibilityLowering(ranges));
+                NMiniKQL::TSetup<false> setup(NMiniKQL::GetBuiltinFactory());
+                NCommon::TMkqlCommonCallableCompiler compiler;
+                NCommon::TMkqlBuildContext build(compiler, *setup.PgmBuilder, f.ExprCtx);
+                auto graph = setup.BuildGraph(NCommon::MkqlBuildExpr(*ranges, build));
+                const auto values = graph->GetValue();
+                UNIT_ASSERT_VALUES_EQUAL(values.GetListLength(), 4);
+                auto iterator = values.GetListIterator();
+                NUdf::TUnboxedValue item;
+                const auto marker = composite ? 2 : 1;
+                UNIT_ASSERT(iterator.Next(item));
+                UNIT_ASSERT(!item.GetElement(0).GetElement(0));
+                UNIT_ASSERT_VALUES_EQUAL(item.GetElement(1).GetElement(0).Get<i32>(), -3);
+                UNIT_ASSERT_VALUES_EQUAL(item.GetElement(1).GetElement(marker).Get<i32>(), 0);
+                for (const auto& [lo, hi] : {std::pair{1, 7}, std::pair{9, 10}}) {
+                    UNIT_ASSERT(iterator.Next(item));
+                    UNIT_ASSERT_VALUES_EQUAL(item.GetElement(0).GetElement(0).Get<i32>(), lo);
+                    UNIT_ASSERT_VALUES_EQUAL(item.GetElement(1).GetElement(0).Get<i32>(), hi);
+                    UNIT_ASSERT_VALUES_EQUAL(item.GetElement(0).GetElement(marker).Get<i32>(), 1);
+                    UNIT_ASSERT_VALUES_EQUAL(item.GetElement(1).GetElement(marker).Get<i32>(), 1);
+                }
+                UNIT_ASSERT(iterator.Next(item));
+                UNIT_ASSERT_VALUES_EQUAL(item.GetElement(0).GetElement(0).Get<i32>(), 20);
+                UNIT_ASSERT(!item.GetElement(1).GetElement(0));
+                UNIT_ASSERT_VALUES_EQUAL(item.GetElement(1).GetElement(marker).Get<i32>(), 0);
+                UNIT_ASSERT(!iterator.Next(item));
             }
         }
     }
@@ -851,8 +999,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 const auto key = literal({K::Uint64}, std::uint64_t{keyValue});
                 TOpRead::TRangeInfo info;
                 info.KeyColumns = {"key", "suffix", "tail"};
-                info.NativeRange.emplace();
-                auto& range = *info.NativeRange;
+                info.NativeRanges.emplace();
+                auto& range = info.NativeRanges->emplace_back();
                 range.Lower.Values = {key};
                 range.Upper.Values = {key};
                 if (scenario == 1) range.Upper.Values.clear();
@@ -893,7 +1041,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 if (scenario != 2) UNIT_ASSERT_VALUES_EQUAL(from.GetElement(0).Get<ui64>(), keyValue);
                 if (scenario != 1) UNIT_ASSERT_VALUES_EQUAL(to.GetElement(0).Get<ui64>(), keyValue);
                 UNIT_ASSERT_VALUES_EQUAL(from.GetElement(3).Get<i32>(), scenario == 5 ? 0 : 1);
-                UNIT_ASSERT_VALUES_EQUAL(to.GetElement(3).Get<i32>(), scenario == 2 || scenario == 5 ? 0 : 1);
+                UNIT_ASSERT_VALUES_EQUAL(to.GetElement(3).Get<i32>(), scenario == 1 || scenario == 2 || scenario == 5 ? 0 : 1);
                 if (scenario == 5) {
                     UNIT_ASSERT(from.GetElement(1));
                     UNIT_ASSERT(!from.GetElement(1).GetOptionalValue());
@@ -903,7 +1051,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 }
                 UNIT_ASSERT(!from.GetElement(2) && !to.GetElement(2));
                 UNIT_ASSERT(!iterator.Next(item));
-                UNIT_ASSERT(read->RangeInfo->NativeRange && !read->GetRanges() && !read->GetLiteralRange());
+                UNIT_ASSERT(read->RangeInfo->NativeRanges && !read->GetRanges() && !read->GetLiteralRange());
             }
         }
     }
@@ -938,7 +1086,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         for (const ui64 number : {0ULL, 9007199254740993ULL, 9223372036854775808ULL, 18446744073709551615ULL}) {
             const auto literal = arena->Literal({K::Uint64}, std::uint64_t{number});
             const auto result = check(arena->Binary(O::Equal, value, literal), true);
-            const auto& bound = CastOperator<TOpRead>(*result).RangeInfo->NativeRange->Lower.Values.front();
+            const auto& bound = CastOperator<TOpRead>(*result).RangeInfo->NativeRanges->front().Lower.Values.front();
             UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(*arena, bound.GetNativeRoot()).Data), number);
         }
         const auto param = arena->Parameter("bound", {K::Uint64});

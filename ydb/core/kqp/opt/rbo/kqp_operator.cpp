@@ -417,8 +417,8 @@ TUnorderedIUs TOpRead::GetRequiredColumns(TExprContext& ctx) const {
 TVector<std::reference_wrapper<const TExpression>> TOpRead::GetExpressions() const {
     TVector<std::reference_wrapper<const TExpression>> result;
     if (OlapProgram.IsNative()) result.push_back(std::cref(OlapProgram.Native()));
-    if (RangeInfo && RangeInfo->NativeRange) {
-        for (const auto* bound : {&RangeInfo->NativeRange->Lower, &RangeInfo->NativeRange->Upper}) {
+    if (RangeInfo && RangeInfo->NativeRanges) {
+        for (const auto& range : *RangeInfo->NativeRanges) for (const auto* bound : {&range.Lower, &range.Upper}) {
             for (const auto& value : bound->Values) result.push_back(std::cref(value));
         }
     }
@@ -434,8 +434,8 @@ void TOpRead::BindExpressionPlanProps(TPlanProps* props) {
 void TOpRead::RewriteExpressions(const TExpressionRewrite& rewrite) {
     if (OlapProgram.IsNative()) OlapProgram.Native() = rewrite(OlapProgram.Native());
     if (OriginalPredicate && OriginalPredicate->IsNative()) OriginalPredicate = rewrite(*OriginalPredicate);
-    if (RangeInfo && RangeInfo->NativeRange) {
-        for (auto* bound : {&RangeInfo->NativeRange->Lower, &RangeInfo->NativeRange->Upper}) {
+    if (RangeInfo && RangeInfo->NativeRanges) {
+        for (auto& range : *RangeInfo->NativeRanges) for (auto* bound : {&range.Lower, &range.Upper}) {
             for (auto& value : bound->Values) value = rewrite(value);
         }
     }
@@ -490,7 +490,22 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
             rangedKeys.push_back(StripAliasPrefix(RangeInfo->KeyColumns[i]));
         }
 
-        const auto descriptions = NOpt::BuildReadRangeDescriptions(RangeInfo->ComputeNode, RangeInfo->KeyColumns, usedLen);
+        TVector<TString> descriptions;
+        if (RangeInfo->NativeRanges) {
+            for (const auto& range : *RangeInfo->NativeRanges) for (size_t i = 0; i < usedLen; ++i) {
+                const auto& from = range.Lower;
+                const auto& to = range.Upper;
+                const bool hasFrom = i < from.Values.size(), hasTo = i < to.Values.size();
+                if (!hasFrom && !hasTo) continue;
+                const bool fromInclusive = hasFrom && (i + 1 < from.Values.size() || from.Inclusive);
+                const bool toInclusive = hasTo && (i + 1 < to.Values.size() || to.Inclusive);
+                descriptions.push_back(TStringBuilder() << rangedKeys[i] << ' ' << (fromInclusive ? '[' : '(')
+                    << (hasFrom ? from.Values[i].ToExplainString(registry) : TString("-∞")) << ", "
+                    << (hasTo ? to.Values[i].ToExplainString(registry) : TString("+∞")) << (toInclusive ? ']' : ')'));
+            }
+        } else {
+            descriptions = NOpt::BuildReadRangeDescriptions(RangeInfo->ComputeNode, RangeInfo->KeyColumns, usedLen);
+        }
         for (const auto& label : descriptions.empty() ? rangedKeys : descriptions) {
             readColumns.AppendValue(label);
         }
@@ -505,7 +520,7 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
         if (RangeInfo->ExpectedMaxRanges) {
             res["ReadRangesExpectedSize"] = ::ToString(*RangeInfo->ExpectedMaxRanges);
         }
-        if (RangeInfo->NativeRange) {
+        if (RangeInfo->NativeRanges) {
             auto describe = [&](const TKeyBound& bound) {
                 NJson::TJsonValue result(NJson::EJsonValueType::JSON_MAP);
                 result["Inclusive"] = bound.Inclusive;
@@ -514,8 +529,18 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
                 result["Values"] = std::move(values);
                 return result;
             };
-            res["ReadRangeLower"] = describe(RangeInfo->NativeRange->Lower);
-            res["ReadRangeUpper"] = describe(RangeInfo->NativeRange->Upper);
+            NJson::TJsonValue ranges(NJson::EJsonValueType::JSON_ARRAY);
+            for (const auto& range : *RangeInfo->NativeRanges) {
+                NJson::TJsonValue item(NJson::EJsonValueType::JSON_MAP);
+                item["Lower"] = describe(range.Lower);
+                item["Upper"] = describe(range.Upper);
+                ranges.AppendValue(std::move(item));
+            }
+            res["ReadRanges"] = std::move(ranges);
+            if (RangeInfo->NativeRanges->size() == 1) {
+                res["ReadRangeLower"] = describe(RangeInfo->NativeRanges->front().Lower);
+                res["ReadRangeUpper"] = describe(RangeInfo->NativeRanges->front().Upper);
+            }
         }
     }
     // Choose a deterministic presentation order, not a logical column order.
@@ -559,8 +584,7 @@ TString TOpRead::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) 
     if (const auto literalRange = GetLiteralRange()) {
         res << " Literal range: (" << PrintRBOExpression(literalRange, ctx) << ")";
     }
-    if (RangeInfo && RangeInfo->NativeRange) {
-        const auto& range = *RangeInfo->NativeRange;
+    if (RangeInfo && RangeInfo->NativeRanges) {
         const auto format = [&](const TKeyBound& bound) {
             TStringBuilder text;
             TStringBuf separator;
@@ -570,8 +594,9 @@ TString TOpRead::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) 
             }
             return text;
         };
-        res << " Range: " << (range.Lower.Inclusive ? '[' : '(') << '(' << format(range.Lower)
-            << "), (" << format(range.Upper) << ')' << (range.Upper.Inclusive ? ']' : ')');
+        for (const auto& range : *RangeInfo->NativeRanges)
+            res << " Range: " << (range.Lower.Inclusive ? '[' : '(') << '(' << format(range.Lower)
+                << "), (" << format(range.Upper) << ')' << (range.Upper.Inclusive ? ']' : ')');
     }
     if (SortDir != ESortDir::None) {
         res << " Sort direction: (" << ((SortDir == ESortDir::Asc) ? "ASC" : "DESC");

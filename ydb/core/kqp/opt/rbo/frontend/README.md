@@ -476,34 +476,42 @@ of all 22 TPC-H and then-covered 41 TPC-DS queries across the three compiler pat
 Both benchmark fixtures subsequently passed with TPC-DS expanded to 44 queries.
 
 Native row- and column-table range extraction reads the typed DAG directly. Equality
-conjuncts pin a contiguous key prefix, optionally followed by one interval;
-selected predicates are removed and remaining predicates retain their order.
+conjuncts pin a contiguous key prefix, optionally followed by one interval. AND/OR
+branches form a union of these intervals, including literal IN lists. Expansion
+respects the configured range limit and a 100,000-unit work budget even when that
+limit is disabled. If expansion exceeds either budget, ordinary top-level
+conjuncts can still supply a prefix while the disjunction stays in compute.
+Every branch must constrain the leading key. Fully consumed predicates disappear;
+otherwise a multi-range read retains the whole original predicate, preserving
+branch-specific residuals. Single-range residuals retain their order.
 Bounds are literals or required parameters of the exact key type. Integral
 literal widths and signedness may change only when the mathematical value fits.
 NULL keys are excluded from upper-only comparisons with an explicit exclusive
 NULL lower bound. Nullable parameters, out-of-domain literals, value-changing
-column casts, floating/Decimal keys and disjunctions remain filters. Any checked
+column casts, floating/Decimal keys and unconstrained disjunctions remain filters. Any checked
 expression prevents extraction rather than risking suppression of its error.
 The read stores native bound expressions and exposes them to ordinary expression
-rewrites. Physical conversion emits `KqlKeyRange` for row sources or a typed
-`RangeFinalize` input for column reads. The latter is directly executable in
-MiniKQL and uses the existing backend's range materialization; it needs no
+rewrites. Physical conversion emits `KqlKeyRange` for a single row-table interval;
+column reads and multiple row-table intervals use typed `RangeFinalize` input.
+`RangeUnion` sorts and merges multiple intervals, eliminating duplicate reads
+from overlapping branches. These operations execute directly in MiniKQL and use
+the existing backend's range materialization; they need no
 `AsRange`/`RangeFor` lowering or predicate-extraction pipeline. The complete
 storage schema supplies types for unbounded key suffixes even when those columns
 were pruned from the read's output. Backend optional layers distinguish infinity
-from a finite SQL NULL key. Explain shows each
-bound's values and inclusivity. The complete original predicate survives for
+from a finite SQL NULL key. An infinite upper endpoint is encoded as exclusive:
+the storage decoder reserves an inclusive empty upper endpoint for point lookups.
+Explain shows every interval's values and inclusivity. The complete original predicate survives for
 statistics and fetched-row filtering when a lookup join replaces the range scan.
 Tests forbid YQL annotation during extraction, check copying/pruning and a
-20,000-node shared DAG, and compare 102 populated query executions across the
-native frontend and both existing compiler paths. Native plans assert range
-versus full scans for 22 cases, including composite and NULL keys, descending
-limits with residual filters, contradictory intervals, exact 64-bit boundaries
-and prepared-parameter reuse. Column-store checks add 66 populated executions
-across the same three paths and 17 native plan assertions, including a non-key
-OLAP filter. Eleven direct MiniKQL cases execute typed range values with required
+20,000-node shared DAG, and compare populated query executions across the native
+frontend and both existing compiler paths. Native plans assert range versus full
+scans, including composite and NULL keys, descending limits with residual filters,
+contradictory and overlapping intervals, unbounded reads, exact 64-bit boundaries
+and prepared-parameter reuse. Column-store checks also preserve non-key OLAP
+filters. Direct MiniKQL cases execute typed range values and unions with required
 and nullable composite keys, pruned key columns, finite NULL bounds, exact large
-integers and empty intervals. The existing OLAP test now requires exact range
+integers and empty intervals. The existing OLAP test requires exact range
 bounds when extraction consumes its key predicate; its remaining filter checks
 are retained. These are correctness checks, not a compilation speedup measurement.
 
@@ -521,18 +529,19 @@ so replacing its scan cannot discard the range condition.
 
 Sixteen model combinations check index order, covering columns, residuals and
 the disable setting while forbidding YQL annotation. Populated tests compare
-117 executions across all three compiler paths and assert 32 native index/range
-plans. They include NULL primary and secondary keys, exact large integers,
-contradictory ranges, sort/limit choices, prepared-parameter reuse and joins.
-The full 433-test RBO regression run passed, retaining all 431 previous tests and
-the unchanged 22 TPC-H / 44 TPC-DS populated expectations. A final native-only
-restriction excluding specialized indexes subsequently passed 42 focused tests,
-including all native operator-model tests and the populated range comparisons.
-No new files or pre-existing compiler/backend fixes were needed. Compilation
-timings were not remeasured for this increment.
+index reads across all three compiler paths and assert native index/range plans.
+They include NULL primary and secondary keys, exact large integers, contradictory
+and overlapping ranges, sort/limit choices, prepared-parameter reuse and joins.
+Twenty row/column model combinations check Boolean range distribution, residuals,
+unsupported bounds and expansion limits; eight direct MiniKQL combinations check
+union normalization with required/nullable and simple/composite keys. The original
+range-explain and populated range-analyze tests also run in native-required mode,
+preserving their SQL, helpers and assertions. The full 442-test RBO regression run
+passed, retaining all 438 previous tests and the unchanged 22 TPC-H / 44 TPC-DS
+populated expectations. No new files or pre-existing compiler/backend fixes were
+needed. Compilation timings were not remeasured for this increment.
 
-**Plan-quality limitation:** native multi-range extraction,
-lookup point prefixes and OLAP projection pushdown
+**Plan-quality limitation:** lookup point prefixes and OLAP projection pushdown
 remain unfinished. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing
 this debt and establishing plan/execution parity remain required before broad

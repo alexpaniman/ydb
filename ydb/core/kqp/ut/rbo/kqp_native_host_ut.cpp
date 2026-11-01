@@ -2409,6 +2409,7 @@ $round = ($x,$y) -> {return $x;};
             TVector<i32> Tags;
             bool Range = true;
             const char* Tail = "ORDER BY tag";
+            size_t MaxRanges = 1;
         };
         const TVector<TCase> cases{
             {"key = 1", {3, 4, 5, 6, 7, 8}},
@@ -2430,7 +2431,17 @@ $round = ($x,$y) -> {return $x;};
             {"suffix < 5", {0, 1, 2, 4, 5, 6, 9, 10, 11, 12}, false},
             {"CAST(key AS Int32) = 1", {3, 4, 5, 6, 7, 8}, false},
             {"key < 18446744073709551615ul", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, false},
-            {"key = 1 OR key = 2", {3, 4, 5, 6, 7, 8, 9}, false},
+            {"key = 1 OR key = 2", {3, 4, 5, 6, 7, 8, 9}, true, "ORDER BY tag", 2},
+            {"key < 0 OR key >= 3", {1, 10, 11, 12}, true, "ORDER BY tag", 2},
+            {"key >= 3", {10, 11, 12}},
+            {"key > 3", {11, 12}},
+            {"(key >= 0 AND key <= 1) OR (key >= 1 AND key < 3)", {2, 3, 4, 5, 6, 7, 8, 9}, true, "ORDER BY tag", 2},
+            {"key IN (2, 1, 2)", {3, 4, 5, 6, 7, 8, 9}, true, "ORDER BY tag", 3},
+            {"key = 1 AND (suffix < 0 OR suffix >= 5)", {4, 7, 8}, true, "ORDER BY tag", 2},
+            {"(key = 1 OR key = 2) AND (suffix = 0 OR suffix = 5)", {5, 7, 9}, true, "ORDER BY tag", 4},
+            {"(key = 1 AND tag = 4) OR (key = 2 AND tag = 9)", {4, 9}, true, "ORDER BY tag", 2},
+            {"key = 1 OR tag = 0", {0, 3, 4, 5, 6, 7, 8}, false},
+            {"key = 1 OR key = 2", {9, 8, 7}, true, "ORDER BY key DESC, suffix DESC LIMIT 3", 2},
             {"key = 1 AND suffix > 0", {8, 7}, true, "ORDER BY suffix DESC LIMIT 2"},
             {"key = 1 AND tag != 8", {7, 6}, true, "ORDER BY suffix DESC LIMIT 2"},
         };
@@ -2491,6 +2502,13 @@ $round = ($x,$y) -> {return $x;};
                 const TString sql = TStringBuilder() << "SELECT tag FROM `/Root/KeyRanges` WHERE " << item.Predicate << ' ' << item.Tail;
                 const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
                 UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+                if (result.GetResultSet(0).RowsCount() != item.Tags.size()) {
+                    const auto diagnostic = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                        NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                    Cerr << "Range mismatch, strategy=" << strategy << ": " << sql << " actual=" << Snapshot(result).Values << Endl;
+                    if (diagnostic.GetStats() && diagnostic.GetStats()->GetAst()) Cerr << *diagnostic.GetStats()->GetAst() << Endl;
+                    if (diagnostic.GetStats() && diagnostic.GetStats()->GetPlan()) Cerr << *diagnostic.GetStats()->GetPlan() << Endl;
+                }
                 assertTags(result, item.Tags);
                 if (strategy == 2) {
                     const auto explain = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
@@ -2509,8 +2527,11 @@ $round = ($x,$y) -> {return $x;};
                                 ++reads;
                                 UNIT_ASSERT_VALUES_EQUAL_C(name->second.GetStringSafe(), item.Range ? "TableRangeScan" : "TableFullScan", sql << plan);
                                 if (item.Range) {
-                                    UNIT_ASSERT_VALUES_EQUAL_C(fields.at("ReadRangesExpectedSize").GetStringSafe(), "1", plan);
-                                    UNIT_ASSERT(fields.contains("ReadRangeLower") && fields.contains("ReadRangeUpper"));
+                                    const auto count = FromString<size_t>(fields.at("ReadRangesExpectedSize").GetStringSafe());
+                                    UNIT_ASSERT_C(count > 0 && count <= item.MaxRanges, sql << plan);
+                                    UNIT_ASSERT_VALUES_EQUAL(fields.at("ReadRanges").GetArraySafe().size(), count);
+                                    if (item.MaxRanges == 1)
+                                        UNIT_ASSERT(fields.contains("ReadRangeLower") && fields.contains("ReadRangeUpper"));
                                 }
                             }
                             for (const auto& [key, value] : fields) { Y_UNUSED(key); self(self, value); }
@@ -2535,6 +2556,18 @@ $round = ($x,$y) -> {return $x;};
             for (const auto& [lo, hi, expected] : bounds) {
                 auto params = query.GetParamsBuilder().AddParam("$lo").Int64(lo).Build().AddParam("$hi").Int64(hi).Build().Build();
                 assertTags(query.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync(), expected);
+            }
+            const auto unionPrepared = session.PrepareDataQuery(R"(
+                DECLARE $lo AS Int64; DECLARE $hi AS Int64;
+                SELECT tag FROM `/Root/KeyRanges` WHERE (key >= $lo AND key < $hi) OR key = 1 ORDER BY tag;
+            )").GetValueSync();
+            UNIT_ASSERT_C(unionPrepared.IsSuccess(), unionPrepared.GetIssues().ToString());
+            auto unionQuery = unionPrepared.GetQuery();
+            for (const auto& [lo, hi, expected] : TVector<std::tuple<i64, i64, TVector<i32>>>{
+                    {1, 2, {3, 4, 5, 6, 7, 8}}, {-2, 1, {1, 2, 3, 4, 5, 6, 7, 8}}, {3, 1, {3, 4, 5, 6, 7, 8}},
+                    {9007199254740993LL, std::numeric_limits<i64>::max(), {3, 4, 5, 6, 7, 8, 11}}, {1, 2, {3, 4, 5, 6, 7, 8}}}) {
+                auto params = unionQuery.GetParamsBuilder().AddParam("$lo").Int64(lo).Build().AddParam("$hi").Int64(hi).Build().Build();
+                assertTags(unionQuery.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync(), expected);
             }
             const auto nullablePrepared = session.PrepareDataQuery(R"(
                 DECLARE $bound AS Int64?;
@@ -2691,6 +2724,10 @@ $round = ($x,$y) -> {return $x;};
         };
         const TVector<TCase> cases{
             {"g = 2", groupTwo, "AGroup"},
+            {"g = 1 OR g = 3", {6, 8, 9}, "AGroup"},
+            {"g >= 2 OR g <= 2", {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14}, "AGroup"},
+            {"(g = 2 AND x < 2) OR (g = 3 AND x >= 0)", {1, 3, 9, 12}, "AGroup"},
+            {"(g = 2 AND x < 2) OR (g = 3 AND tag > 8)", {1, 3, 9, 12}, "AGroup"},
             {"g = 2 AND x >= 0 AND x < 5", {1, 3, 4, 10, 11, 13, 14}, "AGroup"},
             {"x = 2", {4, 6, 7, 9, 10, 11, 13, 14}, "ByX"},
             {"g < 3", {1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14}, "AGroup"},
@@ -2781,7 +2818,9 @@ $round = ($x,$y) -> {return $x;};
                     if (index) {
                         UNIT_ASSERT_C(ast.Contains(TStringBuilder() << '/' << index << "/indexImplTable"), sql << '\n' << ast);
                         UNIT_ASSERT_VALUES_EQUAL_C(plan.Contains("TableLookup"), payload, sql << '\n' << plan);
-                        UNIT_ASSERT_C(plan.Contains("ReadRangeLower") && plan.Contains("ReadRangeUpper"), sql << '\n' << plan);
+                        UNIT_ASSERT_C(plan.Contains("\"ReadRanges\""), sql << '\n' << plan);
+                        if (!TStringBuf(test.Predicate).Contains(" OR "))
+                            UNIT_ASSERT_C(plan.Contains("ReadRangeLower") && plan.Contains("ReadRangeUpper"), sql << '\n' << plan);
                     } else UNIT_ASSERT_C(!ast.Contains("indexImplTable"), sql << '\n' << ast);
                 }
             }
@@ -2819,8 +2858,19 @@ $round = ($x,$y) -> {return $x;};
             TVector<i32> Tags;
             bool Range = true;
             const char* Tail = "ORDER BY tag";
+            bool Multiple = false;
         };
         const TVector<TCase> cases{
+            {"key < 0 OR key >= 3", {1, 9, 10, 11}, true, "ORDER BY tag", true},
+            {"key >= 3", {9, 10, 11}},
+            {"key > 3", {10, 11}},
+            {"(key >= 0 AND key <= 1) OR (key >= 1 AND key < 3)", {2, 3, 4, 5, 6, 7, 8}, true, "ORDER BY tag", true},
+            {"key IN (2, 1, 2)", {3, 4, 5, 6, 7, 8}, true, "ORDER BY tag", true},
+            {"key = 1 AND (suffix < 0 OR suffix >= 5)", {3, 6, 7}, true, "ORDER BY tag", true},
+            {"(key = 1 OR key = 2) AND (suffix = 0 OR suffix = 5)", {4, 6, 8}, true, "ORDER BY tag", true},
+            {"(key = 1 AND v < 0) OR (key = 2 AND v > 0)", {4, 8}, true, "ORDER BY tag", true},
+            {"key = 1 OR tag = 1", {1, 3, 4, 5, 6, 7}, false},
+            {"key = 1 OR key = 2", {8, 7, 6}, true, "ORDER BY key DESC, suffix DESC LIMIT 3", true},
             {"key = 1", {3, 4, 5, 6, 7}},
             {"key = 1 AND suffix < 5", {3, 4, 5}},
             {"key = 1 AND suffix <= 5", {3, 4, 5, 6}},
@@ -2894,6 +2944,13 @@ $round = ($x,$y) -> {return $x;};
                 const TString sql = TStringBuilder() << "SELECT tag FROM `/Root/ColumnKeyRanges` WHERE " << item.Predicate << ' ' << item.Tail;
                 const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
                 UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+                if (result.GetResultSet(0).RowsCount() != item.Tags.size()) {
+                    const auto diagnostic = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                        NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                    Cerr << "Range mismatch, strategy=" << strategy << ": " << sql << " actual=" << Snapshot(result).Values << Endl;
+                    if (diagnostic.GetStats() && diagnostic.GetStats()->GetAst()) Cerr << *diagnostic.GetStats()->GetAst() << Endl;
+                    if (diagnostic.GetStats() && diagnostic.GetStats()->GetPlan()) Cerr << *diagnostic.GetStats()->GetPlan() << Endl;
+                }
                 assertTags(result, item.Tags);
                 if (strategy == 2) {
                     const auto explain = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
@@ -2901,8 +2958,11 @@ $round = ($x,$y) -> {return $x;};
                     UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
                     UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetPlan());
                     const TString plan{*explain.GetStats()->GetPlan()};
-                    UNIT_ASSERT_VALUES_EQUAL_C(plan.find("\"ReadRangeLower\"") != TString::npos, item.Range, sql << plan);
-                    UNIT_ASSERT_VALUES_EQUAL_C(plan.find("\"ReadRangeUpper\"") != TString::npos, item.Range, sql << plan);
+                    UNIT_ASSERT_VALUES_EQUAL_C(plan.find("\"ReadRanges\"") != TString::npos, item.Range, sql << plan);
+                    if (!item.Multiple) {
+                        UNIT_ASSERT_VALUES_EQUAL_C(plan.find("\"ReadRangeLower\"") != TString::npos, item.Range, sql << plan);
+                        UNIT_ASSERT_VALUES_EQUAL_C(plan.find("\"ReadRangeUpper\"") != TString::npos, item.Range, sql << plan);
+                    }
                     UNIT_ASSERT_C(plan.find(item.Range ? "TableRangeScan" : "TableFullScan") != TString::npos, sql << plan);
                     if (TStringBuf(item.Predicate) == "tag > 5") {
                         // A required Int32 comparison still executes as an
@@ -2923,6 +2983,18 @@ $round = ($x,$y) -> {return $x;};
                     {9007199254740993LL, std::numeric_limits<i64>::max(), {10}}, {1, 2, {3, 4, 5, 6, 7}}}) {
                 auto params = query.GetParamsBuilder().AddParam("$lo").Int64(lo).Build().AddParam("$hi").Int64(hi).Build().Build();
                 assertTags(query.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync(), expected);
+            }
+            const auto unionPrepared = session.PrepareDataQuery(R"(
+                DECLARE $lo AS Int64; DECLARE $hi AS Int64;
+                SELECT tag FROM `/Root/ColumnKeyRanges` WHERE (key >= $lo AND key < $hi) OR key = 1 ORDER BY tag;
+            )").GetValueSync();
+            UNIT_ASSERT_C(unionPrepared.IsSuccess(), unionPrepared.GetIssues().ToString());
+            auto unionQuery = unionPrepared.GetQuery();
+            for (const auto& [lo, hi, expected] : TVector<std::tuple<i64, i64, TVector<i32>>>{
+                    {1, 2, {3, 4, 5, 6, 7}}, {-2, 1, {1, 2, 3, 4, 5, 6, 7}}, {3, 1, {3, 4, 5, 6, 7}},
+                    {9007199254740993LL, std::numeric_limits<i64>::max(), {3, 4, 5, 6, 7, 10}}, {1, 2, {3, 4, 5, 6, 7}}}) {
+                auto params = unionQuery.GetParamsBuilder().AddParam("$lo").Int64(lo).Build().AddParam("$hi").Int64(hi).Build().Build();
+                assertTags(unionQuery.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync(), expected);
             }
         }
     }

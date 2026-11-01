@@ -104,7 +104,7 @@ bool IsSuitableToExtractAndPushRanges(IOperator* input, const NYql::EStorageType
 
     const auto read = CastOperator<TOpRead>(maybeRead);
     const auto tableType = read->GetTableStorageType();
-    return !read->GetRanges() && !(read->RangeInfo && read->RangeInfo->NativeRange) && (tableType == applicableTableType);
+    return !read->GetRanges() && !(read->RangeInfo && read->RangeInfo->NativeRanges) && (tableType == applicableTableType);
 }
 
 TPredicateExtractorSettings PrepareExtractorSettings(TKqpOptimizeContext& kqpCtx) {
@@ -555,7 +555,50 @@ std::optional<NFrontend::TExprId> NativeBoundValue(NFrontend::TExpressionArena& 
     return arena.Literal(keyType, value, node.Position);
 }
 
-TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, const TKikimrTableMetadata& table,
+// Distribute Boolean branches only within a bounded amount of work. If the
+// expansion is too large, the caller can still extract ordinary top-level
+// conjuncts and retain the original Boolean predicate in compute.
+std::vector<std::vector<NFrontend::TExprId>> NativeRangeBranches(const NFrontend::TExpressionArena& arena,
+    NFrontend::TExprId root, ui64 rangeLimit) {
+    using namespace NFrontend;
+    constexpr size_t WorkLimit = 100000;
+    struct TBranch {
+        std::vector<TExprId> Pending, Terms;
+    };
+    std::vector<TBranch> pending{{{root}, {}}};
+    std::vector<std::vector<TExprId>> result;
+    size_t work = 0;
+    while (!pending.empty()) {
+        auto branch = std::move(pending.back());
+        pending.pop_back();
+        while (!branch.Pending.empty()) {
+            if (++work > WorkLimit) return {};
+            const auto id = StripNativeOptionalLift(arena, branch.Pending.back());
+            branch.Pending.pop_back();
+            const auto& node = arena[id];
+            if (node.Op == EOpcode::And) {
+                branch.Pending.insert(branch.Pending.end(), node.Arguments.rbegin(), node.Arguments.rend());
+            } else if (node.Op == EOpcode::Or) {
+                Y_ENSURE(node.Arguments.size() == 2);
+                if (rangeLimit && result.size() + pending.size() + 2 > rangeLimit) return {};
+                work += branch.Pending.size() + branch.Terms.size();
+                if (work > WorkLimit) return {};
+                auto other = branch;
+                other.Pending.push_back(node.Arguments[1]);
+                pending.push_back(std::move(other));
+                branch.Pending.push_back(node.Arguments[0]);
+            } else {
+                branch.Terms.push_back(id);
+            }
+        }
+        THashSet<TExprId> seen;
+        std::erase_if(branch.Terms, [&](TExprId term) { return !seen.insert(term).second; });
+        result.push_back(std::move(branch.Terms));
+    }
+    return result;
+}
+
+TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input, const TKikimrTableMetadata& table,
     TRBOContext& ctx, TPlanProps& props) {
     using namespace NFrontend;
     using O = EOpcode;
@@ -588,10 +631,14 @@ TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, 
     struct TConditions {
         std::optional<TCondition> Equal, Lower, Upper;
     };
-    THashMap<TString, TConditions> keys;
-    const auto terms = predicate.SplitConjunct();
-    for (size_t i = 0; i < terms.size(); ++i) {
-        const auto id = StripNativeOptionalLift(*arena, terms[i].GetNativeRoot());
+    auto branches = NativeRangeBranches(*arena, predicate.GetNativeRoot(), ctx.KqpCtx.Config->GetExtractPredicateRangesLimit());
+    if (branches.empty()) {
+        branches.emplace_back();
+        for (const auto& term : predicate.SplitConjunct()) branches.back().push_back(term.GetNativeRoot());
+    }
+    std::vector<THashMap<TString, TConditions>> branchKeys(branches.size());
+    for (size_t branch = 0; branch < branches.size(); ++branch) for (size_t i = 0; i < branches[branch].size(); ++i) {
+        const auto id = StripNativeOptionalLift(*arena, branches[branch][i]);
         auto op = (*arena)[id].Op;
         if (op != O::Equal && op != O::Less && op != O::LessEqual && op != O::Greater && op != O::GreaterEqual) continue;
         auto column = StripNativeOptionalLift(*arena, (*arena)[id].Arguments[0]);
@@ -616,7 +663,7 @@ TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, 
             keyType.Kind != K::Datetime && keyType.Kind != K::Timestamp && keyType.Kind != K::Interval) continue;
         const auto bound = NativeBoundValue(*arena, value, keyType);
         if (!bound) continue;
-        auto& conditions = keys[props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName()];
+        auto& conditions = branchKeys[branch][props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName()];
         auto& slot = op == O::Equal ? conditions.Equal : (op == O::Greater || op == O::GreaterEqual ? conditions.Lower : conditions.Upper);
         if (!slot) slot = TCondition{i, *bound, keyType, op == O::Equal || op == O::GreaterEqual || op == O::LessEqual};
     }
@@ -625,45 +672,60 @@ TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, 
     struct TCandidate {
         TOpRead::TRangeInfo Info;
         THashSet<size_t> Consumed;
+        bool AllConsumed = true;
     };
     const auto build = [&](const TKikimrTableMetadata& metadata) {
         TCandidate result;
         auto& info = result.Info;
         info.KeyColumns = metadata.KeyColumnNames;
         info.MainTable = table.Name;
-        info.ExpectedMaxRanges = 1;
-        info.NativeRange.emplace();
-        auto& range = *info.NativeRange;
-        const auto append = [&](TOpRead::TKeyBound& bound, const TCondition& condition) {
-            bound.Values.push_back(TExpression::FromNative(arena, condition.Value, &ctx.ExprCtx, &props, read->Pos));
-            bound.Inclusive = condition.Inclusive;
-            result.Consumed.insert(condition.Term);
-        };
-        for (const auto& key : metadata.KeyColumnNames) {
-            const auto found = keys.find(key);
-            if (found == keys.end()) break;
-            const auto& conditions = found->second;
-            if (conditions.Equal) {
-                append(range.Lower, *conditions.Equal);
-                append(range.Upper, *conditions.Equal);
-                ++info.UsedPrefixLen;
-                ++info.PointPrefixLen;
-                continue;
-            }
-            if (!conditions.Lower && !conditions.Upper) break;
-            if (conditions.Lower) append(range.Lower, *conditions.Lower);
-            if (conditions.Upper) {
-                append(range.Upper, *conditions.Upper);
-                // Exclude SQL NULL from an upper-only interval, including all
-                // suffixes of a composite key.
-                if (!conditions.Lower && conditions.Upper->KeyType.Nullable) {
-                    const auto null = arena->Literal(conditions.Upper->KeyType, {});
-                    range.Lower.Values.push_back(TExpression::FromNative(arena, null, &ctx.ExprCtx, &props, read->Pos));
-                    range.Lower.Inclusive = false;
+        info.ExpectedMaxRanges = branches.size();
+        info.UsedPrefixLen = info.PointPrefixLen = metadata.KeyColumnNames.size();
+        info.NativeRanges.emplace();
+        for (size_t branch = 0; branch < branches.size(); ++branch) {
+            auto& range = info.NativeRanges->emplace_back();
+            THashSet<size_t> consumed;
+            size_t usedPrefix = 0, pointPrefix = 0;
+            const auto append = [&](TOpRead::TKeyBound& bound, const TCondition& condition) {
+                bound.Values.push_back(TExpression::FromNative(arena, condition.Value, &ctx.ExprCtx, &props, read->Pos));
+                bound.Inclusive = condition.Inclusive;
+                consumed.insert(condition.Term);
+            };
+            for (const auto& key : metadata.KeyColumnNames) {
+                const auto found = branchKeys[branch].find(key);
+                if (found == branchKeys[branch].end()) break;
+                const auto& conditions = found->second;
+                if (conditions.Equal) {
+                    append(range.Lower, *conditions.Equal);
+                    append(range.Upper, *conditions.Equal);
+                    ++usedPrefix;
+                    ++pointPrefix;
+                    continue;
                 }
+                if (!conditions.Lower && !conditions.Upper) break;
+                if (conditions.Lower) append(range.Lower, *conditions.Lower);
+                if (conditions.Upper) {
+                    append(range.Upper, *conditions.Upper);
+                    // Exclude SQL NULL from an upper-only interval, including
+                    // every suffix of a composite key.
+                    if (!conditions.Lower && conditions.Upper->KeyType.Nullable) {
+                        const auto null = arena->Literal(conditions.Upper->KeyType, {});
+                        range.Lower.Values.push_back(TExpression::FromNative(arena, null, &ctx.ExprCtx, &props, read->Pos));
+                        range.Lower.Inclusive = false;
+                    }
+                }
+                ++usedPrefix;
+                break;
             }
-            ++info.UsedPrefixLen;
-            break;
+            // Omitting an unconstrained OR branch would discard matching rows.
+            info.UsedPrefixLen = std::min(info.UsedPrefixLen, usedPrefix);
+            info.PointPrefixLen = std::min(info.PointPrefixLen, pointPrefix);
+            if (!info.UsedPrefixLen) {
+                result.AllConsumed = false;
+                return result;
+            }
+            result.AllConsumed &= consumed.size() == branches[branch].size();
+            if (branches.size() == 1) result.Consumed = std::move(consumed);
         }
         return result;
     };
@@ -671,7 +733,7 @@ TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, 
         FindConsumingTopSortColumns(input.Get(), ctx.ExprCtx, &props.InfoUnitRegistry) : TVector<TString>{};
     const auto score = [&](const TCandidate& candidate, bool covering) {
         const auto& info = candidate.Info;
-        return ScoreKeyOrder(info.PointPrefixLen, info.UsedPrefixLen, true, candidate.Consumed.size() == terms.size(),
+        return ScoreKeyOrder(info.PointPrefixLen, info.UsedPrefixLen, branches.size() == 1, candidate.AllConsumed,
             info.KeyColumns.size(), sortColumns, info.KeyColumns, covering);
     };
     auto chosen = build(table);
@@ -704,7 +766,15 @@ TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, 
     }
     if (!chosen.Info.UsedPrefixLen) return input;
     TVector<TExpression> remaining;
-    for (size_t i = 0; i < terms.size(); ++i) if (!chosen.Consumed.contains(i)) remaining.push_back(terms[i]);
+    if (!chosen.AllConsumed) {
+        if (branches.size() == 1) {
+            for (size_t i = 0; i < branches.front().size(); ++i) if (!chosen.Consumed.contains(i))
+                remaining.push_back(TExpression::FromNative(arena, branches.front()[i], &ctx.ExprCtx, &props, predicate.Pos()));
+        } else {
+            // Branch-specific residuals cannot be conjoined outside the union.
+            remaining.push_back(predicate);
+        }
+    }
     const auto original = read->OriginalPredicate ? *read->OriginalPredicate : predicate;
     if (chosenIndex && !covering) {
         TUnorderedIUs columns;
@@ -771,7 +841,7 @@ TIntrusivePtr<IOperator> TPushRangesRule::SimpleMatchAndApply(const TIntrusivePt
         return input;
     }
 
-    if (filter->GetFilterExpression().IsNative()) return PushNativeRange(input, *tableDesc->Metadata, rboCtx, props);
+    if (filter->GetFilterExpression().IsNative()) return PushNativeRanges(input, *tableDesc->Metadata, rboCtx, props);
     Y_ENSURE(!props.NativeExpressions, "Legacy range extraction in a native plan");
 
     const auto extractorLambda = GetLambdaForRangeExtractor(filter->GetFilterExpression().Node, read->Type, rboCtx);

@@ -641,7 +641,7 @@ public:
         TExprNode::TPtr ComputeNode;  // ranges expression pushed into the read
         TVector<TString> KeyColumns;  // all table key columns (with or without alias prefix)
         size_t UsedPrefixLen = 0;     // how many leading key columns are range-constrained
-        size_t PointPrefixLen = 0;    // how many are pinned to a single value
+        size_t PointPrefixLen = 0;    // how many are pinned to one value per interval
         TMaybe<size_t> ExpectedMaxRanges;
         // The read's own table first, then the tables it can be redirected to: the main table and
         // its indexes. A lookup join picks the one whose key fits its join keys best.
@@ -653,8 +653,10 @@ public:
         // time. A row storage read passes it to the source as is, so the ranges are not computed in a separate
         // transaction. ComputeNode describes the same ranges.
         TExprNode::TPtr LiteralRange;
+        // A union of intervals. Physical lowering normalizes overlaps and empty
+        // intervals; optimizer bounds remain typed native scalars throughout.
         // Mutually exclusive with the legacy ComputeNode/LiteralRange fields.
-        std::optional<TKeyRange> NativeRange;
+        std::optional<TVector<TKeyRange>> NativeRanges;
 
         // The prefix computed for a particular table, by its path.
         const TPointPrefix* FindPointPrefix(const TString& table) const {
