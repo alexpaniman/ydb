@@ -47,6 +47,22 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             if (const auto literalRange = Read.GetLiteralRange()) {
                 ranges = literalRange;
             }
+            if (Read.RangeInfo && Read.RangeInfo->NativeRange) {
+                Y_ENSURE(!Read.GetRanges() && !Read.GetLiteralRange(), "Mixed native and legacy read ranges");
+                const auto lower = [&](const TOpRead::TKeyBound& bound) {
+                    TExprNode::TListType values;
+                    for (const auto& value : bound.Values) {
+                        Y_ENSURE(value.IsNative() && value.GetRawInputIUs().Empty(), "Read bound depends on a row");
+                        values.push_back(LowerNativeLambda(*value.GetNativeArena(), value.GetNativeRoot(), Ctx, Pos)->TailPtr());
+                    }
+                    return Ctx.NewCallable(Pos, bound.Inclusive ? "KqlKeyInc" : "KqlKeyExc", std::move(values));
+                };
+                const auto& range = *Read.RangeInfo->NativeRange;
+                ranges = Build<TKqlKeyRange>(Ctx, Pos)
+                    .From(TKqlKeyTuple(lower(range.Lower)))
+                    .To(TKqlKeyTuple(lower(range.Upper)))
+                    .Done().Ptr();
+            }
 
             TKqpReadTableSettings settings;
             if (Read.SortDir != ESortDir::None) {

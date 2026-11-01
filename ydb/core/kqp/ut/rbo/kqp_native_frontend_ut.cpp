@@ -567,6 +567,128 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         }
     }
 
+    Y_UNIT_TEST(KeyRangesStayNativeThroughPushdownPruningAndCopy) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        using O = EOpcode;
+        NTests::TIdTestContext f;
+        const auto key = f.Id("key"), suffix = f.Id("suffix"), payload = f.Id("payload"), unused = f.Id("unused");
+        auto metadata = MakeIntrusive<TKikimrTableMetadata>();
+        metadata->DoesExist = true;
+        metadata->Name = "/Root/table";
+        metadata->Kind = EKikimrTableKind::Datashard;
+        metadata->KeyColumnNames = {"key", "suffix"};
+        f.Tables->GetOrAddTable("ut", "/Root", metadata->Name).Metadata = metadata;
+        auto arena = std::make_shared<TExpressionArena>();
+        const auto a = arena->Column(key, {K::Int32}), b = arena->Column(suffix, {K::Int32, true});
+        const auto equal = arena->Binary(O::Equal, a, arena->Literal({K::Uint64}, std::uint64_t{2}));
+        const auto upper = arena->Binary(O::Greater, arena->Literal({K::Int64}, std::int64_t{5}), b);
+        const auto residual = arena->Binary(O::Greater, arena->Column(payload, {K::Int32}), arena->Literal({K::Int32}, std::int64_t{0}));
+        const auto rootId = arena->Binary(O::And, arena->Binary(O::And, equal, upper), residual);
+        auto read = f.Read({key, suffix, payload, unused});
+        f.SetType(*read, {suffix});
+        const auto expression = TExpression::FromNative(arena, rootId, &f.ExprCtx, &f.Props);
+        auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, expression);
+        auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
+            UNIT_FAIL("native key ranges invoked YQL annotation");
+            return IGraphTransformer::TStatus::Error;
+        });
+        TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+        TPushRangesRule rule(NYql::EStorageType::RowStorage);
+        const auto pushed = rule.SimpleMatchAndApply(filter, context, f.Props);
+        UNIT_ASSERT(pushed->Kind == EOperator::Filter);
+        const auto& remaining = CastOperator<TOpFilter>(*pushed);
+        UNIT_ASSERT_VALUES_EQUAL(remaining.GetFilterExpression().GetNativeRoot(), residual);
+        auto& source = CastOperator<TOpRead>(*remaining.GetInput());
+        UNIT_ASSERT(source.RangeInfo && source.RangeInfo->NativeRange);
+        UNIT_ASSERT(!source.GetRanges() && !source.GetLiteralRange());
+        UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->UsedPrefixLen, 2);
+        UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->PointPrefixLen, 1);
+        UNIT_ASSERT_VALUES_EQUAL(*source.RangeInfo->ExpectedMaxRanges, 1);
+        const auto& bounds = *source.RangeInfo->NativeRange;
+        UNIT_ASSERT_VALUES_EQUAL(bounds.Lower.Values.size(), 2);
+        UNIT_ASSERT_VALUES_EQUAL(bounds.Upper.Values.size(), 2);
+        UNIT_ASSERT(!bounds.Lower.Inclusive && !bounds.Upper.Inclusive);
+        for (const auto* bound : {&bounds.Lower, &bounds.Upper}) {
+            UNIT_ASSERT(bound->Values[0].GetNativeType() == TType{K::Int32});
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(*arena, bound->Values[0].GetNativeRoot()).Data), 2);
+        }
+        UNIT_ASSERT(Evaluate(*arena, bounds.Lower.Values[1].GetNativeRoot()).IsNull());
+        UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(*arena, bounds.Upper.Values[1].GetNativeRoot()).Data), 5);
+        UNIT_ASSERT_VALUES_EQUAL(source.OriginalPredicate->GetNativeRoot(), rootId);
+        UNIT_ASSERT(rule.SimpleMatchAndApply(pushed, context, f.Props) == pushed);
+        for (const auto& term : source.GetExpressions()) {
+            UNIT_ASSERT(term.get().IsNative() && !term.get().Node);
+            UNIT_ASSERT(term.get().GetRawInputIUs().Empty());
+        }
+        TSubstitutions renames;
+        const auto copied = source.Copy(f.Props, renames);
+        UNIT_ASSERT(copied);
+        const auto& copy = CastOperator<TOpRead>(*copied);
+        UNIT_ASSERT(copy.RangeInfo->NativeRange);
+        UNIT_ASSERT_VALUES_EQUAL(copy.RangeInfo->NativeRange->Upper.Values[1].GetNativeRoot(), bounds.Upper.Values[1].GetNativeRoot());
+        UNIT_ASSERT(copy.OriginalPredicate->GetRawInputIUs().Contains(*renames.Find(key)));
+        UNIT_ASSERT(!copy.OriginalPredicate->GetRawInputIUs().Contains(key));
+        auto root = f.Root(pushed, {{payload, "payload"}});
+        TGlobalPruningStage("prune").RunStage(*root, context);
+        UNIT_ASSERT(source.GetColumns() == (TUnorderedIUs{key, suffix, payload}));
+        NTests::AssertIdInvariants(*root, root->PlanProps);
+        const auto explain = source.ToJson(0, root->PlanProps.InfoUnitRegistry);
+        UNIT_ASSERT_VALUES_EQUAL(explain["ReadRangesExpectedSize"].GetStringSafe(), "1");
+        UNIT_ASSERT(!explain["ReadRangeLower"]["Inclusive"].GetBooleanSafe());
+    }
+
+    Y_UNIT_TEST(KeyRangesRequireExactBoundsAndPreserveCheckedExpressions) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        using O = EOpcode;
+        NTests::TIdTestContext f;
+        const auto key = f.Id("key"), external = f.Id("external");
+        auto metadata = MakeIntrusive<TKikimrTableMetadata>();
+        metadata->DoesExist = true;
+        metadata->Name = "/Root/table";
+        metadata->Kind = EKikimrTableKind::Datashard;
+        metadata->KeyColumnNames = {"key"};
+        f.Tables->GetOrAddTable("ut", "/Root", metadata->Name).Metadata = metadata;
+        auto arena = std::make_shared<TExpressionArena>();
+        const auto value = arena->Column(key, {K::Uint64, true});
+        auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
+            UNIT_FAIL("native key ranges invoked YQL annotation");
+            return IGraphTransformer::TStatus::Error;
+        });
+        TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+        TPushRangesRule rule(NYql::EStorageType::RowStorage);
+        const auto check = [&](TExprId predicate, bool pushed) {
+            auto read = f.Read({key});
+            auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(arena, predicate, &f.ExprCtx, &f.Props));
+            const auto result = rule.SimpleMatchAndApply(filter, context, f.Props);
+            UNIT_ASSERT_VALUES_EQUAL(result != filter, pushed);
+            return result;
+        };
+        for (const ui64 number : {0ULL, 9007199254740993ULL, 9223372036854775808ULL, 18446744073709551615ULL}) {
+            const auto literal = arena->Literal({K::Uint64}, std::uint64_t{number});
+            const auto result = check(arena->Binary(O::Equal, value, literal), true);
+            const auto& bound = CastOperator<TOpRead>(*result).RangeInfo->NativeRange->Lower.Values.front();
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(*arena, bound.GetNativeRoot()).Data), number);
+        }
+        const auto param = arena->Parameter("bound", {K::Uint64});
+        check(arena->Binary(O::LessEqual, value, param), true);
+        check(arena->Binary(O::Equal, value, arena->Parameter("nullable", {K::Uint64, true})), false);
+        check(arena->Binary(O::Equal, value, arena->Parameter("signed", {K::Int64})), false);
+        check(arena->Binary(O::Greater, value, arena->Literal({K::Int64}, std::int64_t{-1})), false);
+        check(arena->Binary(O::Equal, value, arena->Null()), false);
+        const auto equal = arena->Binary(O::Equal, value, param);
+        check(arena->Binary(O::Or, equal, arena->Unary(O::IsNull, value)), false);
+        check(arena->Binary(O::Equal, arena->Cast(value, {K::Int32}), arena->Literal({K::Int32}, std::int64_t{1})), false);
+        const auto checked = arena->Binary(O::Equal, arena->Ensure(value, arena->Literal({K::Bool}, false), "checked"), param);
+        check(arena->Binary(O::And, equal, checked), false);
+        check(arena->Binary(O::And, checked, equal), false);
+        check(arena->Binary(O::And, equal, arena->Binary(O::Equal, arena->Column(external, {K::Uint64}), param)), false);
+        auto shared = equal;
+        for (size_t i = 0; i < 20000; ++i) shared = arena->Binary(O::And, shared, shared);
+        check(shared, true);
+    }
+
     Y_UNIT_TEST(OlapPredicatesStayNativeThroughPushdownPruningAndCopy) {
         using namespace NFrontend;
         NTests::TIdTestContext f;

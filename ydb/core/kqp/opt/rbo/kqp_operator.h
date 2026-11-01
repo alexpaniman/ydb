@@ -616,10 +616,17 @@ private:
 
 class TOpRead: public IOperator {
 public:
-    // Everything the read carries about pushed-down key ranges. ComputeNode is the source of
-    // truth for the ranges themselves; the other fields are range extractor outputs that cannot
-    // be recovered from the expression later (explain has no access to table metadata or the
-    // extractor settings).
+    // Native bounds are typed scalar values in physical key order, with no row
+    // dependencies. A shorter bound spans the remaining suffix of the key.
+    // Only physical conversion emits the backend's KqlKeyRange representation.
+    struct TKeyBound {
+        TVector<TExpression> Values;
+        bool Inclusive = true;
+    };
+    struct TKeyRange {
+        TKeyBound Lower, Upper;
+    };
+
     // Leading key columns of a table pinned by the read predicate to a set of points. A lookup join
     // uses the points as a constant prefix of its lookup keys.
     struct TPointPrefix {
@@ -646,6 +653,8 @@ public:
         // time. A row storage read passes it to the source as is, so the ranges are not computed in a separate
         // transaction. ComputeNode describes the same ranges.
         TExprNode::TPtr LiteralRange;
+        // Mutually exclusive with the legacy ComputeNode/LiteralRange fields.
+        std::optional<TKeyRange> NativeRange;
 
         // The prefix computed for a particular table, by its path.
         const TPointPrefix* FindPointPrefix(const TString& table) const {

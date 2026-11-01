@@ -452,11 +452,33 @@ null checks use a 10% default; other predicates assume no unknown null fraction.
 Native and legacy estimation do not promise identical plans. Tests check storage
 widths, key defaults, interval endpoints, NULLs, a 20,000-node shared DAG and
 agreement between ordinary and pushed filters without native-to-YQL lowering.
-The complete 425-test RBO suite passed, including unchanged populated execution
+The complete 428-test RBO suite passed, including unchanged populated execution
 of all 22 TPC-H and 41 TPC-DS queries across the three compiler paths.
 
-**Plan-quality limitation:** native range extraction and OLAP projection pushdown
-are still missing. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
+Native row-table range extraction reads the typed DAG directly. Equality
+conjuncts pin a contiguous key prefix, optionally followed by one interval;
+selected predicates are removed and remaining predicates retain their order.
+Bounds are literals or required parameters of the exact key type. Integral
+literal widths and signedness may change only when the mathematical value fits.
+NULL keys are excluded from upper-only comparisons with an explicit exclusive
+NULL lower bound. Nullable parameters, out-of-domain literals, value-changing
+column casts, floating/Decimal keys and disjunctions remain filters. Any checked
+expression prevents extraction rather than risking suppression of its error.
+The read stores native bound expressions, exposes them to ordinary expression
+rewrites and emits `KqlKeyRange` only at physical conversion. Explain shows each
+bound's values and inclusivity. The complete original predicate survives for
+statistics and fetched-row filtering when a lookup join replaces the range scan.
+Tests forbid YQL annotation during extraction, check copying/pruning and a
+20,000-node shared DAG, and compare 102 populated query executions across the
+native frontend and both existing compiler paths. Native plans assert range
+versus full scans for 22 cases, including composite and NULL keys, descending
+limits with residual filters, contradictory intervals, exact 64-bit boundaries
+and prepared-parameter reuse. These are correctness checks, not a compilation
+speedup measurement.
+
+**Plan-quality limitation:** native multi-range extraction, column-store ranges,
+range-based index selection, lookup point prefixes and OLAP projection pushdown
+remain unfinished. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing
 this debt and establishing plan/execution parity remain required before broad
 rollout. A faster frontend alone does not prove faster complete query execution.

@@ -7,6 +7,8 @@
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 #include <yql/essentials/core/yql_opt_utils.h>
 
+#include <utility>
+
 namespace NKikimr::NKqp {
 
 namespace {
@@ -102,7 +104,7 @@ bool IsSuitableToExtractAndPushRanges(IOperator* input, const NYql::EStorageType
 
     const auto read = CastOperator<TOpRead>(maybeRead);
     const auto tableType = read->GetTableStorageType();
-    return !read->GetRanges() && (tableType == applicableTableType);
+    return !read->GetRanges() && !(read->RangeInfo && read->RangeInfo->NativeRange) && (tableType == applicableTableType);
 }
 
 TPredicateExtractorSettings PrepareExtractorSettings(TKqpOptimizeContext& kqpCtx) {
@@ -492,6 +494,177 @@ TExprNode::TPtr BuildTableCallable(const TKikimrTableMetadata& meta, TPositionHa
     // clang-format on
 }
 
+NFrontend::TExprId StripNativeOptionalLift(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id) {
+    using O = NFrontend::EOpcode;
+    while (arena[id].Op == O::Convert && arena[id].Type.Required() == arena[arena[id].Arguments[0]].Type.Required()) {
+        id = arena[id].Arguments[0];
+    }
+    return id;
+}
+
+// Storage bounds use the key's exact type. Integer comparisons in the native
+// IR compare mathematical values across widths/signedness: never round them
+// through Double or narrow an out-of-range value into the key domain.
+template <typename T>
+bool FitsNativeKey(const NFrontend::TScalar& value) {
+    if (const auto* v = std::get_if<std::int64_t>(&value)) return std::in_range<T>(*v);
+    if (const auto* v = std::get_if<std::uint64_t>(&value)) return std::in_range<T>(*v);
+    return false;
+}
+
+std::optional<NFrontend::TExprId> NativeBoundValue(NFrontend::TExpressionArena& arena,
+    NFrontend::TExprId id, NFrontend::TType keyType) {
+    using namespace NFrontend;
+    using K = ETypeKind;
+    id = StripNativeOptionalLift(arena, id);
+    const auto& node = arena[id];
+    keyType = keyType.Required();
+    if (node.Op == EOpcode::Parameter) {
+        return node.Type == keyType ? std::optional{id} : std::nullopt;
+    }
+    if (node.Op != EOpcode::Literal || std::holds_alternative<std::monostate>(node.Value)) return {};
+    if (node.Type == keyType) return id;
+    if (node.Type.Required() == keyType) return arena.Literal(keyType, node.Value, node.Position);
+    if (!node.Type.IsIntegral() || !keyType.IsIntegral()) return {};
+    bool fits = false;
+    switch (keyType.Kind) {
+        case K::Int8: fits = FitsNativeKey<i8>(node.Value); break;
+        case K::Int16: fits = FitsNativeKey<i16>(node.Value); break;
+        case K::Int32: fits = FitsNativeKey<i32>(node.Value); break;
+        case K::Int64: fits = FitsNativeKey<i64>(node.Value); break;
+        case K::Uint8: fits = FitsNativeKey<ui8>(node.Value); break;
+        case K::Uint16: fits = FitsNativeKey<ui16>(node.Value); break;
+        case K::Uint32: fits = FitsNativeKey<ui32>(node.Value); break;
+        case K::Uint64: fits = FitsNativeKey<ui64>(node.Value); break;
+        default: break;
+    }
+    if (!fits) return {};
+    if (keyType.IsSigned()) {
+        const auto value = std::holds_alternative<std::int64_t>(node.Value) ? std::get<std::int64_t>(node.Value)
+            : static_cast<std::int64_t>(std::get<std::uint64_t>(node.Value));
+        return arena.Literal(keyType, value, node.Position);
+    }
+    const auto value = std::holds_alternative<std::uint64_t>(node.Value) ? std::get<std::uint64_t>(node.Value)
+        : static_cast<std::uint64_t>(std::get<std::int64_t>(node.Value));
+    return arena.Literal(keyType, value, node.Position);
+}
+
+TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, const TKikimrTableMetadata& table,
+    TRBOContext& ctx, TPlanProps& props) {
+    using namespace NFrontend;
+    using O = EOpcode;
+    using K = ETypeKind;
+    const auto filter = CastOperator<TOpFilter>(input);
+    const auto read = CastOperator<TOpRead>(filter->GetInput());
+    const auto& predicate = filter->GetFilterExpression();
+    // A single literal/parameter range has a direct row-source interface.
+    // Column-store computed ranges, disjunctions and index selection need their
+    // own native representations; they must not enter the legacy extractor.
+    if (read->StorageType != NYql::EStorageType::RowStorage || read->Limit || read->OlapProgram ||
+        !predicate.GetRawInputIUs().IsSubsetOf(read->GetColumns())) return input;
+    const auto arena = predicate.GetNativeArena();
+    THashSet<TExprId> visited;
+    TVector<TExprId> pending{predicate.GetNativeRoot()};
+    while (!pending.empty()) {
+        const auto id = pending.back(); pending.pop_back();
+        if (!visited.insert(id).second) continue;
+        const auto& node = (*arena)[id];
+        // Discarding a row (including NULL) must not suppress a checked term
+        // which the original lazy Boolean expression would have evaluated.
+        if (node.Op == O::Ensure || node.Op == O::Unwrap) return input;
+        pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
+    }
+    struct TCondition {
+        size_t Term;
+        TExprId Value;
+        TType KeyType;
+        bool Inclusive;
+    };
+    struct TConditions {
+        std::optional<TCondition> Equal, Lower, Upper;
+    };
+    THashMap<TString, TConditions> keys;
+    for (const auto& key : table.KeyColumnNames) keys.emplace(key, TConditions{});
+    const auto terms = predicate.SplitConjunct();
+    for (size_t i = 0; i < terms.size(); ++i) {
+        const auto id = StripNativeOptionalLift(*arena, terms[i].GetNativeRoot());
+        auto op = (*arena)[id].Op;
+        if (op != O::Equal && op != O::Less && op != O::LessEqual && op != O::Greater && op != O::GreaterEqual) continue;
+        auto column = StripNativeOptionalLift(*arena, (*arena)[id].Arguments[0]);
+        auto value = (*arena)[id].Arguments[1];
+        if ((*arena)[column].Op != O::Column) {
+            std::swap(column, value);
+            column = StripNativeOptionalLift(*arena, column);
+            switch (op) {
+                case O::Less: op = O::Greater; break;
+                case O::LessEqual: op = O::GreaterEqual; break;
+                case O::Greater: op = O::Less; break;
+                case O::GreaterEqual: op = O::LessEqual; break;
+                default: break;
+            }
+        }
+        if ((*arena)[column].Op != O::Column) continue;
+        const auto keyType = (*arena)[column].Type;
+        // Floating/Decimal NaNs and value-changing column casts require an
+        // explicit ordering proof. Identity/optional lifts are the only casts
+        // stripped here; integer literals alone may change width exactly.
+        if (!keyType.IsIntegral() && !keyType.IsString() && keyType.Kind != K::Bool && keyType.Kind != K::Date &&
+            keyType.Kind != K::Datetime && keyType.Kind != K::Timestamp && keyType.Kind != K::Interval) continue;
+        const auto it = keys.find(props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName());
+        if (it == keys.end()) continue;
+        const auto bound = NativeBoundValue(*arena, value, keyType);
+        if (!bound) continue;
+        auto& conditions = it->second;
+        auto& slot = op == O::Equal ? conditions.Equal : (op == O::Greater || op == O::GreaterEqual ? conditions.Lower : conditions.Upper);
+        if (!slot) slot = TCondition{i, *bound, keyType, op == O::Equal || op == O::GreaterEqual || op == O::LessEqual};
+    }
+    TOpRead::TRangeInfo info;
+    info.KeyColumns = table.KeyColumnNames;
+    info.MainTable = table.Name;
+    info.ExpectedMaxRanges = 1;
+    info.NativeRange.emplace();
+    auto& range = *info.NativeRange;
+    THashSet<size_t> consumed;
+    const auto append = [&](TOpRead::TKeyBound& bound, const TCondition& condition) {
+        bound.Values.push_back(TExpression::FromNative(arena, condition.Value, &ctx.ExprCtx, &props, read->Pos));
+        bound.Inclusive = condition.Inclusive;
+        consumed.insert(condition.Term);
+    };
+    for (const auto& key : table.KeyColumnNames) {
+        const auto& conditions = keys.at(key);
+        if (conditions.Equal) {
+            append(range.Lower, *conditions.Equal);
+            append(range.Upper, *conditions.Equal);
+            ++info.UsedPrefixLen;
+            ++info.PointPrefixLen;
+            continue;
+        }
+        if (!conditions.Lower && !conditions.Upper) break;
+        if (conditions.Lower) append(range.Lower, *conditions.Lower);
+        if (conditions.Upper) {
+            append(range.Upper, *conditions.Upper);
+            // NULL sorts before every non-NULL storage value, but a SQL
+            // comparison never accepts it. An upper-only interval must exclude
+            // that NULL key, including all suffixes of a composite key.
+            if (!conditions.Lower && conditions.Upper->KeyType.Nullable) {
+                const auto null = arena->Literal(conditions.Upper->KeyType, {});
+                range.Lower.Values.push_back(TExpression::FromNative(arena, null, &ctx.ExprCtx, &props, read->Pos));
+                range.Lower.Inclusive = false;
+            }
+        }
+        ++info.UsedPrefixLen;
+        break;
+    }
+    if (!info.UsedPrefixLen) return input;
+    auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->StorageType, read->TableCallable,
+        read->OlapProgram, read->Limit, std::move(info), read->OriginalPredicate ? read->OriginalPredicate : std::optional{predicate},
+        read->SortDir, read->Props, read->Pos);
+    TVector<TExpression> remaining;
+    for (size_t i = 0; i < terms.size(); ++i) if (!consumed.contains(i)) remaining.push_back(terms[i]);
+    if (remaining.empty()) return newRead;
+    return MakeIntrusive<TOpFilter>(newRead, filter->Pos, filter->Props, MakeConjunction(remaining), true);
+}
+
 } // anonymous namespace
 
 bool TPushRangesRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
@@ -500,9 +673,6 @@ bool TPushRangesRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
 }
 
 TIntrusivePtr<IOperator> TPushRangesRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& rboCtx, TPlanProps& props) {
-    if (props.NativeExpressions || (input->Kind == EOperator::Filter && CastOperator<TOpFilter>(input)->GetFilterExpression().IsNative())) {
-        return input;
-    }
     auto& kqpCtx = rboCtx.KqpCtx;
     auto& ctx = rboCtx.ExprCtx;
     auto& typeCtx = rboCtx.TypeCtx;
@@ -530,6 +700,9 @@ TIntrusivePtr<IOperator> TPushRangesRule::SimpleMatchAndApply(const TIntrusivePt
     if (tableKind != EKikimrTableKind::Olap && tableKind != EKikimrTableKind::Datashard) {
         return input;
     }
+
+    if (filter->GetFilterExpression().IsNative()) return PushNativeRange(input, *tableDesc->Metadata, rboCtx, props);
+    Y_ENSURE(!props.NativeExpressions, "Legacy range extraction in a native plan");
 
     const auto extractorLambda = GetLambdaForRangeExtractor(filter->GetFilterExpression().Node, read->Type, rboCtx);
     if (!extractorLambda) {

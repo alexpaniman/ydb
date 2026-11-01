@@ -2255,6 +2255,164 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST(NativeKeyRangesMatchBothCompilersOnPopulatedCompositeKeys) {
+        struct TCase {
+            const char* Predicate;
+            TVector<i32> Tags;
+            bool Range = true;
+            const char* Tail = "ORDER BY tag";
+        };
+        const TVector<TCase> cases{
+            {"key = 1", {3, 4, 5, 6, 7, 8}},
+            {"key = 1 AND suffix < 5", {4, 5, 6}},
+            {"key = 1 AND suffix <= 5", {4, 5, 6, 7}},
+            {"key = 1 AND suffix > 0 AND suffix < 7", {6, 7}},
+            {"key = 1 AND suffix >= 0 AND suffix <= 7", {5, 6, 7, 8}},
+            {"key < 1", {1, 2}},
+            {"key <= 0", {1, 2}},
+            {"key > 1 AND key < 3", {9}},
+            {"key >= 3 AND key <= 1", {}},
+            {"1 = key AND 2 <= suffix", {6, 7, 8}},
+            {"key = 1 AND suffix < 5 AND tag != 5", {4, 6}},
+            {"key = 1 AND key = 2", {}},
+            {"key = 1 AND suffix < 7 AND suffix < 2", {4, 5}},
+            {"key = 9007199254740993ul", {11}},
+            {"key = 9223372036854775807ul", {12}},
+            {"key = -2", {1}},
+            {"suffix < 5", {0, 1, 2, 4, 5, 6, 9, 10, 11, 12}, false},
+            {"CAST(key AS Int32) = 1", {3, 4, 5, 6, 7, 8}, false},
+            {"key < 18446744073709551615ul", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, false},
+            {"key = 1 OR key = 2", {3, 4, 5, 6, 7, 8, 9}, false},
+            {"key = 1 AND suffix > 0", {8, 7}, true, "ORDER BY suffix DESC LIMIT 2"},
+            {"key = 1 AND tag != 8", {7, 6}, true, "ORDER BY suffix DESC LIMIT 2"},
+        };
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto schema = session.ExecuteSchemeQuery(R"(
+                CREATE TABLE `/Root/KeyRanges` (key Int64, suffix Int32, tag Int32, PRIMARY KEY (key, suffix));
+                CREATE TABLE `/Root/UnsignedRanges` (key Uint64 NOT NULL, PRIMARY KEY (key));
+            )").GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            const TVector<std::pair<std::optional<i64>, std::optional<i32>>> data{
+                {std::nullopt, 0}, {-2, 0}, {0, 0}, {1, std::nullopt}, {1, -1}, {1, 0}, {1, 2}, {1, 5}, {1, 7},
+                {2, 0}, {3, 0}, {9007199254740993LL, 0}, {std::numeric_limits<i64>::max(), 0}
+            };
+            TValueBuilder rows;
+            rows.BeginList();
+            for (size_t i = 0; i < data.size(); ++i) {
+                rows.AddListItem().BeginStruct()
+                    .AddMember("key").OptionalInt64(data[i].first)
+                    .AddMember("suffix").OptionalInt32(data[i].second)
+                    .AddMember("tag").OptionalInt32(i).EndStruct();
+            }
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/KeyRanges", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            const TVector<ui64> unsignedKeys{0, 9007199254740993ULL, 9223372036854775808ULL, std::numeric_limits<ui64>::max()};
+            TValueBuilder unsignedRows;
+            unsignedRows.BeginList();
+            for (const auto key : unsignedKeys) unsignedRows.AddListItem().BeginStruct().AddMember("key").Uint64(key).EndStruct();
+            unsignedRows.EndList();
+            const auto unsignedInserted = client.BulkUpsert("/Root/UnsignedRanges", unsignedRows.Build()).GetValueSync();
+            UNIT_ASSERT_C(unsignedInserted.IsSuccess(), unsignedInserted.GetIssues().ToString());
+            size_t snapshot = 0;
+            const auto assertTags = [&](const TDataQueryResult& result, const TVector<i32>& expected) {
+                const auto actual = Snapshot(result);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), expected.size());
+                UNIT_ASSERT_VALUES_EQUAL(actual.Columns.size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(actual.Columns[0].first, "tag");
+                UNIT_ASSERT_VALUES_EQUAL(actual.Columns[0].second, TTypeBuilder().BeginOptional().Primitive(EPrimitiveType::Int32).EndOptional().Build().ToString());
+                TResultSetParser values(result.GetResultSet(0));
+                for (const auto tag : expected) {
+                    UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("tag").GetOptionalInt32().value(), tag);
+                }
+                if (strategy == 2) reference.push_back(actual);
+                else AssertSame(actual, reference.at(snapshot));
+                ++snapshot;
+            };
+            for (const auto& item : cases) {
+                const TString sql = TStringBuilder() << "SELECT tag FROM `/Root/KeyRanges` WHERE " << item.Predicate << ' ' << item.Tail;
+                const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+                assertTags(result, item.Tags);
+                if (strategy == 2) {
+                    const auto explain = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                        NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                    UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                    UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetPlan());
+                    const TString plan{*explain.GetStats()->GetPlan()};
+                    NJson::TJsonValue json;
+                    NJson::ReadJsonTree(plan, &json, true);
+                    size_t reads = 0;
+                    const auto inspect = [&](auto&& self, const NJson::TJsonValue& node) -> void {
+                        if (node.IsMap()) {
+                            const auto& fields = node.GetMapSafe();
+                            const auto name = fields.find("Name");
+                            if (name != fields.end() && (name->second.GetStringSafe() == "TableRangeScan" || name->second.GetStringSafe() == "TableFullScan")) {
+                                ++reads;
+                                UNIT_ASSERT_VALUES_EQUAL_C(name->second.GetStringSafe(), item.Range ? "TableRangeScan" : "TableFullScan", sql << plan);
+                                if (item.Range) {
+                                    UNIT_ASSERT_VALUES_EQUAL_C(fields.at("ReadRangesExpectedSize").GetStringSafe(), "1", plan);
+                                    UNIT_ASSERT(fields.contains("ReadRangeLower") && fields.contains("ReadRangeUpper"));
+                                }
+                            }
+                            for (const auto& [key, value] : fields) { Y_UNUSED(key); self(self, value); }
+                        } else if (node.IsArray()) for (const auto& value : node.GetArraySafe()) self(self, value);
+                    };
+                    inspect(inspect, json.GetMapSafe().at("SimplifiedPlan"));
+                    UNIT_ASSERT_VALUES_EQUAL_C(reads, 1, sql << plan);
+                }
+            }
+            // Prepared bounds must retain their parameter binding across executions,
+            // including reversed intervals and exact values above Double precision.
+            const auto prepared = session.PrepareDataQuery(R"(
+                DECLARE $lo AS Int64; DECLARE $hi AS Int64;
+                SELECT tag FROM `/Root/KeyRanges` WHERE key >= $lo AND key < $hi ORDER BY tag;
+            )").GetValueSync();
+            UNIT_ASSERT_C(prepared.IsSuccess(), prepared.GetIssues().ToString());
+            auto query = prepared.GetQuery();
+            const TVector<std::tuple<i64, i64, TVector<i32>>> bounds{
+                {1, 2, {3, 4, 5, 6, 7, 8}}, {-2, 1, {1, 2}}, {3, 1, {}},
+                {9007199254740993LL, std::numeric_limits<i64>::max(), {11}}, {1, 2, {3, 4, 5, 6, 7, 8}}
+            };
+            for (const auto& [lo, hi, expected] : bounds) {
+                auto params = query.GetParamsBuilder().AddParam("$lo").Int64(lo).Build().AddParam("$hi").Int64(hi).Build().Build();
+                assertTags(query.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync(), expected);
+            }
+            const auto nullablePrepared = session.PrepareDataQuery(R"(
+                DECLARE $bound AS Int64?;
+                SELECT tag FROM `/Root/KeyRanges` WHERE key = $bound ORDER BY tag;
+            )").GetValueSync();
+            UNIT_ASSERT_C(nullablePrepared.IsSuccess(), nullablePrepared.GetIssues().ToString());
+            auto nullableQuery = nullablePrepared.GetQuery();
+            for (const auto bound : {std::optional<i64>{1}, std::optional<i64>{}, std::optional<i64>{1}}) {
+                auto params = nullableQuery.GetParamsBuilder().AddParam("$bound").OptionalInt64(bound).Build().Build();
+                assertTags(nullableQuery.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync(),
+                    bound ? TVector<i32>{3, 4, 5, 6, 7, 8} : TVector<i32>{});
+            }
+            for (const auto key : unsignedKeys) {
+                const TString sql = TStringBuilder() << "SELECT key FROM `/Root/UnsignedRanges` WHERE key = " << key << "ul";
+                const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                const auto actual = Snapshot(result);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), 1);
+                TResultSetParser values(result.GetResultSet(0)); UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("key").GetUint64(), key);
+                if (strategy == 2) reference.push_back(actual);
+                else AssertSame(actual, reference.at(snapshot));
+                ++snapshot;
+            }
+        }
+    }
+
     Y_UNIT_TEST(RuntimeDecimalCoalesceWideningMatchesBothExistingCompilers) {
         const TString sql = R"(
             DECLARE $a AS Decimal(7,2)?; DECLARE $b AS Decimal(35,2)?; DECLARE $c AS Decimal(12,2);

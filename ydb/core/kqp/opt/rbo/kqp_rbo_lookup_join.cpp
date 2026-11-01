@@ -199,8 +199,9 @@ std::optional<TLookupJoinTarget> ChooseLookupJoinTarget(const TOpRead& read, con
     const bool autoIndexSelection = kqpCtx.Config->IsAutoIndexSelectionForIndexLookupJoinEnabled();
     const bool allPointPrefixes = kqpCtx.Config->GetEnableLookupJoinPointPrefixes();
 
-    // Without a pushed predicate the read can be redirected to a covering index whose key starts with join keys.
-    if (autoIndexSelection && !read.RangeInfo.has_value()) {
+    // Native bounds retain the full predicate for fetched-row filtering, so
+    // adding them must not prevent an otherwise available covering-index lookup.
+    if (autoIndexSelection && (!read.RangeInfo || read.RangeInfo->NativeRange)) {
         if (auto index = TryToFindBestIndexForRightSide(tableDesc, readColumns, joinKeyColumns); index && IsLookupTable(*index)) {
             return TLookupJoinTarget{index, nullptr, nullptr};
         }

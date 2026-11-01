@@ -417,6 +417,11 @@ TUnorderedIUs TOpRead::GetRequiredColumns(TExprContext& ctx) const {
 TVector<std::reference_wrapper<const TExpression>> TOpRead::GetExpressions() const {
     TVector<std::reference_wrapper<const TExpression>> result;
     if (OlapProgram.IsNative()) result.push_back(std::cref(OlapProgram.Native()));
+    if (RangeInfo && RangeInfo->NativeRange) {
+        for (const auto* bound : {&RangeInfo->NativeRange->Lower, &RangeInfo->NativeRange->Upper}) {
+            for (const auto& value : bound->Values) result.push_back(std::cref(value));
+        }
+    }
     return result;
 }
 
@@ -429,6 +434,11 @@ void TOpRead::BindExpressionPlanProps(TPlanProps* props) {
 void TOpRead::RewriteExpressions(const TExpressionRewrite& rewrite) {
     if (OlapProgram.IsNative()) OlapProgram.Native() = rewrite(OlapProgram.Native());
     if (OriginalPredicate && OriginalPredicate->IsNative()) OriginalPredicate = rewrite(*OriginalPredicate);
+    if (RangeInfo && RangeInfo->NativeRange) {
+        for (auto* bound : {&RangeInfo->NativeRange->Lower, &RangeInfo->NativeRange->Upper}) {
+            for (auto& value : bound->Values) value = rewrite(value);
+        }
+    }
 }
 
 TString StripAliasPrefix(const TString& column) {
@@ -495,6 +505,18 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
         if (RangeInfo->ExpectedMaxRanges) {
             res["ReadRangesExpectedSize"] = ::ToString(*RangeInfo->ExpectedMaxRanges);
         }
+        if (RangeInfo->NativeRange) {
+            auto describe = [&](const TKeyBound& bound) {
+                NJson::TJsonValue result(NJson::EJsonValueType::JSON_MAP);
+                result["Inclusive"] = bound.Inclusive;
+                NJson::TJsonValue values(NJson::EJsonValueType::JSON_ARRAY);
+                for (const auto& value : bound.Values) values.AppendValue(value.ToExplainString(registry));
+                result["Values"] = std::move(values);
+                return result;
+            };
+            res["ReadRangeLower"] = describe(RangeInfo->NativeRange->Lower);
+            res["ReadRangeUpper"] = describe(RangeInfo->NativeRange->Upper);
+        }
     }
     // Choose a deterministic presentation order, not a logical column order.
     for (const auto id : Columns_) {
@@ -536,6 +558,20 @@ TString TOpRead::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) 
     }
     if (const auto literalRange = GetLiteralRange()) {
         res << " Literal range: (" << PrintRBOExpression(literalRange, ctx) << ")";
+    }
+    if (RangeInfo && RangeInfo->NativeRange) {
+        const auto& range = *RangeInfo->NativeRange;
+        const auto format = [&](const TKeyBound& bound) {
+            TStringBuilder text;
+            TStringBuf separator;
+            for (const auto& value : bound.Values) {
+                text << separator << value.ToExplainString(registry);
+                separator = ", ";
+            }
+            return text;
+        };
+        res << " Range: " << (range.Lower.Inclusive ? '[' : '(') << '(' << format(range.Lower)
+            << "), (" << format(range.Upper) << ')' << (range.Upper.Inclusive ? ']' : ')');
     }
     if (SortDir != ESortDir::None) {
         res << " Sort direction: (" << ((SortDir == ESortDir::Asc) ? "ASC" : "DESC");
