@@ -691,7 +691,8 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             {104, "2002-05-01"}, {105, "2002-06-01"}, {106, "2002-07-01"}, {107, "2002-08-01"},
             {108, "2002-09-01"}, {109, "2002-10-01"}, {110, "2002-11-01"}, {111, "2002-12-01"},
             {170, "1998-04-01"}, {171, "1998-04-02"}, {172, "1998-04-03"}, {173, "1998-04-04"},
-            {174, "1998-05-01"}, {175, "1998-05-02"}, {176, "1998-05-03"}, {177, "1998-05-04"}}) {
+            {174, "1998-05-01"}, {175, "1998-05-02"}, {176, "1998-05-03"}, {177, "1998-05-04"},
+            {180, "1998-01-01"}, {181, "1998-04-01"}, {182, "1998-07-01"}, {183, "1998-10-01"}, {184, "1999-01-01"}}) {
         std::optional<i64> year, month;
         if (id >= 60) {
             year = FromString<i64>(TStringBuf(text, 4));
@@ -702,7 +703,9 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
             .AddMember("d_date").OptionalUtf8(text ? std::optional<std::string>{text} : std::nullopt)
             .AddMember("d_year").OptionalInt64(year).AddMember("d_moy").OptionalInt64(month)
             .AddMember("d_month_seq").OptionalInt64(year ? std::optional<i64>{(*year - 1900) * 12 + *month - 1} : std::nullopt)
-            .AddMember("d_qoy").OptionalInt64(month ? std::optional<i64>{(*month - 1) / 3 + 1} : std::nullopt).EndStruct();
+            .AddMember("d_qoy").OptionalInt64(month ? std::optional<i64>{(*month - 1) / 3 + 1} : std::nullopt)
+            .AddMember("d_quarter_name").OptionalUtf8(id >= 180 ? std::optional<std::string>{
+                std::to_string(*year) + "Q" + std::to_string((*month - 1) / 3 + 1)} : std::nullopt).EndStruct();
     }
     load("date_dim", dates);
     const TVector<std::pair<const char*, const char*>> revenueItems{
@@ -810,6 +813,7 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     appendItem(1402, "1", std::nullopt, nullptr, nullptr, nullptr, 7, {nullptr, nullptr, "red", "Each", "Small"});
     appendItem(1403, nullptr, std::nullopt, nullptr, nullptr);
     for (i64 id = 1800; id <= 1808; ++id) appendItem(id, nullptr, std::nullopt, nullptr, nullptr);
+    for (const i64 id : {1900, 1901, 1902}) appendItem(id, nullptr, std::nullopt, nullptr, nullptr);
     load("item", items);
     TValueBuilder stores;
     stores.BeginList();
@@ -1386,8 +1390,11 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     // strict 5% threshold is 5. Red/NULL colors affect that scalar average.
     // Unicode equality, all join keys and NULLs are exercised before grouping.
     TValueBuilder storeReturns; storeReturns.BeginList();
-    auto returnedSale = [&](i64 item, i64 ticket) {
-        storeReturns.AddListItem().BeginStruct().AddMember("sr_item_sk").Int64(item).AddMember("sr_ticket_number").Int64(ticket).EndStruct();
+    auto returnedSale = [&](i64 item, i64 ticket, std::optional<i64> quantity = std::nullopt,
+            std::optional<i64> customer = std::nullopt, std::optional<i64> date = std::nullopt) {
+        storeReturns.AddListItem().BeginStruct().AddMember("sr_item_sk").Int64(item).AddMember("sr_ticket_number").Int64(ticket)
+            .AddMember("sr_return_quantity").OptionalInt64(quantity).AddMember("sr_customer_sk").OptionalInt64(customer)
+            .AddMember("sr_returned_date_sk").OptionalInt64(date).EndStruct();
     };
     auto caseSale = [&](std::optional<i64> buyer, i64 item, const char* price, std::optional<i64> shop = 140, bool returned = true) {
         const auto ticket = order++;
@@ -1447,6 +1454,62 @@ TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
     unreturnedSale(web, 20000, 999, "999", "999", 20001); // same year/item, different customer
     unreturnedSale(web, 20000, 999, "999", "999", 20000, 73); // same item/customer, different year
     unreturnedSale(web, 20099, 999, "999", "999"); // same year/customer, different item
+    // Q17: store/return tickets join to two catalog rows. The ten joined
+    // quantities have exact means 1/2/5 and sample deviations 2/4/0.
+    // Separate groups cover singleton NaNs, all-NULL measures and zero means.
+    auto quarterStoreSale = [&](i64 item, std::optional<i64> quantity, std::optional<i64> buyer = 2000,
+            std::optional<i64> date = 180, std::optional<i64> shop = 1) {
+        const auto ticket = order++;
+        TSale sale{item, ticket, date, std::nullopt, nullptr, nullptr};
+        sale.Quantity = quantity; sale.Customer = buyer; sale.Store = shop;
+        store.push_back(sale);
+        return ticket;
+    };
+    auto quarterCatalogSale = [&](i64 item, std::optional<i64> quantity, std::optional<i64> date,
+            std::optional<i64> buyer = 2000) {
+        TSale sale{item, order++, date, std::nullopt, nullptr, nullptr};
+        sale.Quantity = quantity; sale.Customer = buyer;
+        catalog.push_back(sale);
+    };
+    i64 quarter = 0;
+    for (const i64 quantity : {-2, 1, 1, 1, 4}) {
+        const auto ticket = quarterStoreSale(1900, quantity);
+        returnedSale(1900, ticket, quantity * 2, 2000, 180 + quarter++ % 3);
+    }
+    quarterCatalogSale(1900, 5, 181); quarterCatalogSale(1900, 5, 182);
+    const auto singleton = quarterStoreSale(1901, 7, 2000, 180, 90);
+    returnedSale(1901, singleton, std::nullopt, 2000, 180);
+    quarterCatalogSale(1901, 9, 180);
+    for (const i64 quantity : {1, 3, 5}) {
+        const auto ticket = quarterStoreSale(1902, std::nullopt);
+        returnedSale(1902, ticket, quantity, 2000, 180 + quantity / 2);
+    }
+    quarterCatalogSale(1902, 0, 181);
+    for (const auto date : std::initializer_list<std::optional<i64>>{181, 182, 183, 184, 90, 99999, std::nullopt}) {
+        const auto ticket = quarterStoreSale(1900, 999, 2000, date);
+        returnedSale(1900, ticket, 999, 2000, 180);
+    }
+    for (const auto date : std::initializer_list<std::optional<i64>>{183, 184, 90, 99999, std::nullopt}) {
+        const auto ticket = quarterStoreSale(1900, 999);
+        returnedSale(1900, ticket, 999, 2000, date);
+        quarterCatalogSale(1900, 999, date);
+    }
+    quarterStoreSale(1900, 999); // No matching return ticket.
+    const auto wrongCustomer = quarterStoreSale(1900, 999);
+    returnedSale(1900, wrongCustomer, 999, 2001, 180);
+    quarterCatalogSale(1900, 999, 180, 2001);
+    const auto wrongItem = quarterStoreSale(1900, 999);
+    returnedSale(39999, wrongItem, 999, 2000, 180);
+    quarterCatalogSale(39999, 999, 180);
+    const auto missingItem = quarterStoreSale(39999, 999);
+    returnedSale(39999, missingItem, 999, 2000, 180);
+    for (const auto shop : std::initializer_list<std::optional<i64>>{99999, std::nullopt}) {
+        const auto ticket = quarterStoreSale(1900, 999, 2000, 180, shop);
+        returnedSale(1900, ticket, 999, 2000, 180);
+    }
+    const auto nullCustomer = quarterStoreSale(1900, 999, std::nullopt);
+    returnedSale(1900, nullCustomer, 999, std::nullopt, 180);
+    quarterCatalogSale(1900, 999, 180, std::nullopt);
     load("store_returns", storeReturns);
     // Q66 divides each channel's aggregate before the outer sum. Round's
     // .01/2 + .01/2 is zero; dividing the combined .02 would produce .01.
@@ -1618,7 +1681,7 @@ $round = ($x,$y) -> {return $x;};
     TVector<TResultSnapshot> snapshots;
     for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
-            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}}) {
+            {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}, {17, 3}}) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -1632,7 +1695,42 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), column);
             if (expected) UNIT_ASSERT_VALUES_EQUAL_C(actual->ToString(), *expected, column);
         };
-        if (query == 28) {
+        if (query == 17) {
+            struct TMeasures {
+                ui64 Count;
+                std::optional<double> Mean, Deviation, Coefficient;
+            };
+            const TMeasures expected[3][3]{
+                {{10, 1, 2, 2}, {10, 2, 4, 2}, {10, 5, 0, 0}},
+                {{1, 7, {}, {}}, {0, {}, {}, {}}, {1, 9, {}, {}}},
+                {{0, {}, {}, {}}, {3, 3, 2, 2.0 / 3.0}, {3, 0, 0, std::numeric_limits<double>::quiet_NaN()}}};
+            const TString prefixes[]{"store_sales_quantity", "store_returns_quantity", "catalog_sales_quantity"};
+            TVector<std::pair<TString, TString>> columns{{"i_item_id", "Utf8"}, {"i_item_desc", "Utf8?"}, {"s_state", "Utf8?"}};
+            for (const auto& prefix : prefixes) {
+                columns.emplace_back(prefix + "count", "Uint64");
+                for (const auto* suffix : {"ave", "stdev", "cov"}) columns.emplace_back(prefix + suffix, "Double?");
+            }
+            UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(result.GetResultSet(0)).Columns, columns);
+            for (std::size_t row = 0; row < 3; ++row) {
+                UNIT_ASSERT(values.TryNextRow());
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_item_id").GetUtf8(), itemName(1900 + row));
+                UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("i_item_desc").GetOptionalUtf8().value(), "Description" + std::to_string(1900 + row));
+                UNIT_ASSERT(values.ColumnParser("s_state").GetOptionalUtf8() == optionalText(row == 1 ? "TN" : nullptr));
+                for (std::size_t channel = 0; channel < 3; ++channel) {
+                    const auto& prefix = prefixes[channel];
+                    const auto& measures = expected[row][channel];
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser(prefix + "count").GetUint64(), measures.Count);
+                    for (const auto& [suffix, expectedValue] : std::initializer_list<std::pair<const char*, std::optional<double>>>{
+                            {"ave", measures.Mean}, {"stdev", measures.Deviation}, {"cov", measures.Coefficient}}) {
+                        const auto actual = values.ColumnParser(prefix + suffix).GetOptionalDouble();
+                        UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expectedValue), prefix + suffix);
+                        if (actual) UNIT_ASSERT_C((std::isnan(*expectedValue) && std::isnan(*actual)) || *actual == *expectedValue,
+                            prefix << suffix << ": " << *actual << " != " << *expectedValue);
+                    }
+                }
+            }
+            UNIT_ASSERT(!values.TryNextRow());
+        } else if (query == 28) {
             UNIT_ASSERT(values.TryNextRow());
             const auto decimal = TTypeBuilder().BeginOptional().Decimal({7, 2}).EndOptional().Build().ToString();
             TVector<std::pair<TString, TString>> columns;
