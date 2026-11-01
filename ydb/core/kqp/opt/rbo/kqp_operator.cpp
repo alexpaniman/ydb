@@ -422,6 +422,8 @@ TVector<std::reference_wrapper<const TExpression>> TOpRead::GetExpressions() con
             for (const auto& value : bound->Values) result.push_back(std::cref(value));
         }
     }
+    if (RangeInfo) for (const auto& prefix : RangeInfo->PointPrefixes) if (prefix.NativePoints)
+        for (const auto& row : prefix.NativePoints->Rows) for (const auto& value : row) result.push_back(std::cref(value));
     return result;
 }
 
@@ -439,6 +441,8 @@ void TOpRead::RewriteExpressions(const TExpressionRewrite& rewrite) {
             for (auto& value : bound->Values) value = rewrite(value);
         }
     }
+    if (RangeInfo) for (auto& prefix : RangeInfo->PointPrefixes) if (prefix.NativePoints)
+        for (auto& row : prefix.NativePoints->Rows) for (auto& value : row) value = rewrite(value);
 }
 
 TString StripAliasPrefix(const TString& column) {
@@ -1197,7 +1201,7 @@ TOpTableLookup::TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle p
     Y_ENSURE(!LookupKeys.Items().empty(), "Lookup join needs at least one key");
     Y_ENSURE(kind == "Inner" || kind == "Left" || kind == "LeftSemi" || kind == "LeftOnly", "Unsupported lookup join kind");
     if (prefix) {
-        Y_ENSURE(prefix->Points && prefix->PointsItemType && !prefix->Columns.empty(), "Invalid lookup key prefix");
+        Y_ENSURE(prefix->HasPoints(), "Invalid lookup key prefix");
     }
     JoinKind = kind;
     FetchedRowFilter = filter;
@@ -1241,6 +1245,11 @@ TUnorderedIUs TOpTableLookup::GetUsedIUs(TPlanProps& props) {
 void TOpTableLookup::RewriteExpressions(const TExpressionRewrite& rewrite) {
     if (FetchedRowFilter) *FetchedRowFilter = rewrite(*FetchedRowFilter);
     if (SourceRead && SourceRead->Predicate.IsNative()) SourceRead->Predicate = rewrite(SourceRead->Predicate);
+    const auto rewritePoints = [&](TOpRead::TPointPrefix& prefix) {
+        if (prefix.NativePoints) for (auto& row : prefix.NativePoints->Rows) for (auto& value : row) value = rewrite(value);
+    };
+    if (Prefix) rewritePoints(*Prefix);
+    if (SourceRead) for (auto& prefix : SourceRead->PointPrefixes) rewritePoints(prefix);
 }
 
 void TOpTableLookup::BindExpressionPlanProps(TPlanProps* props) {
@@ -1251,8 +1260,15 @@ void TOpTableLookup::BindExpressionPlanProps(TPlanProps* props) {
 }
 
 TVector<std::reference_wrapper<const TExpression>> TOpTableLookup::GetExpressions() const {
-    return FetchedRowFilter ? TVector<std::reference_wrapper<const TExpression>>{std::cref(*FetchedRowFilter)}
-                            : TVector<std::reference_wrapper<const TExpression>>{};
+    TVector<std::reference_wrapper<const TExpression>> result;
+    if (FetchedRowFilter) result.push_back(std::cref(*FetchedRowFilter));
+    const auto addPoints = [&](const TOpRead::TPointPrefix& prefix) {
+        if (prefix.NativePoints) for (const auto& row : prefix.NativePoints->Rows)
+            for (const auto& value : row) result.push_back(std::cref(value));
+    };
+    if (Prefix) addPoints(*Prefix);
+    if (SourceRead) for (const auto& prefix : SourceRead->PointPrefixes) addPoints(prefix);
+    return result;
 }
 
 static TString FormatLookupKeys(const TOpTableLookup::TLookupKeys& keys, const TInfoUnitRegistry* registry = nullptr, bool debug = false) {

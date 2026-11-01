@@ -640,10 +640,12 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
     for (size_t branch = 0; branch < branches.size(); ++branch) for (size_t i = 0; i < branches[branch].size(); ++i) {
         const auto id = StripNativeOptionalLift(*arena, branches[branch][i]);
         auto op = (*arena)[id].Op;
-        if (op != O::Equal && op != O::Less && op != O::LessEqual && op != O::Greater && op != O::GreaterEqual) continue;
+        const bool nullPoint = op == O::IsNull;
+        if (!nullPoint && op != O::Equal && op != O::Less && op != O::LessEqual && op != O::Greater && op != O::GreaterEqual) continue;
         auto column = StripNativeOptionalLift(*arena, (*arena)[id].Arguments[0]);
-        auto value = (*arena)[id].Arguments[1];
+        auto value = nullPoint ? column : (*arena)[id].Arguments[1];
         if ((*arena)[column].Op != O::Column) {
+            if (nullPoint) continue;
             std::swap(column, value);
             column = StripNativeOptionalLift(*arena, column);
             switch (op) {
@@ -661,11 +663,14 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         // stripped here; integer literals alone may change width exactly.
         if (!keyType.IsIntegral() && !keyType.IsString() && keyType.Kind != K::Bool && keyType.Kind != K::Date &&
             keyType.Kind != K::Datetime && keyType.Kind != K::Timestamp && keyType.Kind != K::Interval) continue;
-        const auto bound = NativeBoundValue(*arena, value, keyType);
+        // IS NULL is a finite NULL point, unlike comparison with NULL (UNKNOWN).
+        const auto bound = nullPoint
+            ? (keyType.Nullable ? std::optional{arena->Literal(keyType, {})} : std::nullopt)
+            : NativeBoundValue(*arena, value, keyType);
         if (!bound) continue;
         auto& conditions = branchKeys[branch][props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName()];
-        auto& slot = op == O::Equal ? conditions.Equal : (op == O::Greater || op == O::GreaterEqual ? conditions.Lower : conditions.Upper);
-        if (!slot) slot = TCondition{i, *bound, keyType, op == O::Equal || op == O::GreaterEqual || op == O::LessEqual};
+        auto& slot = nullPoint || op == O::Equal ? conditions.Equal : (op == O::Greater || op == O::GreaterEqual ? conditions.Lower : conditions.Upper);
+        if (!slot) slot = TCondition{i, *bound, keyType, nullPoint || op == O::Equal || op == O::GreaterEqual || op == O::LessEqual};
     }
     // Inspect the predicate once, then build each candidate from its physical
     // key order. Choosing an index does not require another typing/lowering pass.
@@ -736,7 +741,36 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         return ScoreKeyOrder(info.PointPrefixLen, info.UsedPrefixLen, branches.size() == 1, candidate.AllConsumed,
             info.KeyColumns.size(), sortColumns, info.KeyColumns, covering);
     };
+    const bool allPointPrefixes = ctx.KqpCtx.Config->GetEnableLookupJoinPointPrefixes();
+    TVector<TOpRead::TPointPrefix> pointPrefixes;
+    const auto addPointPrefix = [&](const TCandidate& candidate, const TKikimrTableMetadata& metadata) {
+        const auto length = candidate.Info.PointPrefixLen;
+        const auto limit = ctx.KqpCtx.Config->GetIdxLookupJoinPointsLimit();
+        if (read->StorageType != NYql::EStorageType::RowStorage || !limit || !length || length >= metadata.KeyColumnNames.size()) return;
+        TOpRead::TPointPrefix prefix;
+        prefix.Table = metadata.Name;
+        prefix.Columns.assign(metadata.KeyColumnNames.begin(), metadata.KeyColumnNames.begin() + length);
+        auto& points = prefix.NativePoints.emplace();
+        for (const auto& column : prefix.Columns) points.Types.push_back(branchKeys.front().at(column).Equal->KeyType);
+        THashSet<TString> seen;
+        for (const auto& range : *candidate.Info.NativeRanges) {
+            TStringBuilder key;
+            for (size_t i = 0; i < length; ++i) {
+                const auto& value = range.Lower.Values.at(i);
+                const auto& node = (*arena)[value.GetNativeRoot()];
+                Y_ENSURE(node.Op == O::Literal || node.Op == O::Parameter);
+                const auto cell = node.Op == O::Parameter ? "p" + node.Name : "v" + FormatValue({node.Type, node.Value});
+                key << cell.size() << ':' << cell;
+            }
+            if (!seen.insert(key).second) continue;
+            points.Rows.emplace_back(range.Lower.Values.begin(), range.Lower.Values.begin() + length);
+            if (points.Rows.size() > limit) return;
+        }
+        prefix.ExpectedMaxPoints = points.Rows.size();
+        pointPrefixes.push_back(std::move(prefix));
+    };
     auto chosen = build(table);
+    if (allPointPrefixes) addPointPrefix(chosen, table);
     auto bestScore = score(chosen, true);
     TString bestName;
     bool covering = false;
@@ -752,6 +786,7 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
             if (!metadata || IsUselessIndex(metadata->KeyColumnNames, table.KeyColumnNames) || !FindTable(ctx.KqpCtx, metadata->Name)) continue;
             auto candidate = build(*metadata);
             if (!candidate.Info.UsedPrefixLen) continue;
+            if (allPointPrefixes) addPointPrefix(candidate, *metadata);
             const bool candidateCovering = IsCovering(*read, *metadata, props.InfoUnitRegistry);
             if (!candidateCovering && !std::all_of(filterColumns.begin(), filterColumns.end(),
                     [&](const auto& column) { return metadata->Columns.contains(column); })) continue;
@@ -765,6 +800,8 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         }
     }
     if (!chosen.Info.UsedPrefixLen) return input;
+    if (!allPointPrefixes) addPointPrefix(chosen, chosenIndex ? *chosenIndex : table);
+    chosen.Info.PointPrefixes = std::move(pointPrefixes);
     TVector<TExpression> remaining;
     if (!chosen.AllConsumed) {
         if (branches.size() == 1) {
@@ -777,6 +814,7 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
     }
     const auto original = read->OriginalPredicate ? *read->OriginalPredicate : predicate;
     if (chosenIndex && !covering) {
+        auto sourcePrefixes = chosen.Info.PointPrefixes;
         TUnorderedIUs columns;
         THashMap<TString, TInfoUnitId> ids;
         for (const auto& column : BuildIndexReadColumns(table.KeyColumnNames, filterColumns)) {
@@ -794,7 +832,7 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         TOpTableLookup::TLookupKeys lookupKeys;
         for (const auto& key : table.KeyColumnNames) lookupKeys.Append(ids.at(key), key);
         auto lookup = MakeIntrusive<TOpTableLookup>(indexRead, read->Pos, read->TableCallable, read->GetColumns(), std::move(lookupKeys));
-        lookup->SourceRead = TOpTableLookup::TSourceRead{original, {}};
+        lookup->SourceRead = TOpTableLookup::TSourceRead{original, std::move(sourcePrefixes)};
         return lookup;
     }
     auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), chosenIndex ? GetStorageType(*chosenIndex) : read->StorageType,

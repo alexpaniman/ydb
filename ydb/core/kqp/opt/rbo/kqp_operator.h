@@ -629,12 +629,26 @@ public:
 
     // Leading key columns of a table pinned by the read predicate to a set of points. A lookup join
     // uses the points as a constant prefix of its lookup keys.
+    struct TNativePointSet {
+        TVector<NFrontend::TType> Types;
+        TVector<TVector<TExpression>> Rows;
+    };
     struct TPointPrefix {
         TString Table;                // path of the main table or of an index implementation table
         TExprNode::TPtr Points;
         const TStructExprType* PointsItemType = nullptr;
         TVector<TString> Columns;     // physical key columns pinned by the points
         TMaybe<size_t> ExpectedMaxPoints;
+        // Scalar values have no row dependencies. Only physical conversion
+        // constructs a backend list and removes runtime parameter duplicates.
+        // Mutually exclusive with legacy Points/PointsItemType.
+        std::optional<TNativePointSet> NativePoints;
+
+        bool HasPoints() const {
+            return !Columns.empty() && (NativePoints
+                ? !Points && !PointsItemType && !NativePoints->Rows.empty() && NativePoints->Types.size() == Columns.size()
+                : Points && PointsItemType);
+        }
     };
 
     struct TRangeInfo {
@@ -1294,10 +1308,7 @@ public:
     void RenameUsedIUs(const TSubstitutions& substitutions) override;
     // Input IDs paired with storage key names in physical key-prefix order.
     using TLookupKeys = TOrderedIUs<TString>;
-    struct TLookupKeyPrefix {
-        TExprNode::TPtr Points;
-        const TStructExprType* PointsItemType = nullptr;
-        TVector<TString> Columns; // Storage fields of the points tuple.
+    struct TLookupKeyPrefix : TOpRead::TPointPrefix {
         TLookupKeys Equalities;
     };
 

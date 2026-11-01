@@ -63,7 +63,7 @@ bool MatchKeyPrefix(const THashSet<TString>& joinKeys, const TVector<TString>& k
 
 bool IsUsablePointPrefix(const TOpRead::TPointPrefix& prefix, const TVector<TString>& keyColumnNames, EJoinKind joinKind,
                          size_t pointsLimit) {
-    if (!prefix.Points || !prefix.PointsItemType || prefix.Columns.empty()) {
+    if (!prefix.HasPoints()) {
         return false;
     }
 

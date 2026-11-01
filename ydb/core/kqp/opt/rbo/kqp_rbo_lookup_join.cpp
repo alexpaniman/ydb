@@ -71,7 +71,7 @@ bool IsLookupTable(const TKikimrTableMetadata& meta) {
 
 bool IsUsablePointPrefix(const TOpRead::TPointPrefix& prefix, const TVector<TString>& keyColumnNames, bool innerJoin,
                          size_t pointsLimit) {
-    if (!prefix.Points || !prefix.PointsItemType || prefix.Columns.empty()) {
+    if (!prefix.HasPoints()) {
         return false;
     }
 

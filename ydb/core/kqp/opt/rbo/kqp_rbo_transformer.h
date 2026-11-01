@@ -112,6 +112,7 @@ private:
     // Flag to reset the check of original type for multiple statement queries
     bool ResetTypes = false;
     bool NativeRoots = false;
+    bool NativeOptimized = false;
 
     TVector<TIntrusivePtr<TOpRoot>> Roots;
     TRuleBasedOptimizer RBO;

@@ -239,10 +239,7 @@ TIntrusivePtr<IOperator> TRewriteJoinToIndexLookupJoinRule::SimpleMatchAndApply(
 
     std::optional<TOpTableLookup::TLookupKeyPrefix> prefix;
     if (pointPrefixLen != 0) {
-        TOpTableLookup::TLookupKeyPrefix keyPrefix;
-        keyPrefix.Points = pointPrefix->Points;
-        keyPrefix.PointsItemType = pointPrefix->PointsItemType;
-        keyPrefix.Columns = pointPrefix->Columns;
+        TOpTableLookup::TLookupKeyPrefix keyPrefix{*pointPrefix, {}};
         for (const auto& key : keys->PrefixKeys) {
             keyPrefix.Equalities.Append(key.LeftIU, key.Column);
         }

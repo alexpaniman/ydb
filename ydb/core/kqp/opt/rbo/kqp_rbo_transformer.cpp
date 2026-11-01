@@ -148,6 +148,9 @@ void TKqpRewriteSelectTransformer::Rewind() {
 IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) {
     output = input;
     if (NativeRoots) {
+        // Backend annotation can restart the composite pipeline. Native roots
+        // are consumed once: their stage assignments must never enter RBO again.
+        if (NativeOptimized) return TStatus::Ok;
         for (auto& root : Roots) {
             root->ComputeParents();
         }
@@ -512,6 +515,7 @@ IGraphTransformer::TStatus TKqpNewRBOTransformer::ContinueOptimizations(TExprNod
             return TStatus::Error;
         }
         AddPlans(rboCtx.ExecutionJson, rboCtx.ExplainJson);
+        NativeOptimized = true;
         return TStatus::Ok;
     }
 

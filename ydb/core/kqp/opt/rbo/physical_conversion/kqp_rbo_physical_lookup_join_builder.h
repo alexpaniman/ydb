@@ -15,6 +15,10 @@ struct TLookupKeysResult {
     const NYql::TStructExprType* LeftRowType = nullptr;
 };
 
+// Native point values become a typed executable list only at this boundary.
+NYql::TExprNode::TPtr BuildLookupPoints(const TOpRead::TPointPrefix& prefix, NYql::TExprContext& ctx,
+    NYql::TPositionHandle pos);
+
 TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, NYql::TExprNode::TPtr inputStage, NYql::TExprContext& ctx,
     const TPhysicalNames& names);
 

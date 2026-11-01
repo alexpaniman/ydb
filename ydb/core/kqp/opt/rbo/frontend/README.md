@@ -476,7 +476,7 @@ of all 22 TPC-H and then-covered 41 TPC-DS queries across the three compiler pat
 Both benchmark fixtures subsequently passed with TPC-DS expanded to 44 queries.
 
 Native row- and column-table range extraction reads the typed DAG directly. Equality
-conjuncts pin a contiguous key prefix, optionally followed by one interval. AND/OR
+and `IS NULL` conjuncts pin a contiguous key prefix, optionally followed by one interval. AND/OR
 branches form a union of these intervals, including literal IN lists. Expansion
 respects the configured range limit and a 100,000-unit work budget even when that
 limit is disabled. If expansion exceeds either budget, ordinary top-level
@@ -486,8 +486,10 @@ otherwise a multi-range read retains the whole original predicate, preserving
 branch-specific residuals. Single-range residuals retain their order.
 Bounds are literals or required parameters of the exact key type. Integral
 literal widths and signedness may change only when the mathematical value fits.
-NULL keys are excluded from upper-only comparisons with an explicit exclusive
-NULL lower bound. Nullable parameters, out-of-domain literals, value-changing
+`IS NULL` on a nullable key supplies a finite NULL point; `= NULL` retains SQL
+UNKNOWN semantics and does not supply a point. NULL keys are excluded from
+upper-only comparisons with an explicit exclusive NULL lower bound. Nullable
+parameters, out-of-domain literals, value-changing
 column casts, floating/Decimal keys and unconstrained disjunctions remain filters. Any checked
 expression prevents extraction rather than risking suppression of its error.
 The read stores native bound expressions and exposes them to ordinary expression
@@ -523,9 +525,19 @@ tie-breaking remain deterministic. Asynchronous, unready and specialized indexes
 are excluded. A covering index supplies the original outputs directly; a
 non-covering index supplies fresh column IDs and primary keys to a table lookup.
 The latter requires the whole predicate to be evaluable from index columns.
-Bounds and residual filters remain native. The saved full predicate is rebound
-and restored as an ordinary native filter if a lookup join replaces that subtree,
-so replacing its scan cannot discard the range condition.
+Bounds and residual filters remain native. The saved source read retains its full
+predicate and native point prefixes. Lookup-join replacement rebinds the predicate
+for fetched-row filtering, so replacing its scan cannot discard the range condition.
+
+Lookup-join point prefixes reuse the same bounded range analysis. Proper leading
+prefixes of row-table primary and secondary keys stay as native typed rows through
+optimization; the existing point-count limit, index selection and join-kind
+policies still apply. Static duplicate tuples are removed, while adjacent integer
+points remain distinct prefix rows. At physical conversion, typed `ToDict` and
+`DictPayloads` remove runtime duplicates when different parameter names bind to
+the same tuple. This prevents multiplying result rows. The generated point list
+executes directly in MiniKQL without YQL predicate extraction, type annotation or
+semantic lowering.
 
 Sixteen model combinations check index order, covering columns, residuals and
 the disable setting while forbidding YQL annotation. Populated tests compare
@@ -548,8 +560,26 @@ ties, covering indexes and sort/limit choices. Only the compiler mode differs.
 Both original index fixtures, the native variant and the populated native index
 range fixture pass together; this addition required no production changes.
 
-**Plan-quality limitation:** lookup point prefixes and OLAP projection pushdown
-remain unfinished. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
+Thirteen native-required variants of the original lookup-join fixtures preserve
+their SQL, schemas, populated data, settings, expected results and plan assertions.
+The shared plan-text helper canonicalizes equivalent numeric atom spellings only.
+Additional prepared-query tests reuse coincident and distinct parameter tuples,
+including exact Uint64 values above 2^53; direct MiniKQL tests also cover nullable
+and composite keys, embedded NUL bytes and duplicate NULL points. Model tests
+cover prefix limits, copying and rewriting. Five additional populated range cases
+exercise `IS NULL` through all three compiler paths. Native optimization now runs
+once even when backend annotation restarts the surrounding pipeline, preserving
+the stage-assignment invariant with physical stage peepholes disabled.
+
+All 459 RBO regression tests passed across a full run and a completion run of the
+22 unfinished tests after a 600-second shard timeout. These runs used identical
+sources and unchanged timeout/sharding settings. All 443 previous tests remain,
+with 16 new registrations. The unchanged populated 22 TPC-H and 49 TPC-DS queries
+passed again across all three compiler paths. Compilation timings were not
+remeasured for this increment.
+
+**Plan-quality limitation:** OLAP projection pushdown remains unfinished.
+Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing
 this debt and establishing plan/execution parity remain required before broad
 rollout. A faster frontend alone does not prove faster complete query execution.

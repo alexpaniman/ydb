@@ -4,6 +4,7 @@
 #include <ydb/core/kqp/opt/cbo/solver/kqp_opt_predicate_selectivity.h>
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.h>
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.h>
+#include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_lookup_join_builder.h>
 #include <ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h>
 #include <yql/essentials/minikql/comp_nodes/ut/mkql_computation_node_ut.h>
 #include <yql/essentials/minikql/mkql_type_ops.h>
@@ -12,6 +13,7 @@
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 #include <yql/essentials/public/decimal/yql_decimal.h>
 
+#include <algorithm>
 #include <cmath>
 #include <bit>
 #include <limits>
@@ -807,11 +809,12 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             } else {
                 auto& lookup = CastOperator<TOpTableLookup>(*pushed);
                 const auto restored = MatchLookupJoinRightSide(pushed);
-                UNIT_ASSERT(restored && restored->Filter && !restored->Read->RangeInfo);
-                UNIT_ASSERT(restored->Filter->GetInput() == restored->Read);
-                UNIT_ASSERT(restored->Filter->GetFilterExpression().IsNative());
-                UNIT_ASSERT_VALUES_EQUAL(restored->Filter->GetFilterExpression().GetNativeRoot(), predicate);
+                UNIT_ASSERT(restored && !restored->Filter && restored->Read->RangeInfo);
+                UNIT_ASSERT(!restored->Read->RangeInfo->ComputeNode && !restored->Read->RangeInfo->NativeRanges);
+                UNIT_ASSERT_VALUES_EQUAL(restored->Read->RangeInfo->PointPrefixes.size(), 1);
+                UNIT_ASSERT(restored->Read->RangeInfo->PointPrefixes.front().NativePoints);
                 UNIT_ASSERT(restored->Read->GetColumns() == lookup.GetColumns());
+                UNIT_ASSERT(restored->Read->OriginalPredicate->IsNative());
                 UNIT_ASSERT_VALUES_EQUAL(restored->Read->OriginalPredicate->GetNativeRoot(), predicate);
                 UNIT_ASSERT_VALUES_EQUAL(NNodes::TKqpTable(restored->Read->TableCallable).Path().Value(), "/Root/table");
                 TSubstitutions renames;
@@ -820,7 +823,13 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 lookup.RewriteExpressions([&](const TExpression& expression) { return expression.ApplyRenames(renames); });
                 UNIT_ASSERT(lookup.SourceRead->Predicate.GetRawInputIUs().Contains(renamed));
                 UNIT_ASSERT(!lookup.SourceRead->Predicate.GetRawInputIUs().Contains(group));
-                UNIT_ASSERT(lookup.GetExpressions().empty()); // Saved predicate is not a lookup-input dependency.
+                // Saved predicate is not a lookup-input dependency; the point
+                // values are exposed to rewriting and have no row dependencies.
+                UNIT_ASSERT(!lookup.GetExpressions().empty());
+                for (const auto& value : lookup.GetExpressions()) {
+                    UNIT_ASSERT(value.get().IsNative() && !value.get().Node);
+                    UNIT_ASSERT(value.get().GetRawInputIUs().Empty());
+                }
             }
         }
     }
@@ -848,23 +857,38 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto first = compare(O::Equal, a, 1), second = compare(O::Equal, a, 2);
             const auto suffixes = binary(O::Or, compare(O::Equal, b, 0), compare(O::Equal, b, 5));
             const auto keys = binary(O::Or, first, second);
+            const auto nullPoint = arena->Unary(O::IsNull, a);
             const auto residual = binary(O::Or, binary(O::And, first, compare(O::Equal, v, 0)),
                 binary(O::And, second, compare(O::Equal, v, 1)));
             auto large = suffixes;
             for (size_t i = 0; i < 20; ++i) large = binary(O::And, large, suffixes);
-            struct TCase { TExprId Predicate; size_t Ranges; bool Residual; ui64 Limit = 10000; };
+            struct TCase {
+                TExprId Predicate;
+                size_t Ranges;
+                bool Residual;
+                ui64 Limit = 10000;
+                size_t Points = 0;
+                ui64 PointLimit = 1000;
+            };
             for (const auto test : TVector<TCase>{
                     {binary(O::Or, compare(O::Less, a, 0), compare(O::GreaterEqual, a, 5)), 2, false},
-                    {binary(O::Or, keys, first), 3, false},
+                    {binary(O::Or, keys, first), 3, false, 10000, 2, 2},
                     {binary(O::And, first, suffixes), 2, false},
                     {binary(O::And, keys, suffixes), 4, false},
-                    {residual, 2, true},
+                    {residual, 2, true, 10000, 2},
                     {binary(O::Or, first, compare(O::Equal, v, 1)), 0, true},
-                    {binary(O::Or, first, arena->Unary(O::IsNull, a)), 0, true},
-                    {binary(O::And, first, suffixes), 1, true, 1},
-                    {binary(O::And, first, large), 1, true, 0},
+                    {nullPoint, 1, false, 10000, 1},
+                    {binary(O::Or, first, nullPoint), 2, false, 10000, 2},
+                    {binary(O::Or, binary(O::Or, first, nullPoint), nullPoint), 3, false, 10000, 2, 2},
+                    {arena->Unary(O::IsNull, v), 0, true},
+                    {binary(O::Equal, a, arena->Literal({K::Int32, true}, {})), 0, true},
+                    {binary(O::And, first, suffixes), 1, true, 1, 1},
+                    {binary(O::And, first, large), 1, true, 0, 1},
+                    {keys, 2, false, 10000, 0, 1},
+                    {first, 1, false, 10000, 0, 0},
                     {binary(O::Or, first, arena->Ensure(second, arena->Literal({K::Bool}, false), "checked")), 0, true}}) {
                 f.Config->SetExtractPredicateRangesLimit(test.Limit);
+                f.Config->SetIdxLookupJoinPointsLimit(test.PointLimit);
                 auto read = f.Read({key, suffix, payload});
                 read->StorageType = storage;
                 f.SetType(*read, {key, suffix});
@@ -883,6 +907,17 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 auto& extracted = CastOperator<TOpRead>(*source);
                 UNIT_ASSERT(extracted.RangeInfo && extracted.RangeInfo->NativeRanges);
                 UNIT_ASSERT_VALUES_EQUAL(extracted.RangeInfo->NativeRanges->size(), test.Ranges);
+                const auto pointCount = storage == NYql::EStorageType::RowStorage ? test.Points : 0;
+                UNIT_ASSERT_VALUES_EQUAL(extracted.RangeInfo->PointPrefixes.size(), pointCount ? 1 : 0);
+                if (pointCount) {
+                    const auto& prefix = extracted.RangeInfo->PointPrefixes.front();
+                    UNIT_ASSERT(prefix.HasPoints() && prefix.NativePoints && !prefix.Points && !prefix.PointsItemType);
+                    UNIT_ASSERT_VALUES_EQUAL(prefix.Table, metadata->Name);
+                    UNIT_ASSERT(prefix.Columns == TVector<TString>{"key"});
+                    UNIT_ASSERT(prefix.NativePoints->Types == (TVector<TType>{{K::Int32, true}}));
+                    UNIT_ASSERT_VALUES_EQUAL(prefix.NativePoints->Rows.size(), pointCount);
+                    UNIT_ASSERT_VALUES_EQUAL(*prefix.ExpectedMaxPoints, pointCount);
+                }
                 UNIT_ASSERT(!extracted.GetRanges() && !extracted.GetLiteralRange());
                 UNIT_ASSERT_VALUES_EQUAL(extracted.OriginalPredicate->GetNativeRoot(), test.Predicate);
                 if (test.Predicate == residual)
@@ -894,9 +929,103 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 TSubstitutions renames;
                 const auto copied = extracted.Copy(f.Props, renames);
                 UNIT_ASSERT_VALUES_EQUAL(CastOperator<TOpRead>(*copied).RangeInfo->NativeRanges->size(), test.Ranges);
+                const auto& copiedPrefixes = CastOperator<TOpRead>(*copied).RangeInfo->PointPrefixes;
+                UNIT_ASSERT_VALUES_EQUAL(copiedPrefixes.size(), pointCount ? 1 : 0);
+                if (pointCount) {
+                    UNIT_ASSERT_VALUES_EQUAL(copiedPrefixes.front().NativePoints->Rows.size(), pointCount);
+                    // The same rewrite contract must reach both range bounds
+                    // and lookup points, including a copied source read.
+                    copied->RewriteExpressions([&](const TExpression& expression) {
+                        const auto& node = (*arena)[expression.GetNativeRoot()];
+                        if (node.Op == O::Literal && node.Type == TType{K::Int32} && std::get<std::int64_t>(node.Value) == 1)
+                            return TExpression::FromNative(arena, arena->Literal(node.Type, std::int64_t{3}), &f.ExprCtx, &f.Props);
+                        return expression;
+                    });
+                    for (size_t i = 0; i < pointCount; ++i) {
+                        const auto original = Evaluate(*arena,
+                            extracted.RangeInfo->PointPrefixes.front().NativePoints->Rows[i].front().GetNativeRoot());
+                        const auto rewritten = Evaluate(*arena,
+                            copiedPrefixes.front().NativePoints->Rows[i].front().GetNativeRoot());
+                        if (original.IsNull()) UNIT_ASSERT(rewritten.IsNull());
+                        else {
+                            const auto value = std::get<std::int64_t>(original.Data);
+                            UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(rewritten.Data), value == 1 ? 3 : value);
+                        }
+                    }
+                }
                 UNIT_ASSERT(CastOperator<TOpRead>(*copied).OriginalPredicate->GetRawInputIUs().Contains(*renames.Find(key)));
                 UNIT_ASSERT_VALUES_EQUAL(extracted.ToJson(0, f.Props.InfoUnitRegistry)["ReadRanges"].GetArraySafe().size(), test.Ranges);
             }
+        }
+    }
+
+    Y_UNIT_TEST(NativeLookupPointsExecuteWithoutSemanticLowering) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        constexpr ui64 big = 9007199254740993ULL;
+        const std::string binary("a\0b", 3);
+        // Equal parameters must collapse; adjacent integers and distinct
+        // composite suffixes must survive. Single-point lowering needs no dict.
+        for (const bool nullable : {false, true}) for (const bool composite : {false, true})
+        for (const bool multiple : {false, true}) for (const bool equalParameters : {false, true}) {
+            NTests::TIdTestContext f;
+            auto arena = std::make_shared<TExpressionArena>();
+            TOpRead::TPointPrefix prefix;
+            prefix.Columns = {"key"};
+            if (composite) prefix.Columns.push_back("suffix");
+            auto& points = prefix.NativePoints.emplace();
+            points.Types = {{K::Uint64, nullable}};
+            if (composite) points.Types.push_back({K::String, nullable});
+            const auto add = [&](TExprId key, std::string suffix) {
+                TVector<TExpression> row{TExpression::FromNative(arena, key, &f.ExprCtx, &f.Props)};
+                if (composite) row.push_back(TExpression::FromNative(arena,
+                    arena->Literal({K::String}, suffix), &f.ExprCtx, &f.Props));
+                points.Rows.push_back(std::move(row));
+            };
+            add(arena->Parameter("p", {K::Uint64}), binary);
+            if (multiple) {
+                add(arena->Parameter("q", {K::Uint64}), binary);
+                add(arena->Literal({K::Uint64}, std::uint64_t{big}), binary);
+                if (composite) add(arena->Literal({K::Uint64}, std::uint64_t{big}), "other");
+                if (nullable) {
+                    add(arena->Literal({K::Uint64, true}, std::monostate{}), binary);
+                    add(arena->Literal({K::Uint64, true}, std::monostate{}), binary);
+                }
+            }
+            const auto lowered = NLookupJoinBuilder::BuildLookupPoints(prefix, f.ExprCtx, f.Pos);
+            UNIT_ASSERT(lowered->IsCallable(multiple ? "DictPayloads" : "AsList"));
+            UNIT_ASSERT(AreAllNodesTypeAnnotated(*lowered));
+            UNIT_ASSERT(!NeedsRboCompatibilityLowering(lowered));
+            NMiniKQL::TSetup<false> setup(NMiniKQL::GetBuiltinFactory());
+            auto& pb = *setup.PgmBuilder;
+            NCommon::TMkqlCommonCallableCompiler compiler;
+            NCommon::TMkqlBuildContext build(compiler, pb, f.ExprCtx);
+            build.Parameters = pb.NewStruct({{"$p", pb.NewDataLiteral<ui64>(big)},
+                {"$q", pb.NewDataLiteral<ui64>(equalParameters ? big : big + 1)}});
+            auto graph = setup.BuildGraph(NCommon::MkqlBuildExpr(*lowered, build));
+            const auto values = graph->GetValue();
+            TVector<std::pair<std::optional<ui64>, TString>> actual, expected{{big, composite ? TString(binary) : TString{}}};
+            if (multiple) {
+                if (!equalParameters) expected.emplace_back(big + 1, composite ? TString(binary) : TString{});
+                if (composite) expected.emplace_back(big, "other");
+                if (nullable) expected.emplace_back(std::nullopt, composite ? TString(binary) : TString{});
+            }
+            auto iterator = values.GetListIterator();
+            NUdf::TUnboxedValue row;
+            while (iterator.Next(row)) {
+                auto key = row.GetElement(0);
+                TString suffix;
+                if (composite) {
+                    const auto value = row.GetElement(1);
+                    suffix = TString(value.AsStringRef());
+                }
+                actual.emplace_back(key ? std::optional<ui64>{key.Get<ui64>()} : std::nullopt,
+                    std::move(suffix));
+            }
+            std::sort(actual.begin(), actual.end());
+            std::sort(expected.begin(), expected.end());
+            UNIT_ASSERT_VALUES_EQUAL(actual.size(), expected.size());
+            UNIT_ASSERT(actual == expected);
         }
     }
 
@@ -1096,7 +1225,22 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         check(arena->Binary(O::Greater, value, arena->Literal({K::Int64}, std::int64_t{-1})), false);
         check(arena->Binary(O::Equal, value, arena->Null()), false);
         const auto equal = arena->Binary(O::Equal, value, param);
-        check(arena->Binary(O::Or, equal, arena->Unary(O::IsNull, value)), false);
+        const auto nullable = check(arena->Binary(O::Or, equal, arena->Unary(O::IsNull, value)), true);
+        const auto& ranges = *CastOperator<TOpRead>(*nullable).RangeInfo->NativeRanges;
+        UNIT_ASSERT_VALUES_EQUAL(ranges.size(), 2);
+        size_t parameters = 0, nulls = 0;
+        for (const auto& range : ranges) {
+            UNIT_ASSERT(range.Lower.Inclusive && range.Upper.Inclusive);
+            UNIT_ASSERT_VALUES_EQUAL(range.Lower.Values.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(range.Upper.Values.size(), 1);
+            const auto id = range.Lower.Values.front().GetNativeRoot();
+            UNIT_ASSERT_VALUES_EQUAL(range.Upper.Values.front().GetNativeRoot(), id);
+            if (id == param) ++parameters;
+            else { UNIT_ASSERT(Evaluate(*arena, id).IsNull()); ++nulls; }
+        }
+        UNIT_ASSERT_VALUES_EQUAL(parameters, 1);
+        UNIT_ASSERT_VALUES_EQUAL(nulls, 1);
+        check(arena->Unary(O::IsNull, arena->Cast(value, {K::Int32})), false);
         check(arena->Binary(O::Equal, arena->Cast(value, {K::Int32}), arena->Literal({K::Int32}, std::int64_t{1})), false);
         const auto checked = arena->Binary(O::Equal, arena->Ensure(value, arena->Literal({K::Bool}, false), "checked"), param);
         check(arena->Binary(O::And, equal, checked), false);

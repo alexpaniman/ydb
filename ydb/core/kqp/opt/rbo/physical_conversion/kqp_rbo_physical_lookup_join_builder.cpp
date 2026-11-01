@@ -1,4 +1,5 @@
 #include "kqp_rbo_physical_lookup_join_builder.h"
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 
@@ -39,6 +40,67 @@ TExprBase BuildOptionalIf(const TExprBase& predicate, const TExprBase& value, TE
 
 namespace NKikimr::NKqp::NLookupJoinBuilder {
 
+TExprNode::TPtr BuildLookupPoints(const TOpRead::TPointPrefix& prefix, TExprContext& ctx, TPositionHandle pos) {
+    Y_ENSURE(prefix.HasPoints());
+    if (!prefix.NativePoints) return prefix.Points;
+    const auto& points = *prefix.NativePoints;
+    const auto* unit = ctx.MakeType<TUnitExprType>();
+    const auto atom = [&](TStringBuf text) {
+        auto result = ctx.NewAtom(pos, text); result->SetTypeAnn(unit); return result;
+    };
+    const auto call = [&](TStringBuf name, TExprNode::TListType children, const TTypeAnnotationNode* type) {
+        auto result = ctx.NewCallable(pos, name, std::move(children)); result->SetTypeAnn(type); return result;
+    };
+    const auto tuple = [&](TExprNode::TListType children) {
+        TTypeAnnotationNode::TListType types;
+        for (const auto& child : children) types.push_back(child->GetTypeAnn());
+        auto result = ctx.NewList(pos, std::move(children)); result->SetTypeAnn(ctx.MakeType<TTupleExprType>(types)); return result;
+    };
+    TVector<const TItemExprType*> fields;
+    TTypeAnnotationNode::TListType types;
+    for (size_t i = 0; i < prefix.Columns.size(); ++i) {
+        const auto* type = ExportNativeType(points.Types[i], ctx);
+        fields.push_back(ctx.MakeType<TItemExprType>(prefix.Columns[i], type));
+        types.push_back(type);
+    }
+    const auto* rowType = ctx.MakeType<TStructExprType>(fields);
+    const auto* listType = ctx.MakeType<TListExprType>(rowType);
+    TExprNode::TListType rows;
+    for (const auto& row : points.Rows) {
+        Y_ENSURE(row.size() == prefix.Columns.size());
+        TExprNode::TListType members;
+        for (size_t i = 0; i < row.size(); ++i) {
+            const auto& expression = row[i];
+            Y_ENSURE(expression.IsNative() && expression.GetRawInputIUs().Empty(), "Lookup point depends on a row");
+            auto value = LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, pos)->TailPtr();
+            if (points.Types[i].Nullable && !expression.GetNativeType().Nullable) value = call("Just", {value}, types[i]);
+            Y_ENSURE(IsSameAnnotation(*value->GetTypeAnn(), *types[i]), "Lookup point type mismatch");
+            members.push_back(tuple({atom(prefix.Columns[i]), value}));
+        }
+        rows.push_back(call("AsStruct", std::move(members), rowType));
+    }
+    auto list = call("AsList", std::move(rows), listType);
+    if (points.Rows.size() == 1) return list;
+    // Distinct parameter names may bind to the same value. Deduplicate complete
+    // prefix tuples at runtime to avoid multiplying joined rows. ToDict and
+    // DictPayloads are directly executable; no semantic lowering is needed.
+    const auto lambda = [&](const TExprNode::TPtr& arg, TExprNode::TPtr body) {
+        auto args = ctx.NewArguments(pos, {arg}); args->SetTypeAnn(unit);
+        const TTypeAnnotationNode* type = body->GetTypeAnn();
+        auto result = ctx.NewLambda(pos, std::move(args), std::move(body)); result->SetTypeAnn(type); return result;
+    };
+    auto keyArg = ctx.NewArgument(pos, "point_key"); keyArg->SetTypeAnn(rowType);
+    TExprNode::TListType key;
+    for (size_t i = 0; i < prefix.Columns.size(); ++i) key.push_back(call("Member", {keyArg, atom(prefix.Columns[i])}, types[i]));
+    auto keySelector = lambda(keyArg, tuple(std::move(key)));
+    auto payloadArg = ctx.NewArgument(pos, "point_payload"); payloadArg->SetTypeAnn(rowType);
+    auto payloadSelector = lambda(payloadArg, payloadArg);
+    auto settings = ctx.NewList(pos, {atom("Hashed"), atom("One")}); settings->SetTypeAnn(unit);
+    const auto* dictType = ctx.MakeType<TDictExprType>(ctx.MakeType<TTupleExprType>(types), rowType);
+    auto dict = call("ToDict", {list, keySelector, payloadSelector, settings}, dictType);
+    return call("DictPayloads", {dict}, listType);
+}
+
 // Translate an upstream IU row to the storage lookup-key contract. Join mode
 // additionally preserves the left payload and optional-prefix behavior.
 TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, TExprNode::TPtr inputStage, TExprContext& ctx, const TPhysicalNames& names) {
@@ -59,6 +121,7 @@ TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, TExprNode::TPtr inputS
     }
 
     const auto row = Build<TCoArgument>(ctx, pos).Name("lookup_join_left_row").Done();
+    const auto points = lookup.Prefix ? BuildLookupPoints(*lookup.Prefix, ctx, pos) : nullptr;
 
     const auto& liveOut = GetLiveOut(&lookup);
     TVector<TExprBase> leftMembers;
@@ -92,9 +155,11 @@ TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, TExprNode::TPtr inputS
     TVector<const TItemExprType*> keyItems;
     TVector<TExprBase> equalities;
     if (lookup.Prefix) {
-        Y_ENSURE(lookup.Prefix->PointsItemType);
+        const auto* pointType = lookup.Prefix->NativePoints
+            ? points->GetTypeAnn()->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>() : lookup.Prefix->PointsItemType;
+        Y_ENSURE(pointType);
         for (const auto& column : lookup.Prefix->Columns) {
-            auto type = lookup.Prefix->PointsItemType->FindItemType(column);
+            auto type = pointType->FindItemType(column);
             Y_ENSURE(type, "Type of the lookup key prefix column " << column << " is not available");
             keyMembers.push_back(BuildMemberTuple(column, column, point, ctx, pos));
             keyItems.push_back(ctx.MakeType<TItemExprType>(column, type));
@@ -154,10 +219,10 @@ TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, TExprNode::TPtr inputS
         // clang-format off
         lambdaBody = Build<TCoIf>(ctx, pos)
             .Predicate<TCoHasItems>()
-                .List(lookup.Prefix->Points)
+                .List(points)
             .Build()
             .ThenValue<TCoMap>()
-                .Input(lookup.Prefix->Points)
+                .Input(points)
                 .Lambda()
                     .Args({point})
                     .Body<TExprList>()

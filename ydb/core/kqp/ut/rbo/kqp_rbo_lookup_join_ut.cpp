@@ -27,6 +27,87 @@ void PrintPlan(const TString& plan, bool analyzeMode) {
 
 Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
 
+    TVector<TString> StreamLookupsInto(const TString& ast, const TString& table);
+
+    Y_UNIT_TEST_TWIN(LookupJoinWithParameterPointPrefixes, NativeFrontend) {
+        NKikimrConfig::TAppConfig appConfig;
+        auto* config = appConfig.MutableTableServiceConfig();
+        config->SetEnableNewRBO(true);
+        config->SetEnableFallbackToYqlOptimizer(false);
+        config->SetDefaultCostBasedOptimizationLevel(4);
+        config->SetDefaultEnableShuffleElimination(false);
+        config->SetEnablePruneKeyColumns(true);
+        config->SetEnableLookupJoinPointPrefixes(true);
+        config->SetDefaultLangVer(NYql::GetMaxLangVersion());
+        if (NativeFrontend) config->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+        TKikimrRunner kikimr(NKqp::TKikimrSettings(appConfig).SetWithSampleTables(false));
+        auto db = kikimr.GetTableClient();
+        auto session = db.CreateSession().GetValueSync().GetSession();
+        auto schema = session.ExecuteSchemeQuery(R"(
+            CREATE TABLE `/Root/Probe` (id Int64 NOT NULL, k Int64, PRIMARY KEY (id));
+            CREATE TABLE `/Root/Facts` (p Uint64, s String, k Int64, v Int64, PRIMARY KEY (p, s, k));
+        )").GetValueSync();
+        UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+        {
+            TValueBuilder rows;
+            rows.BeginList();
+            for (const auto& [id, key] : TVector<std::pair<i64, i64>>{{1, 7}, {2, 7}, {3, 8}, {4, 10}}) {
+                rows.AddListItem().BeginStruct().AddMember("id").Int64(id)
+                    .AddMember("k").OptionalInt64(key).EndStruct();
+            }
+            rows.EndList();
+            const auto result = db.BulkUpsert("/Root/Probe", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        }
+        constexpr ui64 big = 9007199254740993ULL;
+        {
+            TValueBuilder rows;
+            rows.BeginList();
+            for (const auto& [prefix, suffix, key, value] : TVector<std::tuple<ui64, TString, i64, i64>>{
+                    {big, "a", 7, 10}, {big, "a", 8, 11}, {big, "b", 7, 20}, {big + 1, "a", 7, 30}, {big + 1, "a", 10, 31}}) {
+                rows.AddListItem().BeginStruct().AddMember("p").OptionalUint64(prefix)
+                    .AddMember("s").OptionalString(suffix).AddMember("k").OptionalInt64(key)
+                    .AddMember("v").OptionalInt64(value).EndStruct();
+            }
+            rows.EndList();
+            const auto result = db.BulkUpsert("/Root/Facts", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        }
+        const TString sql = R"(
+            DECLARE $first AS Uint64; DECLARE $second AS Uint64;
+            DECLARE $sa AS String; DECLARE $sb AS String;
+            PRAGMA ydb.OptimizerHints = 'Rows(f # 300000) Bytes(f # 10000000) Rows(d # 4) Bytes(d # 40)';
+            SELECT d.id, f.v FROM `/Root/Probe` AS d JOIN `/Root/Facts` AS f ON d.k = f.k
+            WHERE (f.p = $first AND f.s = $sa) OR (f.p = $second AND f.s = $sb)
+            ORDER BY d.id, f.v;
+        )";
+        const auto prepared = session.PrepareDataQuery(sql).GetValueSync();
+        UNIT_ASSERT_C(prepared.IsSuccess(), prepared.GetIssues().ToString());
+        auto query = prepared.GetQuery();
+        // Reuse one compiled query while prefixes coincide, differ in either
+        // field, match nothing, and coincide again. Duplicate probe rows remain.
+        for (const auto& [first, second, sa, sb, expected] : TVector<std::tuple<ui64, ui64, TString, TString, TString>>{
+                {big, big, "a", "a", "[[1;[10]];[2;[10]];[3;[11]]]"},
+                {big, big, "a", "b", "[[1;[10]];[1;[20]];[2;[10]];[2;[20]];[3;[11]]]"},
+                {big, big + 1, "a", "a", "[[1;[10]];[1;[30]];[2;[10]];[2;[30]];[3;[11]];[4;[31]]]"},
+                {big + 2, big + 3, "a", "a", "[]"},
+                {big, big, "a", "a", "[[1;[10]];[2;[10]];[3;[11]]]"}}) {
+            auto params = query.GetParamsBuilder().AddParam("$first").Uint64(first).Build()
+                .AddParam("$second").Uint64(second).Build().AddParam("$sa").String(sa).Build()
+                .AddParam("$sb").String(sb).Build().Build();
+            const auto result = query.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(result.GetResultSet(0)), expected);
+        }
+        const auto explained = session.ExplainDataQuery(sql).GetValueSync();
+        UNIT_ASSERT_C(explained.IsSuccess(), explained.GetIssues().ToString());
+        const TString ast(explained.GetAst());
+        UNIT_ASSERT_C(ast.Contains("(KqpIndexLookupJoin "), ast);
+        const auto lookups = StreamLookupsInto(ast, "/Root/Facts");
+        UNIT_ASSERT_VALUES_EQUAL_C(lookups.size(), 1, ast);
+        UNIT_ASSERT_C(lookups.front().Contains(R"('"AllowNullKeysPrefixSize" '2)"), ast);
+    }
+
     Y_UNIT_TEST(LookupJoins_oldRbo) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(false);
@@ -217,8 +298,9 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
         }
     }
 
-    Y_UNIT_TEST_TWIN(LookupJoinByIndexWithConstPrefix, AllPointPrefixes) {
+    void RunLookupJoinByIndexWithConstPrefix(bool AllPointPrefixes, bool nativeFrontend) {
         NKikimrConfig::TAppConfig appConfig;
+        if (nativeFrontend) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetDefaultCostBasedOptimizationLevel(4);
@@ -394,6 +476,14 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
         }
     }
 
+    Y_UNIT_TEST_TWIN(LookupJoinByIndexWithConstPrefix, AllPointPrefixes) {
+        RunLookupJoinByIndexWithConstPrefix(AllPointPrefixes, false);
+    }
+
+    Y_UNIT_TEST_TWIN(NativeLookupJoinByIndexWithConstPrefix, AllPointPrefixes) {
+        RunLookupJoinByIndexWithConstPrefix(AllPointPrefixes, true);
+    }
+
     // Returns stream lookups into the table. The AST binds the table and parts of the lookup settings
     // to variables, so the variables of a returned lookup are substituted with their values.
     TVector<TString> StreamLookupsInto(const TString& ast, const TString& table) {
@@ -439,12 +529,26 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
             for (int depth = 0; depth < 3; ++depth) {
                 lookup = substitute(lookup);
             }
+            // Native lowering can share numeric atoms with a quoted spelling.
+            // Canonicalize only this setting's atom; its value is unchanged.
+            const TStringBuf marker = R"('"AllowNullKeysPrefixSize" '")";
+            for (size_t pos = lookup.find(marker); pos != TString::npos; pos = lookup.find(marker, pos)) {
+                const auto begin = pos + marker.size();
+                auto end = begin;
+                while (end < lookup.size() && std::isdigit(static_cast<unsigned char>(lookup[end]))) ++end;
+                if (end > begin && end < lookup.size() && lookup[end] == '"') {
+                    lookup.erase(end, 1);
+                    lookup.erase(begin - 1, 1);
+                }
+                pos = begin;
+            }
         }
         return lookups;
     }
 
-    Y_UNIT_TEST_QUAD(LookupJoinByNonCoveringIndexWithConstPrefix, AllPointPrefixes, CoveringPredicateIndex) {
+    void RunLookupJoinByNonCoveringIndexWithConstPrefix(bool AllPointPrefixes, bool CoveringPredicateIndex, bool nativeFrontend) {
         NKikimrConfig::TAppConfig appConfig;
+        if (nativeFrontend) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetDefaultCostBasedOptimizationLevel(4);
@@ -578,8 +682,17 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
         UNIT_ASSERT_VALUES_EQUAL_C(lookupJoins, 1, ast);
     }
 
-    Y_UNIT_TEST_TWIN(LookupJoinBackToMainTable, AllPointPrefixes) {
+    Y_UNIT_TEST_QUAD(LookupJoinByNonCoveringIndexWithConstPrefix, AllPointPrefixes, CoveringPredicateIndex) {
+        RunLookupJoinByNonCoveringIndexWithConstPrefix(AllPointPrefixes, CoveringPredicateIndex, false);
+    }
+
+    Y_UNIT_TEST_QUAD(NativeLookupJoinByNonCoveringIndexWithConstPrefix, AllPointPrefixes, CoveringPredicateIndex) {
+        RunLookupJoinByNonCoveringIndexWithConstPrefix(AllPointPrefixes, CoveringPredicateIndex, true);
+    }
+
+    void RunLookupJoinBackToMainTable(bool AllPointPrefixes, bool nativeFrontend) {
         NKikimrConfig::TAppConfig appConfig;
+        if (nativeFrontend) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetDefaultCostBasedOptimizationLevel(4);
@@ -679,8 +792,17 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
         UNIT_ASSERT_C(!ast.Contains("/Root/t1/idx_c_x/indexImplTable"), "expected no read of idx_c_x, ast:\n" << ast);
     }
 
-    Y_UNIT_TEST(LookupJoinByNonCoveringIndexNullablePk) {
+    Y_UNIT_TEST_TWIN(LookupJoinBackToMainTable, AllPointPrefixes) {
+        RunLookupJoinBackToMainTable(AllPointPrefixes, false);
+    }
+
+    Y_UNIT_TEST_TWIN(NativeLookupJoinBackToMainTable, AllPointPrefixes) {
+        RunLookupJoinBackToMainTable(AllPointPrefixes, true);
+    }
+
+    void RunLookupJoinByNonCoveringIndexNullablePk(bool nativeFrontend) {
         NKikimrConfig::TAppConfig appConfig;
+        if (nativeFrontend) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetDefaultCostBasedOptimizationLevel(4);
@@ -793,10 +915,19 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
         UNIT_ASSERT_VALUES_EQUAL_C(lookupJoins, 2, ast);
     }
 
+    Y_UNIT_TEST(LookupJoinByNonCoveringIndexNullablePk) {
+        RunLookupJoinByNonCoveringIndexNullablePk(false);
+    }
+
+    Y_UNIT_TEST(NativeLookupJoinByNonCoveringIndexNullablePk) {
+        RunLookupJoinByNonCoveringIndexNullablePk(true);
+    }
+
     // Review check: which table a lookup join probes when the join key is the whole primary key and a non-covering
     // index has a point prefix followed by the same key. Prints the plan shape, asserts only the result.
-    Y_UNIT_TEST(ReviewLookupJoinIndexVsPrimaryKey) {
+    void RunReviewLookupJoinIndexVsPrimaryKey(bool nativeFrontend) {
         NKikimrConfig::TAppConfig appConfig;
+        if (nativeFrontend) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetDefaultCostBasedOptimizationLevel(4);
@@ -887,8 +1018,17 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
         Cerr << "REVIEW-CHECK ast:\n" << ast << Endl;
     }
 
-    Y_UNIT_TEST(LookupJoins_newRbo) {
+    Y_UNIT_TEST(ReviewLookupJoinIndexVsPrimaryKey) {
+        RunReviewLookupJoinIndexVsPrimaryKey(false);
+    }
+
+    Y_UNIT_TEST(NativeReviewLookupJoinIndexVsPrimaryKey) {
+        RunReviewLookupJoinIndexVsPrimaryKey(true);
+    }
+
+    void RunLookupJoins_newRbo(bool nativeFrontend) {
         NKikimrConfig::TAppConfig appConfig;
+        if (nativeFrontend) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetDefaultCostBasedOptimizationLevel(4);
@@ -1085,7 +1225,15 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
         }
     }
 
-    Y_UNIT_TEST_TWIN(IndexLookupJoinChains, PhysicalStagePeephole) {
+    Y_UNIT_TEST(LookupJoins_newRbo) {
+        RunLookupJoins_newRbo(false);
+    }
+
+    Y_UNIT_TEST(NativeLookupJoins_newRbo) {
+        RunLookupJoins_newRbo(true);
+    }
+
+    void RunIndexLookupJoinChains(bool PhysicalStagePeephole, bool nativeFrontend) {
         const TString schema = R"(
             CREATE TABLE `/Root/t1` (
                 a Int32,
@@ -1397,6 +1545,7 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
 
         auto runQueries = [&](bool newRbo) {
             NKikimrConfig::TAppConfig appConfig;
+            if (nativeFrontend && newRbo) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
             appConfig.MutableTableServiceConfig()->SetEnableNewRBO(newRbo);
             if (!PhysicalStagePeephole) {
                 appConfig.MutableTableServiceConfig()->SetEnableNewRBOPhysicalStagePeephole(false);
@@ -1589,6 +1738,14 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
             UNIT_ASSERT_VALUES_EQUAL_C(newRbo.Plan.Contains("TableLookupJoin"), testCase.LookupJoins != 0,
                 testCase.Name << ", plan:\n" << newRbo.Plan);
         }
+    }
+
+    Y_UNIT_TEST_TWIN(IndexLookupJoinChains, PhysicalStagePeephole) {
+        RunIndexLookupJoinChains(PhysicalStagePeephole, false);
+    }
+
+    Y_UNIT_TEST_TWIN(NativeIndexLookupJoinChains, PhysicalStagePeephole) {
+        RunIndexLookupJoinChains(PhysicalStagePeephole, true);
     }
 }
 
