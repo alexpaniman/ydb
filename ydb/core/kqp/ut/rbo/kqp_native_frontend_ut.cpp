@@ -412,6 +412,87 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         }
     }
 
+    Y_UNIT_TEST(SampleDeviationStatesStayTypedAcrossAggregationPhases) {
+        for (const auto* kind : {"Int32", "Int64", "Uint64", "Float", "Double"}) {
+            for (const bool nullable : {false, true}) {
+                for (const auto* grouping : {"", " GROUP BY k", " GROUP BY ROLLUP(k)", " GROUP BY GROUPING SETS((k),(),())"}) {
+                    NTests::TIdTestContext f;
+                    const TString sql = TStringBuilder() << "SELECT " << (*grouping ? "k, " : "")
+                        << "STDDEV_SAMPLE(v) AS s, AVG(v) AS a, AVG(Decimal('1.25',8,2)) AS d "
+                        << "FROM (SELECT 1 AS k, CAST(" << kind << "('2') AS " << kind << (nullable ? "?" : "") << ") AS v) AS q" << grouping;
+                    auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx);
+                    auto& root = *roots.front();
+                    auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+                        UNIT_FAIL("native aggregate phases invoked YQL annotation");
+                        return IGraphTransformer::TStatus::Error;
+                    });
+                    TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+                    TGlobalPruningStage("native aggregate pruning").RunStage(root, context);
+                    UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                    const auto* expected = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                    TVector<std::pair<IOperator*, size_t>> edges;
+                    for (const auto& item : root) if (item.Current->Kind == EOperator::Aggregate)
+                        edges.emplace_back(item.Parent ? item.Parent : &root, item.Parent ? item.ChildIndex : 0);
+                    UNIT_ASSERT(!edges.empty());
+                    for (const auto& [parent, index] : edges) {
+                        UNIT_ASSERT(TPropagateAggregateThroughStageRule().MatchAndApply(parent->MutableChild(index), context, root.PlanProps));
+                    }
+                    root.RecomputeOutputIUsSubtree();
+                    root.ComputeParents();
+                    UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                    // Forward actual partial states through native scalar maps,
+                    // so their tuple type must survive ID substitution and binding.
+                    size_t partials = 0;
+                    for (const auto& [parent, index] : edges) {
+                        auto final = CastOperator<TOpAggregate>(parent->MutableChild(index));
+                        UNIT_ASSERT(final->GetAggregationPhase() == EOpPhase::Final);
+                        auto partial = CastOperator<TOpAggregate>(final->GetInput().Get());
+                        UNIT_ASSERT(partial->GetAggregationPhase() == EOpPhase::Intermediate);
+                        TSubstitutions copies;
+                        TMapIUs fields;
+                        for (const auto& [output, traits] : partial->GetAggregationTraits().Items()) {
+                            if (traits.AggFunction != "variance_1_1") continue;
+                            ++partials;
+                            const auto* type = partial->GetIUType(output, f.ExprCtx);
+                            UNIT_ASSERT_VALUES_EQUAL(type->IsOptionalOrNull(), nullable);
+                            const auto& required = RemoveOptionality(*type);
+                            UNIT_ASSERT(required.GetKind() == ETypeAnnotationKind::Tuple);
+                            const auto& items = required.Cast<TTupleExprType>()->GetItems();
+                            UNIT_ASSERT_VALUES_EQUAL(items.size(), 3);
+                            for (const auto* item : items) UNIT_ASSERT(item->GetKind() == ETypeAnnotationKind::Data &&
+                                item->Cast<TDataExprType>()->GetSlot() == EDataSlot::Double);
+                            const auto copy = root.PlanProps.InfoUnitRegistry.AddCopy(output);
+                            fields.Add(copy, MakeColumnAccess(output, *partial, partial->Pos, &f.ExprCtx, &root.PlanProps));
+                            copies.Add(output, copy);
+                        }
+                        auto map = MakeIntrusive<TOpMap>(final->GetInput(), final->Pos, std::move(fields));
+                        final->SetChild(0, std::move(map));
+                        final->RenameUsedIUs(copies);
+                    }
+                    UNIT_ASSERT_VALUES_EQUAL(partials, edges.size());
+                    root.RecomputeOutputIUsSubtree();
+                    root.ComputeParents();
+                    UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                    TGlobalPruningStage("native state forwarding pruning").RunStage(root, context);
+                    TVector<std::unique_ptr<IRule>> copies;
+                    copies.emplace_back(std::make_unique<TExpandReplicateRule>());
+                    TRuleBasedStage("native state forwarding copies", std::move(copies)).RunStage(root, context);
+                    UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                    const auto* actual = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                    for (const auto& [id, label] : root.GetColumns().Items()) {
+                        const auto name = f.ExprCtx.GetIndexAsString(id);
+                        UNIT_ASSERT_C(IsSameAnnotation(*expected->FindItemType(name), *actual->FindItemType(name)), sql);
+                    }
+                    NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
+                    for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
+                        UNIT_ASSERT(expression.get().IsNative());
+                        UNIT_ASSERT(!expression.get().Node);
+                    }
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(MixedDistinctExpansionKeepsNativeExpressions) {
         for (const auto* projection : {
                 "COUNT(DISTINCT v), COUNT(*), SUM(v), SUM(DISTINCT v), MIN(v), MAX(DISTINCT v)",

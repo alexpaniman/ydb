@@ -2335,11 +2335,15 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
             const TString measures = "STDDEV(v) AS s, STDDEV_SAMPLE(r) AS r, STDDEV_SAMP(CAST(v AS Float)) AS f, "
                 "StdDevSample(CAST(v AS Uint64)) AS u, Math::IsNaN(STDDEV(v)) AS n";
-            for (const int scenario : {0, 1, 2, 3, 4, 5, 6}) {
+            // Extra cases combine scalar counts/sums with both tuple-state layouts.
+            for (const int test : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {
+                const bool mixed = test >= 7;
+                const int scenario = mixed ? test - 7 : test;
+                const TString aggregates = measures + (mixed ? ", AVG(v) AS a, AVG(CAST(v AS Decimal(8,2))) AS d, COUNT(v) AS c, SUM(v) AS t" : "");
                 const bool grouped = scenario == 0, single = scenario >= 4;
                 const TString sql = "SELECT " + (grouped ? TString("g, ") : TString{}) +
                     (scenario == 4 ? "STDDEV_S(DISTINCT v) AS s" : scenario == 5 ? "STDDEV(CAST(v AS Double) / 0.0) AS s" :
-                        scenario == 6 ? "STDDEV((CAST(v AS Double) - v) / 0.0) AS s" : measures) + " FROM `/Root/Deviation`" +
+                        scenario == 6 ? "STDDEV((CAST(v AS Double) - v) / 0.0) AS s" : aggregates) + " FROM `/Root/Deviation`" +
                     (grouped ? " GROUP BY g ORDER BY g" : scenario == 2 ? " WHERE g = 99" : scenario == 3 ? " WHERE g = 3" : " WHERE g = 1");
                 Cerr << "stddev strategy " << strategy << ": " << sql << Endl;
                 const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
@@ -2352,6 +2356,11 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                 if (!single) {
                     columns.emplace_back("r", grouped ? "Double" : "Double?");
                     columns.emplace_back("f", "Double?"); columns.emplace_back("u", "Double?"); columns.emplace_back("n", "Bool?");
+                    if (mixed) {
+                        columns.emplace_back("a", "Double?");
+                        columns.emplace_back("d", TTypeBuilder().BeginOptional().Decimal({8, 2}).EndOptional().Build().ToString());
+                        columns.emplace_back("c", "Uint64"); columns.emplace_back("t", "Int64?");
+                    }
                 }
                 UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(result.GetResultSet(0)).Columns, columns);
                 const double nan = std::numeric_limits<double>::quiet_NaN();
@@ -2376,6 +2385,20 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                         check("r", grouped ? std::optional<double>{required[row]} : scenario == 2 ? std::nullopt :
                             std::optional<double>{scenario == 3 ? 0.0 : required[0]}, grouped);
                         UNIT_ASSERT(values.ColumnParser("n").GetOptionalBool() == (expected ? std::optional<bool>{std::isnan(*expected)} : std::nullopt));
+                    }
+                    if (mixed) {
+                        const std::optional<i64> means[]{3, 7, std::nullopt, 2};
+                        const ui64 counts[]{3, 1, 0, 2};
+                        const auto group = grouped ? row : scenario == 2 || scenario == 3 ? 2 : 0;
+                        const auto mean = means[group];
+                        UNIT_ASSERT(values.ColumnParser("a").GetOptionalDouble() ==
+                            (mean ? std::optional<double>{double(*mean)} : std::nullopt));
+                        const auto average = values.ColumnParser("d").GetOptionalDecimal();
+                        UNIT_ASSERT_VALUES_EQUAL(bool(average), bool(mean));
+                        if (mean) UNIT_ASSERT_VALUES_EQUAL(average->ToString(), TDecimalValue(ToString(*mean), 8, 2).ToString());
+                        UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("c").GetUint64(), counts[group]);
+                        UNIT_ASSERT(values.ColumnParser("t").GetOptionalInt64() ==
+                            (mean ? std::optional<i64>{*mean * i64(counts[group])} : std::nullopt));
                     }
                 }
                 UNIT_ASSERT(!values.TryNextRow());

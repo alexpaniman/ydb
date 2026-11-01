@@ -124,7 +124,11 @@ Aggregates are COUNT, SUM, AVG, MIN, MAX, SOME, and sample standard deviation
 underscores). Standard deviation accepts integer/Float/Double inputs and returns
 Double with ordinary aggregate nullability. Singleton groups produce NaN;
 empty/all-NULL inputs produce NULL. The RBO handoff maps the semantic aggregate
-directly to the existing sample-deviation backend trait. Decimal arguments,
+directly to the existing sample-deviation backend trait. Partial outputs carry
+the actual `(mean, count, M2)` state: three required Doubles, with an optional
+tuple only when the input is nullable. The final aggregate checks that state
+shape and returns Double with ordinary aggregate nullability. The backend
+consumes the typed state without changing its numerical algorithm. Decimal arguments,
 window forms and mixed aggregate combinations containing DISTINCT explicitly delegate.
 `Math::IsNaN` on typed integer/Float/Double inputs uses native scalar IEEE
 inequality, retaining NULLs; it needs no UDF or semantic lowering pass.
@@ -448,7 +452,7 @@ null checks use a 10% default; other predicates assume no unknown null fraction.
 Native and legacy estimation do not promise identical plans. Tests check storage
 widths, key defaults, interval endpoints, NULLs, a 20,000-node shared DAG and
 agreement between ordinary and pushed filters without native-to-YQL lowering.
-The complete 424-test RBO suite passed, including unchanged populated execution
+The complete 425-test RBO suite passed, including unchanged populated execution
 of all 22 TPC-H and 41 TPC-DS queries across the three compiler paths.
 
 **Plan-quality limitation:** native range extraction and OLAP projection pushdown
@@ -546,10 +550,18 @@ The existing RBO expansion retains its partial-aggregation/union/final-aggregati
 plan. Native padding uses typed NULLs and optional lifts; COUNT's empty-input zero
 and grouped required results use explicit native COALESCE/Unwrap expressions.
 No YQL expression annotation is needed during expansion, pruning or copying,
-and output types remain unchanged before terminal lowering. AVG partial outputs
-now expose their actual tuple type, while final outputs retain the scalar type.
+and output types remain unchanged before terminal lowering. AVG and sample-deviation
+partial outputs expose their actual tuple types, while final outputs retain the scalar type.
 The terminal builder uses that scalar type to finish Decimal AVG without
 reconstructing its original precision from an earlier plan.
+Forty sample-deviation handoff cases check required/optional numeric inputs,
+global and grouped aggregation, rollup and duplicate grouping sets. Partial-state
+forwarding, pruning and replicate copying preserve native expressions and result
+types with YQL annotation forbidden. Eleven runtime query forms compare sample
+deviation alone and alongside AVG, Decimal AVG, COUNT and SUM on row/column
+tables through all three compiler paths (66 executions). These retain the earlier queries and
+add mixed-state cases with exact average/count/sum checks, including empty and
+all-NULL inputs. Mixed DISTINCT with sample deviation remains explicitly unsupported.
 
 The expression arena can carry internal flat tuple states with scalar fields.
 Shapes are interned per query; copying between arenas imports the shape ID.

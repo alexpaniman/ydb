@@ -1575,6 +1575,15 @@ bool TPhysicalAggregationBuilder::IsDecimalType(const TTypeAnnotationNode* typeN
     auto type = &RemoveOptionality(*typeNode);
     if (type->GetKind() == ETypeAnnotationKind::Tuple) {
         auto items = type->Cast<TTupleExprType>()->GetItems();
+        if (items.size() == 3) {
+            // Native sample-deviation states describe the runtime's
+            // (mean, count, M2) tuple explicitly.
+            for (const auto* item : items) {
+                Y_ENSURE(item->GetKind() == ETypeAnnotationKind::Data && item->Cast<TDataExprType>()->GetSlot() == EDataSlot::Double,
+                    "Invalid sample-deviation state field");
+            }
+            return false;
+        }
         Y_ENSURE(items.size() == 2);
         type = items.front();
     }

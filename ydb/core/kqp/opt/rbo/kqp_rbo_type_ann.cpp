@@ -427,20 +427,38 @@ TStatus ComputeTypes(TIntrusivePtr<TOpAggregate> aggregate, TRBOContext& ctx, TP
             << " in input type " << *inputType);
         auto aggFieldType = it->second;
 
-        if (props.NativeExpressions && aggFunction == "avg" && aggregationPhase != EOpPhase::Undefined) {
+        if (props.NativeExpressions && (aggFunction == "avg" || aggFunction == "variance_1_1") && aggregationPhase != EOpPhase::Undefined) {
             auto& arena = *props.NativeExpressions;
             NFrontend::TType type;
             if (aggregationPhase == EOpPhase::Intermediate) {
                 const auto source = ImportNativeType(*aggFieldType, &arena);
-                Y_ENSURE(source.IsNumeric(), "Native AVG partial input must be numeric");
-                auto sum = source.Kind == NFrontend::ETypeKind::Decimal ? source.Required() : NFrontend::TType{NFrontend::ETypeKind::Double};
-                if (sum.Kind == NFrontend::ETypeKind::Decimal) sum.Precision = 35;
-                const NFrontend::TType fields[]{sum, {NFrontend::ETypeKind::Uint64}};
-                type = arena.TupleType(fields);
+                Y_ENSURE(source.IsNumeric(), "Native aggregate partial input must be numeric");
+                if (aggFunction == "variance_1_1") {
+                    Y_ENSURE(source.Kind != NFrontend::ETypeKind::Decimal, "Native sample deviation does not accept Decimal");
+                    // The runtime keeps (mean, count, M2), all as Double.
+                    const NFrontend::TType fields[]{
+                        {NFrontend::ETypeKind::Double}, {NFrontend::ETypeKind::Double}, {NFrontend::ETypeKind::Double}};
+                    type = arena.TupleType(fields);
+                } else {
+                    auto sum = source.Kind == NFrontend::ETypeKind::Decimal ? source.Required() : NFrontend::TType{NFrontend::ETypeKind::Double};
+                    if (sum.Kind == NFrontend::ETypeKind::Decimal) sum.Precision = 35;
+                    const NFrontend::TType fields[]{sum, {NFrontend::ETypeKind::Uint64}};
+                    type = arena.TupleType(fields);
+                }
                 type.Nullable = source.Nullable;
             } else {
-                Y_ENSURE(traits.ResultType, "Native AVG final result type was not preserved");
-                type = *traits.ResultType;
+                if (aggFunction == "variance_1_1") {
+                    const auto state = ImportNativeType(*aggFieldType, &arena);
+                    Y_ENSURE(state.Kind == NFrontend::ETypeKind::Tuple, "Native sample-deviation final input must be a state tuple");
+                    const auto fields = arena.TupleItems(state);
+                    Y_ENSURE(fields.size() == 3, "Invalid native sample-deviation state size");
+                    for (const auto field : fields) Y_ENSURE(field == NFrontend::TType{NFrontend::ETypeKind::Double},
+                        "Invalid native sample-deviation state field");
+                    type = {NFrontend::ETypeKind::Double};
+                } else {
+                    Y_ENSURE(traits.ResultType, "Native AVG final result type was not preserved");
+                    type = *traits.ResultType;
+                }
                 type.Nullable |= aggFieldType->IsOptionalOrNull();
             }
             aggFieldType = ExportNativeType(type, ctx.ExprCtx, &arena);
