@@ -255,63 +255,68 @@ void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(IOperator* op, const TC
 }
 
 void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(const TExpression& expr, const IOperator& input, const TColumnLineage& lineage) {
-    if (expr.IsNative()) {
-        // Native selectivity currently uses a conservative estimate and does
-        // not consume the legacy predicate visitor's column statistics.
-        return;
-    }
-    auto lambda = TCoLambda(expr.GetLambda());
-
-    // Request only the statistic each filter predicate actually consumes during selectivity estimation: 
-    // equality predicates probe the count-min sketch, while 
-    // range/inequality predicates use the equi-width histogram.
-    TPredicateSelectivityComputer computer(nullptr, /*collectColumnsStatUsedMembers=*/true,
-        /*collectMemberEqualities=*/true);
-    computer.Compute(lambda.Body());
-
-    using TUsedMember = TPredicateSelectivityComputer::TColumnStatisticsUsedMembers::TColumnStatisticsUsedMember;
-    for (const auto& item : computer.GetColumnStatsUsedMembers().Data) {
-        if (item.Member.Struct().Raw() != lambda.Args().Arg(0).Raw()) {
-            continue; // Nested struct fields are not IU IDs, even if numeric.
-        }
-        const auto* entry = FindSourceStatistics(input, GetMemberId(item.Member.Ref()), lineage);
-        if (!entry || entry->TableName == "") {
-            continue;
-        }
-        const auto& tableName = entry->TableName;
-        const auto& colName = entry->ColumnName;
-        switch (item.PredicateType) {
-            case TUsedMember::EEquality:
-                CMColumnsByTableName[tableName].insert(colName);
-                break;
-            case TUsedMember::EInequality:
-                HistColumnsByTableName[tableName].insert(colName);
-                break;
-        }
-    }
-
     THashMap<TString, std::pair<TVector<const TColumnLineageEntry*>, TVector<const TColumnLineageEntry*>>> keysByTablePair;
-    for (const auto& [lhsMember, rhsMember] : computer.GetMemberEqualities()) {
-        if (lhsMember.Struct().Raw() != lambda.Args().Arg(0).Raw() || rhsMember.Struct().Raw() != lambda.Args().Arg(0).Raw()) {
-            continue; // Nested struct fields are not IU IDs, even if numeric.
-        }
-        const auto* lhsEntry = FindSourceStatistics(input, GetMemberId(lhsMember.Ref()), lineage);
-        const auto* rhsEntry = FindSourceStatistics(input, GetMemberId(rhsMember.Ref()), lineage);
-        if (!lhsEntry || !rhsEntry) {
-            continue;
-        }
+    const auto collectJoinKey = [&](TInfoUnitId lhs, TInfoUnitId rhs) {
+        const auto* lhsEntry = FindSourceStatistics(input, lhs, lineage);
+        const auto* rhsEntry = FindSourceStatistics(input, rhs, lineage);
+        if (!lhsEntry || !rhsEntry) return;
         const auto& lhsTable = lhsEntry->TableName;
         const auto& rhsTable = rhsEntry->TableName;
-        if (lhsTable.empty() || rhsTable.empty() || lhsTable == rhsTable) {
-            continue;
-        }
-
+        if (lhsTable.empty() || rhsTable.empty() || lhsTable == rhsTable) return;
         HistColumnsByTableName[lhsTable].insert(lhsEntry->ColumnName);
         HistColumnsByTableName[rhsTable].insert(rhsEntry->ColumnName);
-
         auto& keys = keysByTablePair[TStringBuilder() << lhsTable << '\0' << rhsTable];
         keys.first.push_back(lhsEntry);
         keys.second.push_back(rhsEntry);
+    };
+    if (expr.IsNative()) {
+        const auto usage = CollectNativePredicateStatistics(*expr.GetNativeArena(), expr.GetNativeRoot());
+        const auto collectColumns = [&](const TUnorderedIUs& columns, auto& requests) {
+            for (const auto column : columns) {
+                const auto* entry = FindSourceStatistics(input, column, lineage);
+                if (entry && !entry->TableName.empty()) requests[entry->TableName].insert(entry->ColumnName);
+            }
+        };
+        collectColumns(usage.CountMinColumns, CMColumnsByTableName);
+        collectColumns(usage.HistogramColumns, HistColumnsByTableName);
+        for (const auto& [lhs, rhs] : usage.JoinKeys) collectJoinKey(lhs, rhs);
+    } else {
+        auto lambda = TCoLambda(expr.GetLambda());
+
+        // Request only the statistic each filter predicate actually consumes during selectivity estimation:
+        // equality predicates probe the count-min sketch, while
+        // range/inequality predicates use the equi-width histogram.
+        TPredicateSelectivityComputer computer(nullptr, /*collectColumnsStatUsedMembers=*/true,
+            /*collectMemberEqualities=*/true);
+        computer.Compute(lambda.Body());
+
+        using TUsedMember = TPredicateSelectivityComputer::TColumnStatisticsUsedMembers::TColumnStatisticsUsedMember;
+        for (const auto& item : computer.GetColumnStatsUsedMembers().Data) {
+            if (item.Member.Struct().Raw() != lambda.Args().Arg(0).Raw()) {
+                continue; // Nested struct fields are not IU IDs, even if numeric.
+            }
+            const auto* entry = FindSourceStatistics(input, GetMemberId(item.Member.Ref()), lineage);
+            if (!entry || entry->TableName == "") {
+                continue;
+            }
+            const auto& tableName = entry->TableName;
+            const auto& colName = entry->ColumnName;
+            switch (item.PredicateType) {
+                case TUsedMember::EEquality:
+                    CMColumnsByTableName[tableName].insert(colName);
+                    break;
+                case TUsedMember::EInequality:
+                    HistColumnsByTableName[tableName].insert(colName);
+                    break;
+            }
+        }
+
+        for (const auto& [lhsMember, rhsMember] : computer.GetMemberEqualities()) {
+            if (lhsMember.Struct().Raw() != lambda.Args().Arg(0).Raw() || rhsMember.Struct().Raw() != lambda.Args().Arg(0).Raw()) {
+                continue; // Nested struct fields are not IU IDs, even if numeric.
+            }
+            collectJoinKey(GetMemberId(lhsMember.Ref()), GetMemberId(rhsMember.Ref()));
+        }
     }
 
     for (const auto& [_, keys] : keysByTablePair) {

@@ -7,7 +7,6 @@ SIZE(MEDIUM)
 REQUIREMENTS(cpu:2)
 
 SRCS(
-    kqp_native_frontend_ut.cpp
     kqp_native_expression_arena_ut.cpp
     kqp_native_host_ut.cpp
     kqp_rbo_compatibility_ut.cpp
@@ -19,6 +18,15 @@ SRCS(
     kqp_rbo_lookup_join_ut.cpp
     kqp_rbo_olap_ut.cpp
 )
+
+# These native scalar tests push the combined binary past DWARF's 32-bit
+# debug-section limit. Keep source/stack locations for this test file; production
+# code and the other tests retain their usual debug information.
+IF (OS_LINUX AND CLANG)
+    SRC(kqp_native_frontend_ut.cpp -gline-tables-only)
+ELSE()
+    SRCS(kqp_native_frontend_ut.cpp)
+ENDIF()
 
 PEERDIR(
     yql/essentials/minikql/comp_nodes

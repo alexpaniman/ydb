@@ -342,18 +342,11 @@ void TOpRead::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) {
 
     // Overwrite with selectivity for successfully pushed-down filters within the read operator.
     if (OriginalPredicate.has_value()) {
-        double selectivity = 0.5;
-        if (OriginalPredicate->IsNative()) {
-            // Keep the same native estimate as an unpushed filter, without
-            // constructing a legacy graph for the statistics visitor.
-            const auto& node = (*OriginalPredicate->GetNativeArena())[OriginalPredicate->GetNativeRoot()];
-            if (node.Op == NFrontend::EOpcode::Literal)
-                selectivity = std::holds_alternative<bool>(node.Value) && std::get<bool>(node.Value) ? 1.0 : 0.0;
-        } else {
-            auto inputStats = std::make_shared<TOptimizerStatistics>(BuildOptimizerStatistics(*this, planProps.ColumnLineage, true, ctx.TypeCtx));
-            auto lambda = TCoLambda(OriginalPredicate->Node);
-            selectivity = TPredicateSelectivityComputer(inputStats).Compute(lambda.Body());
-        }
+        auto inputStats = BuildOptimizerStatistics(*this, planProps.ColumnLineage, true, ctx.TypeCtx);
+        const double selectivity = OriginalPredicate->IsNative()
+            ? ComputeNativeSelectivity(*OriginalPredicate->GetNativeArena(), OriginalPredicate->GetNativeRoot(), inputStats)
+            : TPredicateSelectivityComputer(std::make_shared<TOptimizerStatistics>(std::move(inputStats)))
+                .Compute(TCoLambda(OriginalPredicate->Node).Body());
 
         double filterSelectivity = selectivity * Props.Statistics->Selectivity;
         Props.Statistics->EBytes = filterSelectivity * Props.Statistics->EBytes;
@@ -407,19 +400,11 @@ void TOpFilter::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) {
         return;
     }
 
-    double selectivity = 0.5;
-    if (FilterExpr.IsNative()) {
-        // Preserve native expressions while statistics have no native histogram
-        // visitor. Only a literal predicate has an exact selectivity here.
-        const auto& node = (*FilterExpr.GetNativeArena())[FilterExpr.GetNativeRoot()];
-        if (node.Op == NFrontend::EOpcode::Literal) {
-            selectivity = std::holds_alternative<bool>(node.Value) && std::get<bool>(node.Value) ? 1.0 : 0.0;
-        }
-    } else {
-        auto inputStats = std::make_shared<TOptimizerStatistics>(BuildOptimizerStatistics((*GetInput()), planProps.ColumnLineage, true, ctx.TypeCtx));
-        auto lambda = TCoLambda(FilterExpr.Node);
-        selectivity = TPredicateSelectivityComputer(inputStats).Compute(lambda.Body());
-    }
+    auto inputStats = BuildOptimizerStatistics(*GetInput(), planProps.ColumnLineage, true, ctx.TypeCtx);
+    const double selectivity = FilterExpr.IsNative()
+        ? ComputeNativeSelectivity(*FilterExpr.GetNativeArena(), FilterExpr.GetNativeRoot(), inputStats)
+        : TPredicateSelectivityComputer(std::make_shared<TOptimizerStatistics>(std::move(inputStats)))
+            .Compute(TCoLambda(FilterExpr.Node).Body());
 
     double filterSelectivity = selectivity * Props.Statistics->Selectivity;
     Props.Statistics->EBytes = filterSelectivity * Props.Statistics->EBytes;

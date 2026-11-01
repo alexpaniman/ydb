@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kqp_info_unit.h"
+#include "frontend/expression.h"
 #include <ydb/core/kqp/opt/cbo/kqp_statistics.h>
 #include <yql/essentials/core/yql_type_annotation.h>
 
@@ -52,6 +53,20 @@ public:
 
     TString ToString(ui32 printOptions);
 };
+
+struct TNativePredicateStatistics {
+    TUnorderedIUs CountMinColumns;
+    TUnorderedIUs HistogramColumns;
+    TVector<std::pair<TInfoUnitId, TInfoUnitId>> JoinKeys;
+};
+
+// Request only statistics the native visitor can consume. Join-key pairs are
+// positive conjuncts, never equalities from OR/NOT or value-changing casts.
+TNativePredicateStatistics CollectNativePredicateStatistics(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root);
+
+// Native predicates consume the same ID-bound statistics, without a YQL graph.
+double ComputeNativeSelectivity(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root,
+    const TOptimizerStatistics& stats);
 
 TOptimizerStatistics BuildOptimizerStatistics(IOperator& op, const TColumnLineage& lineage, bool withStatsAndCosts, const NYql::TTypeAnnotationContext& typeCtx);
 const TColumnLineageEntry* FindSourceStatistics(const IOperator& op, TInfoUnitId id, const TColumnLineage& lineage);

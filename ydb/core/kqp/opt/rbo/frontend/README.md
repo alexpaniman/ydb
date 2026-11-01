@@ -419,9 +419,40 @@ Validation covered all 79 standalone frontend and 395 RBO tests, with a final
 arena-suite rerun after updating its neutral-expression fixture. All execution
 tests passed, including the unchanged populated TPC-H and TPC-DS fixtures.
 
+Native filter statistics now consume the existing column histograms, frequency
+sketches and key metadata directly from the typed expression DAG. The visitor
+in `kqp_rbo_statistics.cpp` estimates each reachable node once, including shared
+subexpressions, and allocates no YQL graph. Both ordinary filters and pushed
+read predicates use it. The same visitor identifies which columns need sketches
+or histograms for the existing asynchronous statistics loader. Positive
+column-equality conjuncts also request join-key histograms and available tuple
+histograms; OR/NOT branches do not invent join keys. Source lineage keeps
+aggregate results and computed columns from borrowing base-table statistics.
+Sketch probes retain the column's storage width,
+including signed/unsigned 64-bit values beyond Double's exact range, temporal
+units and embedded string bytes. Source statistics cross optional/identity
+conversions only; other casts and computed expressions use heuristics.
+
+Equality uses a frequency sketch when available, otherwise the existing key
+or non-key default. Comparisons use typed histogram boundaries when available.
+Nested single-column intervals intersect under AND and overlapping intervals
+merge under OR; empty intervals and endpoint inclusivity are retained. Literal
+NULL/Boolean predicates, Boolean combinations, COALESCE, null checks, CASE and
+simple string predicates have explicit estimates. Parameters use heuristics;
+statistics never evaluate them or runtime assertions during compilation.
+
+These are cost estimates, not a second semantic evaluator. Decimal boundaries,
+value-changing casts, correlations across columns and compound disjoint interval
+sets still use heuristics. Without a measured null fraction, nullable column
+null checks use a 10% default; other predicates assume no unknown null fraction.
+Native and legacy estimation do not promise identical plans. Tests check storage
+widths, key defaults, interval endpoints, NULLs, a 20,000-node shared DAG and
+agreement between ordinary and pushed filters without native-to-YQL lowering.
+The complete 424-test RBO suite passed, including unchanged populated execution
+of all 22 TPC-H and 38 TPC-DS queries across the three compiler paths.
+
 **Plan-quality limitation:** native range extraction and OLAP projection pushdown
-are still missing, and native statistics use approximate selectivity. Legacy
-scalar peepholes are not run on native scalars. Dual scalar/storage-program
+are still missing. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing
 this debt and establishing plan/execution parity remain required before broad
 rollout. A faster frontend alone does not prove faster complete query execution.

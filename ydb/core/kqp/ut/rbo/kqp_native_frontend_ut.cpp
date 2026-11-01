@@ -1,5 +1,6 @@
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
 #include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
+#include <ydb/core/kqp/opt/cbo/solver/kqp_opt_predicate_selectivity.h>
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_compatibility.h>
 #include <ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h>
 #include <yql/essentials/minikql/comp_nodes/ut/mkql_computation_node_ut.h>
@@ -90,6 +91,241 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(NativeSelectivityUsesKeysAndTypedStatisticsWithoutLowering) {
+        using namespace NFrontend;
+        using O = EOpcode;
+        using K = ETypeKind;
+        TExpressionArena arena;
+        TOptimizerStatistics stats;
+        stats.Nrows = 1000;
+        stats.KeyColumns = MakeIntrusive<TOptimizerStatistics::TKeyColumns>(TVector<TString>{"10"});
+        const auto key = arena.Column(10, {K::Int64});
+        const auto value = arena.Column(20, {K::Int64, true});
+        const auto one = arena.Literal({K::Int64}, std::int64_t{1});
+        const auto parameter = arena.Parameter("p", {K::Int64});
+        const auto estimate = [&](TExprId root, double expected) {
+            const auto size = arena.Size();
+            UNIT_ASSERT_DOUBLES_EQUAL(ComputeNativeSelectivity(arena, root, stats), expected, 1e-12);
+            UNIT_ASSERT_VALUES_EQUAL(arena.Size(), size);
+        };
+        const auto keyEq = arena.Binary(O::Equal, key, one), valEq = arena.Binary(O::Equal, value, one);
+        estimate(keyEq, 0.001);
+        estimate(valEq, 0.1);
+        estimate(arena.Binary(O::Equal, parameter, key), 0.001);
+        estimate(arena.Binary(O::Less, key, parameter), 0.4);
+        estimate(arena.Binary(O::Equal, key, value), 0.3);
+        estimate(arena.Binary(O::And, keyEq, valEq), 0.0001);
+        estimate(arena.Binary(O::NotEqual, key, one), 0.999);
+        estimate(arena.Binary(O::Equal, arena.Cast(key, {K::Int32}), one), 0.5);
+        estimate(arena.Unary(O::IsNull, key), 0);
+        estimate(arena.Unary(O::IsNull, value), 0.1);
+        estimate(arena.Unary(O::IsNotNull, value), 0.9);
+        estimate(arena.Unary(O::IsNull, arena.Column(40, {K::Null})), 1);
+        const auto nil = arena.Literal({K::Bool, true}, {});
+        const auto yes = arena.Literal({K::Bool}, true), no = arena.Literal({K::Bool}, false);
+        estimate(nil, 0);
+        estimate(arena.Unary(O::Not, nil), 0);
+        estimate(arena.Binary(O::And, nil, yes), 0);
+        estimate(arena.Binary(O::Or, nil, yes), 1);
+        estimate(arena.Unary(O::Not, arena.Binary(O::Or, nil, no)), 0);
+        const TExprId coalesceTrue[]{nil, yes}, coalesceFalse[]{nil, no};
+        estimate(arena.Coalesce(coalesceTrue), 1);
+        estimate(arena.Coalesce(coalesceFalse), 0);
+        estimate(arena.Binary(O::Equal, value, arena.Cast(arena.Null(), {K::Int64})), 0);
+        const auto text = arena.Column(30, {K::String});
+        const auto needle = arena.Literal({K::String}, std::string("abc"));
+        estimate(arena.Binary(O::Contains, text, needle), 0.1);
+        estimate(arena.Binary(O::StartsWith, text, needle), 0.5);
+
+        // The common defaults match the old estimator; it is used only as a
+        // test oracle after direct lowering, never by the native visitor.
+        TExprContext context;
+        for (const auto root : {keyEq, valEq, arena.Binary(O::Less, key, one), arena.Binary(O::Equal, key, value)}) {
+            const auto lambda = LowerNativeLambda(arena, root, context, {});
+            const auto legacy = TPredicateSelectivityComputer(std::make_shared<TOptimizerStatistics>(stats))
+                .Compute(NNodes::TCoLambda(lambda).Body());
+            UNIT_ASSERT_DOUBLES_EQUAL(ComputeNativeSelectivity(arena, root, stats), legacy, 1e-12);
+        }
+        // A deep DAG with repeated children must not become an exponential tree
+        // or consume the native call stack. Unrelated arena roots are untouched.
+        auto deep = valEq;
+        for (size_t i = 0; i < 20000; ++i) deep = arena.Binary(O::And, deep, deep);
+        estimate(deep, 0.1);
+    }
+
+    Y_UNIT_TEST(NativeSelectivityProbesExactStorageWidths) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        const auto check = [&]<typename T>(TType type, TScalar value, T storageValue) {
+            TExpressionArena arena;
+            TOptimizerStatistics stats;
+            stats.Nrows = 10;
+            stats.ColumnStatistics = MakeIntrusive<TOptimizerStatistics::TColumnStatMap>();
+            auto& columnStats = stats.ColumnStatistics->Data["7"];
+            columnStats.Type = type.ToString();
+            columnStats.CountMinSketch.reset(TCountMinSketch::Create());
+            for (size_t i = 0; i < 3; ++i) {
+                if constexpr (std::is_same_v<T, std::string_view>)
+                    columnStats.CountMinSketch->Count(storageValue.data(), storageValue.size());
+                else
+                    columnStats.CountMinSketch->Count(reinterpret_cast<const char*>(&storageValue), sizeof(storageValue));
+            }
+            const auto column = arena.Column(7, type.Optional()), literal = arena.Literal(type, value);
+            const auto equal = arena.Binary(EOpcode::Equal, column, literal);
+            UNIT_ASSERT_DOUBLES_EQUAL_C(ComputeNativeSelectivity(arena, equal, stats), 0.3, 1e-12, type.ToString());
+            const auto notEqual = arena.Binary(EOpcode::NotEqual, literal, column);
+            UNIT_ASSERT_DOUBLES_EQUAL_C(ComputeNativeSelectivity(arena, notEqual, stats), 0.7, 1e-12, type.ToString());
+            // Stale or different source types must not reinterpret storage bytes.
+            columnStats.Type = "unsupported";
+            UNIT_ASSERT_DOUBLES_EQUAL(ComputeNativeSelectivity(arena, equal, stats), 0.1, 1e-12);
+        };
+        check(TType{K::Bool}, true, ui8{1});
+        check(TType{K::Int8}, std::int64_t{-7}, i8{-7});
+        check(TType{K::Int16}, std::int64_t{-300}, i16{-300});
+        check(TType{K::Int32}, std::int64_t{-70000}, i32{-70000});
+        check(TType{K::Int64}, std::int64_t{9007199254740993LL}, i64{9007199254740993LL});
+        check(TType{K::Uint8}, std::uint64_t{7}, ui8{7});
+        check(TType{K::Uint16}, std::uint64_t{300}, ui16{300});
+        check(TType{K::Uint32}, std::uint64_t{70000}, ui32{70000});
+        check(TType{K::Uint64}, std::uint64_t{18446744073709551615ULL}, ui64{18446744073709551615ULL});
+        check(TType{K::Float}, 1.5, 1.5f);
+        check(TType{K::Double}, 1.5, 1.5);
+        check(TType{K::Date}, std::uint64_t{100}, ui16{100});
+        check(TType{K::Datetime}, std::uint64_t{70000}, ui32{70000});
+        check(TType{K::Timestamp}, std::uint64_t{1234567890123456ULL}, ui64{1234567890123456ULL});
+        check(TType{K::Interval}, std::int64_t{-1234567890123456LL}, i64{-1234567890123456LL});
+        check(TType{K::String}, std::string("a\0b", 3), std::string_view("a\0b", 3));
+        check(TType{K::Utf8}, std::string("héllo"), std::string_view("héllo"));
+    }
+
+    Y_UNIT_TEST(NativeSelectivityMergesTypedHistogramRanges) {
+        using namespace NFrontend;
+        using O = EOpcode;
+        TExpressionArena arena;
+        TOptimizerStatistics stats;
+        stats.Nrows = 100;
+        stats.ColumnStatistics = MakeIntrusive<TOptimizerStatistics::TColumnStatMap>();
+        auto& source = stats.ColumnStatistics->Data["7"];
+        source.Type = "Int64";
+        auto histogram = std::make_shared<TEqWidthHistogram>(100, EHistogramValueType::Int64);
+        histogram->InitializeBuckets(i64{0}, i64{100});
+        for (i64 i = 0; i < 100; ++i) histogram->AddElement(i);
+        source.EqWidthHistogramEstimator = std::make_shared<TEqWidthHistogramEstimator>(histogram);
+        const auto column = arena.Column(7, {ETypeKind::Int64});
+        const auto literal = [&](i64 value) { return arena.Literal({ETypeKind::Int64}, std::int64_t{value}); };
+        const auto cmp = [&](O op, i64 value) { return arena.Binary(op, column, literal(value)); };
+        const auto range = [&](i64 low, i64 high) { return arena.Binary(O::And, cmp(O::GreaterEqual, low), cmp(O::Less, high)); };
+        const auto check = [&](TExprId root, double expected) {
+            UNIT_ASSERT_DOUBLES_EQUAL(ComputeNativeSelectivity(arena, root, stats), expected, 1e-12);
+        };
+        check(cmp(O::Less, 30), 0.3);
+        check(cmp(O::LessEqual, 30), 0.31);
+        check(cmp(O::GreaterEqual, 70), 0.3);
+        check(arena.Binary(O::Greater, literal(30), column), 0.3);
+        check(arena.Unary(O::Not, cmp(O::GreaterEqual, 70)), 0.7);
+        check(range(20, 40), 0.2);
+        check(arena.Binary(O::And, cmp(O::Greater, 20), cmp(O::Less, 40)), 0.19);
+        check(range(40, 20), 0);
+        check(range(20, 20), 0);
+        check(arena.Binary(O::And, range(20, 40), range(30, 50)), 0.1);
+        check(arena.Binary(O::Or, range(20, 40), range(30, 50)), 0.3);
+        check(arena.Binary(O::Or, range(10, 20), range(30, 40)), 0.2);
+        check(arena.Binary(O::Or, range(40, 20), range(70, 80)), 0.1);
+        check(arena.Binary(O::Or, range(10, 20), range(20, 30)), 0.2);
+        check(arena.Binary(O::Or, cmp(O::Less, 20), cmp(O::Greater, 20)), 1.0);
+        // No lossy signed/unsigned narrowing to obtain a sketch/histogram key.
+        check(arena.Binary(O::Equal, column, arena.Literal({ETypeKind::Uint64}, std::uint64_t{18446744073709551615ULL})), 0.1);
+        source.Type = "Int32";
+        check(cmp(O::Less, 30), 0.4);
+    }
+
+    Y_UNIT_TEST(NativeStatisticsRequestsMatchConsumedPredicates) {
+        using namespace NFrontend;
+        using O = EOpcode;
+        using K = ETypeKind;
+        TExpressionArena arena;
+        const auto a = arena.Column(1, {K::Int64, true}), b = arena.Column(2, {K::Int64, true});
+        const auto one = arena.Literal({K::Int64}, std::int64_t{1});
+        const auto keyEquality = arena.Binary(O::Equal, a, b);
+        const auto equality = arena.Binary(O::Equal, a, one), inequality = arena.Binary(O::Less, b, one);
+        auto usage = CollectNativePredicateStatistics(arena, arena.Binary(O::And, equality, inequality));
+        UNIT_ASSERT(usage.CountMinColumns == TUnorderedIUs{1});
+        UNIT_ASSERT(usage.HistogramColumns == TUnorderedIUs{2});
+        UNIT_ASSERT(usage.JoinKeys.empty());
+        usage = CollectNativePredicateStatistics(arena, arena.Binary(O::NotEqual, a, one));
+        UNIT_ASSERT(usage.CountMinColumns == TUnorderedIUs{1});
+        UNIT_ASSERT(usage.HistogramColumns.Empty());
+
+        // Intersecting two inequalities into a point needs the equality sketch
+        // as well as the individual range estimates, using the same visitor.
+        const auto point = arena.Binary(O::And, arena.Binary(O::GreaterEqual, a, one), arena.Binary(O::LessEqual, a, one));
+        usage = CollectNativePredicateStatistics(arena, point);
+        UNIT_ASSERT(usage.CountMinColumns == TUnorderedIUs{1});
+        UNIT_ASSERT(usage.HistogramColumns == TUnorderedIUs{1});
+        for (const auto predicate : {
+            arena.Binary(O::Equal, a, arena.Parameter("p", {K::Int64})),
+            arena.Binary(O::Equal, arena.Cast(a, {K::Int32}), one),
+            arena.Binary(O::Less, arena.Column(3, {K::String}), arena.Literal({K::String}, std::string("x")))}) {
+            usage = CollectNativePredicateStatistics(arena, predicate);
+            UNIT_ASSERT(usage.CountMinColumns.Empty());
+            UNIT_ASSERT(usage.HistogramColumns.Empty());
+            UNIT_ASSERT(usage.JoinKeys.empty());
+        }
+
+        const TExprId nullAsFalse[]{keyEquality, arena.Literal({K::Bool}, false)};
+        for (const auto predicate : {keyEquality, arena.Binary(O::And, equality, keyEquality), arena.Coalesce(nullAsFalse)}) {
+            usage = CollectNativePredicateStatistics(arena, predicate);
+            UNIT_ASSERT_VALUES_EQUAL(usage.JoinKeys.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(usage.JoinKeys.front().first, 1);
+            UNIT_ASSERT_VALUES_EQUAL(usage.JoinKeys.front().second, 2);
+        }
+        const TExprId nullAsTrue[]{keyEquality, arena.Literal({K::Bool}, true)};
+        for (const auto predicate : {arena.Binary(O::Or, equality, keyEquality), arena.Unary(O::Not, keyEquality), arena.Coalesce(nullAsTrue)})
+            UNIT_ASSERT(CollectNativePredicateStatistics(arena, predicate).JoinKeys.empty());
+    }
+
+    Y_UNIT_TEST(NativeFilterAndPushedReadUseTheSameStatistics) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto id = f.Id("key");
+        auto arena = std::make_shared<TExpressionArena>();
+        const auto root = arena->Binary(EOpcode::Equal, arena->Column(id, {ETypeKind::Int64}),
+            arena->Literal({ETypeKind::Int64}, std::int64_t{42}));
+        const auto expression = TExpression::FromNative(arena, root, &f.ExprCtx, &f.Props);
+        auto read = f.Read({id});
+        read->Props.Metadata.emplace();
+        read->Props.Metadata->ColumnsCount = 1;
+        read->Props.Metadata->SourceStatsColumns.Add(id);
+        read->Props.Metadata->KeyColumns.Append(id);
+        const auto relation = f.Props.ColumnLineage.AddRelation("t", "/Root/table");
+        f.Props.ColumnLineage.Add(id, {.SourceAlias = "t", .TableName = "/Root/table", .ColumnName = "key", .Relation = relation});
+        auto metadata = MakeIntrusive<TKikimrTableMetadata>();
+        metadata->DoesExist = true;
+        metadata->RecordsCount = 100;
+        metadata->DataSize = 800;
+        f.Tables->GetOrAddTable("ut", "/Root", "/Root/table").Metadata = metadata;
+        using TStatsMap = NYql::TOptimizerStatistics::TColumnStatMap;
+        auto& global = f.TypeCtx.ColumnStatisticsByTableName["/Root/table"];
+        global = MakeIntrusive<TStatsMap>();
+        auto& source = global->Data["key"];
+        source.Type = "Int64";
+        source.CountMinSketch.reset(TCountMinSketch::Create());
+        const i64 value = 42;
+        for (int i = 0; i < 3; ++i) source.CountMinSketch->Count(reinterpret_cast<const char*>(&value), sizeof(value));
+        read->ComputeStatistics(f.RboCtx, f.Props);
+        auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, expression);
+        filter->ComputeMetadata(f.RboCtx, f.Props);
+        filter->ComputeStatistics(f.RboCtx, f.Props);
+        UNIT_ASSERT_DOUBLES_EQUAL(filter->Props.Statistics->ERows, 3, 1e-12);
+        UNIT_ASSERT_DOUBLES_EQUAL(filter->Props.Statistics->EBytes, 24, 1e-12);
+        read->OriginalPredicate = expression;
+        read->ComputeStatistics(f.RboCtx, f.Props);
+        UNIT_ASSERT_DOUBLES_EQUAL(read->Props.Statistics->ERows, filter->Props.Statistics->ERows, 1e-12);
+        UNIT_ASSERT_DOUBLES_EQUAL(read->Props.Statistics->Selectivity, filter->Props.Statistics->Selectivity, 1e-12);
+        UNIT_ASSERT(!filter->GetFilterExpression().Node);
+        UNIT_ASSERT(!read->OriginalPredicate->Node);
+    }
+
     Y_UNIT_TEST(TupleStatesLowerDirectlyAndRoundTripThroughBackendTypes) {
         using namespace NFrontend;
         TExpressionArena arena, imported;
