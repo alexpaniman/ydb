@@ -2413,6 +2413,120 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         }
     }
 
+    Y_UNIT_TEST(NativeColumnKeyRangesMatchBothCompilersOnPopulatedTables) {
+        struct TCase {
+            const char* Predicate;
+            TVector<i32> Tags;
+            bool Range = true;
+            const char* Tail = "ORDER BY tag";
+        };
+        const TVector<TCase> cases{
+            {"key = 1", {3, 4, 5, 6, 7}},
+            {"key = 1 AND suffix < 5", {3, 4, 5}},
+            {"key = 1 AND suffix <= 5", {3, 4, 5, 6}},
+            {"key = 1 AND suffix > 0 AND suffix < 7", {5, 6}},
+            {"key < 1", {1, 2}},
+            {"key > 1 AND key < 3", {8}},
+            {"key >= 3 AND key <= 1", {}},
+            {"1 = key AND 2 <= suffix", {5, 6, 7}},
+            {"key = 1 AND v IS NULL", {3, 5}},
+            {"key = 1 AND v > 0", {6, 7}},
+            {"key = 1 AND LENGTH(CAST(suffix AS String)) > 1ul", {3}},
+            {"key = 9007199254740993ul", {10}},
+            {"key = 9223372036854775807ul", {11}},
+            {"suffix < 5", {1, 2, 3, 4, 5, 8, 9, 10, 11}, false},
+            {"tag > 5", {6, 7, 8, 9, 10, 11}, false},
+            {"key = 1 AND suffix > 0", {7, 6}, true, "ORDER BY suffix DESC LIMIT 2"},
+            {"key = 1 AND v IS NOT NULL", {7, 6}, true, "ORDER BY suffix DESC LIMIT 2"},
+        };
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {2, 0, 1}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetAllowOlapDataQuery(true);
+            service->SetDefaultLangVer(NYql::GetMaxLangVersion());
+            service->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+            TKikimrRunner runner(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto schema = session.ExecuteSchemeQuery(R"(
+                CREATE TABLE `/Root/ColumnKeyRanges` (
+                    key Int64 NOT NULL, suffix Int32 NOT NULL, tag Int32 NOT NULL, v Int32,
+                    PRIMARY KEY (key, suffix)
+                ) WITH (STORE = COLUMN, AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 4);
+            )").GetValueSync();
+            UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+            const TVector<std::tuple<i64, i32, std::optional<i32>>> data{
+                {-2, 0, 1}, {0, 0, std::nullopt}, {1, -1, std::nullopt}, {1, 0, -1}, {1, 2, std::nullopt},
+                {1, 5, 2}, {1, 7, 3}, {2, 0, 4}, {3, 0, std::nullopt},
+                {9007199254740993LL, 0, 6}, {std::numeric_limits<i64>::max(), 0, 7}
+            };
+            TValueBuilder rows;
+            rows.BeginList();
+            i32 tag = 0;
+            for (const auto& [key, suffix, value] : data) {
+                rows.AddListItem().BeginStruct().AddMember("key").Int64(key).AddMember("suffix").Int32(suffix)
+                    .AddMember("tag").Int32(++tag).AddMember("v").OptionalInt32(value).EndStruct();
+            }
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/ColumnKeyRanges", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            size_t snapshot = 0;
+            const auto assertTags = [&](const TDataQueryResult& result, const TVector<i32>& expected) {
+                const auto actual = Snapshot(result);
+                UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), expected.size());
+                UNIT_ASSERT_VALUES_EQUAL(actual.Columns.size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(actual.Columns[0].first, "tag");
+                UNIT_ASSERT_VALUES_EQUAL(actual.Columns[0].second, TTypeBuilder().Primitive(EPrimitiveType::Int32).Build().ToString());
+                TResultSetParser values(result.GetResultSet(0));
+                for (const auto tag : expected) {
+                    UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("tag").GetInt32(), tag);
+                }
+                if (strategy == 2) reference.push_back(actual);
+                else AssertSame(actual, reference.at(snapshot));
+                ++snapshot;
+            };
+            for (const auto& item : cases) {
+                const TString sql = TStringBuilder() << "SELECT tag FROM `/Root/ColumnKeyRanges` WHERE " << item.Predicate << ' ' << item.Tail;
+                const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+                assertTags(result, item.Tags);
+                if (strategy == 2) {
+                    const auto explain = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                        NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                    UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                    UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetPlan());
+                    const TString plan{*explain.GetStats()->GetPlan()};
+                    UNIT_ASSERT_VALUES_EQUAL_C(plan.find("\"ReadRangeLower\"") != TString::npos, item.Range, sql << plan);
+                    UNIT_ASSERT_VALUES_EQUAL_C(plan.find("\"ReadRangeUpper\"") != TString::npos, item.Range, sql << plan);
+                    UNIT_ASSERT_C(plan.find(item.Range ? "TableRangeScan" : "TableFullScan") != TString::npos, sql << plan);
+                    if (TStringBuf(item.Predicate) == "tag > 5") {
+                        // A required Int32 comparison still executes as an
+                        // OLAP filter when its column is not a storage key.
+                        UNIT_ASSERT(explain.GetStats()->GetAst());
+                        UNIT_ASSERT_C(explain.GetStats()->GetAst()->find("KqpOlapFilter") != std::string::npos, sql);
+                    }
+                }
+            }
+            const auto prepared = session.PrepareDataQuery(R"(
+                DECLARE $lo AS Int64; DECLARE $hi AS Int64;
+                SELECT tag FROM `/Root/ColumnKeyRanges` WHERE key >= $lo AND key < $hi ORDER BY tag;
+            )").GetValueSync();
+            UNIT_ASSERT_C(prepared.IsSuccess(), prepared.GetIssues().ToString());
+            auto query = prepared.GetQuery();
+            for (const auto& [lo, hi, expected] : TVector<std::tuple<i64, i64, TVector<i32>>>{
+                    {1, 2, {3, 4, 5, 6, 7}}, {-2, 1, {1, 2}}, {3, 1, {}},
+                    {9007199254740993LL, std::numeric_limits<i64>::max(), {10}}, {1, 2, {3, 4, 5, 6, 7}}}) {
+                auto params = query.GetParamsBuilder().AddParam("$lo").Int64(lo).Build().AddParam("$hi").Int64(hi).Build().Build();
+                assertTags(query.Execute(TTxControl::BeginTx().CommitTx(), params).GetValueSync(), expected);
+            }
+        }
+    }
+
     Y_UNIT_TEST(RuntimeDecimalCoalesceWideningMatchesBothExistingCompilers) {
         const TString sql = R"(
             DECLARE $a AS Decimal(7,2)?; DECLARE $b AS Decimal(35,2)?; DECLARE $c AS Decimal(12,2);
@@ -3246,7 +3360,45 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
                 UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
                 UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
                 const auto& ast = *explain.GetStats()->GetAst();
-                if (strategy != 3) UNIT_ASSERT_VALUES_EQUAL_C(ast.find("KqpOlapFilter") != std::string::npos, push && pushable, sql);
+                if (strategy < 2 && TStringBuf(predicate) == "id > 0") {
+                    // Range extraction consumes this entire key predicate,
+                    // independently of the OLAP-filter setting. Require its
+                    // exact storage restriction, not just an absent filter.
+                    UNIT_ASSERT_C(ast.find("KqpOlapFilter") == std::string::npos, sql);
+                    UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[1];[2];[3];[4];[5];[6];[7];[8]]");
+                    UNIT_ASSERT(explain.GetStats()->GetPlan());
+                    NJson::TJsonValue plan;
+                    NJson::ReadJsonTree(*explain.GetStats()->GetPlan(), &plan, true);
+                    size_t reads = 0;
+                    const auto inspect = [&](auto&& self, const NJson::TJsonValue& node) -> void {
+                        if (node.IsMap()) {
+                            const auto& fields = node.GetMapSafe();
+                            const auto name = fields.find("Name");
+                            if (name != fields.end() && (name->second.GetStringSafe() == "TableRangeScan" || name->second.GetStringSafe() == "TableFullScan")) {
+                                ++reads;
+                                UNIT_ASSERT_VALUES_EQUAL(name->second.GetStringSafe(), "TableRangeScan");
+                                UNIT_ASSERT_VALUES_EQUAL(fields.at("Storage").GetStringSafe(), "Column");
+                                UNIT_ASSERT_VALUES_EQUAL(fields.at("ReadRangesExpectedSize").GetStringSafe(), "1");
+                                const auto& keys = fields.at("ReadRangesKeys").GetArraySafe();
+                                UNIT_ASSERT_VALUES_EQUAL(keys.size(), 1);
+                                UNIT_ASSERT_VALUES_EQUAL(keys[0].GetStringSafe(), "id");
+                                const auto& lower = fields.at("ReadRangeLower").GetMapSafe();
+                                const auto& upper = fields.at("ReadRangeUpper").GetMapSafe();
+                                UNIT_ASSERT(!lower.at("Inclusive").GetBooleanSafe());
+                                UNIT_ASSERT(upper.at("Inclusive").GetBooleanSafe());
+                                const auto& values = lower.at("Values").GetArraySafe();
+                                UNIT_ASSERT_VALUES_EQUAL(values.size(), 1);
+                                UNIT_ASSERT_VALUES_EQUAL(values[0].GetStringSafe(), "0");
+                                UNIT_ASSERT(upper.at("Values").GetArraySafe().empty());
+                            }
+                            for (const auto& [key, value] : fields) { Y_UNUSED(key); self(self, value); }
+                        } else if (node.IsArray()) for (const auto& value : node.GetArraySafe()) self(self, value);
+                    };
+                    inspect(inspect, plan.GetMapSafe().at("SimplifiedPlan"));
+                    UNIT_ASSERT_VALUES_EQUAL(reads, 1);
+                } else if (strategy != 3) {
+                    UNIT_ASSERT_VALUES_EQUAL_C(ast.find("KqpOlapFilter") != std::string::npos, push && pushable, sql);
+                }
                 ++index;
             }
             for (const auto& [sql, values] : std::initializer_list<std::pair<const char*, const char*>>{

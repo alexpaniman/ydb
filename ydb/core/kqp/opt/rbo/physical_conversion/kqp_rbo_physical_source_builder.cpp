@@ -11,6 +11,82 @@ using namespace NYql::NNodes;
 using namespace NKikimr;
 using namespace NKikimr::NKqp;
 
+namespace {
+
+// RangeFinalize is an executable MiniKQL operation. Its input is a list of
+// (lower, upper) pairs. Each bound carries (infinity marker, optional key) for
+// every physical key column, followed by its inclusion marker. The outer
+// optional distinguishes an unbounded suffix from a finite SQL NULL key.
+// Emit this typed execution form directly, without AsRange/RangeFor macros.
+TExprNode::TPtr LowerNativeColumnRange(const TOpRead::TRangeInfo& info, const TStructExprType& schema,
+    TExprContext& ctx, TPositionHandle pos) {
+    Y_ENSURE(info.NativeRange && !info.ComputeNode && !info.LiteralRange);
+    NFrontend::TExpressionArena constants;
+    const auto scalar = [&](NFrontend::TType type, NFrontend::TScalar value) {
+        return LowerNativeLambda(constants, constants.Literal(type, std::move(value)), ctx, pos)->TailPtr();
+    };
+    const auto negative = scalar({NFrontend::ETypeKind::Int32}, std::int64_t{-1});
+    const auto zero = scalar({NFrontend::ETypeKind::Int32}, std::int64_t{0});
+    const auto positive = scalar({NFrontend::ETypeKind::Int32}, std::int64_t{1});
+    const auto call = [&](TStringBuf name, TExprNode::TListType children, const TTypeAnnotationNode* type) {
+        auto result = ctx.NewCallable(pos, name, std::move(children));
+        result->SetTypeAnn(type);
+        return result;
+    };
+    const auto tuple = [&](TExprNode::TListType values) {
+        TTypeAnnotationNode::TListType types;
+        for (const auto& value : values) types.push_back(value->GetTypeAnn());
+        auto result = ctx.NewList(pos, std::move(values));
+        result->SetTypeAnn(ctx.MakeType<TTupleExprType>(types));
+        return result;
+    };
+    TTypeAnnotationNode::TListType resultTypes;
+    const auto lower = [&](const TOpRead::TKeyBound& bound, bool left) {
+        Y_ENSURE(bound.Values.size() <= info.KeyColumns.size());
+        TExprNode::TListType values;
+        const bool negativeInfinity = bound.Values.empty() || bound.Inclusive ? left : !left;
+        for (size_t i = 0; i < info.KeyColumns.size(); ++i) {
+            const auto* keyType = schema.FindItemType(info.KeyColumns[i]);
+            Y_ENSURE(keyType, "Missing native read key type");
+            const auto* optionalType = ctx.MakeType<TOptionalExprType>(keyType);
+            if (left) resultTypes.push_back(optionalType);
+            if (i < bound.Values.size()) {
+                const auto& expression = bound.Values[i];
+                Y_ENSURE(expression.IsNative() && expression.GetRawInputIUs().Empty(), "Read bound depends on a row");
+                auto value = LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, pos)->TailPtr();
+                if (keyType->GetKind() == ETypeAnnotationKind::Optional && value->GetTypeAnn()->GetKind() != ETypeAnnotationKind::Optional)
+                    value = call("Just", {value}, keyType);
+                Y_ENSURE(IsSameAnnotation(*value->GetTypeAnn(), *keyType), "Native range bound does not match the storage key type");
+                values.push_back(zero);
+                values.push_back(call("Just", {value}, optionalType));
+            } else {
+                // Lowering a native NULL supplies fully typed scalar type
+                // syntax; add one backend-only optional layer for nullable keys.
+                auto empty = scalar(ImportNativeType(*keyType).Optional(), {});
+                if (keyType->GetKind() == ETypeAnnotationKind::Optional) {
+                    const auto type = call("OptionalType", {empty->HeadPtr()}, ctx.MakeType<TTypeExprType>(optionalType));
+                    empty = call("Nothing", {type}, optionalType);
+                }
+                values.push_back(negativeInfinity ? negative : positive);
+                values.push_back(std::move(empty));
+            }
+        }
+        values.push_back(bound.Inclusive ? (left ? negative : positive) : zero);
+        return tuple(std::move(values));
+    };
+    const auto& range = *info.NativeRange;
+    auto from = lower(range.Lower, true);
+    auto to = lower(range.Upper, false);
+    auto pair = tuple({std::move(from), std::move(to)});
+    auto list = call("AsList", {pair}, ctx.MakeType<TListExprType>(pair->GetTypeAnn()));
+    resultTypes.push_back(zero->GetTypeAnn());
+    const auto* boundaryType = ctx.MakeType<TTupleExprType>(resultTypes);
+    const auto* rangeType = ctx.MakeType<TTupleExprType>(TTypeAnnotationNode::TListType{boundaryType, boundaryType});
+    return call("RangeFinalize", {list}, ctx.MakeType<TListExprType>(rangeType));
+}
+
+} // namespace
+
 TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
     TExprNode::TPtr source;
     TVector<TString> storageColumns;
@@ -123,6 +199,10 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             break;
         }
         case NYql::EStorageType::ColumnStorage: {
+            if (Read.RangeInfo && Read.RangeInfo->NativeRange) {
+                Y_ENSURE(TableSchema, "Native column ranges require the complete storage key schema");
+                ranges = LowerNativeColumnRange(*Read.RangeInfo, *TableSchema, Ctx, Pos);
+            }
             // clang-format off
             auto processLambda = Build<TCoLambda>(Ctx, Pos)
                 .Args({"arg"})

@@ -9,13 +9,15 @@ using namespace NKikimr::NKqp;
 class TPhysicalSourceBuilder: public TPhysicalNullaryOpBuilder {
 public:
     TPhysicalSourceBuilder(TOpRead& read, TExprContext& ctx, TPositionHandle pos, const TPhysicalNames& names,
-        const TInfoUnitRegistry& registry, const TString& stageGUID, bool isSysView = false, TString carrierColumn = {})
+        const TInfoUnitRegistry& registry, const TString& stageGUID, bool isSysView = false, TString carrierColumn = {},
+        const TStructExprType* tableSchema = nullptr)
         : TPhysicalNullaryOpBuilder(ctx, pos, names)
         , Read(read)
         , Registry(registry)
         , StageGUID(stageGUID)
         , IsSysView(isSysView)
-        , CarrierColumn(std::move(carrierColumn)) {}
+        , CarrierColumn(std::move(carrierColumn))
+        , TableSchema(tableSchema) {}
 
     TExprNode::TPtr BuildPhysicalOp() override;
 
@@ -25,4 +27,5 @@ private:
     TString StageGUID;
     bool IsSysView;
     TString CarrierColumn;
+    const TStructExprType* TableSchema;
 };

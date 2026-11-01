@@ -557,10 +557,9 @@ TIntrusivePtr<IOperator> PushNativeRange(const TIntrusivePtr<IOperator>& input, 
     const auto filter = CastOperator<TOpFilter>(input);
     const auto read = CastOperator<TOpRead>(filter->GetInput());
     const auto& predicate = filter->GetFilterExpression();
-    // A single literal/parameter range has a direct row-source interface.
-    // Column-store computed ranges, disjunctions and index selection need their
-    // own native representations; they must not enter the legacy extractor.
-    if (read->StorageType != NYql::EStorageType::RowStorage || read->Limit || read->OlapProgram ||
+    // Bounds stay native for both storage kinds. Only physical conversion
+    // chooses the row-source or column-store runtime range representation.
+    if (read->Limit || read->OlapProgram ||
         !predicate.GetRawInputIUs().IsSubsetOf(read->GetColumns())) return input;
     const auto arena = predicate.GetNativeArena();
     THashSet<TExprId> visited;

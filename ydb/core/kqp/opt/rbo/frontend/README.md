@@ -452,10 +452,10 @@ null checks use a 10% default; other predicates assume no unknown null fraction.
 Native and legacy estimation do not promise identical plans. Tests check storage
 widths, key defaults, interval endpoints, NULLs, a 20,000-node shared DAG and
 agreement between ordinary and pushed filters without native-to-YQL lowering.
-The complete 428-test RBO suite passed, including unchanged populated execution
+The complete 430-test RBO suite passed, including unchanged populated execution
 of all 22 TPC-H and 41 TPC-DS queries across the three compiler paths.
 
-Native row-table range extraction reads the typed DAG directly. Equality
+Native row- and column-table range extraction reads the typed DAG directly. Equality
 conjuncts pin a contiguous key prefix, optionally followed by one interval;
 selected predicates are removed and remaining predicates retain their order.
 Bounds are literals or required parameters of the exact key type. Integral
@@ -464,8 +464,14 @@ NULL keys are excluded from upper-only comparisons with an explicit exclusive
 NULL lower bound. Nullable parameters, out-of-domain literals, value-changing
 column casts, floating/Decimal keys and disjunctions remain filters. Any checked
 expression prevents extraction rather than risking suppression of its error.
-The read stores native bound expressions, exposes them to ordinary expression
-rewrites and emits `KqlKeyRange` only at physical conversion. Explain shows each
+The read stores native bound expressions and exposes them to ordinary expression
+rewrites. Physical conversion emits `KqlKeyRange` for row sources or a typed
+`RangeFinalize` input for column reads. The latter is directly executable in
+MiniKQL and uses the existing backend's range materialization; it needs no
+`AsRange`/`RangeFor` lowering or predicate-extraction pipeline. The complete
+storage schema supplies types for unbounded key suffixes even when those columns
+were pruned from the read's output. Backend optional layers distinguish infinity
+from a finite SQL NULL key. Explain shows each
 bound's values and inclusivity. The complete original predicate survives for
 statistics and fetched-row filtering when a lookup join replaces the range scan.
 Tests forbid YQL annotation during extraction, check copying/pruning and a
@@ -473,10 +479,15 @@ Tests forbid YQL annotation during extraction, check copying/pruning and a
 native frontend and both existing compiler paths. Native plans assert range
 versus full scans for 22 cases, including composite and NULL keys, descending
 limits with residual filters, contradictory intervals, exact 64-bit boundaries
-and prepared-parameter reuse. These are correctness checks, not a compilation
-speedup measurement.
+and prepared-parameter reuse. Column-store checks add 66 populated executions
+across the same three paths and 17 native plan assertions, including a non-key
+OLAP filter. Eleven direct MiniKQL cases execute typed range values with required
+and nullable composite keys, pruned key columns, finite NULL bounds, exact large
+integers and empty intervals. The existing OLAP test now requires exact range
+bounds when extraction consumes its key predicate; its remaining filter checks
+are retained. These are correctness checks, not a compilation speedup measurement.
 
-**Plan-quality limitation:** native multi-range extraction, column-store ranges,
+**Plan-quality limitation:** native multi-range extraction,
 range-based index selection, lookup point prefixes and OLAP projection pushdown
 remain unfinished. Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
 representations still support the existing frontend during migration. Removing

@@ -148,7 +148,7 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
                 }
                 currentStageBody = TPhysicalSourceBuilder(opRead, ctx, op->Pos, names, root->PlanProps.InfoUnitRegistry,
                     graph.StageGUIDs.at(opStageId), table.Metadata->Kind == NYql::EKikimrTableKind::SysView,
-                    std::move(carrierColumn)).BuildPhysicalOp();
+                    std::move(carrierColumn), table.SchemeNode).BuildPhysicalOp();
 
                 stages[opStageId] = currentStageBody;
                 stagePos[opStageId] = op->Pos;
