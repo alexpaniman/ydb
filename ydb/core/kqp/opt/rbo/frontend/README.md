@@ -693,6 +693,24 @@ parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
 
+The latest populated benchmark run passes all 22 TPC-H and 49 TPC-DS queries
+through the legacy optimizer, YQL-to-RBO and native-required compilation, with
+fallback disabled. The shared fixtures retain the original SQL, schemas, scalar
+helpers and settings. Fifty TPC-DS queries still need populated validation.
+
+Q1, Q3, Q7, Q15 and Q19 extend the previous 44-query fixture without changing its
+expected results. Q1 checks independently known per-store averages, strict
+threshold equality, negative/NULL totals and duplicate output customer IDs. Q3
+pins ten ordered year/brand groups, including shared keys and all-NULL sums. Q7
+checks five grouped averages with repeated rows, distinct items sharing an ID,
+Decimal rounding and nullable promotion disjunctions. Q15 and Q19 exercise
+five-byte ZIP substrings, inclusive date bounds, every admitting OR arm, NULLs,
+strict price thresholds and all manufacturer/brand grouping keys. Missing join
+rows and rejected dimension values have explicit outcomes. Result values,
+metadata, ordering and existing CBO plan checks pass across all three paths.
+Only the host fixture and this record changed; no compiler/runtime fixes or
+compilation timing measurements were needed for this increment.
+
 The planner-setting increment passes all 101 standalone frontend and 438 RBO
 tests, retaining all 433 previous RBO tests. It adds checked settings handoff,
 populated pragma/session-reset checks, and native-required variants of the
