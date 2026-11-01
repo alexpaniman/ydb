@@ -1577,7 +1577,7 @@ private:
                             const auto position = ctx.AppendPosition(TPosition(pos.Column, pos.Line));
                             return TNativeTable{schema(path, pos), NOpt::BuildTableMeta(*meta, position, ctx).Ptr(),
                                 meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
-                        }, ctx);
+                        }, ctx, SessionCtx->ConfigPtr().Get());
                         // The first backend initialization happens with native
                         // RBO roots already built. No YQL frontend pipeline is
                         // constructed on this path.

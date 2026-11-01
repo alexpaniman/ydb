@@ -2561,6 +2561,119 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
+    Y_UNIT_TEST(PlannerPragmasPreserveIndexChoiceAndSessionDefaults) {
+        const TString select = "SELECT id, payload FROM `/Root/NativeOptions` WHERE g = 2 ORDER BY id";
+        TVector<TResultSnapshot> reference;
+        for (int strategy : {0, 1, 2}) {
+            NKikimrConfig::TAppConfig config;
+            auto* service = config.MutableTableServiceConfig();
+            service->SetEnableNewRBO(strategy != 0);
+            service->SetNativeFrontendMode(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
+                NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            service->SetEnableFallbackToYqlOptimizer(false);
+            service->SetCompileQueryCacheSize(0);
+            service->SetEnableAstCache(false);
+            TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+            auto client = kikimr.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            const auto created = session.ExecuteSchemeQuery(R"(
+                CREATE TABLE `/Root/NativeOptions` (id Int64 NOT NULL, g Int32, payload Utf8, PRIMARY KEY(id));
+            )").GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            TValueBuilder rows; rows.BeginList();
+            for (i64 id = 1; id <= 4; ++id) rows.AddListItem().BeginStruct().AddMember("id").Int64(id)
+                .AddMember("g").OptionalInt32(id == 4 ? std::nullopt : std::optional<i32>{id < 3 ? 2 : 3})
+                .AddMember("payload").OptionalUtf8(std::string("row") + std::to_string(id)).EndStruct();
+            rows.EndList();
+            const auto inserted = client.BulkUpsert("/Root/NativeOptions", rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            const auto indexed = session.ExecuteSchemeQuery(
+                "ALTER TABLE `/Root/NativeOptions` ADD INDEX ByGroup GLOBAL ON (g) COVER (payload)").GetValueSync();
+            UNIT_ASSERT_C(indexed.IsSuccess(), indexed.GetIssues().ToString());
+            size_t snapshot = 0;
+            auto check = [&](const TString& header, const TString& tail, bool index) {
+                // Distinct request texts plus disabled AST caching make reset checks
+                // compile again instead of reusing an earlier default-settings plan.
+                const TString sql = TStringBuilder() << "-- option case " << snapshot << '\n' << header << select << ';' << tail;
+                Cerr << "Planner pragma strategy " << strategy << ": " << sql << Endl;
+                if (strategy == 1 && header.Contains("OptFallbackToLegacyOptimizer")) {
+                    // The existing YQL-to-RBO transformer checks presence of the
+                    // optional setting, so even false forces a fallback there.
+                    // Its fatal error closes the session; isolate this baseline
+                    // failure from the session used to check settings reset.
+                    auto failedSession = client.CreateSession().GetValueSync().GetSession();
+                    const auto failed = failedSession.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                    UNIT_ASSERT(!failed.IsSuccess());
+                    UNIT_ASSERT_C(failed.GetIssues().ToString().find("Forced fallback to legacy optimizer") != std::string::npos,
+                        failed.GetIssues().ToString());
+                    ++snapshot;
+                    return;
+                }
+                const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+                const auto actual = Snapshot(result);
+                UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[1;[\"row1\"]];[2;[\"row2\"]]]");
+                UNIT_ASSERT_VALUES_EQUAL(actual.Columns, (TVector<std::pair<TString, TString>>{{"id", "Int64"}, {"payload", "Utf8?"}}));
+                if (strategy == 0) reference.push_back(actual); else AssertSame(actual, reference.at(snapshot));
+                ++snapshot;
+                const auto explain = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx(),
+                    NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
+                const TString ast{*explain.GetStats()->GetAst()};
+                UNIT_ASSERT_VALUES_EQUAL_C(ast.Contains("/ByGroup/indexImplTable"), index, sql << '\n' << ast);
+                UNIT_ASSERT(explain.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+                if (strategy == 2) UNIT_ASSERT_C(ast.Contains("native frontend: native-read-v1"), ast);
+            };
+            for (const auto& [header, index] : std::initializer_list<std::pair<const char*, bool>>{
+                    {"", true}, {"PRAGMA ydb.OptDisableAutoIndexSelection='false';", true},
+                    {"PRAGMA ydb.OptDisableAutoIndexSelection='true';", false},
+                    {"PRAGMA ydb.OptDisableAutoIndexSelection;", false},
+                    {"PRAGMA KiKiMr.Opt_Disable_Auto_Index_Selection='OFF';", true},
+                    {"PRAGMA ydb.OptDisableAutoIndexSelection='true'; PRAGMA ydb.OptDisableAutoIndexSelection='false';", true},
+                    {"PRAGMA ydb.OptDisableAutoIndexSelection='false'; PRAGMA ydb.OptDisableAutoIndexSelection='true';", false},
+                    {"", true}, {"PRAGMA ydb.CostBasedOptimizationLevel='0'; PRAGMA ydb.OptFallbackToLegacyOptimizer='false';", true},
+                    {"PRAGMA ydb.HashJoinMode='grace'; PRAGMA ydb.OptShuffleElimination='true'; PRAGMA ydb.UseBlockHashJoin='false'; "
+                     "PRAGMA ydb.DisableBlockExecution='true'; PRAGMA ydb.DqChannelVersion='1';", true},
+                    {"PRAGMA ydb.OptDisableAutoIndexSelection='';", false}})
+                check(header, "", index);
+            const TString trailingSql = TStringBuilder() << "PRAGMA ydb.OptDisableAutoIndexSelection='true';" << select
+                << ";PRAGMA ydb.OptDisableAutoIndexSelection='false';";
+            const auto trailing = session.ExecuteDataQuery(trailingSql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+            if (strategy < 2) {
+                // Existing compiler failure: a trailing configuration operation
+                // leaves ResWrite! unexecuted. Do not change that pipeline.
+                UNIT_ASSERT(!trailing.IsSuccess());
+                UNIT_ASSERT_C(trailing.GetIssues().ToString().find("Failed to execute callable with name: ResWrite!") != std::string::npos,
+                    trailing.GetIssues().ToString());
+            } else {
+                AssertSame(Snapshot(trailing), reference.front());
+                const auto explain = kikimr.GetQueryClient().ExecuteQuery(trailingSql, NQuery::TTxControl::NoTx(),
+                    NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+                UNIT_ASSERT_C(explain.IsSuccess(), explain.GetIssues().ToString());
+                UNIT_ASSERT(explain.GetStats() && explain.GetStats()->GetAst());
+                UNIT_ASSERT_C(explain.GetStats()->GetAst()->find("/ByGroup/indexImplTable") != std::string::npos, *explain.GetStats()->GetAst());
+            }
+            for (const char* pragma : {"ydb.WindowFunctionsV2='maybe'", "ydb.CostBasedOptimizationLevel='4294967296'",
+                    "ydb.HashJoinMode='unknown'", "ydb.OptimizerHints='JoinType(t u invalid)'",
+                    "ydb.OptDisableAutoIndexSelection='true'; PRAGMA ydb.OptimizerHints='broken'; PRAGMA ydb.OptimizerHints=''"}) {
+                const auto bad = session.ExecuteDataQuery(TStringBuilder() << "PRAGMA " << pragma << ';' << select,
+                    TTxControl::BeginTx().CommitTx()).GetValueSync();
+                UNIT_ASSERT_C(!bad.IsSuccess(), pragma);
+                UNIT_ASSERT(bad.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+                if (strategy == 2) UNIT_ASSERT_C(bad.GetIssues().ToString().find("[native_frontend]") != std::string::npos, bad.GetIssues().ToString());
+            }
+            if (strategy == 2) {
+                const auto bad = session.ExecuteDataQuery("PRAGMA ydb.OptFallbackToLegacyOptimizer='true'; " + select,
+                    TTxControl::BeginTx().CommitTx()).GetValueSync();
+                UNIT_ASSERT(!bad.IsSuccess());
+                UNIT_ASSERT_C(bad.GetIssues().ToString().find("native plans cannot request fallback") != std::string::npos, bad.GetIssues().ToString());
+                UNIT_ASSERT(bad.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+            }
+            check("", "", true);
+            UNIT_ASSERT_VALUES_EQUAL(snapshot, reference.size());
+        }
+    }
+
     Y_UNIT_TEST(NativeIndexRangesMatchBothCompilersOnPopulatedTables) {
         struct TRow { std::optional<i64> Id; std::optional<i32> Group, X; const char* Payload; };
         const TVector<TRow> data{

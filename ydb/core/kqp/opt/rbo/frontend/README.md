@@ -216,9 +216,28 @@ Decimal COALESCE permits precision widening when all Decimal operands retain
 the same scale. It preserves coefficients and each alternative's nullability,
 including 35-digit SUM results with a narrower zero fallback. Different scales
 and mixed integer/Decimal alternatives still require explicit casts.
-CASE requires an explicit ELSE branch. Supported pragmas are TablePathPrefix, YqlSelect="force", and
+CASE requires an explicit ELSE branch. Supported language pragmas are TablePathPrefix, YqlSelect="force", and
 AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
-DisableAnsiInForEmptyOrNullableItemsCollections, AnsiCurrentRow and DisableAnsiCurrentRow.
+DisableAnsiInForEmptyOrNullableItemsCollections, AnsiCurrentRow and DisableAnsiCurrentRow,
+YqlSelectAllowUnnamedGroupByExpr and DisableYqlSelectAllowUnnamedGroupByExpr.
+
+Planner pragmas use `ydb.` or `kikimr.`. The 22 admitted settings are listed by
+type in `--support`: index selection, TopSort, predicate extraction, shuffle
+elimination, physical-stage peepholes, windows, OLAP pushdown, block execution,
+CBO, channel version, hash-join mode, optimizer hints, and
+`OptFallbackToLegacyOptimizer=false`. Names are case-insensitive and allow up to
+four single internal/trailing underscores. Empty Boolean values mean true;
+malformed known values are errors, while unknown settings explicitly delegate.
+Requesting fallback with a true value is unsupported in native mode.
+
+These are static query settings, retained and applied in source order at the
+RBO handoff. Every occurrence is validated, including an invalid hint later
+overwritten by a valid one. Primitive values are checked by the native binder;
+hash-join modes and hints use the existing optimizer parsers at the handoff,
+before applying any settings. No YQL configuration or annotation transformer
+runs. Conversion requires a configuration when settings are present; it cannot
+silently discard them. Session reset restores defaults. Native reads retain
+their source aliases before pruning so row-count and join hints can match them.
 
 Inline OVER supports COUNT, numeric SUM/AVG, MIN/MAX, Rank, DenseRank and
 RowNumber, with partitioning, ordering, ROWS and RANGE frames. Frame offsets
@@ -657,6 +676,27 @@ unchanged aggregation regressions. All 82 standalone frontend tests pass; both
 parsers agree on all 164 corpus decisions with no hard errors.
 
 ## Validation and measurements
+
+The planner-setting increment passes all 101 standalone frontend and 438 RBO
+tests, retaining all 433 previous RBO tests. It adds checked settings handoff,
+populated pragma/session-reset checks, and native-required variants of the
+original ExplainAnalyze, ExplainJoin and ExplainReadRowsHints tests. Their SQL,
+fixtures and existing assertions are preserved; the original explain fixtures
+are empty and are not counted as populated benchmark execution.
+The pragma fixture checks 36 successful populated executions and 36 plans
+across the three compiler paths, plus 19 expected errors. It verifies index
+selection, option ordering, default restoration and explicit rejection.
+
+Two pre-existing failures are pinned without changing either old compiler:
+a trailing configuration pragma fails with an unexecuted ResWrite in both old
+paths, and `OptFallbackToLegacyOptimizer=false` still forces fallback in the
+YQL-to-RBO transformer because it tests optional-value presence. That fatal
+error closes its session, so the test isolates it from the reset checks.
+Native mode executes these cases without fallback. The full suite retains
+populated execution of all 22 TPC-H and 44 TPC-DS queries. Fast and grammar
+modes still agree on all 164 corpus decisions and diagnostics, and the rebuilt
+standalone CLI contains no YQL/MiniKQL symbols. No compilation timings were
+remeasured for this increment.
 
 `KqpNativeHost::NativeCompilationBenchmark` compares complete compilation through
 the legacy optimizer, the existing YQL frontend into new RBO, and native-required

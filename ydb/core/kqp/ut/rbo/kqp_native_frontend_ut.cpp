@@ -94,6 +94,74 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(PlannerPragmasApplyOnceAtRboHandoffWithoutBeingDropped) {
+        NTests::TIdTestContext f;
+        auto compile = [&](const TString& sql) {
+            return CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx, {}, {}, f.Config.Get());
+        };
+        auto checkBool = [&](const char* name, auto& option) {
+            for (const bool value : {false, true}) {
+                auto roots = compile(TStringBuilder() << "PRAGMA ydb." << name << "='" << (value ? "true" : "false") << "'; SELECT 1");
+                UNIT_ASSERT_VALUES_EQUAL_C(option.Get().GetRef(), value, name);
+                UNIT_ASSERT_VALUES_EQUAL(roots.size(), 1);
+                UNIT_ASSERT(roots.front()->PlanProps.NativeExpressions);
+                for (const auto& item : *roots.front()) for (const auto& expression : item.Current->GetExpressions())
+                    UNIT_ASSERT(expression.get().IsNative() && !expression.get().Node);
+            }
+        };
+        checkBool("OptDisableAutoIndexSelection", f.Config->OptDisableAutoIndexSelection);
+        checkBool("EnableAutoIndexSelectionForIndexLookupJoin", f.Config->EnableAutoIndexSelectionForIndexLookupJoin);
+        checkBool("OptDisableTopSort", f.Config->OptDisableTopSort);
+        checkBool("OptEnablePredicateExtract", f.Config->OptEnablePredicateExtract);
+        checkBool("OptShuffleElimination", f.Config->OptShuffleElimination);
+        checkBool("OptShuffleEliminationWithMap", f.Config->OptShuffleEliminationWithMap);
+        checkBool("OptShuffleEliminationForAggregation", f.Config->OptShuffleEliminationForAggregation);
+        checkBool("EnableNewRBOPhysicalStagePeephole", f.Config->EnableNewRBOPhysicalStagePeephole);
+        checkBool("WindowFunctionsV2", f.Config->WindowFunctionsV2);
+        checkBool("OptEnableOlapPushdown", f.Config->OptEnableOlapPushdown);
+        checkBool("OptEnableOlapPushdownAggregate", f.Config->OptEnableOlapPushdownAggregate);
+        checkBool("OptEnableOlapPushdownProjections", f.Config->OptEnableOlapPushdownProjections);
+        checkBool("OptEnableOlapPushdownRegexp", f.Config->OptEnableOlapPushdownRegexp);
+        checkBool("DqHashOperatorsUseBlocks", f.Config->DqHashOperatorsUseBlocks);
+        checkBool("UseBlockHashJoin", f.Config->UseBlockHashJoin);
+        checkBool("DisableBlockExecution", f.Config->DisableBlockExecution);
+        compile("PRAGMA ydb.OptFallbackToLegacyOptimizer='false'; SELECT 1");
+        UNIT_ASSERT(!f.Config->OptFallbackToLegacyOptimizer.Get().GetRef());
+        f.Config->SetDefaultCostBasedOptimizationLevel(3);
+        for (const auto& [pragma, expected] : std::initializer_list<std::pair<const char*, ui32>>{
+                {"ydb.CostBasedOptimizationLevel='4'", 4}, {"ydb.CostBasedOptimization='off'", 0},
+                {"ydb.CostBasedOptimization='on'", std::numeric_limits<ui32>::max()}, {"ydb.CostBasedOptimization='auto'", 3},
+                {"ydb.CostBasedOptimization='off'; PRAGMA ydb.CostBasedOptimizationLevel='4'", 4}}) {
+            compile(TStringBuilder() << "PRAGMA " << pragma << "; SELECT 1");
+            UNIT_ASSERT_VALUES_EQUAL(f.Config->CostBasedOptimizationLevel.Get().GetRef(), expected);
+        }
+        for (const char* mode : {"off", "map", "dict", "grace", "graceandself"}) {
+            compile(TStringBuilder() << "PRAGMA ydb.HashJoinMode='" << mode << "'; SELECT 1");
+            UNIT_ASSERT(f.Config->GetHashJoinMode() == FromString<NYql::NDq::EHashJoinMode>(mode));
+        }
+        compile("PRAGMA ydb.DqChannelVersion='1'; PRAGMA ydb.OptimizerHints='Rows(t # 123) JoinType(t u Shuffle)'; SELECT 1");
+        UNIT_ASSERT_VALUES_EQUAL(f.Config->DqChannelVersion.Get().GetRef(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(f.Config->OptimizerHints.Get().GetRef().GetUnappliedString().size(), 2);
+        compile("PRAGMA ydb.OptimizerHints='Rows(t # 123)'; SELECT 1; PRAGMA ydb.OptimizerHints; SELECT 2");
+        UNIT_ASSERT(f.Config->OptimizerHints.Get().GetRef().GetUnappliedString().empty());
+
+        f.Config->OptDisableAutoIndexSelection = false;
+        f.Config->FreezeDefaults();
+        compile("PRAGMA ydb.OptDisableAutoIndexSelection; SELECT 1");
+        UNIT_ASSERT(f.Config->IsAutoIndexSelectionDisabled());
+        f.Config->Restore();
+        UNIT_ASSERT(!f.Config->IsAutoIndexSelectionDisabled());
+        // Invalid overwritten hints must still fail, before any option is applied.
+        UNIT_ASSERT_EXCEPTION(compile("PRAGMA ydb.OptDisableAutoIndexSelection='true'; PRAGMA ydb.OptimizerHints='broken'; "
+            "PRAGMA ydb.OptimizerHints='Rows(t # 5)'; SELECT 1"), NFrontend::TFrontendError);
+        UNIT_ASSERT(!f.Config->IsAutoIndexSelectionDisabled());
+        UNIT_ASSERT_EXCEPTION(compile("PRAGMA ydb.OptDisableAutoIndexSelection='true'; PRAGMA ydb.HashJoinMode='unknown'; SELECT 1"),
+            NFrontend::TFrontendError);
+        UNIT_ASSERT(!f.Config->IsAutoIndexSelectionDisabled());
+        UNIT_ASSERT_EXCEPTION(CompileNativeToRbo("PRAGMA ydb.WindowFunctionsV2='false'; SELECT 1", NoTables, f.ExprCtx),
+            NFrontend::TUnsupportedFeature);
+    }
+
     Y_UNIT_TEST(NativeSelectivityUsesKeysAndTypedStatisticsWithoutLowering) {
         using namespace NFrontend;
         using O = EOpcode;

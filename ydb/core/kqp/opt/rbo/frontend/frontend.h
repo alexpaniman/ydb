@@ -4,6 +4,7 @@
 
 #include <unordered_map>
 #include <utility>
+#include <variant>
 
 namespace NKikimr::NKqp::NFrontend {
 
@@ -106,6 +107,24 @@ struct TSubplan {
     std::optional<TColumnId> Lookup;
 };
 
+// Static query options cross the same checked boundary as the relational plan.
+// Keep source order: every occurrence is validated, including overwritten hints.
+enum class EPlannerSetting : std::uint8_t {
+    OptDisableAutoIndexSelection, EnableAutoIndexSelectionForIndexLookupJoin,
+    OptDisableTopSort, OptEnablePredicateExtract,
+    OptShuffleElimination, OptShuffleEliminationWithMap, OptShuffleEliminationForAggregation,
+    EnableNewRBOPhysicalStagePeephole, WindowFunctionsV2,
+    OptEnableOlapPushdown, OptEnableOlapPushdownAggregate, OptEnableOlapPushdownProjections, OptEnableOlapPushdownRegexp,
+    DqHashOperatorsUseBlocks, UseBlockHashJoin, DisableBlockExecution, OptFallbackToLegacyOptimizer,
+    CostBasedOptimizationLevel, DqChannelVersion, CostBasedOptimization, HashJoinMode, OptimizerHints,
+};
+
+struct TPlannerSetting {
+    EPlannerSetting Kind;
+    std::variant<bool, std::uint32_t, std::string> Value;
+    TSourcePosition Position;
+};
+
 struct TBoundProgram {
     TExpressionArena Expressions;
     std::vector<TColumn> Columns;
@@ -113,6 +132,7 @@ struct TBoundProgram {
     std::vector<TQueryResult> Results;
     std::unordered_map<TColumnId, TSubplan> Subplans;
     std::unordered_map<std::string, TType> Parameters;
+    std::vector<TPlannerSetting> PlannerSettings;
 };
 
 struct TBindSettings {

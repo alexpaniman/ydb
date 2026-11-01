@@ -20,6 +20,58 @@ std::string Lower(std::string_view value) {
     return result;
 }
 
+std::optional<TPlannerSetting> PlannerSetting(const TStatement& statement) {
+    using S = EPlannerSetting;
+    auto name = Lower(statement.Name);
+    const auto dot = name.find('.');
+    if (dot == std::string::npos || (name.substr(0, dot) != "ydb" && name.substr(0, dot) != "kikimr")) return {};
+    name.erase(0, dot + 1);
+    if (name.empty() || name.front() == '_') return {};
+    if (name.find("__") != std::string::npos || std::count(name.begin(), name.end(), '_') >= 5)
+        throw TFrontendError(statement.Position, "invalid underscores in pragma name: " + statement.Name);
+    std::erase(name, '_');
+    static constexpr std::pair<std::string_view, S> names[]{
+        {"optdisableautoindexselection", S::OptDisableAutoIndexSelection},
+        {"enableautoindexselectionforindexlookupjoin", S::EnableAutoIndexSelectionForIndexLookupJoin},
+        {"optdisabletopsort", S::OptDisableTopSort}, {"optenablepredicateextract", S::OptEnablePredicateExtract},
+        {"optshuffleelimination", S::OptShuffleElimination}, {"optshuffleeliminationwithmap", S::OptShuffleEliminationWithMap},
+        {"optshuffleeliminationforaggregation", S::OptShuffleEliminationForAggregation},
+        {"enablenewrbophysicalstagepeephole", S::EnableNewRBOPhysicalStagePeephole}, {"windowfunctionsv2", S::WindowFunctionsV2},
+        {"optenableolappushdown", S::OptEnableOlapPushdown}, {"optenableolappushdownaggregate", S::OptEnableOlapPushdownAggregate},
+        {"optenableolappushdownprojections", S::OptEnableOlapPushdownProjections}, {"optenableolappushdownregexp", S::OptEnableOlapPushdownRegexp},
+        {"dqhashoperatorsuseblocks", S::DqHashOperatorsUseBlocks}, {"useblockhashjoin", S::UseBlockHashJoin},
+        {"disableblockexecution", S::DisableBlockExecution}, {"optfallbacktolegacyoptimizer", S::OptFallbackToLegacyOptimizer},
+        {"costbasedoptimizationlevel", S::CostBasedOptimizationLevel}, {"dqchannelversion", S::DqChannelVersion},
+        {"costbasedoptimization", S::CostBasedOptimization}, {"hashjoinmode", S::HashJoinMode}, {"optimizerhints", S::OptimizerHints},
+    };
+    const auto found = std::find_if(std::begin(names), std::end(names), [&](const auto& entry) { return entry.first == name; });
+    if (found == std::end(names)) return {};
+    const auto kind = found->second;
+    const auto badValue = [&] { return TFrontendError(statement.Position, "invalid value for pragma " + statement.Name + ": " + statement.Value); };
+    if (kind == S::OptimizerHints || kind == S::HashJoinMode) return TPlannerSetting{kind, statement.Value, statement.Position};
+    if (kind == S::CostBasedOptimization) {
+        const auto value = Lower(statement.Value);
+        if (value != "on" && value != "off" && value != "auto") throw badValue();
+        return TPlannerSetting{kind, value, statement.Position};
+    }
+    if (kind == S::CostBasedOptimizationLevel || kind == S::DqChannelVersion) {
+        std::string_view value = statement.Value;
+        if (value.starts_with('+')) value.remove_prefix(1);
+        std::uint32_t number = 0;
+        const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), number);
+        if (error != std::errc{} || end != value.data() + value.size()) throw badValue();
+        return TPlannerSetting{kind, number, statement.Position};
+    }
+    const auto value = Lower(statement.Value);
+    const bool enabled = value.empty() || value == "true" || value == "t" || value == "yes" || value == "y" ||
+        value == "on" || value == "1" || value == "da";
+    if (!enabled && value != "false" && value != "f" && value != "no" && value != "n" && value != "off" && value != "0" && value != "net")
+        throw badValue();
+    if (kind == S::OptFallbackToLegacyOptimizer && enabled)
+        throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "native plans cannot request fallback to the YQL optimizer");
+    return TPlannerSetting{kind, enabled, statement.Position};
+}
+
 void WindowChildren(const TSyntaxExpr& node, std::vector<TSyntaxId>& out) {
     if (!node.Window) return;
     out.insert(out.end(), node.Window->Partition.begin(), node.Window->Partition.end());
@@ -343,7 +395,8 @@ public:
                     } else if ((name == "ansicurrentrow" || name == "disableansicurrentrow" ||
                             name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr") && statement.Value.empty()) {
                         // Captured with the syntax at its definition site.
-                    } else throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "unsupported pragma: " + statement.Name);
+                    } else if (auto setting = PlannerSetting(statement)) Program.PlannerSettings.push_back(std::move(*setting));
+                    else throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "unsupported pragma: " + statement.Name);
                     break;
                 }
             }
@@ -363,7 +416,7 @@ private:
     };
 
     void CheckSize(TSourcePosition pos) const {
-        if (Program.Expressions.Size() + Program.Relations.size() + Program.Columns.size() > Settings.MaxNodes) {
+        if (Program.Expressions.Size() + Program.Relations.size() + Program.Columns.size() + Program.PlannerSettings.size() > Settings.MaxNodes) {
             throw TResourceLimitError(pos, "bound program size limit exceeded");
         }
     }
@@ -1757,6 +1810,12 @@ std::string_view SupportManifest() {
 "windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
 "pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
+"planner_pragmas":{"prefixes":["ydb","kikimr"],
+"boolean":["OptDisableAutoIndexSelection","EnableAutoIndexSelectionForIndexLookupJoin","OptDisableTopSort","OptEnablePredicateExtract","OptShuffleElimination","OptShuffleEliminationWithMap","OptShuffleEliminationForAggregation","EnableNewRBOPhysicalStagePeephole","WindowFunctionsV2","OptEnableOlapPushdown","OptEnableOlapPushdownAggregate","OptEnableOlapPushdownProjections","OptEnableOlapPushdownRegexp","DqHashOperatorsUseBlocks","UseBlockHashJoin","DisableBlockExecution"],
+"uint32":["CostBasedOptimizationLevel","DqChannelVersion"],
+"string":["CostBasedOptimization=on/off/auto","HashJoinMode","OptimizerHints"],
+"false_only":["OptFallbackToLegacyOptimizer"],
+"rules":["static query settings applied in source order; every occurrence is validated","case-insensitive names; up to four single internal or trailing underscores","empty Boolean values mean true","HashJoinMode and OptimizerHints are validated at the RBO handoff","unknown settings delegate; malformed known values are errors"]},
 "restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing only to Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, arbitrary UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";

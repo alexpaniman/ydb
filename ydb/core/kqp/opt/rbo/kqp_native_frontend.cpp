@@ -1,6 +1,7 @@
 #include "kqp_native_frontend.h"
 #include "frontend_lowering.h"
 #include "frontend/frontend.h"
+#include <ydb/core/kqp/provider/yql_kikimr_settings.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -33,11 +34,63 @@ TString JoinName(NFrontend::EJoinKind kind) {
     }
     Y_UNREACHABLE();
 }
+
+void ApplyPlannerSettings(const std::vector<NFrontend::TPlannerSetting>& settings, NYql::TKikimrConfiguration* config) {
+    using S = NFrontend::EPlannerSetting;
+    if (settings.empty()) return;
+    if (!config) throw NFrontend::TUnsupportedFeature(NFrontend::EFeature::Backend, settings.front().Position,
+        "native planner pragmas require a configuration at the RBO handoff");
+    // Validate complex options before changing query configuration. Hint parsing
+    // belongs to KQP's optimizer; no YQL configuration/annotation pipeline runs.
+    TVector<TOptimizerHints> hints;
+    TVector<NYql::NDq::EHashJoinMode> hashModes;
+    for (const auto& option : settings) {
+        try {
+            if (option.Kind == S::OptimizerHints) hints.push_back(TOptimizerHints::Parse(String(std::get<std::string>(option.Value))));
+            else if (option.Kind == S::HashJoinMode) hashModes.push_back(FromString<NYql::NDq::EHashJoinMode>(String(std::get<std::string>(option.Value))));
+        } catch (const std::exception& error) {
+            throw NFrontend::TFrontendError(option.Position, std::string("invalid planner pragma: ") + error.what());
+        }
+    }
+    size_t hint = 0, hashMode = 0;
+    for (const auto& option : settings) {
+        switch (option.Kind) {
+            case S::OptDisableAutoIndexSelection: config->OptDisableAutoIndexSelection = std::get<bool>(option.Value); break;
+            case S::EnableAutoIndexSelectionForIndexLookupJoin: config->EnableAutoIndexSelectionForIndexLookupJoin = std::get<bool>(option.Value); break;
+            case S::OptDisableTopSort: config->OptDisableTopSort = std::get<bool>(option.Value); break;
+            case S::OptEnablePredicateExtract: config->OptEnablePredicateExtract = std::get<bool>(option.Value); break;
+            case S::OptShuffleElimination: config->OptShuffleElimination = std::get<bool>(option.Value); break;
+            case S::OptShuffleEliminationWithMap: config->OptShuffleEliminationWithMap = std::get<bool>(option.Value); break;
+            case S::OptShuffleEliminationForAggregation: config->OptShuffleEliminationForAggregation = std::get<bool>(option.Value); break;
+            case S::EnableNewRBOPhysicalStagePeephole: config->EnableNewRBOPhysicalStagePeephole = std::get<bool>(option.Value); break;
+            case S::WindowFunctionsV2: config->WindowFunctionsV2 = std::get<bool>(option.Value); break;
+            case S::OptEnableOlapPushdown: config->OptEnableOlapPushdown = std::get<bool>(option.Value); break;
+            case S::OptEnableOlapPushdownAggregate: config->OptEnableOlapPushdownAggregate = std::get<bool>(option.Value); break;
+            case S::OptEnableOlapPushdownProjections: config->OptEnableOlapPushdownProjections = std::get<bool>(option.Value); break;
+            case S::OptEnableOlapPushdownRegexp: config->OptEnableOlapPushdownRegexp = std::get<bool>(option.Value); break;
+            case S::DqHashOperatorsUseBlocks: config->DqHashOperatorsUseBlocks = std::get<bool>(option.Value); break;
+            case S::UseBlockHashJoin: config->UseBlockHashJoin = std::get<bool>(option.Value); break;
+            case S::DisableBlockExecution: config->DisableBlockExecution = std::get<bool>(option.Value); break;
+            case S::OptFallbackToLegacyOptimizer: config->OptFallbackToLegacyOptimizer = std::get<bool>(option.Value); break;
+            case S::CostBasedOptimizationLevel: config->CostBasedOptimizationLevel = std::get<std::uint32_t>(option.Value); break;
+            case S::DqChannelVersion: config->DqChannelVersion = std::get<std::uint32_t>(option.Value); break;
+            case S::CostBasedOptimization: {
+                const auto& mode = std::get<std::string>(option.Value);
+                config->CostBasedOptimization = String(mode);
+                config->CostBasedOptimizationLevel = mode == "on" ? std::numeric_limits<ui32>::max() :
+                    mode == "off" ? 0 : config->GetDefaultCostBasedOptimizationLevel();
+                break;
+            }
+            case S::HashJoinMode: config->HashJoinMode = hashModes.at(hashMode++); break;
+            case S::OptimizerHints: config->OptimizerHints = std::move(hints.at(hint++)); break;
+        }
+    }
+}
 } // namespace
 
 TVector<TIntrusivePtr<TOpRoot>> CompileNativeToRbo(std::string_view sql,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx,
-    const NFrontend::TBindSettings& bindSettings, const NFrontend::TParseSettings& parseSettings) {
+    const NFrontend::TBindSettings& bindSettings, const NFrontend::TParseSettings& parseSettings, NYql::TKikimrConfiguration* config) {
     std::unordered_map<std::string, TNativeTable> tables;
     NFrontend::TCompilerSettings settings;
     settings.Binding = bindSettings;
@@ -57,12 +110,13 @@ TVector<TIntrusivePtr<TOpRoot>> CompileNativeToRbo(std::string_view sql,
     }, settings);
     return ConvertNativeToRbo(std::move(compiled.Program.value()), [&](std::string_view name, NFrontend::TSourcePosition) {
         return tables.at(std::string(name));
-    }, ctx);
+    }, ctx, config);
 }
 
 TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
-    const TNativeTableResolver& resolve, NYql::TExprContext& ctx) {
+    const TNativeTableResolver& resolve, NYql::TExprContext& ctx, NYql::TKikimrConfiguration* config) {
     auto program = std::move(compiled).Release();
+    ApplyPlannerSettings(program.PlannerSettings, config);
     std::unordered_map<std::string, TNativeTable> tables;
     for (const auto& relation : program.Relations) if (relation.Kind == NFrontend::ERelation::Read && !tables.contains(relation.Table)) {
         auto table = resolve(relation.Table, relation.Position);
@@ -118,7 +172,10 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                 case R::Read: {
                     const auto& table = tables.at(relation.Table);
                     TUnorderedIUs columns; for (auto column : relation.Columns) columns.Add(column);
-                    op = MakeIntrusive<TOpRead>("", std::move(columns), table.Storage, table.Table, nullptr, std::nullopt,
+                    // Capture the source binding before pruning its columns: row
+                    // and join hints use this identity, not the table's path.
+                    const auto alias = relation.Columns.empty() ? TString{} : String(program.Columns.at(relation.Columns.front()).Qualifier);
+                    op = MakeIntrusive<TOpRead>(alias, std::move(columns), table.Storage, table.Table, nullptr, std::nullopt,
                         std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, pos);
                     break;
                 }

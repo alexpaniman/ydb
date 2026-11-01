@@ -16,13 +16,14 @@ using TNativeTableResolver = std::function<TNativeTable(std::string_view, NFront
 // Consumes an already bound program after asynchronous native catalog binding.
 // This is the boundary at which existing RBO table/type wrappers may be used.
 TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram program,
-    const TNativeTableResolver& resolve, NYql::TExprContext& ctx);
+    const TNativeTableResolver& resolve, NYql::TExprContext& ctx, NYql::TKikimrConfiguration* config = nullptr);
 
 // Tables must be resolved through the caller's normal catalog/authorization
 // path. The returned roots own native scalars; no YQL parser, CompileExpr,
 // RewriteSelect, PlanConverter, or YQL type transformer is invoked.
 TVector<TIntrusivePtr<TOpRoot>> CompileNativeToRbo(std::string_view sql,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx,
-    const NFrontend::TBindSettings& bindSettings = {}, const NFrontend::TParseSettings& parseSettings = {});
+    const NFrontend::TBindSettings& bindSettings = {}, const NFrontend::TParseSettings& parseSettings = {},
+    NYql::TKikimrConfiguration* config = nullptr);
 
 } // namespace NKikimr::NKqp

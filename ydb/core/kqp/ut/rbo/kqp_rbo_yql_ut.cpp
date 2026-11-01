@@ -359,7 +359,7 @@ void PrintPlan(const TString& plan, bool analyzeMode) {
     queryPlanPrinter.Print(plan);
 }
 
-TString ExecuteExplain(NYdb::NQuery::TSession& session, const TString& query) {
+TString ExecuteExplain(NYdb::NQuery::TSession& session, const TString& query, bool nativeFrontend = false) {
     auto result = session.ExecuteQuery(
         query,
         NYdb::NQuery::TTxControl::NoTx(),
@@ -368,12 +368,17 @@ TString ExecuteExplain(NYdb::NQuery::TSession& session, const TString& query) {
 
     result.GetIssues().PrintTo(Cerr);
     UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), NYdb::EStatus::SUCCESS);
+    if (nativeFrontend) {
+        UNIT_ASSERT(result.GetStats() && result.GetStats()->GetAst());
+        UNIT_ASSERT(result.GetStats()->GetAst()->find("native frontend: native-read-v1") != std::string::npos);
+        UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+    }
     auto plan = TString{*result.GetStats()->GetPlan()};
     PrintPlan(plan, /*analyzeMode=*/false);
     return plan;
 }
 
-TString ExecuteExplainAnalyze(NYdb::NQuery::TSession& session, const TString& query) {
+TString ExecuteExplainAnalyze(NYdb::NQuery::TSession& session, const TString& query, bool nativeFrontend = false) {
     auto result = session.ExecuteQuery(
         query,
         NYdb::NQuery::TTxControl::NoTx(),
@@ -382,6 +387,11 @@ TString ExecuteExplainAnalyze(NYdb::NQuery::TSession& session, const TString& qu
 
     result.GetIssues().PrintTo(Cerr);
     UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), NYdb::EStatus::SUCCESS);
+    if (nativeFrontend) {
+        UNIT_ASSERT(result.GetStats() && result.GetStats()->GetAst());
+        UNIT_ASSERT(result.GetStats()->GetAst()->find("native frontend: native-read-v1") != std::string::npos);
+        UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+    }
     auto plan = TString{*result.GetStats()->GetPlan()};
     PrintPlan(plan, /*analyzeMode=*/true);
     return plan;
@@ -934,13 +944,14 @@ FROM (
 
     }
 
-    NKikimrConfig::TAppConfig CreateExplainPlanTestAppConfig(bool inlineJoinFiltersAfterCBO = false) {
+    NKikimrConfig::TAppConfig CreateExplainPlanTestAppConfig(bool inlineJoinFiltersAfterCBO = false, bool nativeFrontend = false) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackOnDML(false);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackOnMultipleStatements(false);
         appConfig.MutableTableServiceConfig()->SetEnableInlineJoinFiltersAfterCBO(inlineJoinFiltersAfterCBO);
+        if (nativeFrontend) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         return appConfig;
     }
 
@@ -1019,8 +1030,8 @@ FROM (
 
     class TExplainPlanTestContext {
     public:
-        explicit TExplainPlanTestContext(bool inlineJoinFiltersAfterCBO = false)
-            : AppConfig(CreateExplainPlanTestAppConfig(inlineJoinFiltersAfterCBO))
+        explicit TExplainPlanTestContext(bool inlineJoinFiltersAfterCBO = false, bool nativeFrontend = false)
+            : AppConfig(CreateExplainPlanTestAppConfig(inlineJoinFiltersAfterCBO, nativeFrontend))
             , Kikimr(NKqp::TKikimrSettings(AppConfig).SetWithSampleTables(false))
             , Session(CreateSession())
         {
@@ -1046,8 +1057,8 @@ FROM (
         NYdb::NQuery::TSession Session;
     };
 
-    Y_UNIT_TEST(ExplainAnalyze) {
-        TExplainPlanTestContext testContext;
+    void RunExplainAnalyze(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplainAnalyze(session, R"(
             PRAGMA YqlSelect = 'force';
@@ -1055,7 +1066,7 @@ FROM (
             select count(*)
             from `/Root/t1` as t1
             inner join `/Root/t2` as t2 on t1.a = t2.b;
-        )");
+        )", nativeFrontend);
 
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         const auto* joinOp = FindOperatorByStringField(simplifiedPlan, "JoinKind", "Inner");
@@ -1082,9 +1093,11 @@ FROM (
         UNIT_ASSERT_C(executionHashShuffle->GetMapSafe().contains("KeyColumns"), plan);
         UNIT_ASSERT_C(executionHashShuffle->GetMapSafe().contains("HashFunc"), plan);
     }
+    Y_UNIT_TEST(ExplainAnalyze) { RunExplainAnalyze(false); }
+    Y_UNIT_TEST(NativeExplainAnalyze) { RunExplainAnalyze(true); }
 
-    Y_UNIT_TEST(ExplainJoin) {
-        TExplainPlanTestContext testContext;
+    void RunExplainJoin(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
@@ -1092,7 +1105,7 @@ FROM (
             select count(*)
             from `/Root/t1` as t1
             inner join `/Root/t2` as t2 on t1.a = t2.b;
-        )");
+        )", nativeFrontend);
 
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         const auto* joinOp = FindOperatorByStringField(simplifiedPlan, "JoinKind", "Inner");
@@ -1102,9 +1115,11 @@ FROM (
         const auto condition = GetStringField(*joinOp, "Condition");
         UNIT_ASSERT_C(condition.Contains("t1.a") && condition.Contains("t2.b") && condition.Contains(" = "), plan);
     }
+    Y_UNIT_TEST(ExplainJoin) { RunExplainJoin(false); }
+    Y_UNIT_TEST(NativeExplainJoin) { RunExplainJoin(true); }
 
-    Y_UNIT_TEST(ExplainReadRowsHints) {
-        TExplainPlanTestContext testContext;
+    void RunExplainReadRowsHints(bool nativeFrontend) {
+        TExplainPlanTestContext testContext(false, nativeFrontend);
         auto& session = testContext.GetSession();
         auto plan = ExecuteExplain(session, R"(
             PRAGMA YqlSelect = 'force';
@@ -1115,7 +1130,7 @@ FROM (
             select left_alias.a, right_alias.b
             from `/Root/t1` as left_alias
             inner join `/Root/t2` as right_alias on left_alias.a = right_alias.b;
-        )");
+        )", nativeFrontend);
 
         const auto simplifiedPlan = GetSimplifiedPlan(plan);
         const auto* leftRead = FindOperatorByStringField(simplifiedPlan, "Table", "t1");
@@ -1126,6 +1141,8 @@ FROM (
         UNIT_ASSERT_VALUES_EQUAL_C(GetStringField(*leftRead, "E-Rows"), "123", plan);
         UNIT_ASSERT_VALUES_EQUAL_C(GetStringField(*rightRead, "E-Rows"), "456", plan);
     }
+    Y_UNIT_TEST(ExplainReadRowsHints) { RunExplainReadRowsHints(false); }
+    Y_UNIT_TEST(NativeExplainReadRowsHints) { RunExplainReadRowsHints(true); }
 
     Y_UNIT_TEST(ExplainOriginalRowsHints) {
         TExplainPlanTestContext testContext;

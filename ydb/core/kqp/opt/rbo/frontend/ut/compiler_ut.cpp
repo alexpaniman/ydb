@@ -32,6 +32,72 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(PlannerPragmasKeepTypedValuesAndSourceOrder) {
+        using S = EPlannerSetting;
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(R"(
+                PRAGMA YDB.Opt_Disable_Auto_Index_Selection = 'OFF';
+                PRAGMA kikimr.OptDisableAutoIndexSelection;
+                PRAGMA ydb.CostBasedOptimizationLevel = '+4';
+                PRAGMA ydb.HashJoinMode = 'grace';
+                PRAGMA ydb.OptimizerHints = 'Rows(t # 123) JoinType(t u Shuffle)';
+                SELECT 1;
+                PRAGMA ydb.OptDisableAutoIndexSelection = 'no';
+                PRAGMA ydb.OptimizerHints;
+                PRAGMA ydb.CostBasedOptimization = 'AuTo';
+                PRAGMA ydb.OptFallbackToLegacyOptimizer = 'false';
+                SELECT 2;
+            )", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto& options = program.PlannerSettings;
+            UNIT_ASSERT_VALUES_EQUAL(program.Results.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(options.size(), 9);
+            UNIT_ASSERT(options[0].Kind == S::OptDisableAutoIndexSelection && !std::get<bool>(options[0].Value));
+            UNIT_ASSERT(options[1].Kind == S::OptDisableAutoIndexSelection && std::get<bool>(options[1].Value));
+            UNIT_ASSERT(options[2].Kind == S::CostBasedOptimizationLevel && std::get<std::uint32_t>(options[2].Value) == 4);
+            UNIT_ASSERT(options[3].Kind == S::HashJoinMode && std::get<std::string>(options[3].Value) == "grace");
+            UNIT_ASSERT(options[4].Kind == S::OptimizerHints && std::get<std::string>(options[4].Value) == "Rows(t # 123) JoinType(t u Shuffle)");
+            UNIT_ASSERT(options[5].Kind == S::OptDisableAutoIndexSelection && !std::get<bool>(options[5].Value));
+            UNIT_ASSERT(options[6].Kind == S::OptimizerHints && std::get<std::string>(options[6].Value).empty());
+            UNIT_ASSERT(options[7].Kind == S::CostBasedOptimization && std::get<std::string>(options[7].Value) == "auto");
+            UNIT_ASSERT(options[8].Kind == S::OptFallbackToLegacyOptimizer && !std::get<bool>(options[8].Value));
+            for (size_t i = 1; i < options.size(); ++i) UNIT_ASSERT(options[i - 1].Position.Line < options[i].Position.Line);
+            for (const auto* enabled : {"", "true", "TRUE", "t", "yes", "y", "on", "1", "da"}) {
+                const auto sql = std::string("PRAGMA ydb.WindowFunctionsV2='") + enabled + "'; SELECT 1";
+                UNIT_ASSERT(std::get<bool>(CompileNative(sql, Catalog, settings).Program->Get().PlannerSettings[0].Value));
+            }
+            for (const auto* disabled : {"false", "FALSE", "f", "no", "n", "off", "0", "net"}) {
+                const auto sql = std::string("PRAGMA ydb.WindowFunctionsV2='") + disabled + "'; SELECT 1";
+                UNIT_ASSERT(!std::get<bool>(CompileNative(sql, Catalog, settings).Program->Get().PlannerSettings[0].Value));
+            }
+        }
+    }
+
+    Y_UNIT_TEST(PlannerPragmasRejectInvalidValuesAndExplicitFallback) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser; settings.Mode = ECompilerMode::Auto;
+            for (const auto* pragma : {"ydb.WindowFunctionsV2='maybe'", "ydb.CostBasedOptimizationLevel='-1'",
+                    "ydb.CostBasedOptimizationLevel='4294967296'", "ydb.DqChannelVersion='1.0'", "ydb.DqChannelVersion=''",
+                    "ydb.CostBasedOptimization='sometimes'",
+                    "ydb.Opt__DisableAutoIndexSelection='true'", "ydb.O_p_t_Disable_Auto_IndexSelection='true'"}) {
+                const auto sql = std::string("PRAGMA ") + pragma + "; SELECT 1";
+                bool failed = false;
+                try { CompileNative(sql, Catalog, settings); }
+                catch (const TUnsupportedFeature& error) { UNIT_FAIL(std::string("invalid value incorrectly requested fallback: ") + error.what()); }
+                catch (const TFrontendError&) { failed = true; }
+                UNIT_ASSERT_C(failed, sql);
+            }
+            for (const auto* pragma : {"ydb.OptFallbackToLegacyOptimizer='true'", "ydb.OptFallbackToLegacyOptimizer",
+                    "ydb.FuturePlannerOption='true'", "other.WindowFunctionsV2='true'"}) {
+                const auto sql = std::string("PRAGMA ") + pragma + "; SELECT 1";
+                UNIT_ASSERT_C(CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+                auto required = settings; required.Mode = ECompilerMode::NativeRequired;
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, required), TUnsupportedFeature, sql);
+            }
+        }
+    }
+
     Y_UNIT_TEST(DecimalCoalesceWidensPrecisionWithoutChangingScale) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;
