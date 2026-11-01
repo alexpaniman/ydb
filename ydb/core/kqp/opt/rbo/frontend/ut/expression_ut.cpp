@@ -21,6 +21,51 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(JsonValuesRetainTheirRuntimeContractAcrossRewrites) {
+        for (const auto kind : {K::Json, K::JsonDocument}) {
+            TExpressionArena arena;
+            UNIT_ASSERT(ParseType(TType{kind, true}.ToString()) == (TType{kind, true}));
+            const auto input = arena.Column(0, {kind, true});
+            const auto value = arena.JsonValue(input, "$.'a.b'[0].*");
+            const auto rewritten = arena.RewriteColumns(value, [&](TExprId, TColumnId, TType type, TSourcePosition) {
+                return arena.Column(1, type.Required());
+            });
+            UNIT_ASSERT_VALUES_EQUAL(arena[rewritten].Name, arena[value].Name);
+            UNIT_ASSERT(arena[rewritten].Type == arena[value].Type);
+            UNIT_ASSERT_VALUES_EQUAL(arena[arena[rewritten].Arguments[0]].ColumnId, 1);
+            TExpressionArena copied;
+            const auto imported = copied.Import(arena, rewritten, [&](TColumnId id, TType type, TSourcePosition) {
+                return copied.Column(id, type);
+            });
+            UNIT_ASSERT_VALUES_EQUAL(copied[imported].Name, arena[value].Name);
+            TEvaluationContext context;
+            context.Column = [&](TColumnId) { return TValue{{kind}, std::string("opaque")}; };
+            UNIT_ASSERT_EXCEPTION(Evaluate(copied, imported, context), TFrontendError);
+            size_t calls = 0;
+            context.JsonValue = [&](const TValue& input, std::string_view path) {
+                ++calls;
+                UNIT_ASSERT(input.Type.Kind == kind);
+                UNIT_ASSERT_VALUES_EQUAL(path, "$.'a.b'[0].*");
+                return TValue{{K::Utf8, true}, std::string("result")};
+            };
+            const TExprId alternatives[]{imported, imported};
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(copied, copied.Coalesce(alternatives), context)), "result");
+            UNIT_ASSERT_VALUES_EQUAL(calls, 1);
+            const auto nullInput = arena.Literal({kind, true}, {});
+            const auto nullValue = arena.JsonValue(nullInput, "$.a");
+            const TExprId roots[]{value, nullValue};
+            const auto folded = arena.FoldConstants(roots);
+            UNIT_ASSERT_VALUES_EQUAL(folded[0], value);
+            UNIT_ASSERT_VALUES_EQUAL(folded[1], nullValue);
+            UNIT_ASSERT_EXCEPTION(arena.Unary(O::StablePickle, input), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(arena.Literal({kind}, std::string("{}")), TUnsupportedFeature);
+            const TType fields[]{{kind, true}};
+            UNIT_ASSERT_EXCEPTION(arena.TupleType(fields), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(arena.JsonValue(input, "$.\"a\\nb\""), TUnsupportedFeature);
+            UNIT_ASSERT_EXCEPTION(arena.JsonValue(input, "$[4294967296]"), TUnsupportedFeature);
+        }
+    }
+
     Y_UNIT_TEST(TupleStatesAreInternedAndHaveValidatedScalarFields) {
         Cerr << "native layout: type=" << sizeof(TType) << ", node=" << sizeof(TExprNode) << ", value=" << sizeof(TValue) << Endl;
         TExpressionArena arena;

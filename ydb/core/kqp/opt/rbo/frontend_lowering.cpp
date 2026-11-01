@@ -42,7 +42,7 @@ bool OlapIdentityConversion(const NFrontend::TExpressionArena& arena, const NFro
 }
 
 bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend::TExprNode& node) {
-    if (node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
+    if (node.Type.IsJson() || node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
     if (OlapIdentityConversion(arena, node)) return true;
     if (node.Op >= O::Add && node.Op <= O::Modulo && !node.Type.IsNumeric()) return false;
     if (!OlapBinaryName(node.Op).empty()) {
@@ -124,6 +124,11 @@ private:
             for (const auto* item : type->Cast<TTupleExprType>()->GetItems()) Type(item);
         if (type->GetKind() == ETypeAnnotationKind::Struct)
             for (const auto* item : type->Cast<TStructExprType>()->GetItems()) Type(item->GetItemType());
+        if (type->GetKind() == ETypeAnnotationKind::Variant) Type(type->Cast<TVariantExprType>()->GetUnderlyingType());
+        if (type->GetKind() == ETypeAnnotationKind::Dict) {
+            Type(type->Cast<TDictExprType>()->GetKeyType());
+            Type(type->Cast<TDictExprType>()->GetPayloadType());
+        }
         if (type->GetKind() == ETypeAnnotationKind::Callable) {
             const auto* callable = type->Cast<TCallableExprType>();
             Type(callable->GetReturnType());
@@ -268,6 +273,56 @@ private:
         });
     }
 
+    TExprNode::TPtr JsonValue(TExprNode::TPtr value, NFrontend::TType inputType, std::string_view path) {
+        const auto typed = [&](TStringBuf name, TExprNode::TListType args, const TTypeAnnotationNode* type) {
+            auto result = Ctx.NewCallable(Pos, name, std::move(args)); result->SetTypeAnn(type); return result;
+        };
+        const auto lambda = [&](const TExprNode::TPtr& arg, TExprNode::TPtr body) {
+            auto args = Ctx.NewArguments(Pos, {arg}); args->SetTypeAnn(Ctx.MakeType<TUnitExprType>());
+            const TTypeAnnotationNode* type = body->GetTypeAnn();
+            auto result = Ctx.NewLambda(Pos, std::move(args), std::move(body)); result->SetTypeAnn(type); return result;
+        };
+        const auto apply = [&](TStringBuf name, TExprNode::TListType args, const TTypeAnnotationNode* returned,
+                               bool strict = false, bool autoMap = false) {
+            TVector<TCallableExprType::TArgumentInfo> arguments;
+            for (size_t i = 0; i < args.size(); ++i)
+                arguments.push_back({args[i]->GetTypeAnn(), {}, autoMap && i == 0 ? ui64{NUdf::ICallablePayload::TArgumentFlags::AutoMap} : ui64{0}});
+            const auto* signature = Ctx.MakeType<TCallableExprType>(returned, arguments, 0, TStringBuf{});
+            const auto* voidType = Ctx.MakeType<TVoidExprType>();
+            auto settings = Ctx.NewList(Pos, strict ? TExprNode::TListType{Ctx.NewList(Pos, {Atom("strict")})} : TExprNode::TListType{});
+            AnnotateTypeSyntax(*settings);
+            auto udf = typed("Udf", {Atom(name), typed("Void", {}, voidType), Type(voidType), Atom(""),
+                Type(signature), Type(voidType), Atom(""), settings}, signature);
+            args.insert(args.begin(), std::move(udf));
+            return typed("Apply", std::move(args), returned);
+        };
+        const auto* jsonNode = Ctx.MakeType<TResourceExprType>("JsonNode");
+        const auto* optionalNode = Ctx.MakeType<TOptionalExprType>(jsonNode);
+        if (inputType.Kind == K::Json) {
+            if (inputType.Nullable) {
+                auto arg = Ctx.NewArgument(Pos, "native_json"); arg->SetTypeAnn(ExportNativeType(inputType.Required(), Ctx));
+                auto parsed = typed("Just", {apply("Json2.Parse", {arg}, jsonNode, false, true)}, optionalNode);
+                value = typed("IfPresent", {value, lambda(arg, parsed), typed("Nothing", {Type(optionalNode)}, optionalNode)}, optionalNode);
+            } else value = typed("Just", {apply("Json2.Parse", {value}, jsonNode, false, true)}, optionalNode);
+        } else value = Lift(value, inputType.Optional());
+        const auto* pathType = Ctx.MakeType<TResourceExprType>("JsonPath");
+        auto compiledPath = apply("Json2.CompilePath", {Literal({K::Utf8}, std::string(path))}, pathType);
+        const auto* variablesType = Ctx.MakeType<TDictExprType>(ExportNativeType({K::Utf8}, Ctx), jsonNode);
+        auto variables = typed("Dict", {Type(variablesType)}, variablesType);
+        const auto* resultType = ExportNativeType({K::Utf8, true}, Ctx);
+        const auto* errorType = Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
+            ExportNativeType({K::Uint8}, Ctx), ExportNativeType({K::String}, Ctx)});
+        const auto* variant = Ctx.MakeType<TVariantExprType>(Ctx.MakeType<TTupleExprType>(
+            TVector<const TTypeAnnotationNode*>{errorType, resultType}));
+        auto extracted = apply(inputType.Kind == K::Json ? "Json2.SqlValueConvertToUtf8" : "Json2.JsonDocumentSqlValueConvertToUtf8",
+            {value, compiledPath, variables}, variant, true);
+        auto error = Ctx.NewArgument(Pos, "json_error"); error->SetTypeAnn(errorType);
+        auto result = Ctx.NewArgument(Pos, "json_value"); result->SetTypeAnn(resultType);
+        // Both EMPTY and ERROR select SQL NULL. The runtime compiles the path
+        // and extracts/converts the value; no YQL semantic expansion is needed.
+        return typed("Visit", {extracted, Atom("0"), lambda(error, Nothing({K::Utf8, true})), Atom("1"), lambda(result, result)}, resultType);
+    }
+
     TExprNode::TPtr Lower(const NFrontend::TExprNode& node) {
         TExprNode::TListType args;
         std::vector<NFrontend::TType> types;
@@ -279,6 +334,7 @@ private:
         if (node.Op >= O::Equal && node.Op <= O::GreaterEqual &&
             (types[0].Kind == K::Null || types[1].Kind == K::Null)) return Nothing(type);
         switch (node.Op) {
+            case O::JsonValue: return JsonValue(args[0], types[0], node.Name);
             case O::Literal: return Literal(type, node.Value);
             case O::Column: {
                 const auto [it, inserted] = Columns.emplace(node.ColumnId, type);

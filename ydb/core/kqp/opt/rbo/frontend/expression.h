@@ -34,7 +34,7 @@ public:
 // aggregate states; they do not enable SQL container syntax.
 enum class ETypeKind : std::uint8_t {
     Null, Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64,
-    Float, Double, String, Utf8, Decimal, Date, Datetime, Timestamp, Interval,
+    Float, Double, String, Utf8, Decimal, Date, Datetime, Timestamp, Interval, Json, JsonDocument,
     // Internal UTC calendar value, carried as timestamp microseconds. It is
     // executable but cannot be stored or cross a relational boundary.
     Calendar, Tuple,
@@ -55,6 +55,7 @@ struct TType {
     bool IsIntegral() const;
     bool IsNumeric() const;
     bool IsString() const;
+    bool IsJson() const { return Kind == ETypeKind::Json || Kind == ETypeKind::JsonDocument; }
     bool IsSigned() const;
     std::string ToString() const;
 };
@@ -99,7 +100,7 @@ enum class EOpcode : std::uint8_t {
     Concat, Ensure, StablePickle, Find,
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
     CalendarShiftMonths, CalendarShiftYears,
-    Unwrap, UnicodeLower, UnicodeUpper,
+    Unwrap, UnicodeLower, UnicodeUpper, JsonValue,
 };
 
 struct TExprNode {
@@ -150,6 +151,10 @@ public:
     TExprId Ensure(TExprId value, TExprId predicate, std::string message, TSourcePosition position = {});
     // Byte search: required needle and Uint32 offset, optional Uint32 result.
     TExprId Find(TExprId input, TExprId needle, TExprId offset, TSourcePosition position = {});
+    // SQL JSON_VALUE's default Utf8? result and NULL ON EMPTY / NULL ON ERROR.
+    // JSON and binary JSON inputs are opaque runtime values. The literal path
+    // is compiled by the existing JSON runtime after the RBO boundary.
+    TExprId JsonValue(TExprId input, std::string path, TSourcePosition position = {});
     TExprId Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position = {});
 
     const TExprNode& operator[](TExprId id) const;
@@ -185,6 +190,9 @@ private:
 struct TEvaluationContext {
     std::function<TValue(TColumnId)> Column;
     std::function<TValue(std::string_view)> Parameter;
+    // Optional reference-execution service; the compiler has no JSON runtime
+    // dependency. JSON_VALUE remains directly lowerable without this callback.
+    std::function<TValue(const TValue&, std::string_view)> JsonValue;
 };
 
 TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationContext& context = {});

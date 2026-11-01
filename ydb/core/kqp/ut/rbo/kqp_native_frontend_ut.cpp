@@ -12,6 +12,8 @@
 #include <yql/essentials/core/yql_expr_optimize.h>
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 #include <yql/essentials/public/decimal/yql_decimal.h>
+#include <yql/essentials/types/binary_json/write.h>
+#include <yql/essentials/minikql/jsonpath/jsonpath.h>
 
 #include <algorithm>
 #include <cmath>
@@ -96,6 +98,79 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(JsonValuesExecuteWithoutSemanticLowering) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        struct TCase { TString Json; const char* Path; std::optional<TString> Expected; };
+        const TCase cases[]{
+            {R"({"a":"alpha"})", "$.a", "alpha"}, {R"({"a.b.c":"dotted"})", "$.\"a.b.c\"", "dotted"},
+            {R"({"a.b.c":"single"})", "$.'a.b.c'", "single"}, {R"({"a":12.5})", "$.a", "12.5"},
+            {R"({"a":true})", "$.a", "true"}, {R"({"a":""})", "$.a", ""},
+            {R"({"a":null})", "$.a", std::nullopt}, {"{}", "$.a", std::nullopt},
+            {"{}", "strict $.a", std::nullopt}, {R"({"a":{"x":1}})", "$.a", std::nullopt},
+            {R"({"a":[1,2]})", "$.a", std::nullopt}, {R"({"a":[1,2]})", "$.a[*]", std::nullopt},
+            {R"({"a":[1,2]})", "$.a[1]", "2"}, {R"([{"a":"one"}])", "lax $.a", "one"},
+            {R"([{"a":"one"}])", "strict $.a", std::nullopt}, {"42", "$", "42"},
+            {"null", "$", std::nullopt}, {R"({"a":"é"})", "$.a", "é"},
+            {R"({"a":"x\u0000y"})", "$.a", TString("x\0y", 3)}, {R"({"a":"one"})", "$.*", "one"}};
+        for (const auto kind : {K::Json, K::JsonDocument}) for (const bool nullable : {false, true})
+            for (const bool present : {false, true}) {
+                if (!nullable && !present) continue;
+                for (const auto& test : cases) {
+                    TExpressionArena arena;
+                    const auto input = arena.Parameter("json", {kind, nullable});
+                    const auto root = arena.JsonValue(input, test.Path);
+                    TExprContext ctx;
+                    const auto lowered = LowerNativeLambda(arena, root, ctx, {});
+                    UNIT_ASSERT(AreAllNodesTypeAnnotated(*lowered));
+                    UNIT_ASSERT(!NeedsRboCompatibilityLowering(lowered));
+                    NMiniKQL::TSetup<false> setup(NMiniKQL::GetBuiltinFactory());
+                    auto registry = setup.FunctionRegistry->Clone(); NMiniKQL::FillStaticModules(*registry);
+                    setup.FunctionRegistry = registry;
+                    setup.PgmBuilder.Reset(new NMiniKQL::TProgramBuilder(*setup.Env, *registry));
+                    auto& pb = *setup.PgmBuilder;
+                    TString bytes = test.Json;
+                    if (kind == K::JsonDocument) {
+                        const auto binary = NBinaryJson::SerializeToBinaryJson(bytes);
+                        UNIT_ASSERT(std::holds_alternative<NBinaryJson::TBinaryJson>(binary));
+                        const auto& data = std::get<NBinaryJson::TBinaryJson>(binary);
+                        bytes = TString(data.Data(), data.Size());
+                    }
+                    auto value = kind == K::Json ? pb.NewDataLiteral<NUdf::EDataSlot::Json>(NUdf::TStringRef(bytes.data(), bytes.size())) :
+                        pb.NewDataLiteral<NUdf::EDataSlot::JsonDocument>(NUdf::TStringRef(bytes.data(), bytes.size()));
+                    if (nullable) value = present ? pb.NewOptional(value) : pb.NewEmptyOptional(pb.NewOptionalType(value.GetStaticType()));
+                    NYql::NCommon::TMkqlCommonCallableCompiler compiler;
+                    NYql::NCommon::TMkqlBuildContext build(compiler, pb, ctx);
+                    build.Parameters = pb.NewStruct({{"$json", value}});
+                    auto graph = setup.BuildGraph(NYql::NCommon::MkqlBuildLambda(*lowered, build, {pb.NewEmptyStruct()}));
+                    const auto actual = graph->GetValue();
+                    const auto expected = present ? test.Expected : std::nullopt;
+                    UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), test.Path);
+                    if (expected) UNIT_ASSERT_VALUES_EQUAL_C(TString(actual.AsStringRef()), *expected, test.Path);
+                }
+            }
+    }
+
+    Y_UNIT_TEST(JsonSelectorValidationAgreesWithTheOriginalParser) {
+        using namespace NFrontend;
+        TExpressionArena arena;
+        const auto input = arena.Parameter("json", {ETypeKind::Json});
+        const auto check = [&](const std::string& path) {
+            NYql::TIssues issues;
+            const bool original = bool(NYql::NJsonPath::ParseJsonPath(TString(path), issues, 7));
+            bool native = false;
+            try { arena.JsonValue(input, path); native = true; } catch (const TFrontendError&) {}
+            UNIT_ASSERT_VALUES_EQUAL_C(native, original, path);
+        };
+        for (const auto* path : {"$", " $.a ", "lax $.a", "strict $.a", "$.'a.b'", "$.\"a.b\"", "$.\"\"", "$.é",
+                "$.*[0].x", "$.a[*].b", "$[4294967295]", "$[01]", "$.true", "$.a$b", "$.\"é\"",
+                "", "$.", "$[", "$[]", "$..x", "$[1", "$[1]]", "lax$", "strict$", "$.\"unterminated"}) check(path);
+        const char* steps[]{".a", ".true", ".a$b", ".\"a.b\"", ".'é'", "[0]", "[*]", ".*"};
+        for (const auto* mode : {"", "lax ", "strict "}) for (const auto* space : {"", " ", "\n"})
+            for (const auto* first : steps) for (const auto* second : steps)
+                check(std::string(mode) + "$" + space + first + space + second + space);
+    }
+
     Y_UNIT_TEST(PlannerPragmasApplyOnceAtRboHandoffWithoutBeingDropped) {
         NTests::TIdTestContext f;
         auto compile = [&](const TString& sql) {

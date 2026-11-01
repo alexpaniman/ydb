@@ -275,6 +275,15 @@ private:
             if (Has(node, "->")) Unsupported(node, EFeature::Expression, "lambda outside named binding");
             return Parenthesis(Child(node, "smart_parenthesis"));
         }
+        if (name == "json_api_expr") return Expr(Only(node));
+        if (name == "json_value") {
+            auto* common = Child(node, "json_common_args");
+            if (Has(common, "PASSING") || Has(node, "RETURNING") || !Children(node, "json_case_handler").empty())
+                Unsupported(node, EFeature::Expression, "JSON_VALUE PASSING, RETURNING and handlers");
+            auto* path = Child(common, "jsonpath_spec");
+            auto input = Expr(Child(common, "expr"));
+            return Add(ESyntaxKind::JsonValue, node, Decode(path->getText(), path), {input});
+        }
         if (name == "atom_expr" || name == "in_atom_expr") {
             if (Has(node, "::")) {
                 std::string function;

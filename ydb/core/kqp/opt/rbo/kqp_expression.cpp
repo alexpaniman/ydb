@@ -477,6 +477,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::CalendarYear: return "CalendarYear";
         case TNativeOp::CalendarShiftMonths: return "CalendarShiftMonths";
         case TNativeOp::CalendarShiftYears: return "CalendarShiftYears";
+        case TNativeOp::JsonValue: return "JsonValue";
         case TNativeOp::Unwrap: return "Unwrap";
         case TNativeOp::UnicodeLower: return "Unicode::ToLower";
         case TNativeOp::UnicodeUpper: return "Unicode::ToUpper";
@@ -557,6 +558,7 @@ std::optional<TString> FormatNative(const TNativeArena& arena, TNativeId id,
         }
         result << *argument;
     }
+    if (node.Op == TNativeOp::JsonValue) result << ", " << QuoteString(TStringBuf(node.Name.data(), node.Name.size()));
     return result << ")";
 }
 

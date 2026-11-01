@@ -176,6 +176,33 @@ temporal types. Total casts preserve non-nullability, including integer to
 floating point. Floating division preserves IEEE infinity/NaN. Substring slices
 String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
 other integral offsets must be literals that fit Uint32.
+
+Json and JsonDocument are opaque typed inputs. JSON_VALUE accepts a literal
+selector path and returns Utf8? with NULL ON EMPTY and NULL ON ERROR. Paths may
+use lax/strict mode, root, member names, wildcards and nonnegative Uint32 array
+indexes. The SQL syntax has its own native node, so variable or parenthesized
+paths and ordinary function-call quantifiers cannot bypass the grammar.
+Selector validation runs before RBO; terminal lowering emits typed Json2 runtime
+calls directly, including their result handling, without YQL semantic expansion.
+The standalone compiler has no JSON runtime dependency. Its reference evaluator
+can receive an explicit JSON service; constant folding never invokes that service.
+Escaped member names, general JSONPath expressions, PASSING, RETURNING, explicit
+handlers and JSON constructors remain unsupported. JSON grouping, ordering,
+comparison, DISTINCT, tuple states and correlated captures are excluded; COUNT
+is the only aggregate/window operation on the opaque input itself. Storage
+projection pushdown is not enabled by this scalar support.
+
+JSON validation covers 601 selector comparisons with the original parser, nine
+invalid SQL argument forms, 120 direct MiniKQL executions without semantic
+lowering, populated row/column results across all three compiler paths and
+prepared-parameter reuse. The corrected revision passed 103 frontend and 462
+RBO tests: a 600-second shard timeout interrupted TPC-H and left 17 tests
+unlaunched; those exact 18 tests passed in a completion run with unchanged
+sources. The standalone CLI contains no YQL/MiniKQL symbols. Existing host
+fixtures and all 121 benchmark SQL files remain byte-preserved; populated
+coverage remains 22/22 TPC-H and 51/99 TPC-DS. Compilation timings were not
+remeasured for this increment.
+
 Unicode::ToUpper/ToLower accept Utf8 values and valid UTF-8 string literals,
 preserve optionality, and use the runtime's simple Unicode codepoint mapping.
 Native evaluation uses the generic Unicode library; terminal backend lowering

@@ -2599,6 +2599,87 @@ $round = ($x,$y) -> {return $x;};
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeHost) {
+    Y_UNIT_TEST(JsonValuesMatchBothCompilersOnPopulatedTables) {
+        struct TCase { const char* Json; const char* Path; std::optional<std::string> Value; };
+        const TCase cases[]{
+            {R"({"a":"alpha"})", "$.a", "alpha"}, {R"({"a.b.c":"dotted"})", "$.\"a.b.c\"", "dotted"},
+            {R"({"a":1.25})", "$.a", "1.25"}, {R"({"a":false})", "$.a", "false"},
+            {R"({"a":null})", "$.a", std::nullopt}, {"{}", "$.missing", std::nullopt},
+            {"{}", "strict $.missing", std::nullopt}, {R"([{"a":"one"}])", "lax $.a", "one"},
+            {R"([{"a":"one"}])", "strict $.a", std::nullopt}, {R"({"a":[1,2]})", "$.a[*]", std::nullopt},
+            {R"({"a":[1,2]})", "$.a[1]", "2"}, {nullptr, "$.a", std::nullopt},
+            {R"({"a":"x\u0000y"})", "$.a", std::string("x\0y", 3)}, {R"({"a":""})", "$.a", ""}};
+        TVector<TResultSnapshot> reference;
+        for (const int strategy : {0, 1, 2}) {
+            auto settings = NativeSettings(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
+                NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+            settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(strategy != 0);
+            settings.AppConfig.MutableTableServiceConfig()->SetAllowOlapDataQuery(true);
+            NKikimrKqp::TKqpSetting pushdown;
+            pushdown.SetName("OptEnableOlapPushdown"); pushdown.SetValue("false");
+            settings.SetKqpSettings({pushdown}); // Exercise the scalar execution contract.
+            TKikimrRunner runner(settings);
+            auto client = runner.GetTableClient();
+            auto session = client.CreateSession().GetValueSync().GetSession();
+            size_t index = 0;
+            for (const bool column : {false, true}) {
+                const TString table = column ? "/Root/JsonColumn" : "/Root/JsonRow";
+                const TString schema = TStringBuilder() << "CREATE TABLE `" << table
+                    << "` (id Uint64 NOT NULL, j Json, d JsonDocument, PRIMARY KEY(id))" << (column ? " WITH (STORE = COLUMN)" : "");
+                const auto created = session.ExecuteSchemeQuery(schema).GetValueSync();
+                UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+                TValueBuilder rows; rows.BeginList();
+                ui64 id = 0;
+                for (const auto& test : cases) {
+                    const auto json = test.Json ? std::optional<std::string>{test.Json} : std::nullopt;
+                    rows.AddListItem().BeginStruct().AddMember("id").Uint64(id++)
+                        .AddMember("j").OptionalJson(json).AddMember("d").OptionalJsonDocument(json).EndStruct();
+                }
+                const auto loaded = client.BulkUpsert(table, rows.EndList().Build()).GetValueSync();
+                UNIT_ASSERT_C(loaded.IsSuccess(), loaded.GetIssues().ToString());
+                id = 0;
+                for (const auto& test : cases) {
+                    const TString sql = TStringBuilder() << "SELECT JSON_VALUE(j, '" << test.Path << "') AS text, JSON_VALUE(d, '"
+                        << test.Path << "') AS binary FROM `" << table << "` WHERE id = " << id++ << "ul";
+                    const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                    UNIT_ASSERT_C(result.IsSuccess(), TStringBuilder() << "strategy=" << strategy << " " << sql << ": " << result.GetIssues().ToString());
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
+                    UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), 1);
+                    TResultSetParser values(result.GetResultSet(0)); UNIT_ASSERT(values.TryNextRow());
+                    UNIT_ASSERT_C(values.ColumnParser("text").GetOptionalUtf8() == test.Value, sql);
+                    UNIT_ASSERT_C(values.ColumnParser("binary").GetOptionalUtf8() == test.Value, sql);
+                    const auto actual = SnapshotRows(result.GetResultSet(0));
+                    if (strategy == 0) reference.push_back(actual); else AssertSame(actual, reference.at(index));
+                    ++index;
+                }
+                // Invalid literal paths must fail even when the scan is empty.
+                for (const auto* path : {"$.", "$[", "$[]"}) {
+                    const TString sql = TStringBuilder() << "SELECT JSON_VALUE(j, '" << path << "') FROM `" << table << "` WHERE false";
+                    const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
+                    UNIT_ASSERT_C(!result.IsSuccess(), sql);
+                    UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, sql);
+                }
+            }
+            for (const bool binary : {false, true}) {
+                const TString sql = TStringBuilder() << "DECLARE $json AS " << (binary ? "JsonDocument" : "Json")
+                    << "?; SELECT JSON_VALUE($json, '$.a') AS value";
+                const auto prepared = session.PrepareDataQuery(sql).GetValueSync();
+                UNIT_ASSERT_C(prepared.IsSuccess(), prepared.GetIssues().ToString());
+                auto query = prepared.GetQuery();
+                for (const auto* json : {"{\"a\":\"first\"}", static_cast<const char*>(nullptr), "{\"a\":\"last\"}"}) {
+                    auto params = query.GetParamsBuilder();
+                    const auto data = json ? std::optional<std::string>{json} : std::nullopt;
+                    if (binary) params.AddParam("$json").OptionalJsonDocument(data).Build();
+                    else params.AddParam("$json").OptionalJson(data).Build();
+                    const auto result = query.Execute(TTxControl::BeginTx().CommitTx(), params.Build()).GetValueSync();
+                    const auto snapshot = Snapshot(result);
+                    if (strategy == 0) reference.push_back(snapshot); else AssertSame(snapshot, reference.at(index));
+                    ++index;
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(NativeCompilationBenchmark) {
         const auto& requested = GetTestParam("NATIVE_COMPILATION_BENCH_ITERATIONS");
         if (requested.empty()) return;

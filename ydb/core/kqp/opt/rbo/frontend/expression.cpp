@@ -68,6 +68,69 @@ int Width(K kind) {
     }
 }
 
+// A complete selector path has no JSONPath type-checking phase: each step
+// selects members or array elements. More general JSONPath expressions remain
+// explicit Unsupported until their compile-time diagnostics are implemented.
+void ValidateJsonSelector(std::string_view path, TSourcePosition position) {
+    std::size_t at = 0;
+    const auto whitespace = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f'; };
+    const auto space = [&] {
+        while (at < path.size() && whitespace(path[at])) ++at;
+    };
+    const auto invalid = [&] { Fail(position, "Invalid JSON selector path"); };
+    const auto unsupported = [&] {
+        throw TUnsupportedFeature(EFeature::Expression, position,
+            "native JSON paths support root, members, wildcards and nonnegative Uint32 array indexes");
+    };
+    const auto start = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+    space();
+    for (const auto mode : {std::string_view{"lax"}, std::string_view{"strict"}})
+        if (path.substr(at).starts_with(mode) && (at + mode.size() == path.size() || whitespace(path[at + mode.size()]))) {
+            at += mode.size(); space(); break;
+        }
+    if (at == path.size()) invalid();
+    if (path[at++] != '$') unsupported();
+    for (;;) {
+        space();
+        if (at == path.size()) return;
+        const auto op = path[at++];
+        if (op == '.') {
+            space();
+            if (at == path.size()) invalid();
+            if (path[at] == '*') { ++at; continue; }
+            if (path[at] == '\'' || path[at] == '"') {
+                const char quote = path[at++];
+                while (at < path.size() && path[at] != quote) {
+                    if (path[at] == '\\' || static_cast<unsigned char>(path[at]) < 32) unsupported();
+                    ++at;
+                }
+                if (at == path.size()) invalid();
+                ++at;
+            } else {
+                if (!start(path[at])) invalid();
+                do { ++at; } while (at < path.size() && (start(path[at]) || (path[at] >= '0' && path[at] <= '9') || path[at] == '$'));
+            }
+        } else if (op == '[') {
+            space();
+            if (at == path.size() || path[at] == ']') invalid();
+            if (path[at] == '*') ++at;
+            else {
+                if (path[at] < '0' || path[at] > '9') unsupported();
+                std::uint32_t index;
+                const auto parsed = std::from_chars(path.data() + at, path.data() + path.size(), index);
+                if (parsed.ec != std::errc{}) unsupported();
+                at = parsed.ptr - path.data();
+            }
+            space();
+            if (at == path.size()) invalid();
+            if (path[at++] != ']') unsupported();
+        } else {
+            if (op == ']' || op == ')') invalid();
+            unsupported();
+        }
+    }
+}
+
 K IntegerKind(int width, bool isSigned) {
     if (isSigned) {
         return width <= 8 ? K::Int8 : width <= 16 ? K::Int16 : width <= 32 ? K::Int32 : K::Int64;
@@ -673,7 +736,7 @@ void ValidateValue(const TExpressionArena& arena, const TValue& value, TSourcePo
                 value.Type.Kind == K::Timestamp ? 64 : Width(value.Type.Kind);
             valid = IsDate(value.Type.Kind) ? FitsTemporal(*number, value.Type.Kind) : FitsUnsigned(*number, width);
         }
-    } else if (value.Type.IsString()) {
+    } else if (value.Type.IsString() || value.Type.IsJson()) {
         valid = std::holds_alternative<std::string>(value.Data);
         if (valid && value.Type.Kind == K::Utf8) valid = IsUtf8(std::get<std::string>(value.Data));
     } else if (value.Type.Kind == K::Bool) {
@@ -739,7 +802,7 @@ bool TType::IsSigned() const { return Kind >= K::Int8 && Kind <= K::Int64; }
 
 std::string TType::ToString() const {
     static constexpr const char* Names[] = {"Null", "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
-        "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval", "Calendar", "Tuple"};
+        "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval", "Json", "JsonDocument", "Calendar", "Tuple"};
     std::string result = Names[static_cast<unsigned>(Kind)];
     if (Kind == K::Decimal) {
         result += "(" + std::to_string(Precision) + "," + std::to_string(Scale) + ")";
@@ -754,7 +817,7 @@ TType ParseType(std::string_view name, TSourcePosition position) {
         name.remove_suffix(1);
     }
     const auto normalized = Lower(name);
-    for (unsigned i = 0; i <= static_cast<unsigned>(K::Interval); ++i) {
+    for (unsigned i = 0; i <= static_cast<unsigned>(K::JsonDocument); ++i) {
         TType type{static_cast<K>(i), nullable};
         if (Lower(type.ToString().substr(0, type.ToString().find('?'))) == normalized && type.Kind != K::Decimal) {
             return type;
@@ -791,6 +854,7 @@ TType TExpressionArena::TupleType(std::span<const TType> items, TSourcePosition 
     std::size_t hash = items.size();
     for (const auto item : items) {
         ValidateType(item, position);
+        if (item.IsJson()) throw TUnsupportedFeature(EFeature::Type, position, "JSON tuple states are outside the native scalar profile");
         if (item.Kind == K::Calendar) Fail(position, "Calendar values cannot enter tuple states");
         if (item.Kind == K::Tuple) Fail(position, "Nested tuple states are not supported");
         const std::uint64_t bits = static_cast<unsigned>(item.Kind) | (std::uint64_t{item.Nullable} << 8) |
@@ -846,6 +910,8 @@ TExprId TExpressionArena::Append(TExprNode node) {
 }
 
 TExprId TExpressionArena::Literal(TType type, TScalar value, TSourcePosition position) {
+    if (type.IsJson() && !std::holds_alternative<std::monostate>(value))
+        throw TUnsupportedFeature(EFeature::Expression, position, "native JSON values require a typed column or parameter");
     ValidateValue(*this, {type, value}, position);
     if (type.Kind == K::Float || type.Kind == K::Tuple) value = NormalizeValue(type, std::move(value));
     return Append({O::Literal, type, position, {}, std::move(value), {}, 0});
@@ -879,6 +945,8 @@ TExprId TExpressionArena::Convert(TExprId input, TType target, TSourcePosition p
 TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition position) {
     ValidateType(target, position);
     const auto source = (*this)[input].Type;
+    if ((source.IsJson() || target.IsJson()) && source.Kind != K::Null && source.Required() != target.Required())
+        throw TUnsupportedFeature(EFeature::Expression, position, "JSON conversion is outside the native scalar profile");
     if (source.Kind == K::Tuple || target.Kind == K::Tuple) return Convert(input, target, position);
     if (source.Kind == K::Calendar || target.Kind == K::Calendar)
         throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime accessors or constructors");
@@ -965,6 +1033,7 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         if (type.Kind != K::Calendar) Fail(position, "calendar operation requires a calendar value");
         type = {op == O::CalendarDate ? K::Date : op == O::CalendarDatetime ? K::Datetime : op == O::CalendarTimestamp ? K::Timestamp : K::Uint16, type.Nullable};
     } else if (op == O::StablePickle) {
+        if (type.IsJson()) throw TUnsupportedFeature(EFeature::Type, position, "JSON key serialization is outside the native profile");
         if (type.Kind == K::Tuple) Fail(position, "Tuple state serialization is not supported");
         if (type.Kind == K::Calendar) throw TUnsupportedFeature(EFeature::Type, position, "calendar values cannot be persisted");
         type = {K::String};
@@ -998,6 +1067,8 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
 TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosition position) {
     const auto leftType = (*this)[left].Type;
     const auto rightType = (*this)[right].Type;
+    if (leftType.IsJson() || rightType.IsJson())
+        throw TUnsupportedFeature(EFeature::Expression, position, "JSON binary operations are outside the native scalar profile");
     if (op == O::CalendarShiftMonths || op == O::CalendarShiftYears) {
         if (leftType.Kind != K::Calendar || rightType != TType{K::Int32})
             Fail(position, "calendar shift requires a calendar value and non-null Int32 amount");
@@ -1118,6 +1189,13 @@ TExprId TExpressionArena::Find(TExprId input, TExprId needle, TExprId offset, TS
     if (!type.IsString() || (*this)[needle].Type != type.Required() || (*this)[offset].Type != TType{K::Uint32})
         Fail(position, "Find requires matching string types, a non-null needle and a non-null Uint32 offset");
     return Append({O::Find, {K::Uint32, true}, position, {input, needle, offset}, {}, {}, 0});
+}
+
+TExprId TExpressionArena::JsonValue(TExprId input, std::string path, TSourcePosition position) {
+    if (!(*this)[input].Type.IsJson()) Fail(position, "JSON_VALUE expects Json or JsonDocument");
+    if (!IsUtf8(path)) Fail(position, "JSON path must be valid UTF-8");
+    ValidateJsonSelector(path, position);
+    return Append({O::JsonValue, {K::Utf8, true}, position, {input}, {}, std::move(path), 0});
 }
 
 TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position) {
@@ -1288,6 +1366,7 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
     } catch (const TFrontendError&) {
     }
     if (castType && castType->Kind != K::Null) {
+        if (castType->IsJson()) throw TUnsupportedFeature(EFeature::Expression, position, "native JSON constructors are not supported");
         arity(1);
         const auto source = (*this)[arguments[0]];
         if (source.Op != O::Literal || !source.Type.IsString())
@@ -1313,6 +1392,7 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::Ensure: return Ensure(node.Arguments[0], node.Arguments[1], std::move(node.Name), node.Position);
         case O::Unwrap: return Call("Unwrap", node.Arguments, node.Position);
         case O::Find: return Find(node.Arguments[0], node.Arguments[1], node.Arguments[2], node.Position);
+        case O::JsonValue: return JsonValue(node.Arguments[0], std::move(node.Name), node.Position);
         default:
             return node.Arguments.size() == 1 ? Unary(node.Op, node.Arguments[0], node.Position) :
                 Binary(node.Op, node.Arguments[0], node.Arguments[1], node.Position);
@@ -1824,7 +1904,12 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
             stack.push_back({node.Arguments[frame.Next]});
             continue;
         }
-        finish(Execute(node, values));
+        if (node.Op == O::JsonValue) {
+            if (!context.JsonValue) Fail(node.Position, "JSON_VALUE reference execution requires a JSON runtime service");
+            auto value = context.JsonValue(*values[node.Arguments[0]], node.Name);
+            if (value.Type != node.Type) Fail(node.Position, "JSON_VALUE runtime returned an unexpected type");
+            finish(std::move(value));
+        } else finish(Execute(node, values));
     }
     return *values[root];
 }
@@ -1841,6 +1926,9 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             return Literal(node.Type, std::move(value), node.Position);
         };
         if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) return original;
+        // Path compilation and JSON evaluation belong to the execution runtime,
+        // including invalid-path errors and NULL inputs. Never invoke it here.
+        if (node.Op == O::JsonValue) return retain();
         if (node.Op == O::If && (*this)[node.Arguments[0]].Op == O::Literal) {
             const auto& condition = (*this)[node.Arguments[0]].Value;
             return node.Arguments[std::holds_alternative<bool>(condition) && std::get<bool>(condition) ? 1 : 2];

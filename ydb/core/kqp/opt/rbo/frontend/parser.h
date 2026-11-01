@@ -28,7 +28,7 @@ struct TWindowFrame {
 
 enum class ESyntaxKind : std::uint8_t {
     Integer, Real, String, Boolean, Null, Column, Variable, Star,
-    Unary, Binary, Call, Cast, Case, In, Between, ScalarSubquery, Exists,
+    Unary, Binary, Call, Cast, Case, In, Between, ScalarSubquery, Exists, JsonValue,
 };
 
 struct TSyntaxExpr {

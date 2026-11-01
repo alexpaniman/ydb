@@ -582,6 +582,15 @@ private:
             Expect("("); auto arg = Expression(); Expect("AS"); auto type = TypeName(); Expect(")");
             return Add(ESyntaxKind::Cast, pos, std::move(type), {arg});
         }
+        if (Is("JSON_VALUE") && Is("(", 1)) {
+            ++Index; Expect("("); auto input = Expression(); Expect(",");
+            if (Token().Kind != EToken::String) Fail("JSON_VALUE requires a literal path");
+            auto path = Tokens[Index++].Text;
+            // Extended clauses go through the generated grammar and receive
+            // an explicit Unsupported result; they are not ordinary call args.
+            Expect(")");
+            return Add(ESyntaxKind::JsonValue, pos, std::move(path), {input});
+        }
         if (Take("CASE")) {
             TSyntaxId value = NoSyntax;
             if (!Is("WHEN")) value = Expression();

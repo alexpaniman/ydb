@@ -32,6 +32,55 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(JsonValuesHaveAnExplicitNativeExecutionProfile) {
+        const auto catalog = [](std::string_view name, TSourcePosition) {
+            return TCatalogTable{std::string(name), {{"j", {ETypeKind::Json, true}}, {"d", {ETypeKind::JsonDocument}}}};
+        };
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative("SELECT JSON_VALUE(j, '$.a'), JSON_VALUE(d, 'strict $.a[0]') FROM t", catalog, settings);
+            UNIT_ASSERT(compiled.Program);
+            size_t calls = 0;
+            for (const auto& node : compiled.Program->Get().Expressions.Nodes()) if (node.Op == EOpcode::JsonValue) {
+                ++calls;
+                UNIT_ASSERT(node.Type == (TType{ETypeKind::Utf8, true}));
+                UNIT_ASSERT_VALUES_EQUAL(node.Arguments.size(), 1);
+            }
+            UNIT_ASSERT_VALUES_EQUAL(calls, 2);
+            for (const auto* sql : {"SELECT JSON_VALUE(j, '$.a' RETURNING Utf8) FROM t",
+                    "SELECT JSON_VALUE(j, '$.a' NULL ON EMPTY) FROM t", "SELECT JSON_VALUE(j, '$x' PASSING 1 AS x) FROM t",
+                    "SELECT JSON_VALUE(j, '$ ? (@.a > 0)') FROM t", "SELECT JSON_VALUE(j, '$.a + 1') FROM t",
+                    "SELECT JSON_VALUE(j, '$[last]') FROM t", "SELECT JSON_VALUE(j, '$[0, 1]') FROM t",
+                    "SELECT j = j FROM t", "SELECT j FROM t ORDER BY j", "SELECT COUNT(DISTINCT j) FROM t",
+                    "SELECT MIN(j) FROM t", "SELECT MIN(j) OVER() FROM t", "SELECT Json('{}')",
+                    "SELECT `JSON_VALUE`(j, '$.a') FROM t"}) {
+                settings.Mode = ECompilerMode::Auto;
+                const auto result = CompileNative(sql, catalog, settings);
+                UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported, sql);
+            }
+            for (const auto* sql : {"SELECT JSON_VALUE(j, '$.') FROM t", "SELECT JSON_VALUE(j, '$[') FROM t",
+                    "SELECT JSON_VALUE(j, '$[]') FROM t", "SELECT JSON_VALUE('text', '$.a')", "SELECT JSON_VALUE(NULL, '$')"}) {
+                settings.Mode = ECompilerMode::Auto;
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, catalog, settings), TFrontendError, sql);
+            }
+        }
+        for (const auto* sql : {"SELECT JSON_VALUE(j, '$.a') FROM t", "SELECT JSON_VALUE(j, '$.*[0].x') FROM t",
+                "SELECT JSON_VALUE(j, 'lax $.a') FROM t"}) AssertParserAgreement(sql);
+        for (const auto* sql : {"$p = '$.a'; SELECT JSON_VALUE(j, $p) FROM t",
+                "SELECT JSON_VALUE(j, ('$.a')) FROM t", "SELECT JSON_VALUE(ALL j, '$.a') FROM t",
+                "SELECT JSON_VALUE(DISTINCT j, '$.a') FROM t", "SELECT JSON_VALUE(j, '$.a',) FROM t",
+                "SELECT JSON_VALUE(j, '$' || '.a') FROM t", "SELECT JSON_VALUE(j, NULL) FROM t",
+                "SELECT JSON_VALUE(j, 1) FROM t", "SELECT JSON_VALUE(j) FROM t"}) {
+            AssertParserAgreement(sql);
+            TCompilerSettings settings; settings.Mode = ECompilerMode::Auto;
+            bool rejected = false;
+            try { CompileNative(sql, catalog, settings); }
+            catch (const TUnsupportedFeature&) { UNIT_FAIL("invalid JSON_VALUE syntax requested fallback"); }
+            catch (const TFrontendError&) { rejected = true; }
+            UNIT_ASSERT_C(rejected, sql);
+        }
+    }
+
     Y_UNIT_TEST(PlannerPragmasKeepTypedValuesAndSourceOrder) {
         using S = EPlannerSetting;
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {

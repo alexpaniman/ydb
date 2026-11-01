@@ -1370,6 +1370,7 @@ private:
                 break;
             }
             case ESyntaxKind::Cast: result = arena.Cast(Expr(syntax.Arguments[0], context), ParseType(syntax.Text, syntax.Position), syntax.Position); break;
+            case ESyntaxKind::JsonValue: result = arena.JsonValue(Expr(syntax.Arguments[0], context), syntax.Text, syntax.Position); break;
             case ESyntaxKind::Case: {
                 result = Expr(syntax.Arguments.back(), context);
                 for (std::size_t i = syntax.Arguments.size() - 1; i > 0; i -= 2) {
@@ -1612,6 +1613,21 @@ void CheckProgram(const TBoundProgram& program) {
         }
     }
     for (const auto& relation : program.Relations) {
+        const auto jsonKey = [&](TColumnId id) {
+            if (program.Columns.at(id).Type.IsJson())
+                throw TUnsupportedFeature(EFeature::Type, relation.Position, "JSON grouping and ordering are outside the native scalar profile");
+        };
+        for (auto key : relation.GroupKeys) jsonKey(key);
+        for (const auto& key : relation.SortKeys) jsonKey(key.Column);
+        for (const auto& capture : relation.Captures)
+            if (program.Columns.at(capture.Local).Type.IsJson())
+                throw TUnsupportedFeature(EFeature::Subquery, relation.Position, "correlated JSON captures are outside the native scalar profile");
+        for (const auto& aggregate : relation.Aggregates)
+            if (program.Columns.at(aggregate.Input).Type.IsJson() && (aggregate.Function != "count" || aggregate.Distinct))
+                throw TUnsupportedFeature(EFeature::Function, relation.Position, "native JSON aggregation supports only COUNT");
+        for (const auto& function : relation.WindowFunctions)
+            if (function.Input && program.Columns.at(*function.Input).Type.IsJson() && function.Function != "count")
+                throw TUnsupportedFeature(EFeature::Function, relation.Position, "native JSON windows support only COUNT");
         if (relation.Kind == ERelation::Join && relation.JoinKind == EJoinKind::Full && relation.Predicate) {
             // The existing full-join backend cannot execute residual filters.
             // Only admit predicates that become column equality keys; leave
@@ -1801,11 +1817,12 @@ std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
 "relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
-"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Null","single-optional"],
+"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Json","JsonDocument","Null","single-optional"],
 "aggregates":["count","sum","avg","min","max","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
 "math_operations":["Math::IsNaN on typed integer/Float/Double inputs"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],
+"json_operations":["JSON_VALUE on typed Json/JsonDocument columns or parameters, default Utf8? result and NULL ON EMPTY/ERROR; selector paths with optional lax/strict mode, members, wildcards and nonnegative Uint32 indexes; no escaped member names, path expressions, PASSING, RETURNING, explicit handlers or JSON constructors; JSON grouping/order/comparison, DISTINCT, tuple states, non-COUNT aggregates/windows and correlated JSON captures are unsupported"],
 "unicode_operations":["Unicode::ToUpper","Unicode::ToLower"],
 "windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
