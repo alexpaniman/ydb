@@ -9,6 +9,7 @@ SRCS(
     kqp_rbo_physical_join_builder.cpp
     kqp_rbo_physical_lookup_join_builder.cpp
     kqp_rbo_physical_map_builder.cpp
+    kqp_rbo_physical_layout.cpp
     kqp_rbo_physical_union_all_builder.cpp
     kqp_rbo_physical_filter_builder.cpp
     kqp_rbo_physical_source_builder.cpp

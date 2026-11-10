@@ -1,5 +1,6 @@
 #include "kqp_rbo_physical_query_builder.h"
 #include "kqp_rbo_compatibility.h"
+#include "kqp_rbo_physical_layout.h"
 #include "kqp_rbo_physical_table_effect_builder.h"
 #include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 
@@ -763,6 +764,7 @@ void TPhysicalQueryBuilder::TopologicalSort(TDqPhyStage&& dqStage, TVector<TExpr
 TVector<TExprNode::TPtr> TPhysicalQueryBuilder::PreparePhysicalStages(TVector<TExprNode::TPtr>&& physicalStages) {
     Y_ENSURE(physicalStages.size());
     auto& ctx = RBOCtx.ExprCtx;
+    const bool wideChannels = RBOCtx.KqpCtx.Config->GetEnableNewRBOPhysicalStagePeephole();
 
     TNodeOnNodeOwnedMap replaces;
     TExprNode::TPtr rootStage;
@@ -777,17 +779,121 @@ TVector<TExprNode::TPtr> TPhysicalQueryBuilder::PreparePhysicalStages(TVector<TE
         .Done().Ptr();
         // clang-format on
 
-        rootStage = newStage;
+        if (wideChannels) {
+            TypeAnnotate(newStage);
+            // This helper constructs channel pack/unpack adapters only.
+            // Scalar normalization and YQL peepholes do not participate.
+            rootStage = NDq::RebuildStageInputsAsWide(TDqPhyStage(newStage), ctx).Ptr();
+        } else {
+            rootStage = newStage;
+        }
 
         replaces[dqPhyStage.Raw()] = rootStage;
     }
 
     TypeAnnotate(rootStage);
+    if (wideChannels) {
+        rootStage = LowerPhysicalLayouts(rootStage, ctx, RBOCtx.TypeCtx);
+        TypeAnnotate(rootStage);
+    }
     YQL_CLOG(TRACE, CoreDq) << "[NEW RBO Physical stages] " << KqpExprToPrettyString(TExprBase(rootStage), ctx);
 
     TVector<TExprNode::TPtr> stagesTopSorted;
     TopologicalSort(TDqPhyStage(rootStage), stagesTopSorted);
+    if (wideChannels && RBOCtx.KqpCtx.Config->GetBlockChannelsMode() ==
+        NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_AUTO) {
+        return PrepareBlockChannels(std::move(stagesTopSorted));
+    }
     return stagesTopSorted;
+}
+
+TVector<TExprNode::TPtr> TPhysicalQueryBuilder::PrepareBlockChannels(TVector<TExprNode::TPtr>&& physicalStages) {
+    auto& ctx = RBOCtx.ExprCtx;
+    if (!RBOCtx.TypeCtx.ArrowResolver) return std::move(physicalStages);
+
+    // A shared producer must have the same layout for every consumer. Retain
+    // the existing HashV1 restriction for consumers with multiple such inputs.
+    THashSet<const TExprNode*> scalarOutputs{physicalStages.back().Get()};
+    for (const auto& node : physicalStages) {
+        const auto stage = TDqPhyStage(node);
+        size_t hashV1Inputs = 0;
+        for (const auto input : stage.Inputs()) {
+            if (const auto shuffle = input.Maybe<TDqCnHashShuffle>()) {
+                const auto function = shuffle.Cast().HashFunc().IsValid()
+                    ? FromString<NDq::EHashShuffleFuncType>(shuffle.Cast().HashFunc().Cast().StringValue())
+                    : RBOCtx.KqpCtx.Config->GetDqDefaultHashShuffleFuncType();
+                hashV1Inputs += function == NDq::EHashShuffleFuncType::HashV1;
+            }
+        }
+        for (const auto input : stage.Inputs()) {
+            if (const auto connection = input.Maybe<TDqConnection>()) {
+                const auto output = connection.Cast().Output();
+                const bool supported = input.Maybe<TDqCnHashShuffle>() || input.Maybe<TDqCnMerge>() ||
+                    input.Maybe<TDqCnUnionAll>() || input.Maybe<TDqCnParallelUnionAll>() ||
+                    input.Maybe<TDqCnBroadcast>() || input.Maybe<TDqCnMap>();
+                if (hashV1Inputs > 1 || !supported || output.Index().Value() != "0") {
+                    scalarOutputs.insert(output.Stage().Raw());
+                }
+            }
+        }
+    }
+
+    THashMap<const TExprNode*, TExprNode::TPtr> stages;
+    THashSet<const TExprNode*> blockOutputs;
+    TVector<TExprNode::TPtr> result;
+    for (const auto& node : physicalStages) {
+        const auto stage = TDqPhyStage(node);
+        TExprNode::TListType inputs, arguments;
+        TNodeOnNodeOwnedMap unpackInputs;
+        bool changed = false;
+        for (size_t i = 0; i < stage.Inputs().Size(); ++i) {
+            const auto input = stage.Inputs().Item(i);
+            const auto argument = stage.Program().Args().Arg(i);
+            auto newInput = input.Ptr();
+            auto newArgument = argument.Ptr();
+            if (const auto connection = input.Maybe<TDqConnection>()) {
+                const auto output = connection.Cast().Output();
+                const auto* producer = output.Stage().Raw();
+                if (stages.at(producer) != output.Stage().Ptr()) {
+                    auto newOutput = ctx.ChangeChild(output.Ref(), TDqOutput::idx_Stage, TExprNode::TPtr(stages.at(producer)));
+                    newInput = ctx.ChangeChild(input.Ref(), TDqConnection::idx_Output, std::move(newOutput));
+                    changed = true;
+                }
+                if (blockOutputs.contains(producer)) {
+                    newArgument = ctx.NewArgument(argument.Pos(), argument.Name());
+                    unpackInputs.emplace(argument.Raw(), ctx.NewCallable(argument.Pos(), "WideFromBlocks", {newArgument}));
+                }
+            }
+            inputs.push_back(std::move(newInput));
+            arguments.push_back(std::move(newArgument));
+        }
+        auto body = stage.Program().Body().Ptr();
+        if (!unpackInputs.empty()) body = LowerPhysicalLayouts(body, ctx, RBOCtx.TypeCtx, unpackInputs);
+        const auto settings = NDq::TDqStageSettings::Parse(stage);
+        if (!scalarOutputs.contains(stage.Raw()) && settings.WideChannels && settings.OutputNarrowType &&
+            body->IsCallable("WideFromBlocks")) {
+            TVector<const TTypeAnnotationNode*> columns;
+            for (const auto* column : settings.OutputNarrowType->GetItems()) columns.push_back(column->GetItemType());
+            const auto supported = RBOCtx.TypeCtx.ArrowResolver->AreTypesSupported(ctx.GetPosition(stage.Pos()), columns, ctx);
+            YQL_ENSURE(supported != IArrowResolver::ERROR);
+            if (supported == IArrowResolver::OK) {
+                body = body->HeadPtr();
+                blockOutputs.insert(stage.Raw());
+            }
+        }
+        if (!changed && body == stage.Program().Body().Ptr()) {
+            stages.emplace(stage.Raw(), node);
+            result.push_back(node);
+            continue;
+        }
+        auto program = ctx.NewLambda(stage.Program().Pos(), ctx.NewArguments(stage.Program().Pos(), std::move(arguments)), std::move(body));
+        auto rebuilt = Build<TDqPhyStage>(ctx, stage.Pos()).InitFrom(stage)
+            .Inputs(ctx.NewList(stage.Inputs().Pos(), std::move(inputs))).Program(program).Done().Ptr();
+        TypeAnnotate(rebuilt);
+        stages.emplace(stage.Raw(), rebuilt);
+        result.push_back(std::move(rebuilt));
+    }
+    return result;
 }
 
 void TPhysicalQueryBuilder::TypeAnnotate(TExprNode::TPtr& input) {

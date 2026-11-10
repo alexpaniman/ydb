@@ -24,6 +24,7 @@ private:
     TVector<NYql::TExprNode::TPtr> BuildPhysicalStageGraph(int rootIdx);
     TVector<NYql::TExprNode::TPtr> LowerPhysicalStageCompatibility(TVector<NYql::TExprNode::TPtr>&& physicalStages);
     TVector<NYql::TExprNode::TPtr> PreparePhysicalStages(TVector<NYql::TExprNode::TPtr>&& physicalStages);
+    TVector<NYql::TExprNode::TPtr> PrepareBlockChannels(TVector<NYql::TExprNode::TPtr>&& physicalStages);
     NYql::TExprNode::TPtr BuildPhysicalQuery(TVector<TVector<NYql::TExprNode::TPtr>>&& physicalStages);
     NYql::TExprNode::TPtr BuildDqPhyStage(const TVector<NYql::TExprNode::TPtr>& inputs, const TVector<NYql::TExprNode::TPtr>& args, NYql::TExprNode::TPtr physicalStageBody,
         NYql::NNodes::TCoNameValueTupleList&& setings, NYql::TExprContext& ctx, NYql::TPositionHandle pos) const;

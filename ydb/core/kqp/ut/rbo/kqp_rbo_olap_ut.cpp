@@ -1967,7 +1967,7 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
         UNIT_ASSERT_C(falsePositive.empty() && falseNegative.empty(), b);
     }
 
-    void RunBlockChannelTest(auto blockChannelsMode) {
+    void RunBlockChannelTest(auto blockChannelsMode, bool hashV1 = false) {
         auto CountSubstr = [](const TString& str, const TString& sub) -> ui64 {
             ui64 count = 0;
             for (auto pos = str.find(sub); pos != TString::npos; pos = str.find(sub, pos + sub.size())) {
@@ -1979,9 +1979,16 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
         auto settings = TKikimrSettings().SetWithSampleTables(false);
         settings.AppConfig.MutableTableServiceConfig()->SetEnableOlapSink(true);
         settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         settings.AppConfig.MutableTableServiceConfig()->SetBlockChannelsMode(blockChannelsMode);
         settings.AppConfig.MutableTableServiceConfig()->SetEnableSpillingNodes("None");
-        settings.AppConfig.MutableTableServiceConfig()->SetDefaultHashShuffleFuncType(NKikimrConfig::TTableServiceConfig_EHashKind_HASH_V2);
+        settings.AppConfig.MutableTableServiceConfig()->SetDefaultHashShuffleFuncType(hashV1
+            ? NKikimrConfig::TTableServiceConfig_EHashKind_HASH_V1
+            : NKikimrConfig::TTableServiceConfig_EHashKind_HASH_V2);
+        // The guard case needs two real HashV1 shuffle inputs. Otherwise
+        // shuffle elimination can use a Map connection and the storage hash.
+        if (hashV1) settings.AppConfig.MutableTableServiceConfig()->SetDefaultEnableShuffleElimination(false);
         settings.AppConfig.MutableTableServiceConfig()->SetDqHashOperatorsUseBlocks(true);
 
         TKikimrRunner kikimr(settings);
@@ -2005,19 +2012,21 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
         }
 
         auto client = kikimr.GetQueryClient();
-        // Inserts are not supported in new rbo.
-        /*
-        {
-            auto prepareResult = client.ExecuteQuery(R"(
-                REPLACE INTO `/Root/ColumnShard` (a, b, c) VALUES
-                    (1u, 1, 5),
-                    (2u, 2, 5),
-                    (3u, 2, 0),
-                    (4u, 2, 5);
-            )", NYdb::NQuery::TTxControl::BeginTx().CommitTx()).ExtractValueSync();
-            UNIT_ASSERT(prepareResult.IsSuccess());;
-        }
-        */
+        auto populate = [&](const TString& table) {
+            NYdb::TValueBuilder rows;
+            rows.BeginList();
+            for (ui64 i = 1; i <= 4; ++i) {
+                rows.AddListItem().BeginStruct()
+                    .AddMember("a").Uint64(i)
+                    .AddMember("b").OptionalInt32(i == 1 ? 1 : 2)
+                    .AddMember("c").OptionalInt64(i == 3 ? 0 : 5)
+                    .EndStruct();
+            }
+            rows.EndList();
+            const auto result = kikimr.GetTableClient().BulkUpsert(table, rows.Build()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        };
+        populate("/Root/ColumnShard");
 
         {
             NYdb::NQuery::TExecuteQuerySettings scanSettings;
@@ -2048,7 +2057,9 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
                     break;
                 case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_FORCE:
                     UNIT_ASSERT_C(plan.QueryStats->Getquery_ast().Contains("(WideSortBlocks"), plan.QueryStats->Getquery_ast());
-                    UNIT_ASSERT_C(plan.QueryStats->Getquery_ast().Contains("(ToFlow (WideFromBlocks"), plan.QueryStats->Getquery_ast());
+                    // Stage outputs are streams; the redundant FromFlow/ToFlow
+                    // round trip around the block sort has been removed.
+                    UNIT_ASSERT_C(plan.QueryStats->Getquery_ast().Contains("(WideFromBlocks (WideSortBlocks"), plan.QueryStats->Getquery_ast());
                     break;
             }
         }
@@ -2064,7 +2075,7 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
             )", NYdb::NQuery::TTxControl::BeginTx().CommitTx()).ExtractValueSync();
             UNIT_ASSERT_VALUES_EQUAL_C(it.GetStatus(), EStatus::SUCCESS, it.GetIssues().ToString());
             TString output = StreamResultToYson(it);
-            //CompareYson(output, R"([[[1];1u;1u];[[2];2u;6u]])");
+            CompareYson(R"([[[1];1u;1u];[[2];2u;6u]])", output);
         }
 
         {
@@ -2083,19 +2094,7 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
             UNIT_ASSERT_C(result.GetStatus() == NYdb::EStatus::SUCCESS, result.GetIssues().ToString());
         }
 
-        // Inserts are not support in new rbo.
-        /*
-        {
-            auto prepareResult = client.ExecuteQuery(R"(
-                REPLACE INTO `/Root/ColumnIsHard` (a, b, c) VALUES
-                    (1u, 1, 5),
-                    (2u, 2, 5),
-                    (3u, 2, 0),
-                    (4u, 2, 5);
-            )", NYdb::NQuery::TTxControl::BeginTx().CommitTx()).ExtractValueSync();
-            UNIT_ASSERT(prepareResult.IsSuccess());
-        }
-        */
+        populate("/Root/ColumnIsHard");
 
         {
             NYdb::NQuery::TExecuteQuerySettings scanSettings;
@@ -2123,8 +2122,16 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
                     // TODO: implement checks?
                     break;
                 case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_AUTO:
-                    UNIT_ASSERT_C(plan.QueryStats->Getquery_ast().Contains("(GraceJoinCore (ToFlow (WideFromBlocks"), plan.QueryStats->Getquery_ast());
-                    UNIT_ASSERT_EQUAL_C(CountSubstr(plan.QueryStats->Getquery_ast(), "(ToFlow (WideFromBlocks"), 2, plan.QueryStats->Getquery_ast());
+                    if (hashV1) {
+                        // Keep the existing two-input HashV1 restriction:
+                        // producers unpack before their scalar channels.
+                        UNIT_ASSERT_EQUAL_C(CountSubstr(plan.QueryStats->Getquery_ast(), "DqCnHashShuffle"), 2, plan.QueryStats->Getquery_ast());
+                        UNIT_ASSERT_EQUAL_C(CountSubstr(plan.QueryStats->Getquery_ast(), "\"HashV1\""), 2, plan.QueryStats->Getquery_ast());
+                        UNIT_ASSERT_EQUAL_C(CountSubstr(plan.QueryStats->Getquery_ast(), "(return (WideFromBlocks"), 2, plan.QueryStats->Getquery_ast());
+                    } else {
+                        UNIT_ASSERT_C(plan.QueryStats->Getquery_ast().Contains("(GraceJoinCore (ToFlow (WideFromBlocks"), plan.QueryStats->Getquery_ast());
+                        UNIT_ASSERT_EQUAL_C(CountSubstr(plan.QueryStats->Getquery_ast(), "(ToFlow (WideFromBlocks"), 2, plan.QueryStats->Getquery_ast());
+                    }
                     UNIT_ASSERT_C(!plan.QueryStats->Getquery_ast().Contains("WideToBlocks"), plan.QueryStats->Getquery_ast());
                     break;
                 case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_FORCE:
@@ -2132,6 +2139,16 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
                     break;
             }
         }
+        auto joined = client.StreamExecuteQuery(R"(
+            PRAGMA ydb.UseBlockHashJoin = "false";
+            PRAGMA ydb.OptimizerHints = 'JoinType(T1 T2 Shuffle)';
+            SELECT T1.a, T2.b
+            FROM (SELECT Just(a) AS a FROM `/Root/ColumnShard`) AS T1
+            LEFT JOIN `/Root/ColumnIsHard` AS T2 ON T1.a = T2.a
+            ORDER BY T1.a;
+        )", NYdb::NQuery::TTxControl::BeginTx().CommitTx()).ExtractValueSync();
+        UNIT_ASSERT_C(joined.IsSuccess(), joined.GetIssues().ToString());
+        CompareYson(R"([[[1u];[1]];[[2u];[2]];[[3u];[2]];[[4u];[2]]])", StreamResultToYson(joined));
     }
 
     Y_UNIT_TEST(BlockChannelScalar) {
@@ -2144,6 +2161,10 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
 
     Y_UNIT_TEST(BlockChannelForce) {
         RunBlockChannelTest(NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_FORCE);
+    }
+
+    Y_UNIT_TEST(BlockChannelAutoHashV1) {
+        RunBlockChannelTest(NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_AUTO, true);
     }
 
     Y_UNIT_TEST(DisableBlockExecutionPerQuery) {

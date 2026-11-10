@@ -72,6 +72,17 @@ owned lowering pass for execution callables. They do not invoke YQL peepholes.
 Tuple aggregate results use their native result schema instead of assuming that
 every tuple is an AVG accumulator.
 
+Physical stage preparation constructs wide channel adapters, then removes
+redundant row/flow/block adapters in one DAG traversal. Field projections retain
+shared producers; literals and optional wrappers have explicit block emission.
+Sort/top kernel selection follows the existing block mode and Arrow type support.
+AUTO block channels propagate in stage order, with a consistent layout for all
+consumers and the existing restriction on multiple HashV1 shuffle inputs. Only
+changed stages require annotation again. The final execution lowering expands
+macros such as scalar broadcasting into executable calls. The historical
+`EnableNewRBOPhysicalStagePeephole` flag controls this owned layout preparation;
+neither setting invokes a YQL peephole pipeline.
+
 The migration preserves the existing rule schedule, join enumeration, cost
 formulas, stage assignment, shuffle policy and runtime algorithms. Expression
 construction and inspection use the native arena. Computed ON keys are exposed
@@ -262,7 +273,7 @@ The full-corpus compilation checkpoint covers 6,979 queries with native-required
 admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and
 two additional 1C samples. This establishes compilation coverage, not complete
 effects parity or negligible frontend cost. The latest completed standalone run
-has 255 passing tests. JOIN USING additionally has runtime value/type comparisons
+has 257 passing tests. JOIN USING additionally has runtime value/type comparisons
 against explicit legacy ON/coalesce forms in scalar/block and nullable/required
 configurations, plus a handoff check with zero YQL expression/type allocations.
 The imported indexed-delete test had expectations explicitly marked as a legacy

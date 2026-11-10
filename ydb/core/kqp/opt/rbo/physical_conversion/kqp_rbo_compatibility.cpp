@@ -11,6 +11,27 @@ namespace {
 
 using namespace NYql;
 
+TExprNode::TPtr ExpandReplicateScalars(const TExprNode::TPtr& node, TExprContext& ctx) {
+    const auto& columns = node->Head().GetTypeAnn()->Cast<TStreamExprType>()->GetItemType()->Cast<TMultiExprType>()->GetItems();
+    YQL_ENSURE(!columns.empty());
+    TVector<bool> selected(columns.size(), node->ChildrenSize() == 1);
+    if (node->ChildrenSize() == 2) {
+        for (const auto& index : node->Child(1)->Children()) selected.at(FromString<size_t>(index->Content())) = true;
+    }
+    TExprNode::TListType args, body;
+    for (size_t i = 0; i < columns.size(); ++i) args.push_back(ctx.NewArgument(node->Pos(), "block_field"));
+    for (size_t i = 0; i < columns.size(); ++i) {
+        // The last scalar is the block length, never a broadcast payload.
+        if (i + 1 < columns.size() && columns[i]->IsScalar() && selected[i]) {
+            body.push_back(ctx.NewCallable(node->Pos(), "ReplicateScalar", {args[i], args.back()}));
+        } else {
+            body.push_back(args[i]);
+        }
+    }
+    auto lambda = ctx.NewLambda(node->Pos(), ctx.NewArguments(node->Pos(), std::move(args)), std::move(body));
+    return ctx.NewCallable(node->Pos(), "WideMap", {node->HeadPtr(), std::move(lambda)});
+}
+
 TExprNode::TPtr ExpandExtractMembers(const TExprNode::TPtr& node, TExprContext& ctx) {
     auto arg = ctx.NewArgument(node->Pos(), "extract_members_arg");
     TExprNode::TListType fields;
@@ -379,7 +400,7 @@ TExprNode::TPtr ExpandScalarHasNull(
 
 TExprNode::TPtr FindCompatibilityNode(const TExprNode::TPtr& root) {
     return FindNode(root, [](const TExprNode::TPtr& node) {
-        return node->IsCallable({"ExtractMembers", "OptionalIf", "StrictCast", "HasNull", "SqlIn", "RangeEmpty", "AsRange", "RangeFor"}) ||
+        return node->IsCallable({"ExtractMembers", "OptionalIf", "StrictCast", "HasNull", "SqlIn", "RangeEmpty", "AsRange", "RangeFor", "ReplicateScalars"}) ||
             CanLiftSafeCastOptional(node) || IsComplexComparison(node) || IsTupleMinMax(node);
     });
 }
@@ -395,6 +416,7 @@ NYql::TExprNode::TPtr RewriteRboCompatibilityNode(
     NYql::TExprContext& ctx,
     const NYql::TTypeAnnotationContext& types) {
     if (IsTupleMinMax(node)) return ExpandTupleMinMax(node, ctx);
+    if (node->IsCallable("ReplicateScalars")) return ExpandReplicateScalars(node, ctx);
     if (node->IsCallable("ExtractMembers")) {
         return ExpandExtractMembers(node, ctx);
     }

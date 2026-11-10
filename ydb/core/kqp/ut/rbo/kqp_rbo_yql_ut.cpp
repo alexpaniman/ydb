@@ -10697,10 +10697,11 @@ FROM (
             UNIT_ASSERT_VALUES_EQUAL_C(result.GetStatus(), EStatus::SUCCESS, result.GetIssues().ToString());
             auto ast = *result.GetStats()->GetAst();
             UNIT_ASSERT_VALUES_EQUAL_C(CountNumberOfCallables(ast, "DqPhyHashCombine"), 2, ast);
-            // Row tables convert to blocks around each combine, column tables stay in blocks
-            // from the block read up to the result stage.
-            UNIT_ASSERT_VALUES_EQUAL_C(CountNumberOfCallables(ast, "WideToBlocks"), columnTables ? 0 : 2, ast);
-            UNIT_ASSERT_VALUES_EQUAL_C(CountNumberOfCallables(ast, "WideFromBlocks"), columnTables ? 1 : 2, ast);
+            // Adjacent combines keep their block representation. Row tables
+            // pack once; column tables already produce blocks. Both unpack
+            // only for the scalar result, with the same two combine operators.
+            UNIT_ASSERT_VALUES_EQUAL_C(CountNumberOfCallables(ast, "WideToBlocks"), columnTables ? 0 : 1, ast);
+            UNIT_ASSERT_VALUES_EQUAL_C(CountNumberOfCallables(ast, "WideFromBlocks"), 1, ast);
 
             result =
                 session.ExecuteQuery(query, NYdb::NQuery::TTxControl::NoTx(), NYdb::NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Execute))

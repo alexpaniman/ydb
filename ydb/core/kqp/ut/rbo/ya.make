@@ -8,6 +8,7 @@ REQUIREMENTS(cpu:2)
 
 SRCS(
     kqp_native_olap_ut.cpp
+    kqp_native_layout_ut.cpp
     kqp_native_effects_ut.cpp
     kqp_native_join_using_ut.cpp
     kqp_native_execution_ut.cpp
