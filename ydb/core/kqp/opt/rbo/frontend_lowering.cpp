@@ -473,11 +473,15 @@ private:
             case O::InCollection: return InCollection(args[0], args[1], types[0], Arena.ListItem(types[1]), type, node.Name == "ansi");
             case O::JsonValue: return JsonValue(args[0], types[0], node.Name);
             case O::RandomUuid:
-                if (args.empty()) return Call("Parameter", {Atom(QueryRandomUuidParameter), Type(type)}, type);
+            case O::RandomNumber: {
+                const bool uuid = node.Op == O::RandomUuid;
+                if (args.empty()) return Call("Parameter", {
+                    Atom(uuid ? QueryRandomUuidParameter : QueryRandomNumberParameter), Type(type)}, type);
                 // Runtime randomness depends on row identities, not argument
                 // values. Preserve the terminal dependency-call contract.
                 for (std::size_t i = 0; i < args.size(); ++i) args[i] = Call("DependsOn", {args[i]}, types[i]);
-                return Call("RandomUuid", std::move(args), type);
+                return Call(uuid ? "RandomUuid" : "RandomNumber", std::move(args), type);
+            }
             case O::Like: case O::ILike: return Like(args[0], args[1], node.Name, node.Op == O::Like);
             case O::ListElement: {
                 const auto item = Arena.ListItem(types[0]);

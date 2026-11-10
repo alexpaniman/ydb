@@ -177,21 +177,26 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         }
     }
 
-    Y_UNIT_TEST(UuidSqlArityAndQueryScopedInputAreDistinct) {
-        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
-            TCompilerSettings settings; settings.Parser = parser;
-            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT RandomUuid()", Catalog, settings), TFrontendError);
-            const auto compiled = CompileNative("SELECT YQL::RandomUuid() AS value", Catalog, settings);
-            const auto& program = compiled.Program->Get();
-            UNIT_ASSERT(program.Parameters.empty());
-            UNIT_ASSERT(program.Results[0].Columns[0].Type == TType{ETypeKind::Uuid});
-            bool found = false;
-            for (TExprId id = 0; id < program.Expressions.Size(); ++id) if (program.Expressions[id].Op == EOpcode::RandomUuid) {
-                found = true;
-                UNIT_ASSERT(program.Expressions[id].Arguments.empty());
-                UNIT_ASSERT(!program.Expressions[id].Repeatable);
+    Y_UNIT_TEST(RandomSqlArityAndQueryScopedInputsAreDistinct) {
+        for (const auto& name : {std::string("RandomUuid"), std::string("RandomNumber")}) {
+            const bool uuid = name == "RandomUuid";
+            for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+                TCompilerSettings settings; settings.Parser = parser;
+                UNIT_ASSERT_EXCEPTION(CompileNative("SELECT " + name + "()", Catalog, settings), TFrontendError);
+                UNIT_ASSERT_EXCEPTION(CompileNative("SELECT YQL::" + name + "(1)", Catalog, settings), TUnsupportedFeature);
+                const auto compiled = CompileNative("SELECT YQL::" + name + "() AS value", Catalog, settings);
+                const auto& program = compiled.Program->Get();
+                UNIT_ASSERT(program.Parameters.empty());
+                UNIT_ASSERT(program.Results[0].Columns[0].Type == TType{uuid ? ETypeKind::Uuid : ETypeKind::Uint64});
+                bool found = false;
+                for (TExprId id = 0; id < program.Expressions.Size(); ++id)
+                    if (program.Expressions[id].Op == (uuid ? EOpcode::RandomUuid : EOpcode::RandomNumber)) {
+                        found = true;
+                        UNIT_ASSERT(program.Expressions[id].Arguments.empty());
+                        UNIT_ASSERT(!program.Expressions[id].Repeatable);
+                    }
+                UNIT_ASSERT(found);
             }
-            UNIT_ASSERT(found);
         }
     }
 

@@ -139,6 +139,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::Collection: return "Collection";
         case TNativeOp::InCollection: return "IN";
         case TNativeOp::RandomUuid: return "RandomUuid";
+        case TNativeOp::RandomNumber: return "RandomNumber";
         case TNativeOp::Like: return "Like";
         case TNativeOp::ILike: return "ILike";
         case TNativeOp::TupleElement: return "TupleElement";

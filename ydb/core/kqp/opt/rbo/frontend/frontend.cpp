@@ -2185,12 +2185,12 @@ private:
                     result = Expr(lambda.Expression, lambdaContext);
                     ActiveLambdas.erase(&lambda);
                 } else if (name == "aslist" || name == "astuple") result = arena.Collection(args, name == "aslist", syntax.Position);
-                else if (name == "randomuuid" && args.empty())
-                    throw TFrontendError(syntax.Position, "RandomUuid requires at least one dependency argument");
-                else if (name == "yql::randomuuid") {
+                else if ((name == "randomuuid" || name == "randomnumber") && args.empty())
+                    throw TFrontendError(syntax.Position, syntax.Text + " requires at least one dependency argument");
+                else if (name == "yql::randomuuid" || name == "yql::randomnumber") {
                     if (!args.empty()) throw TUnsupportedFeature(EFeature::Function, syntax.Position,
-                        "raw RandomUuid dependencies require SQL RandomUuid(arguments)");
-                    result = arena.Call("RandomUuid", {}, syntax.Position);
+                        "raw random dependencies require SQL " + syntax.Text.substr(5) + "(arguments)");
+                    result = arena.Call(std::string_view(name).substr(5), {}, syntax.Position);
                 } else result = arena.Call(name, args, syntax.Position);
                 break;
             }
@@ -2604,7 +2604,7 @@ std::string_view SupportManifest() {
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Date32","Datetime64","Timestamp64","Interval64","Uuid","Decimal","Json","JsonDocument","Null","scalar optionals, including explicit nested optional casts"],
 "aggregates":["count","count_if","sum","avg","min","max","min_by","max_by","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
 "effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; literal and sequence defaults followed by native stored generated expressions at emission; virtual generated columns, generated writes requiring stored dependency lookup, INSERT OR REVERT and batch writes are unsupported"],
-"volatile_operations":["RandomUuid(dependencies)","YQL::RandomUuid() syntax for a query-scoped internal UUID input"],
+"volatile_operations":["RandomUuid(dependencies)","RandomNumber(dependencies)","YQL::RandomUuid() and YQL::RandomNumber() syntax for query-scoped internal inputs"],
 "math_operations":["Math::IsNaN on typed integer/Float/Double inputs"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],

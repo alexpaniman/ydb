@@ -349,6 +349,40 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         UNIT_ASSERT_EXCEPTION(Evaluate(arena, random), TFrontendError);
     }
 
+    Y_UNIT_TEST(VolatileNumberRetainsDependenciesAndSharing) {
+        TExpressionArena arena;
+        const auto one = arena.Literal({K::Uint64}, std::uint64_t{1});
+        const auto dependency = arena.Binary(EOpcode::Add, one, one);
+        const auto random = arena.Call("RandomNumber", std::span(&dependency, 1));
+        UNIT_ASSERT(arena[random].Type == TType{K::Uint64});
+        UNIT_ASSERT(!arena[random].Repeatable);
+        const auto folded = arena.FoldConstants(std::span(&random, 1)).front();
+        UNIT_ASSERT(arena[folded].Op == EOpcode::RandomNumber);
+        UNIT_ASSERT(!arena[folded].Repeatable);
+        UNIT_ASSERT(arena[arena[folded].Arguments.front()].Op == EOpcode::Literal);
+        unsigned calls = 0;
+        TEvaluationContext context;
+        context.RandomNumber = [&] { return std::uint64_t{++calls}; };
+        const auto same = arena.Binary(EOpcode::Equal, folded, folded);
+        UNIT_ASSERT(std::get<bool>(Evaluate(arena, same, context).Data));
+        UNIT_ASSERT_VALUES_EQUAL(calls, 1);
+        const auto other = arena.Binary(EOpcode::Equal, folded, arena.Call("RandomNumber", {}));
+        UNIT_ASSERT(!std::get<bool>(Evaluate(arena, other, context).Data));
+        UNIT_ASSERT_VALUES_EQUAL(calls, 3);
+        const auto disjunction = arena.Binary(EOpcode::Or, same, other);
+        UNIT_ASSERT_VALUES_EQUAL(arena.FactorCommonConjuncts(disjunction), disjunction);
+        TExpressionArena imported;
+        const auto copied = imported.Import(arena, random, [](TColumnId, TType, TSourcePosition) -> TExprId {
+            throw std::logic_error("unexpected column");
+        });
+        UNIT_ASSERT(!imported[copied].Repeatable);
+        UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(imported, copied, context).Data), 4);
+        const auto skip = arena.If(arena.Literal({K::Bool}, false), random, one);
+        UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(arena, skip, context).Data), 1);
+        UNIT_ASSERT_VALUES_EQUAL(calls, 4);
+        UNIT_ASSERT_EXCEPTION(Evaluate(arena, random), TFrontendError);
+    }
+
     Y_UNIT_TEST(ExtendedTemporalValuesKeepSignedRanges) {
         for (const auto [kind, minimum, maximum] : {
                 std::tuple{K::Date32, -53375809LL, 53375807LL},

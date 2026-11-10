@@ -270,6 +270,22 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         CheckScalar(arena, arena.Unary(EOpcode::Length, arena.Cast(random, {ETypeKind::String})), "UUID text length", context);
     }
 
+    Y_UNIT_TEST(RandomNumberLowersDirectlyWithNullableDependencies) {
+        using namespace NFrontend;
+        for (const bool nullable : {false, true}) {
+            TExpressionArena arena;
+            const auto dependency = nullable ? arena.Cast(arena.Null(), {ETypeKind::Uint64}) :
+                arena.Literal({ETypeKind::Uint64}, std::uint64_t{0});
+            const auto random = arena.Call("RandomNumber", std::span(&dependency, 1));
+            const auto maximum = arena.Literal({ETypeKind::Uint64}, std::numeric_limits<std::uint64_t>::max());
+            const auto inRange = arena.Binary(EOpcode::LessEqual, random, maximum);
+            UNIT_ASSERT(!arena[inRange].Repeatable);
+            TEvaluationContext context;
+            context.RandomNumber = [] { return std::uint64_t{42}; };
+            CheckScalar(arena, inRange, "random Uint64 range, without scalar peepholes", context);
+        }
+    }
+
     Y_UNIT_TEST(ExtendedTemporalSemanticsMatchRuntime) {
         using namespace NFrontend;
         using K = ETypeKind;

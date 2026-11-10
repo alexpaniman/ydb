@@ -108,7 +108,7 @@ enum class EOpcode : std::uint8_t {
     Concat, Ensure, StablePickle, Find,
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
     CalendarShiftMonths, CalendarShiftYears, CalendarMinute, TemporalSeconds, UrlHost, UrlCutWWW,
-    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, Like, ILike, TupleElement, ListElement,
+    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, RandomNumber, Like, ILike, TupleElement, ListElement,
 };
 
 struct TExprNode {
@@ -223,9 +223,10 @@ struct TEvaluationContext {
     // Optional reference-execution service; the compiler has no JSON runtime
     // dependency. JSON_VALUE remains directly lowerable without this callback.
     std::function<TValue(const TValue&, std::string_view)> JsonValue;
-    // Runtime service for nondeterministic UUID generation. Dependency values
+    // Runtime services for nondeterministic generation. Dependency values
     // order evaluation; they are not random seeds. One reached node runs once.
     std::function<std::string()> RandomUuid = {};
+    std::function<std::uint64_t()> RandomNumber = {};
     std::function<bool(const TValue&, std::string_view, std::string_view, bool)> Like = {};
 };
 

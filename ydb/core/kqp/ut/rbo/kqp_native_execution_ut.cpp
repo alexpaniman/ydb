@@ -139,6 +139,30 @@ Y_UNIT_TEST_SUITE(KqpNativeExecutionRuntime) {
         }
     }
 
+    Y_UNIT_TEST_TWIN(ZeroArgumentNumberIsOneInternalInputPerExecution, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const auto prepared = session.PrepareDataQuery(R"(
+            SELECT YQL::RandomNumber() AS a, YQL::RandomNumber() AS b;
+            SELECT YQL::RandomNumber() AS c;
+        )").GetValueSync();
+        UNIT_ASSERT_C(prepared.IsSuccess(), prepared.GetIssues().ToString());
+        UNIT_ASSERT(prepared.GetQuery().GetParameterTypes().empty());
+        std::optional<ui64> previous;
+        for (unsigned i = 0; i < 2; ++i) {
+            const auto result = prepared.GetQuery().Execute(TTxControl::BeginTx().CommitTx()).GetValueSync();
+            Success(result);
+            UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 2);
+            TResultSetParser first(result.GetResultSet(0)), second(result.GetResultSet(1));
+            UNIT_ASSERT(first.TryNextRow()); UNIT_ASSERT(second.TryNextRow());
+            const auto value = first.ColumnParser(0).GetUint64();
+            UNIT_ASSERT_VALUES_EQUAL(value, first.ColumnParser(1).GetUint64());
+            UNIT_ASSERT_VALUES_EQUAL(value, second.ColumnParser(0).GetUint64());
+            if (previous) UNIT_ASSERT_VALUES_UNEQUAL(value, *previous);
+            previous = value;
+        }
+    }
+
     // Retain the established generic-query behavior tested by
     // NamedExpressionPureNondeterministicWriteAndResult in the legacy suite.
     Y_UNIT_TEST_TWIN(DependencyBearingScalarIsNotQueryCached, Native) {

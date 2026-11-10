@@ -1154,7 +1154,7 @@ TExprId TExpressionArena::Append(TExprNode node) {
     if (Nodes_.size() == std::numeric_limits<TExprId>::max()) {
         Fail(node.Position, "Too many expressions");
     }
-    node.Repeatable = node.Op != O::RandomUuid;
+    node.Repeatable = node.Op != O::RandomUuid && node.Op != O::RandomNumber;
     for (auto arg : node.Arguments) {
         if (arg >= Nodes_.size()) {
             Fail(node.Position, "Expression arguments must precede their consumer");
@@ -1587,9 +1587,11 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
         }
         return Ensure(arguments[0], condition, std::move(message), position);
     }
-    if (lowered == "randomuuid") {
+    if (lowered == "randomuuid" || lowered == "randomnumber") {
         for (const auto argument : arguments) (void)(*this)[argument];
-        return Append({O::RandomUuid, {K::Uuid}, position, {arguments.begin(), arguments.end()}, {}, {}, 0});
+        const bool uuid = lowered == "randomuuid";
+        return Append({uuid ? O::RandomUuid : O::RandomNumber, {uuid ? K::Uuid : K::Uint64},
+            position, {arguments.begin(), arguments.end()}, {}, {}, 0});
     }
     if (lowered == "just") {
         if (arguments.size() != 1) Fail(position, "Just expects one argument");
@@ -1808,6 +1810,7 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
 TExprId TExpressionArena::Rebuild(TExprNode node) {
     switch (node.Op) {
         case O::RandomUuid: return Call("RandomUuid", node.Arguments, node.Position);
+        case O::RandomNumber: return Call("RandomNumber", node.Arguments, node.Position);
         case O::Collection: return Collection(node.Arguments, node.Type.Kind == K::List, node.Position);
         case O::TupleElement: return TupleElement(node.Arguments[0], std::get<std::uint64_t>(node.Value), node.Position);
         case O::ListElement: return ListElement(node.Arguments[0], node.Arguments[1], node.Position);
@@ -2550,6 +2553,9 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
         } else if (node.Op == O::RandomUuid) {
             if (!context.RandomUuid) Fail(node.Position, "Missing UUID generation service");
             finish({node.Type, context.RandomUuid()});
+        } else if (node.Op == O::RandomNumber) {
+            if (!context.RandomNumber) Fail(node.Position, "Missing random number generation service");
+            finish({node.Type, context.RandomNumber()});
         } else finish(Execute(node, values));
     }
     return *values[root];
@@ -2569,7 +2575,8 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
         if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) return original;
         // Path compilation and JSON evaluation belong to the execution runtime,
         // including invalid-path errors and NULL inputs. Never invoke it here.
-        if (node.Op == O::JsonValue || node.Op == O::RandomUuid || node.Op == O::Like || node.Op == O::ILike) return retain();
+        if (node.Op == O::JsonValue || node.Op == O::RandomUuid || node.Op == O::RandomNumber ||
+            node.Op == O::Like || node.Op == O::ILike) return retain();
         if (node.Op == O::If && (*this)[node.Arguments[0]].Op == O::Literal) {
             const auto& condition = (*this)[node.Arguments[0]].Value;
             return node.Arguments[std::holds_alternative<bool>(condition) && std::get<bool>(condition) ? 1 : 2];

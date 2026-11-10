@@ -92,6 +92,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
             "PRAGMA YqlSelectAllowUnnamedGroupByExpr; DECLARE $x AS Int64; SELECT $x AS k, SUM(id + $x) FROM t GROUP BY $x;",
             "DECLARE $items AS List<Struct<>>; SELECT COUNT(*) FROM AS_TABLE($items);",
             "SELECT CAST(RandomUuid(id) AS Utf8) AS uuid FROM t;",
+            "SELECT RandomNumber(id, value) AS number FROM t;",
             "SELECT l.id, r.id, s.id FROM t AS l LEFT JOIN t AS r ON CAST(l.a AS Int64) = r.id "
                 "LEFT JOIN t AS s ON CAST(l.a AS Int64) = s.id;",
             "SELECT MIN_BY(value, id), MAX_BY(id, value) FROM t;",

@@ -197,9 +197,10 @@ Date/Datetime/Timestamp/Interval, Decimal, Json/JsonDocument and NULL. Explicit
 nested optional casts, Just and Unwrap preserve outer absence versus inner NULL;
 general arithmetic and comparison on nested optionals are not admitted.
 Extended Date32/Datetime64/Timestamp64/Interval64 and Uuid are native types.
-`RandomUuid(dependencies)` retains its runtime dependencies and cannot fold.
-`YQL::RandomUuid()` is accepted as SQL spelling for a query-scoped native input;
-it emits one internal parameter and exposes no user parameter.
+`RandomUuid(dependencies)` and `RandomNumber(dependencies)` retain their runtime
+dependencies and cannot fold. `YQL::RandomUuid()` and `YQL::RandomNumber()` are
+accepted as SQL spellings for query-scoped native inputs; each emits one internal
+parameter and exposes no user parameter.
 String `s`/`u` suffixes are supported. Integer promotion, checked casts, decimal
 rounding/exponents, Unicode case conversion, selected calendar operations,
 JSON_VALUE, LIKE/ILIKE patterns, underscores and escapes have runtime differential
