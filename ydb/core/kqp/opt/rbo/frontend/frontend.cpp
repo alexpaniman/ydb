@@ -2379,7 +2379,7 @@ namespace {
 void CheckSyntax(const TParsedQuery& syntax) {
     for (const auto& node : syntax.Expressions) {
         if (node.Kind == ESyntaxKind::Case && node.Text == "implicit_else")
-            throw TUnsupportedFeature(EFeature::Expression, node.Position, "CASE requires explicit ELSE in native-read-v1");
+            throw TFrontendError(node.Position, "CASE requires explicit ELSE");
         if (node.Kind == ESyntaxKind::Real && (node.Text.ends_with('p') || node.Text.ends_with('P')))
             throw TUnsupportedFeature(EFeature::Type, node.Position, "PostgreSQL numeric literals are outside native-read-v1");
         if (node.Kind == ESyntaxKind::Column && node.Text.substr(node.Text.find_last_of('.') + 1).starts_with("_yql_"))

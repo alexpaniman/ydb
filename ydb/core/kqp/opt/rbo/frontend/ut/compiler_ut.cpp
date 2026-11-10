@@ -1133,14 +1133,15 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         settings.Mode = ECompilerMode::Auto;
         for (const auto* sql : {"SELECT ListLength([1, 2])", "SELECT LAG(value) OVER () FROM a", "SELECT * FROM a JOIN b USING(id)",
                                "PRAGMA foo='x'; SELECT 1",
-                               "SELECT CASE WHEN true THEN 1 END", "SELECT * FROM a CROSS JOIN b",
+                               "SELECT * FROM a CROSS JOIN b",
                                "SELECT value + 1 FROM a GROUP BY value + 1",
                                "SELECT id, STDDEV_POP(value) FROM a GROUP BY id",
                                "SELECT id, VAR_SAMP(value) FROM a GROUP BY id"}) {
             const auto result = CompileNative(sql, Catalog, settings);
             UNIT_ASSERT_C(result.UsesLegacy() && result.Unsupported, sql);
         }
-        for (const auto* sql : {"SELECT FROM", "SELECT missing FROM a", "SELECT 1 + true", "DECLARE $x AS Int32; DECLARE $x AS Int32; SELECT $x"}) {
+        for (const auto* sql : {"SELECT FROM", "SELECT missing FROM a", "SELECT 1 + true",
+                "SELECT CASE WHEN true THEN 1 END", "DECLARE $x AS Int32; DECLARE $x AS Int32; SELECT $x"}) {
             UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TFrontendError);
         }
         settings.Parsing.MaxQueryBytes = 3;

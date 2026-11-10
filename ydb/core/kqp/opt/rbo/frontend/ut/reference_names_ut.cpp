@@ -41,6 +41,35 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
+    Y_UNIT_TEST(UnsupportedBindingDoesNotReturnPartialNames) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            // USING now has native binding rules. Keep the reference SQL as
+            // a positive check rather than retaining its old fallback.
+            f.Ok("SELECT * FROM t JOIN u USING(id);");
+            UNIT_ASSERT_VALUES_EQUAL(f.Program.Results.at(0).Columns.size(), 3);
+            for (const auto sql : {"SELECT * FROM t WITH SCHEMA (id String);",
+                    "PRAGMA AnsiQuotedIdentifiers; SELECT id FROM t;",
+                    "PRAGMA AnsiImplicitCrossJoin = 'false'; SELECT id FROM t;"}) {
+                TFixture unsupported; unsupported.Settings.Parser = parser;
+                UNIT_ASSERT_EXCEPTION(unsupported.Ok(sql), TUnsupportedFeature);
+                UNIT_ASSERT(unsupported.Program.Results.empty());
+                unsupported.Settings.Mode = ECompilerMode::Auto;
+                const auto result = CompileNative(sql, [&](std::string_view, TSourcePosition) {
+                    return unsupported.Catalog.at("/Root/t");
+                }, unsupported.Settings);
+                UNIT_ASSERT(result.UsesLegacy());
+                UNIT_ASSERT(result.Unsupported);
+                UNIT_ASSERT(!result.Program);
+            }
+            // Member access on a String is a name/type error in the native
+            // profile; it must not expose bindings from the preceding SELECT.
+            TFixture invalid; invalid.Settings.Parser = parser;
+            invalid.Error("SELECT id FROM t; SELECT value.field FROM t;");
+            UNIT_ASSERT(invalid.Program.Results.empty());
+        }
+    }
+
     Y_UNIT_TEST(TableCollectionPreservesQuotedNamesAndUnsupportedDiagnostics) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
             TFixture f; f.Settings.Parser = parser;

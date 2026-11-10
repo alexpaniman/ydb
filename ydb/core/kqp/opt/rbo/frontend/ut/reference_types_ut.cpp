@@ -63,6 +63,24 @@ struct TFixture {
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
     // Scalar-boundary cases from kqp_expr_lowering_ut.cpp. The native binder
     // supplies checked types directly, without an annotator or rewrite pass.
+    Y_UNIT_TEST(MissingBindingsAndElseProduceDiagnostics) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar})
+        for (const auto mode : {ECompilerMode::NativeRequired, ECompilerMode::Auto})
+        for (const auto sql : {"missing", "$missing", "CASE WHEN TRUE THEN 1 END"}) {
+            TFixture f; f.Settings.Parser = parser; f.Settings.Mode = mode;
+            try {
+                f.Ok("SELECT\n  " + std::string(sql) + ";");
+                UNIT_FAIL("invalid scalar returned a program: " << sql);
+            } catch (const TUnsupportedFeature& error) {
+                UNIT_FAIL("malformed supported scalar requested fallback: " << error.what());
+            } catch (const TFrontendError& error) {
+                UNIT_ASSERT_VALUES_EQUAL(error.Position.Line, 2);
+                UNIT_ASSERT_VALUES_EQUAL(error.Position.Column, 3);
+                UNIT_ASSERT(f.Program.Results.empty());
+            }
+        }
+    }
+
     Y_UNIT_TEST(NegativeIntegerBoundaries) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar})
         for (const auto& [sql, type] : std::initializer_list<std::pair<std::string_view, std::string_view>>{
