@@ -284,6 +284,8 @@ private:
         std::string name = Identifier();
         if (Upper(name) == "OPTIONAL") {
             Expect("<"); name = TypeName(); TypeEnd(); name += '?';
+        } else if (Upper(name) == "LIST") {
+            Expect("<"); name = "List<" + TypeName(); TypeEnd(); name += '>';
         } else if (Upper(name) == "DECIMAL") {
             Expect("(");
             if (Token().Kind != EToken::Number) Fail("expected Decimal precision");
@@ -704,14 +706,28 @@ private:
                     auto id = Add(ESyntaxKind::In, pos, {}, {left}); Result.Expressions[id].Query = std::move(query); left = id;
                 } else {
                     std::vector<TSyntaxId> args{left};
+                    bool comma = false;
                     if (list && Take(",")) Expect(end);
                     else if (list && Take(end)) {}
                     else {
                         if (Is(end)) Fail("empty IN list");
-                        do { args.push_back(Expression()); } while (Take(",") && !Is(end)); Expect(end);
+                        do {
+                            args.push_back(Expression());
+                            if (!Take(",")) break;
+                            comma = true;
+                        } while (!Is(end));
+                        Expect(end);
                     }
                     if (list && Precedence() > precedence) Fail("unexpected operator after IN list");
+                    // Parentheses around a query do not turn its rows into a
+                    // scalar singleton. A comma explicitly constructs a tuple.
+                    std::shared_ptr<TSelect> query;
+                    if (!list && !comma && args.size() == 2 && Result.Expressions[args[1]].Kind == ESyntaxKind::ScalarSubquery) {
+                        query = Result.Expressions[args[1]].Query;
+                        args.resize(1);
+                    }
                     left = Add(ESyntaxKind::In, pos, list ? "list" : "", std::move(args));
+                    Result.Expressions[left].Query = std::move(query);
                 }
             } else {
                 auto right = Expression(op == "??" ? precedence : precedence + 1);
@@ -764,7 +780,7 @@ private:
     }
 
     TSyntaxId Primary() {
-        const auto token = Token();
+        const auto& token = Token();
         const auto pos = token.Position;
         if (Take("+") || Take("-") || Take("NOT") || Take("~")) {
             if (Is("+") || Is("-") || Is("NOT") || Is("~")) Fail("multiple unary operators require parentheses");

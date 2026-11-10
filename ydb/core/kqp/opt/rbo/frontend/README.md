@@ -39,6 +39,9 @@ use; reads after writes cannot be moved ahead of those writes.
 and `TQueryExecutionMetadata`. Native queries do not build synthetic
 `KiDataQueryBlock` graphs. The legacy compiler imports the same execution metadata
 from its own query blocks.
+Projected IN/EXISTS values are constructed at this handoff using the same mark-join
+builder as the existing filter rule. The rule retains its filter-only matching
+policy. Native OLAP capability checks live separately from physical emission.
 
 `TExpression` holds an arena and a node ID. There is no YQL expression constructor,
 legacy lambda arm, implicit export, or mutable backend annotation. Rewrites append
@@ -129,8 +132,11 @@ than one row. Scan queries require one result.
 
 INSERT/UPSERT/REPLACE accept VALUES and SELECT inputs. UPDATE and DELETE accept
 predicates or explicit input rows; RETURNING retains its projection order.
-Effects use the existing table sink and transaction boundaries. Defaults,
-sequences and INSERT OR REVERT remain explicit gaps, along with the unsupported
+Effects use the existing table sink and transaction boundaries. Omitted literal
+and sequence defaults are effect metadata, expanded once through the existing
+sequencer connection during emission. UPSERT retains stored values when a column
+was omitted; explicit values, including NULL, take precedence over defaults.
+Generated expression defaults and INSERT OR REVERT remain explicit gaps, along with the unsupported
 forms listed below. Imported effects tests cover mixed reads/writes, indexes,
 shared producers and interactive transactions; their expansion is still in progress.
 
@@ -177,7 +183,7 @@ Important exclusions remain explicit:
 
 - DDL, USE, PostgreSQL values, external/temporary tables, index-view syntax,
   table hints/sampling and unrecognized settings.
-- INSERT OR REVERT, batch writes, omitted default expressions and sequences;
+- INSERT OR REVERT, batch writes and omitted generated expression defaults;
   dynamic signed LIMIT/OFFSET and general row-valued scalar expressions.
 - JOIN USING, tuple IN subqueries, duplicate star names requiring coalescing,
   and FULL JOIN residual predicates other than column equality keys.

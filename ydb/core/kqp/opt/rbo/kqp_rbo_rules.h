@@ -380,10 +380,6 @@ class TPushSimpleJoinFilterRule : public IRule {
 };
 
 /**
- * Peephole predicate.
- */
-
-/**
  * Push ranges to read.
  */
 class TPushRangesRule: public ISimplifiedRule {

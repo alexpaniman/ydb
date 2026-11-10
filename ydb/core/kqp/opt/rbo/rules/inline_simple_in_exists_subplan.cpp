@@ -45,13 +45,13 @@ TIntrusivePtr<IOperator> TInlineSimpleInExistsSubplanRule::SimpleMatchAndApply(c
         bool conjunctNegated = false;
         std::optional<TInfoUnitId> binding;
 
-            const auto& arena = *conjunct.GetNativeArena();
-            auto root = conjunct.GetNativeRoot();
-            if (arena[root].Op == NFrontend::EOpcode::Not) {
-                root = arena[root].Arguments[0];
-                conjunctNegated = true;
-            }
-            if (arena[root].Op == NFrontend::EOpcode::Column) binding = arena[root].ColumnId;
+        const auto& arena = *conjunct.GetNativeArena();
+        auto root = conjunct.GetNativeRoot();
+        if (arena[root].Op == NFrontend::EOpcode::Not) {
+            root = arena[root].Arguments[0];
+            conjunctNegated = true;
+        }
+        if (arena[root].Op == NFrontend::EOpcode::Column) binding = arena[root].ColumnId;
 
         if (binding) {
             if (const auto* entry = props.Subplans.Find(*binding)) {

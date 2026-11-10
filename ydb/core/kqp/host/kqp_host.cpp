@@ -1564,9 +1564,14 @@ private:
                             metadata.emplace(requests[i].Name, meta);
                             metadata.emplace(std::string(meta->Name), meta);
                         }
+                        // A resolved table may be used under several aliases and again
+                        // during operator translation. Decode its native schema once.
+                        std::unordered_map<const TKikimrTableMetadata*, F::TCatalogTable> nativeSchemas;
                         auto schema = [&](std::string_view path, F::TSourcePosition pos) {
                             const auto& meta = metadata.at(std::string(path));
+                            if (const auto found = nativeSchemas.find(meta.Get()); found != nativeSchemas.end()) return found->second;
                             F::TCatalogTable table{std::string(meta->Name), {}};
+                            table.Columns.reserve(meta->Columns.size());
                             bool sinkWrites = meta->Kind == EKikimrTableKind::Datashard;
                             F::TWriteSchema writes;
                             for (const auto& key : meta->KeyColumnNames) writes.Keys.emplace_back(key);
@@ -1577,8 +1582,9 @@ private:
                             auto column = [&](const TString& name) {
                                 const auto& item = meta->Columns.at(name);
                                 sinkWrites &= !item.IsBuildInProgress && !item.SetNotNullInProgress;
-                                if (item.DefaultKind != NKikimrKqp::TKqpColumnMetadataProto::DEFAULT_KIND_UNSPECIFIED || item.DefaultExpression)
-                                    writes.DefaultColumns.emplace_back(name);
+                                if (item.IsDefaultFromExpression() || item.DefaultExpression) writes.Defaults.emplace_back(name, F::EColumnDefault::Expression);
+                                else if (item.IsDefaultFromLiteral()) writes.Defaults.emplace_back(name, F::EColumnDefault::Literal);
+                                else if (item.IsDefaultFromSequence()) writes.Defaults.emplace_back(name, F::EColumnDefault::Sequence);
                                 auto type = F::ParseType(std::string_view(item.Type.data(), item.Type.size()), pos);
                                 type.OptionalDepth = !item.NotNull;
                                 table.Columns.push_back({std::string(name), type});
@@ -1586,13 +1592,16 @@ private:
                             if (!meta->ColumnOrder.empty()) for (const auto& name : meta->ColumnOrder) column(name);
                             else for (const auto& [name, item] : meta->Columns) column(name);
                             if (sinkWrites) table.WriteSchema = std::move(writes);
-                            return table;
+                            return nativeSchemas.emplace(meta.Get(), std::move(table)).first->second;
                         };
                         auto program = [&] {
                             TCompileTraceScope phase(settings.CompileTrace, "Native binding and scalar typing");
                             return F::BindNative(*syntax, schema, options.Binding);
                         }();
-                        const auto explain = TString(F::Explain(program.Get()));
+                        const auto explain = [&] {
+                            TCompileTraceScope phase(settings.CompileTrace, "Native plan formatting");
+                            return TString(F::Explain(program.Get()));
+                        }();
 
                         // RBO/backend boundary. Up to here the query was parsed,
                         // resolved and typed using only the native representation.
@@ -1603,7 +1612,7 @@ private:
                             TCompileTraceScope phase(settings.CompileTrace, "Native operator translation");
                             return ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
                                 const auto& meta = metadata.at(std::string(path));
-                                return TNativeTable{schema(path, pos), MakeRboTable(*meta),
+                                return TNativeTable{schema(path, pos), MakeRboTableIdentity(*meta),
                                     meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
                             }, ctx, SessionCtx->ConfigPtr().Get());
                         }();

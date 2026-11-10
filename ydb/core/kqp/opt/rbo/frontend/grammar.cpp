@@ -175,9 +175,11 @@ private:
             Unsupported(node, EFeature::Type, "type-valued bindings");
         }
         if (Name(node) == "type_name_optional") return Type(Child(node, "type_name_or_bind")) + "?";
+        if (Name(node) == "type_name_list") return "List<" + Type(Child(node, "type_name_or_bind")) + ">";
         if (Name(node) == "type_name_composite") {
             auto* inner = Only(node);
-            if (Name(inner) != "type_name_optional") Unsupported(node, EFeature::Type, "container types");
+            if (Name(inner) != "type_name_optional" && Name(inner) != "type_name_list")
+                Unsupported(node, EFeature::Type, "container types");
             auto result = Type(inner);
             for (auto* child : node->children) if (child->getText() == "?") result += '?';
             return result;
@@ -376,8 +378,13 @@ private:
                     auto* sub = Child(paren, "select_subexpr");
                     if (!sub) Unsupported(in, EFeature::Expression, "empty IN list");
                     if (Name(Unwrap(sub)) == "tuple_or_expr") {
-                        auto list = TupleItems(sub); args.insert(args.end(), list.begin(), list.end());
+                        auto list = TupleItems(sub);
+                        std::shared_ptr<TSelect> query;
+                        if (list.size() == 1 && !Has(Unwrap(sub), ",") && Result.Expressions[list[0]].Kind == ESyntaxKind::ScalarSubquery)
+                            query = Result.Expressions[list[0]].Query;
+                        else args.insert(args.end(), list.begin(), list.end());
                         left = Add(ESyntaxKind::In, condition, {}, std::move(args));
+                        Result.Expressions[left].Query = std::move(query);
                     } else {
                         auto query = Select(sub);
                         left = Add(ESyntaxKind::In, condition, {}, std::move(args));
@@ -539,6 +546,7 @@ private:
                 else if (Has(child, "RIGHT")) kind = Has(child, "SEMI") ? EJoinKind::RightSemi : Has(child, "ONLY") ? EJoinKind::RightOnly : EJoinKind::Right;
                 else if (Has(child, "FULL")) kind = EJoinKind::Full;
                 else if (Has(child, "EXCLUSION")) kind = EJoinKind::Exclusion;
+                else if (Has(child, "OUTER")) Unsupported(child, EFeature::Backend, "OUTER JOIN requires LEFT, RIGHT or FULL");
                 join.emplace(TJoin{kind, {}});
             } else if (Name(child) == "flatten_source") {
                 if (join) join->Source = Source(child); else result.Source = Source(child);

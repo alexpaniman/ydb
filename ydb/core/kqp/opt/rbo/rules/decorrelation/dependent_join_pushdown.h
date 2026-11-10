@@ -10,11 +10,16 @@ namespace NKqp {
 TIntrusivePtr<TOpAggregate> MakeDomainProjection(const TIntrusivePtr<IOperator>& input, const TUnorderedIUs& columns, TPositionHandle pos);
 // Checks whether we have a free variables.
 bool HasFreeCorrelation(const TIntrusivePtr<IOperator>& op, const TUnorderedIUs& correlatedColumns);
+bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu);
 bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu, TExprContext& ctx);
 // Here we want to support semantics where null == null.
 TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr<IOperator>& rightInput,
                               const TJoinIUs& joinKeys, TPositionHandle pos, TRBOContext& ctx,
                               TPlanProps& props);
+
+// Construction-only form, also used before the RBO context exists.
+TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr<IOperator>& rightInput,
+    const TJoinIUs& joinKeys, TPositionHandle pos, bool nativeEqualNulls, TPlanProps& props);
 
 // Caller IDs -> fresh domain IDs. The caller keeps the primary Replicate port.
 struct TSubplanDomain {

@@ -30,8 +30,7 @@ bool IsNullRejectingPredicate(const TExpression& filter) {
         const auto& node = arena[stripLift(id)];
         if (node.Op != O::Literal || node.Type.OptionalDepth || std::holds_alternative<std::monostate>(node.Value)) return false;
         return node.Type.IsIntegral() || node.Type.IsString() || node.Type.Kind == K::Bool ||
-            node.Type.Kind == K::Float || node.Type.Kind == K::Double || node.Type.Kind == K::Date ||
-            node.Type.Kind == K::Datetime || node.Type.Kind == K::Timestamp || node.Type.Kind == K::Interval;
+            node.Type.Kind == K::Float || node.Type.Kind == K::Double || node.Type.IsDate() || node.Type.IsInterval();
     };
     const auto left = predicate.Arguments[0], right = predicate.Arguments[1];
     const auto isColumn = [&](NFrontend::TExprId value) {

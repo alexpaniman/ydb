@@ -246,9 +246,26 @@ TVector<TExprNode::TPtr> TPhysicalQueryBuilder::BuildPhysicalStageGraph(int root
 
             auto stageGUID = graph.StageGUIDs.at(id);
             if (graph.IsSinkStage(id)) {
-                stage = BuildDqPhySinkStage(stageInputConnections, stageInputArgs, Stages[rootIdx].at(id), NYql::NDq::TDqStageSettings().New(stageGUID).BuildNode(ctx, StagePos[rootIdx].at(id)),
-                                    LowerTableSinkSettings(graph.GetSinkSettings(id), ctx, StagePos[rootIdx].at(id), Roots[rootIdx]->PlanProps.EffectPriority),
-                                    CastOperator<TOpTableEffect>(*Roots[rootIdx]->GetInput()), ctx, StagePos[rootIdx].at(id));
+                const auto& effect = CastOperator<TOpTableEffect>(*Roots[rootIdx]->GetInput());
+                const auto pos = StagePos[rootIdx].at(id);
+                auto body = Stages[rootIdx].at(id);
+                if (effect.Options.DefaultColumns && !effect.Options.DefaultColumns->empty()) {
+                    // Defaults extend the storage row after ordinary input
+                    // evaluation. This is an execution connection, not a
+                    // logical rewrite or an expression in the optimizer.
+                    auto input = BuildDqPhyStage(stageInputConnections, stageInputArgs, body,
+                        NYql::NDq::TDqStageSettings::New().BuildNode(ctx, pos), ctx, pos);
+                    TypeAnnotate(input);
+                    phyStages.push_back(input);
+                    stageInputConnections = {LowerTableDefaultConnection(input, effect, ctx)};
+                    auto argument = ctx.NewArgument(pos, "default_rows");
+                    stageInputArgs = {argument};
+                    body = Build<TCoToStream>(ctx, pos).Input(argument).Done().Ptr();
+                }
+                stage = BuildDqPhySinkStage(stageInputConnections, stageInputArgs, body,
+                    NYql::NDq::TDqStageSettings::New(stageGUID).BuildNode(ctx, pos),
+                    LowerTableSinkSettings(graph.GetSinkSettings(id), ctx, pos, Roots[rootIdx]->PlanProps.EffectPriority),
+                    effect, ctx, pos);
             }
             else {
                 stage = BuildDqPhyStage(stageInputConnections, stageInputArgs, Stages[rootIdx].at(id), NYql::NDq::TDqStageSettings().New(stageGUID).BuildNode(ctx, StagePos[rootIdx].at(id)),

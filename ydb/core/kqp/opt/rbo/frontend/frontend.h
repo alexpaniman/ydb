@@ -33,9 +33,11 @@ private:
 
 // A missing write schema identifies a read-only catalog object. Storage keys
 // and defaults belong to table metadata, not scalar/parameter field types.
+enum class EColumnDefault : std::uint8_t { Literal, Sequence, Expression };
+
 struct TWriteSchema {
     std::vector<std::string> Keys;
-    std::vector<std::string> DefaultColumns;
+    std::vector<std::pair<std::string, EColumnDefault>> Defaults;
     bool HasIndexes = false;
 };
 
@@ -87,6 +89,7 @@ struct TBoundEffect {
     EWriteKind Kind;
     std::vector<std::pair<TColumnId, std::string>> Columns;
     std::vector<std::pair<TColumnId, std::string>> Returning;
+    std::vector<std::string> DefaultColumns;
     bool HasIndexes = false;
     bool InputRows = false;
     bool Batch = false;

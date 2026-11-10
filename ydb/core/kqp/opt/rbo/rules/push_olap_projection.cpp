@@ -1,14 +1,11 @@
-#include <ydb/core/kqp/opt/physical/kqp_opt_phy_olap_filter.h>
-#include <ydb/core/kqp/opt/physical/predicate_collector.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_rules.h>
-#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
+#include <ydb/core/kqp/opt/rbo/kqp_native_olap.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
 
 namespace NKikimr::NKqp {
 
 namespace {
 
-using namespace NYql::NNodes;
 using namespace NKikimr;
 using namespace NKikimr::NKqp;
 

@@ -53,6 +53,9 @@ struct TTableSinkSettings {
     TEffectOptions Options;
 };
 
+// Frontend conversion already has a checked native schema and attaches its
+// columns itself. Index selection uses the complete metadata adapter below.
+TRboTable MakeRboTableIdentity(const NYql::TKikimrTableMetadata& metadata);
 TRboTable MakeRboTable(const NYql::TKikimrTableMetadata& metadata);
 
 } // namespace NKikimr::NKqp

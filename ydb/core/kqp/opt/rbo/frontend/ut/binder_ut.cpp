@@ -228,6 +228,17 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
         }
     }
 
+    Y_UNIT_TEST(DynamicCountsUseOrdinaryUint64Conversions) {
+        for (const auto* type : {"Int8", "Int16", "Int32", "Uint8", "Uint16", "Uint32", "Uint64", "Int32?"}) {
+            const auto compiled = CompileNative(std::string("DECLARE $n AS ") + type + "; SELECT 1 LIMIT $n OFFSET $n", Catalog);
+            const auto& program = compiled.Program->Get();
+            const auto& limit = Find(program, ERelation::Limit);
+            UNIT_ASSERT(program.Expressions[*limit.Count].Type == (TType{ETypeKind::Uint64}));
+            UNIT_ASSERT(program.Expressions[*limit.Offset].Type == (TType{ETypeKind::Uint64}));
+        }
+        UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $n AS Int64; SELECT 1 LIMIT $n", Catalog), TFrontendError);
+    }
+
     Y_UNIT_TEST(NamedWindowsResolveWithinTheirQueryScope) {
         TCompilerSettings settings;
         settings.Parser = EParser::Grammar;
@@ -541,16 +552,18 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             for (const auto& [sql, expected] : std::initializer_list<std::pair<const char*, std::optional<bool>>>{
                     {"SELECT 1 IN [1,2,]", true}, {"SELECT 2 IN [1,NULL]", std::nullopt},
                     {"SELECT NULL IN []", false}, {"SELECT 3 NOT IN [1,2]", true},
-                    {"SELECT 1 IN [,]", false}, {"SELECT 1 IN [NULL,1]", true}}) {
+                    {"SELECT 1 IN [,]", false}, {"SELECT 1 IN [NULL,1]", true},
+                    {"SELECT 1 IN [1,2L]", true}, {"SELECT 3 IN [1,2L]", false}}) {
                 const auto compiled = CompileNative(sql, Catalog, settings);
                 const auto& program = compiled.Program->Get();
                 const auto result = Evaluate(program.Expressions, Find(program, ERelation::Map).Definitions.front().Expression);
                 UNIT_ASSERT_VALUES_EQUAL_C(result.IsNull(), !expected, sql);
                 if (expected) UNIT_ASSERT_VALUES_EQUAL_C(std::get<bool>(result.Data), *expected, sql);
             }
-            for (const auto* sql : {"SELECT 1 IN [1,2L]", "SELECT 1 IN [1,'x']", "SELECT id IN [id] FROM a",
+            for (const auto* sql : {"SELECT id IN [id] FROM a",
                     "DECLARE $p AS Int32; SELECT 1 IN [$p]"})
-                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TUnsupportedFeature, sql);
+                UNIT_ASSERT_C(!CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT 1 IN [1,'x']", Catalog, settings), TFrontendError);
         }
     }
 

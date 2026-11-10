@@ -171,6 +171,32 @@ Y_UNIT_TEST_QUAD(SequencedWritePreparation, PhysicalStagePeephole, CompileTimeDe
     CompareYson("[[1;[7];[17]];[2;[7];[27]];[3;[7];[37]]]", FormatResultSetYson(stored.GetResultSet(0)));
 }
 
+Y_UNIT_TEST_TWIN(LiteralDefaultsPreserveWriteModeSemantics, CompileTimeDefaults) {
+    auto config = ReturningAppConfig();
+    config.MutableTableServiceConfig()->SetEnableCompileTimeDefaults(CompileTimeDefaults);
+    TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+    auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+    const auto created = session.ExecuteSchemeQuery(R"(
+        CREATE TABLE Defaults (id Int32 NOT NULL, value Int32 DEFAULT 7, tag String, PRIMARY KEY (id));
+    )").GetValueSync();
+    UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+    EnableNewRbo(kikimr);
+    const auto execute = [&](const TString& sql, const TString& expected) {
+        const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+        UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+        CompareYson(expected, FormatResultSetYson(result.GetResultSet(0)));
+    };
+    execute("INSERT INTO Defaults (id) VALUES (1) RETURNING id, value;", "[[1;[7]]]");
+    execute("UPSERT INTO Defaults (id, value) VALUES (1, 99) RETURNING id, value;", "[[1;[99]]]");
+    execute(R"(
+        UPSERT INTO Defaults (id, tag) VALUES (1, "old"), (2, "new");
+        SELECT id, value FROM Defaults ORDER BY id;
+    )", "[[1;[99]];[2;[7]]]");
+    execute("REPLACE INTO Defaults (id) VALUES (1) RETURNING id, value, tag;", "[[1;[7];#]]");
+    execute("INSERT INTO Defaults (id, value) VALUES (3, NULL) RETURNING id, value;", "[[3;#]]");
+    execute(R"(UPDATE Defaults SET tag = "changed" WHERE id = 3 RETURNING id, value;)", "[[3;#]]");
+}
+
 Y_UNIT_TEST(ReplaceSerial) {
     TKikimrRunner kikimr{TKikimrSettings(ReturningAppConfig())};
 

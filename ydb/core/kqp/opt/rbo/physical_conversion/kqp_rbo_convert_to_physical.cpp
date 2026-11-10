@@ -206,6 +206,10 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
 
                 auto& limit = CastOperator<TOpLimit>(*op);
 
+                // LIMIT/OFFSET operate on the same flow convention as the
+                // other native relational builders. Skip's stream wrapper
+                // does not preserve the output slot when it reaches EOF.
+                currentStageBody = Build<TCoToFlow>(ctx, op->Pos).Input(currentStageBody).Done().Ptr();
                 if (limit.HasOffset()) {
                     // clang-format off
                     currentStageBody = Build<TCoSkip>(ctx, op->Pos)
@@ -222,6 +226,7 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
                 .Done().Ptr();
                 // clang-format on
 
+                currentStageBody = Build<TCoFromFlow>(ctx, op->Pos).Input(currentStageBody).Done().Ptr();
                 currentStageBody = NPhysicalConvertionUtils::ExtractMembers(
                     currentStageBody,
                     ctx,

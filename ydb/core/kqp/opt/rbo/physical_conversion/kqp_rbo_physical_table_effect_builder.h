@@ -19,4 +19,8 @@ private:
 
 namespace NKikimr::NKqp {
 NYql::TExprNode::TPtr LowerTableSinkSettings(const TTableSinkSettings& sink, NYql::TExprContext& ctx, NYql::TPositionHandle pos, ui64 priority = 0);
+// Input stage already exposes storage column names and has backend types.
+// Runtime generation uses the same catalog defaults as ordinary table writes.
+NYql::TExprNode::TPtr LowerTableDefaultConnection(NYql::TExprNode::TPtr inputStage,
+    const TOpTableEffect& effect, NYql::TExprContext& ctx);
 }

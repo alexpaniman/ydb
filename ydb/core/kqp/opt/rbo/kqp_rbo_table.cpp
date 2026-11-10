@@ -3,8 +3,12 @@
 
 namespace NKikimr::NKqp {
 
+TRboTable MakeRboTableIdentity(const NYql::TKikimrTableMetadata& metadata) {
+    return {metadata.Name, metadata.PathId.ToString(), metadata.SysView, ToString(metadata.SchemaVersion)};
+}
+
 TRboTable MakeRboTable(const NYql::TKikimrTableMetadata& metadata) {
-    TRboTable table(metadata.Name, metadata.PathId.ToString(), metadata.SysView, ToString(metadata.SchemaVersion));
+    auto table = MakeRboTableIdentity(metadata);
     {
         auto columns = std::make_shared<TRboTable::TColumns>();
         for (const auto& [name, column] : metadata.Columns) {

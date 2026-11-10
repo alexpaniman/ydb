@@ -7,6 +7,8 @@ SRCS(
     frontend_lowering.cpp
     kqp_native_frontend.cpp
     kqp_native_types.cpp
+    kqp_native_olap.cpp
+    kqp_subplan_value.cpp
     kqp_rbo_table.cpp
     kqp_expression.cpp
     kqp_olap_expr_inspection.cpp

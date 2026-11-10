@@ -170,11 +170,39 @@ Y_UNIT_TEST_SUITE(KqpNativeWrites) {
                 auto table = WriteCatalog(name, pos); table.Columns[1].Type.OptionalDepth = 0; return table;
             }, settings), TFrontendError);
             UNIT_ASSERT_EXCEPTION(CompileNative("UPSERT INTO t (id) VALUES (1)", [](auto name, auto pos) {
-                auto table = WriteCatalog(name, pos); table.WriteSchema->DefaultColumns = {"value"}; return table;
+                auto table = WriteCatalog(name, pos); table.WriteSchema->Defaults = {{"value", EColumnDefault::Expression}}; return table;
             }, settings), TUnsupportedFeature);
             UNIT_ASSERT_EXCEPTION(CompileNative("DELETE FROM t", [](auto name, auto pos) {
                 auto table = WriteCatalog(name, pos); table.WriteSchema.reset(); return table;
             }, settings), TUnsupportedFeature);
+        }
+    }
+
+    Y_UNIT_TEST(OmittedDefaultsAreEffectMetadataAndExplicitValuesTakePrecedence) {
+        const auto catalog = [](auto name, auto pos) {
+            auto table = WriteCatalog(name, pos);
+            table.WriteSchema->Defaults = {{"id", EColumnDefault::Sequence}, {"value", EColumnDefault::Literal}};
+            return table;
+        };
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* verb : {"INSERT INTO", "UPSERT INTO", "REPLACE INTO"}) {
+                const auto omitted = CompileNative(std::string(verb) + " t (name) VALUES ('row'u) RETURNING id, value", catalog, settings);
+                const auto& effect = Effect(omitted.Program->Get());
+                UNIT_ASSERT(effect.DefaultColumns == (std::vector<std::string>{"id", "value"}));
+                UNIT_ASSERT_VALUES_EQUAL(effect.Columns.size(), 1);
+                UNIT_ASSERT_VALUES_EQUAL(effect.Columns[0].second, "name");
+                UNIT_ASSERT_VALUES_EQUAL(effect.Returning.size(), 2);
+                // A supplied NULL is a value; it must not invoke the default.
+                const auto supplied = CompileNative(std::string(verb) + " t (id, value) VALUES (7ul, NULL)", catalog, settings);
+                UNIT_ASSERT(Effect(supplied.Program->Get()).DefaultColumns.empty());
+            }
+            for (const auto* sql : {"UPDATE t ON (name) VALUES ('row'u)", "DELETE FROM t ON (name) VALUES ('row'u)"})
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, catalog, settings), TFrontendError, sql);
+            for (const auto* sql : {"UPDATE t SET value = 3 WHERE id = 7ul", "DELETE FROM t WHERE id = 7ul"}) {
+                const auto bound = CompileNative(sql, catalog, settings);
+                UNIT_ASSERT(Effect(bound.Program->Get()).DefaultColumns.empty());
+            }
         }
     }
 

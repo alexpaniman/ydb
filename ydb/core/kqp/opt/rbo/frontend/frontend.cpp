@@ -274,6 +274,11 @@ struct TStringHash {
 
 class TScope {
 public:
+    void Reserve(std::size_t columns) {
+        Columns.reserve(columns);
+        Names.reserve(columns * 2);
+    }
+
     void Add(TScopeColumn column) {
         const auto index = Columns.size();
         auto addName = [&](const std::string& name) {
@@ -307,6 +312,7 @@ public:
 
     std::vector<TColumnId> Ids() const {
         std::vector<TColumnId> result;
+        result.reserve(Columns.size());
         for (const auto& column : Columns) result.push_back(column.Id);
         return result;
     }
@@ -478,44 +484,51 @@ public:
     {
         Program.Parameters = settings.ParameterTypes;
         for (const auto& [name, type] : Program.Parameters) ValidateParameter(type, {});
-        Canonical.reserve(syntax.Expressions.size());
-        CanonicalWindows.reserve(syntax.Expressions.size());
+        // Structural interning is used by window input/specification sharing.
+        // Grouping has its own lazy identity cache tied to the resolved scope.
+        const bool hasWindows = std::any_of(syntax.Expressions.begin(), syntax.Expressions.end(),
+            [](const auto& expression) { return bool(expression.Window); });
+        if (hasWindows) Canonical.reserve(syntax.Expressions.size());
+        CanonicalWindows.resize(syntax.Expressions.size(), NoSyntax);
         ContainsAggregate.reserve(syntax.Expressions.size());
         ContainsWindow.reserve(syntax.Expressions.size());
         std::unordered_map<TSyntaxKey, std::uint32_t, TSyntaxHash> interned;
         std::unordered_map<std::vector<std::uint32_t>, std::uint32_t, TWindowKeyHash> windows;
         for (std::size_t i = 0; i < syntax.Expressions.size(); ++i) {
             const auto& expr = syntax.Expressions[i];
-            const auto normalized = (expr.Kind == ESyntaxKind::Call && !expr.Text.starts_with('$')) || expr.Kind == ESyntaxKind::Cast;
             if (Bindings.IsReferenced(i) && (expr.Kind == ESyntaxKind::Variable || (expr.Kind == ESyntaxKind::Call && expr.Text.starts_with('$'))) &&
                 Bindings[i] == TGlobalBindings::Unknown)
                 throw TFrontendError(expr.Position, "unknown binding: " + expr.Text);
-            TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i], expr.Query.get()};
             bool window = bool(expr.Window);
-            bool aggregate = expr.Kind == ESyntaxKind::Call && !expr.Window && (IsAggregate(Lower(expr.Text)) || Lower(expr.Text) == "grouping");
+            const auto call = expr.Kind == ESyntaxKind::Call ? Lower(expr.Text) : std::string{};
+            bool aggregate = expr.Kind == ESyntaxKind::Call && !window && (IsAggregate(call) || call == "grouping");
             for (auto child : expr.Arguments) {
                 if (child >= i) throw TFrontendError(expr.Position, "syntax tree is not topologically ordered");
-                key.Arguments.push_back(Canonical[child]);
                 aggregate = aggregate || ContainsAggregate[child];
                 window = window || ContainsWindow[child];
             }
-            if (expr.Window) {
-                const auto& w = *expr.Window;
-                auto canonical = [&](TSyntaxId child) {
-                    if (child == NoSyntax) return NoSyntax;
-                    if (child >= i) throw TFrontendError(expr.Position, "window syntax is not topologically ordered");
-                    aggregate = aggregate || ContainsAggregate[child];
-                    return Canonical[child];
-                };
-                std::vector<std::uint32_t> spec{static_cast<std::uint32_t>(w.Frame.Type), static_cast<std::uint32_t>(w.Frame.Begin),
-                    static_cast<std::uint32_t>(w.Frame.End), canonical(w.BeginOffset), canonical(w.EndOffset), static_cast<std::uint32_t>(w.Partition.size())};
-                for (auto child : w.Partition) spec.push_back(canonical(child));
-                for (const auto& child : w.Order) { spec.push_back(canonical(child.Expression)); spec.push_back(child.Descending); }
-                key.Window = windows.emplace(std::move(spec), windows.size()).first->second;
+            if (hasWindows) {
+                const auto normalized = (expr.Kind == ESyntaxKind::Call && !expr.Text.starts_with('$')) || expr.Kind == ESyntaxKind::Cast;
+                TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i], expr.Query.get()};
+                for (auto child : expr.Arguments) key.Arguments.push_back(Canonical[child]);
+                if (expr.Window) {
+                    const auto& w = *expr.Window;
+                    auto canonical = [&](TSyntaxId child) {
+                        if (child == NoSyntax) return NoSyntax;
+                        if (child >= i) throw TFrontendError(expr.Position, "window syntax is not topologically ordered");
+                        aggregate = aggregate || ContainsAggregate[child];
+                        return Canonical[child];
+                    };
+                    std::vector<std::uint32_t> spec{static_cast<std::uint32_t>(w.Frame.Type), static_cast<std::uint32_t>(w.Frame.Begin),
+                        static_cast<std::uint32_t>(w.Frame.End), canonical(w.BeginOffset), canonical(w.EndOffset), static_cast<std::uint32_t>(w.Partition.size())};
+                    for (auto child : w.Partition) spec.push_back(canonical(child));
+                    for (const auto& child : w.Order) { spec.push_back(canonical(child.Expression)); spec.push_back(child.Descending); }
+                    key.Window = windows.emplace(std::move(spec), windows.size()).first->second;
+                }
+                CanonicalWindows[i] = key.Window;
+                const auto entry = interned.emplace(std::move(key), static_cast<std::uint32_t>(interned.size())).first;
+                Canonical.push_back(entry->second);
             }
-            CanonicalWindows.push_back(key.Window);
-            auto [it, inserted] = interned.emplace(std::move(key), static_cast<std::uint32_t>(interned.size()));
-            Canonical.push_back(it->second);
             ContainsAggregate.push_back(aggregate);
             ContainsWindow.push_back(window);
         }
@@ -844,7 +857,10 @@ private:
         std::string alias = source.Alias;
         if (alias.empty()) alias = source.Name.substr(source.Name.find_last_of("/.") + 1);
         TScope scope;
+        scope.Reserve(table.Columns.size());
+        read.Columns.reserve(table.Columns.size());
         std::unordered_set<std::string> names;
+        names.reserve(table.Columns.size());
         for (const auto& column : table.Columns) {
             if (!names.insert(column.Name).second) throw TFrontendError(source.Position, "duplicate catalog column: " + column.Name);
             auto id = Column(column.Name, alias, column.Type, source.Position); read.Columns.push_back(id); scope.Add(ScopeColumn(id));
@@ -870,14 +886,13 @@ private:
         }
         auto columnType = [&](const std::string& name) {
             const auto found = types.find(name);
-            if (found == types.end()) throw TFrontendError(pos, "unknown write column: " + name);
+            if (found == types.end()) throw TFrontendError(pos, "Column not found: " + name);
             return found->second;
         };
         const std::unordered_set<std::string> keys(schema.Keys.begin(), schema.Keys.end());
-        const std::unordered_set<std::string> defaults(schema.DefaultColumns.begin(), schema.DefaultColumns.end());
         if (keys.empty()) throw TFrontendError(pos, "write catalog has no primary key");
         for (const auto& name : schema.Keys) columnType(name);
-        for (const auto& name : schema.DefaultColumns) columnType(name);
+        for (const auto& [name, kind] : schema.Defaults) columnType(name);
 
         TBoundEffect effect{};
         effect.Kind = write.Kind;
@@ -955,19 +970,23 @@ private:
             }
             input = BindInput(input, context, pos);
         }
-        for (const auto& key : schema.Keys) if (!written.contains(key)) {
-            if (defaults.contains(key)) throw TUnsupportedFeature(EFeature::Statement, pos, "omitted default key expression: " + key);
-            throw TFrontendError(pos, "missing key column in input: " + key);
+        if (write.Kind == EWriteKind::Insert || write.Kind == EWriteKind::Upsert || write.Kind == EWriteKind::Replace) {
+            for (const auto& [name, kind] : schema.Defaults) if (!written.contains(name)) {
+                if (kind == EColumnDefault::Expression)
+                    throw TUnsupportedFeature(EFeature::Statement, pos, "omitted generated expression: " + name);
+                // Runtime generation belongs to the effect, after its input is
+                // evaluated. These are storage names, not input column IDs.
+                effect.DefaultColumns.push_back(name);
+                written.insert(name);
+            }
         }
+        for (const auto& key : schema.Keys) if (!written.contains(key))
+            throw TFrontendError(pos, "missing key column in input: " + key);
         if (write.Kind == EWriteKind::Insert || write.Kind == EWriteKind::Replace) {
             for (const auto& column : table.Columns) if (!written.contains(column.Name)) {
-                if (defaults.contains(column.Name)) throw TUnsupportedFeature(EFeature::Statement, pos, "omitted default expression: " + column.Name);
                 if (!column.Type.OptionalDepth) throw TFrontendError(pos, "missing non-nullable write column: " + column.Name);
                 add(column.Name, Program.Expressions.Literal(column.Type, {}, pos));
             }
-        } else if (write.Kind == EWriteKind::Upsert) {
-            for (const auto& name : schema.DefaultColumns) if (!written.contains(name))
-                throw TUnsupportedFeature(EFeature::Statement, pos, "omitted default expression in UPSERT: " + name);
         }
         TRelation relation{ERelation::Effect, pos};
         relation.Table = table.Name;
@@ -999,8 +1018,9 @@ private:
                 throw TFrontendError(join.Source.Position, join.Kind == EJoinKind::Cross ?
                     "CROSS JOIN cannot have ON or USING" : "JOIN requires ON or USING");
             auto right = Source(join.Source, outer);
-            TScope combined;
-            for (const auto& column : current.Scope.Columns) combined.Add(column);
+            const auto leftColumns = current.Scope.Columns.size();
+            TScope combined = current.Scope;
+            combined.Reserve(leftColumns + right.Scope.Columns.size());
             for (const auto& column : right.Scope.Columns) combined.Add(column);
             TExprContext context{combined};
             context.Outer = outer;
@@ -1014,16 +1034,16 @@ private:
                 throw TUnsupportedFeature(EFeature::JoinUsing, join.Source.Position, "JOIN USING is not supported; use an explicit ON predicate");
             }
             if (predicate && Program.Expressions[*predicate].Type.Kind != ETypeKind::Bool) throw TFrontendError(join.Source.Position, "join predicate must have Boolean type");
-            TScope output;
             const bool keepLeft = join.Kind != EJoinKind::RightSemi && join.Kind != EJoinKind::RightOnly;
             const bool keepRight = join.Kind != EJoinKind::LeftSemi && join.Kind != EJoinKind::LeftOnly;
-            if (keepLeft) for (auto column : current.Scope.Columns) {
-                if (join.Kind == EJoinKind::Right || join.Kind == EJoinKind::Full || join.Kind == EJoinKind::Exclusion) column.Type = column.Type.Optional();
-                output.Add(std::move(column));
-            }
-            if (keepRight) for (auto column : right.Scope.Columns) {
-                if (join.Kind == EJoinKind::Left || join.Kind == EJoinKind::Full || join.Kind == EJoinKind::Exclusion) column.Type = column.Type.Optional();
-                output.Add(std::move(column));
+            // ON binding has already indexed both inputs. NULL padding changes
+            // their types, not names or positions, so reuse that scope.
+            TScope output = keepLeft && keepRight ? std::move(combined)
+                : keepLeft ? std::move(current.Scope) : std::move(right.Scope);
+            if (keepLeft && keepRight) for (std::size_t i = 0; i < output.Columns.size(); ++i) {
+                const bool padded = join.Kind == EJoinKind::Full || join.Kind == EJoinKind::Exclusion ||
+                    (i < leftColumns ? join.Kind == EJoinKind::Right : join.Kind == EJoinKind::Left);
+                if (padded) output.Columns[i].Type = output.Columns[i].Type.Optional();
             }
             TRelation relation{ERelation::Join, join.Source.Position}; relation.Inputs = {current.Relation, right.Relation};
             relation.Columns = output.Ids(); relation.Predicate = predicate; relation.JoinKind = join.Kind;
@@ -1479,7 +1499,8 @@ private:
                 static_cast<std::uint64_t>(std::get<std::int64_t>(node.Value)) : std::get<std::uint64_t>(node.Value);
             return Program.Expressions.Literal({ETypeKind::Uint64}, value, pos);
         }
-        if (node.Type.IsSigned()) throw TUnsupportedFeature(EFeature::Expression, pos, "dynamic LIMIT/OFFSET requires an unsigned integer");
+        // Use the ordinary implicit conversion contract for dynamic counts.
+        // Narrow signed integers can widen to Uint64; Int64 cannot narrow to it.
         return Program.Expressions.Convert(expression, {ETypeKind::Uint64}, pos);
     }
 
@@ -1886,25 +1907,19 @@ private:
                     result = arena.InCollection(value, Expr(syntax.Arguments.at(1), context), AnsiIn, syntax.Position);
                     break;
                 }
-                TType itemType;
+                if (syntax.Text == "list") {
+                    std::vector<TExprId> items;
+                    items.reserve(syntax.Arguments.size() - 1);
+                    for (std::size_t i = 1; i < syntax.Arguments.size(); ++i) items.push_back(Expr(syntax.Arguments[i], context));
+                    result = arena.InCollection(value, arena.Collection(items, true, syntax.Position), AnsiIn, syntax.Position);
+                    break;
+                }
                 result = arena.Literal({ETypeKind::Bool}, false, syntax.Position);
                 for (std::size_t i = 1; i < syntax.Arguments.size(); ++i) {
                     const auto item = Expr(syntax.Arguments[i], context);
-                    if (syntax.Text == "list") {
-                        const auto type = arena[item].Type;
-                        if (arena[item].Op != EOpcode::Literal ||
-                            (type.Kind != ETypeKind::Null && itemType.Kind != ETypeKind::Null && type.Required() != itemType.Required()))
-                            throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "bracket IN lists require scalar literals of one type, optionally with NULL");
-                        itemType = i == 1 ? type : CommonType(itemType, type, syntax.Position);
-                    }
                     const auto equal = arena.Binary(EOpcode::Equal, value, item, syntax.Position);
                     result = arena.Binary(EOpcode::Or, result, equal, syntax.Position);
                 }
-                // Empty list values still retain the lookup's optional result
-                // type, even though ANSI membership is always false.
-                if (syntax.Text == "list" && syntax.Arguments.size() == 1 &&
-                    (arena[value].Type.OptionalDepth || arena[value].Type.Kind == ETypeKind::Null))
-                    result = arena.Convert(result, {ETypeKind::Bool, true}, syntax.Position);
                 result = InResult(value, result, syntax.Position);
                 break;
             }
@@ -2373,7 +2388,7 @@ std::string_view SupportManifest() {
 "relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery","named-query-in","effect"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Date32","Datetime64","Timestamp64","Interval64","Uuid","Decimal","Json","JsonDocument","Null","scalar optionals, including explicit nested optional casts"],
 "aggregates":["count","count_if","sum","avg","min","max","min_by","max_by","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
-"effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; defaults, sequences, INSERT OR REVERT and batch writes are unsupported"],
+"effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; literal and sequence defaults at emission; generated expression defaults, INSERT OR REVERT and batch writes are unsupported"],
 "volatile_operations":["RandomUuid(dependencies)","YQL::RandomUuid() syntax for a query-scoped internal UUID input"],
 "math_operations":["Math::IsNaN on typed integer/Float/Double inputs"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],

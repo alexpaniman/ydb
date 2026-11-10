@@ -54,19 +54,19 @@ TOrderedIUs<> MissingDomainColumns(const TUnorderedIUs& dependencies, const TUno
 }
 
 bool NeedsNullSafeEncoding(const TIntrusivePtr<IOperator>& leftInput, TInfoUnitId leftKey,
-                           const TIntrusivePtr<IOperator>& rightInput, TInfoUnitId rightKey, TExprContext& ctx) {
+                           const TIntrusivePtr<IOperator>& rightInput, TInfoUnitId rightKey) {
     // Only ok if the keys are domain keys, which always carry the same values.
     const bool leftInputType = leftInput->HasSchema();
     const bool rightInputType = rightInput->HasSchema();
 
     if (leftInputType && rightInputType) {
-        return IsNullableIU(leftInput, leftKey, ctx) || IsNullableIU(rightInput, rightKey, ctx);
+        return IsNullableIU(leftInput, leftKey) || IsNullableIU(rightInput, rightKey);
     }
     if (leftInputType) {
-        return IsNullableIU(leftInput, leftKey, ctx);
+        return IsNullableIU(leftInput, leftKey);
     }
     if (rightInputType) {
-        return IsNullableIU(rightInput, rightKey, ctx);
+        return IsNullableIU(rightInput, rightKey);
     }
 
     // If types are unknown it's safe to keep null, because for non optional column there are no nulls.
@@ -234,6 +234,10 @@ TIntrusivePtr<TOpAggregate> MakeDomainProjection(const TIntrusivePtr<IOperator>&
 
 bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu, TExprContext& ctx) {
     Y_UNUSED(ctx);
+    return IsNullableIU(input, iu);
+}
+
+bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu) {
     if (!input->NativeSchema) return true;
     const auto type = input->GetNativeIUType(iu);
     return type.OptionalDepth || type.Kind == NFrontend::ETypeKind::Null;
@@ -242,10 +246,15 @@ bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu, TExprCo
 TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr<IOperator>& rightInput,
                               const TJoinIUs& joinKeys, TPositionHandle pos, TRBOContext& ctx,
                               TPlanProps& props) {
-    TJoinIUs result;
     const bool nativeEqualNulls =
         ctx.KqpCtx.Config->GetUseBlockHashJoin() && ctx.KqpCtx.Config->GetEnableBlockHashJoinEqualNulls();
+    return MakeNullSafeJoinKeys(leftInput, rightInput, joinKeys, pos, nativeEqualNulls, props);
+}
 
+TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr<IOperator>& rightInput,
+    const TJoinIUs& joinKeys, TPositionHandle pos, bool nativeEqualNulls, TPlanProps& props)
+{
+    TJoinIUs result;
     TMapIUs leftElements;
     TMapIUs rightElements;
 
@@ -257,7 +266,7 @@ TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr
     };
 
     for (const auto& [leftKey, rightKey, equalNulls] : joinKeys.Items()) {
-        if (!NeedsNullSafeEncoding(leftInput, leftKey, rightInput, rightKey, ctx.ExprCtx)) {
+        if (!NeedsNullSafeEncoding(leftInput, leftKey, rightInput, rightKey)) {
             result.Add({leftKey, rightKey, equalNulls});
             continue;
         }

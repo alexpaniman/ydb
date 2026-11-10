@@ -1,4 +1,5 @@
 #include "kqp_native_frontend.h"
+#include "kqp_subplan_value.h"
 #include "frontend/frontend.h"
 #include "frontend/execution.h"
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
@@ -229,6 +230,10 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                     options.IsBatch = effect.Batch;
                     options.Columns.emplace();
                     options.ReturningColumns.emplace();
+                    if (!effect.DefaultColumns.empty()) {
+                        options.DefaultColumns.emplace();
+                        for (const auto& name : effect.DefaultColumns) options.DefaultColumns->push_back(String(name));
+                    }
                     TOrderedIUs<TString> columns, returning;
                     for (const auto& [id, name] : effect.Columns) {
                         columns.Append(id, String(name)); options.Columns->push_back(String(name));
@@ -253,7 +258,23 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                 case R::Map: {
                     TMapIUs definitions;
                     for (const auto& definition : relation.Definitions) definitions.Add(definition.Column, TMapElement(expression(definition.Expression)));
-                    op = MakeIntrusive<TOpMap>(input(), pos, std::move(definitions)); break;
+                    auto map = MakeIntrusive<TOpMap>(input(), pos, std::move(definitions));
+                    // Projected membership needs a value, including SQL UNKNOWN.
+                    // Construct that input here; the optimizer's IN/EXISTS rules
+                    // retain their original filter-only matching policy.
+                    for (const auto call : map->GetSubplanIUs(props.Subplans)) {
+                        const auto kind = props.Subplans.At(call).Type;
+                        if (kind != ESubplanType::IN_SUBPLAN && kind != ESubplanType::EXISTS) continue;
+                        for (const auto& item : IterateSubtreeWithSubplans(map.Get(), props)) {
+                            if (!item.Current->NativeSchema) ComputeNativeTypes(*item.Current, props);
+                        }
+                        const bool nativeEqualNulls = config && config->GetUseBlockHashJoin()
+                            && config->GetEnableBlockHashJoinEqualNulls();
+                        map = MakeIntrusive<TOpMap>(BuildInExistsValue(map->GetInput(), call,
+                            pos, props, nativeEqualNulls), pos, map->GetMapElements());
+                    }
+                    op = std::move(map);
+                    break;
                 }
                 case R::Capture: {
                     TDependencyIUs captures;

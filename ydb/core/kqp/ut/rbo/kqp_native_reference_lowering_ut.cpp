@@ -63,6 +63,29 @@ struct TFixture : NTests::TIdTestContext {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
+    Y_UNIT_TEST(WriteDefaultsReachTheExistingEffectWithoutBackendExpressions) {
+        NTests::TIdTestContext f;
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        const auto types = f.ExprCtx.TypeNodes.size();
+        auto query = CompileNativeToRbo("INSERT INTO t (value) VALUES ('row') RETURNING id, a", [](auto, auto) {
+            using namespace NFrontend;
+            TCatalogTable schema{"/Root/t", {{"id", {ETypeKind::Int64}}, {"value", {ETypeKind::String, true}}, {"a", {ETypeKind::Int32, true}}},
+                TWriteSchema{{"id"}, {{"id", EColumnDefault::Sequence}, {"a", EColumnDefault::Literal}}, false}};
+            return TNativeTable{std::move(schema), TRboTable{"/Root/t", "1:1", "", "1"}, NYql::EStorageType::RowStorage};
+        }, f.ExprCtx);
+        UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 1);
+        auto& root = *query.Roots.front();
+        NTests::AssertIdInvariants(root, root.PlanProps);
+        UNIT_ASSERT(root.ComputeTypes(f.RboCtx) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+        const auto& effect = CastOperator<TOpTableEffect>(*root.GetInput());
+        UNIT_ASSERT(effect.Options.DefaultColumns);
+        UNIT_ASSERT(*effect.Options.DefaultColumns == (TVector<TString>{"id", "a"}));
+        UNIT_ASSERT_VALUES_EQUAL(effect.GetColumns().Items().size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(effect.GetReturningColumns().Items().size(), 2);
+    }
+
     Y_UNIT_TEST(DeclarationsAndParameterTablesLowerDirectly) {
         for (const TString sql : {
             "DECLARE $x AS Decimal(22,9)?; DECLARE $s AS String; SELECT $x AS x, $s AS s;",

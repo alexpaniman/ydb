@@ -28,12 +28,13 @@ TNativeTable NoTables(std::string_view, NFrontend::TSourcePosition pos) {
     throw NFrontend::TFrontendError(pos, "unexpected table lookup");
 }
 
-void SetNativeReadType(NTests::TIdTestContext& f, TOpRead& read, const TUnorderedIUs& nullable = {}) {
+void SetNativeReadType(NTests::TIdTestContext& f, TOpRead& read, const TUnorderedIUs& nullable = {},
+    NFrontend::ETypeKind kind = NFrontend::ETypeKind::Int32) {
     if (!f.Props.NativeExpressions) f.Props.NativeExpressions = std::make_shared<NFrontend::TExpressionArena>();
     TNativeSchema schema{{}, std::nullopt, f.Props.NativeExpressions};
     auto columns = std::make_shared<TRboTable::TColumns>();
     for (auto id : read.GetColumns()) {
-        NFrontend::TType type{NFrontend::ETypeKind::Int32, nullable.Contains(id)};
+        NFrontend::TType type{kind, nullable.Contains(id)};
         schema.Row.emplace(id, type);
         columns->emplace(f.Props.InfoUnitRegistry.Get(id).GetColumnName(), type);
     }
@@ -893,6 +894,31 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             UNIT_ASSERT_VALUES_EQUAL_C(join->JoinKind, rewrites ? "Inner" : "Left", predicate);
             UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, allocations);
             UNIT_ASSERT_VALUES_EQUAL(result->Kind == EOperator::Join, rewrites);
+        }
+    }
+
+    Y_UNIT_TEST(NativeOuterJoinFilterRetainsExtendedTemporalConstants) {
+        using namespace NFrontend;
+        // The original YQL rule's simple-constant allowlist includes all four
+        // extended temporal types. Native type inspection must retain them.
+        for (const auto kind : {ETypeKind::Date32, ETypeKind::Datetime64, ETypeKind::Timestamp64, ETypeKind::Interval64}) {
+            NTests::TIdTestContext f;
+            const auto leftId = f.Id("left"), rightId = f.Id("right");
+            auto left = f.Read({leftId}), right = f.Read({rightId});
+            SetNativeReadType(f, *left, {}, kind);
+            SetNativeReadType(f, *right, {rightId}, kind);
+            auto arena = f.Props.NativeExpressions;
+            const auto predicate = arena->Binary(EOpcode::Greater, arena->Column(rightId, {kind, true}),
+                arena->Literal({kind}, std::int64_t{0}));
+            auto join = MakeIntrusive<TOpJoin>(left, right, f.Pos, "Left", TJoinIUs{});
+            auto filter = MakeIntrusive<TOpFilter>(join, f.Pos, TExpression::FromNative(arena, predicate, &f.Props));
+            const auto nodes = f.ExprCtx.NodeAllocationCounter;
+            const auto types = f.ExprCtx.TypeNodes.size();
+            const auto result = TPushFilterIntoJoinRule().SimpleMatchAndApply(filter, f.RboCtx, f.Props);
+            UNIT_ASSERT_VALUES_EQUAL(join->JoinKind, "Inner");
+            UNIT_ASSERT(result->Kind == EOperator::Join);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
         }
     }
 
@@ -2379,6 +2405,18 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto types = f.ExprCtx.TypeNodes.size();
             auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx).Roots;
             auto& root = *roots.front();
+            // Value subqueries are constructed at the frontend boundary. RBO
+            // keeps its original filter-only IN/EXISTS rule dispatch.
+            for (const auto& item : IterateSubtreeWithSubplans(&root, root.PlanProps)) {
+                if (item.Current->Kind != EOperator::Map) continue;
+                const auto map = TIntrusivePtr<IOperator>(item.Current);
+                TInlineGenericInExistsSubplanRule rule;
+                UNIT_ASSERT(!rule.QuickMatch(map));
+                UNIT_ASSERT(!rule.QuickMatch(map, root.PlanProps));
+                for (const auto call : map->GetSubplanIUs(root.PlanProps.Subplans)) {
+                    UNIT_ASSERT(root.PlanProps.Subplans.At(call).Type == ESubplanType::EXPR);
+                }
+            }
             auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
                 UNIT_FAIL("native correlation invoked YQL annotation");
                 return IGraphTransformer::TStatus::Error;

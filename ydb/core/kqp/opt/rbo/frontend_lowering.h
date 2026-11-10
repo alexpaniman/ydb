@@ -1,6 +1,7 @@
 #pragma once
 
 #include "frontend/expression.h"
+#include "kqp_native_olap.h"
 
 #include <yql/essentials/ast/yql_expr.h>
 
@@ -36,10 +37,6 @@ NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena
 // graph nor its mutable backend annotations are retained in TExpression.
 NYql::TExprNode::TPtr LowerExpressionLambda(const TExpression& expression, NYql::TExprContext& ctx);
 
-// Capability inspection reads only native nodes. Storage opcodes are emitted
-// at physical conversion, never during native optimization or type binding.
-bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root, bool allowScalarApply = false);
-bool CanLowerNativeOlapProjection(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root);
 NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena,
     NFrontend::TExprId root, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
 NYql::TExprNode::TPtr LowerNativeOlapProgram(const TOlapProgram& program,

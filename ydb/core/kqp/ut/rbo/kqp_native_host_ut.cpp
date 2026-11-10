@@ -5472,6 +5472,29 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
+    Y_UNIT_TEST(DynamicSignedCountsMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        for (const bool nullable : {false, true}) for (const bool offset : {false, true}) {
+            const TString sql = TString("DECLARE $count AS Int32") + (nullable ? "?" : "") +
+                "; SELECT x FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x UNION ALL SELECT 3 AS x) AS t ORDER BY x " +
+                (offset ? "LIMIT 3 OFFSET $count" : "LIMIT $count");
+            for (const auto count : {std::optional<i32>{}, std::optional<i32>{-1}, std::optional<i32>{0},
+                    std::optional<i32>{1}, std::optional<i32>{4}}) {
+                if (!nullable && !count) continue;
+                TParamsBuilder builder;
+                if (nullable) builder.AddParam("$count").OptionalInt32(count).Build();
+                else builder.AddParam("$count").Int32(*count).Build();
+                const auto parameters = builder.Build();
+                const auto expected = legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), parameters).GetValueSync();
+                const auto actual = native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), parameters).GetValueSync();
+                AssertSame(Snapshot(actual), Snapshot(expected));
+            }
+        }
+    }
+
     Y_UNIT_TEST(ScalarSemanticsMatchLegacyAcrossReusedSessions) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
@@ -5491,10 +5514,16 @@ $round = ($x,$y) -> {return $x;};
             "$q = SELECT 1 AS x; $saved = SELECT x FROM $q; $q = SELECT 2 AS x; SELECT x FROM $saved",
             "$x = 1; $x = $x + 1; SELECT $x",
             "SELECT 1 = NULL, NULL = NULL, NULL IN (1, NULL)",
+            "SELECT 1 IN [1, 2L], 2 IN [NULL, 1], NULL IN [], 3 IN [1, 2L]",
+            "SELECT x IN [x + 1, x], x IN [NULL, x + 1] FROM (SELECT 1 AS x UNION ALL SELECT CAST(NULL AS Int32) AS x) AS t ORDER BY x",
+            "PRAGMA AnsiInForEmptyOrNullableItemsCollections; SELECT x IN [x + 1, x], x IN [NULL, x + 1] FROM (SELECT 1 AS x UNION ALL SELECT CAST(NULL AS Int32) AS x) AS t ORDER BY x",
             "$q = SELECT CAST(NULL AS Int32) AS x UNION ALL SELECT 1 AS x; SELECT 1 IN $q, 2 IN $q, NULL IN $q",
             "PRAGMA AnsiInForEmptyOrNullableItemsCollections; $q = SELECT CAST(NULL AS Int32) AS x UNION ALL SELECT 1 AS x; SELECT 1 IN $q, 2 IN $q, NULL IN $q",
             "$q = SELECT 1 AS x; $saved = $q; $q = SELECT 2 AS x; SELECT 1 IN $saved, 2 IN $saved, 2 IN $q",
             "$q = SELECT x FROM (SELECT 1 AS x) AS t WHERE false; SELECT 1 IN $q, NULL IN $q",
+            "SELECT 1 IN ((SELECT 1 AS x)), 2 IN ((SELECT 1 AS x))",
+            "SELECT 1 IN ((SELECT x FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS t))",
+            "SELECT 1 IN ((SELECT x FROM (SELECT 1 AS x) AS t WHERE false)), NULL IN ((SELECT x FROM (SELECT 1 AS x) AS t WHERE false))",
             "SELECT (1, 2) = (1, 2), (1, 2) != (1, 3), (1, 3) < (2, 0), (1, 3) >= (1, 3)",
             "SELECT (1, NULL) < (2, NULL), (1, NULL) = (2, NULL), (1, NULL) = (1, NULL), (NULL, 1) > (NULL, 0)",
             "SELECT SUM(x) AS total, COUNT(*) AS n FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q",

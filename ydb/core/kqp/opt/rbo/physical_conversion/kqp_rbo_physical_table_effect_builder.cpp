@@ -1,6 +1,7 @@
 #include "kqp_rbo_physical_table_effect_builder.h"
 #include <algorithm>
 #include <yql/essentials/core/yql_expr_optimize.h>
+#include <yql/essentials/core/yql_expr_type_annotation.h>
 #include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 using namespace NYql::NNodes;
 using namespace NKikimr;
@@ -12,6 +13,27 @@ TExprNode::TPtr TPhysicalTableEffectBuilder::BuildPhysicalOp(TExprNode::TPtr inp
         columns.emplace_back(Names.Get(id), label);
     }
     return NPhysicalConvertionUtils::BuildRenameMap(input, columns, Ctx, /*ordered=*/true);
+}
+
+TExprNode::TPtr NKikimr::NKqp::LowerTableDefaultConnection(TExprNode::TPtr inputStage,
+    const TOpTableEffect& effect, TExprContext& ctx) {
+    const auto pos = effect.Pos;
+    Y_ENSURE(effect.Options.DefaultColumns && !effect.Options.DefaultColumns->empty());
+    TVector<TExprNode::TPtr> columns, generated;
+    for (const auto& [id, name] : effect.GetColumns().Items()) columns.push_back(ctx.NewAtom(pos, name));
+    for (const auto& name : *effect.Options.DefaultColumns) {
+        columns.push_back(ctx.NewAtom(pos, name));
+        generated.push_back(columns.back());
+    }
+    const auto& rowType = GetSeqItemType(*TDqPhyStage(inputStage).Program().Body().Ref().GetTypeAnn());
+    const auto* inputType = ctx.MakeType<TListExprType>(&rowType);
+    return Build<TKqpCnSequencer>(ctx, pos)
+        .Output().Stage(inputStage).Index().Build("0").Build()
+        .Table(LowerTable(effect.Table, ctx, pos))
+        .Columns().Add(columns).Build()
+        .DefaultConstraintColumns().Add(generated).Build()
+        .InputItemType(ExpandType(pos, *inputType, ctx))
+        .Done().Ptr();
 }
 
 TExprNode::TPtr NKikimr::NKqp::LowerTableSinkSettings(const TTableSinkSettings& sink, TExprContext& ctx, TPositionHandle Pos, ui64 priority) {
@@ -64,7 +86,10 @@ TExprNode::TPtr NKikimr::NKqp::LowerTableSinkSettings(const TTableSinkSettings& 
     }
 
     TVector<TExprNode::TPtr> defaultColumns;
-    if (Options.DefaultColumns.has_value()) {
+    // The sequencer has already generated all omitted values. Only UPSERT
+    // needs to mark them so the sink preserves existing stored values.
+    // INSERT and REPLACE write the complete prepared row unconditionally.
+    if (mode == "upsert" && Options.DefaultColumns.has_value()) {
         for (auto c : Options.DefaultColumns.value()) {
             defaultColumns.push_back(ctx.NewAtom(Pos, c));
         }

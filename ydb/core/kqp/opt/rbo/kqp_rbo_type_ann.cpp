@@ -44,6 +44,10 @@ TStatus TOpRoot::ComputeTypes(TRBOContext& ctx) {
     }
 
     for (const auto& item : *this) {
+        // Rewrites can add intermediate columns below an existing Replicate.
+        // Its native row schema and port bindings must use the same current
+        // input columns, even when the rule requested types alone.
+        item.Current->ComputeOutputIUs();
         ComputeNativeTypes(*item.Current, PlanProps);
     }
     return TStatus::Ok;
