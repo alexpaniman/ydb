@@ -243,8 +243,10 @@ frontend account for its different star-column order by name.
 
 Important exclusions remain explicit:
 
-- DDL, USE, PostgreSQL values, external/temporary tables, index-view syntax,
+- DDL, USE, external/temporary tables, index-view syntax,
   table hints/sampling and unrecognized settings.
+- PostgreSQL values and conversions, including `FromPg` and `ToPg`, are
+  intentionally outside this pipeline's scope.
 - Batch writes, virtual generated columns, generated writes requiring stored
   dependency lookup, and INSERT OR REVERT with defaults or generated columns;
   dynamic Int64 LIMIT/OFFSET and general row-valued scalar expressions.

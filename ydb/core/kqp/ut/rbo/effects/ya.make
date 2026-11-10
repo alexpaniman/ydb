@@ -19,8 +19,6 @@ SRCS(
 
 PEERDIR(
     ydb/core/kqp/ut/common
-    yql/essentials/sql/pg
-    yql/essentials/parser/pg_wrapper
 )
 
 IF (OS_WINDOWS)

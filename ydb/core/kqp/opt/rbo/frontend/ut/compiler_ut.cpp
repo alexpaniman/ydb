@@ -32,6 +32,16 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(PostgresValuesAndConversionsAreOutsideNativeProfile) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {"DECLARE $p AS PgInt2; SELECT $p", "SELECT PgInt2(1)",
+                "SELECT FromPg(1)", "SELECT ToPg(1)", "SELECT YQL::FromPg(1)", "SELECT YQL::ToPg(1)"}) {
+                UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
+            }
+        }
+    }
+
     Y_UNIT_TEST(StaticCallableInvocationUsesTheNativeFunctionContract) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;
