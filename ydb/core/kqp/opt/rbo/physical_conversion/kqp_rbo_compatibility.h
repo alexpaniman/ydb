@@ -4,6 +4,9 @@
 
 namespace NKikimr::NKqp {
 
+// This reserved execution name cannot collide with SQL $parameters.
+inline constexpr TStringBuf QueryRandomUuidParameter = "%kqp%random_uuid";
+
 bool NeedsRboCompatibilityLowering(const NYql::TExprNode::TPtr& root);
 
 NYql::TExprNode::TPtr RewriteRboCompatibilityNode(

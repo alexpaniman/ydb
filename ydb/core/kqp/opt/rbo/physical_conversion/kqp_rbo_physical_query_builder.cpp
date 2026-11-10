@@ -471,14 +471,15 @@ TVector<TKqpParamBinding> TPhysicalQueryBuilder::CollectParamBindings(int rootId
     for (const auto& param : params) {
         const auto paramName = TExprBase(param).Cast<TCoParameter>().Name().StringValue();
         if (!paramsCollected.contains(paramName) && paramName.find(ParamBindingName) == TString::npos) {
-            // clang-format off
-            const auto paramBinding = Build<TKqpParamBinding>(ctx, pos)
-                .Name<TCoAtom>()
-                    .Value(paramName)
-                .Build()
-            .Done();
-            // clang-format on
-            paramBindings.push_back(paramBinding);
+            if (paramName == QueryRandomUuidParameter) {
+                auto internal = Build<TKqpTxInternalBinding>(ctx, pos)
+                    .Type(TCoParameter(param).Type()).Kind().Build("RandomUuid").Done();
+                paramBindings.push_back(Build<TKqpParamBinding>(ctx, pos)
+                    .Name().Build(paramName).Binding(internal).Done());
+            } else {
+                paramBindings.push_back(Build<TKqpParamBinding>(ctx, pos)
+                    .Name().Build(paramName).Done());
+            }
             paramsCollected.insert(paramName);
         }
     }

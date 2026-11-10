@@ -248,14 +248,15 @@ public:
             ctx.AddError(TIssue(ctx.GetPosition(roots.front()->Pos), "Native frontend supports data, scan and generic queries"));
             return MakeKikimrResultHolder(ResultFromErrors<IKqpHost::TQueryResult>(ctx.IssueManager.GetIssues()));
         }
-        if (queryType == EKikimrQueryType::Scan && roots.size() != 1) {
+        if (queryType == EKikimrQueryType::Scan && query.Execution.DiscardResults.size() != 1) {
             ctx.AddError(TIssue(ctx.GetPosition(roots.front()->Pos), "Scan query should have a single result set"));
             return MakeKikimrResultHolder(ResultFromErrors<IKqpHost::TQueryResult>(ctx.IssueManager.GetIssues()));
         }
 
-        YQL_ENSURE(query.Execution.DiscardResults.size() == std::count_if(roots.begin(), roots.end(), [](const auto& root) {
-            return !root->PlanProps.WithEffects || root->PlanProps.WithReturning;
+        const auto resultCount = static_cast<std::size_t>(std::count_if(roots.begin(), roots.end(), [](const auto& root) {
+            return bool(root->PlanProps.ResultIndex);
         }));
+        YQL_ENSURE(query.Execution.DiscardResults.size() == resultCount);
         bool isOlap = false;
         for (const auto& root : roots) {
             YQL_ENSURE(root && root->PlanProps.NativeExpressions);
@@ -279,7 +280,7 @@ public:
                 return a->PlanProps.ResultIndex < b->PlanProps.ResultIndex;
             });
             for (ui32 i = 0; i < resultRoots.size(); ++i) {
-                if (resultRoots[i]->PlanProps.WithEffects && !resultRoots[i]->PlanProps.WithReturning) continue;
+                if (!resultRoots[i]->PlanProps.ResultIndex) continue;
                 auto& result = *prepared.AddResults();
                 result.SetKqlIndex(0);
                 result.SetResultIndex(*resultRoots[i]->PlanProps.ResultIndex);

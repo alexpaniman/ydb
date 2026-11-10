@@ -1,5 +1,6 @@
 #include "kqp_native_frontend.h"
 #include "frontend/frontend.h"
+#include "frontend/execution.h"
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
 
 #include <algorithm>
@@ -116,7 +117,8 @@ TNativeQuery CompileNativeToRbo(std::string_view sql,
 
 TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx, NYql::TKikimrConfiguration* config) {
-    auto program = std::move(compiled).Release();
+    auto execution = NFrontend::PrepareExecution(std::move(compiled));
+    auto& program = execution.Program;
     TNativeQuery query;
     query.Parameters = std::move(program.Parameters);
     ApplyPlannerSettings(program.PlannerSettings, config);
@@ -136,7 +138,8 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     std::unordered_map<NFrontend::TRelId, NFrontend::TColumnId> subplanBindings;
     for (const auto& [binding, subplan] : program.Subplans) subplanBindings.emplace(subplan.Root, binding);
     auto& roots = query.Roots;
-    for (const auto& result : program.Results) {
+    for (const auto& executionRoot : execution.Roots) {
+        const auto& result = executionRoot.Query;
         TPlanProps props;
         props.NativeExpressions = arena;
         for (NFrontend::TColumnId id = 0; id < program.Columns.size(); ++id) {
@@ -413,9 +416,10 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         TOrderedIUs<TString> columns;
         for (const auto& column : result.Columns) columns.Append(column.Column, String(column.Name));
         auto root = MakeIntrusive<TOpRoot>(converted.at(result.Root), converted.at(result.Root)->Pos, std::move(columns));
-        props.PhysicalTxGroup = props.WithEffects ? 1 : 0;
+        props.PhysicalTxGroup = executionRoot.Phase;
+        if (executionRoot.MaterializedInput) props.MaterializedResult = "$" + String(*executionRoot.MaterializedInput);
         props.EffectPriority = roots.size();
-        if (!props.WithEffects || props.WithReturning) {
+        if (!props.MaterializedResult && (!props.WithEffects || props.WithReturning)) {
             props.ResultIndex = query.Execution.DiscardResults.size();
             query.Execution.DiscardResults.push_back(false);
         }
