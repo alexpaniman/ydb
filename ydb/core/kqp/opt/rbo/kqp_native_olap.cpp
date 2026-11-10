@@ -52,6 +52,11 @@ bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend
         if (!temporal) return false;
     }
     if (!OlapBinaryName(node.Op).empty()) {
+        // Storage string kernels return a required Bool and map NULL to false.
+        // Nullable native predicates need the scalar evaluator to preserve
+        // their type and three-valued semantics under NOT, COALESCE, etc.
+        if (node.Type.OptionalDepth &&
+            (node.Op == O::Contains || node.Op == O::StartsWith || node.Op == O::EndsWith)) return false;
         if (node.Arguments.size() != 2) return false;
         // The existing storage kernels cannot consume the same column twice.
         auto column = [&](NFrontend::TExprId id) -> std::optional<NFrontend::TColumnId> {
@@ -80,6 +85,7 @@ bool OlapScalarNodeSupported(const NFrontend::TExprNode& node) {
         case O::Negate: case O::Not: case O::And: case O::Or: case O::If:
         case O::IsNull: case O::IsNotNull: case O::Abs: case O::Length: case O::OptionalWrap:
         case O::Find: case O::Substring: case O::Concat: case O::Like: case O::ILike:
+        case O::Lower: case O::Upper:
             return true;
         default: return false;
     }

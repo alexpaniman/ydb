@@ -319,8 +319,8 @@ private:
             for (auto* child : suffix->children) {
                 if (child->getText() == ".") { member = true; continue; }
                 if (Name(child) == "invoke_expr") {
-                    if (Result.Expressions[value].Kind != ESyntaxKind::Column && Result.Expressions[value].Kind != ESyntaxKind::Variable)
-                        Unsupported(child, EFeature::Expression, "higher-order invocation");
+                    const bool named = Result.Expressions[value].Kind == ESyntaxKind::Column ||
+                        Result.Expressions[value].Kind == ESyntaxKind::Variable;
                     auto* tail = Child(child, "invoke_expr_tail");
                     if (tail && (Child(tail, "null_treatment") || Child(tail, "filter_clause")))
                         Unsupported(tail, EFeature::Window, "window NULL treatment or FILTER clause");
@@ -332,11 +332,12 @@ private:
                             args.push_back(Expr(Child(arg, "expr")));
                         }
                     }
-                    auto function = Result.Expressions[value].Text;
+                    auto function = named ? Result.Expressions[value].Text : std::string{};
                     if (Result.Expressions[value].Kind == ESyntaxKind::Variable) function = "$" + function;
                     auto window = tail && Child(tail, "window_name_or_specification") ?
                         Window(Child(tail, "window_name_or_specification")) : nullptr;
-                    value = Add(ESyntaxKind::Call, node, std::move(function), std::move(args));
+                    if (!named) args.insert(args.begin(), value);
+                    value = Add(named ? ESyntaxKind::Call : ESyntaxKind::Invoke, node, std::move(function), std::move(args));
                     Result.Expressions[value].Window = std::move(window);
                     if (auto* q = Child(child, "opt_set_quantifier")) Result.Expressions[value].Distinct = Has(q, "DISTINCT");
                 } else if (Name(child) == "key_expr") {

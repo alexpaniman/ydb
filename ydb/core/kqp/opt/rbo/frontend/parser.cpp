@@ -681,10 +681,25 @@ private:
     TSyntaxId Expression(int minimum = 1) {
         TDepth depth(*this);
         auto left = Primary();
-        while (Take("[")) {
-            const auto position = Tokens[Index - 1].Position;
-            const auto index = Expression(); Expect("]");
-            left = Add(ESyntaxKind::Index, position, {}, {left, index});
+        while (Is("[") || Is("(")) {
+            const auto position = Token().Position;
+            if (Take("[")) {
+                const auto index = Expression(); Expect("]");
+                left = Add(ESyntaxKind::Index, position, {}, {left, index});
+            } else {
+                Expect("(");
+                std::vector<TSyntaxId> args{left};
+                if (!Take(")")) {
+                    do { args.push_back(Expression()); } while (Take(",") && !Is(")"));
+                    Expect(")");
+                }
+                const auto& callee = Result.Expressions[left];
+                if (callee.Kind == ESyntaxKind::Column || callee.Kind == ESyntaxKind::Variable) {
+                    auto name = callee.Kind == ESyntaxKind::Variable ? "$" + callee.Text : callee.Text;
+                    args.erase(args.begin());
+                    left = Add(ESyntaxKind::Call, position, std::move(name), std::move(args));
+                } else left = Add(ESyntaxKind::Invoke, position, {}, std::move(args));
+            }
         }
         bool predicate = false, ordering = false;
         while (true) {

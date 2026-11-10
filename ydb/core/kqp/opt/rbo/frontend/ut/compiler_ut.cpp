@@ -32,6 +32,46 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(StaticCallableInvocationUsesTheNativeFunctionContract) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto result = CompileNative(R"(
+                $f = Udf(String::Contains);
+                $g = $f;
+                $f = Udf(String::EndsWith);
+                SELECT String::Contains(NULL, 'x') AS direct,
+                    Udf(String::Contains)(NULL, 'x') AS invoked,
+                    $g('xy', 'x') AS captured, $f('xy', 'x') AS rebound,
+                    Udf(String::_yql_AsciiEqualsIgnoreCase)('AB', 'ab') AS equal;
+            )", Catalog, settings);
+            const auto& program = result.Program->Get();
+            const bool expected[]{false, false, true, false, true};
+            UNIT_ASSERT_VALUES_EQUAL(program.Results.front().Columns.size(), std::size(expected));
+            for (std::size_t i = 0; i < std::size(expected); ++i) {
+                const auto& output = program.Results.front().Columns[i];
+                UNIT_ASSERT(output.Type == TType{ETypeKind::Bool});
+                bool found = false;
+                for (const auto& relation : program.Relations) for (const auto& definition : relation.Definitions) {
+                    if (definition.Column != output.Column) continue;
+                    found = true;
+                    UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(program.Expressions, definition.Expression).Data), expected[i]);
+                }
+                UNIT_ASSERT(found);
+            }
+            for (const auto* sql : {
+                    "SELECT Udf(String::Contains)('x')",
+                    "SELECT Udf(String::Contains)('x', Just('x'))",
+                    "SELECT Udf(String::Contains)(1, 'x')",
+                    "SELECT Udf(String)('x', 'x')",
+                    "SELECT Udf(String::Contains, 1)('x', 'x')",
+                    "SELECT Abs(1)(2)",
+                    "SELECT Udf(String::ToLower)('ABC')",
+                    "SELECT Udf(Demo::Unknown)(1)"}) {
+                UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TFrontendError, sql);
+            }
+        }
+    }
+
     Y_UNIT_TEST(InlineWindowsUseTheFastParserAndAgreeWithTheGrammar) {
         for (const auto* spec : {"", "PARTITION BY id", "ORDER BY id DESC, value ASC", "PARTITION BY value ORDER BY id",
                 "ROWS UNBOUNDED PRECEDING", "ROWS BETWEEN 2 PRECEDING AND CURRENT ROW",

@@ -27,6 +27,19 @@ std::string Lower(std::string_view value) {
     return result;
 }
 
+void CheckFunctionProfile(std::string_view name, TSourcePosition position) {
+    // Unavailable aggregates must be rejected before their row arguments
+    // are resolved in the post-aggregation scope.
+    if (name == "stddev_pop" || name == "stddevpop" || name == "stddevpopulation" || name == "populationstddev" ||
+        name == "stddevp" || name == "variance" || name == "var_samp" || name == "var_pop")
+        throw TUnsupportedFeature(EFeature::Function, position, "aggregate is outside the native profile: " + std::string(name));
+    // These convenience aliases in the experimental expression API do
+    // not have the same meaning (or do not exist) in YQL SQL.
+    if (name == "lower" || name == "upper" || name == "substr" || name == "contains" ||
+        name == "string::tolower" || name == "string::toupper" || name == "concat")
+        throw TUnsupportedFeature(EFeature::Function, position, "function is outside the compatible native profile: " + std::string(name));
+}
+
 std::optional<TPlannerSetting> PlannerSetting(const TStatement& statement) {
     using S = EPlannerSetting;
     auto name = Lower(statement.Name);
@@ -574,6 +587,10 @@ public:
                 }
                 case EStatementKind::Binding: {
                     if (!Bindings.IsQueryBinding(index) && !statement.Lambda) {
+                        if (const auto name = CallableName(statement.Expression)) {
+                            Callables.emplace(index, *name);
+                            break;
+                        }
                         const TScope empty;
                         TExprContext context{empty};
                         context.AllowSubqueries = false;
@@ -1924,6 +1941,18 @@ private:
                 result = InResult(value, result, syntax.Position);
                 break;
             }
+            case ESyntaxKind::Invoke: {
+                if (syntax.Distinct || syntax.Window)
+                    throw TFrontendError(syntax.Position, "scalar callable invocation cannot use DISTINCT or OVER");
+                const auto name = CallableName(syntax.Arguments.at(0));
+                if (!name) throw TUnsupportedFeature(EFeature::Function, syntax.Position,
+                    "native invocation requires a statically resolved scalar callable");
+                std::vector<TExprId> args;
+                args.reserve(syntax.Arguments.size() - 1);
+                for (std::size_t i = 1; i < syntax.Arguments.size(); ++i) args.push_back(Expr(syntax.Arguments[i], context));
+                result = arena.Call(*name, args, syntax.Position);
+                break;
+            }
             case ESyntaxKind::Index: {
                 const auto list = Expr(syntax.Arguments[0], context);
                 const auto index = Expr(syntax.Arguments[1], context);
@@ -1976,6 +2005,10 @@ private:
                 for (auto arg : syntax.Arguments) args.push_back(Expr(arg, context));
                 if (syntax.Text.starts_with('$')) {
                     const auto binding = Bindings[id];
+                    if (const auto found = Callables.find(binding); found != Callables.end()) {
+                        result = arena.Call(found->second, args, syntax.Position);
+                        break;
+                    }
                     if (binding >= Syntax.Statements.size() || !Syntax.Statements[binding].Lambda)
                         throw TUnsupportedFeature(EFeature::Function, syntax.Position, "native calls require a named scalar lambda: " + syntax.Text);
                     const auto& lambda = Syntax.Statements[binding];
@@ -2016,6 +2049,25 @@ private:
         context.Cache.emplace(id, result); return result;
     }
 
+    // Callable values bind to native function names at declaration time. The
+    // scalar factory owns signatures and semantics; operator translation never
+    // inspects SQL syntax or resolves a backend UDF.
+    std::optional<std::string_view> CallableName(TSyntaxId id) const {
+        const auto& syntax = Syntax.Expressions.at(id);
+        if (syntax.Kind == ESyntaxKind::Variable) {
+            const auto found = Callables.find(Bindings[id]);
+            if (found != Callables.end()) return found->second;
+        }
+        if (syntax.Kind != ESyntaxKind::Call || Lower(syntax.Text) != "udf") return {};
+        if (syntax.Arguments.size() != 1 || syntax.Distinct || syntax.Window)
+            throw TUnsupportedFeature(EFeature::Function, syntax.Position, "native Udf requires one qualified function name");
+        const auto& name = Syntax.Expressions[syntax.Arguments[0]];
+        if (name.Kind != ESyntaxKind::Column || name.Text.find("::") == std::string::npos)
+            throw TFrontendError(name.Position, "Udf requires a qualified function name");
+        CheckFunctionProfile(Lower(name.Text), name.Position);
+        return name.Text;
+    }
+
     const TParsedQuery& Syntax;
     const TTableResolver& Catalog;
     const TBindSettings& Settings;
@@ -2031,6 +2083,7 @@ private:
     std::vector<bool> ContainsAggregate;
     std::vector<bool> ContainsWindow;
     std::vector<std::optional<TExprId>> Values;
+    std::unordered_map<std::uint32_t, std::string> Callables;
     std::unordered_map<const TSelect*, TQueryResult> ReusableQueries;
     std::unordered_map<const TCteBinding*, TExprContext*> CteContexts;
     std::unordered_set<std::string> Declared;
@@ -2107,16 +2160,7 @@ void CheckSyntax(const TParsedQuery& syntax) {
         }
         if (node.Kind == ESyntaxKind::Call) {
             const auto name = Lower(node.Text);
-            // Unavailable aggregates must be rejected before their row arguments
-            // are resolved in the post-aggregation scope.
-            if (name == "stddev_pop" || name == "stddevpop" || name == "stddevpopulation" || name == "populationstddev" ||
-                name == "stddevp" || name == "variance" || name == "var_samp" || name == "var_pop")
-                throw TUnsupportedFeature(EFeature::Function, node.Position, "aggregate is outside the native profile: " + node.Text);
-            // These convenience aliases in the experimental expression API do
-            // not have the same meaning (or do not exist) in YQL SQL.
-            if (name == "lower" || name == "upper" || name == "substr" || name == "contains" ||
-                name == "string::tolower" || name == "string::toupper" || name == "concat")
-                throw TUnsupportedFeature(EFeature::Function, node.Position, "function is outside the compatible native profile: " + node.Text);
+            CheckFunctionProfile(name, node.Position);
         }
         if (node.Kind == ESyntaxKind::Cast) {
             const auto target = ParseType(node.Text, node.Position);

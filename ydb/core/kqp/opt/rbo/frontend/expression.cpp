@@ -1528,6 +1528,9 @@ TExprId TExpressionArena::Coalesce(std::span<const TExprId> arguments, TSourcePo
         converted.push_back(Convert(id, target, position));
     }
     type.OptionalDepth = nullable;
+    // Type-check and coerce every alternative first. A required first value
+    // already determines the result; no runtime coalesce is needed or valid.
+    if (!(*this)[converted.front()].Type.OptionalDepth && type.Kind != K::Null) return converted.front();
     return Append({O::Coalesce, type, position, std::move(converted), {}, {}, 0});
 }
 
@@ -1715,8 +1718,35 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
             return Unary(op, arguments[0], position);
         }
     }
-    for (const auto& [function, op] : {std::pair{"contains", O::Contains}, {"startswith", O::StartsWith}, {"endswith", O::EndsWith},
-        {"string::contains", O::Contains}, {"string::startswith", O::StartsWith}, {"string::endswith", O::EndsWith}, {"concat", O::Concat}}) {
+    struct TStringPredicate { std::string_view Name; O Op; bool IgnoreCase; };
+    static constexpr TStringPredicate stringPredicates[]{
+        {"string::contains", O::Contains, false}, {"string::startswith", O::StartsWith, false},
+        {"string::endswith", O::EndsWith, false},
+        {"string::_yql_asciiequalsignorecase", O::Equal, true},
+        {"string::_yql_asciicontainsignorecase", O::Contains, true},
+        {"string::_yql_asciistartswithignorecase", O::StartsWith, true},
+        {"string::_yql_asciiendswithignorecase", O::EndsWith, true},
+        {"string::asciiequalsignorecase", O::Equal, true},
+        {"string::asciicontainsignorecase", O::Contains, true},
+        {"string::asciistartswithignorecase", O::StartsWith, true},
+        {"string::asciiendswithignorecase", O::EndsWith, true},
+    };
+    for (const auto& function : stringPredicates) if (lowered == function.Name) {
+        arity(2);
+        const auto leftType = (*this)[arguments[0]].Type, rightType = (*this)[arguments[1]].Type;
+        if ((!leftType.IsString() && leftType.Kind != K::Null) || leftType.OptionalDepth > 1 ||
+            !rightType.IsString() || rightType.OptionalDepth)
+            Fail(position, "String predicate requires an optional string input and a required string pattern");
+        auto left = Convert(arguments[0], {K::String, leftType.Kind == K::Null || bool(leftType.OptionalDepth)}, position);
+        auto right = Convert(arguments[1], {K::String}, position);
+        if (function.IgnoreCase) {
+            left = Unary(O::Lower, left, position);
+            right = Unary(O::Lower, right, position);
+        }
+        const TExprId values[]{Binary(function.Op, left, right, position), Literal({K::Bool}, false, position)};
+        return Coalesce(values, position);
+    }
+    for (const auto& [function, op] : {std::pair{"contains", O::Contains}, {"startswith", O::StartsWith}, {"endswith", O::EndsWith}, {"concat", O::Concat}}) {
         if (lowered == function) {
             arity(2);
             return Binary(op, arguments[0], arguments[1], position);

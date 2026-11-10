@@ -7,6 +7,7 @@ SIZE(MEDIUM)
 REQUIREMENTS(cpu:2)
 
 SRCS(
+    kqp_native_olap_ut.cpp
     kqp_native_effects_ut.cpp
     kqp_native_execution_ut.cpp
     kqp_native_expression_arena_ut.cpp

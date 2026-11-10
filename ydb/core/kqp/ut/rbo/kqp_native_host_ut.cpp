@@ -5819,6 +5819,41 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
+
+    Y_UNIT_TEST(StaticStringCallableFormsMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const char* functions[]{"Contains", "StartsWith", "EndsWith", "_yql_AsciiEqualsIgnoreCase",
+            "_yql_AsciiContainsIgnoreCase", "_yql_AsciiStartsWithIgnoreCase", "_yql_AsciiEndsWithIgnoreCase"};
+        for (const bool utf8 : {false, true}) {
+            TString sql = utf8 ? "DECLARE $s AS Utf8?; " : "DECLARE $s AS String?; ";
+            sql += "DECLARE $p AS String; ";
+            for (std::size_t i = 0; i < std::size(functions); ++i)
+                sql += TStringBuilder() << "$f" << i << " = Udf(String::" << functions[i] << "); $g" << i << " = $f" << i << "; ";
+            sql += "SELECT ";
+            for (std::size_t i = 0; i < std::size(functions); ++i) {
+                if (i) sql += ", ";
+                sql += TStringBuilder() << "String::" << functions[i] << "($s, $p) AS direct" << i
+                    << ", Udf(String::" << functions[i] << ")($s, $p) AS invoke" << i
+                    << ", $g" << i << "($s, $p) AS bound" << i;
+            }
+            TVector<std::optional<std::string>> inputs{std::nullopt, "", "abc", "ABC", "aBc", "Éé", "Kk", std::string{"a\0b", 3}};
+            if (!utf8) inputs.push_back(std::string{"a\xff" "b", 3});
+            for (const auto& input : inputs) for (const auto* pattern : {"", "a", "A", "bc", "ABC", "é", "k"}) {
+                TParamsBuilder builder;
+                if (utf8) builder.AddParam("$s").OptionalUtf8(input).Build();
+                else builder.AddParam("$s").OptionalString(input).Build();
+                builder.AddParam("$p").String(pattern).Build();
+                const auto params = builder.Build();
+                const auto expected = legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                const auto actual = native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                AssertSame(Snapshot(actual), Snapshot(expected));
+            }
+        }
+    }
+
     Y_UNIT_TEST(RuntimePercentLikePatternsMatchLegacy) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));

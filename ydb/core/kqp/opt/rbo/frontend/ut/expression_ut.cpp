@@ -737,6 +737,24 @@ Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
         }
     }
 
+    Y_UNIT_TEST(RequiredCoalesceRetainsCoercionAndSkipsUnreachableValues) {
+        TExpressionArena arena;
+        const auto input = arena.Column(0, {K::Int32});
+        const auto rejected = arena.Ensure(Integer(arena, 0), arena.Literal({K::Bool}, false), "unreachable");
+        const TExprId alternatives[]{input, rejected};
+        const auto result = arena.Coalesce(alternatives);
+        UNIT_ASSERT(arena[result].Op == O::Convert);
+        UNIT_ASSERT(arena[result].Type == TType{K::Int64});
+        TEvaluationContext context;
+        context.Column = [](auto id) {
+            UNIT_ASSERT_VALUES_EQUAL(id, 0);
+            return TValue{{K::Int32}, std::int64_t{7}};
+        };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, result, context)), "7");
+        const TExprId invalid[]{input, arena.Literal({K::String}, std::string{"invalid"})};
+        UNIT_ASSERT_EXCEPTION(arena.Coalesce(invalid), TFrontendError);
+    }
+
     Y_UNIT_TEST(CoalesceNullabilitySurvivesReconstruction) {
         TExpressionArena arena;
         const auto optional = arena.Column(0, {K::Uint32, true});
