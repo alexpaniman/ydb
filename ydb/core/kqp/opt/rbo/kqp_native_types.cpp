@@ -15,6 +15,7 @@ const TNativeRow& Row(const IOperator& op) {
 TNativeRow ReadRow(const TRboTable& table, const TUnorderedIUs& columns, const TPlanProps& props) {
     Y_ENSURE(table.NativeColumns, "Missing native catalog schema for " << table.Path);
     TNativeRow row;
+    row.reserve(columns.Size());
     for (const auto id : columns) row.emplace(id, table.NativeColumns->at(props.InfoUnitRegistry.Get(id).GetColumnName()));
     return row;
 }
@@ -40,6 +41,7 @@ TExpression Bind(const TExpression& expression, const TNativeRow& row, TPlanProp
 }
 
 void Append(TNativeRow& to, const TNativeRow& from, bool optional = false) {
+    to.reserve(to.size() + from.size());
     for (const auto& [id, type] : from) to.emplace(id, optional ? type.Optional() : type);
 }
 
@@ -217,9 +219,11 @@ void ComputeNativeTypes(IOperator& op, TPlanProps& props) {
             auto& join = CastOperator<TOpJoin>(op);
             const auto& left = Row(*join.GetLeftInput());
             const auto& right = Row(*join.GetRightInput());
-            auto cross = left;
-            Append(cross, right);
-            for (auto& filter : join.JoinFilters) filter = Bind(filter, cross, props);
+            if (!join.JoinFilters.empty()) {
+                auto cross = left;
+                Append(cross, right);
+                for (auto& filter : join.JoinFilters) filter = Bind(filter, cross, props);
+            }
             if (JoinOutputsLeft(join.JoinKind)) Append(row, left, join.JoinKind == "Right" || join.JoinKind == "Full" || join.JoinKind == "Exclusion");
             if (JoinOutputsRight(join.JoinKind)) Append(row, right, join.JoinKind == "Left" || join.JoinKind == "Full" || join.JoinKind == "Exclusion");
             break;
