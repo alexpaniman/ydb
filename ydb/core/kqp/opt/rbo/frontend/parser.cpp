@@ -24,6 +24,7 @@ struct TToken {
     // Ordinary names need only their original text, not an uppercase copy.
     std::string_view Word = {};
     unsigned Identifiers = 15;
+    char Quote = 0;
 };
 
 std::string Upper(std::string_view text) {
@@ -153,7 +154,7 @@ public:
             }
             if (!identifier && (Alpha(Peek()) || Peek() == '@'))
                 throw TUnsupportedFeature(EFeature::Syntax, pos, "typed or adjacent string literal requires grammar parser");
-            return {identifier ? EToken::QuotedIdentifier : EToken::String, std::move(value), pos, Position.Offset, suffix};
+            return {identifier ? EToken::QuotedIdentifier : EToken::String, std::move(value), pos, Position.Offset, suffix, 15, ch};
         }
         if (ch == '@' && Peek(1) == '@') {
             throw TUnsupportedFeature(EFeature::Syntax, pos, "multiline literal requires grammar parser");
@@ -350,14 +351,17 @@ private:
             if (Take(".")) result.Name += "." + name();
             const bool parenthesized = Take("(");
             if (parenthesized || Take("=")) {
-                if (Is("$"))
-                    throw TUnsupportedFeature(EFeature::Pragma, Token().Position, "dynamic pragma values are outside the native profile");
-                const auto sign = Is("+") || Is("-") ? Tokens[Index++].Text : std::string{};
-                if (Token().Kind != EToken::Identifier && Token().Kind != EToken::String && Token().Kind != EToken::Number) Fail("expected pragma value");
-                if (!sign.empty() && Token().Kind != EToken::Number) Fail("expected numeric pragma value");
-                if (Token().Kind == EToken::String && !Token().Word.empty())
-                    throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "typed pragma strings are outside the native profile");
-                result.Value = sign + Tokens[Index++].Text;
+                do {
+                    if (Is("$"))
+                        throw TUnsupportedFeature(EFeature::Pragma, Token().Position, "dynamic pragma values are outside the native profile");
+                    // SQL pragmas accept strings (including ANSI quoted names),
+                    // not numeric or Boolean literals with the same spelling.
+                    if (Token().Kind != EToken::String && !(Settings.AnsiQuotes && Token().Quote == '"'))
+                        Fail("expected string value for pragma " + result.Name);
+                    if (!Token().Word.empty())
+                        throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "typed pragma strings are outside the native profile");
+                    result.PragmaValues.push_back(Tokens[Index++].Text);
+                } while (parenthesized && Take(","));
                 if (parenthesized) Expect(")");
             }
             return result;

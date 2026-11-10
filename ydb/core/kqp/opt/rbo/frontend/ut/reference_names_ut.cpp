@@ -67,6 +67,24 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
         }
     }
 
+    Y_UNIT_TEST(CostBasedOptimizationLevelPragmas) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("PRAGMA ydb.Cost_Based_Optimization_Level('\\x30'); "
+                "PRAGMA kikimr.CostBasedOptimizationLevel = '4'; SELECT id FROM t;");
+            const auto& settings = f.Program.PlannerSettings;
+            UNIT_ASSERT_VALUES_EQUAL(settings.size(), 2);
+            for (const auto& setting : settings) UNIT_ASSERT(setting.Kind == EPlannerSetting::CostBasedOptimizationLevel);
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint32_t>(settings[0].Value), 0);
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint32_t>(settings[1].Value), 4);
+            for (const auto sql : {"PRAGMA ydb.CostBasedOptimizationLevel = 0; SELECT id FROM t;",
+                    "PRAGMA ydb.CostBasedOptimizationLevel('0', '4'); SELECT id FROM t;"}) f.Error(sql);
+            for (const auto sql : {"$level = '0'; PRAGMA ydb.CostBasedOptimizationLevel = $level; SELECT id FROM t;",
+                    "PRAGMA yt.CostBasedOptimizationLevel = '0'; SELECT id FROM t;"})
+                UNIT_ASSERT_EXCEPTION(f.Ok(sql), TUnsupportedFeature);
+        }
+    }
+
     Y_UNIT_TEST(PreambleCapturesAndLambdaShadowing) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
             TFixture f; f.Settings.Parser = parser;

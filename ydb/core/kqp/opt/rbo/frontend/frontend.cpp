@@ -41,6 +41,13 @@ void CheckFunctionProfile(std::string_view name, TSourcePosition position) {
         throw TUnsupportedFeature(EFeature::Function, position, "function is outside the compatible native profile: " + std::string(name));
 }
 
+const std::string& PragmaValue(const TStatement& statement) {
+    if (statement.PragmaValues.size() > 1)
+        throw TFrontendError(statement.Position, "expected at most one value for pragma " + statement.Name);
+    static const std::string empty;
+    return statement.PragmaValues.empty() ? empty : statement.PragmaValues.front();
+}
+
 std::optional<TPlannerSetting> PlannerSetting(const TStatement& statement) {
     using S = EPlannerSetting;
     auto name = Lower(statement.Name);
@@ -69,22 +76,23 @@ std::optional<TPlannerSetting> PlannerSetting(const TStatement& statement) {
     const auto found = std::find_if(std::begin(names), std::end(names), [&](const auto& entry) { return entry.first == name; });
     if (found == std::end(names)) return {};
     const auto kind = found->second;
-    const auto badValue = [&] { return TFrontendError(statement.Position, "invalid value for pragma " + statement.Name + ": " + statement.Value); };
-    if (kind == S::OptimizerHints || kind == S::HashJoinMode) return TPlannerSetting{kind, statement.Value, statement.Position};
+    const auto& argument = PragmaValue(statement);
+    const auto badValue = [&] { return TFrontendError(statement.Position, "invalid value for pragma " + statement.Name + ": " + argument); };
+    if (kind == S::OptimizerHints || kind == S::HashJoinMode) return TPlannerSetting{kind, argument, statement.Position};
     if (kind == S::CostBasedOptimization) {
-        const auto value = Lower(statement.Value);
+        const auto value = Lower(argument);
         if (value != "on" && value != "off" && value != "auto") throw badValue();
         return TPlannerSetting{kind, value, statement.Position};
     }
     if (kind == S::CostBasedOptimizationLevel || kind == S::DqChannelVersion) {
-        std::string_view value = statement.Value;
+        std::string_view value = argument;
         if (value.starts_with('+')) value.remove_prefix(1);
         std::uint32_t number = 0;
         const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), number);
         if (error != std::errc{} || end != value.data() + value.size()) throw badValue();
         return TPlannerSetting{kind, number, statement.Position};
     }
-    const auto value = Lower(statement.Value);
+    const auto value = Lower(argument);
     const bool enabled = value.empty() || value == "true" || value == "t" || value == "yes" || value == "y" ||
         value == "on" || value == "1" || value == "da";
     if (!enabled && value != "false" && value != "f" && value != "no" && value != "n" && value != "off" && value != "0" && value != "net")
@@ -119,8 +127,12 @@ public:
         for (const auto& [name, type] : settings.ParameterTypes) Names[name] = Parameter;
         for (std::uint32_t i = 0; i < syntax.Statements.size(); ++i) {
             const auto& statement = syntax.Statements[i];
-            if (statement.Kind == EStatementKind::Pragma && Lower(statement.Name) == "tablepathprefix") Prefix = statement.Value;
-            if (statement.Kind == EStatementKind::Pragma && statement.Value.empty()) {
+            if (statement.Kind == EStatementKind::Pragma && Lower(statement.Name) == "tablepathprefix") {
+                if (statement.PragmaValues.empty())
+                    throw TFrontendError(statement.Position, "TablePathPrefix requires one string value");
+                Prefix = PragmaValue(statement);
+            }
+            if (statement.Kind == EStatementKind::Pragma && statement.PragmaValues.empty()) {
                 const auto name = Lower(statement.Name);
                 if (name == "ansicurrentrow" || name == "disableansicurrentrow") AnsiCurrentRow = name == "ansicurrentrow";
                 if (name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr")
@@ -705,16 +717,16 @@ public:
                 case EStatementKind::Pragma: {
                     const auto name = Lower(statement.Name);
                     if (name == "tablepathprefix") { /* Captured with each source at its declaration. */ }
-                    else if (name == "yqlselect" && Lower(statement.Value) == "force") {
+                    else if (name == "yqlselect" && Lower(PragmaValue(statement)) == "force") {
                         // This selects relational translation, which is intrinsic here.
-                    } else if (name == "ansiimplicitcrossjoin" && statement.Value.empty()) {
+                    } else if (name == "ansiimplicitcrossjoin" && statement.PragmaValues.empty()) {
                         // Comma joins have one unambiguous cross-product meaning.
-                    } else if ((name == "orderedcolumns" || name == "disableorderedcolumns") && statement.Value.empty()) {
+                    } else if ((name == "orderedcolumns" || name == "disableorderedcolumns") && statement.PragmaValues.empty()) {
                         orderedColumns = name == "orderedcolumns";
-                    } else if ((name == "ansiinforemptyornullableitemscollections" || name == "disableansiinforemptyornullableitemscollections") && statement.Value.empty()) {
+                    } else if ((name == "ansiinforemptyornullableitemscollections" || name == "disableansiinforemptyornullableitemscollections") && statement.PragmaValues.empty()) {
                         AnsiIn = name == "ansiinforemptyornullableitemscollections";
                     } else if ((name == "ansicurrentrow" || name == "disableansicurrentrow" ||
-                            name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr") && statement.Value.empty()) {
+                            name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr") && statement.PragmaValues.empty()) {
                         // Captured with the syntax at its definition site.
                     } else if (auto setting = PlannerSetting(statement)) Program.PlannerSettings.push_back(std::move(*setting));
                     else throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "unsupported pragma: " + statement.Name);

@@ -86,7 +86,7 @@ Y_UNIT_TEST_SUITE(KqpNativeOptimizerPragma) {
         TKikimrRunner kikimr(Settings(Required, 4));
         CreateTables(kikimr);
         auto session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
-        for (const TString value : {"'invalid'", "'-1'", "'4294967296'", "default", "''"}) {
+        for (const TString value : {"'invalid'", "'-1'", "'4294967296'", "default", "''", "0", "+0", "true"}) {
             const auto before = CompileCounters(kikimr);
             const auto result = session.ExecuteQuery("PRAGMA ydb.CostBasedOptimizationLevel = " + value + ";" + Join,
                 NQuery::TTxControl::NoTx(), NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();

@@ -358,7 +358,6 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                     "PRAGMA ydb.CostBasedOptimizationLevel = '0'; SELECT 1",
                     "PRAGMA KiKiMr.Cost_Based_Optimization_Level('0'); SELECT 1",
                     "PRAGMA KiKiMr.Cost_Based_Optimization_Level('\\x30'); SELECT 1",
-                    "PRAGMA ydb.CostBasedOptimizationLevel(+0); SELECT 1",
                     "--!ansi_lexer\nPRAGMA \"ydb\".\"CostBasedOptimizationLevel\" = '0'; SELECT 1"}) {
                 const auto compiled = CompileNative(sql, Catalog, settings);
                 const auto& pragmas = compiled.Program->Get().PlannerSettings;
@@ -366,7 +365,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 UNIT_ASSERT(pragmas[0].Kind == EPlannerSetting::CostBasedOptimizationLevel);
                 UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint32_t>(pragmas[0].Value), 0);
             }
-            for (const auto* value : {"'invalid'", "'-1'", "'4294967296'", "default", "''"}) {
+            for (const auto* value : {"'invalid'", "'-1'", "'4294967296'", "default", "''", "0", "+0", "true"}) {
                 const auto sql = std::string("PRAGMA ydb.CostBasedOptimizationLevel(") + value + "); SELECT 1";
                 UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TFrontendError);
             }

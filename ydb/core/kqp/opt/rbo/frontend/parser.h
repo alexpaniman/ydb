@@ -161,7 +161,10 @@ struct TStatement {
     EStatementKind Kind;
     TSourcePosition Position;
     std::string Name;
+    // DECLARE type spelling. Pragmas retain decoded arguments separately so
+    // a missing value, an empty string and a list cannot be conflated.
     std::string Value;
+    std::vector<std::string> PragmaValues;
     TSyntaxId Expression = NoSyntax;
     std::shared_ptr<TSelect> Query;
     std::shared_ptr<TWriteStatement> Write;

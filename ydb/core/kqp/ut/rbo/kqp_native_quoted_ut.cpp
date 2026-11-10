@@ -19,6 +19,35 @@ TKikimrSettings Settings(bool native) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeQuotedRuntime) {
+    Y_UNIT_TEST_TWIN(AnsiQuotedNamesBindAndExecuteWithExactCase, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const auto schema = session.ExecuteSchemeQuery(
+            "CREATE TABLE `/Root/Mixed` (Id Int64 NOT NULL, PRIMARY KEY(Id));").GetValueSync();
+        UNIT_ASSERT_C(schema.IsSuccess(), schema.GetIssues().ToString());
+        const auto write = session.ExecuteDataQuery("UPSERT INTO `/Root/Mixed` (Id) VALUES (7);",
+            NYdb::NTable::TTxControl::BeginTx().CommitTx()).GetValueSync();
+        UNIT_ASSERT_C(write.IsSuccess(), write.GetIssues().ToString());
+        const auto result = session.ExecuteDataQuery(
+            "--!ansi_lexer\nPRAGMA YqlSelect = 'force'; WITH \"c\" AS (SELECT \"Id\" FROM \"/Root/Mixed\") "
+            "SELECT \"a\"\"b\".\"Id\" AS \"Result\", 'it''s' AS \"Text\" FROM \"c\" AS \"a\"\"b\";",
+            NYdb::NTable::TTxControl::BeginTx().CommitTx()).GetValueSync();
+        UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+        const auto& columns = result.GetResultSet(0).GetColumnsMeta();
+        UNIT_ASSERT_VALUES_EQUAL(columns.at(0).Name, "Result");
+        UNIT_ASSERT_VALUES_EQUAL(columns.at(1).Name, "Text");
+        TResultSetParser rows(result.GetResultSet(0));
+        UNIT_ASSERT(rows.TryNextRow());
+        UNIT_ASSERT_VALUES_EQUAL(rows.ColumnParser(0).GetInt64(), 7);
+        UNIT_ASSERT_VALUES_EQUAL(rows.ColumnParser(1).GetString(), "it's");
+        UNIT_ASSERT(!rows.TryNextRow());
+        const auto invalid = session.ExecuteDataQuery("--!ansi_lexer\nSELECT \"id\" FROM \"/Root/Mixed\";",
+            NYdb::NTable::TTxControl::BeginTx().CommitTx()).GetValueSync();
+        UNIT_ASSERT(!invalid.IsSuccess());
+        UNIT_ASSERT(invalid.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+    }
+
     Y_UNIT_TEST_TWIN(QuotedBytesAndUnicodeMatchLegacy, Native) {
         TKikimrRunner kikimr(Settings(Native));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();

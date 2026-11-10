@@ -854,11 +854,14 @@ private:
             if (auto* prefix = Child(Child(node, "opt_id_prefix_or_type"), "an_id_or_type"))
                 result.Name = pragmaName(prefix) + ".";
             result.Name += pragmaName(Child(node, "an_id"));
-            auto values = Children(node, "pragma_value");
-            if (values.size() > 1) Unsupported(node, EFeature::Pragma, "pragma argument list");
-            if (!values.empty() && Child(values[0], "bind_parameter"))
-                Unsupported(values[0], EFeature::Pragma, "dynamic pragma value");
-            if (!values.empty()) result.Value = Decode(values[0]->getText(), values[0]);
+            for (auto* value : Children(node, "pragma_value")) {
+                const auto text = value->getText();
+                if (Child(value, "bind_parameter"))
+                    Unsupported(value, EFeature::Pragma, "dynamic pragma value");
+                if (text.empty() || (text.front() != '\'' && text.front() != '"' && !text.starts_with("@@")))
+                    throw TFrontendError(Position(value), "expected string value for pragma " + result.Name);
+                result.PragmaValues.push_back(Decode(text, value));
+            }
             return result;
         }
         if (name == "named_nodes_stmt") {
@@ -997,6 +1000,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
     for (const auto& statement : query.Statements) {
         out << static_cast<int>(statement.Kind) << ':';
         text(statement.Name); text(statement.Value); out << statement.ScalarList;
+        out << '['; for (const auto& value : statement.PragmaValues) text(value); out << ']';
         out << bool(statement.RowFields);
         if (statement.RowFields) for (const auto& [name, type] : *statement.RowFields) { text(name); text(type); }
         expr(statement.Expression); if (statement.Query) select(*statement.Query);

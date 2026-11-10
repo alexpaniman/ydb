@@ -7,6 +7,25 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(PragmaArgumentsRetainArityAndLiteralKinds) {
+        for (const bool ansi : {false, true}) {
+            TParseSettings settings; settings.AnsiQuotes = ansi;
+            const auto* sql = "PRAGMA custom; PRAGMA custom(''); PRAGMA custom('a', 'b');";
+            const auto fast = Parse(sql, settings), grammar = ParseGrammar(sql, settings);
+            UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(fast), SyntaxFingerprint(grammar));
+            for (const auto* parsed : {&fast, &grammar}) {
+                UNIT_ASSERT(parsed->Statements[0].PragmaValues.empty());
+                UNIT_ASSERT(parsed->Statements[1].PragmaValues == std::vector<std::string>{""});
+                UNIT_ASSERT(parsed->Statements[2].PragmaValues == (std::vector<std::string>{"a", "b"}));
+            }
+            for (const auto* value : {"0", "+0", "false", "`text`"}) {
+                const auto invalid = std::string("PRAGMA custom = ") + value;
+                UNIT_ASSERT_EXCEPTION(Parse(invalid, settings), TFrontendError);
+                UNIT_ASSERT_EXCEPTION(ParseGrammar(invalid, settings), TFrontendError);
+            }
+        }
+    }
+
     Y_UNIT_TEST(AnsiIdentifiersPreserveEscapingCaseAndSourcePositions) {
         TParseSettings settings; settings.AnsiQuotes = true;
         const auto* sql = R"(SELECT "a""b"."Id", "literal\n", 'string\n' FROM "Mixed" AS "a""b")";
@@ -79,8 +98,8 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
             const auto id = fast.Statements[0].Query->Projection[0].Expression;
             UNIT_ASSERT_VALUES_EQUAL(fast.Expressions[id].Text, expected);
             const auto pragma = "PRAGMA custom = '" + text + "'; SELECT 1";
-            UNIT_ASSERT_VALUES_EQUAL(Parse(pragma, settings).Statements[0].Value, expected);
-            UNIT_ASSERT_VALUES_EQUAL(ParseGrammar(pragma, settings).Statements[0].Value, expected);
+            UNIT_ASSERT_VALUES_EQUAL(Parse(pragma, settings).Statements[0].PragmaValues.at(0), expected);
+            UNIT_ASSERT_VALUES_EQUAL(ParseGrammar(pragma, settings).Statements[0].PragmaValues.at(0), expected);
         };
         constexpr std::string_view hex = "0123456789abcdef";
         for (unsigned value = 0; value < 256; ++value) {
