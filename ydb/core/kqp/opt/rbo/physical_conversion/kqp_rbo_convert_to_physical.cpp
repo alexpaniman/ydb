@@ -16,7 +16,6 @@
 #include <ydb/core/kqp/opt/rbo/kqp_rbo.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
 #include <ydb/core/kqp/provider/yql_kikimr_provider.h>
-#include <ydb/library/yql/dq/opt/dq_opt_peephole.h>
 
 #include <yql/essentials/core/yql_expr_optimize.h>
 #include <yql/essentials/core/yql_graph_transformer.h>
@@ -302,7 +301,6 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
                     memLimit = -i64(*memLimitSetting);
                 }
 
-                // The full physical-stage peephole performs this pruning later.
                 // Native emission constructs the live output layout directly.
                 const bool pruneUnusedOutputs = true;
                 currentStageBody = NPhysicalConvertionUtils::TransformStageOutput(currentStageBody, [&](TExprNode::TPtr body) {
