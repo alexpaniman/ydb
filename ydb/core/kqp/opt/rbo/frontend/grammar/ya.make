@@ -1,5 +1,9 @@
 LIBRARY()
 
+# Cache grammar prediction across compilation worker threads. The generated
+# runtime synchronizes shared DFA updates; keep this setting local to our parsers.
+CXXFLAGS(-UANTLR4_USE_THREAD_LOCAL_CACHE -DANTLR4_USE_THREAD_LOCAL_CACHE=0)
+
 # Independent generated parsers: the original YQL grammar is build-time data.
 RUN_PYTHON3(
     ../tools/generate.py

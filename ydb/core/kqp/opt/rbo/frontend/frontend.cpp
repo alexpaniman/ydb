@@ -283,6 +283,12 @@ public:
         if (it->second == Ambiguous) throw TFrontendError(pos, "ambiguous column: " + std::string(name));
         return &Columns[it->second];
     }
+    // Identity comparison only merges names whose local binding is known.
+    // Ordinary expression binding still diagnoses absent or ambiguous names.
+    const TScopeColumn* FindUnambiguous(std::string_view name) const {
+        const auto it = Names.find(std::string(name));
+        return it == Names.end() || it->second == Ambiguous ? nullptr : &Columns[it->second];
+    }
     bool ShadowsQualifier(std::string_view name) const {
         const auto dot = name.rfind('.');
         return dot != name.npos && Qualifiers.contains(std::string(name.substr(0, dot)));
@@ -300,6 +306,38 @@ private:
     std::unordered_map<std::string, std::size_t> Names;
     std::unordered_set<std::string> Qualifiers;
 };
+
+// Reserve explicit and star names before assigning anonymous projection names.
+// Result naming is independent of scalar typing and never changes column IDs.
+std::vector<std::string> ProjectionNames(const TSelect& query, const TParsedQuery& syntax, const TScope& scope) {
+    std::vector<std::string> result(query.Projection.size());
+    std::unordered_set<std::string> used, named;
+    for (std::size_t i = 0; i < query.Projection.size(); ++i) {
+        const auto& projection = query.Projection[i];
+        const auto& expression = syntax.Expressions[projection.Expression];
+        if (expression.Kind == ESyntaxKind::Star) {
+            for (const auto& column : scope.Columns)
+                if (expression.Text.empty() || column.Qualifier == expression.Text) used.insert(column.Name);
+            continue;
+        }
+        auto& name = result[i];
+        name = projection.Alias;
+        if (name.empty() && expression.Kind == ESyntaxKind::Column)
+            name = query.Joins.empty() ? expression.Text.substr(expression.Text.find_last_of('.') + 1) : expression.Text;
+        if (!name.empty()) {
+            if (!named.insert(name).second) throw TFrontendError(expression.Position, "duplicate output column: " + name);
+            used.insert(name);
+        }
+    }
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        if (!result[i].empty() || syntax.Expressions[query.Projection[i].Expression].Kind == ESyntaxKind::Star) continue;
+        for (std::size_t suffix = i;; ++suffix) {
+            auto name = "column" + std::to_string(suffix);
+            if (used.insert(name).second) { result[i] = std::move(name); break; }
+        }
+    }
+    return result;
+}
 
 struct TBoundSource {
     TRelId Relation;
@@ -334,9 +372,46 @@ struct TWindowKeyHash {
     }
 };
 
+// Grouping equivalence uses resolved input identities: t.id and id match,
+// while l.id and r.id in a self join remain distinct. The cache belongs to one
+// immutable source scope and visits each referenced syntax node once.
+class TScopedSyntaxIdentity {
+public:
+    TScopedSyntaxIdentity(const TParsedQuery& syntax, const TGlobalBindings& bindings,
+        const TScope& scope, const std::vector<std::uint32_t>& windows)
+        : Syntax(syntax), Bindings(bindings), Scope(scope), Windows(windows) {}
+
+    std::uint32_t Get(TSyntaxId id) {
+        if (const auto found = Cache.find(id); found != Cache.end()) return found->second;
+        const auto& node = Syntax.Expressions[id];
+        const bool normalize = (node.Kind == ESyntaxKind::Call && !node.Text.starts_with('$')) || node.Kind == ESyntaxKind::Cast;
+        TSyntaxKey key{node.Kind, normalize ? Lower(node.Text) : node.Text, {}, node.Distinct, Bindings[id], node.Query.get(), Windows[id]};
+        if (node.Kind == ESyntaxKind::Column) if (const auto* column = Scope.FindUnambiguous(node.Text)) {
+            key.Text.clear(); key.Binding = column->Id;
+        }
+        for (const auto argument : node.Arguments) key.Arguments.push_back(Get(argument));
+        const auto value = Interned.emplace(std::move(key), Interned.size()).first->second;
+        Cache.emplace(id, value);
+        return value;
+    }
+private:
+    const TParsedQuery& Syntax;
+    const TGlobalBindings& Bindings;
+    const TScope& Scope;
+    const std::vector<std::uint32_t>& Windows;
+    std::unordered_map<TSyntaxId, std::uint32_t> Cache;
+    std::unordered_map<TSyntaxKey, std::uint32_t, TSyntaxHash> Interned;
+};
+
+struct TProjectionAlias {
+    TExprId Expression;
+    bool HasWindow;
+};
+
 struct TExprContext;
 
 struct TAggregationContext {
+    std::optional<TScopedSyntaxIdentity> Identity;
     TExprContext* Source = nullptr;
     std::vector<TDefinition> Definitions;
     std::vector<TColumnId> Keys;
@@ -367,6 +442,7 @@ struct TExprContext {
         : Scope(scope), Aggregation(aggregation), Arguments(arguments) {}
     const TScope& Scope;
     const TScope* Aliases = nullptr;
+    const std::unordered_map<std::string, TProjectionAlias>* ProjectionAliases = nullptr;
     TAggregationContext* Aggregation = nullptr;
     const std::unordered_map<std::string, TExprId>* Arguments = nullptr;
     std::unordered_map<TSyntaxId, TExprId> Cache;
@@ -390,6 +466,7 @@ public:
         Canonical.reserve(syntax.Expressions.size());
         CanonicalWindows.reserve(syntax.Expressions.size());
         ContainsAggregate.reserve(syntax.Expressions.size());
+        ContainsWindow.reserve(syntax.Expressions.size());
         std::unordered_map<TSyntaxKey, std::uint32_t, TSyntaxHash> interned;
         std::unordered_map<std::vector<std::uint32_t>, std::uint32_t, TWindowKeyHash> windows;
         for (std::size_t i = 0; i < syntax.Expressions.size(); ++i) {
@@ -399,11 +476,13 @@ public:
                 Bindings[i] == TGlobalBindings::Unknown)
                 throw TFrontendError(expr.Position, "unknown binding: " + expr.Text);
             TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i], expr.Query.get()};
+            bool window = bool(expr.Window);
             bool aggregate = expr.Kind == ESyntaxKind::Call && !expr.Window && (IsAggregate(Lower(expr.Text)) || Lower(expr.Text) == "grouping");
             for (auto child : expr.Arguments) {
                 if (child >= i) throw TFrontendError(expr.Position, "syntax tree is not topologically ordered");
                 key.Arguments.push_back(Canonical[child]);
                 aggregate = aggregate || ContainsAggregate[child];
+                window = window || ContainsWindow[child];
             }
             if (expr.Window) {
                 const auto& w = *expr.Window;
@@ -423,6 +502,7 @@ public:
             auto [it, inserted] = interned.emplace(std::move(key), static_cast<std::uint32_t>(interned.size()));
             Canonical.push_back(it->second);
             ContainsAggregate.push_back(aggregate);
+            ContainsWindow.push_back(window);
         }
     }
 
@@ -965,6 +1045,7 @@ private:
         TScope grouped;
         if (aggregate) {
             aggregation.Source = &sourceContext;
+            aggregation.Identity.emplace(Syntax, Bindings, source.Scope, CanonicalWindows);
             std::unordered_set<TColumnId> seen;
             std::unordered_map<std::uint32_t, TColumnId> bound;
             std::vector<TScopeColumn> keyNames;
@@ -974,7 +1055,7 @@ private:
                 if (unnamed && !Bindings.AllowsUnnamedGroups(query))
                     throw TUnsupportedFeature(EFeature::Expression, Syntax.Expressions[key.Expression].Position,
                         "computed GROUP BY keys require an explicit alias or PRAGMA YqlSelectAllowUnnamedGroupByExpr");
-                const auto canonical = Canonical[key.Expression];
+                const auto canonical = aggregation.Identity->Get(key.Expression);
                 auto found = bound.find(canonical);
                 const auto id = found == bound.end() ? Materialize(Expr(key.Expression, sourceContext), aggregation.Definitions,
                     Syntax.Expressions[key.Expression].Position, key.Alias) : found->second;
@@ -1014,7 +1095,7 @@ private:
             for (std::size_t i = 0; i < keyNames.size(); ++i) {
                 auto column = keyNames[i];
                 column.Id = outward.at(column.Id); column.Type = Program.Columns[column.Id].Type;
-                aggregation.Groups.emplace(Canonical[query.GroupBy[i].Expression], column);
+                aggregation.Groups.emplace(aggregation.Identity->Get(query.GroupBy[i].Expression), column);
                 if (!column.Name.empty() && names.emplace(column.Id, column.Name, column.Qualifier).second) grouped.Add(std::move(column));
             }
             sourceContext.AllowSubqueries = true;
@@ -1032,7 +1113,9 @@ private:
         std::vector<TDefinition> definitions;
         std::vector<TResultColumn> outputs;
         TScope outputScope;
+        const auto projectionNames = ProjectionNames(query, Syntax, context.Scope);
         bool joinStar = false;
+        std::unordered_map<std::string, TProjectionAlias> projectionAliases;
         for (std::size_t index = 0; index < query.Projection.size(); ++index) {
             const auto& projection = query.Projection[index];
             const auto& syntax = Syntax.Expressions[projection.Expression];
@@ -1047,12 +1130,11 @@ private:
                 continue;
             }
             auto expr = Expr(projection.Expression, context);
-            std::string name = projection.Alias;
-            if (name.empty()) name = syntax.Kind == ESyntaxKind::Column ?
-                (query.Joins.empty() ? syntax.Text.substr(syntax.Text.find_last_of('.') + 1) : syntax.Text) : "column" + std::to_string(index);
+            const auto& name = projectionNames[index];
             auto id = Materialize(expr, definitions, syntax.Position, name);
             auto type = Program.Expressions[expr].Type;
             outputs.push_back({id, name, type}); outputScope.Add({id, name, {}, type});
+            if (query.Having != NoSyntax && !projection.Alias.empty()) projectionAliases.emplace(name, TProjectionAlias{expr, ContainsWindow[projection.Expression]});
         }
 
         if (joinStar) {
@@ -1083,7 +1165,11 @@ private:
         std::optional<TExprId> having;
         if (query.Having != NoSyntax) {
             if (!aggregate) throw TFrontendError(query.Position, "HAVING requires grouping or aggregation");
+            // HAVING expands a projected value at its own evaluation point;
+            // it cannot read a Map/window output constructed later in the plan.
+            context.ProjectionAliases = &projectionAliases;
             having = Expr(query.Having, context);
+            context.ProjectionAliases = nullptr;
         }
         // ORDER BY aliases bind to result columns; other expressions see the
         // appropriate input/grouping scope. They are materialized once.
@@ -1159,7 +1245,7 @@ private:
             TExprContext limitContext{empty};
             limitContext.AllowSubqueries = false;
             auto count = Expr(query.Limit, limitContext);
-            count = CheckCount(count, Syntax.Expressions[query.Limit].Position);
+            count = CheckCount(count, Syntax.Expressions[query.Limit].Position, std::numeric_limits<std::uint64_t>::max());
             TRelation node{ERelation::Limit, query.Position}; node.Inputs = {root}; node.Columns = Program.Relations[root].Columns; node.Count = count;
             if (query.Offset != NoSyntax) {
                 node.Offset = CheckCount(Expr(query.Offset, limitContext), Syntax.Expressions[query.Offset].Position);
@@ -1347,7 +1433,14 @@ private:
         return result;
     }
 
-    TExprId CheckCount(TExprId expression, TSourcePosition pos) {
+    TExprId CheckCount(TExprId expression, TSourcePosition pos, std::uint64_t nullDefault = 0) {
+        // SQL NULL counts mean an unbounded LIMIT or a zero OFFSET. Apply this
+        // clause-level default before validating/coercing the required count.
+        const auto type = Program.Expressions[expression].Type;
+        if (type.Kind == ETypeKind::Null || (type.IsIntegral() && type.OptionalDepth)) {
+            const TExprId arguments[]{expression, Program.Expressions.Literal({ETypeKind::Uint64}, nullDefault, pos)};
+            expression = Program.Expressions.Coalesce(arguments, pos);
+        }
         expression = Program.Expressions.FoldConstants(std::span(&expression, 1)).front();
         const auto& node = Program.Expressions[expression];
         if (!node.Type.IsIntegral() || node.Type.OptionalDepth) throw TFrontendError(pos, "LIMIT/OFFSET must be a non-null integer");
@@ -1441,7 +1534,7 @@ private:
         for (const auto argument : syntax.Arguments) {
             const auto& arg = Syntax.Expressions[argument];
             const TScopeColumn* column = nullptr;
-            if (auto it = grouping.Groups.find(Canonical[argument]); it != grouping.Groups.end()) column = &it->second;
+            if (auto it = grouping.Groups.find(grouping.Identity->Get(argument)); it != grouping.Groups.end()) column = &it->second;
             else if (arg.Kind == ESyntaxKind::Column) column = context.Scope.Find(arg.Text, arg.Position);
             if (!column || !grouping.GroupSources.contains(column->Id)) throw TFrontendError(arg.Position, "GROUPING argument is not a grouping key");
             if (grouping.GroupingSets.empty()) continue;
@@ -1626,6 +1719,13 @@ private:
         const auto& syntax = Syntax.Expressions.at(id);
         TDepth depth(*this, syntax.Position);
         CheckSize(syntax.Position);
+        if (syntax.Kind == ESyntaxKind::Column && context.ProjectionAliases) {
+            if (const auto found = context.ProjectionAliases->find(syntax.Text); found != context.ProjectionAliases->end()) {
+                if (found->second.HasWindow) throw TFrontendError(syntax.Position, "window expressions are not allowed in HAVING");
+                context.Cache.emplace(id, found->second.Expression);
+                return found->second.Expression;
+            }
+        }
         if (syntax.Kind == ESyntaxKind::Column && context.Aliases) {
             if (const auto* alias = context.Aliases->Find(syntax.Text, syntax.Position)) {
                 const auto result = Access(*alias, syntax.Position);
@@ -1633,7 +1733,7 @@ private:
                 return result;
             }
         }
-        if (context.Aggregation) if (auto it = context.Aggregation->Groups.find(Canonical[id]); it != context.Aggregation->Groups.end()) {
+        if (context.Aggregation) if (auto it = context.Aggregation->Groups.find(context.Aggregation->Identity->Get(id)); it != context.Aggregation->Groups.end()) {
             auto result = Access(it->second, syntax.Position); context.Cache.emplace(id, result); return result;
         }
         auto& arena = Program.Expressions;
@@ -1793,7 +1893,7 @@ private:
                 }
                 if (IsAggregate(name)) {
                     if (!context.Aggregation) throw TFrontendError(syntax.Position, "aggregate is not allowed in this expression");
-                    result = Aggregate(syntax, Canonical[id], *context.Aggregation); break;
+                    result = Aggregate(syntax, context.Aggregation->Identity->Get(id), *context.Aggregation); break;
                 }
                 if (name == "grouping") { result = Grouping(syntax, context); break; }
                 if (syntax.Distinct) throw TFrontendError(syntax.Position, "DISTINCT requires an aggregate function");
@@ -1875,6 +1975,7 @@ private:
     std::vector<std::uint32_t> Canonical;
     std::vector<std::uint32_t> CanonicalWindows;
     std::vector<bool> ContainsAggregate;
+    std::vector<bool> ContainsWindow;
     std::vector<std::optional<TExprId>> Values;
     std::unordered_map<const TSelect*, TQueryResult> ReusableQueries;
     std::unordered_map<const TCteBinding*, TExprContext*> CteContexts;

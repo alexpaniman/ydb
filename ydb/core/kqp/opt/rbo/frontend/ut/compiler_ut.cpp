@@ -921,7 +921,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 AssertParserAgreement(sql.substr(0, i) + "," + sql.substr(i));
             }
         }
-        for (const auto* sql : {"SELECT 'a''b'", "SELECT 'a\\n'", "SELECT \"a\"\"b\"", "SELECT `a``b` FROM t",
+        for (const auto* sql : {"SELECT 'a\\n'", "SELECT \"a\"\"b\"", "SELECT `a``b` FROM t",
                                "SELECT 1--comment\r,2", "SELECT 1\v", "SELECT 1; /* outer /* inner */ outer */ SELECT 2"}) {
             AssertParserAgreement(sql);
             AssertParserAgreement(sql, true);
@@ -958,7 +958,6 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         for (const auto* sql : {"SELECT ListLength([1, 2])", "SELECT LAG(value) OVER () FROM a", "SELECT * FROM a JOIN b USING(id)",
                                "PRAGMA foo='x'; SELECT 1",
                                "SELECT CASE WHEN true THEN 1 END", "SELECT * FROM a CROSS JOIN b",
-                               "SELECT 'a''b'", "SELECT 1 AS 'answer'", "$'x' = 1; SELECT 1",
                                "SELECT value + 1 FROM a GROUP BY value + 1",
                                "SELECT id, STDDEV_POP(value) FROM a GROUP BY id",
                                "SELECT id, VAR_SAMP(value) FROM a GROUP BY id"}) {

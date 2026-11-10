@@ -1,6 +1,9 @@
 UNITTEST()
 
 SRCS(
+    reference_types_ut.cpp
+    reference_names_ut.cpp
+    reference_parser_ut.cpp
     execution_ut.cpp
     binder_ut.cpp
     writes_ut.cpp

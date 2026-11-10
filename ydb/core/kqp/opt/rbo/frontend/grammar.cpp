@@ -159,8 +159,9 @@ private:
         return result;
     }
     std::string Identifier(std::string text, TTree* node) const {
-        if (!text.empty() && (text.front() == '\'' || text.front() == '"' || text.starts_with("@@")))
-            Unsupported(node, EFeature::Syntax, "string literals as identifiers are outside native-read-v1; use backticks");
+        // The grammar has already selected an identifier position (for
+        // example AS or FROM). Quoted spellings here name objects; ordinary
+        // expression string literals still go through the literal production.
         return Decode(std::move(text), node, true);
     }
     std::string Id(TTree* node) const { return Identifier(node->getText(), node); }
