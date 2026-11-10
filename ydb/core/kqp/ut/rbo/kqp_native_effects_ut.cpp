@@ -90,6 +90,46 @@ TVector<TString> WriteResults(bool native, bool peephole) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeEffects) {
+    Y_UNIT_TEST(PredicateUpdateMembershipRangesStayNative) {
+        using namespace NFrontend;
+        NTests::TIdTestContext fixture;
+        auto metadata = MakeIntrusive<TKikimrTableMetadata>();
+        metadata->DoesExist = true;
+        metadata->Name = "/Root/t";
+        metadata->Kind = EKikimrTableKind::Datashard;
+        metadata->KeyColumnNames = {"id"};
+        fixture.Tables->GetOrAddTable("ut", "/Root", metadata->Name).Metadata = metadata;
+        const auto nodes = fixture.ExprCtx.NodeAllocationCounter;
+        const auto types = fixture.ExprCtx.TypeNodes.size();
+        auto query = CompileNativeToRbo(R"(
+            DECLARE $a AS Uint64; DECLARE $b AS Uint64;
+            UPDATE t SET value = value + 1 WHERE id IN [$a, $b];
+        )", [](std::string_view, TSourcePosition) {
+            return TNativeTable{{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
+                TWriteSchema{{"id"}, {}, false}}, TRboTable{"/Root/t", "1:2", "", "3"}};
+        }, fixture.ExprCtx);
+        auto& root = *query.Roots.front();
+        UNIT_ASSERT(root.ComputeTypes(fixture.RboCtx) == IGraphTransformer::TStatus::Ok);
+        TIntrusivePtr<IOperator> filter;
+        for (const auto& item : root) if (item.Current->Kind == EOperator::Filter) filter = item.Current;
+        UNIT_ASSERT(filter);
+        const auto pushed = TPushRangesRule(NYql::EStorageType::RowStorage).SimpleMatchAndApply(filter, fixture.RboCtx, root.PlanProps);
+        UNIT_ASSERT(pushed->Kind == EOperator::Source || pushed->Kind == EOperator::Filter);
+        const auto read = pushed->Kind == EOperator::Source ? pushed : CastOperator<TOpFilter>(*pushed).GetInput();
+        UNIT_ASSERT(read->Kind == EOperator::Source);
+        const auto& ranges = CastOperator<TOpRead>(*read).RangeInfo;
+        UNIT_ASSERT(ranges && ranges->NativeRanges);
+        UNIT_ASSERT_VALUES_EQUAL(ranges->NativeRanges->size(), 2);
+        for (const auto& range : *ranges->NativeRanges) {
+            UNIT_ASSERT_VALUES_EQUAL(range.Lower.Values.size(), 1);
+            UNIT_ASSERT(range.Lower.Values.front().IsNative());
+            const auto& value = range.Lower.Values.front();
+            UNIT_ASSERT((*value.GetNativeArena())[value.GetNativeRoot()].Op == EOpcode::Parameter);
+        }
+        UNIT_ASSERT_VALUES_EQUAL(fixture.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(fixture.ExprCtx.TypeNodes.size(), types);
+    }
+
     Y_UNIT_TEST_TWIN(PredicateUpdateHandoffPreservesExistingRowKnowledge, StreamWrite) {
         using namespace NFrontend;
         for (const bool indexed : {false, true}) {

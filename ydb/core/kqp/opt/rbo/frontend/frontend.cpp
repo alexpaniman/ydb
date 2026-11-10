@@ -1,5 +1,6 @@
 #include "like.h"
 #include "frontend.h"
+#include "predicate.h"
 
 #include <algorithm>
 #include <charconv>
@@ -825,7 +826,7 @@ private:
         if (type.Kind != ETypeKind::Bool && type.Kind != ETypeKind::Null) throw TFrontendError(pos, "predicate must have Boolean type");
         if (type.Kind == ETypeKind::Null) predicate = Program.Expressions.Literal({ETypeKind::Bool}, false, pos);
         TRelation filter{ERelation::Filter, pos}; filter.Inputs = {input}; filter.Columns = Program.Relations[input].Columns;
-        filter.Predicate = predicate; return Relation(std::move(filter));
+        filter.Predicate = PrepareFilterPredicate(Program.Expressions, predicate); return Relation(std::move(filter));
     }
 
     TBoundSource Source(const TSource& source, TExprContext* outer) {

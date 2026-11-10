@@ -1,4 +1,5 @@
 #include <ydb/core/kqp/opt/rbo/frontend/expression.h>
+#include <ydb/core/kqp/opt/rbo/frontend/predicate.h>
 
 #include <library/cpp/testing/unittest/registar.h>
 
@@ -21,6 +22,84 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(FilterPreparationPreservesTruthAndScalarEvaluationOrder) {
+        TExpressionArena arena;
+        const auto p = arena.Parameter("p", {K::Bool, true});
+        const auto q = arena.Parameter("q", {K::Bool, true});
+        const auto r = arena.Parameter("r", {K::Bool, true});
+        const auto yes = arena.Literal({K::Bool}, true), no = arena.Literal({K::Bool}, false);
+        const auto missing = arena.Literal({K::Bool, true}, {});
+        const auto otherwise = [&](TExprId value, TExprId fallback) {
+            const std::array args{value, fallback}; return arena.Coalesce(args);
+        };
+        const auto checked = arena.Ensure(r, arena.Unary(O::IsNotNull, q), "checked");
+        const auto unwrapped = arena.Unary(O::Unwrap, q);
+        const auto random = arena.Call("RandomUuid", {});
+        const auto randomMatch = arena.Binary(O::Equal, random, arena.Literal({K::Uuid}, std::string(16, 'x')));
+        const std::vector roots{
+            otherwise(p, no),
+            arena.Binary(O::Or, otherwise(p, no), q),
+            arena.Binary(O::And, otherwise(p, no), checked),
+            arena.Binary(O::And, p, otherwise(q, no)),
+            arena.If(p, missing, q),
+            arena.If(p, q, no),
+            arena.If(p, otherwise(q, no), otherwise(r, no)),
+            arena.Unary(O::Not, otherwise(p, no)),
+            arena.Binary(O::Equal, otherwise(p, no), q),
+            otherwise(arena.If(p, missing, q), yes),
+            arena.Binary(O::And, arena.If(p, missing, q), checked),
+            arena.Binary(O::Or, arena.If(p, missing, q), checked),
+            arena.If(p, missing, unwrapped),
+            arena.If(p, missing, arena.Binary(O::And, randomMatch, otherwise(q, no))),
+            arena.Binary(O::Or, randomMatch, arena.If(p, missing, randomMatch)),
+        };
+        const std::array<TScalar, 3> values{TScalar{}, TScalar{false}, TScalar{true}};
+        for (const auto root : roots) {
+            const auto prepared = PrepareFilterPredicate(arena, root);
+            for (const auto& a : values) for (const auto& b : values) for (const auto& c : values) {
+                std::vector<std::string> calls;
+                TEvaluationContext context;
+                context.Parameter = [&](std::string_view name) {
+                    calls.emplace_back(name);
+                    return TValue{{K::Bool, true}, name == "p" ? a : name == "q" ? b : c};
+                };
+                context.RandomUuid = [&] { calls.emplace_back("random"); return std::string(16, 'x'); };
+                const auto run = [&](TExprId expression) {
+                    calls.clear();
+                    try {
+                        const auto value = Evaluate(arena, expression, context);
+                        return value.IsNull() || !std::get<bool>(value.Data) ? 0 : 1;
+                    } catch (const TFrontendError&) { return -1; }
+                };
+                const auto expected = run(root);
+                const auto expectedCalls = calls;
+                UNIT_ASSERT_VALUES_EQUAL_C(run(prepared), expected, root);
+                UNIT_ASSERT_C(calls == expectedCalls, root);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(FilterPreparationExposesFixedMembershipWithoutChangingScalarNulls) {
+        TExpressionArena arena;
+        const auto key = arena.Column(1, {K::Uint64, true});
+        const auto a = arena.Parameter("a", {K::Uint64}), b = arena.Parameter("b", {K::Uint64});
+        const std::array items{a, b};
+        const auto scalar = arena.InCollection(key, arena.Collection(items, true), false);
+        const auto predicate = PrepareFilterPredicate(arena, scalar);
+        UNIT_ASSERT(arena[scalar].Op == O::If);
+        UNIT_ASSERT(arena[predicate].Op == O::And);
+        const auto alternatives = arena[predicate].Arguments[1];
+        UNIT_ASSERT(arena[alternatives].Op == O::Or);
+        for (const auto term : arena[alternatives].Arguments) {
+            UNIT_ASSERT(arena[term].Op == O::Equal);
+        }
+        TEvaluationContext context;
+        context.Column = [](TColumnId) { return TValue{{K::Uint64, true}, {}}; };
+        context.Parameter = [](std::string_view) { UNIT_FAIL("NULL guard must skip membership items"); return TValue{}; };
+        UNIT_ASSERT(Evaluate(arena, scalar, context).IsNull());
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, predicate, context)), "false");
+    }
+
     Y_UNIT_TEST(LikeCaseModeSurvivesNativeRebindingAndFolding) {
         for (const bool caseSensitive : {false, true}) {
             TExpressionArena arena;

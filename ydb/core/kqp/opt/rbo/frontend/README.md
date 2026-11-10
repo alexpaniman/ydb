@@ -35,6 +35,13 @@ expressions without query bindings or table access. Generated write columns
 share these immutable expressions within a compilation; catalog expression text
 is not compiled through the legacy SQL or YQL frontend.
 
+Filter binding uses `PrepareFilterPredicate` to expose Boolean structure where
+only TRUE versus a rejected row matters. Scalar result roots retain their NULL
+semantics. Preparation preserves evaluation order: for example, the left operand
+of AND keeps its FALSE-versus-NULL distinction because that controls evaluation
+of the right operand. Nullable membership bounds become visible to the existing
+range rules without a YQL scalar rewrite or a change to range-selection policy.
+
 `PrepareExecution` owns statement dependencies and shared producers. A single
 result without named producers needs no scheduling graph. Other programs retain
 source-order read/write dependencies and materialize shared producers at first
