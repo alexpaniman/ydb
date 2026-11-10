@@ -33,6 +33,21 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def binary_digest(path):
+    # Frozen runners may carry the hash computed when they were copied. Reuse
+    # it only while the same inode and all content/change timestamps match.
+    # Hashing two multi-gigabyte runners again can dominate a small experiment.
+    metadata = path.with_suffix('.json')
+    if metadata.is_file():
+        saved = json.loads(metadata.read_text())
+        stat = path.stat()
+        identity = {key: getattr(stat, key) for key in
+                    ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')}
+        if saved.get('binary') == str(path) and saved.get('file_identity') == identity:
+            return saved['sha256']
+    return digest(path)
+
+
 def value(v):
     return next(iter(v.values()))
 
@@ -186,7 +201,7 @@ def main():
     binaries={'before':args.before.resolve(), 'after':args.after.resolve()}
     native_modes=['before', 'after'] if args.before_native else ['after']
     version=max(int(y)*100+int(r) for y,r in re.findall(r'\{(\d+),(\d+)\}',(root/'yql/essentials/public/langver/yql_langver_list.inc').read_text()))
-    binary_hashes={mode:digest(path) for mode,path in binaries.items()}
+    binary_hashes={mode:binary_digest(path) for mode,path in binaries.items()}
     head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
     patch=subprocess.check_output(['git','diff'],cwd=root)
     existing = json.loads((out/'manifest.json').read_text()) if args.resume and (out/'manifest.json').exists() else None
