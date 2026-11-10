@@ -62,6 +62,7 @@ def main():
     if min(args.repeats, args.warmups) < 1: parser.error('counts must be positive')
     manifest_path = args.comparison / 'manifest.json'
     source = json.loads(manifest_path.read_text())
+    native_modes = source.get('native_modes', ['after'])
     args.out.mkdir(parents=True, exist_ok=True)
     manifest = dict(source=str(manifest_path.resolve()), source_sha256=digest(manifest_path),
                     script_sha256=digest(__file__), tracing=False, repeats=args.repeats, warmups=args.warmups, batches=[])
@@ -118,8 +119,8 @@ def main():
             geomean_request_duration_after_over_before=math.exp(statistics.mean(map(math.log,ratios))) if ratios else None)
     (args.out / 'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
     print(json.dumps(summary, indent=2))
-    failed = [r for b in manifest['batches'] if b['variant']=='after' for r in b['measurements'] if not r['success']]
-    failed_batches = [b for b in manifest['batches'] if b['variant']=='after' and b['returncode']]
+    failed = [r for b in manifest['batches'] if b['variant'] in native_modes for r in b['measurements'] if not r['success']]
+    failed_batches = [b for b in manifest['batches'] if b['variant'] in native_modes and b['returncode']]
     if failed or failed_batches:
         raise SystemExit(f'{len(failed)} measured native request failures; {len(failed_batches)} batches had a measured or warmup failure')
 

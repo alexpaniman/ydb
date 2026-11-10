@@ -167,6 +167,7 @@ def main():
     ap.add_argument('--out', type=Path, required=True)
     ap.add_argument('--before', type=Path, required=True)
     ap.add_argument('--after', type=Path, required=True)
+    ap.add_argument('--before-native', action='store_true', help='Compare two native checkpoints; require native coverage on both')
     ap.add_argument('--limit', type=int)
     ap.add_argument('--workloads', default='1c,tpch,tpcds,clickbench,medium,tiny')
     ap.add_argument('--warmups', type=int, default=5)
@@ -183,6 +184,7 @@ def main():
         manifest=json.loads((out/'manifest.json').read_text())
         summarize_all(out,manifest['batches']);render(out,manifest['batches']);return
     binaries={'before':args.before.resolve(), 'after':args.after.resolve()}
+    native_modes=['before', 'after'] if args.before_native else ['after']
     version=max(int(y)*100+int(r) for y,r in re.findall(r'\{(\d+),(\d+)\}',(root/'yql/essentials/public/langver/yql_langver_list.inc').read_text()))
     binary_hashes={mode:digest(path) for mode,path in binaries.items()}
     head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
@@ -193,13 +195,15 @@ def main():
     else:
         write(out/'source.patch',patch.decode())
     manifest=dict(comparison="native frontend migration",head=head,
-                  phase_granularity={"before":"outer Compile query span", "after":"native frontend and RBO phases"},
+                  native_modes=native_modes,
+                  phase_granularity={mode: "native frontend and RBO phases" if mode in native_modes else "outer Compile query span" for mode in binaries},
                   viewer_path=str(VIEWER),
                   viewer_head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=VIEWER.parent,text=True).strip(),
                   runner_sha256=digest(Path(__file__)),layout_sha256=digest(HERE/'compilation.layout.json'),
                   binaries={mode:str(path) for mode,path in binaries.items()},binary_sha256=binary_hashes,patch_sha256=hashlib.sha256(patch).hexdigest(),
                   warmups=args.warmups,repeats=args.repeats,peephole=False,threads=1,limited=args.limit,batches=[])
     if existing:
+        assert existing.get('native_modes', ['after']) == native_modes, 'Resume native modes changed'
         for key in ('binary_sha256', 'warmups', 'repeats', 'limited'):
             assert existing[key] == manifest[key], ('Resume settings changed', key)
         manifest = dict(existing, batches=[])
@@ -207,7 +211,7 @@ def main():
     for mode in ('before','after'):
         configs[mode]=f'''TableServiceConfig {{
   EnableNewRBO: true
-  {'NativeFrontendMode: NATIVE_REQUIRED' if mode == 'after' else ''}
+  {'NativeFrontendMode: NATIVE_REQUIRED' if mode in native_modes else ''}
   EnableFallbackToYqlOptimizer: false
   EnableInlineJoinFiltersAfterCBO: false
   EnableFallbackOnMultipleStatements: false
@@ -271,15 +275,15 @@ LogConfig {{ DefaultLevel: 2 }}
                     assert log.count('(warmup, tracing disabled)')==args.warmups*len(batch),dest
                     result=dict(signature=signature,variant=mode,workload=name,queries=len(batch),command=command,pid=pid,
                                 trace=str(trace),trace_sha256=digest(trace),returncode=returncode,seconds=round(time.time()-start,2),
-                                measurements=summarize(trace,len(batch)*args.repeats,len(batch)*args.warmups,mode=='after'))
+                                measurements=summarize(trace,len(batch)*args.repeats,len(batch)*args.warmups,mode in native_modes))
                     write(result_file,json.dumps(result,indent=2)+'\n')
                     print(f'Finished {name} {mode}: {result["seconds"]}s, {sum(q["success"] for q in result["measurements"])}/{len(result["measurements"])} successful',flush=True)
                 manifest['batches'].append(result)
                 write(out/'manifest.json',json.dumps(manifest,indent=2)+'\n')
     summarize_all(out,manifest['batches'])
     if not args.no_render: render(out,manifest['batches'])
-    failed=[q for b in manifest['batches'] if b['variant']=='after' for q in b['measurements'] if not q['success'] or not q['native'] or q['fallback']]
-    failed_batches=[b for b in manifest['batches'] if b['variant']=='after' and b['returncode']]
+    failed=[q for b in manifest['batches'] if b['variant'] in native_modes for q in b['measurements'] if not q['success'] or not q['native'] or q['fallback']]
+    failed_batches=[b for b in manifest['batches'] if b['variant'] in native_modes and b['returncode']]
     if failed or failed_batches:
         raise SystemExit(f'{len(failed)} measured native compilation failures; {len(failed_batches)} batches had a measured or warmup failure; see measurements.json and batch run logs')
 

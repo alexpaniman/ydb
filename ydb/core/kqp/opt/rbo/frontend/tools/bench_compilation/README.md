@@ -11,6 +11,10 @@ python3 ydb/core/kqp/opt/rbo/frontend/tools/bench_compilation/run.py \
   --out /tmp/native-comparison --warmups 5 --repeats 3
 ```
 
+For an alternating control between two native checkpoints, add `--before-native`.
+Both variants then require native phases and zero fallback, and both expose phase
+timings. The manifest records this mode; resume rejects a change in it.
+
 Build binaries with the workspace's clang-balancer. Use an ordinary `ya make`
 build to publish `kqprun`: a test build can leave the source-tree executable link
 pointing at an earlier build. Copy each published binary, check its hash, and
