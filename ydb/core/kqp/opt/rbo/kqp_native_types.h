@@ -3,6 +3,8 @@
 #include "frontend/expression.h"
 #include "kqp_info_unit.h"
 
+#include <library/cpp/containers/absl/flat_hash_map.h>
+
 namespace NKikimr::NKqp {
 
 class IOperator;
@@ -10,7 +12,7 @@ struct TPlanProps;
 struct TOpAggregationTraits;
 enum class EOpPhase;
 
-using TNativeRow = THashMap<TInfoUnitId, NFrontend::TType>;
+using TNativeRow = absl::flat_hash_map<TInfoUnitId, NFrontend::TType>;
 
 struct TNativeSchema {
     TNativeRow Row;
