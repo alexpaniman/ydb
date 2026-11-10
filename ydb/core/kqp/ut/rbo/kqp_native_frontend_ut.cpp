@@ -170,6 +170,23 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     }
 
 
+    Y_UNIT_TEST(LikeStorageApplyUsesTheNativeRuntimeExpression) {
+        using namespace NFrontend;
+        TExpressionArena arena;
+        const auto input = arena.Column(1, {ETypeKind::String, true});
+        const auto pattern = arena.Literal({ETypeKind::String}, std::string{"_id%000_"});
+        const auto predicate = arena.Like(input, pattern);
+        UNIT_ASSERT(!CanLowerNativeOlapPredicate(arena, predicate));
+        UNIT_ASSERT(CanLowerNativeOlapPredicate(arena, predicate, true));
+        TExprContext ctx;
+        const auto lowered = LowerNativeOlapPredicate(arena, predicate, ctx, {});
+        UNIT_ASSERT_VALUES_EQUAL(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapApply"); }).size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapApplyColumnArg"); }).size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(FindNodes(lowered, [](const auto& node) {
+            return node->IsCallable("Udf") && node->Head().IsAtom("Re2.Match");
+        }).size(), 1);
+    }
+
     Y_UNIT_TEST(TemporalListDictionaryMembershipMatchesRuntime) {
         using namespace NFrontend;
         for (bool ansi : {false, true}) for (bool empty : {false, true}) {
@@ -299,6 +316,101 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     if (runtime) UNIT_ASSERT_VALUES_EQUAL_C(kind == K::Date32 ? runtime.Get<i32>() : runtime.Get<i64>(),
                         std::get<std::int64_t>(native.Data), text);
                 }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(TemporalComparisonsRetainOperandsAndMatchRuntime) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        const TType types[]{{K::Date}, {K::Datetime}, {K::Timestamp}, {K::Date32}, {K::Datetime64}, {K::Timestamp64}};
+        for (auto leftType : types) for (auto rightType : types) {
+            for (bool nullable : {false, true}) {
+                leftType.OptionalDepth = nullable;
+                rightType.OptionalDepth = nullable;
+                TExpressionArena arena;
+                const auto payload = [](TType type, std::int64_t value) -> TScalar {
+                    return type.IsExtendedTemporal() ? TScalar{value} : TScalar{std::uint64_t(value)};
+                };
+                for (const auto [a, b] : {std::pair{0LL, 1LL}, {1LL, 0LL}, {1LL, 1LL}, {1LL, 86400LL}}) {
+                    // Date's bounded domain excludes 86400 days; use two days
+                    // while retaining the finer types' one-day boundary.
+                    const auto rightValue = rightType.Kind == K::Date && b == 86400 ? 2 : b;
+                    const auto left = arena.Literal(leftType, payload(leftType, a));
+                    const auto right = arena.Literal(rightType, payload(rightType, rightValue));
+                    for (const auto op : {EOpcode::Equal, EOpcode::NotEqual, EOpcode::Less,
+                            EOpcode::LessEqual, EOpcode::Greater, EOpcode::GreaterEqual}) {
+                        const auto comparison = arena.Binary(op, left, right);
+                        UNIT_ASSERT_VALUES_EQUAL(arena[comparison].Arguments[0], left);
+                        UNIT_ASSERT_VALUES_EQUAL(arena[comparison].Arguments[1], right);
+                        CheckScalar(arena, comparison, leftType.ToString() + " / " + rightType.ToString());
+                        const auto folded = arena.FoldConstants(std::span(&comparison, 1)).front();
+                        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), FormatValue(Evaluate(arena, comparison)));
+                    }
+                }
+                if (nullable) {
+                    const auto null = arena.Literal(leftType, {});
+                    const auto value = arena.Literal(rightType, payload(rightType, 1));
+                    CheckScalar(arena, arena.Binary(EOpcode::Equal, null, value), "nullable temporal comparison");
+                }
+                if (leftType.IsExtendedTemporal()) {
+                    CheckScalar(arena, arena.Binary(EOpcode::Less, arena.Literal(leftType, std::int64_t{-1}),
+                        arena.Literal(rightType, payload(rightType, 0))), "negative temporal comparison");
+                }
+                const auto leftColumn = arena.Column(1, leftType), rightColumn = arena.Column(2, rightType);
+                const auto predicate = arena.Binary(EOpcode::GreaterEqual, leftColumn, rightColumn);
+                UNIT_ASSERT(CanLowerNativeOlapPredicate(arena, predicate));
+                TExprContext ctx;
+                const auto lowered = LowerNativeOlapPredicate(arena, predicate, ctx, {});
+                UNIT_ASSERT(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapApply"); }).empty());
+            }
+        }
+        for (auto type : types) {
+            TExpressionArena arena;
+            const auto left = arena.Column(1, type.Optional());
+            const auto right = arena.Column(2, type.Optional());
+            const auto interval = arena.Column(3, {K::Interval64, true});
+            for (const auto op : {EOpcode::Add, EOpcode::Subtract}) {
+                const auto shifted = arena.Binary(op, right, interval);
+                UNIT_ASSERT(CanLowerNativeOlapPredicate(arena, arena.Binary(EOpcode::LessEqual, left, shifted)));
+            }
+            const auto difference = arena.Binary(EOpcode::Subtract, left, right);
+            UNIT_ASSERT(CanLowerNativeOlapPredicate(arena, arena.Binary(EOpcode::LessEqual, interval, difference)));
+        }
+    }
+
+    Y_UNIT_TEST(IntervalComparisonsRetainOperandsAndMatchRuntime) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        for (const auto leftKind : {K::Interval, K::Interval64}) for (const auto rightKind : {K::Interval, K::Interval64}) {
+            const std::int64_t leftMax = leftKind == K::Interval ? NUdf::MAX_TIMESTAMP - 1 : NUdf::MAX_INTERVAL64;
+            const std::int64_t rightMax = rightKind == K::Interval ? NUdf::MAX_TIMESTAMP - 1 : NUdf::MAX_INTERVAL64;
+            for (const bool leftNullable : {false, true}) for (const bool rightNullable : {false, true}) {
+                TExpressionArena arena;
+                const TType leftType{leftKind, leftNullable}, rightType{rightKind, rightNullable};
+                for (const auto a : {-leftMax, std::int64_t{-1}, std::int64_t{0}, leftMax}) {
+                    for (const auto b : {-rightMax, std::int64_t{-1}, std::int64_t{0}, rightMax}) {
+                        const auto left = arena.Literal(leftType, a), right = arena.Literal(rightType, b);
+                        for (const auto op : {EOpcode::Equal, EOpcode::NotEqual, EOpcode::Less,
+                                EOpcode::LessEqual, EOpcode::Greater, EOpcode::GreaterEqual}) {
+                            const auto comparison = arena.Binary(op, left, right);
+                            UNIT_ASSERT_VALUES_EQUAL(arena[comparison].Arguments[0], left);
+                            UNIT_ASSERT_VALUES_EQUAL(arena[comparison].Arguments[1], right);
+                            CheckScalar(arena, comparison, leftType.ToString() + " / " + rightType.ToString());
+                            const auto folded = arena.FoldConstants(std::span(&comparison, 1)).front();
+                            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), FormatValue(Evaluate(arena, comparison)));
+                        }
+                    }
+                }
+                if (leftNullable) CheckScalar(arena, arena.Binary(EOpcode::Equal,
+                    arena.Literal(leftType, {}), arena.Literal(rightType, std::int64_t{0})), "NULL interval comparison");
+                if (rightNullable) CheckScalar(arena, arena.Binary(EOpcode::Equal,
+                    arena.Literal(leftType, std::int64_t{0}), arena.Literal(rightType, {})), "NULL interval comparison");
+                const auto predicate = arena.Binary(EOpcode::LessEqual, arena.Column(1, leftType), arena.Column(2, rightType));
+                UNIT_ASSERT(CanLowerNativeOlapPredicate(arena, predicate));
+                TExprContext ctx;
+                const auto lowered = LowerNativeOlapPredicate(arena, predicate, ctx, {});
+                UNIT_ASSERT(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapApply"); }).empty());
             }
         }
     }

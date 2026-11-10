@@ -2,6 +2,8 @@
 
 #include <library/cpp/testing/unittest/registar.h>
 
+#include <unordered_set>
+
 using namespace NKikimr::NKqp::NFrontend;
 using NKikimr::NKqp::NFrontend::NDetail::Compile;
 
@@ -110,6 +112,28 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             UNIT_ASSERT_C(resolved == expected, sql);
             UNIT_ASSERT_VALUES_EQUAL(program.Get().Results.size(), 1);
         }
+    }
+
+    Y_UNIT_TEST(RepeatedSourcesShareCatalogSnapshotButKeepIndependentBindings) {
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        const auto parsed = ParseNative(
+            "SELECT l.id AS a, r.id AS b FROM t AS l JOIN t AS r ON l.id = r.id; "
+            "INSERT INTO t SELECT id FROM t", settings);
+        std::size_t lookups = 0;
+        const auto compiled = BindNative(parsed, [&](std::string_view name, TSourcePosition) {
+            ++lookups;
+            return TCatalogTable{std::string(name), {{"id", {ETypeKind::Uint64}}}, TWriteSchema{{"id"}, {}, false}};
+        });
+        UNIT_ASSERT_VALUES_EQUAL(lookups, 1);
+        std::unordered_set<TColumnId> inputs;
+        std::size_t reads = 0;
+        for (const auto& relation : compiled.Get().Relations) if (relation.Kind == ERelation::Read) {
+            ++reads;
+            UNIT_ASSERT_VALUES_EQUAL(relation.Columns.size(), 1);
+            UNIT_ASSERT(inputs.insert(relation.Columns.front()).second);
+        }
+        UNIT_ASSERT_VALUES_EQUAL(reads, 3);
+        UNIT_ASSERT_VALUES_EQUAL(compiled.Get().Results.size(), 2);
     }
 
     Y_UNIT_TEST(ListSubscriptsBindBeforeUnaryAndBinaryOperators) {

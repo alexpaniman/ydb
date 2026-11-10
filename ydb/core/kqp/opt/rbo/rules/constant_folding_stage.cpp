@@ -30,6 +30,7 @@ void TConstantFoldingStage::RunStage(TOpRoot& root, TRBOContext& ctx) {
         }
     }
 
+    if (nativeReplacements.empty()) return;
     for (auto* op : nativeOps) op->RewriteExpressions([&](const TExpression& expression) {
         const auto replacement = nativeReplacements.find(&expression);
         return replacement == nativeReplacements.end() ? expression : replacement->second;

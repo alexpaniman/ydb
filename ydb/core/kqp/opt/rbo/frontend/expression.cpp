@@ -1424,6 +1424,13 @@ TExprId TExpressionArena::Binary(O op, TExprId left, TExprId right, TSourcePosit
         // In particular, Int64 and Uint64 have no lossless common integer type.
         return Append({op, {K::Bool, leftType.OptionalDepth || rightType.OptionalDepth}, position, {left, right}, {}, {}, 0});
     }
+    if (IsComparison(op) && ((leftType.IsDate() && rightType.IsDate()) ||
+        (leftType.IsInterval() && rightType.IsInterval()))) {
+        // Temporal comparison consumes each operand in its original units.
+        // Neither the scalar runtime nor the storage kernel needs a cast to
+        // a shared date type; retaining the operands also preserves ranges.
+        return Append({op, {K::Bool, leftType.OptionalDepth || rightType.OptionalDepth}, position, {left, right}, {}, {}, 0});
+    }
     if (((op == O::Multiply || op == O::Divide) && leftType.Kind == K::Decimal && rightType.IsIntegral()) ||
         (op == O::Multiply && rightType.Kind == K::Decimal && leftType.IsIntegral())) {
         // An integer factor or divisor does not change Decimal precision or
@@ -2280,7 +2287,11 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         if (left.Type.Kind == K::Decimal && (std::get<TDecimal>(left.Data).Coefficient == TDecimal::NaN() ||
             std::get<TDecimal>(right.Data).Coefficient == TDecimal::NaN())) return {node.Type, node.Op == O::NotEqual};
         int order = 0;
-        if (auto a = std::get_if<std::string>(&left.Data)) {
+        if (left.Type.IsDate() && right.Type.IsDate()) {
+            const __int128 a = *IntegralValue(left) * DateUnit(left.Type.Kind);
+            const __int128 b = *IntegralValue(right) * DateUnit(right.Type.Kind);
+            order = (a > b) - (a < b);
+        } else if (auto a = std::get_if<std::string>(&left.Data)) {
             order = a->compare(std::get<std::string>(right.Data));
         } else if (auto a = std::get_if<double>(&left.Data)) {
             const auto b = std::get<double>(right.Data);
@@ -2587,13 +2598,20 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             const auto [id, ready] = pending.back();
             pending.pop_back();
             if (rewritten.contains(id)) continue;
-            auto node = (*this)[id]; // appends may reallocate the arena
-            if (!ready && !node.Arguments.empty()) {
-                pending.emplace_back(id, true);
-                for (auto it = node.Arguments.rbegin(); it != node.Arguments.rend(); ++it)
-                    if (!rewritten.contains(*it)) pending.emplace_back(*it, false);
-                continue;
+            if (!ready) {
+                const auto& node = (*this)[id];
+                if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) {
+                    rewritten.emplace(id, id);
+                    continue;
+                }
+                if (!node.Arguments.empty()) {
+                    pending.emplace_back(id, true);
+                    for (auto it = node.Arguments.rbegin(); it != node.Arguments.rend(); ++it)
+                        if (!rewritten.contains(*it)) pending.emplace_back(*it, false);
+                    continue;
+                }
             }
+            auto node = (*this)[id]; // folding may append and reallocate the arena
             bool changed = false;
             for (auto& arg : node.Arguments) {
                 const auto replacement = rewritten.at(arg);

@@ -154,8 +154,19 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
         TFixture f;
         f.Catalog.emplace("/Other/t", TCatalogTable{"/Other/t", {{"different", ParseType("String")}}});
         f.Ok("SELECT id FROM t; PRAGMA TablePathPrefix = '/Other'; SELECT different FROM t; SELECT id FROM `/Root/t`;");
+        UNIT_ASSERT_VALUES_EQUAL(f.Lookups.size(), 2);
         UNIT_ASSERT_VALUES_EQUAL(f.Lookups[0], "/Root/t"); UNIT_ASSERT_VALUES_EQUAL(f.Lookups[1], "/Other/t");
-        UNIT_ASSERT_VALUES_EQUAL(f.Lookups[2], "/Root/t");
+        const auto reads = f.Find(ERelation::Read);
+        UNIT_ASSERT_VALUES_EQUAL(reads.size(), 3);
+        UNIT_ASSERT_VALUES_EQUAL(f.Program.Results.size(), 3);
+        for (std::size_t i = 0; i < reads.size(); ++i) {
+            UNIT_ASSERT_VALUES_EQUAL(reads[i]->Table, i == 1 ? "/Other/t" : "/Root/t");
+            const auto& result = f.Program.Results[i].Columns.at(0);
+            UNIT_ASSERT_VALUES_EQUAL(result.Column, reads[i]->Columns.at(0));
+            UNIT_ASSERT_VALUES_EQUAL(result.Name, i == 1 ? "different" : "id");
+            UNIT_ASSERT(result.Type == ParseType(i == 1 ? "String" : "Int64"));
+        }
+        UNIT_ASSERT(reads[0]->Columns[0] != reads[2]->Columns[0]);
     }
 
     Y_UNIT_TEST(ErrorsHaveSourcePositions) {

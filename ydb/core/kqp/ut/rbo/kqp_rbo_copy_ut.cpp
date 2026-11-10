@@ -39,14 +39,33 @@ void AssertSortKeys(const TSortIUs& original, const TSortIUs& copy, const TSubst
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpRboCopy) {
-    Y_UNIT_TEST(NativeConstructionRejectsVolatileExpressionsAndOpaqueFunctions) {
-        for (const TString callable : {"Random", "RandomNumber", "RandomUuid", "Now", "CurrentUtcDate",
+    Y_UNIT_TEST(NativeConstructionRejectsUnsupportedFunctions) {
+        for (const TString callable : {"Random", "RandomNumber", "Now", "CurrentUtcDate",
                 "CurrentUtcDatetime", "CurrentUtcTimestamp", "CurrentTzDate", "CurrentTzDatetime",
                 "CurrentTzTimestamp", "Udf", "ScriptUdf", "SqlCall"}) {
             TIdTestContext f;
             const auto source = f.Id();
             UNIT_ASSERT_EXCEPTION(MakeUnaryCallable(callable, f.Column(source)), NFrontend::TUnsupportedFeature);
         }
+    }
+
+    Y_UNIT_TEST(NativeUuidConstructionPreservesDuplicationRestrictions) {
+        TIdTestContext f;
+        const auto source = f.Id(), result = f.Id();
+        const auto uuid = MakeUnaryCallable("RandomUuid", f.Column(source));
+        UNIT_ASSERT(uuid.IsNative());
+        UNIT_ASSERT(uuid.GetNativeType() == NFrontend::TType{NFrontend::ETypeKind::Uuid});
+        UNIT_ASSERT(!(*uuid.GetNativeArena())[uuid.GetNativeRoot()].Repeatable);
+        TMapIUs definitions;
+        definitions.Add(result, uuid);
+        auto map = MakeIntrusive<TOpMap>(f.Read({source}), f.Pos, std::move(definitions));
+        UNIT_ASSERT(!CanDuplicateOperator(*map));
+        UNIT_ASSERT(!CanDuplicateSubtree(*map, f.Props.Subplans));
+        TSubstitutions renames;
+        const auto copy = map->Copy(f.Props, renames);
+        UNIT_ASSERT(copy);
+        UNIT_ASSERT(!CanDuplicateOperator(*copy));
+        UNIT_ASSERT(!CanDuplicateSubtree(*copy, f.Props.Subplans));
     }
 
     Y_UNIT_TEST(DuplicationChecksAggregateNamesWithoutTypes) {

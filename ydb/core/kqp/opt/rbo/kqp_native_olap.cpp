@@ -46,7 +46,11 @@ using NDetail::OlapIdentityConversion;
 bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend::TExprNode& node) {
     if (node.Type.IsCollection() || node.Type.OptionalDepth > 1 || node.Type.IsJson() || node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
     if (OlapIdentityConversion(arena, node)) return true;
-    if (node.Op >= O::Add && node.Op <= O::Modulo && !node.Type.IsNumeric()) return false;
+    if (node.Op >= O::Add && node.Op <= O::Modulo && !node.Type.IsNumeric()) {
+        const bool temporal = (node.Op == O::Add || node.Op == O::Subtract) &&
+            (node.Type.IsDate() || node.Type.IsInterval());
+        if (!temporal) return false;
+    }
     if (!OlapBinaryName(node.Op).empty()) {
         if (node.Arguments.size() != 2) return false;
         // The existing storage kernels cannot consume the same column twice.
@@ -75,7 +79,7 @@ bool OlapScalarNodeSupported(const NFrontend::TExprNode& node) {
         case O::Literal: case O::Column: case O::Parameter: case O::Convert: case O::Cast:
         case O::Negate: case O::Not: case O::And: case O::Or: case O::If:
         case O::IsNull: case O::IsNotNull: case O::Abs: case O::Length: case O::OptionalWrap:
-        case O::Find: case O::Substring: case O::Concat:
+        case O::Find: case O::Substring: case O::Concat: case O::Like:
             return true;
         default: return false;
     }

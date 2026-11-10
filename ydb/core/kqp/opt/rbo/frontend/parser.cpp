@@ -19,7 +19,9 @@ struct TToken {
     std::string Text;
     TSourcePosition Position;
     std::size_t EndOffset = 0;
-    std::string Word = {};
+    // Canonical keyword spelling points into the generated static table.
+    // Ordinary names need only their original text, not an uppercase copy.
+    std::string_view Word = {};
     unsigned Identifiers = 15;
 };
 
@@ -29,6 +31,15 @@ std::string Upper(std::string_view text) {
         if (ch >= 'a' && ch <= 'z') ch -= 'a' - 'A';
     }
     return result;
+}
+
+int CompareKeyword(std::string_view keyword, std::string_view text) {
+    const auto size = std::min(keyword.size(), text.size());
+    for (std::size_t i = 0; i < size; ++i) {
+        const char ch = text[i] >= 'a' && text[i] <= 'z' ? text[i] - ('a' - 'A') : text[i];
+        if (keyword[i] != ch) return keyword[i] < ch ? -1 : 1;
+    }
+    return (keyword.size() > text.size()) - (keyword.size() < text.size());
 }
 
 bool Alpha(char ch) {
@@ -79,10 +90,12 @@ public:
         if (Alpha(ch)) {
             do { Advance(); } while (Alpha(Peek()) || Digit(Peek()));
             TToken token{EToken::Identifier, std::string(Text.substr(start, Position.Offset - start)), pos};
-            token.Word = Upper(token.Text);
-            const auto it = std::lower_bound(std::begin(Keywords), std::end(Keywords), token.Word,
-                [](const TKeyword& key, std::string_view word) { return key.Word < word; });
-            if (it != std::end(Keywords) && it->Word == token.Word) token.Identifiers = it->Identifiers;
+            const auto it = std::lower_bound(std::begin(Keywords), std::end(Keywords), token.Text,
+                [](const TKeyword& key, std::string_view word) { return CompareKeyword(key.Word, word) < 0; });
+            if (it != std::end(Keywords) && CompareKeyword(it->Word, token.Text) == 0) {
+                token.Word = it->Word;
+                token.Identifiers = it->Identifiers;
+            }
             return token;
         }
         if (Digit(ch)) {
@@ -139,15 +152,15 @@ public:
                 }
             }
             if (!closed) throw TFrontendError(pos, "unterminated quoted value");
-            std::string suffix;
+            std::string_view suffix;
             if (!identifier && (Peek() == 'u' || Peek() == 'U' || Peek() == 's' || Peek() == 'S') &&
                 !Alpha(Peek(1)) && !Digit(Peek(1))) {
-                suffix = Upper(std::string_view(Text).substr(Position.Offset, 1));
+                suffix = Peek() == 'u' || Peek() == 'U' ? "U" : "S";
                 Advance();
             }
             if (!identifier && (Alpha(Peek()) || Peek() == '@'))
                 throw TUnsupportedFeature(EFeature::Syntax, pos, "typed or adjacent string literal requires grammar parser");
-            return {identifier ? EToken::QuotedIdentifier : EToken::String, std::move(value), pos, Position.Offset, std::move(suffix)};
+            return {identifier ? EToken::QuotedIdentifier : EToken::String, std::move(value), pos, Position.Offset, suffix};
         }
         if (ch == '@' && Peek(1) == '@') {
             throw TUnsupportedFeature(EFeature::Syntax, pos, "multiline literal requires grammar parser");
@@ -236,7 +249,8 @@ private:
     bool End() const { return Token().Kind == EToken::End; }
     bool Is(std::string_view text, std::size_t ahead = 0) const {
         const auto& token = Token(ahead);
-        return (token.Kind == EToken::Identifier && token.Word == text) ||
+        return (token.Kind == EToken::Identifier && (token.Word == text ||
+            (token.Word.empty() && token.Text.size() == text.size() && CompareKeyword(text, token.Text) == 0))) ||
             (token.Kind == EToken::Symbol && token.Text == text);
     }
     bool Take(std::string_view text) { if (!Is(text)) return false; ++Index; return true; }

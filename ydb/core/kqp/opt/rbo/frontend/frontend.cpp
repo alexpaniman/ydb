@@ -844,11 +844,12 @@ private:
         return result;
     }
 
-    TCatalogTable ResolveTable(const TSource& source) const {
+    const TCatalogTable& ResolveTable(const TSource& source) {
         const auto& path = Bindings.PhysicalPath(source);
+        if (const auto found = Tables.find(path); found != Tables.end()) return found->second;
         auto table = Catalog(path, source.Position);
         if (table.Name.empty()) throw TFrontendError(source.Position, "catalog returned an unnamed table");
-        return table;
+        return Tables.emplace(path, std::move(table)).first->second;
     }
 
     TBoundSource ReadTable(const TSource& source, const TCatalogTable& table) {
@@ -870,7 +871,7 @@ private:
 
     TQueryResult Write(const TWriteStatement& write) {
         const auto pos = write.Target.Position;
-        const auto table = ResolveTable(write.Target);
+        const auto& table = ResolveTable(write.Target);
         if (!table.WriteSchema)
             throw TUnsupportedFeature(EFeature::Statement, pos, "table does not support native writes: " + table.Name);
         if (write.OnConflict == "revert")
@@ -2018,6 +2019,9 @@ private:
     const TParsedQuery& Syntax;
     const TTableResolver& Catalog;
     const TBindSettings& Settings;
+    // One catalog snapshot per resolved path; source aliases own their
+    // bindings, while repeated sources share the immutable column metadata.
+    std::unordered_map<std::string, TCatalogTable, TStringHash, std::equal_to<>> Tables;
     TGlobalBindings Bindings;
     TBoundProgram Program;
     std::vector<TColumnId> ColumnOrigins;
