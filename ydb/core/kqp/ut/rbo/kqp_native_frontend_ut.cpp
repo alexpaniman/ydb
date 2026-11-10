@@ -20,6 +20,7 @@
 #include <bit>
 #include <limits>
 #include <type_traits>
+#include <tuple>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -96,8 +97,9 @@ void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id
             case K::Bool: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<bool>(), std::get<bool>(expected.Data), sql); break;
             case K::Int8: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<i8>(), std::get<std::int64_t>(expected.Data), sql); break;
             case K::Int16: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<i16>(), std::get<std::int64_t>(expected.Data), sql); break;
-            case K::Int32: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<i32>(), std::get<std::int64_t>(expected.Data), sql); break;
-            case K::Int64: case K::Interval: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<i64>(), std::get<std::int64_t>(expected.Data), sql); break;
+            case K::Int32: case K::Date32: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<i32>(), std::get<std::int64_t>(expected.Data), sql); break;
+            case K::Int64: case K::Interval: case K::Datetime64: case K::Timestamp64: case K::Interval64:
+                UNIT_ASSERT_VALUES_EQUAL_C(value.Get<i64>(), std::get<std::int64_t>(expected.Data), sql); break;
             case K::Uint8: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<ui8>(), std::get<std::uint64_t>(expected.Data), sql); break;
             case K::Uint16: case K::Date: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<ui16>(), std::get<std::uint64_t>(expected.Data), sql); break;
             case K::Uint32: case K::Datetime: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<ui32>(), std::get<std::uint64_t>(expected.Data), sql); break;
@@ -132,6 +134,52 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(ExtendedTemporalSemanticsMatchRuntime) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        for (const auto [kind, minimum, maximum] : {
+                std::tuple<K, std::int64_t, std::int64_t>{K::Date32, NUdf::MIN_DATE32, NUdf::MAX_DATE32},
+                std::tuple<K, std::int64_t, std::int64_t>{K::Datetime64, NUdf::MIN_DATETIME64, NUdf::MAX_DATETIME64},
+                std::tuple<K, std::int64_t, std::int64_t>{K::Timestamp64, NUdf::MIN_TIMESTAMP64, NUdf::MAX_TIMESTAMP64},
+                std::tuple<K, std::int64_t, std::int64_t>{K::Interval64, -NUdf::MAX_INTERVAL64, NUdf::MAX_INTERVAL64}}) {
+            TExpressionArena arena;
+            for (const auto value : {minimum, std::int64_t{-1}, std::int64_t{0}, std::int64_t{1}, maximum}) {
+                const auto literal = arena.Literal({kind}, value);
+                CheckScalar(arena, literal, "extended temporal literal");
+                CheckScalar(arena, arena.Unary(EOpcode::StablePickle, literal), "extended temporal stable key");
+                for (auto target : {K::Int64, K::Uint64, K::Double, K::String})
+                    CheckScalar(arena, arena.Cast(literal, {target}), "extended temporal numeric cast");
+                if (kind != K::Interval64) {
+                    for (auto target : {K::Date, K::Datetime, K::Timestamp, K::Date32, K::Datetime64, K::Timestamp64})
+                        CheckScalar(arena, arena.Cast(literal, {target}), "extended temporal date cast");
+                    for (const std::int64_t delta : {-1000001, -1, 0, 1, 1000001}) {
+                        const auto interval = arena.Literal({K::Interval64}, delta);
+                        CheckScalar(arena, arena.Binary(EOpcode::Add, literal, interval), "extended temporal add");
+                        CheckScalar(arena, arena.Binary(EOpcode::Subtract, literal, interval), "extended temporal subtract");
+                    }
+                }
+            }
+            for (const auto value : {minimum - 1, maximum + 1})
+                CheckScalar(arena, arena.Cast(arena.Literal({K::Int64}, value), {kind}), "extended temporal range rejection");
+        }
+        for (const auto kind : {K::Date32, K::Datetime64, K::Timestamp64}) {
+            const auto slot = *NUdf::FindDataSlot(TString(TType{kind}.ToString()));
+            for (const std::string date : {"-144169-01-01", "-400-02-29", "-1-02-29", "0-01-01", "1-01-01",
+                    "1900-02-29", "1969-12-31", "2000-02-29", "+120000-06-30", "148107-12-31", "148108-01-01"}) {
+                for (const std::string time : {"", "T23:59:59Z", "T23:59:59.999999Z", "T23:59:59+01:30"}) {
+                    const auto text = date + time;
+                    const auto runtime = NMiniKQL::ValueFromString(slot, NUdf::TStringRef(text.data(), text.size()));
+                    TExpressionArena arena;
+                    const auto parsed = arena.Cast(arena.Literal({K::String}, text), {kind});
+                    const auto native = Evaluate(arena, parsed);
+                    UNIT_ASSERT_VALUES_EQUAL_C(!runtime, native.IsNull(), text);
+                    if (runtime) UNIT_ASSERT_VALUES_EQUAL_C(kind == K::Date32 ? runtime.Get<i32>() : runtime.Get<i64>(),
+                        std::get<std::int64_t>(native.Data), text);
+                }
+            }
+        }
+    }
+
     Y_UNIT_TEST(RuntimeCollectionMembershipEmitsTypedTerminalOperations) {
         using namespace NFrontend;
         using K = ETypeKind;

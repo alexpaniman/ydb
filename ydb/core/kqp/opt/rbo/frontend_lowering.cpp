@@ -263,8 +263,8 @@ private:
         }
         // Native temporal values format their numeric execution payload. Keep
         // formatting independent from YQL's ISO string conversion policy.
-        if (target.IsString() && (source.Kind == K::Date || source.Kind == K::Datetime || source.Kind == K::Timestamp || source.Kind == K::Interval)) {
-            NFrontend::TType payload{source.Kind == K::Interval ? K::Int64 : K::Uint64, source.OptionalDepth};
+        if (target.IsString() && (source.IsDate() || source.IsInterval())) {
+            NFrontend::TType payload{source.IsInterval() || source.IsExtendedTemporal() ? K::Int64 : K::Uint64, source.OptionalDepth};
             return Cast(Cast(value, source, payload), payload, target);
         }
         const auto* sourceType = ExportNativeType(source.Required(), Ctx, &Arena);

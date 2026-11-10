@@ -21,6 +21,39 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(ExtendedTemporalValuesKeepSignedRanges) {
+        for (const auto [kind, minimum, maximum] : {
+                std::tuple{K::Date32, -53375809LL, 53375807LL},
+                std::tuple{K::Datetime64, -4611669897600LL, 4611669811199LL},
+                std::tuple{K::Timestamp64, -4611669897600000000LL, 4611669811199999999LL},
+                std::tuple{K::Interval64, -9223339708799999999LL, 9223339708799999999LL}}) {
+            TExpressionArena arena;
+            const TType type{kind};
+            UNIT_ASSERT(ParseType(type.ToString()) == type);
+            for (const std::int64_t value : {minimum, -1LL, 0LL, 1LL, maximum}) {
+                const auto literal = arena.Literal(type, value);
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(arena, literal).Data), value);
+                const auto cast = arena.Cast(Integer(arena, value), type);
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(arena, cast).Data), value);
+                const auto equal = arena.Binary(O::Equal, literal, cast);
+                UNIT_ASSERT(std::get<bool>(Evaluate(arena, equal).Data));
+                const auto folded = arena.FoldConstants(std::span(&equal, 1)).front();
+                UNIT_ASSERT(arena[folded].Op == O::Literal);
+            }
+            for (const std::int64_t value : {minimum - 1, maximum + 1}) {
+                UNIT_ASSERT_EXCEPTION(arena.Literal(type, value), TFrontendError);
+                UNIT_ASSERT(Evaluate(arena, arena.Cast(Integer(arena, value), type)).IsNull());
+            }
+        }
+        TExpressionArena arena;
+        const auto timestamp = arena.Literal({K::Timestamp64}, std::int64_t{-1000001});
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(timestamp, {K::Datetime64}))), "-1");
+        UNIT_ASSERT(Evaluate(arena, arena.Cast(timestamp, {K::Date})).IsNull());
+        const auto interval = arena.Literal({K::Interval64}, std::int64_t{2000001});
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Binary(O::Add, timestamp, interval))), "1000000");
+        UNIT_ASSERT(CommonType({K::Date}, {K::Timestamp64}) == (TType{K::Timestamp64}));
+    }
+
     Y_UNIT_TEST(CollectionMembershipPreservesNullAndCheckedKeySemantics) {
         for (bool ansi : {false, true}) for (bool empty : {false, true}) {
             TExpressionArena arena;
