@@ -40,7 +40,7 @@ void AssertSortKeys(const TSortIUs& original, const TSortIUs& copy, const TSubst
 
 Y_UNIT_TEST_SUITE(KqpRboCopy) {
     Y_UNIT_TEST(NativeConstructionRejectsUnsupportedFunctions) {
-        for (const TString callable : {"Random", "RandomNumber", "Now", "CurrentUtcDate",
+        for (const TString callable : {"Random", "Now", "CurrentUtcDate",
                 "CurrentUtcDatetime", "CurrentUtcTimestamp", "CurrentTzDate", "CurrentTzDatetime",
                 "CurrentTzTimestamp", "Udf", "ScriptUdf", "SqlCall"}) {
             TIdTestContext f;
@@ -49,23 +49,26 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
         }
     }
 
-    Y_UNIT_TEST(NativeUuidConstructionPreservesDuplicationRestrictions) {
-        TIdTestContext f;
-        const auto source = f.Id(), result = f.Id();
-        const auto uuid = MakeUnaryCallable("RandomUuid", f.Column(source));
-        UNIT_ASSERT(uuid.IsNative());
-        UNIT_ASSERT(uuid.GetNativeType() == NFrontend::TType{NFrontend::ETypeKind::Uuid});
-        UNIT_ASSERT(!(*uuid.GetNativeArena())[uuid.GetNativeRoot()].Repeatable);
-        TMapIUs definitions;
-        definitions.Add(result, uuid);
-        auto map = MakeIntrusive<TOpMap>(f.Read({source}), f.Pos, std::move(definitions));
-        UNIT_ASSERT(!CanDuplicateOperator(*map));
-        UNIT_ASSERT(!CanDuplicateSubtree(*map, f.Props.Subplans));
-        TSubstitutions renames;
-        const auto copy = map->Copy(f.Props, renames);
-        UNIT_ASSERT(copy);
-        UNIT_ASSERT(!CanDuplicateOperator(*copy));
-        UNIT_ASSERT(!CanDuplicateSubtree(*copy, f.Props.Subplans));
+    Y_UNIT_TEST(NativeRandomConstructionPreservesDuplicationRestrictions) {
+        using K = NFrontend::ETypeKind;
+        for (const auto& [callable, type] : {std::pair{"RandomUuid", K::Uuid}, std::pair{"RandomNumber", K::Uint64}}) {
+            TIdTestContext f;
+            const auto source = f.Id(), result = f.Id();
+            const auto random = MakeUnaryCallable(callable, f.Column(source));
+            UNIT_ASSERT(random.IsNative());
+            UNIT_ASSERT(random.GetNativeType() == NFrontend::TType{type});
+            UNIT_ASSERT(!(*random.GetNativeArena())[random.GetNativeRoot()].Repeatable);
+            TMapIUs definitions;
+            definitions.Add(result, random);
+            auto map = MakeIntrusive<TOpMap>(f.Read({source}), f.Pos, std::move(definitions));
+            UNIT_ASSERT(!CanDuplicateOperator(*map));
+            UNIT_ASSERT(!CanDuplicateSubtree(*map, f.Props.Subplans));
+            TSubstitutions renames;
+            const auto copy = map->Copy(f.Props, renames);
+            UNIT_ASSERT(copy);
+            UNIT_ASSERT(!CanDuplicateOperator(*copy));
+            UNIT_ASSERT(!CanDuplicateSubtree(*copy, f.Props.Subplans));
+        }
     }
 
     Y_UNIT_TEST(DuplicationChecksAggregateNamesWithoutTypes) {
