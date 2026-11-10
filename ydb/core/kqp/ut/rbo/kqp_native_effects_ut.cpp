@@ -54,6 +54,15 @@ TVector<TString> WriteResults(bool native, bool peephole) {
     execute("DECLARE $rows AS List<Struct<id:Uint64,value:Int32>>; UPSERT INTO Target SELECT * FROM AS_TABLE($rows)", rows);
     execute("INSERT INTO Indexed SELECT id, value, name FROM Target WHERE id > 1ul", empty);
     execute("SELECT id, value, name FROM Indexed ORDER BY id", empty);
+    execute("SELECT id, value FROM `/Root/Indexed/by_value/indexImplTable` ORDER BY id", empty);
+    if (native) {
+        const auto rejected = session.ExplainDataQuery(
+            "UPSERT INTO `/Root/Indexed/by_value/indexImplTable` (value, id) VALUES (99, 99ul)").GetValueSync();
+        UNIT_ASSERT(!rejected.IsSuccess());
+        UNIT_ASSERT_STRING_CONTAINS(rejected.GetIssues().ToString(), "table does not support native writes");
+        UNIT_ASSERT_C(rejected.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos,
+            rejected.GetIssues().ToString());
+    }
     execute(R"(
         SELECT COUNT(*) AS before_count FROM Target;
         UPSERT INTO Target (id, value) VALUES (6ul, 60) RETURNING value, id;

@@ -1559,7 +1559,7 @@ private:
                             YQL_ENSURE(meta);
                             if (!meta->DoesExist) throw F::TFrontendError(requests[i].Position, "table does not exist: " + requests[i].Name);
                             if ((meta->Kind != EKikimrTableKind::Datashard && meta->Kind != EKikimrTableKind::Olap &&
-                                 meta->Kind != EKikimrTableKind::SysView) || meta->Temporary || meta->IsIndexImplTable)
+                                 meta->Kind != EKikimrTableKind::SysView) || meta->Temporary)
                                 throw F::TUnsupportedFeature(F::EFeature::Backend, requests[i].Position, "native profile supports persistent tables and system views");
                             metadata.emplace(requests[i].Name, meta);
                             metadata.emplace(std::string(meta->Name), meta);
@@ -1572,7 +1572,7 @@ private:
                             if (const auto found = nativeSchemas.find(meta.Get()); found != nativeSchemas.end()) return found->second;
                             F::TCatalogTable table{std::string(meta->Name), {}};
                             table.Columns.reserve(meta->Columns.size());
-                            bool sinkWrites = meta->Kind == EKikimrTableKind::Datashard;
+                            bool sinkWrites = meta->Kind == EKikimrTableKind::Datashard && !meta->IsIndexImplTable;
                             F::TWriteSchema writes;
                             for (const auto& key : meta->KeyColumnNames) writes.Keys.emplace_back(key);
                             for (const auto& index : meta->Indexes) if (index.ItUsedForWrite()) {
