@@ -5622,6 +5622,48 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
+    Y_UNIT_TEST(RuntimeListAccessPreservesNestedOptionalPresence) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const TString sql = R"(
+            DECLARE $items AS List<Int32?>;
+            DECLARE $index AS Int64?;
+            SELECT $items[$index] AS v, $items[$index] IS NULL AS missing
+        )";
+        for (const auto index : {std::optional<i64>{}, std::optional<i64>{-1}, std::optional<i64>{0},
+                std::optional<i64>{1}, std::optional<i64>{2}, std::optional<i64>{Max<i64>()}}) {
+            auto builder = TParamsBuilder();
+            builder.AddParam("$items").BeginList().AddListItem().OptionalInt32(7)
+                .AddListItem().OptionalInt32(std::nullopt).EndList().Build();
+            builder.AddParam("$index").OptionalInt64(index).Build();
+            const auto params = builder.Build();
+            AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+        }
+    }
+
+    Y_UNIT_TEST(RuntimeUrlFunctionsPreserveLegacyNullAndCaseSemantics) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const TString sql = R"(
+            DECLARE $url AS String?;
+            SELECT Url::GetHost($url), Url::CutWWW($url), Url::CutWWW(Url::GetHost($url))
+        )";
+        for (const auto* url : {static_cast<const char*>(nullptr), "", "http:///", "www.",
+                "https://www.example.org:443/path?query#fragment", "WWW.Example.org", "localhost:80/path",
+                "mailto:name@example.org", "https://user:pass@example.org/a", "http://[::1]:80/a"}) {
+            auto builder = TParamsBuilder();
+            builder.AddParam("$url").OptionalString(url ? std::optional<std::string>{url} : std::nullopt).Build();
+            const auto params = builder.Build();
+            AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+        }
+    }
+
     Y_UNIT_TEST(RuntimeCalendarOperationsMatchLegacy) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
@@ -5633,7 +5675,9 @@ $round = ($x,$y) -> {return $x;};
             DECLARE $stamp AS Timestamp?;
             DECLARE $shift AS Int32;
             $calendar = DateTime::ShiftMonths($stamp, $shift);
-            SELECT DateTime::GetYear($stamp), DateTime::GetYear($calendar),
+            SELECT DateTime::GetMinute($stamp), DateTime::GetMinute($calendar),
+                DateTime::ToSeconds($date), DateTime::ToSeconds($time), DateTime::ToSeconds($stamp),
+                DateTime::GetYear($stamp), DateTime::GetYear($calendar),
                 DateTime::MakeTimestamp($calendar), DateTime::MakeDate($calendar),
                 DateTime::MakeDate(DateTime::ShiftYears($date, $shift)),
                 DateTime::MakeDatetime(DateTime::ShiftMonths($time, $shift)),

@@ -128,6 +128,10 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::CalendarDatetime: return "CalendarDatetime";
         case TNativeOp::CalendarTimestamp: return "CalendarTimestamp";
         case TNativeOp::CalendarYear: return "CalendarYear";
+        case TNativeOp::CalendarMinute: return "CalendarMinute";
+        case TNativeOp::TemporalSeconds: return "TemporalSeconds";
+        case TNativeOp::UrlHost: return "UrlHost";
+        case TNativeOp::UrlCutWWW: return "UrlCutWWW";
         case TNativeOp::CalendarShiftMonths: return "CalendarShiftMonths";
         case TNativeOp::CalendarShiftYears: return "CalendarShiftYears";
         case TNativeOp::JsonValue: return "JsonValue";
@@ -137,6 +141,7 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::RandomUuid: return "RandomUuid";
         case TNativeOp::Like: return "Like";
         case TNativeOp::TupleElement: return "TupleElement";
+        case TNativeOp::ListElement: return "ListElement";
         case TNativeOp::OptionalWrap: return "Just";
         case TNativeOp::UnicodeLower: return "Unicode::ToLower";
         case TNativeOp::UnicodeUpper: return "Unicode::ToUpper";

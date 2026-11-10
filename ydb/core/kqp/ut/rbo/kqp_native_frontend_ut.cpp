@@ -92,6 +92,10 @@ void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id
             return;
         }
         UNIT_ASSERT_C(value, sql);
+        if (expected.Type.OptionalDepth > 1) {
+            self(self, value.GetOptionalValue(), *std::get<NFrontend::TOptionalValue>(expected.Data));
+            return;
+        }
         using K = NFrontend::ETypeKind;
         switch (expected.Type.Kind) {
             case K::Bool: UNIT_ASSERT_VALUES_EQUAL_C(value.Get<bool>(), std::get<bool>(expected.Data), sql); break;
@@ -2871,6 +2875,14 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT DateTime2::IntervalFromMinutes(IF(false, 1))",
             "SELECT CAST(Date('2020-01-02') AS Timestamp)",
             "SELECT DateTime::GetYear(Timestamp('2000-02-29T12:34:56.123456Z'))",
+            "SELECT DateTime::GetMinute(Timestamp('2000-02-29T12:34:56.123456Z'))",
+            "SELECT DateTime::GetMinute(CAST(NULL AS Timestamp))",
+            "SELECT DateTime::ToSeconds(Timestamp('2000-02-29T12:34:56.123456Z'))",
+            "SELECT DateTime::ToSeconds(Timestamp64('1969-12-31T23:59:59.999999Z'))",
+            "SELECT DateTime::ToSeconds(Date32('0001-01-01'))",
+            "SELECT Url::CutWWW(Url::GetHost('https://www.example.org:443/a?b'))",
+            "SELECT Url::CutWWW('WWW.Example.org')",
+            "SELECT Url::GetHost('http:///path')", "SELECT Url::GetHost(NULL)",
             "SELECT DateTime::MakeDate(DateTime::ShiftMonths(Date('2020-01-31'), 1))",
             "SELECT DateTime::MakeDatetime(DateTime::ShiftYears(Timestamp('2000-02-29T12:34:56.123456Z'), 100))",
             "SELECT DateTime::MakeTimestamp(DateTime::ShiftMonths(Timestamp('2020-03-31T12:34:56.123456Z'), -1))",
@@ -2880,6 +2892,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT DateTime::GetYear(DateTime::ShiftMonths(IF(false, Date('2000-02-29')), 1))",
             "SELECT DateTime::MakeTimestamp(DateTime::Split(IF(false, Timestamp('2020-01-01T00:00:00Z'))))",
             "SELECT Lower('AbC')", "SELECT Upper('AbC')", "SELECT Lower(CAST(NULL AS String))",
+            "SELECT [1,2][0u]", "SELECT [1,2][2u]", "SELECT [1,2][-1]",
+            "SELECT [1, IF(false, 2)][0u]", "SELECT [1, IF(false, 2)][1u]", "SELECT [1, IF(false, 2)][2u]",
             "SELECT Substring('abcdef', 2, 3)", "SELECT Substring('abcdef', NULL, 3)",
             "SELECT Substring('abcdef', 4294967295u, 3)", "SELECT Substring('abcdef', 2, NULL)",
             "SELECT Substring('abcdef', IF(false, 2u), IF(false, 3u))",

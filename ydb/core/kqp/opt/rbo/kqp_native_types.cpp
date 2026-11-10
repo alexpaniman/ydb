@@ -217,8 +217,8 @@ void ComputeNativeTypes(IOperator& op, TPlanProps& props) {
             auto cross = left;
             Append(cross, right);
             for (auto& filter : join.JoinFilters) filter = Bind(filter, cross, props);
-            if (JoinOutputsLeft(join.JoinKind)) Append(row, left, join.JoinKind == "Right" || join.JoinKind == "Full");
-            if (JoinOutputsRight(join.JoinKind)) Append(row, right, join.JoinKind == "Left" || join.JoinKind == "Full");
+            if (JoinOutputsLeft(join.JoinKind)) Append(row, left, join.JoinKind == "Right" || join.JoinKind == "Full" || join.JoinKind == "Exclusion");
+            if (JoinOutputsRight(join.JoinKind)) Append(row, right, join.JoinKind == "Left" || join.JoinKind == "Full" || join.JoinKind == "Exclusion");
             break;
         }
         case EOperator::DependentJoin: {

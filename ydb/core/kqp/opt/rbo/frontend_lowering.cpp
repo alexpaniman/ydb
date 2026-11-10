@@ -356,11 +356,11 @@ private:
             for (std::size_t i = 0; i < args.size(); ++i) {
                 const TTypeAnnotationNode* type = args[i]->GetTypeAnn();
                 argumentTypes.push_back(type);
-                arguments.push_back({type, {}, i == 0 ? ui64{NUdf::ICallablePayload::TArgumentFlags::AutoMap} : ui64{0}});
+                arguments.push_back({type, {}, i == 0 && name != "DateTime2.ToSeconds" ? ui64{NUdf::ICallablePayload::TArgumentFlags::AutoMap} : ui64{0}});
             }
             const auto* voidType = Ctx.MakeType<TVoidExprType>();
             const TTypeAnnotationNode* userType = voidType;
-            if (name == "DateTime2.Split" || name == "DateTime2.GetYear" || name == "DateTime2.ShiftMonths" || name == "DateTime2.ShiftYears")
+            if (name == "DateTime2.Split" || name == "DateTime2.GetYear" || name == "DateTime2.GetMinute" || name == "DateTime2.ToSeconds" || name == "DateTime2.ShiftMonths" || name == "DateTime2.ShiftYears")
                 userType = Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
                     Ctx.MakeType<TTupleExprType>(argumentTypes), Ctx.MakeType<TStructExprType>(TVector<const TItemExprType*>{}), voidType});
             const auto* signature = Ctx.MakeType<TCallableExprType>(ExportNativeType(returned, Ctx, &Arena), arguments, 0, TStringBuf{});
@@ -374,6 +374,22 @@ private:
             return Call("Apply", std::move(args), returned);
         });
     }
+    TExprNode::TPtr Url(TStringBuf name, TExprNode::TPtr input) {
+        // Both URL operations accept/return String? and turn an empty slice
+        // into NULL. Preserve that fixed public runtime signature directly.
+        const NFrontend::TType type{K::String, true};
+        const auto* stringType = ExportNativeType(type, Ctx);
+        const auto* voidType = Ctx.MakeType<TVoidExprType>();
+        const auto* signature = Ctx.MakeType<TCallableExprType>(stringType,
+            TVector<TCallableExprType::TArgumentInfo>{{stringType, {}, 0}}, 0, TStringBuf{});
+        auto config = Ctx.NewCallable(Pos, "Void", {}); config->SetTypeAnn(voidType);
+        auto settings = Ctx.NewList(Pos, {}); AnnotateTypeSyntax(*settings, Ctx);
+        auto udf = Ctx.NewCallable(Pos, "Udf", {Atom(name), config, Type(voidType), Atom(""),
+            Type(signature), Type(voidType), Atom(""), settings});
+        udf->SetTypeAnn(signature);
+        return Call("Apply", {udf, input}, type);
+    }
+
     TExprNode::TPtr StringCase(TExprNode::TPtr value, NFrontend::TType type, bool upper, bool unicode = false) {
         return Present({value}, {type}, type, [&](TExprNode::TListType args) {
             const NFrontend::TType scalar{unicode ? K::Utf8 : K::String};
@@ -455,7 +471,7 @@ private:
                                bool strict = false, bool autoMap = false) {
             TVector<TCallableExprType::TArgumentInfo> arguments;
             for (size_t i = 0; i < args.size(); ++i)
-                arguments.push_back({args[i]->GetTypeAnn(), {}, autoMap && i == 0 ? ui64{NUdf::ICallablePayload::TArgumentFlags::AutoMap} : ui64{0}});
+                arguments.push_back({args[i]->GetTypeAnn(), {}, autoMap && i == 0 && name != "DateTime2.ToSeconds" ? ui64{NUdf::ICallablePayload::TArgumentFlags::AutoMap} : ui64{0}});
             const auto* signature = Ctx.MakeType<TCallableExprType>(returned, arguments, 0, TStringBuf{});
             const auto* voidType = Ctx.MakeType<TVoidExprType>();
             auto settings = Ctx.NewList(Pos, strict ? TExprNode::TListType{Ctx.NewList(Pos, {Atom("strict")})} : TExprNode::TListType{});
@@ -516,6 +532,14 @@ private:
             case O::JsonValue: return JsonValue(args[0], types[0], node.Name);
             case O::RandomUuid: return Call("RandomUuid", std::move(args), type);
             case O::Like: return Like(args[0], args[1], node.Name);
+            case O::ListElement: {
+                const auto item = Arena.ListItem(types[0]);
+                return Present(std::move(args), types, type, [&](TExprNode::TListType values) {
+                    auto dict = Ctx.NewCallable(Pos, "ToIndexDict", {values[0]});
+                    dict->SetTypeAnn(Ctx.MakeType<TDictExprType>(ExportNativeType({K::Uint64}, Ctx), ExportNativeType(item, Ctx, &Arena)));
+                    return Call("Lookup", {dict, values[1]}, type);
+                });
+            }
             case O::TupleElement: {
                 const auto index = std::get<std::uint64_t>(node.Value);
                 const auto itemType = Arena.TupleItems(types[0])[index];
@@ -600,6 +624,10 @@ private:
             case O::CalendarDatetime: return CalendarApply("DateTime2.MakeDatetime", std::move(args), types, type);
             case O::CalendarTimestamp: return CalendarApply("DateTime2.MakeTimestamp", std::move(args), types, type);
             case O::CalendarYear: return CalendarApply("DateTime2.GetYear", std::move(args), types, type);
+            case O::CalendarMinute: return CalendarApply("DateTime2.GetMinute", std::move(args), types, type);
+            case O::TemporalSeconds: return CalendarApply("DateTime2.ToSeconds", std::move(args), types, type);
+            case O::UrlHost: return Url("Url.GetHost", args[0]);
+            case O::UrlCutWWW: return Url("Url.CutWWW", args[0]);
             case O::CalendarShiftMonths: return CalendarApply("DateTime2.ShiftMonths", std::move(args), types, type);
             case O::CalendarShiftYears: return CalendarApply("DateTime2.ShiftYears", std::move(args), types, type);
         }

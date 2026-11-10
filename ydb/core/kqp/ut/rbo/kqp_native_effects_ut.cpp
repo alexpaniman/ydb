@@ -1,5 +1,5 @@
-#include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
 #include <ydb/core/kqp/ut/common/kqp_ut_common.h>
+#include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
 #include <ydb/core/kqp/ut/rbo/kqp_rbo_test_helpers.h>
 
 namespace NKikimr::NKqp {

@@ -27,6 +27,7 @@ TString JoinName(NFrontend::EJoinKind kind) {
         case K::Left: return "Left";
         case K::Right: return "Right";
         case K::Full: return "Full";
+        case K::Exclusion: return "Exclusion";
         case K::LeftSemi: return "LeftSemi";
         case K::RightSemi: return "RightSemi";
         case K::LeftOnly: return "LeftOnly";
