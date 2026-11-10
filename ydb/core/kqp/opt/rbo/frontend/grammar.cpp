@@ -719,16 +719,21 @@ private:
                     if (result.RowFields->size() >= Settings.MaxNodes) throw TResourceLimitError(Position(field), "parameter field limit exceeded");
                     auto* tag = Child(field, "type_name_tag");
                     if (Child(tag, "bind_parameter")) Unsupported(tag, EFeature::Type, "dynamic parameter field name");
-                    result.RowFields->emplace_back(Id(tag), Type(Child(field, "type_name_or_bind")));
+                    result.RowFields->emplace_back(Decode(tag->getText(), tag, bool(Child(tag, "id"))), Type(Child(field, "type_name_or_bind")));
                 }
             } else result.Value = Type(type);
             return result;
         }
         if (name == "pragma_stmt") {
             TStatement result{EStatementKind::Pragma, Position(node)};
-            result.Name = Child(node, "opt_id_prefix_or_type")->getText() + Id(Child(node, "an_id"));
+            const auto pragmaName = [&](TTree* part) {
+                return Settings.AnsiQuotes ? Decode(part->getText(), part, true) : Id(part);
+            };
+            if (auto* prefix = Child(Child(node, "opt_id_prefix_or_type"), "an_id_or_type"))
+                result.Name = pragmaName(prefix) + ".";
+            result.Name += pragmaName(Child(node, "an_id"));
             auto values = Children(node, "pragma_value");
-            if (values.size() > 1 || Has(node, "(")) Unsupported(node, EFeature::Pragma, "pragma argument list");
+            if (values.size() > 1) Unsupported(node, EFeature::Pragma, "pragma argument list");
             if (!values.empty()) result.Value = Decode(values[0]->getText(), values[0]);
             return result;
         }

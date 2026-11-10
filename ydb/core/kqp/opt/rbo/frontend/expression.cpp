@@ -22,6 +22,18 @@ namespace {
 using K = ETypeKind;
 using O = EOpcode;
 
+constexpr std::string_view TypeNames[]{"Null", "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
+    "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval", "Json", "JsonDocument", "Calendar", "Tuple", "List"};
+
+bool EqualAsciiCase(std::string_view left, std::string_view right) {
+    if (left.size() != right.size()) return false;
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        const auto lower = [](char ch) { return ch >= 'A' && ch <= 'Z' ? char(ch + ('a' - 'A')) : ch; };
+        if (lower(left[i]) != lower(right[i])) return false;
+    }
+    return true;
+}
+
 [[noreturn]] void Fail(TSourcePosition position, std::string message) {
     throw TFrontendError(position, std::move(message));
 }
@@ -859,9 +871,7 @@ bool TType::IsString() const { return Kind == K::String || Kind == K::Utf8; }
 bool TType::IsSigned() const { return Kind >= K::Int8 && Kind <= K::Int64; }
 
 std::string TType::ToString() const {
-    static constexpr const char* Names[] = {"Null", "Bool", "Int8", "Int16", "Int32", "Int64", "Uint8", "Uint16", "Uint32", "Uint64",
-        "Float", "Double", "String", "Utf8", "Decimal", "Date", "Datetime", "Timestamp", "Interval", "Json", "JsonDocument", "Calendar", "Tuple", "List"};
-    std::string result = Names[static_cast<unsigned>(Kind)];
+    std::string result(TypeNames[static_cast<unsigned>(Kind)]);
     if (Kind == K::Decimal) {
         result += "(" + std::to_string(Precision) + "," + std::to_string(Scale) + ")";
     }
@@ -876,13 +886,12 @@ TType ParseType(std::string_view name, TSourcePosition position) {
         ++nullable;
         name.remove_suffix(1);
     }
-    const auto normalized = Lower(name);
     for (unsigned i = 0; i <= static_cast<unsigned>(K::JsonDocument); ++i) {
-        TType type{static_cast<K>(i), nullable};
-        if (Lower(type.ToString().substr(0, type.ToString().find('?'))) == normalized && type.Kind != K::Decimal) {
-            return type;
+        if (i != static_cast<unsigned>(K::Decimal) && EqualAsciiCase(name, TypeNames[i])) {
+            return {static_cast<K>(i), nullable};
         }
     }
+    const auto normalized = Lower(name);
     for (const auto& [alias, kind] : {std::pair{"tinyint", K::Int8}, {"smallint", K::Int16},
             {"int", K::Int32}, {"integer", K::Int32}, {"bigint", K::Int64}, {"varchar", K::String}}) {
         if (normalized == alias) return {kind, nullable};

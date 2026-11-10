@@ -306,7 +306,9 @@ private:
                     Expect("<");
                     if (!TakeTypeEnd()) while (true) {
                         if (result.RowFields->size() >= Settings.MaxNodes) throw TResourceLimitError(pos, "parameter field limit exceeded");
-                        auto name = Identifier(); Expect(":");
+                        // Struct tags are strings in the grammar as well as identifiers.
+                        auto name = Token().Kind == EToken::String && Token().Word.empty() ? Tokens[Index++].Text : Identifier();
+                        Expect(":");
                         result.RowFields->emplace_back(std::move(name), TypeName());
                         if (TakeTypeEnd()) break;
                         Expect(","); if (TakeTypeEnd()) break;
@@ -320,13 +322,20 @@ private:
             TStatement result{EStatementKind::Use, pos}; result.Name = Identifier(); return result;
         }
         if (Take("PRAGMA")) {
-            TStatement result{EStatementKind::Pragma, pos}; result.Name = Identifier();
-            if (Take(".")) result.Name += "." + Identifier();
-            if (Take("=")) {
+            const auto name = [&] {
+                return Settings.AnsiQuotes && Token().Kind == EToken::String && Token().Word.empty() ? Tokens[Index++].Text : Identifier();
+            };
+            TStatement result{EStatementKind::Pragma, pos}; result.Name = name();
+            if (Take(".")) result.Name += "." + name();
+            const bool parenthesized = Take("(");
+            if (parenthesized || Take("=")) {
+                const auto sign = Is("+") || Is("-") ? Tokens[Index++].Text : std::string{};
                 if (Token().Kind != EToken::Identifier && Token().Kind != EToken::String && Token().Kind != EToken::Number) Fail("expected pragma value");
+                if (!sign.empty() && Token().Kind != EToken::Number) Fail("expected numeric pragma value");
                 if (Token().Kind == EToken::String && !Token().Word.empty())
                     throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "typed pragma strings are outside the native profile");
-                result.Value = Tokens[Index++].Text;
+                result.Value = sign + Tokens[Index++].Text;
+                if (parenthesized) Expect(")");
             }
             return result;
         }

@@ -32,6 +32,52 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(QuotedStructTagsBindThroughBothParsers) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(R"(
+                DECLARE $items AS List<Struct<'select':Int64, "mixed name":String?, `value`:Int32>>;
+                SELECT `select`, `mixed name`, value FROM AS_TABLE($items);
+            )", Catalog, settings);
+            const auto& result = compiled.Program->Get().Results.at(0).Columns;
+            UNIT_ASSERT_VALUES_EQUAL(result.size(), 3);
+            UNIT_ASSERT_VALUES_EQUAL(result[0].Name, "select");
+            UNIT_ASSERT_VALUES_EQUAL(result[1].Name, "mixed name");
+            UNIT_ASSERT(result[0].Type == TType{ETypeKind::Int64});
+            UNIT_ASSERT(result[1].Type == (TType{ETypeKind::String, true}));
+        }
+    }
+
+    // Borrow the pragma spellings and ordered overrides from PR 58587's
+    // KqpNewYqlOptimizerPragma. The syntax is decoded once by the parser.
+    Y_UNIT_TEST(PlannerPragmaFormsShareOneParsedRepresentation) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                    "PRAGMA ydb.CostBasedOptimizationLevel = '0'; SELECT 1",
+                    "PRAGMA KiKiMr.Cost_Based_Optimization_Level('0'); SELECT 1",
+                    "PRAGMA ydb.CostBasedOptimizationLevel(+0); SELECT 1",
+                    "--!ansi_lexer\nPRAGMA \"ydb\".\"CostBasedOptimizationLevel\" = '0'; SELECT 1"}) {
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& pragmas = compiled.Program->Get().PlannerSettings;
+                UNIT_ASSERT_VALUES_EQUAL(pragmas.size(), 1);
+                UNIT_ASSERT(pragmas[0].Kind == EPlannerSetting::CostBasedOptimizationLevel);
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint32_t>(pragmas[0].Value), 0);
+            }
+            for (const auto* value : {"'invalid'", "'-1'", "'4294967296'", "default", "''"}) {
+                const auto sql = std::string("PRAGMA ydb.CostBasedOptimizationLevel(") + value + "); SELECT 1";
+                UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TFrontendError);
+            }
+            const auto compiled = CompileNative(
+                "PRAGMA ydb.CostBasedOptimizationLevel('4'); PRAGMA ydb.CostBasedOptimizationLevel('0'); SELECT 1",
+                Catalog, settings);
+            const auto& pragmas = compiled.Program->Get().PlannerSettings;
+            UNIT_ASSERT_VALUES_EQUAL(pragmas.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint32_t>(pragmas[0].Value), 4);
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint32_t>(pragmas[1].Value), 0);
+        }
+    }
+
     Y_UNIT_TEST(ScalarListsBindWithoutRelationalizingMembership) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;
