@@ -1480,7 +1480,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 "COUNT(DISTINCT v), SOME(CAST(NULL AS Int32)), SOME(7)",
                 "COUNT(DISTINCT v), AVG(v), AVG(DISTINCT v), AVG(k)",
                 "COUNT(DISTINCT v), AVG(d), AVG(DISTINCT d)",
-                "AVG(DISTINCT v), AVG(DISTINCT d), AVG(DISTINCT k)"}) {
+                "AVG(DISTINCT v), AVG(DISTINCT d), AVG(DISTINCT k)",
+                "COUNT(DISTINCT v), SUM(Interval('PT1S')), SUM(CAST(NULL AS Interval))"}) {
             for (const bool grouped : {false, true}) {
                 NTests::TIdTestContext f;
                 const TString sql = TStringBuilder() << "SELECT " << projection
@@ -1495,11 +1496,25 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
                 TGlobalPruningStage("native distinct pruning").RunStage(root, context);
                 UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+                TUnorderedIUs originalResults;
+                for (const auto& item : root) if (item.Current->Kind == EOperator::Aggregate)
+                    originalResults.UnionWith(CastOperator<TOpAggregate>(*item.Current).GetAggregationTraits().Keys());
                 const auto* expected = ExportOperatorType(*root.GetInput(), f.ExprCtx)->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
                 TVector<std::unique_ptr<IRule>> rules;
                 rules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
                 TRuleBasedStage("native distinct expansion", std::move(rules)).RunStage(root, context);
                 UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+                bool finalFound = false;
+                for (const auto& item : root) if (item.Current->Kind == EOperator::Aggregate) {
+                    const auto& aggregate = CastOperator<TOpAggregate>(*item.Current);
+                    if (aggregate.GetInput()->Kind != EOperator::UnionAll) continue;
+                    // Match the original rule boundary: the final aggregate
+                    // defines the public result IDs without an extra map.
+                    UNIT_ASSERT(aggregate.GetAggregationPhase() == EOpPhase::Final);
+                    UNIT_ASSERT(aggregate.GetAggregationTraits().Keys() == originalResults);
+                    finalFound = true;
+                }
+                UNIT_ASSERT(finalFound);
                 TGlobalPruningStage("native distinct padding pruning").RunStage(root, context);
                 TVector<std::unique_ptr<IRule>> copies;
                 copies.emplace_back(std::make_unique<TExpandReplicateRule>());

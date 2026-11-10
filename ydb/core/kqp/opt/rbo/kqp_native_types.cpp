@@ -190,6 +190,9 @@ void ComputeNativeTypes(IOperator& op, TPlanProps& props) {
                 }
                 if (phase != EOpPhase::Intermediate && aggregate.GetKeyColumns().Items().empty() &&
                     OptionalOnEmpty(traits.AggFunction) && !countState) type = type.Optional();
+                // DISTINCT expansion uses the existing aggregate flag to
+                // remove nullable union padding at the aggregate boundary.
+                if (traits.Unwrap) type = type.Unwrapped();
                 row.emplace(id, type);
             }
             break;

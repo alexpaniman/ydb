@@ -4336,7 +4336,8 @@ $round = ($x,$y) -> {return $x;};
                     "COUNT(DISTINCT v) AS n, AVG(d) AS a, AVG(DISTINCT d) AS da, COUNT(d) AS rows",
                     "COUNT(DISTINCT w) AS n, AVG(w) AS a, AVG(DISTINCT w) AS da, SUM(w) AS s",
                     "AVG(DISTINCT v) AS av, AVG(DISTINCT d) AS ad, AVG(DISTINCT w) AS aw",
-                    "COUNT(DISTINCT w) AS n, AVG(CAST(w AS Decimal(9,3))) AS a"}) {
+                    "COUNT(DISTINCT w) AS n, AVG(CAST(w AS Decimal(9,3))) AS a",
+                    "COUNT(DISTINCT v) AS n, SUM(Interval('PT1S')) AS duration, SUM(CAST(NULL AS Interval)) AS missing_duration"}) {
                 for (const auto* filter : {"", " WHERE k = 1", " WHERE k = 2", " WHERE id < 0"}) {
                     for (const bool grouped : {false, true}) {
                         const TString sql = TStringBuilder() << "SELECT " << (grouped ? "k, " : "") << projection

@@ -1310,7 +1310,11 @@ TVector<TString> TPhysicalAggregationBuilder::GetKeyFields() const {
 TExprNode::TPtr TPhysicalAggregationBuilder::CreateNothingForEmptyInput(const TVector<TPhysicalAggregationTraits>& phyTraitsList) {
     TVector<const TItemExprType*> outputItems;
     for (const auto& traits : phyTraitsList) {
-        outputItems.push_back(Ctx.MakeType<TItemExprType>(traits.ResultColName, traits.OutputItemType));
+        const auto* type = traits.OutputItemType;
+        // Scalar DISTINCT results remove union padding in MapCondenseOutput.
+        // The condense state still carries that optional layer until then.
+        if (traits.Unwrap) type = Ctx.MakeType<TOptionalExprType>(type);
+        outputItems.push_back(Ctx.MakeType<TItemExprType>(traits.ResultColName, type));
     }
     const auto* aggStructType = Ctx.MakeType<TStructExprType>(outputItems);
     // The native aggregate schema already distinguishes final results from
