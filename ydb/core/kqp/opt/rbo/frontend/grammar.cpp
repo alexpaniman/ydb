@@ -447,13 +447,15 @@ private:
                 Unsupported(node, EFeature::Expression, "chained ordering comparison");
             TSyntaxId value = NoSyntax;
             std::string op;
+            TTree* operation = nullptr;
             for (auto* child : node->children) {
                 const auto rule = Name(child);
                 if (rule.empty() || rule == "double_question" || rule == "shift_right" || rule == "rot_right") {
+                    if (op.empty()) operation = child;
                     op += Upper(child->getText()); continue;
                 }
                 auto arg = Expr(child);
-                value = value == NoSyntax ? arg : Add(ESyntaxKind::Binary, node, std::move(op), {value, arg});
+                value = value == NoSyntax ? arg : Add(ESyntaxKind::Binary, operation, std::move(op), {value, arg});
                 op.clear();
             }
             if (!op.empty()) Unsupported(node, EFeature::Type, "optional type expression");

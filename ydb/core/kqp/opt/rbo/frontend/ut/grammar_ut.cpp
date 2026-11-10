@@ -7,6 +7,21 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(BinaryOperatorPositionsAgreeWithHandwrittenParser) {
+        const auto sql = "SELECT\n a + b * c - d / e % f, a || b, a < b, a = b, a != b, a ?? b,\n"
+            " a AND b OR c XOR d, a & b | c ^ d, a << b, a >> b;";
+        const auto fast = Parse(sql), grammar = ParseGrammar(sql);
+        UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(fast), SyntaxFingerprint(grammar));
+        const auto positions = [](const TParsedQuery& parsed) {
+            std::vector<std::tuple<std::string, std::size_t, std::uint32_t, std::uint32_t>> result;
+            for (const auto& expression : parsed.Expressions) if (expression.Kind == ESyntaxKind::Binary)
+                result.emplace_back(expression.Text, expression.Position.Offset, expression.Position.Line, expression.Position.Column);
+            std::sort(result.begin(), result.end());
+            return result;
+        };
+        UNIT_ASSERT(positions(fast) == positions(grammar));
+    }
+
     Y_UNIT_TEST(IndexViewsHaveOneParsedSourceIdentity) {
         for (const auto* sql : {"SELECT id FROM t VIEW ByValue",
                 "SELECT a.id FROM `/Root/t` VIEW `By Value` AS a",

@@ -61,6 +61,58 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
+    // Scalar-boundary cases from kqp_expr_lowering_ut.cpp. The native binder
+    // supplies checked types directly, without an annotator or rewrite pass.
+    Y_UNIT_TEST(NegativeIntegerBoundaries) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar})
+        for (const auto& [sql, type] : std::initializer_list<std::pair<std::string_view, std::string_view>>{
+                {"-2147483648", "Int32"}, {"-2147483649", "Int64"}, {"-9223372036854775808", "Int64"},
+                {"-9223372036854775808l", "Int64"}, {"-128t", "Int8"}, {"-32768s", "Int16"}}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT " + std::string(sql)); f.Types({type});
+            auto expected = std::string(sql);
+            if (expected.back() == 'l' || expected.back() == 't' || expected.back() == 's') expected.pop_back();
+            UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(f.Program.Expressions, f.Projection(0))), expected);
+        }
+    }
+
+    Y_UNIT_TEST(InvalidLiteralsAreRejected) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar})
+        for (const auto sql : {"18446744073709551616", "-9223372036854775809", "128t", "256ut", "-129t", "'\\xff'u"}) {
+            TFixture f; f.Settings.Parser = parser; f.Settings.Mode = ECompilerMode::Auto;
+            // Malformed supported literals must throw, even in auto mode.
+            UNIT_ASSERT_EXCEPTION_C(f.Ok("SELECT " + std::string(sql)), TFrontendError, sql);
+        }
+    }
+
+    Y_UNIT_TEST(DecimalConstructors) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("SELECT Decimal('0.06', 12, 2) - Decimal('0.01', 12, 2)");
+            f.Types({"Decimal(12,2)"});
+            const auto value = Evaluate(f.Program.Expressions, f.Projection(0));
+            UNIT_ASSERT(std::get<TDecimal>(value.Data).Coefficient == 5);
+            for (const auto sql : {"Decimal('bad', 12, 2)", "Decimal('1', 0, 0)", "Decimal('1', 12, 13)"})
+                UNIT_ASSERT_EXCEPTION_C(f.Ok("SELECT " + std::string(sql)), TFrontendError, sql);
+        }
+    }
+
+    Y_UNIT_TEST(ScalarTypeErrorsRetainSqlPositions) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            try {
+                f.Ok("SELECT\n  1 + 'bad';");
+                UNIT_FAIL("ill-typed scalar expression was accepted");
+            } catch (const TFrontendError& error) {
+                UNIT_ASSERT_VALUES_EQUAL(error.Position.Line, 2);
+                // Native scalar diagnostics point to the invalid operator,
+                // rather than the beginning of its left operand.
+                UNIT_ASSERT_VALUES_EQUAL(error.Position.Column, 5);
+                UNIT_ASSERT_STRING_CONTAINS(error.what(), "No common type");
+            }
+        }
+    }
+
     Y_UNIT_TEST(SetMatchingColumnsPreserveMixedCoercionPositions) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar})
         for (const std::string op : {"UNION ALL", "UNION", "INTERSECT", "EXCEPT"}) {
