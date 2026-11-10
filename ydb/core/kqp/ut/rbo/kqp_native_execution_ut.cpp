@@ -39,6 +39,35 @@ void CreateTables(TKikimrRunner& kikimr, TSession& session) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExecutionRuntime) {
+    // Exact shared-binding cases from the newer reference frontend. Native
+    // execution must preserve sharing without its legacy fallback.
+    Y_UNIT_TEST_TWIN(SharedVolatileAliasesPreserveOneEvaluation, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        CreateTables(kikimr, session);
+        const auto queries = session.ExecuteDataQuery(R"(
+            $q = SELECT id, CAST(RandomUuid(id) AS Utf8) AS value FROM t;
+            $alias = $q;
+            SELECT * FROM $q ORDER BY id;
+            SELECT * FROM $alias ORDER BY id;
+        )", TTxControl::BeginTx().CommitTx()).GetValueSync();
+        Success(queries);
+        UNIT_ASSERT_VALUES_EQUAL(queries.GetResultSets().size(), 2);
+        UNIT_ASSERT_VALUES_EQUAL(queries.GetResultSet(0).RowsCount(), 3);
+        UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(queries.GetResultSet(0)), FormatResultSetYson(queries.GetResultSet(1)));
+
+        const auto scalar = session.ExecuteDataQuery(R"(
+            $x = RandomUuid(1);
+            SELECT CAST($x AS Utf8) AS a, CAST($x AS Utf8) AS b;
+        )", TTxControl::BeginTx().CommitTx()).GetValueSync();
+        Success(scalar);
+        UNIT_ASSERT_VALUES_EQUAL(scalar.GetResultSets().size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(scalar.GetResultSet(0).RowsCount(), 1);
+        TResultSetParser row(scalar.GetResultSet(0));
+        UNIT_ASSERT(row.TryNextRow());
+        UNIT_ASSERT_VALUES_EQUAL(row.ColumnParser(0).GetUtf8(), row.ColumnParser(1).GetUtf8());
+    }
+
     Y_UNIT_TEST_TWIN(NamedVolatileRowsAreSharedAcrossResultsAndWrites, Native) {
         TKikimrRunner kikimr(Settings(Native));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
