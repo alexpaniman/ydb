@@ -176,9 +176,11 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         tables.emplace(relation.Table, std::move(table));
     }
     auto arena = std::make_shared<NFrontend::TExpressionArena>(std::move(program.Expressions));
-    std::unordered_map<NFrontend::TColumnId, std::string_view> sourceAliases;
+    // Checked frontend IDs are dense indexes into Columns and Relations.
+    // Keep their translation bindings in vectors instead of allocating hash nodes.
+    std::vector<std::optional<std::string_view>> sourceAliases(program.Columns.size());
     for (const auto& relation : program.Relations) if (relation.Kind == NFrontend::ERelation::Read)
-        for (const auto column : relation.Columns) sourceAliases.emplace(column, relation.Alias);
+        for (const auto column : relation.Columns) if (!sourceAliases.at(column)) sourceAliases[column] = relation.Alias;
     std::unordered_map<NFrontend::TRelId, NFrontend::TColumnId> subplanBindings;
     for (const auto& [binding, subplan] : program.Subplans) subplanBindings.emplace(subplan.Root, binding);
     auto& roots = query.Roots;
@@ -191,13 +193,12 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         props.NativeExpressions = arena;
         for (NFrontend::TColumnId id = 0; id < program.Columns.size(); ++id) {
             const auto& column = program.Columns[id];
-            const auto alias = sourceAliases.find(id);
-            props.InfoUnitRegistry.Add(TInfoUnit(String(alias == sourceAliases.end() ? column.Qualifier : alias->second), String(column.Name)));
+            props.InfoUnitRegistry.Add(TInfoUnit(String(sourceAliases[id].value_or(column.Qualifier)), String(column.Name)));
         }
         auto expression = [&](NFrontend::TExprId id) {
             return TExpression::FromNative(arena, id, &props, Position((*arena)[id].Position, ctx));
         };
-        std::unordered_map<NFrontend::TRelId, TIntrusivePtr<IOperator>> converted;
+        std::vector<TIntrusivePtr<IOperator>> converted(program.Relations.size());
         std::unordered_map<NFrontend::TRelId, TIntrusivePtr<TReplicate>> shared;
         std::vector<std::pair<NFrontend::TRelId, bool>> pending{{result.Root, false}};
         std::unordered_set<NFrontend::TExprId> visitedExpressions;
@@ -217,7 +218,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         };
         while (!pending.empty()) {
             const auto [id, ready] = pending.back(); pending.pop_back();
-            if (converted.contains(id)) continue;
+            if (converted.at(id)) continue;
             const auto& relation = program.Relations.at(id);
             if (!ready) {
                 pending.emplace_back(id, true);
@@ -500,7 +501,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                 }
             }
             op->GetOutputIUs();
-            converted.emplace(id, op);
+            converted[id] = op;
             if (const auto call = subplanBindings.find(id); call != subplanBindings.end()) {
                 const auto& subplan = program.Subplans.at(call->second);
                 const auto kind = subplan.Kind == NFrontend::ESubquery::Exists ? ESubplanType::EXISTS :
