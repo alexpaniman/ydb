@@ -297,18 +297,23 @@ class TScope {
 public:
     void Reserve(std::size_t columns) {
         Columns.reserve(columns);
-        Names.reserve(columns * 2);
+        Names.reserve(columns * (MixedQualifiers ? 2 : 1));
     }
 
     void Add(TScopeColumn column) {
         const auto index = Columns.size();
-        auto addName = [&](auto&& name) {
-            auto [it, inserted] = Names.try_emplace(std::forward<decltype(name)>(name), index);
-            if (!inserted) it->second = Ambiguous;
-        };
-        if (!column.QualifiedOnly) addName(column.Name);
-        if (!column.Qualifier.empty()) {
-            addName(column.Qualifier + "." + column.Name);
+        // A single-source scope resolves its qualifier by prefix. Build the
+        // qualified index only when independently qualified sources meet.
+        if (!MixedQualifiers && !Columns.empty() && column.Qualifier != Columns.front().Qualifier) {
+            MixedQualifiers = true;
+            Names.reserve(Columns.capacity() * 2);
+            for (std::size_t i = 0; i < Columns.size(); ++i) if (!Columns[i].Qualifier.empty())
+                AddName(Columns[i].Qualifier + "." + Columns[i].Name, i);
+            if (!Columns.front().Qualifier.empty()) Qualifiers.insert(Columns.front().Qualifier);
+        }
+        if (!column.QualifiedOnly) AddName(column.Name, index);
+        if (MixedQualifiers && !column.Qualifier.empty()) {
+            AddName(column.Qualifier + "." + column.Name, index);
             Qualifiers.insert(column.Qualifier);
         }
         Columns.push_back(std::move(column));
@@ -323,20 +328,21 @@ public:
     }
 
     const TScopeColumn* Find(std::string_view name, TSourcePosition pos) const {
-        auto it = Names.find(name);
-        if (it == Names.end()) return nullptr;
-        if (it->second == Ambiguous) throw TFrontendError(pos, "ambiguous column: " + std::string(name));
-        return &Columns[it->second];
+        const auto index = FindIndex(name);
+        if (index == Ambiguous) throw TFrontendError(pos, "ambiguous column: " + std::string(name));
+        return index == Missing ? nullptr : &Columns[index];
     }
     // Identity comparison only merges names whose local binding is known.
     // Ordinary expression binding still diagnoses absent or ambiguous names.
     const TScopeColumn* FindUnambiguous(std::string_view name) const {
-        const auto it = Names.find(name);
-        return it == Names.end() || it->second == Ambiguous ? nullptr : &Columns[it->second];
+        const auto index = FindIndex(name);
+        return index == Missing || index == Ambiguous ? nullptr : &Columns[index];
     }
     bool ShadowsQualifier(std::string_view name) const {
         const auto dot = name.rfind('.');
-        return dot != name.npos && Qualifiers.contains(name.substr(0, dot));
+        if (dot == name.npos) return false;
+        const auto qualifier = name.substr(0, dot);
+        return MixedQualifiers ? Qualifiers.contains(qualifier) : !Columns.empty() && qualifier == Columns.front().Qualifier;
     }
 
     std::vector<TColumnId> Ids() const {
@@ -349,6 +355,30 @@ public:
     std::vector<TScopeColumn> Columns;
 private:
     static constexpr std::size_t Ambiguous = std::numeric_limits<std::size_t>::max();
+    static constexpr std::size_t Missing = Ambiguous - 1;
+
+    template<class T>
+    void AddName(T&& name, std::size_t index) {
+        auto [it, inserted] = Names.try_emplace(std::forward<T>(name), index);
+        if (!inserted) it->second = Ambiguous;
+    }
+
+    std::size_t FindIndex(std::string_view name) const {
+        const auto found = Names.find(name);
+        auto index = found == Names.end() ? Missing : found->second;
+        if (!MixedQualifiers && !Columns.empty()) {
+            const auto& qualifier = Columns.front().Qualifier;
+            if (!qualifier.empty() && name.size() > qualifier.size() && name.starts_with(qualifier) && name[qualifier.size()] == '.') {
+                const auto qualified = Names.find(name.substr(qualifier.size() + 1));
+                // A literal dotted column name may collide with a qualified
+                // reference. Keep the same ambiguity as the general index.
+                if (qualified != Names.end()) index = index == Missing ? qualified->second : Ambiguous;
+            }
+        }
+        return index;
+    }
+
+    bool MixedQualifiers = false;
     std::unordered_map<std::string, std::size_t, TStringHash, std::equal_to<>> Names;
     std::unordered_set<std::string, TStringHash, std::equal_to<>> Qualifiers;
 };

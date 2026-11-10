@@ -21,6 +21,26 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(QualifiedAndDottedNamesRetainIdentityAndAmbiguity) {
+        const auto catalog = [](std::string_view name, TSourcePosition) {
+            return TCatalogTable{std::string(name), {{"k", {ETypeKind::Uint64}}, {"x.k", {ETypeKind::Uint64}}}};
+        };
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        for (const auto* sql : {
+            "SELECT k AS plain, x.`x.k` AS dotted FROM t AS x",
+            "SELECT x.`x.k` AS a, y.k AS b FROM t AS x JOIN t AS y ON x.`x.k` = y.`x.k`",
+        }) {
+            const auto compiled = CompileNative(sql, catalog, settings);
+            const auto& columns = compiled.Program->Get().Results[0].Columns;
+            UNIT_ASSERT_VALUES_EQUAL(columns.size(), 2);
+            UNIT_ASSERT(columns[0].Column != columns[1].Column);
+        }
+        for (const auto* sql : {
+            "SELECT x.k FROM t AS x",
+            "SELECT x.k FROM t AS x JOIN t AS y ON x.`x.k` = y.`x.k`",
+        }) UNIT_ASSERT_EXCEPTION_CONTAINS(CompileNative(sql, catalog, settings), TFrontendError, "ambiguous column: x.k");
+    }
+
     Y_UNIT_TEST(CatalogColumnUniquenessIsCheckedForReadsAndWrites) {
         const auto invalid = [](std::string_view name, TSourcePosition) {
             TCatalogTable table{std::string(name), {{"id", {ETypeKind::Uint64}}, {"id", {ETypeKind::String}}}};
