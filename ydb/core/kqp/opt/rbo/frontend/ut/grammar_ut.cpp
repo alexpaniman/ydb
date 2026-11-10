@@ -7,6 +7,32 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(IndexViewsHaveOneParsedSourceIdentity) {
+        for (const auto* sql : {"SELECT id FROM t VIEW ByValue",
+                "SELECT a.id FROM `/Root/t` VIEW `By Value` AS a",
+                "SELECT a.id FROM t VIEW `By\\x56alue` a JOIN t VIEW ById b ON a.id = b.id",
+                "SELECT id FROM t VIEW ByValue UNION ALL SELECT id FROM t VIEW ById",
+                "$q = SELECT id FROM t VIEW ByValue; SELECT id FROM $q"}) {
+            UNIT_ASSERT_VALUES_EQUAL_C(SyntaxFingerprint(Parse(sql)), SyntaxFingerprint(ParseGrammar(sql)), sql);
+            TCompilerSettings settings; settings.Parser = EParser::Verify;
+            const auto compiled = CompileNative(sql, [](std::string_view name, TSourcePosition) {
+                return TCatalogTable{std::string(name), {{"id", {ETypeKind::Uint64}}}};
+            }, settings);
+            UNIT_ASSERT(compiled.Program);
+            bool found = false;
+            for (const auto& relation : compiled.Program->Get().Relations) if (relation.Kind == ERelation::Read) {
+                UNIT_ASSERT(relation.Index);
+                found = true;
+            }
+            UNIT_ASSERT(found);
+        }
+        UNIT_ASSERT_VALUES_EQUAL(*Parse(R"(SELECT * FROM t VIEW `By\x56alue`)").Statements[0].Query->Source->Index, "ByValue");
+        for (const auto* sql : {"$q = SELECT 1 AS id; SELECT id FROM $q VIEW ix",
+                "WITH q AS (SELECT 1 AS id) SELECT id FROM q VIEW ix"}) {
+            UNIT_ASSERT_EXCEPTION(CompileNative(sql, {}), TFrontendError);
+        }
+    }
+
     Y_UNIT_TEST(QuotedEscapesAgreeAcrossBothParsersAndPragmas) {
         const auto check = [](const std::string& text, const std::string& expected, bool ansi = false) {
             TParseSettings settings; settings.AnsiQuotes = ansi;

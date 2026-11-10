@@ -28,6 +28,7 @@ std::string Explain(const TBoundProgram& program) {
         AppendInteger(out, i);
         out += ": "; out += names[static_cast<unsigned>(relation.Kind)];
         if (!relation.Table.empty()) { out += ' '; out += relation.Table; }
+        if (relation.Index) { out += " view="; out += *relation.Index; }
         if (!relation.Alias.empty()) { out += " alias="; out += relation.Alias; }
         out += " inputs=["; AppendIds(out, relation.Inputs);
         out += "] columns=["; AppendIds(out, relation.Columns); out += ']';

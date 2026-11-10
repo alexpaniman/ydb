@@ -53,6 +53,7 @@ struct TSource {
     std::shared_ptr<TSelect> Query;
     bool ParameterTable = false;
     std::vector<std::string> ColumnAliases;
+    std::optional<std::string> Index;
 };
 
 enum class EJoinKind : std::uint8_t { Inner, Cross, Left, Right, Full, LeftSemi, RightSemi, LeftOnly, RightOnly, Exclusion };

@@ -13,11 +13,18 @@ struct TNativeUniqueConstraint {
     TVector<TString> Keys;
 };
 
+struct TNativeIndex {
+    TRboTable Table;
+    TVector<TString> MainKeys;
+};
+
 struct TNativeTable {
     NFrontend::TCatalogTable Schema;
     TRboTable Table;
     NYql::EStorageType Storage = NYql::EStorageType::RowStorage;
     TVector<TNativeUniqueConstraint> UniqueConstraints = {};
+    // Resolve only explicitly requested views from the loaded catalog snapshot.
+    std::function<TNativeIndex(std::string_view, NFrontend::TSourcePosition)> ResolveIndex = {};
 };
 
 using TNativeTableResolver = std::function<TNativeTable(std::string_view, NFrontend::TSourcePosition)>;

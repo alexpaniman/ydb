@@ -817,8 +817,7 @@ Y_UNIT_TEST_SUITE(KqpEffectsNewRbo) {
                 UNIT_ASSERT_VALUES_EQUAL(read["Table"].GetStringSafe(), "Tmp");
                 // Native DELETE passes only keys to the sink. The sink looks up
                 // old index values; legacy lowering also carries Value here.
-                UNIT_ASSERT_VALUES_EQUAL(read["ReadColumns"].GetArraySafe().size(),
-                    GetEnv("YDB_KQP_TEST_NEW_AST") == "1" ? 2 : 3);
+                UNIT_ASSERT_VALUES_EQUAL(read["ReadColumns"].GetArraySafe().size(), 2);
                 UNIT_ASSERT_VALUES_EQUAL(read["ReadRangesKeys"][0].GetStringSafe(), "Key1");
             }
             if (node.Has("Plans")) {

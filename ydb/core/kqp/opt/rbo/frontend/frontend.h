@@ -132,6 +132,7 @@ struct TRelation {
     std::vector<TColumnId> Columns;
     std::string Table;
     std::string Alias;
+    std::optional<std::string> Index;
     std::vector<TDefinition> Definitions;
     std::vector<TCapture> Captures;
     std::optional<TExprId> Predicate;

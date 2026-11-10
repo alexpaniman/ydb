@@ -531,13 +531,18 @@ private:
                 result.ParameterTable = true;
                 return result;
             }
-            if (Child(table, "cluster_expr") || Has(table, "@") || Has(table, "(") || Has(table, "VIEW"))
+            if (Child(table, "cluster_expr") || Has(table, "@") || Has(table, "("))
                 Unsupported(table, EFeature::Backend, "qualified, temporary, or callable source");
+            auto* view = Child(table, "view_name");
             if (auto* binding = Child(table, "bind_parameter")) result.Name = "$" + Variable(binding);
             else if (auto* key = Child(table, "table_key")) {
-                if (Has(key, "VIEW")) Unsupported(key, EFeature::Backend, "index view");
+                view = Child(key, "view_name");
                 result.Name = Id(Child(key, "id_table_or_type"));
             } else Unsupported(table, EFeature::Backend, "table source");
+            if (view) {
+                if (Has(view, "PRIMARY")) Unsupported(view, EFeature::Backend, "VIEW PRIMARY KEY");
+                result.Index = Id(Child(view, "an_id"));
+            }
         } else Unsupported(single, EFeature::Statement, "VALUES source");
         return result;
     }
@@ -947,6 +952,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
     };
     auto source = [&](const TSource& value) {
         text(value.Name); text(value.Alias); out << value.ParameterTable;
+        out << bool(value.Index); if (value.Index) text(*value.Index);
         out << "aliases["; for (const auto& name : value.ColumnAliases) text(name); out << "]";
         if (value.Query) select(*value.Query);
     };

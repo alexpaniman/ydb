@@ -1618,6 +1618,18 @@ private:
                                 const auto& meta = metadata.at(std::string(path));
                                 TNativeTable table{schema(path, pos), MakeRboTableIdentity(*meta),
                                     meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
+                                if (!meta->Indexes.empty()) table.ResolveIndex = [meta](std::string_view name, F::TSourcePosition pos) {
+                                    const auto [impl, index] = meta->GetIndex(name);
+                                    if (!index) throw F::TFrontendError(pos, "Index not found: " + std::string(name));
+                                    if (index->State != TIndexDescription::EIndexState::Ready)
+                                        throw F::TFrontendError(pos, "Index is not ready: " + std::string(name));
+                                    if (index->Type != TIndexDescription::EType::GlobalSync &&
+                                        index->Type != TIndexDescription::EType::GlobalSyncUnique)
+                                        throw F::TUnsupportedFeature(F::EFeature::Backend, pos,
+                                            "native index VIEW requires a synchronous row index: " + std::string(name));
+                                    if (!impl) throw F::TFrontendError(pos, "Index implementation is missing: " + std::string(name));
+                                    return TNativeIndex{MakeRboTable(*impl), meta->KeyColumnNames};
+                                };
                                 for (size_t i = 0; i < meta->Indexes.size(); ++i) {
                                     const auto& index = meta->Indexes[i];
                                     if (index.Type == TIndexDescription::EType::GlobalSyncUnique &&

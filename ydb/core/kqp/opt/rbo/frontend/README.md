@@ -46,6 +46,10 @@ range rules without a YQL scalar rewrite or a change to range-selection policy.
 result without named producers needs no scheduling graph. Other programs retain
 source-order read/write dependencies and materialize shared producers at first
 use; reads after writes cannot be moved ahead of those writes.
+Shared index-view producers also use an execution input: their storage expansion
+may contain a lookup that the existing RBO cannot duplicate, and data queries
+cannot assume channel spilling. This conservatively includes covering views;
+single-use views need no materialization.
 
 `ConvertNativeToRbo` constructs ordinary RBO operators directly. Its result,
 `TNativeQuery`, owns the roots, native parameter schemas, ordered output names,
@@ -55,6 +59,16 @@ from its own query blocks.
 Projected IN/EXISTS values are constructed at this handoff using the same mark-join
 builder as the existing filter rule. The rule retains its filter-only matching
 policy. Native OLAP capability checks live separately from physical emission.
+
+Explicit index views retain the main-table identity through binding and execution
+preparation. The catalog admits ready synchronous row indexes on demand.
+`PrepareNativeIndexReads` uses existing local column-demand analysis to construct
+an index read, plus a nullable-primary-key lookup only when columns are missing.
+A whole adjacent filter covered by the index is constructed before that lookup;
+range extraction remains the existing RBO rule. No predicates are split here.
+Authorization and write ordering refer to the main table. Ordinary queries do
+not run this preparation. Async/specialized indexes and `VIEW PRIMARY KEY` remain
+unsupported.
 
 `TExpression` holds an arena and a node ID. There is no YQL expression constructor,
 legacy lambda arm, implicit export, or mutable backend annotation. Rewrites append

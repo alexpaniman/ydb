@@ -11,6 +11,7 @@ namespace {
 struct TNode {
     std::vector<std::size_t> Inputs;
     bool Repeatable = true;
+    bool MaterializeWhenShared = false;
 };
 
 std::vector<TNode> Dependencies(const TBoundProgram& program) {
@@ -19,6 +20,11 @@ std::vector<TNode> Dependencies(const TBoundProgram& program) {
     for (std::size_t i = 0; i < offset; ++i) {
         const auto& relation = program.Relations[i];
         auto& inputs = nodes[i].Inputs;
+        // An index source may expand to a storage lookup. Such a producer has
+        // no duplicable logical form in RBO and cannot rely on channel spilling
+        // being enabled. Reuse it through the same explicit execution input as
+        // cross-statement producers. Ordinary reads keep their existing policy.
+        nodes[i].MaterializeWhenShared = relation.Kind == ERelation::Read && relation.Index.has_value();
         inputs.assign(relation.Inputs.begin(), relation.Inputs.end());
         for (const auto& definition : relation.Definitions) inputs.push_back(offset + definition.Expression);
         for (const auto expression : {relation.Predicate, relation.Count, relation.Offset})
@@ -83,8 +89,10 @@ TExecutionPlan PrepareExecution(TCompiledProgram compiled) {
     std::vector<unsigned> uses(relationCount);
     for (auto id : order) if (id < relationCount && program.Relations[id].Kind == ERelation::Reuse)
         ++uses[program.Relations[id].Inputs.at(0)];
-    for (auto id : order)
-        for (auto input : nodes[id].Inputs) nodes[id].Repeatable &= nodes[input].Repeatable;
+    for (auto id : order) for (auto input : nodes[id].Inputs) {
+        nodes[id].Repeatable &= nodes[input].Repeatable;
+        nodes[id].MaterializeWhenShared |= nodes[input].MaterializeWhenShared;
+    }
 
     constexpr auto unknown = std::numeric_limits<std::size_t>::max();
     constexpr auto shared = unknown - 1;
@@ -100,7 +108,7 @@ TExecutionPlan PrepareExecution(TCompiledProgram compiled) {
     for (auto it = order.rbegin(); it != order.rend(); ++it) {
         const auto id = *it;
         if (id < relationCount && uses[id] &&
-                (owners[id] == shared || (uses[id] > 1 && !nodes[id].Repeatable))) {
+                (owners[id] == shared || (uses[id] > 1 && (!nodes[id].Repeatable || nodes[id].MaterializeWhenShared)))) {
             auto name = "_native_query_" + std::to_string(id);
             while (!names.insert(name).second) name += '_';
             materialized.emplace(id, TMaterialization{std::move(name), {}});

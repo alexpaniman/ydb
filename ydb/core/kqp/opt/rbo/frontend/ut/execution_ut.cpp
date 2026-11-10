@@ -54,6 +54,21 @@ Y_UNIT_TEST_SUITE(KqpNativeExecution) {
         UNIT_ASSERT_VALUES_EQUAL(uses, 2);
     }
 
+    Y_UNIT_TEST(SharedIndexSourcesHaveAnExplicitExecutionInput) {
+        for (const auto* sql : {
+                "$q = SELECT id FROM t VIEW ById; SELECT a.id FROM $q a JOIN $q b ON a.id = b.id",
+                "$inner = SELECT id FROM t VIEW ById; $outer = SELECT id + 1ul AS id FROM $inner; "
+                "SELECT a.id FROM $outer a JOIN $outer b ON a.id = b.id"}) {
+            const auto plan = Prepare(sql);
+            UNIT_ASSERT_VALUES_EQUAL(Materializations(plan).size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(plan.Roots.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(plan.Roots[0].Phase, 0);
+            UNIT_ASSERT_VALUES_EQUAL(plan.Roots[1].Phase, 1);
+        }
+        const auto once = Prepare("$q = SELECT id FROM t VIEW ById; SELECT id FROM $q");
+        UNIT_ASSERT(Materializations(once).empty());
+    }
+
     Y_UNIT_TEST(SharedProducerBecomesOneInternalInputAcrossRoots) {
         const auto plan = Prepare("$q = SELECT id FROM t; SELECT id FROM $q; INSERT INTO u SELECT id FROM $q");
         const auto materialized = Materializations(plan);

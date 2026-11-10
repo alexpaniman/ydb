@@ -464,6 +464,11 @@ private:
                 result.Name = Identifier(TableIdentifier);
                 if (Is(".")) Fail("cluster-qualified source requires grammar parser");
             }
+            if (Take("VIEW")) {
+                if (Is("PRIMARY") && Is("KEY", 1))
+                    throw TUnsupportedFeature(EFeature::Backend, Token().Position, "VIEW PRIMARY KEY");
+                result.Index = Identifier();
+            }
         }
         if (Take("AS") || CanAlias()) {
             result.Alias = Identifier();

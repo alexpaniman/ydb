@@ -1,4 +1,5 @@
 #include "kqp_native_frontend.h"
+#include "kqp_native_read_preparation.h"
 #include "kqp_native_write_preparation.h"
 #include "kqp_subplan_value.h"
 #include "frontend/frontend.h"
@@ -141,9 +142,12 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     std::unordered_map<NFrontend::TRelId, NFrontend::TColumnId> subplanBindings;
     for (const auto& [binding, subplan] : program.Subplans) subplanBindings.emplace(subplan.Root, binding);
     auto& roots = query.Roots;
+    std::unordered_map<std::string, std::unordered_map<std::string, TNativeIndex>> indexes;
+    THashMap<TOpRoot*, TVector<TNativeIndexRead>> indexReads;
     for (const auto& executionRoot : execution.Roots) {
         const auto& result = executionRoot.Query;
         TPlanProps props;
+        TVector<TNativeIndexRead> requestedIndexes;
         props.NativeExpressions = arena;
         for (NFrontend::TColumnId id = 0; id < program.Columns.size(); ++id) {
             const auto& column = program.Columns[id];
@@ -220,6 +224,16 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                     const auto alias = String(relation.Alias);
                     op = MakeIntrusive<TOpRead>(alias, std::move(columns), table.Storage, table.Table, nullptr, std::nullopt,
                         std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, pos);
+                    if (relation.Index) {
+                        auto& byName = indexes[relation.Table];
+                        auto found = byName.find(*relation.Index);
+                        if (found == byName.end()) {
+                            if (!table.ResolveIndex) throw NFrontend::TFrontendError(relation.Position,
+                                "Index not found: " + *relation.Index);
+                            found = byName.emplace(*relation.Index, table.ResolveIndex(*relation.Index, relation.Position)).first;
+                        }
+                        requestedIndexes.push_back({CastOperator<TOpRead>(op), found->second});
+                    }
                     break;
                 }
                 case R::Effect: {
@@ -470,7 +484,9 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         }
         root->PlanProps = std::move(props);
         for (const auto& item : IterateSubtreeWithSubplans(root.Get(), root->PlanProps)) item.Current->BindExpressionPlanProps(&root->PlanProps);
-        root->RecomputeOutputIUsSubtree(); root->ComputeParents(); roots.push_back(std::move(root));
+        root->RecomputeOutputIUsSubtree(); root->ComputeParents();
+        if (!requestedIndexes.empty()) indexReads.emplace(root.Get(), std::move(requestedIndexes));
+        roots.push_back(std::move(root));
     }
     THashSet<TString> readTables;
     for (const auto& root : roots) for (const auto& item : IterateSubtreeWithSubplans(root.Get(), root->PlanProps)) {
@@ -485,6 +501,9 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
             operation.SetOperation(static_cast<ui32>(NYql::TYdbOperation::Select));
         }
     }
+    // Authorization refers to SQL tables, even when storage reads their private
+    // index implementation. Record operations before constructing those reads.
+    for (auto& [root, reads] : indexReads) PrepareNativeIndexReads(*root, reads);
     for (const auto& relation : program.Relations) if (relation.Effect) {
         const auto& effect = *relation.Effect;
         using W = NFrontend::EWriteKind;
