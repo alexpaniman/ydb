@@ -19,6 +19,7 @@ int main(int argc, char** argv) {
             if (arg == "--help") {
                 std::cout << "Read SQL from stdin. Options:\n"
                              "  --table NAME COLUMNS   comma-separated name:type schema (Decimal commas allowed)\n"
+                             "  --write NAME KEYS     enable writes with comma-separated primary-key names\n"
                              "  --bench N              parse+bind N times and report average time\n"
                              "  --ansi                 ANSI string escaping and nested comments\n"
                              "  --parser NAME          fast (default), grammar, handwritten, verify\n"
@@ -50,6 +51,24 @@ int main(int argc, char** argv) {
                 auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), iterations);
                 if (error != std::errc() || end != text.data() + text.size() || !iterations) throw std::runtime_error("invalid iteration count");
                 benchmark = true;
+                continue;
+            }
+            if (arg == "--write" && i + 2 < argc) {
+                const std::string name = argv[++i];
+                const auto found = tables.find(name);
+                if (found == tables.end()) throw std::runtime_error("--write requires a preceding --table: " + name);
+                auto& schema = found->second.WriteSchema.emplace();
+                std::string_view keys = argv[++i];
+                if (keys.empty()) throw std::runtime_error("--write requires primary-key columns");
+                while (!keys.empty()) {
+                    const auto comma = keys.find(',');
+                    const auto key = keys.substr(0, comma);
+                    if (key.empty()) throw std::runtime_error("empty primary-key column");
+                    schema.Keys.emplace_back(key);
+                    if (comma == keys.npos) break;
+                    keys.remove_prefix(comma + 1);
+                    if (keys.empty()) throw std::runtime_error("empty primary-key column");
+                }
                 continue;
             }
             if (arg == "--table" && i + 2 < argc) {

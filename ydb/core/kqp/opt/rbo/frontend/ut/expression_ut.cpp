@@ -21,6 +21,171 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(TupleElementPreservesPayloadAndStateNullability) {
+        TExpressionArena arena;
+        for (const TType payloadType : {TType{K::Int32}, TType{K::Int32, true}, TType{K::Null}}) {
+            for (const bool missing : {false, true}) {
+                const auto payload = arena.Literal(payloadType, payloadType.Kind == K::Null ? TScalar{} : TScalar{std::int64_t{7}});
+                const TExprId items[]{Integer(arena, 3), payload};
+                const auto tuple = arena.Collection(items, false);
+                for (const bool optional : {false, true}) {
+                    if (missing && !optional) continue;
+                    const auto state = missing ? arena.Literal(arena[tuple].Type.Optional(), {}) :
+                        optional ? arena.Convert(tuple, arena[tuple].Type.Optional()) : tuple;
+                    const auto root = arena.TupleElement(state, 1);
+                    const auto expected = payloadType.Kind == K::Null || missing;
+                    UNIT_ASSERT_VALUES_EQUAL(Evaluate(arena, root).IsNull(), expected);
+                    UNIT_ASSERT_VALUES_EQUAL(Evaluate(arena, arena.FoldConstants(std::span(&root, 1)).front()).IsNull(), expected);
+                    if (!expected) UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(arena, root).Data), 7);
+                    TExpressionArena copy;
+                    const auto imported = copy.Import(arena, root, [](auto, auto, auto) -> TExprId { UNIT_FAIL("unexpected column"); return 0; });
+                    UNIT_ASSERT_VALUES_EQUAL(Evaluate(copy, imported).IsNull(), expected);
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(DecimalDictionaryMembershipHandlesNullAndSpecialKeys) {
+        TExpressionArena arena;
+        const TType key{K::Decimal, true, 1, 0};
+        const auto listType = arena.ListType(key);
+        for (const bool empty : {false, true}) {
+            auto values = std::make_shared<TTupleValue>();
+            if (!empty) values->Items = {{key, {}}, {key, TDecimal{1}}, {key, TDecimal{TDecimal::NaN()}}};
+            const auto list = arena.Literal(listType, TTuple(values));
+            for (const bool ansi : {false, true}) for (const TScalar& value : {TScalar{}, TScalar{TDecimal{1}}, TScalar{TDecimal{2}}, TScalar{TDecimal{TDecimal::NaN()}}}) {
+                const auto root = arena.InCollection(arena.Literal(key, value), list, ansi);
+                const auto actual = Evaluate(arena, root);
+                const bool nullLookup = std::holds_alternative<std::monostate>(value);
+                const bool match = !nullLookup && std::get<TDecimal>(value).Coefficient != 2 && !empty;
+                const bool unknown = nullLookup ? (!ansi || !empty) : ansi && !empty && !match;
+                UNIT_ASSERT_VALUES_EQUAL(actual.IsNull(), unknown);
+                if (!unknown) UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(actual.Data), match);
+            }
+        }
+    }
+
+
+    Y_UNIT_TEST(DecimalComparisonsDoNotRequireAnOversizedCommonValue) {
+        TExpressionArena arena;
+        __int128 big = 1;
+        for (unsigned i = 0; i < 26; ++i) big *= 10;
+        const TType low{K::Decimal, false, 35, 2}, high{K::Decimal, false, 35, 9};
+        for (const __int128 whole : {__int128{-100}, __int128{-1}, __int128{0}, __int128{1}, __int128{100}, big - 1, 1 - big}) {
+            const auto coarse = arena.Literal(low, TDecimal{whole * 100});
+            for (const std::int64_t remainder : {-9999999, -5000000, -1, 0, 1, 5000000, 9999999}) {
+                const auto fine = arena.Literal(high, TDecimal{whole * 1000000000 + remainder});
+                for (const auto [op, expected] : {std::pair{O::Equal, remainder == 0}, {O::NotEqual, remainder != 0},
+                    {O::Less, remainder < 0}, {O::LessEqual, remainder <= 0}, {O::Greater, remainder > 0}, {O::GreaterEqual, remainder >= 0}}) {
+                    const auto result = arena.Binary(op, fine, coarse);
+                    UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, result).Data), expected);
+                    const auto folded = arena.FoldConstants(std::span(&result, 1)).front();
+                    UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(arena, folded).Data), expected);
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(EnsurePreservesNullablePredicateAndLazyValueEvaluation) {
+        TExpressionArena arena;
+        const auto value = arena.Parameter("value", {K::Int32});
+        const auto message = arena.Literal({K::String}, std::string("rejected"));
+        for (const TScalar& predicate : {TScalar{true}, TScalar{false}, TScalar{}}) {
+            const TExprId args[]{value, arena.Literal({K::Bool, true}, predicate), message};
+            const auto checked = arena.Call("Ensure", args);
+            unsigned calls = 0;
+            TEvaluationContext context;
+            context.Parameter = [&](std::string_view) { ++calls; return TValue{{K::Int32}, std::int64_t{42}}; };
+            if (std::holds_alternative<bool>(predicate) && std::get<bool>(predicate)) {
+                UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, checked, context)), "42");
+                UNIT_ASSERT_VALUES_EQUAL(calls, 1);
+            } else {
+                UNIT_ASSERT_EXCEPTION(Evaluate(arena, checked, context), TFrontendError);
+                UNIT_ASSERT_VALUES_EQUAL(calls, 0);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(UuidValuesPreserveBytesAndCanonicalText) {
+        TExpressionArena arena;
+        const auto text = arena.Literal({ETypeKind::String}, std::string("01234567-89ab-CDEF-0123-456789abcdef"));
+        const auto uuid = arena.Cast(text, {ETypeKind::Uuid});
+        const auto value = Evaluate(arena, uuid);
+        UNIT_ASSERT(!value.IsNull());
+        UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(value.Data).size(), 16);
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(value), "01234567-89ab-cdef-0123-456789abcdef");
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(uuid, {ETypeKind::Utf8}))), FormatValue(value));
+        for (const auto* invalid : {"", "0123456789abcdef0123456789abcdef", "01234567889ab-cdef-0123-456789abcdef", "01234567-89ab-cdef-0123-456789abcdeg"}) {
+            UNIT_ASSERT(Evaluate(arena, arena.Cast(arena.Literal({ETypeKind::String}, std::string(invalid)), {ETypeKind::Uuid})).IsNull());
+        }
+        const auto dynamic = arena.Cast(arena.Parameter("text", {ETypeKind::String}), {ETypeKind::Uuid});
+        TEvaluationContext context;
+        context.Parameter = [](std::string_view) { return TValue{{ETypeKind::String}, std::string("01234567-89ab-cdef-0123-456789abcdef")}; };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, dynamic, context)), FormatValue(value));
+    }
+
+    Y_UNIT_TEST(VolatileUuidIsNeverFoldedFactoredOrEvaluatedTwice) {
+        TExpressionArena arena;
+        const auto random = arena.Call("RandomUuid", {});
+        UNIT_ASSERT(!arena[random].Repeatable);
+        const auto asText = arena.Cast(random, {ETypeKind::Utf8});
+        UNIT_ASSERT(!arena[asText].Repeatable);
+        const TExprId roots[]{asText};
+        UNIT_ASSERT_VALUES_EQUAL(arena.FoldConstants(roots).front(), asText);
+        unsigned calls = 0;
+        TEvaluationContext context;
+        context.RandomUuid = [&] { ++calls; return std::string(16, '\0'); };
+        const auto same = arena.Binary(EOpcode::Equal, random, random);
+        UNIT_ASSERT(std::get<bool>(Evaluate(arena, same, context).Data));
+        UNIT_ASSERT_VALUES_EQUAL(calls, 1);
+        const auto another = arena.Call("RandomUuid", {});
+        const auto other = arena.Binary(EOpcode::Equal, random, another);
+        (void)Evaluate(arena, other, context);
+        UNIT_ASSERT_VALUES_EQUAL(calls, 3);
+        const auto disjunction = arena.Binary(EOpcode::Or, same, other);
+        UNIT_ASSERT_VALUES_EQUAL(arena.FactorCommonConjuncts(disjunction), disjunction);
+        TExpressionArena imported;
+        const auto copied = imported.Import(arena, asText, [](TColumnId, TType, TSourcePosition) -> TExprId { throw std::logic_error("unexpected column"); });
+        UNIT_ASSERT(!imported[copied].Repeatable);
+        const auto skip = arena.If(arena.Literal({ETypeKind::Bool}, false), random, arena.Literal({ETypeKind::Uuid}, std::string(16, '\0')));
+        (void)Evaluate(arena, skip, context);
+        UNIT_ASSERT_VALUES_EQUAL(calls, 3);
+        UNIT_ASSERT_EXCEPTION(Evaluate(arena, random), TFrontendError);
+    }
+
+    Y_UNIT_TEST(ExtendedTemporalValuesKeepSignedRanges) {
+        for (const auto [kind, minimum, maximum] : {
+                std::tuple{K::Date32, -53375809LL, 53375807LL},
+                std::tuple{K::Datetime64, -4611669897600LL, 4611669811199LL},
+                std::tuple{K::Timestamp64, -4611669897600000000LL, 4611669811199999999LL},
+                std::tuple{K::Interval64, -9223339708799999999LL, 9223339708799999999LL}}) {
+            TExpressionArena arena;
+            const TType type{kind};
+            UNIT_ASSERT(ParseType(type.ToString()) == type);
+            for (const std::int64_t value : {minimum, -1LL, 0LL, 1LL, maximum}) {
+                const auto literal = arena.Literal(type, value);
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(arena, literal).Data), value);
+                const auto cast = arena.Cast(Integer(arena, value), type);
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(arena, cast).Data), value);
+                const auto equal = arena.Binary(O::Equal, literal, cast);
+                UNIT_ASSERT(std::get<bool>(Evaluate(arena, equal).Data));
+                const auto folded = arena.FoldConstants(std::span(&equal, 1)).front();
+                UNIT_ASSERT(arena[folded].Op == O::Literal);
+            }
+            for (const std::int64_t value : {minimum - 1, maximum + 1}) {
+                UNIT_ASSERT_EXCEPTION(arena.Literal(type, value), TFrontendError);
+                UNIT_ASSERT(Evaluate(arena, arena.Cast(Integer(arena, value), type)).IsNull());
+            }
+        }
+        TExpressionArena arena;
+        const auto timestamp = arena.Literal({K::Timestamp64}, std::int64_t{-1000001});
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Cast(timestamp, {K::Datetime64}))), "-1");
+        UNIT_ASSERT(Evaluate(arena, arena.Cast(timestamp, {K::Date})).IsNull());
+        const auto interval = arena.Literal({K::Interval64}, std::int64_t{2000001});
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, arena.Binary(O::Add, timestamp, interval))), "1000000");
+        UNIT_ASSERT(CommonType({K::Date}, {K::Timestamp64}) == (TType{K::Timestamp64}));
+    }
+
     Y_UNIT_TEST(CollectionMembershipPreservesNullAndCheckedKeySemantics) {
         for (bool ansi : {false, true}) for (bool empty : {false, true}) {
             TExpressionArena arena;

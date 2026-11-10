@@ -268,7 +268,7 @@ private:
         // using one of them is handled by the generated parser.
         for (auto word : {"GROUP", "ORDER", "INNER", "LEFT", "RIGHT", "CROSS", "JOIN", "ON", "USING",
                           "NATURAL", "EXCLUSION", "OUTER", "ANY", "WINDOW", "WITH", "WITHOUT", "ASSUME",
-                          "INTO", "SAMPLE", "TABLESAMPLE", "FLATTEN"})
+                          "INTO", "SAMPLE", "TABLESAMPLE", "FLATTEN", "RETURNING"})
             if (Token().Word == word) return false;
         return Token().Identifiers & AliasIdentifier;
     }
@@ -353,8 +353,60 @@ private:
             } else result.Expression = Expression();
             return result;
         }
+        if (Is("INSERT") || Is("UPSERT") || Is("REPLACE") || Is("UPDATE") || Is("DELETE") || Is("BATCH")) {
+            TStatement result{EStatementKind::Write, pos};
+            result.Write = std::make_shared<TWriteStatement>(Write()); return result;
+        }
         TStatement result{EStatementKind::Query, pos};
         result.Query = Select(); return result;
+    }
+
+    TWriteStatement Write() {
+        TWriteStatement result{};
+        result.Batch = Take("BATCH");
+        const bool into = Is("INSERT") || Is("UPSERT") || Is("REPLACE");
+        if (Take("INSERT")) {
+            result.Kind = EWriteKind::Insert;
+            if (Take("OR")) {
+                if (Take("REVERT")) result.OnConflict = "revert";
+                else if (!Take("ABORT"))
+                    throw TUnsupportedFeature(EFeature::Statement, Token().Position, "INSERT OR IGNORE is not supported");
+            }
+        } else if (Take("UPSERT")) result.Kind = EWriteKind::Upsert;
+        else if (Take("REPLACE")) result.Kind = EWriteKind::Replace;
+        else if (Take("UPDATE")) result.Kind = EWriteKind::Update;
+        else { Expect("DELETE"); Expect("FROM"); result.Kind = EWriteKind::Delete; }
+        if (into) { if (result.Batch) Fail("BATCH requires UPDATE or DELETE"); Expect("INTO"); }
+        result.Target.Position = Token().Position;
+        result.Target.Name = Identifier();
+        if (into || Take("ON")) {
+            if (Take("(")) {
+                do { result.Columns.push_back(Identifier()); } while (Take(","));
+                Expect(")");
+            }
+            if (Take("VALUES")) {
+                do {
+                    Expect("(");
+                    auto& row = result.Rows.emplace_back();
+                    do { row.push_back(Expression()); } while (Take(","));
+                    Expect(")");
+                } while (Take(",") && Is("("));
+            } else result.Input = Select();
+        } else {
+            if (result.Kind == EWriteKind::Update) {
+                Expect("SET");
+                do {
+                    const auto name = Identifier(); Expect("=");
+                    result.Assignments.push_back({Expression(), name});
+                } while (Take(","));
+            }
+            if (Take("WHERE")) result.Where = Expression();
+        }
+        if (Take("RETURNING")) {
+            result.ReturningAll = Take("*");
+            if (!result.ReturningAll) do { result.Returning.push_back(Identifier()); } while (Take(","));
+        }
+        return result;
     }
 
     bool IsLambda() const {
@@ -612,7 +664,9 @@ private:
                 }
             } else {
                 auto right = Expression(op == "??" ? precedence : precedence + 1);
-                left = Add(ESyntaxKind::Binary, pos, std::move(op), {left, right});
+                std::vector<TSyntaxId> args{left, right};
+                if ((op == "LIKE" || op == "ILIKE") && Take("ESCAPE")) args.push_back(Expression(precedence + 1));
+                left = Add(ESyntaxKind::Binary, pos, std::move(op), std::move(args));
             }
             if (negate) left = Add(ESyntaxKind::Unary, pos, "NOT", {left});
         }

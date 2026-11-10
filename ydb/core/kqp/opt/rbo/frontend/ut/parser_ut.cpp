@@ -79,7 +79,7 @@ Y_UNIT_TEST_SUITE(KqpNativeParser) {
     }
 
     Y_UNIT_TEST(RejectsIncompleteAndUnsupportedStatements) {
-        for (auto text : {"SELECT", "SELECT 1 +", "SELECT 1 FROM", "SELECT 'unterminated", "SELECT 1 /*", "DELETE FROM a", "SELECT 1 UNION"}) {
+        for (auto text : {"SELECT", "SELECT 1 +", "SELECT 1 FROM", "SELECT 'unterminated", "SELECT 1 /*", "SELECT 1 UNION"}) {
             UNIT_ASSERT_EXCEPTION(Parse(text), TFrontendError);
         }
         try {

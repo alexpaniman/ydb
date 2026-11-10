@@ -1,3 +1,4 @@
+#include "like.h"
 #include "frontend.h"
 
 #include <algorithm>
@@ -113,6 +114,13 @@ public:
             }
             Expression(statement.Expression);
             if (statement.Query) Select(*statement.Query);
+            if (statement.Write) {
+                const auto& write = *statement.Write;
+                if (write.Input) Select(*write.Input);
+                for (const auto& row : write.Rows) for (auto value : row) Expression(value);
+                Expression(write.Where);
+                for (const auto& assignment : write.Assignments) Expression(assignment.Expression);
+            }
             if (statement.Kind == EStatementKind::Declaration) Names[statement.Name] = Parameter;
             if (statement.Kind == EStatementKind::Binding) Names[statement.Name] = i;
         }
@@ -195,8 +203,12 @@ bool IsSampleStddev(std::string_view name) {
         name == "stddevsample" || name == "stddevsamp" || name == "stddevs";
 }
 
+bool IsValueByAggregate(std::string_view name) {
+    return name == "min_by" || name == "max_by" || name == "minby" || name == "maxby";
+}
+
 bool IsAggregate(std::string_view name) {
-    return name == "count" || name == "sum" || name == "avg" || name == "min" || name == "max" || name == "some" || IsSampleStddev(name);
+    return name == "count" || name == "sum" || name == "avg" || name == "min" || name == "max" || name == "some" || IsSampleStddev(name) || IsValueByAggregate(name);
 }
 
 struct TScopeColumn {
@@ -376,6 +388,7 @@ public:
             const auto& statement = Syntax.Statements[index];
             switch (statement.Kind) {
                 case EStatementKind::Query: Program.Results.push_back(Select(*statement.Query)); break;
+                case EStatementKind::Write: Program.Results.push_back(Write(*statement.Write)); break;
                 case EStatementKind::Declaration: {
                     TParameterType type;
                     if (statement.RowFields) {
@@ -422,7 +435,7 @@ public:
             }
             CheckSize(statement.Position);
         }
-        if (Program.Results.empty()) throw TUnsupportedFeature(EFeature::Statement, {}, "native read queries require a result statement");
+        if (Program.Results.empty()) throw TUnsupportedFeature(EFeature::Statement, {}, "native queries require a result or effect statement");
         return std::move(Program);
     }
 
@@ -617,10 +630,18 @@ private:
             return {result.Root, std::move(scope)};
         }
         if (source.Name.starts_with('$')) throw TFrontendError(source.Position, "unknown query binding: " + source.Name);
-        std::string path = source.Name;
+        return ReadTable(source, ResolveTable(source));
+    }
+
+    TCatalogTable ResolveTable(const TSource& source) const {
+        auto path = source.Name;
         if (!Prefix.empty() && !path.starts_with('/')) path = Prefix + (Prefix.ends_with('/') ? "" : "/") + path;
         auto table = Catalog(path, source.Position);
         if (table.Name.empty()) throw TFrontendError(source.Position, "catalog returned an unnamed table");
+        return table;
+    }
+
+    TBoundSource ReadTable(const TSource& source, const TCatalogTable& table) {
         TRelation read{ERelation::Read, source.Position}; read.Table = table.Name;
         read.Alias = source.Alias.empty() ? source.Name : source.Alias;
         std::string alias = source.Alias;
@@ -632,6 +653,139 @@ private:
             auto id = Column(column.Name, alias, column.Type, source.Position); read.Columns.push_back(id); scope.Add(ScopeColumn(id));
         }
         return {Relation(std::move(read)), std::move(scope)};
+    }
+
+    TQueryResult Write(const TWriteStatement& write) {
+        const auto pos = write.Target.Position;
+        const auto table = ResolveTable(write.Target);
+        if (!table.WriteSchema)
+            throw TUnsupportedFeature(EFeature::Statement, pos, "table does not support native writes: " + table.Name);
+        if (write.OnConflict == "revert")
+            throw TUnsupportedFeature(EFeature::Statement, pos, "INSERT OR REVERT requires native conflict lowering");
+        if (write.Batch)
+            throw TUnsupportedFeature(EFeature::Statement, pos, "batch writes require a batch execution plan");
+        const auto& schema = *table.WriteSchema;
+        std::unordered_map<std::string, TType> types;
+        for (const auto& column : table.Columns) {
+            Program.Expressions.ValidateType(column.Type, pos);
+            if (!types.emplace(column.Name, column.Type).second)
+                throw TFrontendError(pos, "duplicate catalog column: " + column.Name);
+        }
+        auto columnType = [&](const std::string& name) {
+            const auto found = types.find(name);
+            if (found == types.end()) throw TFrontendError(pos, "unknown write column: " + name);
+            return found->second;
+        };
+        const std::unordered_set<std::string> keys(schema.Keys.begin(), schema.Keys.end());
+        const std::unordered_set<std::string> defaults(schema.DefaultColumns.begin(), schema.DefaultColumns.end());
+        if (keys.empty()) throw TFrontendError(pos, "write catalog has no primary key");
+        for (const auto& name : schema.Keys) columnType(name);
+        for (const auto& name : schema.DefaultColumns) columnType(name);
+
+        TBoundEffect effect{};
+        effect.Kind = write.Kind;
+        effect.HasIndexes = schema.HasIndexes;
+        effect.InputRows = write.Input || !write.Rows.empty();
+        effect.OnConflict = write.OnConflict;
+        std::unordered_set<std::string> written;
+        std::vector<TDefinition> definitions;
+        auto add = [&](const std::string& name, TExprId value) {
+            const auto type = columnType(name);
+            if (!written.insert(name).second) throw TFrontendError(pos, "duplicate write column: " + name);
+            value = Program.Expressions.Convert(value, type, pos);
+            const auto id = Column(name, {}, type, pos);
+            definitions.push_back({id, value});
+            effect.Columns.emplace_back(id, name);
+        };
+        TRelId input;
+        if (write.Input) {
+            auto query = Select(*write.Input);
+            if (!write.Columns.empty() && write.Columns.size() != query.Columns.size())
+                throw TFrontendError(pos, "write column count does not match SELECT output");
+            for (std::size_t i = 0; i < query.Columns.size(); ++i) {
+                const auto& column = query.Columns[i];
+                add(write.Columns.empty() ? column.Name : write.Columns[i],
+                    Program.Expressions.Column(column.Column, column.Type, pos));
+            }
+            input = query.Root;
+        } else if (!write.Rows.empty()) {
+            if (write.Columns.empty()) throw TFrontendError(pos, "VALUES requires an explicit write column list");
+            std::unordered_set<std::string> labels;
+            for (const auto& name : write.Columns) {
+                columnType(name);
+                if (!labels.insert(name).second) throw TFrontendError(pos, "duplicate write column: " + name);
+            }
+            TRelation values{ERelation::UnionAll, pos};
+            for (const auto& name : write.Columns) values.Columns.push_back(Column(name, {}, columnType(name), pos));
+            const TScope empty;
+            for (const auto& row : write.Rows) {
+                if (row.size() != write.Columns.size()) throw TFrontendError(pos, "write column count does not match VALUES row");
+                TExprContext context{empty};
+                context.AllowSubqueries = false;
+                std::vector<TDefinition> fields;
+                std::vector<TColumnId> columns;
+                for (std::size_t i = 0; i < row.size(); ++i) {
+                    const auto& name = write.Columns[i];
+                    const auto type = columnType(name);
+                    const auto value = Program.Expressions.Convert(Expr(row[i], context), type, Syntax.Expressions[row[i]].Position);
+                    const auto id = Column(name, {}, type, pos);
+                    fields.push_back({id, value}); columns.push_back(id);
+                }
+                values.Inputs.push_back(Map(Relation({ERelation::Unit, pos}), std::move(fields), pos));
+                values.UnionInputs.push_back(std::move(columns));
+            }
+            for (std::size_t i = 0; i < write.Columns.size(); ++i) {
+                written.insert(write.Columns[i]);
+                effect.Columns.emplace_back(values.Columns[i], write.Columns[i]);
+            }
+            input = Relation(std::move(values));
+        } else {
+            auto source = ReadTable(write.Target, table);
+            TExprContext context{source.Scope};
+            input = source.Relation;
+            if (write.Where != NoSyntax) {
+                const auto predicate = Expr(write.Where, context);
+                input = Filter(BindInput(input, context, pos), predicate, pos);
+            }
+            for (const auto& key : schema.Keys) add(key, Access(*source.Scope.Find(key, pos), pos));
+            for (const auto& assignment : write.Assignments) {
+                if (keys.contains(assignment.Alias)) throw TFrontendError(pos, "UPDATE cannot change a primary key: " + assignment.Alias);
+                add(assignment.Alias, Expr(assignment.Expression, context));
+            }
+            input = BindInput(input, context, pos);
+        }
+        for (const auto& key : schema.Keys) if (!written.contains(key)) {
+            if (defaults.contains(key)) throw TUnsupportedFeature(EFeature::Statement, pos, "omitted default key expression: " + key);
+            throw TFrontendError(pos, "missing key column in input: " + key);
+        }
+        if (write.Kind == EWriteKind::Insert || write.Kind == EWriteKind::Replace) {
+            for (const auto& column : table.Columns) if (!written.contains(column.Name)) {
+                if (defaults.contains(column.Name)) throw TUnsupportedFeature(EFeature::Statement, pos, "omitted default expression: " + column.Name);
+                if (!column.Type.OptionalDepth) throw TFrontendError(pos, "missing non-nullable write column: " + column.Name);
+                add(column.Name, Program.Expressions.Literal(column.Type, {}, pos));
+            }
+        } else if (write.Kind == EWriteKind::Upsert) {
+            for (const auto& name : schema.DefaultColumns) if (!written.contains(name))
+                throw TUnsupportedFeature(EFeature::Statement, pos, "omitted default expression in UPSERT: " + name);
+        }
+        TRelation relation{ERelation::Effect, pos};
+        relation.Table = table.Name;
+        relation.Inputs = {Map(input, std::move(definitions), pos)};
+        TQueryResult result{NoRelation, {}};
+        std::unordered_set<std::string> returned;
+        auto returning = [&](const std::string& name) {
+            const auto type = columnType(name);
+            if (!returned.insert(name).second) throw TFrontendError(pos, "duplicate RETURNING column: " + name);
+            const auto id = Column(name, {}, type, pos);
+            effect.Returning.emplace_back(id, name);
+            relation.Columns.push_back(id);
+            result.Columns.push_back({id, name, type});
+        };
+        if (write.ReturningAll) for (const auto& column : table.Columns) returning(column.Name);
+        else for (const auto& name : write.Returning) returning(name);
+        relation.Effect = std::make_shared<const TBoundEffect>(std::move(effect));
+        result.Root = Relation(std::move(relation));
+        return result;
     }
 
     TBoundSource From(const TSelect& query, TExprContext* outer) {
@@ -1123,8 +1277,10 @@ private:
 
     TExprId Aggregate(const TSyntaxExpr& syntax, std::uint32_t canonical, TAggregationContext& context) {
         if (auto it = context.Calls.find(canonical); it != context.Calls.end()) return it->second;
-        const auto name = Lower(syntax.Text);
-        if (syntax.Arguments.size() != 1) throw TFrontendError(syntax.Position, "aggregate requires one argument");
+        auto name = Lower(syntax.Text);
+        const bool valueBy = IsValueByAggregate(name);
+        if (syntax.Arguments.size() != (valueBy ? 2u : 1u))
+            throw TFrontendError(syntax.Position, valueBy ? "MIN_BY/MAX_BY requires value and key arguments" : "aggregate requires one argument");
         auto arg = syntax.Arguments[0];
         TExprId input;
         if (Syntax.Expressions[arg].Kind == ESyntaxKind::Star) {
@@ -1132,6 +1288,26 @@ private:
             input = Program.Expressions.Literal({ETypeKind::Uint64}, std::uint64_t{1}, syntax.Position);
         } else {
             input = Expr(arg, *context.Source);
+        }
+        if (valueBy) {
+            auto& arena = Program.Expressions;
+            auto key = Expr(syntax.Arguments[1], *context.Source);
+            const auto payloadType = arena[input].Type;
+            if (arena[key].Type.Kind == ETypeKind::Null) key = arena.Convert(key, {ETypeKind::Int8, true}, syntax.Position);
+            const auto keyType = arena[key].Type;
+            if (keyType.IsCollection() || keyType.IsJson() || keyType.Kind == ETypeKind::Calendar || keyType.OptionalDepth > 1 ||
+                payloadType.IsCollection() || payloadType.IsJson() || payloadType.Kind == ETypeKind::Calendar || payloadType.OptionalDepth > 1)
+                throw TUnsupportedFeature(EFeature::Type, syntax.Position, "MIN_BY/MAX_BY requires comparable scalar value and key types");
+            auto requiredKey = key;
+            if (keyType.OptionalDepth) requiredKey = arena.Call("Unwrap", std::span(&key, 1), syntax.Position);
+            const TExprId items[]{requiredKey, input};
+            input = arena.Collection(items, false, syntax.Position);
+            if (keyType.OptionalDepth) input = arena.If(arena.Unary(EOpcode::IsNotNull, key, syntax.Position), input,
+                arena.Literal(arena[input].Type.Optional(), std::monostate{}, syntax.Position), syntax.Position);
+            // The existing MIN/MAX aggregation machinery retains one tuple.
+            // SQL allows any payload for tied keys; lexicographic tie-breaking
+            // preserves that contract without introducing a new optimizer rule.
+            name = name.starts_with("min") ? "min" : "max";
         }
         const auto type = AggregateType(name, Program.Expressions[input].Type, context.MayBeEmpty, syntax.Position);
         auto inputColumn = Materialize(input, context.Definitions, syntax.Position);
@@ -1143,7 +1319,10 @@ private:
             output = Column(name + std::to_string(Program.Columns.size()), {}, type, syntax.Position);
             context.GroupingColumns.emplace_back(output, inner);
         }
-        auto result = Program.Expressions.Column(output, type, syntax.Position); context.Calls.emplace(canonical, result); return result;
+        auto result = Program.Expressions.Column(output, type, syntax.Position);
+        if (valueBy) result = Program.Expressions.TupleElement(result, 1, syntax.Position);
+        context.Calls.emplace(canonical, result);
+        return result;
     }
 
     TExprId Grouping(const TSyntaxExpr& syntax, TExprContext& context) {
@@ -1177,7 +1356,9 @@ private:
         if (const auto call = context.Calls.find(Canonical[id]); call != context.Calls.end()) return call->second;
         const auto& syntax = Syntax.Expressions[id];
         const auto& spec = *syntax.Window;
-        const auto name = Lower(syntax.Text);
+        auto name = Lower(syntax.Text);
+        if (name == "row_number") name = "rownumber";
+        if (name == "dense_rank") name = "denserank";
         const bool rank = name == "rank" || name == "denserank" || name == "rownumber";
         if (!rank && name != "count" && name != "sum" && name != "avg" && name != "min" && name != "max")
             throw TUnsupportedFeature(EFeature::Window, syntax.Position, "unsupported native window function: " + syntax.Text);
@@ -1319,74 +1500,6 @@ private:
         return negative ? Program.Expressions.Unary(EOpcode::Negate, literal, syntax.Position) : literal;
     }
 
-    TExprId Like(TExprId input, TExprId patternId, TSourcePosition pos) {
-        auto& arena = Program.Expressions;
-        const auto pattern = arena[patternId];
-        if (pattern.Op != EOpcode::Literal || !pattern.Type.IsString() || !std::holds_alternative<std::string>(pattern.Value))
-            throw TUnsupportedFeature(EFeature::Expression, pos, "native LIKE requires a constant string pattern");
-        const auto& text = std::get<std::string>(pattern.Value);
-        if (text.find_first_of("_\\") != std::string::npos)
-            throw TUnsupportedFeature(EFeature::Expression, pos, "native LIKE supports literal text and % wildcards; _ and escapes are outside the profile");
-        if (text.size() > std::numeric_limits<std::uint32_t>::max())
-            throw TResourceLimitError(pos, "LIKE pattern exceeds Uint32 string length");
-        const bool leading = text.starts_with('%'), trailing = text.ends_with('%');
-        std::vector<std::string> pieces;
-        for (std::size_t start = 0; start < text.size();) {
-            const auto end = text.find('%', start);
-            if (end != start) pieces.push_back(text.substr(start, end == std::string::npos ? end : end - start));
-            if (end == std::string::npos) break;
-            start = end + 1;
-        }
-        if (pieces.size() <= 1) {
-            const auto literal = arena.Literal(pattern.Type.Required(), pieces.empty() ? std::string{} : pieces.front(), pos);
-            const auto op = leading && trailing ? EOpcode::Contains : leading ? EOpcode::EndsWith : trailing ? EOpcode::StartsWith : EOpcode::Equal;
-            return arena.Binary(op, input, literal, pos);
-        }
-        // YQL uses regex matching for these forms: NULL/invalid UTF-8 returns
-        // false. A leading literal also adds a nullable prefix predicate.
-        // Preserve both its values and its metadata without retaining regexes.
-        const bool regexSemantics = pieces.size() > 2 || leading || trailing;
-        if (arena[input].Type.Kind == ETypeKind::Null)
-            return arena.Literal({ETypeKind::Bool, !regexSemantics || !leading}, regexSemantics ? TScalar{false} : TScalar{std::monostate{}}, pos);
-        if (!arena[input].Type.IsString()) throw TFrontendError(pos, "LIKE requires a string input");
-        const bool nullable = arena[input].Type.OptionalDepth;
-        auto result = regexSemantics ? arena.Unary(EOpcode::IsNotNull, arena.Cast(input, {ETypeKind::Utf8}, pos), pos) :
-            arena.Literal({ETypeKind::Bool}, true, pos);
-        // % consumes any byte sequence. Ordered searches need no regex object,
-        // substring copies or semantic lowering in the execution model.
-        input = arena.Cast(input, {ETypeKind::String}, pos);
-        const auto zero = arena.Literal({ETypeKind::Uint32}, std::uint64_t{0}, pos);
-        auto offset = zero;
-        for (std::size_t i = 0; i < pieces.size(); ++i) {
-            const auto literal = arena.Literal({ETypeKind::String}, pieces[i], pos);
-            const auto length = arena.Literal({ETypeKind::Uint32}, static_cast<std::uint64_t>(pieces[i].size()), pos);
-            TExprId matches;
-            if (i == 0 && !leading) {
-                matches = arena.Binary(EOpcode::StartsWith, input, literal, pos);
-                offset = length;
-            } else if (i + 1 == pieces.size() && !trailing) {
-                // A suffix may occur earlier too; require the final occurrence
-                // to start after the already consumed prefix (no overlap).
-                const auto end = arena.Binary(EOpcode::Add, arena.Convert(offset, {ETypeKind::Uint64}, pos), arena.Convert(length, {ETypeKind::Uint64}, pos), pos);
-                const auto fits = arena.Binary(EOpcode::GreaterEqual, arena.Unary(EOpcode::Length, input, pos), end, pos);
-                matches = arena.Binary(EOpcode::And, arena.Binary(EOpcode::EndsWith, input, literal, pos), fits, pos);
-            } else {
-                const auto found = arena.Find(input, literal, offset, pos);
-                matches = arena.Unary(EOpcode::IsNotNull, found, pos);
-                const TExprId alternatives[]{found, zero};
-                offset = arena.Binary(EOpcode::Add, arena.Coalesce(alternatives, pos), length, pos);
-            }
-            result = arena.Binary(EOpcode::And, result, matches, pos);
-        }
-        if (regexSemantics) {
-            const TExprId alternatives[]{result, arena.Literal({ETypeKind::Bool}, false, pos)};
-            result = arena.Coalesce(alternatives, pos);
-            if (!leading && nullable) result = arena.Convert(result, {ETypeKind::Bool, true}, pos);
-        } else if (nullable)
-            result = arena.If(arena.Unary(EOpcode::IsNull, input, pos), arena.Literal({ETypeKind::Bool, true}, std::monostate{}, pos), result, pos);
-        return result;
-    }
-
     TExprId InResult(TExprId lookup, TExprId result, TSourcePosition pos) {
         if (AnsiIn) return result;
         auto& arena = Program.Expressions;
@@ -1479,7 +1592,8 @@ private:
                     {"=", EOpcode::Equal}, {"==", EOpcode::Equal}, {"!=", EOpcode::NotEqual}, {"<>", EOpcode::NotEqual},
                     {"<", EOpcode::Less}, {"<=", EOpcode::LessEqual}, {">", EOpcode::Greater}, {">=", EOpcode::GreaterEqual},
                     {"AND", EOpcode::And}, {"OR", EOpcode::Or}, {"||", EOpcode::Concat}};
-                if (syntax.Text == "LIKE") result = Like(left, right, syntax.Position);
+                if (syntax.Text == "LIKE") result = NDetail::BuildLike(arena, left, right,
+                    syntax.Arguments.size() == 3 ? std::optional{Expr(syntax.Arguments[2], context)} : std::nullopt, syntax.Position);
                 else if (syntax.Text == "XOR") {
                     if (arena[left].Type.Kind != ETypeKind::Bool || arena[right].Type.Kind != ETypeKind::Bool) {
                         throw TFrontendError(syntax.Position, "XOR requires Boolean operands");
@@ -1671,7 +1785,7 @@ TBoundProgram NDetail::Compile(std::string_view sql, const TTableResolver& catal
 }
 
 std::string Explain(const TBoundProgram& program) {
-    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture", "Window", "Parameter", "Reuse"};
+    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture", "Window", "Parameter", "Reuse", "Effect"};
     std::ostringstream out;
     for (std::size_t i = 0; i < program.Relations.size(); ++i) {
         const auto& relation = program.Relations[i];
@@ -1743,15 +1857,19 @@ void CheckSyntax(const TParsedQuery& syntax) {
             const auto target = ParseType(node.Text, node.Position);
             if (!target.IsIntegral() && !target.IsString() && target.Kind != ETypeKind::Bool &&
                 target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double && target.Kind != ETypeKind::Decimal &&
-                target.Kind != ETypeKind::Date && target.Kind != ETypeKind::Datetime && target.Kind != ETypeKind::Timestamp)
+                !target.IsDate() && !target.IsInterval() && target.Kind != ETypeKind::Uuid)
                 throw TUnsupportedFeature(EFeature::Expression, node.Position, "explicit cast target is outside the native scalar profile");
         }
     }
 }
 
 void CheckProgram(const TBoundProgram& program) {
-    for (const auto& column : program.Columns) if (column.Type.IsCollection())
-        throw TUnsupportedFeature(EFeature::Type, {}, "native collections are currently scalar IN operands; collection-valued relational columns are outside the profile");
+    // Flat tuples are internal aggregate states. Lists remain scalar operands,
+    // and neither collection kind is a supported public result column yet.
+    for (const auto& column : program.Columns) if (column.Type.Kind == ETypeKind::List)
+        throw TUnsupportedFeature(EFeature::Type, {}, "list-valued relational columns are outside the native profile");
+    for (const auto& result : program.Results) for (const auto& column : result.Columns) if (column.Type.IsCollection())
+        throw TUnsupportedFeature(EFeature::Type, {}, "collection-valued result columns are outside the native profile");
     for (const auto& column : program.Columns) if (column.Type.Kind == ETypeKind::Calendar)
         throw TUnsupportedFeature(EFeature::Type, {}, "native calendar values must remain inside scalar expressions; use DateTime::MakeDate/MakeDatetime/MakeTimestamp before a relational boundary");
     for (const auto& node : program.Expressions.Nodes()) {
@@ -1773,17 +1891,17 @@ void CheckProgram(const TBoundProgram& program) {
         }
         if (node.Op == EOpcode::Cast) {
             const auto from = program.Expressions[node.Arguments[0]].Type;
-            const bool temporal = (from.Kind == ETypeKind::Date || from.Kind == ETypeKind::Datetime || from.Kind == ETypeKind::Timestamp) &&
-                (node.Type.Kind == ETypeKind::Date || node.Type.Kind == ETypeKind::Datetime || node.Type.Kind == ETypeKind::Timestamp);
+            const bool temporal = (from.IsDate() || from.IsInterval()) &&
+                (node.Type.IsDate() || node.Type.IsInterval() || node.Type.IsNumeric());
             if (!from.IsIntegral() && !from.IsString() && from.Kind != ETypeKind::Null &&
-                from.Kind != ETypeKind::Bool && from.Kind != ETypeKind::Float && from.Kind != ETypeKind::Double && from.Kind != ETypeKind::Decimal && !temporal)
+                from.Kind != ETypeKind::Bool && from.Kind != ETypeKind::Float && from.Kind != ETypeKind::Double && from.Kind != ETypeKind::Decimal && from.Kind != ETypeKind::Uuid && !temporal)
                 throw TUnsupportedFeature(EFeature::Expression, node.Position, "runtime cast input is outside the native scalar profile");
         }
         if ((node.Op == EOpcode::Lower || node.Op == EOpcode::Upper) && node.Type.Kind != ETypeKind::String)
             throw TUnsupportedFeature(EFeature::Function, node.Position, "native ASCII case functions require String input");
         if (node.Op == EOpcode::Cast && node.Type.IsString()) {
             const auto input = program.Expressions[node.Arguments[0]].Type;
-            if (!input.IsString() && !input.IsIntegral() && input.Kind != ETypeKind::Bool && input.Kind != ETypeKind::Decimal && input.Kind != ETypeKind::Null) {
+            if (!input.IsString() && !input.IsIntegral() && input.Kind != ETypeKind::Bool && input.Kind != ETypeKind::Decimal && input.Kind != ETypeKind::Uuid && input.Kind != ETypeKind::Null) {
                 throw TUnsupportedFeature(EFeature::Expression, node.Position,
                     "native-read-v1 does not implement this type's YQL text formatting");
             }
@@ -1856,6 +1974,14 @@ public:
         for (const auto& statement : Syntax.Statements) {
             if (statement.Kind == EStatementKind::Pragma && Lower(statement.Name) == "tablepathprefix") Prefix = statement.Value;
             if (statement.Kind == EStatementKind::Query) Select(*statement.Query);
+            if (statement.Write) {
+                const auto& write = *statement.Write;
+                Source(write.Target);
+                if (write.Input) Select(*write.Input);
+                for (const auto& row : write.Rows) for (auto value : row) Expression(value);
+                Expression(write.Where);
+                for (const auto& assignment : write.Assignments) Expression(assignment.Expression);
+            }
         }
         return std::move(Tables);
     }

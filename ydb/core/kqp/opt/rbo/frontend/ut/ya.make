@@ -2,6 +2,7 @@ UNITTEST()
 
 SRCS(
     binder_ut.cpp
+    writes_ut.cpp
     expression_ut.cpp
     parser_ut.cpp
     grammar_ut.cpp
