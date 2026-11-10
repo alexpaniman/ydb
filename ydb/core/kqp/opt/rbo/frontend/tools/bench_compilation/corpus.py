@@ -3,7 +3,8 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-NAMES = {'1c': '1C', 'tpch': 'TPC-H', 'tpcds': 'TPC-DS', 'medium': '1C medium', 'tiny': '1C tiny', 'clickbench': 'ClickBench'}
+NAMES = {'1c': '1C', 'tpch': 'TPC-H', 'tpch-perf': 'TPC-H performance fixture', 'tpcds': 'TPC-DS', 'medium': '1C medium', 'tiny': '1C tiny', 'clickbench': 'ClickBench'}
+TPCH_PERF_IDS = (1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19)
 PREFIX = '''$round = ($x,$y) -> {return $x;};
 $to_decimal = ($x) -> { return cast($x as Decimal(12, 2)); };
 $to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
@@ -28,6 +29,20 @@ def workload(name, root, framework):
         for old in ('/Root/pg-rbo/', '/Root/small-rbo/'):
             schema = schema.replace(old, '/Root/')
             queries = [(key, sql.replace(old, '/Root/')) for key, sql in queries]
+    elif name == 'tpch-perf':
+        # Preserve PrepareTpchPerfQuery and its distinct Double/String schema
+        # from Pavel's TPCH_YDB_PERF fixture, including the unused preamble.
+        data = root / 'ydb/library/benchmarks'
+        constants = (data / 'gen_queries/consts.yql').read_text()
+        queries = []
+        for query_id in TPCH_PERF_IDS:
+            sql = (data / 'queries/tpch/yql' / f'q{query_id}.sql').read_text()
+            sql = sql.replace('{path}', '/Root/').replace("{% include 'header.sql.jinja' %}", "PRAGMA YqlSelect = 'force';")
+            sql = re.sub(r'\{\{\s*([a-zA-Z0-9_]+)\s*\}\}', r'`/Root/\1`', sql)
+            queries.append((str(query_id), constants + '\n' + sql))
+        schema = (root / 'ydb/core/kqp/ut/join/data/schema/tpch.sql').read_text()
+        schema = re.sub(r'(CREATE TABLE [^(]+\([^;]*\))\s*;',
+                        r'\1 WITH (STORE = COLUMN, AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 16);', schema)
     else:
         data = root / 'ydb/core/kqp/ut/rbo/data'
         schema = (data / 'schema' / f'{name}.sql').read_text()

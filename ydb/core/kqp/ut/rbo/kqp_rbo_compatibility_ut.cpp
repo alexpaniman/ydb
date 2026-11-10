@@ -2,6 +2,11 @@
 #include <ydb/core/kqp/ut/common/kqp_ut_common.h>
 
 #include <library/cpp/testing/unittest/registar.h>
+#include <library/cpp/resource/resource.h>
+#include <yql/essentials/public/langver/yql_langver.h>
+#include <util/stream/file.h>
+#include <util/string/subst.h>
+#include <regex>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -131,6 +136,48 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
                 UNIT_ASSERT_VALUES_EQUAL(actual, expected);
             }
         }
+    }
+
+    Y_UNIT_TEST(NativeTpchPerformanceFixtureUsesTableApiWithoutFallback) {
+        NKikimrConfig::TAppConfig appConfig;
+        auto* config = appConfig.MutableTableServiceConfig();
+        config->SetEnableNewRBO(true);
+        config->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+        config->SetEnableFallbackToYqlOptimizer(false);
+        config->SetEnableFallbackOnMultipleStatements(false);
+        config->SetEnableInlineJoinFiltersAfterCBO(false);
+        config->SetEnableNewRBOPhysicalStagePeephole(false);
+        config->SetAllowOlapDataQuery(true);
+        config->SetDefaultLangVer(NYql::GetMaxLangVersion());
+        config->SetBackportMode(NKikimrConfig::TTableServiceConfig_EBackportMode_All);
+        TKikimrRunner kikimr(TKikimrSettings(appConfig).SetWithSampleTables(false));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const auto schema = TFileInput(SRC_("../join/data/schema/tpch.sql")).ReadAll();
+        const auto columnSchema = std::regex_replace(std::string(schema.data(), schema.size()),
+            std::regex(R"((CREATE TABLE [^(]+\([^;]*\))\s*;)"),
+            "$1 WITH (STORE = COLUMN, AUTO_PARTITIONING_MIN_PARTITIONS_COUNT = 16);");
+        const auto created = session.ExecuteSchemeQuery(TString(columnSchema)).GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+        const auto constants = NResource::Find("consts.yql");
+        const auto counters = TKqpCounters(kikimr.GetTestServer().GetRuntime()->GetAppData().Counters).GetKqpCounters();
+        const auto successes = counters->GetCounter("Compilation/NewRBO/Success");
+        const auto failures = counters->GetCounter("Compilation/NewRBO/Failed");
+        const auto before = successes->Val(), failedBefore = failures->Val();
+        // Exact IDs, preamble, table placeholders, schema and API from Pavel's
+        // TPCH_YDB_PERF test. Only the frontend admission is made stricter.
+        for (const ui32 id : {1,5,6,7,8,9,10,11,12,13,14,18,19}) {
+            auto query = NResource::Find(TStringBuilder() << "resfs/file/tpch/queries/yql/q" << id << ".sql");
+            SubstGlobal(query, "{path}", "/Root/");
+            SubstGlobal(query, "{% include 'header.sql.jinja' %}", "PRAGMA YqlSelect = 'force';");
+            const auto expanded = std::regex_replace(std::string(query.data(), query.size()),
+                std::regex(R"(\{\{\s*([a-zA-Z0-9_]+)\s*\}\})"), "`/Root/$1`");
+            const auto result = session.ExplainDataQuery(constants + "\n" + TString(expanded)).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), "TPC-H perf q" << id << ": " << result.GetIssues().ToString());
+            UNIT_ASSERT(!result.GetPlan().empty());
+            UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+        }
+        UNIT_ASSERT_VALUES_EQUAL(successes->Val(), before + 13);
+        UNIT_ASSERT_VALUES_EQUAL(failures->Val(), failedBefore);
     }
 
     void RunManyJoinsWithDecimalRanges(bool native) {

@@ -184,7 +184,7 @@ def main():
     ap.add_argument('--after', type=Path, required=True)
     ap.add_argument('--before-native', action='store_true', help='Compare two native checkpoints; require native coverage on both')
     ap.add_argument('--limit', type=int)
-    ap.add_argument('--workloads', default='1c,tpch,tpcds,clickbench,medium,tiny')
+    ap.add_argument('--workloads', default='1c,tpch,tpcds,clickbench,medium,tiny,tpch-perf')
     ap.add_argument('--warmups', type=int, default=5)
     ap.add_argument('--repeats', type=int, default=1)
     ap.add_argument('--resume', action='store_true')
