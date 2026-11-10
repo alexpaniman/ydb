@@ -24,6 +24,26 @@ const TSyntaxExpr& Child(const TParsedQuery& syntax, const TSyntaxExpr& expressi
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceAst) {
+    Y_UNIT_TEST(NamedPreambleAndLambdaBodies) {
+        const auto* sql = "$f = ($x, $y) -> { $n = $x + 1; return $n + $y; }; "
+            "$g = () -> (42); $q = SELECT $f(id, 2) AS k FROM t; "
+            "$r = (WITH c AS (SELECT k FROM $q) SELECT * FROM c); SELECT * FROM $r;";
+        const auto fast = Parse(sql), grammar = ParseGrammar(sql);
+        UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(fast), SyntaxFingerprint(grammar));
+        for (const auto* parsed : {&fast, &grammar}) {
+            UNIT_ASSERT_VALUES_EQUAL(parsed->Statements.size(), 5);
+            const auto& f = parsed->Expressions[parsed->Statements[0].Expression];
+            UNIT_ASSERT(f.Kind == ESyntaxKind::Lambda);
+            UNIT_ASSERT(f.Lambda->Parameters == (std::vector<std::string>{"x", "y"}));
+            UNIT_ASSERT(f.Lambda->Locals == (std::vector<std::string>{"n"}));
+            UNIT_ASSERT_VALUES_EQUAL(f.Arguments.size(), 2);
+            UNIT_ASSERT(parsed->Expressions[f.Arguments.back()].Kind == ESyntaxKind::Binary);
+            UNIT_ASSERT(parsed->Expressions[parsed->Statements[1].Expression].Lambda->Parameters.empty());
+            UNIT_ASSERT(parsed->Statements[2].Query);
+            UNIT_ASSERT_VALUES_EQUAL(parsed->Statements[3].Query->Ctes.size(), 1);
+        }
+    }
+
     Y_UNIT_TEST(SetOperationRejectsMisplacedTrailingClauses) {
         for (const bool grammar : {false, true}) {
             for (const auto* sql : {

@@ -14,6 +14,7 @@ inline constexpr TSyntaxId NoSyntax = std::numeric_limits<TSyntaxId>::max();
 
 struct TSelect;
 struct TSyntaxWindow;
+struct TSyntaxLambda;
 
 enum class EWindowFrame : std::uint8_t { Default, Rows, Range, Groups };
 enum class EWindowBound : std::uint8_t { UnboundedPreceding, Preceding, CurrentRow, Following, UnboundedFollowing };
@@ -28,7 +29,7 @@ struct TWindowFrame {
 
 enum class ESyntaxKind : std::uint8_t {
     Integer, Real, String, Boolean, Null, Column, Variable, Star,
-    Unary, Binary, Call, Cast, Case, In, Between, ScalarSubquery, Exists, JsonValue, Index, Invoke,
+    Unary, Binary, Call, Cast, Case, In, Between, ScalarSubquery, Exists, JsonValue, Index, Invoke, Lambda,
 };
 
 struct TSyntaxExpr {
@@ -39,6 +40,14 @@ struct TSyntaxExpr {
     std::shared_ptr<TSelect> Query;
     bool Distinct = false;
     std::shared_ptr<TSyntaxWindow> Window = {};
+    std::shared_ptr<TSyntaxLambda> Lambda = {};
+};
+
+// Lambda operands are local initializers in declaration order, then the body.
+// Parameter and local names belong to lexical binding, not the scalar DAG.
+struct TSyntaxLambda {
+    std::vector<std::string> Parameters;
+    std::vector<std::string> Locals;
 };
 
 struct TNamedExpr {
@@ -156,8 +165,6 @@ struct TStatement {
     TSyntaxId Expression = NoSyntax;
     std::shared_ptr<TSelect> Query;
     std::shared_ptr<TWriteStatement> Write;
-    std::vector<std::string> Parameters;
-    bool Lambda = false;
     bool ScalarList = false;
     // DECLARE List<Struct<...>> describes an external row source. Its fields
     // remain scalar type spellings; containers never enter scalar expressions.

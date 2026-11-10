@@ -365,12 +365,6 @@ private:
             if (Is("SELECT") || Is("WITH") || Is("FROM")) result.Query = Select();
             else if (Is("(") && (Is("SELECT", 1) || Is("WITH", 1) || Is("FROM", 1))) {
                 Expect("("); result.Query = Select(); Expect(")");
-            } else if (IsLambda()) {
-                result.Lambda = true; Expect("(");
-                if (!Take(")")) { do { result.Parameters.push_back(Variable()); } while (Take(",")); Expect(")"); }
-                Expect("->");
-                if (Take("{")) { Expect("RETURN"); result.Expression = Expression(); Take(";"); Expect("}"); }
-                else { Expect("("); result.Expression = Expression(); Expect(")"); }
             } else result.Expression = Expression();
             return result;
         }
@@ -815,6 +809,34 @@ private:
     TSyntaxId Primary() {
         const auto& token = Token();
         const auto pos = token.Position;
+        if (IsLambda()) {
+            auto lambda = std::make_shared<TSyntaxLambda>();
+            Expect("(");
+            if (!Take(")")) { do { lambda->Parameters.push_back(Variable()); } while (Take(",")); Expect(")"); }
+            Expect("->");
+            std::vector<TSyntaxId> operands;
+            if (Take("{")) {
+                while (Take(";")) {}
+                while (Is("$")) {
+                    auto local = Statement();
+                    lambda->Locals.push_back(std::move(local.Name));
+                    if (local.Query) {
+                        local.Expression = Add(ESyntaxKind::ScalarSubquery, local.Position);
+                        Result.Expressions[local.Expression].Query = std::move(local.Query);
+                    }
+                    operands.push_back(local.Expression);
+                    Expect(";"); while (Take(";")) {}
+                }
+                Expect("RETURN"); operands.push_back(Expression());
+                while (Take(";")) {}
+                Expect("}");
+            } else {
+                Expect("("); operands.push_back(Expression()); Expect(")");
+            }
+            const auto id = Add(ESyntaxKind::Lambda, pos, {}, std::move(operands));
+            Result.Expressions[id].Lambda = std::move(lambda);
+            return id;
+        }
         if (Take("+") || Take("-") || Take("NOT") || Take("~")) {
             if (Is("+") || Is("-") || Is("NOT") || Is("~")) Fail("multiple unary operators require parentheses");
             return Add(ESyntaxKind::Unary, pos, Upper(token.Text), {Expression(10)});

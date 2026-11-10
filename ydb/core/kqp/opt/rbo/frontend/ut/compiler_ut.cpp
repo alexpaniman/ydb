@@ -42,6 +42,64 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         }
     }
 
+    Y_UNIT_TEST(LambdaLocalsAndReturnedClosuresKeepLexicalBindingIdentities) {
+        const auto* sql = R"(
+            $n = 1;
+            $f = ($x) -> { $n = $n + $x; RETURN $n; };
+            $n = 100;
+            $make = ($x) -> { $n = $x + 1; RETURN ($y) -> ($n + $y); };
+            $two = $make(1);
+            $four = $make(3);
+            $apply = ($fn, $arg) -> ($fn($arg));
+            $capture = ($x) -> { $g = () -> ($x); $h = ($x) -> ($g()); RETURN $h(900); };
+            $chain = ($x) -> { $x = $x + 1; $x = $x + 2; RETURN $x; };
+            $invoke = ($fn) -> ($fn('abc', 'a'));
+            SELECT $f(2), $n, $two(2), $four(2), $apply($two, 10), $capture(7), $chain(1),
+                (($x) -> { $local = $x * 2; RETURN $local + 1; })(3), $invoke(Udf(String::Contains));
+        )";
+        AssertParserAgreement(sql);
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(sql, Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const std::string_view expected[]{"3", "100", "4", "6", "12", "7", "4", "7", "true"};
+            UNIT_ASSERT_VALUES_EQUAL(program.Results[0].Columns.size(), std::size(expected));
+            for (std::size_t i = 0; i < std::size(expected); ++i) {
+                bool found = false;
+                for (const auto& relation : program.Relations) for (const auto& definition : relation.Definitions) {
+                    if (definition.Column != program.Results[0].Columns[i].Column) continue;
+                    found = true;
+                    UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(program.Expressions, definition.Expression)), expected[i]);
+                }
+                UNIT_ASSERT(found);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(LambdaBindingErrorsAndExpansionAreBounded) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                "$f = ($x, $x) -> ($x); SELECT $f(1, 2)",
+                "$f = () -> { $x = $x + 1; RETURN $x; }; SELECT $f()",
+                "$f = () -> { $x = 1; RETURN $x; }; SELECT $x",
+                "$f = ($x) -> ($x); SELECT $f()",
+                "$f = ($x) -> ($x); SELECT $f(1, 2)",
+                "$make = ($x) -> { RETURN ($y) -> ($x + $y); }; SELECT $make(1)",
+                "$f = ($x) -> ($x + 1); SELECT $f(Udf(String::Contains))",
+                "SELECT (() -> (1))(2)",
+                "$apply = ($f) -> ($f()); SELECT SUM($apply(() -> (1))) OVER (), "
+                    "SUM($apply(($unused) -> (1))) OVER () FROM t",
+            }) {
+                try { CompileNative(sql, Catalog, settings); UNIT_FAIL(sql); }
+                catch (const TUnsupportedFeature& error) { UNIT_FAIL(error.what()); }
+                catch (const TFrontendError&) {}
+            }
+            settings.Binding.MaxExpansionDepth = 32;
+            UNIT_ASSERT_EXCEPTION(CompileNative("$omega = ($x) -> ($x($x)); SELECT $omega($omega)", Catalog, settings), TResourceLimitError);
+        }
+    }
+
     Y_UNIT_TEST(StaticCallableInvocationUsesTheNativeFunctionContract) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;

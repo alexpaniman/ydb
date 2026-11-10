@@ -41,6 +41,26 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
+    Y_UNIT_TEST(PreambleCapturesAndLambdaShadowing) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("$n = 1; $f = ($x) -> { $n = $n + $x; return $n; }; "
+                "$n = 100; SELECT $f(id), $n FROM t;");
+            TEvaluationContext context;
+            context.Column = [](TColumnId) { return TValue{{ETypeKind::Int64}, std::int64_t{7}}; };
+            const std::string_view expected[]{"8", "100"};
+            for (std::size_t i = 0; i < std::size(expected); ++i) {
+                bool found = false;
+                for (const auto& relation : f.Program.Relations) for (const auto& definition : relation.Definitions) {
+                    if (definition.Column != f.Program.Results[0].Columns[i].Column) continue;
+                    found = true;
+                    UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(f.Program.Expressions, definition.Expression, context)), expected[i]);
+                }
+                UNIT_ASSERT(found);
+            }
+        }
+    }
+
     Y_UNIT_TEST(CollectsPhysicalTablesBeforeColumnResolution) {
         constexpr std::string_view sql = "$q = (SELECT id FROM t); "
             "WITH c AS (SELECT id FROM u), d AS (SELECT id FROM c) "

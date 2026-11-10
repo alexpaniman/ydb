@@ -30,8 +30,9 @@ Y_UNIT_TEST_SUITE(KqpNativeParser) {
             SELECT $twice(id) AS x FROM $rows ORDER BY x DESC LIMIT $limit OFFSET 1;
         )");
         UNIT_ASSERT_VALUES_EQUAL(parsed.Statements.size(), 4);
-        UNIT_ASSERT(parsed.Statements[1].Lambda);
-        UNIT_ASSERT_VALUES_EQUAL(parsed.Statements[1].Parameters[0], "x");
+        const auto& lambda = parsed.Expressions[parsed.Statements[1].Expression];
+        UNIT_ASSERT(lambda.Kind == ESyntaxKind::Lambda);
+        UNIT_ASSERT_VALUES_EQUAL(lambda.Lambda->Parameters[0], "x");
         UNIT_ASSERT(parsed.Statements[2].Query);
         const auto& query = *parsed.Statements[3].Query;
         UNIT_ASSERT_VALUES_EQUAL(query.Source->Name, "$rows");

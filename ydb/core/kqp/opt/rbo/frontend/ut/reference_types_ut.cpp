@@ -61,6 +61,16 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
+    Y_UNIT_TEST(PreambleLambdasArePolymorphicAndCaptureLexically) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Ok("$identity = ($x) -> ($x); $make = ($x) -> { $n = $x + 1; "
+                "return ($y) -> ($n + $y); }; $zero = () -> (42); "
+                "SELECT $identity(id), $identity(value), $make(id)(2), $zero() FROM t;");
+            f.Types({"Int64", "String?", "Int64", "Int32"});
+        }
+    }
+
     Y_UNIT_TEST(ScalarInputsContainOnlyReferencedColumns) {
         TFixture f;
         f.Ok("SELECT id + id, 42, value FROM t WHERE score > 0 ORDER BY id LIMIT 5;");

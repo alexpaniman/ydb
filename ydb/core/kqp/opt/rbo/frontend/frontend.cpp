@@ -102,19 +102,20 @@ void WindowChildren(const TSyntaxExpr& node, std::vector<TSyntaxId>& out) {
     if (node.Window->EndOffset != NoSyntax) out.push_back(node.Window->EndOffset);
 }
 
-// Resolve each global reference to its defining statement once. Closures keep
+// Resolve each reference to its lexical declaration once. Closures keep
 // these IDs when later statements shadow a name; expanding a lambda or query
 // never copies an environment or re-resolves its free names.
 class TGlobalBindings {
 public:
     static constexpr std::uint32_t Unknown = std::numeric_limits<std::uint32_t>::max();
     static constexpr std::uint32_t Parameter = Unknown - 1;
-    static constexpr std::uint32_t Argument = Unknown - 2;
 
     TGlobalBindings(const TParsedQuery& syntax, const TBindSettings& settings)
         : Syntax(syntax), Settings(settings), References(syntax.Expressions.size(), Unknown), Seen(syntax.Expressions.size()),
           WindowDefaults(syntax.Expressions.size(), settings.AnsiCurrentRow), AnsiCurrentRow(settings.AnsiCurrentRow),
           QueryBindings(syntax.Statements.size()), Prefix(settings.TablePathPrefix) {
+        Definitions.reserve(syntax.Statements.size());
+        for (const auto& statement : syntax.Statements) Definitions.push_back(statement.Expression);
         for (const auto& [name, type] : settings.ParameterTypes) Names[name] = Parameter;
         for (std::uint32_t i = 0; i < syntax.Statements.size(); ++i) {
             const auto& statement = syntax.Statements[i];
@@ -124,10 +125,6 @@ public:
                 if (name == "ansicurrentrow" || name == "disableansicurrentrow") AnsiCurrentRow = name == "ansicurrentrow";
                 if (name == "yqlselectallowunnamedgroupbyexpr" || name == "disableyqlselectallowunnamedgroupbyexpr")
                     AllowUnnamedGroups = name == "yqlselectallowunnamedgroupbyexpr";
-            }
-            Arguments.clear();
-            if (statement.Lambda) for (const auto& name : statement.Parameters) {
-                if (!Arguments.insert(name).second) throw TFrontendError(statement.Position, "duplicate lambda parameter");
             }
             Expression(statement.Expression);
             if (statement.Query) Select(*statement.Query);
@@ -142,7 +139,7 @@ public:
             if (statement.Kind == EStatementKind::Declaration) Names[statement.Name] = Parameter;
             if (statement.Kind == EStatementKind::Binding) {
                 QueryBindings[i] = statement.Query;
-                if (!statement.Query && !statement.Lambda && statement.Expression != NoSyntax &&
+                if (!statement.Query && statement.Expression != NoSyntax &&
                     Syntax.Expressions[statement.Expression].Kind == ESyntaxKind::Variable) {
                     const auto binding = References[statement.Expression];
                     if (binding < QueryBindings.size()) QueryBindings[i] = QueryBindings[binding];
@@ -153,6 +150,10 @@ public:
     }
 
     std::uint32_t operator[](TSyntaxId expression) const { return References.at(expression); }
+    TSyntaxId Definition(std::uint32_t binding) const {
+        return binding < Definitions.size() ? Definitions[binding] : NoSyntax;
+    }
+    const std::vector<std::uint32_t>& LambdaBindings(TSyntaxId lambda) const { return Lambdas.at(lambda); }
     bool IsReferenced(TSyntaxId expression) const { return Seen.at(expression); }
     bool WindowUsesAnsi(TSyntaxId expression) const { return WindowDefaults.at(expression); }
     bool AllowsUnnamedGroups(const TSelect& query) const { return UnnamedGroups.contains(&query); }
@@ -184,7 +185,8 @@ public:
 
 private:
     std::uint32_t Resolve(const std::string& name) const {
-        if (Arguments.contains(name)) return Argument;
+        for (auto scope = LocalScopes.rbegin(); scope != LocalScopes.rend(); ++scope)
+            if (const auto found = scope->find(name); found != scope->end()) return found->second;
         const auto found = Names.find(name);
         return found == Names.end() ? Unknown : found->second;
     }
@@ -196,6 +198,31 @@ private:
             if (Seen.at(id)) continue;
             Seen[id] = true;
             const auto& node = Syntax.Expressions[id];
+            if (node.Lambda) {
+                if (++Depth > Settings.MaxExpansionDepth)
+                    throw TResourceLimitError(node.Position, "binding scope depth limit exceeded");
+                LocalScopes.emplace_back();
+                std::vector<std::uint32_t> bindings;
+                for (const auto& name : node.Lambda->Parameters) {
+                    const auto binding = Definitions.size();
+                    if (!LocalScopes.back().emplace(name, binding).second)
+                        throw TFrontendError(node.Position, "duplicate lambda parameter");
+                    Definitions.push_back(NoSyntax);
+                    bindings.push_back(binding);
+                }
+                for (std::size_t i = 0; i < node.Lambda->Locals.size(); ++i) {
+                    Expression(node.Arguments[i]);
+                    const auto binding = Definitions.size();
+                    LocalScopes.back()[node.Lambda->Locals[i]] = binding;
+                    Definitions.push_back(node.Arguments[i]);
+                    bindings.push_back(binding);
+                }
+                Expression(node.Arguments.back());
+                Lambdas.emplace(id, std::move(bindings));
+                LocalScopes.pop_back();
+                --Depth;
+                continue;
+            }
             if (node.Window) WindowDefaults[id] = AnsiCurrentRow;
             if (node.Kind == ESyntaxKind::Variable) References[id] = Resolve(node.Text);
             if (node.Kind == ESyntaxKind::Call && node.Text.starts_with('$')) References[id] = Resolve(node.Text.substr(1));
@@ -251,7 +278,9 @@ private:
     bool AllowUnnamedGroups = false;
     std::unordered_set<const TSelect*> UnnamedGroups;
     std::unordered_map<std::string, std::uint32_t> Names;
-    std::unordered_set<std::string> Arguments;
+    std::vector<TSyntaxId> Definitions;
+    std::unordered_map<TSyntaxId, std::vector<std::uint32_t>> Lambdas;
+    std::vector<std::unordered_map<std::string, std::uint32_t>> LocalScopes;
     std::unordered_map<const TSource*, std::uint32_t> Sources;
     std::vector<std::shared_ptr<TSelect>> QueryBindings;
     std::string Prefix;
@@ -467,6 +496,7 @@ public:
         const auto& node = Syntax.Expressions[id];
         const bool normalize = (node.Kind == ESyntaxKind::Call && !node.Text.starts_with('$')) || node.Kind == ESyntaxKind::Cast;
         TSyntaxKey key{node.Kind, normalize ? Lower(node.Text) : node.Text, {}, node.Distinct, Bindings[id], node.Query.get(), Windows[id]};
+        if (node.Lambda) key.Binding = id;
         if (node.Kind == ESyntaxKind::Column) if (const auto* column = Scope.FindUnambiguous(node.Text)) {
             key.Text.clear(); key.Binding = column->Id;
         }
@@ -517,15 +547,28 @@ struct TWindowContext {
     std::unordered_map<std::uint32_t, std::size_t> Specifications;
 };
 
+// Closures exist only while binding. Frames are query-owned and referenced by
+// index, so a returned closure retains its lexical values without copying an
+// environment or creating shared-ownership cycles. RBO receives scalars only.
+inline constexpr std::size_t NoBindingFrame = std::numeric_limits<std::size_t>::max();
+struct TBoundLambda {
+    TSyntaxId Syntax;
+    std::size_t Frame;
+};
+using TBindingValue = std::variant<TExprId, TBoundLambda, std::string>;
+struct TBindingFrame {
+    std::size_t Parent = NoBindingFrame;
+    std::unordered_map<std::uint32_t, TBindingValue> Values;
+};
+
 struct TExprContext {
-    TExprContext(const TScope& scope, TAggregationContext* aggregation = nullptr,
-        const std::unordered_map<std::string, TExprId>* arguments = nullptr)
-        : Scope(scope), Aggregation(aggregation), Arguments(arguments) {}
+    TExprContext(const TScope& scope, TAggregationContext* aggregation = nullptr)
+        : Scope(scope), Aggregation(aggregation) {}
     const TScope& Scope;
     const TScope* Aliases = nullptr;
     const std::unordered_map<std::string, TProjectionAlias>* ProjectionAliases = nullptr;
     TAggregationContext* Aggregation = nullptr;
-    const std::unordered_map<std::string, TExprId>* Arguments = nullptr;
+    std::size_t BindingFrame = NoBindingFrame;
     std::unordered_map<TSyntaxId, TExprId> Cache;
     TExprContext* Outer = nullptr;
     TExprContext* CaptureOwner = nullptr;
@@ -570,6 +613,7 @@ public:
             if (hasWindows) {
                 const auto normalized = (expr.Kind == ESyntaxKind::Call && !expr.Text.starts_with('$')) || expr.Kind == ESyntaxKind::Cast;
                 TSyntaxKey key{expr.Kind, normalized ? Lower(expr.Text) : expr.Text, {}, expr.Distinct, Bindings[i], expr.Query.get()};
+                if (expr.Lambda) key.Binding = i;
                 for (auto child : expr.Arguments) key.Arguments.push_back(Canonical[child]);
                 if (expr.Window) {
                     const auto& w = *expr.Window;
@@ -648,15 +692,11 @@ public:
                     break;
                 }
                 case EStatementKind::Binding: {
-                    if (!Bindings.IsQueryBinding(index) && !statement.Lambda) {
-                        if (const auto name = CallableName(statement.Expression)) {
-                            Callables.emplace(index, *name);
-                            break;
-                        }
+                    if (!Bindings.IsQueryBinding(index)) {
                         const TScope empty;
                         TExprContext context{empty};
                         context.AllowSubqueries = false;
-                        Values[index] = Expr(statement.Expression, context);
+                        Values[index] = BindingValue(statement.Expression, context);
                     }
                     break;
                 }
@@ -1997,17 +2037,12 @@ private:
             }
             case ESyntaxKind::Variable: {
                 const auto binding = Bindings[id];
-                if (binding == TGlobalBindings::Argument) {
-                    if (!context.Arguments || !context.Arguments->contains(syntax.Text))
-                        throw TUnsupportedFeature(EFeature::Function, syntax.Position, "lambda argument is not a scalar value: " + syntax.Text);
-                    result = context.Arguments->at(syntax.Text);
-                } else if (binding == TGlobalBindings::Parameter) {
+                if (binding == TGlobalBindings::Parameter) {
                     const auto& type = Program.Parameters.at(syntax.Text);
                     if (const auto* scalar = type.Scalar()) result = arena.Parameter(syntax.Text, *scalar, syntax.Position);
                     else if (const auto* list = type.ScalarList()) result = arena.Parameter(syntax.Text, arena.ListType(list->Item, syntax.Position), syntax.Position);
                     else throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "row-list parameters are relational inputs; use AS_TABLE");
-                } else if (binding < Values.size() && Values[binding]) result = *Values[binding];
-                else throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "binding is not a scalar value: $" + syntax.Text);
+                } else result = ScalarValue(LookupBinding(binding, context, syntax.Position), syntax.Position);
                 break;
             }
             case ESyntaxKind::Unary: {
@@ -2109,18 +2144,11 @@ private:
                 result = InResult(value, result, syntax.Position);
                 break;
             }
-            case ESyntaxKind::Invoke: {
-                if (syntax.Distinct || syntax.Window)
-                    throw TFrontendError(syntax.Position, "scalar callable invocation cannot use DISTINCT or OVER");
-                const auto name = CallableName(syntax.Arguments.at(0));
-                if (!name) throw TUnsupportedFeature(EFeature::Function, syntax.Position,
-                    "native invocation requires a statically resolved scalar callable");
-                std::vector<TExprId> args;
-                args.reserve(syntax.Arguments.size() - 1);
-                for (std::size_t i = 1; i < syntax.Arguments.size(); ++i) args.push_back(Expr(syntax.Arguments[i], context));
-                result = arena.Call(*name, args, syntax.Position);
+            case ESyntaxKind::Lambda:
+                throw TFrontendError(syntax.Position, "lambda is not a scalar result");
+            case ESyntaxKind::Invoke:
+                result = ScalarValue(InvokeBinding(id, context), syntax.Position);
                 break;
-            }
             case ESyntaxKind::Index: {
                 const auto list = Expr(syntax.Arguments[0], context);
                 const auto index = Expr(syntax.Arguments[1], context);
@@ -2128,6 +2156,10 @@ private:
                 break;
             }
             case ESyntaxKind::Call: {
+                if (syntax.Text.starts_with('$')) {
+                    result = ScalarValue(InvokeBinding(id, context), syntax.Position);
+                    break;
+                }
                 const auto name = Lower(syntax.Text);
                 if (syntax.Window) {
                     if (!context.Windows) throw TUnsupportedFeature(EFeature::Window, syntax.Position, "window function is not allowed in this expression context");
@@ -2171,25 +2203,7 @@ private:
                 }
                 std::vector<TExprId> args;
                 for (auto arg : syntax.Arguments) args.push_back(Expr(arg, context));
-                if (syntax.Text.starts_with('$')) {
-                    const auto binding = Bindings[id];
-                    if (const auto found = Callables.find(binding); found != Callables.end()) {
-                        result = arena.Call(found->second, args, syntax.Position);
-                        break;
-                    }
-                    if (binding >= Syntax.Statements.size() || !Syntax.Statements[binding].Lambda)
-                        throw TUnsupportedFeature(EFeature::Function, syntax.Position, "native calls require a named scalar lambda: " + syntax.Text);
-                    const auto& lambda = Syntax.Statements[binding];
-                    if (lambda.Parameters.size() != args.size()) throw TFrontendError(syntax.Position, "lambda argument count mismatch");
-                    if (!ActiveLambdas.insert(&lambda).second) throw TFrontendError(syntax.Position, "recursive lambda is not supported");
-                    std::unordered_map<std::string, TExprId> parameters;
-                    for (std::size_t i = 0; i < args.size(); ++i) parameters.emplace(lambda.Parameters[i], args[i]);
-                    const TScope empty;
-                    TExprContext lambdaContext{empty, nullptr, &parameters};
-                    lambdaContext.AllowSubqueries = false;
-                    result = Expr(lambda.Expression, lambdaContext);
-                    ActiveLambdas.erase(&lambda);
-                } else if (name == "aslist" || name == "astuple") result = arena.Collection(args, name == "aslist", syntax.Position);
+                if (name == "aslist" || name == "astuple") result = arena.Collection(args, name == "aslist", syntax.Position);
                 else if ((name == "randomuuid" || name == "randomnumber") && args.empty())
                     throw TFrontendError(syntax.Position, syntax.Text + " requires at least one dependency argument");
                 else if (name == "yql::randomuuid" || name == "yql::randomnumber") {
@@ -2217,15 +2231,80 @@ private:
         context.Cache.emplace(id, result); return result;
     }
 
+    TExprId ScalarValue(const TBindingValue& value, TSourcePosition pos) const {
+        if (const auto* scalar = std::get_if<TExprId>(&value)) return *scalar;
+        throw TFrontendError(pos, "callable is not a scalar value");
+    }
+
+    TBindingValue LookupBinding(std::uint32_t binding, const TExprContext& context, TSourcePosition pos) const {
+        for (auto frame = context.BindingFrame; frame != NoBindingFrame; frame = BindingFrames[frame].Parent) {
+            const auto& values = BindingFrames[frame].Values;
+            if (const auto found = values.find(binding); found != values.end()) return found->second;
+        }
+        if (binding < Values.size() && Values[binding]) return *Values[binding];
+        throw TUnsupportedFeature(EFeature::Expression, pos, "binding is not a scalar or callable value");
+    }
+
+    TBindingValue BindingValue(TSyntaxId id, TExprContext& context) {
+        const auto& syntax = Syntax.Expressions.at(id);
+        if (syntax.Kind == ESyntaxKind::Lambda) return TBoundLambda{id, context.BindingFrame};
+        if (syntax.Kind == ESyntaxKind::Variable && Bindings[id] != TGlobalBindings::Parameter)
+            return LookupBinding(Bindings[id], context, syntax.Position);
+        if (syntax.Kind == ESyntaxKind::Invoke || (syntax.Kind == ESyntaxKind::Call && syntax.Text.starts_with('$')))
+            return InvokeBinding(id, context);
+        if (const auto name = CallableName(id)) return std::string(*name);
+        return Expr(id, context);
+    }
+
+    TBindingValue InvokeBinding(TSyntaxId id, TExprContext& context) {
+        const auto& syntax = Syntax.Expressions.at(id);
+        TDepth depth(*this, syntax.Position);
+        if (syntax.Distinct || syntax.Window)
+            throw TFrontendError(syntax.Position, "scalar callable invocation cannot use DISTINCT or OVER");
+        const bool named = syntax.Kind == ESyntaxKind::Call;
+        const auto callable = named ? LookupBinding(Bindings[id], context, syntax.Position)
+            : BindingValue(syntax.Arguments.at(0), context);
+        std::vector<TBindingValue> arguments;
+        for (std::size_t i = named ? 0 : 1; i < syntax.Arguments.size(); ++i)
+            arguments.push_back(BindingValue(syntax.Arguments[i], context));
+        if (const auto* name = std::get_if<std::string>(&callable)) {
+            std::vector<TExprId> scalars;
+            for (const auto& argument : arguments) scalars.push_back(ScalarValue(argument, syntax.Position));
+            return Program.Expressions.Call(*name, scalars, syntax.Position);
+        }
+        const auto* closure = std::get_if<TBoundLambda>(&callable);
+        if (!closure) throw TFrontendError(syntax.Position, "invocation requires a callable value");
+        const auto& lambda = Syntax.Expressions[closure->Syntax];
+        const auto& names = *lambda.Lambda;
+        if (names.Parameters.size() != arguments.size())
+            throw TFrontendError(syntax.Position, "lambda argument count mismatch");
+        const auto& bindings = Bindings.LambdaBindings(closure->Syntax);
+        if (bindings.size() > Settings.MaxNodes - std::min(BoundLocalValues, Settings.MaxNodes) ||
+            BindingFrames.size() >= Settings.MaxNodes)
+            throw TResourceLimitError(syntax.Position, "lambda expansion limit exceeded");
+        BoundLocalValues += bindings.size();
+        const auto frame = BindingFrames.size();
+        BindingFrames.push_back({closure->Frame, {}});
+        BindingFrames[frame].Values.reserve(bindings.size());
+        for (std::size_t i = 0; i < arguments.size(); ++i)
+            BindingFrames[frame].Values.emplace(bindings[i], std::move(arguments[i]));
+        const TScope empty;
+        TExprContext body{empty};
+        body.AllowSubqueries = false;
+        body.BindingFrame = frame;
+        for (std::size_t i = 0; i < names.Locals.size(); ++i) {
+            // Binding a nested call may append frames. Reacquire by index.
+            auto value = BindingValue(lambda.Arguments[i], body);
+            BindingFrames[frame].Values.emplace(bindings[names.Parameters.size() + i], std::move(value));
+        }
+        return BindingValue(lambda.Arguments.back(), body);
+    }
+
     // Callable values bind to native function names at declaration time. The
     // scalar factory owns signatures and semantics; operator translation never
     // inspects SQL syntax or resolves a backend UDF.
     std::optional<std::string_view> CallableName(TSyntaxId id) const {
         const auto& syntax = Syntax.Expressions.at(id);
-        if (syntax.Kind == ESyntaxKind::Variable) {
-            const auto found = Callables.find(Bindings[id]);
-            if (found != Callables.end()) return found->second;
-        }
         if (syntax.Kind != ESyntaxKind::Call || Lower(syntax.Text) != "udf") return {};
         if (syntax.Arguments.size() != 1 || syntax.Distinct || syntax.Window)
             throw TUnsupportedFeature(EFeature::Function, syntax.Position, "native Udf requires one qualified function name");
@@ -2252,13 +2331,13 @@ private:
     std::vector<std::uint32_t> CanonicalWindows;
     std::vector<bool> ContainsAggregate;
     std::vector<bool> ContainsWindow;
-    std::vector<std::optional<TExprId>> Values;
-    std::unordered_map<std::uint32_t, std::string> Callables;
+    std::vector<std::optional<TBindingValue>> Values;
+    std::vector<TBindingFrame> BindingFrames;
+    std::size_t BoundLocalValues = 0;
     std::unordered_map<const TSelect*, TQueryResult> ReusableQueries;
     std::unordered_map<const TCteBinding*, TExprContext*> CteContexts;
     std::unordered_set<std::string> Declared;
     std::unordered_set<const TSelect*> ActiveQueries;
-    std::unordered_set<const TStatement*> ActiveLambdas;
     std::size_t Depth = 0;
 };
 
@@ -2427,7 +2506,7 @@ private:
         if (root == NoSyntax) return;
         const auto& expression = Syntax.Expressions[root];
         if (expression.Arguments.empty() && !expression.Query && !expression.Window &&
-            Bindings[root] >= Syntax.Statements.size()) return;
+            Bindings.Definition(Bindings[root]) == NoSyntax) return;
         std::vector<TSyntaxId> pending{root};
         std::unordered_set<TSyntaxId> seen;
         while (!pending.empty()) {
@@ -2440,9 +2519,8 @@ private:
             if (node.Query) Select(*node.Query);
             if (const auto query = Bindings.QueryReference(id)) {
                 NamedQuery(*query, node.Position);
-            } else if (const auto binding = Bindings[id]; binding < Syntax.Statements.size()) {
-                const auto expression = Syntax.Statements[binding].Expression;
-                if (expression != NoSyntax) pending.push_back(expression);
+            } else if (const auto expression = Bindings.Definition(Bindings[id]); expression != NoSyntax) {
+                pending.push_back(expression);
             }
         }
     }

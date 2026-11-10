@@ -139,6 +139,33 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(LambdaClosuresProduceTheSameNativeOperatorsAsInlineScalars) {
+        using namespace NFrontend;
+        std::optional<TString> plan;
+        for (const auto* sql : {
+            "$n = 1l; $f = ($x) -> { $n = $n + $x; RETURN $n; }; "
+                "$make = ($x) -> { $local = $x + 1l; RETURN ($y) -> ($local + $y); }; "
+                "SELECT id, $make(id)(2l) AS total FROM t WHERE $f(id) > 2l ORDER BY id",
+            "SELECT id, (id + 1l) + 2l AS total FROM t WHERE (1l + id) > 2l ORDER BY id",
+        }) {
+            NTests::TIdTestContext f;
+            const auto nodes = f.ExprCtx.NodeAllocationCounter;
+            const auto types = f.ExprCtx.TypeNodes.size();
+            const auto query = CompileNativeToRbo(sql, [](auto, auto) {
+                return TNativeTable{{"t", {{"id", {ETypeKind::Int64}}}},
+                    TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
+            }, f.ExprCtx);
+            UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 1);
+            auto& root = *query.Roots.front();
+            UNIT_ASSERT(ComputeTypesWithoutBackend(root, f.RboCtx) == IGraphTransformer::TStatus::Ok);
+            const auto actual = root.PlanToString(f.ExprCtx);
+            if (plan) UNIT_ASSERT_VALUES_EQUAL(*plan, actual);
+            else plan = actual;
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+        }
+    }
+
     Y_UNIT_TEST(LikeRuntimeOpcodeIsTerminalAndUnicodeAware) {
         using namespace NFrontend;
         struct TCase { std::optional<std::string> Input; std::string Pattern; std::string Escape; bool Expected; bool CaseSensitive = true; };

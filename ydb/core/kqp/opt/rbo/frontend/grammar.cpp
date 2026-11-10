@@ -299,8 +299,34 @@ private:
             return Add(ESyntaxKind::Case, node, hasElse ? "" : "implicit_else", std::move(args));
         }
         if (name == "lambda") {
-            if (Has(node, "->")) Unsupported(node, EFeature::Expression, "lambda outside named binding");
-            return Parenthesis(Child(node, "smart_parenthesis"));
+            if (!Has(node, "->")) return Parenthesis(Child(node, "smart_parenthesis"));
+            auto lambda = std::make_shared<TSyntaxLambda>();
+            auto* paren = Child(node, "smart_parenthesis");
+            if (auto* sub = Child(paren, "select_subexpr")) {
+                for (const auto param : TupleItems(sub)) {
+                    if (Result.Expressions[param].Kind != ESyntaxKind::Variable)
+                        Unsupported(paren, EFeature::Expression, "lambda parameter");
+                    lambda->Parameters.push_back(Result.Expressions[param].Text);
+                }
+            }
+            std::vector<TSyntaxId> operands;
+            if (auto* body = Child(node, "lambda_body")) {
+                for (auto* statement : Children(body, "lambda_stmt")) {
+                    auto* binding = Child(statement, "named_nodes_stmt");
+                    if (!binding) Unsupported(statement, EFeature::Statement, "lambda import");
+                    auto local = Statement(binding);
+                    lambda->Locals.push_back(std::move(local.Name));
+                    if (local.Query) {
+                        local.Expression = Add(ESyntaxKind::ScalarSubquery, binding);
+                        Result.Expressions[local.Expression].Query = std::move(local.Query);
+                    }
+                    operands.push_back(local.Expression);
+                }
+                operands.push_back(Expr(Child(body, "expr")));
+            } else operands.push_back(Expr(Child(node, "expr")));
+            const auto id = Add(ESyntaxKind::Lambda, node, {}, std::move(operands));
+            Result.Expressions[id].Lambda = std::move(lambda);
+            return id;
         }
         if (name == "json_api_expr") return Expr(Only(node));
         if (name == "json_value") {
@@ -836,27 +862,10 @@ private:
             if (auto* select = Child(node, "select_unparenthesized_stmt")) result.Query = Select(select);
             else {
                 auto* expression = Child(node, "expr");
-                auto* lambda = Unwrap(expression);
-                if (Name(lambda) == "lambda" && Has(lambda, "->")) {
-                    result.Lambda = true;
-                    auto* paren = Child(lambda, "smart_parenthesis");
-                    if (auto* sub = Child(paren, "select_subexpr")) {
-                        auto params = TupleItems(sub);
-                        for (auto param : params) {
-                            if (Result.Expressions[param].Kind != ESyntaxKind::Variable) Unsupported(paren, EFeature::Expression, "lambda parameter");
-                            result.Parameters.push_back(Result.Expressions[param].Text);
-                        }
-                    }
-                    if (auto* body = Child(lambda, "lambda_body")) {
-                        if (!Children(body, "lambda_stmt").empty()) Unsupported(body, EFeature::Expression, "lambda local statements");
-                        result.Expression = Expr(Child(body, "expr"));
-                    } else result.Expression = Expr(Child(lambda, "expr"));
-                } else {
-                    result.Expression = Expr(expression);
-                    if (Result.Expressions[result.Expression].Kind == ESyntaxKind::ScalarSubquery) {
-                        result.Query = Result.Expressions[result.Expression].Query;
-                        result.Expression = NoSyntax;
-                    }
+                result.Expression = Expr(expression);
+                if (Result.Expressions[result.Expression].Kind == ESyntaxKind::ScalarSubquery) {
+                    result.Query = Result.Expressions[result.Expression].Query;
+                    result.Expression = NoSyntax;
                 }
             }
             return result;
@@ -938,6 +947,10 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         const auto& node = query.Expressions.at(id);
         out << '(' << static_cast<int>(node.Kind) << ',' << node.Distinct;
         text(node.Text);
+        if (node.Lambda) {
+            out << "parameters["; for (const auto& name : node.Lambda->Parameters) text(name); out << ']';
+            out << "locals["; for (const auto& name : node.Lambda->Locals) text(name); out << ']';
+        }
         for (auto arg : node.Arguments) expr(arg);
         if (node.Window) {
             const auto& w = *node.Window;
@@ -976,11 +989,10 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         out << '}';
     };
     for (const auto& statement : query.Statements) {
-        out << static_cast<int>(statement.Kind) << ':' << statement.Lambda;
+        out << static_cast<int>(statement.Kind) << ':';
         text(statement.Name); text(statement.Value); out << statement.ScalarList;
         out << bool(statement.RowFields);
         if (statement.RowFields) for (const auto& [name, type] : *statement.RowFields) { text(name); text(type); }
-        for (const auto& parameter : statement.Parameters) text(parameter);
         expr(statement.Expression); if (statement.Query) select(*statement.Query);
         if (statement.Write) {
             const auto& write = *statement.Write;

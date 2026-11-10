@@ -227,6 +227,12 @@ JSON_VALUE, LIKE/ILIKE patterns, underscores and escapes have runtime differenti
 tests. Static direct, inline `Udf(String::...)`, and bound callable forms resolve
 to the same checked native string functions. Arbitrary UDF resolution is excluded.
 
+Scalar lambdas support local bindings, higher-order arguments and returned
+closures. Name resolution assigns declaration identities before binding;
+query-owned binding frames preserve captured values and lexical shadowing.
+Calls expand into native scalar expressions during binding, with bounded depth
+and node counts. Closures and binding frames never cross the RBO handoff.
+
 `AS_TABLE` accepts declared or supplied `List<Struct<scalar fields>>` parameters,
 including nullable fields and empty structs. Source field names survive aliases,
 pruning and copying. Separately, scalar List parameters and fixed tuple/list
@@ -256,7 +262,8 @@ Important exclusions remain explicit:
   lambda bodies; ungrouped outer references after aggregation.
 - Correlated windows and correlated INTERSECT ALL/EXCEPT ALL; inherited,
   DISTINCT/filtered windows, NULL treatment and unsupported frame forms.
-- Arbitrary UDFs, volatile functions other than the UUID forms above, higher-order values and general containers.
+- Arbitrary UDFs, volatile functions other than the UUID forms above, callable
+  result columns and general containers.
   Dynamic collection dictionary keys have a narrower checked scalar profile.
 - Bare-NULL arithmetic, unsupported mixed Decimal operations, floating Decimal
   casts, Float-to-32/64-bit-integer casts and unverified temporal conversions.

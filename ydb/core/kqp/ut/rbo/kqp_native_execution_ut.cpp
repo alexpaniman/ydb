@@ -39,6 +39,72 @@ void CreateTables(TKikimrRunner& kikimr, TSession& session) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExecutionRuntime) {
+    Y_UNIT_TEST_TWIN(LambdaClosuresCaptureRowsAndStaticCallables, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        CreateTables(kikimr, session);
+        const auto result = session.ExecuteDataQuery(R"(
+            $n = 1ul;
+            $f = ($x) -> { $n = $n + $x; RETURN $n; };
+            $n = 100ul;
+            $make = ($x) -> { $n = $x + 1ul; RETURN ($y) -> ($n + $y); };
+            $apply = ($fn, $x) -> ($fn($x));
+            $capture = ($x) -> { $g = () -> ($x); $h = ($x) -> ($g()); RETURN $h(900ul); };
+            $invoke = ($fn) -> ($fn('abc', 'a'));
+            SELECT id, $f(id) AS captured, $n AS global_value, $make(id)(2ul) AS closed,
+                $apply(($x) -> ($x * 2ul), id) AS doubled, $capture(id) AS shadowed,
+                $invoke(($text, $needle) -> (Udf(String::Contains)($text, $needle))) AS found FROM t ORDER BY id;
+        )", TTxControl::BeginTx().CommitTx()).GetValueSync();
+        Success(result);
+        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), 3);
+        TResultSetParser rows(result.GetResultSet(0));
+        for (ui64 id : {1ul, 2ul, 3ul}) {
+            UNIT_ASSERT(rows.TryNextRow());
+            UNIT_ASSERT_VALUES_EQUAL(rows.ColumnParser("id").GetUint64(), id);
+            UNIT_ASSERT_VALUES_EQUAL(rows.ColumnParser("captured").GetUint64(), id + 1);
+            UNIT_ASSERT_VALUES_EQUAL(rows.ColumnParser("global_value").GetUint64(), 100);
+            UNIT_ASSERT_VALUES_EQUAL(rows.ColumnParser("closed").GetUint64(), id + 3);
+            UNIT_ASSERT_VALUES_EQUAL(rows.ColumnParser("doubled").GetUint64(), id * 2);
+            UNIT_ASSERT_VALUES_EQUAL(rows.ColumnParser("shadowed").GetUint64(), id);
+            UNIT_ASSERT(rows.ColumnParser("found").GetBool());
+        }
+    }
+
+    Y_UNIT_TEST_TWIN(LambdaClosureResultsFlowThroughWrites, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        CreateTables(kikimr, session);
+        Success(session.ExecuteDataQuery(R"(
+            $make = ($x) -> { $n = $x + 1ul; RETURN ($y) -> ($n + $y); };
+            INSERT INTO u SELECT id, CAST($make(id)(2ul) AS String) AS value FROM t;
+        )", TTxControl::BeginTx().CommitTx()).GetValueSync());
+        Success(session.ExecuteDataQuery(R"(
+            $prefix = ($x) -> { $value = 'result:' || $x; RETURN $value; };
+            UPDATE u SET value = $prefix(value) WHERE id > 1ul;
+        )", TTxControl::BeginTx().CommitTx()).GetValueSync());
+        const auto result = session.ExecuteDataQuery("SELECT id, value FROM u ORDER BY id",
+            TTxControl::BeginTx().CommitTx()).GetValueSync();
+        Success(result);
+        UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(result.GetResultSet(0)),
+            "[[1u;[\"4\"]];[2u;[\"result:5\"]];[3u;[\"result:6\"]]]");
+    }
+
+    Y_UNIT_TEST_TWIN(LambdaClosuresKeepOneCapturedVolatileValue, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        CreateTables(kikimr, session);
+        const auto result = session.ExecuteDataQuery(R"(
+            $same = ($x) -> {
+                $value = RandomUuid($x);
+                $read = () -> ($value);
+                RETURN CAST($read() AS String) = CAST($read() AS String);
+            };
+            SELECT $same(id) AS equal FROM t ORDER BY id;
+        )", TTxControl::BeginTx().CommitTx()).GetValueSync();
+        Success(result);
+        UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(result.GetResultSet(0)), "[[%true];[%true];[%true]]");
+    }
+
     // Exact shared-binding cases from the newer reference frontend. Native
     // execution must preserve sharing without its legacy fallback.
     Y_UNIT_TEST_TWIN(SharedVolatileAliasesPreserveOneEvaluation, Native) {
