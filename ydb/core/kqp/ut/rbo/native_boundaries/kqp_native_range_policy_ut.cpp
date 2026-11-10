@@ -1,4 +1,4 @@
-#include "kqp_rbo_test_helpers.h"
+#include "../kqp_rbo_test_helpers.h"
 
 namespace NKikimr::NKqp {
 
