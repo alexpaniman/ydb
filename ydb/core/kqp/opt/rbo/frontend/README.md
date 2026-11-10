@@ -93,7 +93,8 @@ arena-owned tuple shapes; nested optional types preserve each optional layer.
 lookup point prefixes, OLAP predicates, sink settings and stream lookup key types remain native
 through stage assignment.
 Range and lookup-point validity conditions are native required Booleans without
-row dependencies. They reject unordered NaN bounds; open upper bounds for Float,
+row dependencies. They reject NULL comparison parameters and unordered NaN bounds;
+parameter unwrapping occurs only in the valid branch. Open upper bounds for Float,
 Double and Decimal stop before the NaN storage key. Physical emission constructs
 typed conditional lists directly. It does not use YQL range expansion helpers.
 Copying and expression visitors preserve these conditions with their bounds.
@@ -329,9 +330,11 @@ it excludes asynchronous catalog I/O, RBO and backend compilation.
 `--bench-explain N` measures native plan formatting and destruction separately,
 after an untimed compile and formatting warmup.
 
-The full-corpus compilation checkpoint covers 6,979 queries with native-required
+The `710eddcc4fa` compilation checkpoint covers 6,992 queries with native-required
 admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and
-two additional 1C samples. This establishes compilation coverage, not complete
+two additional 1C samples, plus the 13 original TPC-H performance-fixture queries
+with their preamble and Double/String column-store schema. That fixture also
+passes separately through the original Table API. This establishes compilation coverage, not complete
 effects parity or negligible frontend cost. The `e1fc80d8039` validation included
 257 passing standalone tests. JOIN USING additionally has runtime value/type comparisons
 against explicit legacy ON/coalesce forms in scalar/block and nullable/required

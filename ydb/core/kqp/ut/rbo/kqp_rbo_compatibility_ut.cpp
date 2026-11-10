@@ -138,6 +138,58 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
         }
     }
 
+    Y_UNIT_TEST(NativeNullableParameterRangesExecuteWithoutPeephole) {
+        for (const bool nullableKey : {false, true}) {
+            NKikimrConfig::TAppConfig appConfig;
+            auto* config = appConfig.MutableTableServiceConfig();
+            config->SetEnableNewRBO(true);
+            config->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+            config->SetEnableFallbackToYqlOptimizer(false);
+            config->SetEnableNewRBOPhysicalStagePeephole(false);
+            TKikimrRunner kikimr(TKikimrSettings(appConfig).SetWithSampleTables(false));
+            auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+            const auto created = session.ExecuteSchemeQuery(TStringBuilder()
+                << "CREATE TABLE `/Root/parameter_keys` (id Int32 " << (nullableKey ? "" : "NOT NULL")
+                << ", PRIMARY KEY(id));").GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            auto client = kikimr.GetQueryClient();
+            const auto inserted = client.ExecuteQuery(TStringBuilder()
+                << "UPSERT INTO `/Root/parameter_keys` (id) VALUES (1),(2),(3)"
+                << (nullableKey ? ",(NULL);" : ";"), NQuery::TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            for (const TString op : {"=", "<", "<=", ">", ">="})
+            for (const bool disjunction : {false, true})
+            // Reuse each query with absent, present, then absent values. A
+            // compiled range must test the parameter at execution, not prepare.
+            for (const bool present : {false, true, false}) {
+                const auto params = TParamsBuilder().AddParam("$bound")
+                    .OptionalInt32(present ? std::optional<i32>{2} : std::nullopt).Build().Build();
+                const auto query = TStringBuilder() << "DECLARE $bound AS Int32?; "
+                    << "SELECT id FROM `/Root/parameter_keys` WHERE id " << op << " $bound"
+                    << (disjunction ? " OR id = 3" : "") << " ORDER BY id;";
+                const auto result = client.ExecuteQuery(query, NQuery::TTxControl::NoTx(), params).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), query << ": " << result.GetIssues().ToString());
+                UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+                TVector<i32> expected;
+                for (const i32 value : {1, 2, 3}) {
+                    const bool matches = present && (op == "=" ? value == 2 : op == "<" ? value < 2 :
+                        op == "<=" ? value <= 2 : op == ">" ? value > 2 : value >= 2);
+                    if (matches || (disjunction && value == 3)) expected.push_back(value);
+                }
+                TResultSetParser rows(result.GetResultSet(0));
+                TVector<i32> actual;
+                while (rows.TryNextRow()) {
+                    if (nullableKey) {
+                        const auto value = rows.ColumnParser("id").GetOptionalInt32();
+                        UNIT_ASSERT(value);
+                        actual.push_back(*value);
+                    } else actual.push_back(rows.ColumnParser("id").GetInt32());
+                }
+                UNIT_ASSERT_VALUES_EQUAL_C(actual, expected, query << ", present=" << present);
+            }
+        }
+    }
+
     Y_UNIT_TEST(NativeTpchPerformanceFixtureUsesTableApiWithoutFallback) {
         NKikimrConfig::TAppConfig appConfig;
         auto* config = appConfig.MutableTableServiceConfig();

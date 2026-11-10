@@ -23,21 +23,23 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
                 "Int64", "Uint64", "Float", "Double", "String", "Utf8", "Uuid", "Decimal(12,2)",
                 "Date", "Datetime", "Timestamp", "Interval", "Date32", "Datetime64", "Timestamp64", "Interval64"})
         for (const bool nullable : {false, true})
+        for (const bool nullableBound : {false, true})
         for (const auto& [op, callable] : {std::pair{EOpcode::Equal, "=="}, std::pair{EOpcode::Less, "<"},
                 std::pair{EOpcode::LessEqual, "<="}, std::pair{EOpcode::Greater, ">"}, std::pair{EOpcode::GreaterEqual, ">="}}) {
             NTests::TIdTestContext f;
             const auto scalarType = ParseType(name);
             const auto keyType = nullable ? scalarType.Optional() : scalarType;
+            const auto parameterType = nullableBound ? scalarType.Optional() : scalarType;
             const auto key = f.Id("x");
             const auto arena = f.Props.NativeExpressions;
-            const auto predicate = arena->Binary(op, arena->Column(key, keyType), arena->Parameter("bound", scalarType));
+            const auto predicate = arena->Binary(op, arena->Column(key, keyType), arena->Parameter("bound", parameterType));
 
             // Independently construct the old range-extractor boundary. The
             // legacy optimizer is used only as a test oracle, never to form
             // the native predicate or its range representation.
             auto& ctx = f.ExprCtx;
             const auto* fieldType = ExportNativeType(keyType, ctx);
-            const auto* boundType = ExportNativeType(scalarType, ctx);
+            const auto* boundType = ExportNativeType(parameterType, ctx);
             const auto* rowType = ctx.MakeType<TStructExprType>(TVector<const TItemExprType*>{
                 ctx.MakeType<TItemExprType>("x", fieldType)});
             const auto row = ctx.NewArgument(f.Pos, "row"); row->SetTypeAnn(rowType);
@@ -46,7 +48,7 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
             const auto parameter = ctx.NewCallable(f.Pos, "Parameter", {
                 ctx.NewAtom(f.Pos, "bound"), ExpandType(f.Pos, *boundType, ctx)});
             auto legacy = ctx.NewCallable(f.Pos, callable, {member, parameter});
-            if (nullable) {
+            if (nullable || nullableBound) {
                 const auto otherwise = ctx.NewCallable(f.Pos, "Bool", {ctx.NewAtom(f.Pos, "false")});
                 legacy = ctx.NewCallable(f.Pos, "Coalesce", {legacy, otherwise});
             }
@@ -78,7 +80,7 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
             const auto used = actual ? actual->UsedPrefixLen : 0;
             const auto points = actual ? actual->PointPrefixLen : 0;
             if (used != expected.UsedPrefixLen || points != expected.PointPrefixLen)
-                mismatches += TStringBuilder() << keyType.ToString() << " " << callable << ": used=" << used
+                mismatches += TStringBuilder() << keyType.ToString() << " " << callable << " " << parameterType.ToString() << ": used=" << used
                     << '/' << expected.UsedPrefixLen << " points=" << points << '/' << expected.PointPrefixLen << '\n';
         }
         UNIT_ASSERT_C(mismatches.empty(), mismatches);
@@ -90,16 +92,19 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
         using O = EOpcode;
         for (const auto name : {"Float", "Double", "Decimal(12,2)"})
         for (const bool nullable : {false, true})
+        for (const bool nullableBound : {false, true})
         for (const auto op : {O::Equal, O::Less, O::LessEqual, O::Greater, O::GreaterEqual})
-        for (const bool nan : {false, true})
+        for (const unsigned boundKind : {0, 1, 2})
         for (const bool multiple : {false, true})
         for (const auto storage : {NYql::EStorageType::RowStorage, NYql::EStorageType::ColumnStorage}) {
-            if (multiple && op != O::Equal) continue;
+            if ((multiple && op != O::Equal) || (boundKind == 2 && !nullableBound)) continue;
+            const bool nan = boundKind == 1, absent = boundKind == 2, invalid = nan || absent;
             NTests::TIdTestContext f;
             const auto scalar = ParseType(name), keyType = nullable ? scalar.Optional() : scalar;
             const auto key = f.Id("x");
             const auto arena = f.Props.NativeExpressions;
-            const auto parameter = arena->Parameter("bound", scalar);
+            const auto parameterType = nullableBound ? scalar.Optional() : scalar;
+            const auto parameter = arena->Parameter("bound", parameterType);
             auto predicate = arena->Binary(op, arena->Column(key, keyType), parameter);
             if (multiple) {
                 const TScalar other = scalar.Kind == ETypeKind::Decimal ? TScalar{TDecimal{700}} : TScalar{7.0};
@@ -137,7 +142,7 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
                 return expression;
             });
             UNIT_ASSERT(visitedConditions >= 1);
-            const TScalar bound = scalar.Kind == ETypeKind::Decimal
+            const TScalar bound = absent ? TScalar{} : scalar.Kind == ETypeKind::Decimal
                 ? TScalar{TDecimal{nan ? TDecimal::NaN() : 300}}
                 : TScalar{nan ? std::numeric_limits<double>::quiet_NaN() : 3.0};
             auto& ctx = f.ExprCtx;
@@ -155,14 +160,14 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
                 NMiniKQL::TSetup<false> setup(NMiniKQL::GetBuiltinFactory());
                 NCommon::TMkqlCommonCallableCompiler compiler;
                 NCommon::TMkqlBuildContext build(compiler, *setup.PgmBuilder, ctx);
-                const auto literal = LowerNativeLambda(*arena, arena->Literal(scalar, bound), ctx, f.Pos)->TailPtr();
+                const auto literal = LowerNativeLambda(*arena, arena->Literal(parameterType, bound), ctx, f.Pos)->TailPtr();
                 build.Parameters = setup.PgmBuilder->NewStruct({{"$bound", NCommon::MkqlBuildExpr(*literal, build)}});
                 auto graph = setup.BuildGraph(NCommon::MkqlBuildExpr(*expression, build));
                 check(graph->GetValue());
             };
             execute(ranges, [&](const NUdf::TUnboxedValue& values) {
-                UNIT_ASSERT_VALUES_EQUAL_C(values.GetListLength(), (nan ? 0 : 1) + (multiple ? 1 : 0), name << " op=" << unsigned(op));
-                if (nan) return;
+                UNIT_ASSERT_VALUES_EQUAL_C(values.GetListLength(), (invalid ? 0 : 1) + (multiple ? 1 : 0), name << " op=" << unsigned(op));
+                if (invalid) return;
                 auto iterator = values.GetListIterator();
                 NUdf::TUnboxedValue interval;
                 UNIT_ASSERT(iterator.Next(interval));
@@ -191,7 +196,7 @@ Y_UNIT_TEST_SUITE(KqpNativeRangePolicy) {
                     arena->Literal(keyType, {}), &f.Props)}, {}});
                 const auto points = NLookupJoinBuilder::BuildLookupPoints(prefix, ctx, f.Pos);
                 execute(points, [&](const NUdf::TUnboxedValue& values) {
-                    UNIT_ASSERT_VALUES_EQUAL(values.GetListLength(), (nan ? 0 : 1) + (nullable ? 1 : 0) + (multiple ? 1 : 0));
+                    UNIT_ASSERT_VALUES_EQUAL(values.GetListLength(), (invalid ? 0 : 1) + (nullable ? 1 : 0) + (multiple ? 1 : 0));
                 });
             }
         }

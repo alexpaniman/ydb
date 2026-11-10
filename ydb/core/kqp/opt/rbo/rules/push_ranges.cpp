@@ -215,12 +215,17 @@ bool HasUnorderedNativeKeys(NFrontend::TType type) {
 }
 
 // NaN is the largest storage key, but is unordered in SQL comparisons. A
-// parameter bound therefore needs a native validity condition. Finite literals
-// and SQL NULL points are already known and need no runtime condition.
+// parameter bound therefore needs a native validity condition. Comparisons
+// against absent parameters are UNKNOWN and produce no range. IS NULL points
+// bypass this check because they explicitly select the finite NULL storage key.
 std::optional<NFrontend::TExprId> NativeBoundCondition(NFrontend::TExpressionArena& arena, NFrontend::TExprId value) {
     using namespace NFrontend;
+    value = StripNativeOptionalLift(arena, value);
     const auto& node = arena[value];
-    if (!HasUnorderedNativeKeys(node.Type)) return {};
+    if (!HasUnorderedNativeKeys(node.Type)) {
+        if (node.Type.OptionalDepth) return arena.Unary(EOpcode::IsNotNull, value);
+        return {};
+    }
     if (node.Op == EOpcode::Literal) {
         if (std::holds_alternative<std::monostate>(node.Value)) return {};
         const bool nan = node.Type.Kind == ETypeKind::Decimal
@@ -228,7 +233,10 @@ std::optional<NFrontend::TExprId> NativeBoundCondition(NFrontend::TExpressionAre
         if (!nan) return {};
         return arena.Literal({ETypeKind::Bool}, false);
     }
-    return arena.Binary(EOpcode::Equal, value, value);
+    const auto valid = arena.Binary(EOpcode::Equal, value, value);
+    if (!arena[valid].Type.OptionalDepth) return valid;
+    const NFrontend::TExprId alternatives[]{valid, arena.Literal({ETypeKind::Bool}, false)};
+    return arena.Coalesce(alternatives);
 }
 
 // Storage bounds use the key's exact type. Integer comparisons in the native
@@ -249,13 +257,17 @@ std::optional<NFrontend::TExprId> NativeBoundValue(NFrontend::TExpressionArena& 
     const auto& node = arena[id];
     keyType = keyType.Required();
     if (node.Op == EOpcode::Parameter) {
-        if (node.Type == keyType) return id;
+        const auto type = node.Type;
+        const auto position = node.Position;
+        if (type.OptionalDepth > 1) return {};
         // A total integer widening remains a native scalar bound. Emission
         // materializes computed bounds using the existing range transaction.
-        if (!node.Type.OptionalDepth && node.Type.IsIntegral() && keyType.IsIntegral() &&
-            CommonType(node.Type, keyType, node.Position) == keyType)
-            return arena.Convert(id, keyType, node.Position);
-        return {};
+        if (type.Required() != keyType && !(type.IsIntegral() && keyType.IsIntegral() &&
+            CommonType(type.Required(), keyType, position) == keyType)) return {};
+        // The range's validity condition guards this unwrap. Both range and
+        // lookup emission evaluate values only in the condition's true branch.
+        if (type.OptionalDepth) id = arena.Call("Unwrap", std::span{&id, 1}, position);
+        return arena.Convert(id, keyType, position);
     }
     if (node.Op != EOpcode::Literal || std::holds_alternative<std::monostate>(node.Value)) return {};
     if (node.Type == keyType) return id;
@@ -355,6 +367,7 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
     struct TCondition {
         size_t Term;
         TExprId Value;
+        std::optional<TExprId> Validity;
         TType KeyType;
         bool Inclusive;
     };
@@ -402,7 +415,8 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         if (!bound) continue;
         auto& conditions = branchKeys[branch][props.InfoUnitRegistry.Get((*arena)[column].ColumnId).GetColumnName()];
         auto& slot = nullPoint || op == O::Equal ? conditions.Equal : (op == O::Greater || op == O::GreaterEqual ? conditions.Lower : conditions.Upper);
-        if (!slot) slot = TCondition{i, *bound, keyType, nullPoint || op == O::Equal || op == O::GreaterEqual || op == O::LessEqual};
+        if (!slot) slot = TCondition{i, *bound, nullPoint ? std::nullopt : NativeBoundCondition(*arena, value),
+            keyType, nullPoint || op == O::Equal || op == O::GreaterEqual || op == O::LessEqual};
     }
     // Inspect the predicate once, then build each candidate from its physical
     // key order. Choosing an index does not require another typing/lowering pass.
@@ -411,8 +425,8 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         THashSet<size_t> Consumed;
         bool AllConsumed = true;
     };
-    const auto addCondition = [&](std::optional<TExpression>& condition, TExprId value) {
-        if (const auto valid = NativeBoundCondition(*arena, value)) {
+    const auto addCondition = [&](std::optional<TExpression>& condition, std::optional<TExprId> valid) {
+        if (valid) {
             const auto root = condition ? arena->Binary(O::And, condition->GetNativeRoot(), *valid) : *valid;
             condition = TExpression::FromNative(arena, root, &props, read->Pos);
         }
@@ -432,7 +446,7 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
             const auto append = [&](TOpRead::TKeyBound& bound, const TCondition& condition) {
                 bound.Values.push_back(TExpression::FromNative(arena, condition.Value, &props, read->Pos));
                 bound.Inclusive = condition.Inclusive;
-                if (consumed.insert(condition.Term).second) addCondition(range.Condition, condition.Value);
+                if (consumed.insert(condition.Term).second) addCondition(range.Condition, condition.Validity);
             };
             for (const auto& key : metadata.KeyColumnNames) {
                 const auto found = branchKeys[branch].find(key);
@@ -498,14 +512,15 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         auto& points = prefix.NativePoints.emplace();
         for (const auto& column : prefix.Columns) points.Types.push_back(branchKeys.front().at(column).Equal->KeyType);
         THashSet<TString> seen;
-        for (const auto& range : *candidate.Info.NativeRanges) {
+        for (size_t branch = 0; branch < candidate.Info.NativeRanges->size(); ++branch) {
+            const auto& range = candidate.Info.NativeRanges->at(branch);
             TStringBuilder key;
             for (size_t i = 0; i < length; ++i) {
                 const auto& value = range.Lower.Values.at(i);
                 auto root = value.GetNativeRoot();
-                while ((*arena)[root].Op == O::Convert) {
+                while ((*arena)[root].Op == O::Convert || (*arena)[root].Op == O::Unwrap) {
                     const auto& conversion = (*arena)[root];
-                    key << 'c' << conversion.Type.ToString() << ':';
+                    key << unsigned(conversion.Op) << conversion.Type.ToString() << ':';
                     root = conversion.Arguments[0];
                 }
                 const auto& node = (*arena)[root];
@@ -516,7 +531,8 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
             if (!seen.insert(key).second) continue;
             auto& point = points.Rows.emplace_back();
             point.Values.assign(range.Lower.Values.begin(), range.Lower.Values.begin() + length);
-            for (const auto& value : point.Values) addCondition(point.Condition, value.GetNativeRoot());
+            for (const auto& column : prefix.Columns)
+                addCondition(point.Condition, branchKeys[branch].at(column).Equal->Validity);
             if (points.Rows.size() > limit) return;
         }
         prefix.ExpectedMaxPoints = points.Rows.size();
