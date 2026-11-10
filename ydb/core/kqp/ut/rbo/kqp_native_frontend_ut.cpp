@@ -446,6 +446,36 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         }
     }
 
+    Y_UNIT_TEST(NullableStorageStringKernelsRespectBooleanUseContexts) {
+        using namespace NFrontend;
+        using O = EOpcode;
+        TExpressionArena arena;
+        const auto text = arena.Column(1, {ETypeKind::Utf8, true});
+        const auto needle = arena.Literal({ETypeKind::Utf8}, std::string("a"));
+        const auto flag = arena.Column(2, {ETypeKind::Bool, true});
+        for (const auto operation : {O::StartsWith, O::EndsWith, O::Contains}) {
+            const auto string = arena.Binary(operation, text, needle);
+            UNIT_ASSERT(arena[string].Type.OptionalDepth);
+            for (const auto predicate : {string, arena.Binary(O::And, string, flag), arena.Binary(O::Or, flag, string)}) {
+                UNIT_ASSERT(CanLowerNativeOlapPredicate(arena, predicate));
+                TExprContext ctx;
+                const auto lowered = LowerNativeOlapPredicate(arena, predicate, ctx, {});
+                UNIT_ASSERT(FindNodes(lowered, [](const auto& node) { return node->IsCallable("KqpOlapApply"); }).empty());
+            }
+            const TExprId alternatives[]{string, arena.Literal({ETypeKind::Bool}, true)};
+            const auto negated = arena.Unary(O::Not, string);
+            const auto value = arena.Coalesce(alternatives);
+            // The same shared node can be used both as a filter and as a
+            // nullable value. Checking one context must not admit the other.
+            for (const auto predicate : {negated, value, arena.Binary(O::Or, string, negated),
+                    arena.Binary(O::Or, negated, string), arena.Binary(O::And, string, value),
+                    arena.Unary(O::Not, arena.Binary(O::Or, string, flag))}) {
+                UNIT_ASSERT(!CanLowerNativeOlapPredicate(arena, predicate));
+                UNIT_ASSERT(CanLowerNativeOlapPredicate(arena, predicate, true));
+            }
+        }
+    }
+
     Y_UNIT_TEST(GeneratedWriteExpressionsStayNativeUntilEmission) {
         using namespace NFrontend;
         NTests::TIdTestContext f;

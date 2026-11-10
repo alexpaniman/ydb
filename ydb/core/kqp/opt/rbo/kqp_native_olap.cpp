@@ -43,7 +43,7 @@ using O = NFrontend::EOpcode;
 using NDetail::OlapBinaryName;
 using NDetail::OlapIdentityConversion;
 
-bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend::TExprNode& node) {
+bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend::TExprNode& node, bool filterTruth) {
     if (node.Type.IsCollection() || node.Type.OptionalDepth > 1 || node.Type.IsJson() || node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
     if (OlapIdentityConversion(arena, node)) return true;
     if (node.Op >= O::Add && node.Op <= O::Modulo && !node.Type.IsNumeric()) {
@@ -53,9 +53,10 @@ bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend
     }
     if (!OlapBinaryName(node.Op).empty()) {
         // Storage string kernels return a required Bool and map NULL to false.
-        // Nullable native predicates need the scalar evaluator to preserve
-        // their type and three-valued semantics under NOT, COALESCE, etc.
-        if (node.Type.OptionalDepth &&
+        // A WHERE predicate and its positive AND/OR operands only distinguish
+        // true from non-true. Value-sensitive contexts (NOT, COALESCE, etc.)
+        // must retain NULL and use the scalar evaluator instead.
+        if (!filterTruth && node.Type.OptionalDepth &&
             (node.Op == O::Contains || node.Op == O::StartsWith || node.Op == O::EndsWith)) return false;
         if (node.Arguments.size() != 2) return false;
         // The existing storage kernels cannot consume the same column twice.
@@ -102,28 +103,41 @@ bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFron
         for (const auto arg : predicate.Arguments)
             if (arena[arg].Op == O::Literal && std::holds_alternative<std::monostate>(arena[arg].Value)) return false;
     }
-    std::unordered_map<NFrontend::TExprId, bool> hasColumn;
-    std::vector<std::pair<NFrontend::TExprId, bool>> pending{{root, false}};
+    struct TSupport {
+        bool HasColumn = false;
+        unsigned Checked = 0;
+    };
+    struct TPending {
+        NFrontend::TExprId Id;
+        bool Ready;
+        bool FilterTruth;
+    };
+    std::unordered_map<NFrontend::TExprId, TSupport> supported;
+    std::vector<TPending> pending{{root, false, true}};
     while (!pending.empty()) {
-        const auto [id, ready] = pending.back(); pending.pop_back();
-        if (hasColumn.contains(id)) continue;
+        const auto [id, ready, filterTruth] = pending.back(); pending.pop_back();
+        const unsigned mode = filterTruth ? 1 : 2;
+        if (const auto found = supported.find(id); found != supported.end() && (found->second.Checked & mode)) continue;
         const auto& node = arena[id];
-        if (!OlapNodeSupported(arena, node) && !(allowScalarApply && OlapScalarNodeSupported(node))) return false;
+        if (!OlapNodeSupported(arena, node, filterTruth) && !(allowScalarApply && OlapScalarNodeSupported(node))) return false;
         if (!ready) {
-            pending.emplace_back(id, true);
-            for (auto arg : node.Arguments) pending.emplace_back(arg, false);
+            pending.push_back({id, true, filterTruth});
+            const bool childTruth = filterTruth && (node.Op == O::And || node.Op == O::Or);
+            for (auto arg : node.Arguments) pending.push_back({arg, false, childTruth});
             continue;
         }
         bool column = node.Op == O::Column;
         for (auto arg : node.Arguments) {
             // Storage streaming logic needs a row count before combining
             // branches. Keep scalar-only Boolean branches in compute.
-            if (!allowScalarApply && (node.Op == O::And || node.Op == O::Or) && !hasColumn.at(arg)) return false;
-            column |= hasColumn.at(arg);
+            if (!allowScalarApply && (node.Op == O::And || node.Op == O::Or) && !supported.at(arg).HasColumn) return false;
+            column |= supported.at(arg).HasColumn;
         }
-        hasColumn.emplace(id, column);
+        auto& result = supported[id];
+        result.HasColumn = column;
+        result.Checked |= mode;
     }
-    return hasColumn.at(root);
+    return supported.at(root).HasColumn;
 }
 
 bool CanLowerNativeOlapProjection(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root) {
