@@ -233,9 +233,33 @@ Parser-only CLI timings exclude catalog I/O, RBO and backend compilation.
 The full-corpus compilation checkpoint covers 6,979 queries with native-required
 admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and
 two additional 1C samples. This establishes compilation coverage, not complete
-effects parity or negligible frontend cost. The latest standalone run has 223
-passing tests. Full warmed before/after and untraced controls remain separate
-completion checks.
+effects parity or negligible frontend cost. The latest completed standalone run
+has 223 passing tests; subsequent changes require a fresh test run.
+
+The full warmed comparison of native revision `9c5cb3fbadd` against
+`d11af71c6d026b84c3e72650813372f3ffa979c2` completed five untraced warmup passes
+and three traced measured passes per query. All 20,937 measured native
+compilations succeeded, with no fallback. The pre-migration compiler failed
+347 1C queries and four ClickBench queries; these remain visible in coverage
+reports and are excluded from speed ratios.
+
+| Workload | Queries successful in both versions | Geometric mean native/before compiler time | Median frontend/RBO time |
+| --- | ---: | ---: | ---: |
+| 1C | 6,466 | 0.212 | 0.665 |
+| TPC-H | 22 | 0.503 | 0.253 |
+| TPC-DS | 99 | 0.536 | 0.246 |
+| ClickBench | 39 | 0.476 | 0.921 |
+| 1C medium | 1 | 0.574 | 0.210 |
+| 1C tiny | 1 | 0.275 | 0.361 |
+
+Speed ratios use per-query medians on the common successful cohort. Frontend
+time includes parsing, table discovery, binding/scalar typing and translation
+to operators. Operator typing is already inside the RBO span. These results
+show a compiler speedup but do **not** establish negligible frontend overhead,
+particularly on 1C and ClickBench. Full untraced controls are a separate pending
+check. The binaries, traces, hashes, commands and reports are retained locally
+under `/tmp/yqlv2-goal/full-warmed-candidate3`; the reproducible driver is in
+[`tools/bench_compilation`](tools/bench_compilation/README.md).
 
 ### Earlier read-path validation, 2026-11-10
 
