@@ -10,6 +10,8 @@ import statistics
 import subprocess
 import time
 
+from run import binary_digest
+
 
 def digest(path):
     with Path(path).open('rb') as stream:
@@ -66,10 +68,12 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     manifest = dict(source=str(manifest_path.resolve()), source_sha256=digest(manifest_path),
                     script_sha256=digest(__file__), tracing=False, repeats=args.repeats, warmups=args.warmups, batches=[])
+    # Match the traced driver: verify each frozen runner once per invocation.
+    # Re-reading an 11 GB binary for every batch can dominate control runs.
+    for mode, binary in source['binaries'].items():
+        assert binary_digest(Path(binary)) == source['binary_sha256'][mode], binary
     for original in source['batches']:
         mode, workload = original['variant'], original['workload']
-        binary = Path(source['binaries'][mode])
-        assert digest(binary) == source['binary_sha256'][mode], binary
         destination = args.out / mode / workload / Path(original['trace']).parent.name
         destination.mkdir(parents=True, exist_ok=True)
         # Keep the same schema, queries, config and runner flags; only the
