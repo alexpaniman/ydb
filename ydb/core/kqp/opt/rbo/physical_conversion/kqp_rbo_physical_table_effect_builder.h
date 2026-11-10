@@ -23,4 +23,6 @@ NYql::TExprNode::TPtr LowerTableSinkSettings(const TTableSinkSettings& sink, NYq
 // Runtime generation uses the same catalog defaults as ordinary table writes.
 NYql::TExprNode::TPtr LowerTableDefaultConnection(NYql::TExprNode::TPtr inputStage,
     const TOpTableEffect& effect, NYql::TExprContext& ctx);
+NYql::TExprNode::TPtr LowerTableGeneratedColumns(NYql::TExprNode::TPtr input,
+    const TOpTableEffect& effect, NYql::TExprContext& ctx);
 }

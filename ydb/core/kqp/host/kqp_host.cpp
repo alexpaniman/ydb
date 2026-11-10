@@ -1582,7 +1582,11 @@ private:
                             auto column = [&](const TString& name) {
                                 const auto& item = meta->Columns.at(name);
                                 sinkWrites &= !item.IsBuildInProgress && !item.SetNotNullInProgress;
-                                if (item.IsDefaultFromExpression() || item.DefaultExpression) writes.Defaults.emplace_back(name, F::EColumnDefault::Expression);
+                                if (item.IsDefaultFromExpression() || item.DefaultExpression) {
+                                    if (!item.DefaultExpression) throw F::TFrontendError(pos, "missing generated expression: " + std::string(name));
+                                    writes.GeneratedColumns.push_back({std::string(name), std::string(item.DefaultExpression->ExprText),
+                                        item.DefaultExpression->Stored});
+                                }
                                 else if (item.IsDefaultFromLiteral()) writes.Defaults.emplace_back(name, F::EColumnDefault::Literal);
                                 else if (item.IsDefaultFromSequence()) writes.Defaults.emplace_back(name, F::EColumnDefault::Sequence);
                                 auto type = F::ParseType(std::string_view(item.Type.data(), item.Type.size()), pos);

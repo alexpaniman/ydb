@@ -36,6 +36,27 @@ TExprNode::TPtr NKikimr::NKqp::LowerTableDefaultConnection(TExprNode::TPtr input
         .Done().Ptr();
 }
 
+TExprNode::TPtr NKikimr::NKqp::LowerTableGeneratedColumns(TExprNode::TPtr input,
+    const TOpTableEffect& effect, TExprContext& ctx) {
+    if (effect.Options.GeneratedColumns.empty()) return input;
+    const auto pos = effect.Pos;
+    auto row = ctx.NewArgument(pos, "prepared_row");
+    TExprNode::TListType fields;
+    const auto member = [&](const TString& name) {
+        auto atom = ctx.NewAtom(pos, name);
+        fields.push_back(ctx.NewList(pos, {atom, ctx.NewCallable(pos, "Member", {row, atom})}));
+    };
+    for (const auto& [id, name] : effect.GetColumns().Items()) member(name);
+    if (effect.Options.DefaultColumns) for (const auto& name : *effect.Options.DefaultColumns) member(name);
+    for (const auto& [name, expression] : effect.Options.GeneratedColumns) {
+        const auto lambda = LowerRowExpressionLambda(*expression, ctx, pos);
+        auto value = ctx.ReplaceNode(lambda->TailPtr(), lambda->Head().Head(), row);
+        fields.push_back(ctx.NewList(pos, {ctx.NewAtom(pos, name), std::move(value)}));
+    }
+    auto body = ctx.NewCallable(pos, "AsStruct", std::move(fields));
+    return ctx.NewCallable(pos, "OrderedMap", {std::move(input), ctx.NewLambda(pos, ctx.NewArguments(pos, {row}), std::move(body))});
+}
+
 TExprNode::TPtr NKikimr::NKqp::LowerTableSinkSettings(const TTableSinkSettings& sink, TExprContext& ctx, TPositionHandle Pos, ui64 priority) {
     const auto& Options = sink.Options;
     const auto EffectType = sink.EffectType;

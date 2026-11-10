@@ -29,6 +29,12 @@ syntax, never revisit the CST or reparse individual pragmas.
 Only checked compilation can construct `TCompiledProgram`; conversion consumes it
 once. A raw binder result cannot enter RBO.
 
+`CompileRowExpression` parses catalog scalar SQL through the same expression
+grammar and binder against an explicit row schema. It checks and folds native
+expressions without query bindings or table access. Generated write columns
+share these immutable expressions within a compilation; catalog expression text
+is not compiled through the legacy SQL or YQL frontend.
+
 `PrepareExecution` owns statement dependencies and shared producers. A single
 result without named producers needs no scheduling graph. Other programs retain
 source-order read/write dependencies and materialize shared producers at first
@@ -140,7 +146,13 @@ Effects use the existing table sink and transaction boundaries. Omitted literal
 and sequence defaults are effect metadata, expanded once through the existing
 sequencer connection during emission. UPSERT retains stored values when a column
 was omitted; explicit values, including NULL, take precedence over defaults.
-Generated expression defaults and INSERT OR REVERT remain explicit gaps, along with the unsupported
+Stored generated columns are evaluated after sequence and literal defaults,
+using the same prepared row for the sink and RETURNING. INSERT/REPLACE supply
+omitted nullable dependencies as NULL. UPSERT/UPDATE can generate values when all
+changed dependencies are available in the input; cases requiring existing stored
+dependencies remain explicitly unsupported. Explicit GENERATED ALWAYS values,
+self/cross-generated dependencies and non-deterministic expressions are rejected.
+INSERT OR REVERT remains an explicit gap, along with the unsupported
 forms listed below. Imported effects tests cover mixed reads/writes, indexes,
 shared producers and interactive transactions; their expansion is still in progress.
 
@@ -189,7 +201,8 @@ Important exclusions remain explicit:
 
 - DDL, USE, PostgreSQL values, external/temporary tables, index-view syntax,
   table hints/sampling and unrecognized settings.
-- INSERT OR REVERT, batch writes and omitted generated expression defaults;
+- INSERT OR REVERT, batch writes, virtual generated columns and generated writes
+  requiring stored dependency lookup;
   dynamic Int64 LIMIT/OFFSET and general row-valued scalar expressions.
 - Named USING keys, tuple IN subqueries, duplicate non-key star names,
   and FULL JOIN residual predicates other than column equality keys.
@@ -249,7 +262,7 @@ The full-corpus compilation checkpoint covers 6,979 queries with native-required
 admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and
 two additional 1C samples. This establishes compilation coverage, not complete
 effects parity or negligible frontend cost. The latest completed standalone run
-has 250 passing tests. JOIN USING additionally has runtime value/type comparisons
+has 255 passing tests. JOIN USING additionally has runtime value/type comparisons
 against explicit legacy ON/coalesce forms in scalar/block and nullable/required
 configurations, plus a handoff check with zero YQL expression/type allocations.
 The imported indexed-delete test had expectations explicitly marked as a legacy

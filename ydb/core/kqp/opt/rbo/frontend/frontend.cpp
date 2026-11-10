@@ -713,7 +713,7 @@ private:
     };
 
     void CheckSize(TSourcePosition pos) const {
-        if (Program.Expressions.Size() + Program.Relations.size() + Program.Columns.size() + Program.PlannerSettings.size() > Settings.MaxNodes) {
+        if (Program.Expressions.Size() + Program.Relations.size() + Program.Columns.size() + Program.PlannerSettings.size() + GeneratedNodes > Settings.MaxNodes) {
             throw TResourceLimitError(pos, "bound program size limit exceeded");
         }
     }
@@ -952,6 +952,61 @@ private:
         return {Relation(std::move(read)), std::move(scope)};
     }
 
+    const TGeneratedValues& GeneratedColumns(const TCatalogTable& table, TSourcePosition pos) {
+        const auto& schema = *table.WriteSchema;
+        static const TGeneratedValues empty;
+        if (schema.GeneratedColumns.empty()) return empty;
+        if (const auto found = Generated.find(table.Name); found != Generated.end()) return found->second;
+        std::unordered_set<std::string_view> names;
+        for (const auto& column : schema.GeneratedColumns) {
+            if (!names.insert(column.Name).second) throw TFrontendError(pos, "duplicate generated column: " + column.Name);
+            if (!column.Stored) throw TUnsupportedFeature(EFeature::Statement, pos, "virtual generated columns require native read projection");
+            if (std::find(schema.Keys.begin(), schema.Keys.end(), column.Name) != schema.Keys.end())
+                throw TFrontendError(pos, "primary key cannot be a generated column: " + column.Name);
+        }
+        for (const auto& [name, kind] : schema.Defaults) if (names.contains(name))
+            throw TFrontendError(pos, "generated column cannot also have a default: " + name);
+        std::vector<TCatalogColumn> inputs;
+        for (const auto& column : table.Columns) if (!names.contains(column.Name)) inputs.push_back(column);
+        TGeneratedValues values;
+        for (const auto& column : schema.GeneratedColumns) {
+            const auto target = std::find_if(table.Columns.begin(), table.Columns.end(),
+                [&](const auto& item) { return item.Name == column.Name; });
+            if (target == table.Columns.end()) throw TFrontendError(pos, "unknown generated column: " + column.Name);
+            TParseSettings limits;
+            limits.MaxNodes = Settings.MaxNodes;
+            auto value = CompileRowExpression(column.Expression, inputs, target->Type, limits);
+            if (!value.Expressions[value.Root].Repeatable)
+                throw TFrontendError(pos, "generated expressions must be deterministic: " + column.Name);
+            GeneratedNodes += value.Expressions.Size();
+            CheckSize(pos);
+            values.emplace_back(column.Name, std::make_shared<const TRowExpression>(std::move(value)));
+        }
+        return Generated.emplace(table.Name, std::move(values)).first->second;
+    }
+
+    static void PrepareGeneratedColumns(const TGeneratedValues& generated,
+        const std::unordered_set<std::string>& written, const std::unordered_set<std::string>& keys,
+        TBoundEffect& effect, TSourcePosition pos) {
+        if (effect.Kind != EWriteKind::Delete) for (const auto& [name, value] : generated) {
+            std::unordered_set<std::string_view> dependencies;
+            for (const auto& node : value->Expressions.Nodes()) if (node.Op == EOpcode::Column)
+                dependencies.insert(value->Columns.at(node.ColumnId));
+            // UPDATE changes generated values only when one of their inputs
+            // changes. Primary keys identify rows and cannot change here.
+            if (effect.Kind == EWriteKind::Update && std::none_of(dependencies.begin(), dependencies.end(),
+                    [&](const auto dependency) { return written.contains(std::string(dependency)) && !keys.contains(std::string(dependency)); })) continue;
+            for (const auto dependency : dependencies) {
+                const auto key = std::string(dependency);
+                const bool defaultOnInsert = effect.Kind == EWriteKind::Upsert && !keys.contains(key) &&
+                    std::find(effect.DefaultColumns.begin(), effect.DefaultColumns.end(), key) != effect.DefaultColumns.end();
+                if (!written.contains(key) || defaultOnInsert)
+                    throw TUnsupportedFeature(EFeature::Statement, pos, "generated expression requires stored dependency lookup: " + key);
+            }
+            effect.GeneratedColumns.emplace_back(name, value);
+        }
+    }
+
     TQueryResult Write(const TWriteStatement& write) {
         const auto pos = write.Target.Position;
         const auto& table = ResolveTable(write.Target);
@@ -976,6 +1031,11 @@ private:
         if (keys.empty()) throw TFrontendError(pos, "write catalog has no primary key");
         for (const auto& name : schema.Keys) columnType(name);
         for (const auto& [name, kind] : schema.Defaults) columnType(name);
+        const auto& generated = GeneratedColumns(table, pos);
+        auto checkExplicit = [&](const std::string& name) {
+            for (const auto& [column, value] : generated) if (name == column)
+                throw TFrontendError(pos, "Column " + name + " is a GENERATED ALWAYS column and its value cannot be set explicitly");
+        };
 
         TBoundEffect effect{};
         effect.Kind = write.Kind;
@@ -986,6 +1046,7 @@ private:
         std::vector<TDefinition> definitions;
         auto add = [&](const std::string& name, TExprId value) {
             const auto type = columnType(name);
+            checkExplicit(name);
             if (!written.insert(name).second) throw TFrontendError(pos, "duplicate write column: " + name);
             value = Program.Expressions.Convert(value, type, pos);
             const auto id = Column(name, {}, type, pos);
@@ -1008,6 +1069,7 @@ private:
             std::unordered_set<std::string> labels;
             for (const auto& name : write.Columns) {
                 columnType(name);
+                checkExplicit(name);
                 if (!labels.insert(name).second) throw TFrontendError(pos, "duplicate write column: " + name);
             }
             TRelation values{ERelation::UnionAll, pos};
@@ -1055,8 +1117,6 @@ private:
         }
         if (write.Kind == EWriteKind::Insert || write.Kind == EWriteKind::Upsert || write.Kind == EWriteKind::Replace) {
             for (const auto& [name, kind] : schema.Defaults) if (!written.contains(name)) {
-                if (kind == EColumnDefault::Expression)
-                    throw TUnsupportedFeature(EFeature::Statement, pos, "omitted generated expression: " + name);
                 // Runtime generation belongs to the effect, after its input is
                 // evaluated. These are storage names, not input column IDs.
                 effect.DefaultColumns.push_back(name);
@@ -1066,11 +1126,13 @@ private:
         for (const auto& key : schema.Keys) if (!written.contains(key))
             throw TFrontendError(pos, "missing key column in input: " + key);
         if (write.Kind == EWriteKind::Insert || write.Kind == EWriteKind::Replace) {
+            for (const auto& [name, value] : generated) written.insert(name);
             for (const auto& column : table.Columns) if (!written.contains(column.Name)) {
                 if (!column.Type.OptionalDepth) throw TFrontendError(pos, "missing non-nullable write column: " + column.Name);
                 add(column.Name, Program.Expressions.Literal(column.Type, {}, pos));
             }
         }
+        PrepareGeneratedColumns(generated, written, keys, effect, pos);
         TRelation relation{ERelation::Effect, pos};
         relation.Table = table.Name;
         relation.Inputs = {Map(input, std::move(definitions), pos)};
@@ -2167,6 +2229,8 @@ private:
         return name.Text;
     }
 
+    std::unordered_map<std::string, TGeneratedValues> Generated;
+    std::size_t GeneratedNodes = 0;
     const TParsedQuery& Syntax;
     const TTableResolver& Catalog;
     const TBindSettings& Settings;
@@ -2520,7 +2584,7 @@ std::string_view SupportManifest() {
 "relations":["read","project","filter","on-join","using-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery","named-query-in","effect"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Date32","Datetime64","Timestamp64","Interval64","Uuid","Decimal","Json","JsonDocument","Null","scalar optionals, including explicit nested optional casts"],
 "aggregates":["count","count_if","sum","avg","min","max","min_by","max_by","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
-"effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; literal and sequence defaults at emission; generated expression defaults, INSERT OR REVERT and batch writes are unsupported"],
+"effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; literal and sequence defaults followed by native stored generated expressions at emission; virtual generated columns, generated writes requiring stored dependency lookup, INSERT OR REVERT and batch writes are unsupported"],
 "volatile_operations":["RandomUuid(dependencies)","YQL::RandomUuid() syntax for a query-scoped internal UUID input"],
 "math_operations":["Math::IsNaN on typed integer/Float/Double inputs"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],

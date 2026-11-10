@@ -234,6 +234,8 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                         options.DefaultColumns.emplace();
                         for (const auto& name : effect.DefaultColumns) options.DefaultColumns->push_back(String(name));
                     }
+                    for (const auto& [name, value] : effect.GeneratedColumns)
+                        options.GeneratedColumns.emplace_back(String(name), value);
                     TOrderedIUs<TString> columns, returning;
                     for (const auto& [id, name] : effect.Columns) {
                         columns.Append(id, String(name)); options.Columns->push_back(String(name));

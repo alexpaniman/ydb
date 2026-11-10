@@ -446,6 +446,32 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         }
     }
 
+    Y_UNIT_TEST(GeneratedWriteExpressionsStayNativeUntilEmission) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        const auto types = f.ExprCtx.TypeNodes.size();
+        auto query = CompileNativeToRbo("INSERT INTO t (payload) VALUES (7) RETURNING id, g", [](auto, auto) {
+            TWriteSchema writes{{"id"}, {{"id", EColumnDefault::Sequence}}, false};
+            writes.GeneratedColumns = {{"g", "id * 10 + COALESCE(payload, 0)"}};
+            return TNativeTable{{"t", {{"id", {ETypeKind::Int32}}, {"payload", {ETypeKind::Int32, true}},
+                {"g", {ETypeKind::Int32, true}}}, std::move(writes)}, TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
+        }, f.ExprCtx);
+        auto& root = *query.Roots.front();
+        UNIT_ASSERT(ComputeTypesWithoutBackend(root, f.RboCtx) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+        const auto& effect = CastOperator<TOpTableEffect>(*root.GetInput());
+        UNIT_ASSERT_VALUES_EQUAL(effect.Options.GeneratedColumns.size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(effect.Options.GeneratedColumns[0].first, "g");
+        const auto lambda = LowerRowExpressionLambda(*effect.Options.GeneratedColumns[0].second, f.ExprCtx, f.Pos);
+        UNIT_ASSERT(AreAllNodesTypeAnnotated(*lambda));
+        UNIT_ASSERT(!NeedsRboCompatibilityLowering(lambda));
+        const auto members = FindNodes(lambda, [](const auto& node) { return node->IsCallable("Member"); });
+        UNIT_ASSERT_VALUES_EQUAL(members.size(), 2);
+        for (const auto& member : members) UNIT_ASSERT(member->Tail().IsAtom("id") || member->Tail().IsAtom("payload"));
+    }
+
     Y_UNIT_TEST(HandoffOwnsOrderedResultsParametersAndExecutionMetadata) {
         using namespace NFrontend;
         NTests::TIdTestContext f;

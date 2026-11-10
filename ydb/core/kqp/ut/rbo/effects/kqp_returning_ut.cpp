@@ -155,7 +155,9 @@ Y_UNIT_TEST_QUAD(SequencedWritePreparation, PhysicalStagePeephole, CompileTimeDe
     )";
     auto explained = session.ExplainDataQuery(insert).GetValueSync();
     UNIT_ASSERT_C(explained.IsSuccess(), explained.GetIssues().ToString());
-    UNIT_ASSERT_STRING_CONTAINS(explained.GetPlan(), "\"Sequencer\"");
+    // Defaults are a physical connection after RBO stage assignment. Check
+    // the executable graph, rather than expecting a new logical operator.
+    UNIT_ASSERT_STRING_CONTAINS(explained.GetAst(), "KqpCnSequencer");
     auto inserted = session.ExecuteDataQuery(insert, TTxControl::BeginTx().CommitTx()).GetValueSync();
     UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
     CompareYson("[[1;[7];[17]];[2;[7];[27]]]", FormatResultSetYson(inserted.GetResultSet(0)));
@@ -169,6 +171,49 @@ Y_UNIT_TEST_QUAD(SequencedWritePreparation, PhysicalStagePeephole, CompileTimeDe
     )", TTxControl::BeginTx().CommitTx()).GetValueSync();
     UNIT_ASSERT_C(stored.IsSuccess(), stored.GetIssues().ToString());
     CompareYson("[[1;[7];[17]];[2;[7];[27]];[3;[7];[37]]]", FormatResultSetYson(stored.GetResultSet(0)));
+}
+
+Y_UNIT_TEST_TWIN(GeneratedRowsMatchLegacy, PhysicalStagePeephole) {
+    auto config = ReturningAppConfig();
+    config.MutableFeatureFlags()->SetEnableGeneratedStored(true);
+    config.MutableTableServiceConfig()->SetEnableNewRBOPhysicalStagePeephole(PhysicalStagePeephole);
+    TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+    auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+    for (const auto* table : {"LegacyRows", "NativeRows"}) {
+        const auto created = session.ExecuteSchemeQuery(TStringBuilder() << "CREATE TABLE " << table << R"( (
+            id Int32 NOT NULL,
+            payload Int32,
+            tag String,
+            g Int32 GENERATED ALWAYS AS (id * 10 + COALESCE(payload, 0)) STORED,
+            h Int32 GENERATED ALWAYS AS (COALESCE(payload, 0) + 1) STORED,
+            PRIMARY KEY (id)
+        );)").GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+    }
+    const TVector<TString> statements{
+        "INSERT INTO $table (id, payload) VALUES (1, 7), (2, NULL) RETURNING id, payload, g, h;",
+        "INSERT INTO $table (id) SELECT 3 AS id RETURNING id, payload, g, h;",
+        "REPLACE INTO $table (id) VALUES (1) RETURNING id, payload, g, h;",
+        "UPSERT INTO $table (id, payload) VALUES (1, 9), (4, 8) RETURNING id, payload, g, h;",
+        "UPDATE $table SET payload = COALESCE(payload, 0) + 2 WHERE id < 3 RETURNING id, payload, g, h;",
+        "UPDATE $table ON (id, payload) VALUES (3, 5) RETURNING id, payload, g, h;",
+        "UPDATE $table SET tag = 'changed' WHERE id = 1 RETURNING id, payload, g, h;",
+        "DELETE FROM $table WHERE id = 2 RETURNING id, payload, g, h;",
+        "SELECT id, payload, g, h FROM $table ORDER BY id;",
+    };
+    TVector<TString> expected;
+    for (const bool native : {false, true}) {
+        if (native) EnableNewRbo(kikimr);
+        for (std::size_t i = 0; i < statements.size(); ++i) {
+            auto sql = statements[i];
+            SubstGlobal(sql, "$table", native ? "NativeRows" : "LegacyRows");
+            const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+            const auto rows = FormatResultSetYson(result.GetResultSet(0));
+            if (native) CompareYson(expected[i], rows);
+            else expected.push_back(rows);
+        }
+    }
 }
 
 Y_UNIT_TEST_TWIN(LiteralDefaultsPreserveWriteModeSemantics, CompileTimeDefaults) {

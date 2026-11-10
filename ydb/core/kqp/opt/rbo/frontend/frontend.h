@@ -44,12 +44,21 @@ private:
 
 // A missing write schema identifies a read-only catalog object. Storage keys
 // and defaults belong to table metadata, not scalar/parameter field types.
-enum class EColumnDefault : std::uint8_t { Literal, Sequence, Expression };
+enum class EColumnDefault : std::uint8_t { Literal, Sequence };
+
+struct TGeneratedColumn {
+    std::string Name;
+    std::string Expression;
+    bool Stored = true;
+};
+
+using TGeneratedValues = std::vector<std::pair<std::string, std::shared_ptr<const TRowExpression>>>;
 
 struct TWriteSchema {
     std::vector<std::string> Keys;
     std::vector<std::pair<std::string, EColumnDefault>> Defaults;
     bool HasIndexes = false;
+    std::vector<TGeneratedColumn> GeneratedColumns = {};
 };
 
 struct TCatalogTable {
@@ -101,6 +110,7 @@ struct TBoundEffect {
     std::vector<std::pair<TColumnId, std::string>> Columns;
     std::vector<std::pair<TColumnId, std::string>> Returning;
     std::vector<std::string> DefaultColumns;
+    TGeneratedValues GeneratedColumns;
     bool HasIndexes = false;
     bool InputRows = false;
     bool Batch = false;

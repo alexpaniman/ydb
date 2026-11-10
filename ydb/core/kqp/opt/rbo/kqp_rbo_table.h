@@ -10,6 +10,8 @@ namespace NYql { struct TKikimrTableMetadata; }
 
 namespace NKikimr::NKqp {
 
+namespace NFrontend { struct TRowExpression; }
+
 // A catalog identity, not a backend expression. Native column types survive
 // index selection and logical copying without allocating YQL annotations.
 struct TRboTable {
@@ -45,6 +47,8 @@ struct TEffectOptions {
     std::optional<TString> OnConflict;
     std::optional<bool> IsBatch;
     std::optional<TVector<TVector<TString>>> Settings;
+    // Immutable native expressions evaluated over storage names after defaults.
+    TVector<std::pair<TString, std::shared_ptr<const NFrontend::TRowExpression>>> GeneratedColumns = {};
 };
 
 struct TTableSinkSettings {

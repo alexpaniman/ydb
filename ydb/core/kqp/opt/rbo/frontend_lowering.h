@@ -18,7 +18,7 @@ class IOperator;
 NYql::TExprNode::TPtr LowerTable(const TRboTable& table, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
 const NYql::TTypeAnnotationNode* ExportOperatorType(const IOperator& op, NYql::TExprContext& ctx);
 const NYql::TTypeAnnotationNode* ExportIUType(const IOperator& op, unsigned int id, NYql::TExprContext& ctx);
-namespace NFrontend { class TParameterType; }
+namespace NFrontend { class TParameterType; struct TRowExpression; }
 
 // The execution compatibility boundary. The native frontend and its type
 // checker never include this header or depend on YQL. Each native operation
@@ -31,6 +31,8 @@ NYql::TExprNode::TPtr LowerNativeParameter(const TString& name, const NFrontend:
     NYql::TExprContext& ctx, NYql::TPositionHandle pos);
 NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena,
     NFrontend::TExprId root, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
+NYql::TExprNode::TPtr LowerRowExpressionLambda(const NFrontend::TRowExpression& expression,
+    NYql::TExprContext& ctx, NYql::TPositionHandle pos);
 
 // Physical builders explicitly cross the scalar execution boundary here.
 // Native lowering produces a fresh backend graph owned by ctx; neither that

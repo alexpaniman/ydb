@@ -262,6 +262,7 @@ TVector<TExprNode::TPtr> TPhysicalQueryBuilder::BuildPhysicalStageGraph(int root
                     stageInputArgs = {argument};
                     body = Build<TCoToStream>(ctx, pos).Input(argument).Done().Ptr();
                 }
+                body = LowerTableGeneratedColumns(std::move(body), effect, ctx);
                 stage = BuildDqPhySinkStage(stageInputConnections, stageInputArgs, body,
                     NYql::NDq::TDqStageSettings::New(stageGUID).BuildNode(ctx, pos),
                     LowerTableSinkSettings(graph.GetSinkSettings(id), ctx, pos, Roots[rootIdx]->PlanProps.EffectPriority),

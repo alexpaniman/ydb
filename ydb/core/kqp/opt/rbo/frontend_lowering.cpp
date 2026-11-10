@@ -1,4 +1,5 @@
 #include "frontend_lowering.h"
+#include "frontend/frontend.h"
 #include "kqp_operator.h"
 
 #include <yql/essentials/core/yql_expr_type_annotation.h>
@@ -95,8 +96,9 @@ TExprNode::TPtr ExecutionType(const TTypeAnnotationNode* type, TExprContext& ctx
 
 class TLowerer {
 public:
-    TLowerer(const NFrontend::TExpressionArena& arena, TExprContext& ctx, TPositionHandle pos)
-        : Arena(arena), Ctx(ctx), Pos(pos), Row(ctx.NewArgument(pos, "native_row")) {}
+    TLowerer(const NFrontend::TExpressionArena& arena, TExprContext& ctx, TPositionHandle pos,
+        std::span<const std::string> columnNames = {})
+        : Arena(arena), Ctx(ctx), Pos(pos), Row(ctx.NewArgument(pos, "native_row")), ColumnNames(columnNames) {}
 
     TExprNode::TPtr Run(NFrontend::TExprId root) {
         std::vector<std::pair<NFrontend::TExprId, bool>> pending{{root, false}};
@@ -110,7 +112,7 @@ public:
             } else Lowered.emplace(id, Lower(node));
         }
         TVector<const TItemExprType*> fields;
-        for (const auto& [id, type] : Columns) fields.push_back(Ctx.MakeType<TItemExprType>(Ctx.GetIndexAsString(id), ExportNativeType(type, Ctx, &Arena)));
+        for (const auto& [id, type] : Columns) fields.push_back(Ctx.MakeType<TItemExprType>(ColumnName(id), ExportNativeType(type, Ctx, &Arena)));
         Row->SetTypeAnn(Ctx.MakeType<TStructExprType>(fields));
         auto args = Ctx.NewArguments(Pos, {Row}); args->SetTypeAnn(Ctx.MakeType<TUnitExprType>());
         auto body = Lowered.at(root);
@@ -119,6 +121,11 @@ public:
     }
 
 private:
+    TStringBuf ColumnName(NFrontend::TColumnId id) const {
+        if (ColumnNames.empty()) return Ctx.GetIndexAsString(id);
+        Y_ENSURE(id < ColumnNames.size());
+        return TStringBuf(ColumnNames[id].data(), ColumnNames[id].size());
+    }
     TExprNode::TPtr Atom(TStringBuf text) {
         auto result = Ctx.NewAtom(Pos, text);
         result->SetTypeAnn(Ctx.MakeType<TUnitExprType>());
@@ -491,7 +498,7 @@ private:
             case O::Column: {
                 const auto [it, inserted] = Columns.emplace(node.ColumnId, type);
                 if (!inserted && it->second != type) throw NFrontend::TFrontendError(node.Position, "inconsistent native column type");
-                return Call("Member", {Row, Atom(Ctx.GetIndexAsString(node.ColumnId))}, type);
+                return Call("Member", {Row, Atom(ColumnName(node.ColumnId))}, type);
             }
             case O::Parameter: return Call("Parameter", {Atom("$" + String(node.Name)), Type(type)}, type);
             case O::Ensure:
@@ -578,6 +585,7 @@ private:
     TExprContext& Ctx;
     TPositionHandle Pos;
     TExprNode::TPtr Row;
+    std::span<const std::string> ColumnNames;
     std::unordered_map<NFrontend::TExprId, TExprNode::TPtr> Lowered;
     std::map<NFrontend::TColumnId, NFrontend::TType> Columns;
 };
@@ -665,6 +673,11 @@ NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena
 
 NYql::TExprNode::TPtr LowerExpressionLambda(const TExpression& expression, NYql::TExprContext& ctx) {
     return LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, expression.Pos());
+}
+
+NYql::TExprNode::TPtr LowerRowExpressionLambda(const NFrontend::TRowExpression& expression,
+    NYql::TExprContext& ctx, NYql::TPositionHandle pos) {
+    return TLowerer(expression.Expressions, ctx, pos, expression.Columns).Run(expression.Root);
 }
 
 NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root,
