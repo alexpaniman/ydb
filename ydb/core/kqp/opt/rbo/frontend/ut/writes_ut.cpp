@@ -21,6 +21,45 @@ const TBoundEffect& Effect(const TBoundProgram& program, std::size_t index = 0) 
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeWrites) {
+    Y_UNIT_TEST(CatalogWriteRestrictionsKeepTheirReasonAndDoNotRestrictReads) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto catalog = [](auto name, auto pos) {
+                auto table = WriteCatalog(name, pos);
+                table.WriteSchema.reset();
+                table.WriteUnsupportedReason = "index writes require EnableIndexStreamWrite";
+                return table;
+            };
+            UNIT_ASSERT(CompileNative("SELECT id, value FROM t WHERE id = 1ul", catalog, settings).Program);
+            for (const auto* statement : {
+                "INSERT INTO t (id) VALUES (1ul)",
+                "UPSERT INTO t (id) VALUES (1ul)",
+                "REPLACE INTO t (id) VALUES (1ul)",
+                "UPDATE t SET value = 1 WHERE id = 1ul",
+                "UPDATE t ON (id, value) VALUES (1ul, 2)",
+                "DELETE FROM t WHERE id = 1ul",
+                "DELETE FROM t ON (id) VALUES (1ul)",
+            }) {
+                const std::string sql = statement;
+                try {
+                    CompileNative(sql, catalog, settings);
+                    UNIT_FAIL(sql);
+                } catch (const TUnsupportedFeature& error) {
+                    UNIT_ASSERT(error.Feature == EFeature::Statement);
+                    UNIT_ASSERT_VALUES_EQUAL(error.Position.Offset, sql.find(" t") + 1);
+                    UNIT_ASSERT_STRING_CONTAINS(error.what(), "table does not support native writes: t");
+                    UNIT_ASSERT_STRING_CONTAINS(error.what(), "EnableIndexStreamWrite");
+                }
+            }
+            // A rejected later statement cannot hand off a partially bound program.
+            settings.Mode = ECompilerMode::Auto;
+            const auto mixed = CompileNative("SELECT id FROM t; DELETE FROM t", catalog, settings);
+            UNIT_ASSERT(!mixed.Program);
+            UNIT_ASSERT(mixed.Unsupported);
+            UNIT_ASSERT_STRING_CONTAINS(mixed.Unsupported->Message, "EnableIndexStreamWrite");
+        }
+    }
+
     Y_UNIT_TEST(InsertRevertRetainsStatementModeAndPreparedColumnTypes) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser;

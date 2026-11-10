@@ -44,8 +44,9 @@ private:
     std::variant<TType, TRows, TList> Value;
 };
 
-// A missing write schema identifies a read-only catalog object. Storage keys
-// and defaults belong to table metadata, not scalar/parameter field types.
+// A missing write schema identifies a catalog object that cannot be written
+// in this configuration. Storage keys and defaults belong to table metadata,
+// not scalar/parameter field types.
 enum class EColumnDefault : std::uint8_t { Literal, Sequence };
 
 struct TGeneratedColumn {
@@ -67,6 +68,9 @@ struct TCatalogTable {
     std::string Name;
     std::vector<TCatalogColumn> Columns;
     std::optional<TWriteSchema> WriteSchema = {};
+    // Catalog-specific explanation, consumed only when binding a write to an
+    // object without WriteSchema. Reads do not depend on write capabilities.
+    std::string WriteUnsupportedReason = {};
 };
 
 using TTableResolver = std::function<TCatalogTable(std::string_view, TSourcePosition)>;

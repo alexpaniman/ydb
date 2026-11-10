@@ -1572,16 +1572,23 @@ private:
                             if (const auto found = nativeSchemas.find(meta.Get()); found != nativeSchemas.end()) return found->second;
                             F::TCatalogTable table{std::string(meta->Name), {}};
                             table.Columns.reserve(meta->Columns.size());
-                            bool sinkWrites = meta->Kind == EKikimrTableKind::Datashard && !meta->IsIndexImplTable;
+                            if (meta->Kind != EKikimrTableKind::Datashard || meta->IsIndexImplTable)
+                                table.WriteUnsupportedReason = "native writes require a row table that is not an index implementation";
                             F::TWriteSchema writes;
                             for (const auto& key : meta->KeyColumnNames) writes.Keys.emplace_back(key);
                             for (const auto& index : meta->Indexes) if (index.ItUsedForWrite()) {
                                 writes.HasIndexes = true;
-                                sinkWrites &= index.IsWrittenBySink(SessionCtx->Config().GetEnableIndexStreamWrite());
+                                if (!index.IsWrittenBySink(SessionCtx->Config().GetEnableIndexStreamWrite()) &&
+                                    table.WriteUnsupportedReason.empty()) {
+                                    table.WriteUnsupportedReason = index.IsWrittenBySink(true)
+                                        ? "index writes require EnableIndexStreamWrite"
+                                        : "index type does not support sink writes";
+                                }
                             }
                             auto column = [&](const TString& name) {
                                 const auto& item = meta->Columns.at(name);
-                                sinkWrites &= !item.IsBuildInProgress && !item.SetNotNullInProgress;
+                                if ((item.IsBuildInProgress || item.SetNotNullInProgress) && table.WriteUnsupportedReason.empty())
+                                    table.WriteUnsupportedReason = "column schema change is in progress: " + std::string(name);
                                 if (item.IsDefaultFromExpression() || item.DefaultExpression) {
                                     if (!item.DefaultExpression) throw F::TFrontendError(pos, "missing generated expression: " + std::string(name));
                                     writes.GeneratedColumns.push_back({std::string(name), std::string(item.DefaultExpression->ExprText),
@@ -1595,7 +1602,7 @@ private:
                             };
                             if (!meta->ColumnOrder.empty()) for (const auto& name : meta->ColumnOrder) column(name);
                             else for (const auto& [name, item] : meta->Columns) column(name);
-                            if (sinkWrites) table.WriteSchema = std::move(writes);
+                            if (table.WriteUnsupportedReason.empty()) table.WriteSchema = std::move(writes);
                             return nativeSchemas.emplace(meta.Get(), std::move(table)).first->second;
                         };
                         auto program = [&] {

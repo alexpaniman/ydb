@@ -1013,8 +1013,11 @@ private:
     TQueryResult Write(const TWriteStatement& write) {
         const auto pos = write.Target.Position;
         const auto& table = ResolveTable(write.Target);
-        if (!table.WriteSchema)
-            throw TUnsupportedFeature(EFeature::Statement, pos, "table does not support native writes: " + table.Name);
+        if (!table.WriteSchema) {
+            auto message = "table does not support native writes: " + table.Name;
+            if (!table.WriteUnsupportedReason.empty()) message += "; " + table.WriteUnsupportedReason;
+            throw TUnsupportedFeature(EFeature::Statement, pos, std::move(message));
+        }
         if (write.Batch)
             throw TUnsupportedFeature(EFeature::Statement, pos, "batch writes require a batch execution plan");
         const auto& schema = *table.WriteSchema;
