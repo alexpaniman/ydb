@@ -673,6 +673,45 @@ private:
         return left;
     }
 
+    std::shared_ptr<TSyntaxWindow> Window() {
+        TDepth depth(*this);
+        if (!Is("(")) throw TUnsupportedFeature(EFeature::Window, Token().Position, "named window requires the grammar parser");
+        Expect("(");
+        auto result = std::make_shared<TSyntaxWindow>();
+        if (Take("PARTITION")) {
+            Expect("BY");
+            do { result->Partition.push_back(Expression()); } while (Take(","));
+        }
+        if (Take("ORDER")) {
+            Expect("BY");
+            do {
+                TSortKey key{Expression()};
+                if (Take("DESC")) key.Descending = true; else Take("ASC");
+                result->Order.push_back(key);
+            } while (Take(","));
+        }
+        if (Is("ROWS") || Is("RANGE") || Is("GROUPS")) {
+            result->Frame.Type = Take("ROWS") ? EWindowFrame::Rows : Take("RANGE") ? EWindowFrame::Range : EWindowFrame::Groups;
+            if (result->Frame.Type == EWindowFrame::Groups) Expect("GROUPS");
+            const auto bound = [&](EWindowBound& kind, TSyntaxId& offset) {
+                if (Take("CURRENT")) { Expect("ROW"); kind = EWindowBound::CurrentRow; return; }
+                const bool unbounded = Take("UNBOUNDED");
+                if (!unbounded) offset = Expression();
+                const bool preceding = Take("PRECEDING");
+                if (!preceding) Expect("FOLLOWING");
+                kind = unbounded ? (preceding ? EWindowBound::UnboundedPreceding : EWindowBound::UnboundedFollowing) :
+                    (preceding ? EWindowBound::Preceding : EWindowBound::Following);
+            };
+            if (Take("BETWEEN")) {
+                bound(result->Frame.Begin, result->BeginOffset);
+                Expect("AND");
+                bound(result->Frame.End, result->EndOffset);
+            } else bound(result->Frame.Begin, result->BeginOffset);
+        }
+        Expect(")");
+        return result;
+    }
+
     TSyntaxId Primary() {
         const auto token = Token();
         const auto pos = token.Position;
@@ -753,8 +792,11 @@ private:
         if (quantified && args.empty()) Fail("set quantifier requires an argument");
         for (auto arg : args) if (Result.Expressions[arg].Kind == ESyntaxKind::Star &&
             (quantified || args.size() != 1 || !Result.Expressions[arg].Text.empty())) Fail("invalid star argument");
+        // Parse window children before their parent: syntax IDs are topological.
+        auto window = Take("OVER") ? Window() : nullptr;
         auto id = Add(ESyntaxKind::Call, pos, variable ? "$" + name : name, std::move(args));
         Result.Expressions[id].Distinct = distinct;
+        Result.Expressions[id].Window = std::move(window);
         return id;
     }
 

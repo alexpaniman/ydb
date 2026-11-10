@@ -32,6 +32,34 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(InlineWindowsUseTheFastParserAndAgreeWithTheGrammar) {
+        for (const auto* spec : {"", "PARTITION BY id", "ORDER BY id DESC, value ASC", "PARTITION BY value ORDER BY id",
+                "ROWS UNBOUNDED PRECEDING", "ROWS BETWEEN 2 PRECEDING AND CURRENT ROW",
+                "ORDER BY id RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+                "PARTITION BY id ORDER BY value ROWS BETWEEN (1 + 2) PRECEDING AND 4 FOLLOWING",
+                "GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"}) {
+            const std::string sql = "SELECT ROW_NUMBER() OVER (" + std::string(spec) + ") AS n FROM t";
+            TCompilerSettings fast; fast.Parser = EParser::Handwritten;
+            const auto parsed = ParseNative(sql, fast);
+            UNIT_ASSERT(!parsed.UsedGeneratedParser);
+            UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(parsed), SyntaxFingerprint(ParseGrammar(sql)));
+            AssertParserAgreement(sql);
+        }
+        for (const auto* sql : {
+                "SELECT SUM(value) OVER(PARTITION BY id ORDER BY value ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM t",
+                "SELECT ROW_NUMBER() OVER() AS n, DENSE_RANK() OVER(ORDER BY id) AS r FROM t",
+                "SELECT id FROM (SELECT id, ROW_NUMBER() OVER() AS n FROM t) AS s WHERE n > 1ul"}) {
+            TCompilerSettings verify; verify.Parser = EParser::Verify;
+            UNIT_ASSERT(CompileNative(sql, Catalog, verify).Program);
+            const std::string text(sql);
+            for (std::size_t i = 0; i < text.size(); ++i) {
+                AssertParserAgreement(text.substr(0, i) + text.substr(i + 1));
+                AssertParserAgreement(text.substr(0, i) + "," + text.substr(i));
+            }
+        }
+    }
+
+
     Y_UNIT_TEST(ValueByAggregatesLowerToExistingMinMaxStates) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;
@@ -92,7 +120,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
 
 
     Y_UNIT_TEST(StandardWindowAliasesAndUuidCrossTheCheckedBoundary) {
-        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;
             const auto compiled = CompileNative(R"(
                 SELECT CAST(RandomUuid(id) AS Utf8) AS uuid,
