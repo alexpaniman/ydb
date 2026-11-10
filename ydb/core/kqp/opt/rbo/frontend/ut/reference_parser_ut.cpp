@@ -98,14 +98,14 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceParser) {
         UNIT_ASSERT_VALUES_EQUAL(ansi.Expressions[value.Expression].Text, "a'b");
     }
 
-    Y_UNIT_TEST(QuotedAliasContextDoesNotChangeStringExpressions) {
-        for (const auto prefix : {"", "--!ansi_lexer\n"}) {
+    Y_UNIT_TEST(QuotedExpressionKindFollowsLexerMode) {
+        for (const std::string_view prefix : {"", "--!ansi_lexer\n"}) {
             const auto parsed = ParseNative(std::string(prefix) + "SELECT \"text\" AS \"label\" FROM \"table\";");
             const auto& query = *parsed.Statements[0].Query;
             UNIT_ASSERT_VALUES_EQUAL(query.Projection[0].Alias, "label");
             UNIT_ASSERT_VALUES_EQUAL(query.Source->Name, "table");
             const auto& value = parsed.Expressions[query.Projection[0].Expression];
-            UNIT_ASSERT(value.Kind == ESyntaxKind::String);
+            UNIT_ASSERT(value.Kind == (prefix.empty() ? ESyntaxKind::String : ESyntaxKind::Column));
             UNIT_ASSERT_VALUES_EQUAL(value.Text, "text");
         }
     }

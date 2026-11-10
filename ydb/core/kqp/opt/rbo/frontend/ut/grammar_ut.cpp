@@ -7,6 +7,28 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(AnsiIdentifiersPreserveEscapingCaseAndSourcePositions) {
+        TParseSettings settings; settings.AnsiQuotes = true;
+        const auto* sql = R"(SELECT "a""b"."Id", "literal\n", 'string\n' FROM "Mixed" AS "a""b")";
+        const auto fast = Parse(sql, settings), grammar = ParseGrammar(sql, settings);
+        UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(fast), SyntaxFingerprint(grammar));
+        for (const auto* parsed : {&fast, &grammar}) {
+            const auto& query = *parsed->Statements[0].Query;
+            const auto& id = parsed->Expressions[query.Projection[0].Expression];
+            UNIT_ASSERT(id.Kind == ESyntaxKind::Column);
+            UNIT_ASSERT_VALUES_EQUAL(id.Text, "a\"b.Id");
+            UNIT_ASSERT_VALUES_EQUAL(id.Position.Column, 8);
+            const auto& quoted = parsed->Expressions[query.Projection[1].Expression];
+            UNIT_ASSERT(quoted.Kind == ESyntaxKind::Column);
+            UNIT_ASSERT_VALUES_EQUAL(quoted.Text, R"(literal\n)");
+            const auto& string = parsed->Expressions[query.Projection[2].Expression];
+            UNIT_ASSERT(string.Kind == ESyntaxKind::String);
+            UNIT_ASSERT_VALUES_EQUAL(string.Text, R"(string\n)");
+            UNIT_ASSERT_VALUES_EQUAL(query.Source->Name, "Mixed");
+            UNIT_ASSERT_VALUES_EQUAL(query.Source->Alias, "a\"b");
+        }
+    }
+
     Y_UNIT_TEST(BinaryOperatorPositionsAgreeWithHandwrittenParser) {
         const auto sql = "SELECT\n a + b * c - d / e % f, a || b, a < b, a = b, a != b, a ?? b,\n"
             " a AND b OR c XOR d, a & b | c ^ d, a << b, a >> b;";

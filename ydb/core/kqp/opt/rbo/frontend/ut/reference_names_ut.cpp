@@ -41,6 +41,32 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
+    Y_UNIT_TEST(TableCollectionPreservesQuotedNamesAndUnsupportedDiagnostics) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            const auto parsed = ParseNative("--!ansi_lexer\nWITH \"c\" AS (SELECT * FROM \"t\") SELECT * FROM \"c\";", f.Settings);
+            const auto tables = CollectTables(parsed, f.Settings.Binding);
+            UNIT_ASSERT_VALUES_EQUAL(tables.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(tables.front().Name, "/Root/t");
+            // Native admission may reject a dynamic pragma while parsing;
+            // neither parsing nor discovery returns a partial table list.
+            UNIT_ASSERT_EXCEPTION(CollectTables(ParseNative(
+                "PRAGMA TablePathPrefix = $prefix; SELECT * FROM t;", f.Settings), f.Settings.Binding), TUnsupportedFeature);
+        }
+    }
+
+    Y_UNIT_TEST(AnsiQuotedAliasesAndExactCase) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            f.Catalog.emplace("/Root/Mixed", TCatalogTable{"/Root/Mixed", {{"Id", ParseType("Int64")}}});
+            f.Ok("--!ansi_lexer\nSELECT \"a\"\"b\".Id FROM \"Mixed\" AS \"a\"\"b\";");
+            const auto& output = f.Program.Results.at(0).Columns.at(0);
+            UNIT_ASSERT_VALUES_EQUAL(f.Program.Columns.at(output.Column).Name, "Id");
+            UNIT_ASSERT_VALUES_EQUAL(f.Lookups.front(), "/Root/Mixed");
+            f.Error("SELECT id FROM Mixed;");
+        }
+    }
+
     Y_UNIT_TEST(PreambleCapturesAndLambdaShadowing) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
             TFixture f; f.Settings.Parser = parser;

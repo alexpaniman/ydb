@@ -152,8 +152,8 @@ outside the handwritten subset. Binding and resource-limit errors do not retry
 parsing. Correspondence tests cover the 164-query corpus, keyword contexts,
 operator combinations, malformed mutations and lexer modes.
 
-Backticks quote identifiers. Double quotes remain strings under this grammar.
-ANSI lexer mode changes escaping and nested comments. Leading syntax/parser/ANSI
+Backticks quote identifiers. Double quotes delimit strings by default and
+identifiers in ANSI lexer mode, which also changes escaping and nested comments. Leading syntax/parser/ANSI
 directives are recognized; directive text inside strings has no effect.
 Both parsers share byte, octal and Unicode escape decoding for quoted strings,
 identifiers and pragma values. ANSI strings retain backslashes literally;

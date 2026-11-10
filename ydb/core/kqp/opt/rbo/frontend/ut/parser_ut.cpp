@@ -49,7 +49,7 @@ Y_UNIT_TEST_SUITE(KqpNativeParser) {
         TParseSettings settings;
         settings.AnsiQuotes = true;
         const auto ansi = Parse("SELECT \"x\" FROM `t`", settings);
-        UNIT_ASSERT(ansi.Expressions[ansi.Statements[0].Query->Projection[0].Expression].Kind == ESyntaxKind::String);
+        UNIT_ASSERT(ansi.Expressions[ansi.Statements[0].Query->Projection[0].Expression].Kind == ESyntaxKind::Column);
         Parse("/* outer /* inner */ outer */ SELECT 1", settings);
     }
 

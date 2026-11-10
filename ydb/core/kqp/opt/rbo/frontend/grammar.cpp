@@ -262,6 +262,8 @@ private:
             if (Has(node, "NULL")) return Add(ESyntaxKind::Null, node);
             if (Child(node, "bool_value")) return Add(ESyntaxKind::Boolean, node, Upper(node->getText()) == "TRUE" ? "true" : "false");
             auto text = node->getText();
+            if (Settings.AnsiQuotes && text.starts_with('"'))
+                return Add(ESyntaxKind::Column, node, Identifier(std::move(text), node));
             if (!text.empty() && (text[0] == '\'' || text[0] == '"' || text.starts_with("@@"))) {
                 const auto suffix = Upper(text.substr(text.size() - 1));
                 if (suffix == "U" || suffix == "S") text.pop_back();
@@ -854,6 +856,8 @@ private:
             result.Name += pragmaName(Child(node, "an_id"));
             auto values = Children(node, "pragma_value");
             if (values.size() > 1) Unsupported(node, EFeature::Pragma, "pragma argument list");
+            if (!values.empty() && Child(values[0], "bind_parameter"))
+                Unsupported(values[0], EFeature::Pragma, "dynamic pragma value");
             if (!values.empty()) result.Value = Decode(values[0]->getText(), values[0]);
             return result;
         }

@@ -120,7 +120,7 @@ public:
             return {EToken::Number, std::string(number), pos};
         }
         if (ch == '\'' || ch == '"' || ch == '`') {
-            const bool identifier = ch == '`';
+            const bool identifier = ch == '`' || (Ansi && ch == '"');
             Advance();
             std::string value;
             auto chunk = Position.Offset;
@@ -136,7 +136,7 @@ public:
                     closed = true;
                     break;
                 }
-                if (current == '\\' && (!Ansi || identifier)) {
+                if (current == '\\' && (!Ansi || ch == '`')) {
                     value.append(Text.substr(chunk, Position.Offset - chunk - 1));
                     if (Position.Offset == Text.size()) break;
                     const auto consumed = AppendQuotedEscape(Text.substr(Position.Offset), value, pos);
@@ -350,6 +350,8 @@ private:
             if (Take(".")) result.Name += "." + name();
             const bool parenthesized = Take("(");
             if (parenthesized || Take("=")) {
+                if (Is("$"))
+                    throw TUnsupportedFeature(EFeature::Pragma, Token().Position, "dynamic pragma values are outside the native profile");
                 const auto sign = Is("+") || Is("-") ? Tokens[Index++].Text : std::string{};
                 if (Token().Kind != EToken::Identifier && Token().Kind != EToken::String && Token().Kind != EToken::Number) Fail("expected pragma value");
                 if (!sign.empty() && Token().Kind != EToken::Number) Fail("expected numeric pragma value");
