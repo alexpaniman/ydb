@@ -96,6 +96,23 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceNames) {
         }
     }
 
+    Y_UNIT_TEST(DisabledWarningsUseParsedPragmaArguments) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TFixture f; f.Settings.Parser = parser;
+            for (const auto code : {"4527", "*", "0", "4294967295"})
+                f.Ok("PRAGMA warning('DiSaBlE', '" + std::string(code) + "'); $unused = 1; SELECT id FROM t;");
+            f.Ok("PRAGMA warning(\"disable\", \"\\x34\\x35\\x32\\x37\"); SELECT id FROM t;");
+            for (const auto sql : {"PRAGMA warning; SELECT 1;", "PRAGMA warning('disable'); SELECT 1;",
+                    "PRAGMA warning('disable','1','2'); SELECT 1;", "PRAGMA warning('bad','1'); SELECT 1;",
+                    "PRAGMA warning('disable',''); SELECT 1;", "PRAGMA warning('disable','-1'); SELECT 1;",
+                    "PRAGMA warning('disable','*1'); SELECT 1;", "PRAGMA warning('disable','4294967296'); SELECT 1;"}) f.Error(sql);
+            for (const auto action : {"default", "error"})
+                UNIT_ASSERT_EXCEPTION(f.Ok("PRAGMA warning('" + std::string(action) + "', '4527'); SELECT id FROM t;"), TUnsupportedFeature);
+            // Disabled warnings cannot hide malformed supported syntax.
+            f.Error("PRAGMA warning('disable','*'); SELECT CASE WHEN TRUE THEN 1 END;");
+        }
+    }
+
     Y_UNIT_TEST(CostBasedOptimizationLevelPragmas) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
             TFixture f; f.Settings.Parser = parser;

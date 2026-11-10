@@ -48,6 +48,26 @@ const std::string& PragmaValue(const TStatement& statement) {
     return statement.PragmaValues.empty() ? empty : statement.PragmaValues.front();
 }
 
+void CheckWarningPragma(const TStatement& statement) {
+    if (statement.PragmaValues.size() != 2)
+        throw TFrontendError(statement.Position, "warning pragma requires action and issue code");
+    const auto action = Lower(statement.PragmaValues[0]);
+    if (action != "disable" && action != "default" && action != "error")
+        throw TFrontendError(statement.Position, "unknown warning action: " + statement.PragmaValues[0]);
+    const auto& pattern = statement.PragmaValues[1];
+    if (pattern != "*") {
+        std::uint32_t code = 0;
+        const auto parsed = std::from_chars(pattern.data(), pattern.data() + pattern.size(), code);
+        if (parsed.ec != std::errc{} || parsed.ptr != pattern.data() + pattern.size())
+            throw TFrontendError(statement.Position, "warning issue code must be Uint32 or '*'");
+    }
+    // The native frontend currently emits errors, not warnings. Disabling a
+    // warning is therefore already satisfied. Restoring or promoting warnings
+    // needs a native diagnostic policy and must not be silently ignored.
+    if (action != "disable")
+        throw TUnsupportedFeature(EFeature::Pragma, statement.Position, "native warning actions support only disable");
+}
+
 std::optional<TPlannerSetting> PlannerSetting(const TStatement& statement) {
     using S = EPlannerSetting;
     auto name = Lower(statement.Name);
@@ -717,6 +737,7 @@ public:
                 case EStatementKind::Pragma: {
                     const auto name = Lower(statement.Name);
                     if (name == "tablepathprefix") { /* Captured with each source at its declaration. */ }
+                    else if (name == "warning") CheckWarningPragma(statement);
                     else if (name == "yqlselect" && Lower(PragmaValue(statement)) == "force") {
                         // This selects relational translation, which is intrinsic here.
                     } else if (name == "ansiimplicitcrossjoin" && statement.PragmaValues.empty()) {
@@ -2717,7 +2738,7 @@ std::string_view SupportManifest() {
 "unicode_operations":["Unicode::ToUpper","Unicode::ToLower"],
 "windows":["inline OVER","named WINDOW definitions without inheritance","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
-"pragmas":["OrderedColumns","DisableOrderedColumns","TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
+"pragmas":["warning(disable, issue-code)","OrderedColumns","DisableOrderedColumns","TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
 "planner_pragmas":{"prefixes":["ydb","kikimr"],
 "boolean":["OptDisableAutoIndexSelection","EnableAutoIndexSelectionForIndexLookupJoin","OptDisableTopSort","OptEnablePredicateExtract","OptEnableInplaceUpdate","OptShuffleElimination","OptShuffleEliminationWithMap","OptShuffleEliminationForAggregation","EnableNewRBOPhysicalStagePeephole","WindowFunctionsV2","OptEnableOlapPushdown","OptEnableOlapPushdownAggregate","OptEnableOlapPushdownProjections","OptEnableOlapPushdownRegexp","DqHashOperatorsUseBlocks","UseBlockHashJoin","DisableBlockExecution"],
 "uint32":["CostBasedOptimizationLevel","DqChannelVersion"],
