@@ -1075,6 +1075,23 @@ TExprId TExpressionArena::TupleElement(TExprId tuple, std::uint32_t index, TSour
     return Append({O::TupleElement, type, position, {tuple}, std::uint64_t{index}, {}, 0});
 }
 
+TExprId TExpressionArena::ListElement(TExprId list, TExprId index, TSourcePosition position) {
+    const auto source = (*this)[list].Type, key = (*this)[index].Type;
+    if (source.Kind == K::Null) return list;
+    if (source.Kind != K::List || source.OptionalDepth > 1)
+        throw TUnsupportedFeature(EFeature::Type, position, "subscript requires a flat typed list");
+    if (!key.IsIntegral() || key.OptionalDepth > 1) Fail(position, "list index requires an integer");
+    auto result = ListItem(source);
+    if (result.Kind == K::Null)
+        throw TUnsupportedFeature(EFeature::Type, position, "indexing an all-NULL list requires an explicit element type");
+    if (result.OptionalDepth == 64) throw TResourceLimitError(position, "Optional type nesting exceeds 64");
+    ++result.OptionalDepth;
+    // Missing index and an existing NULL element are distinct: list access
+    // adds one optional layer, including for an already optional element.
+    index = Cast(index, {K::Uint64}, position);
+    return Append({O::ListElement, result, position, {list, index}, {}, {}, 0});
+}
+
 TExprId TExpressionArena::InCollection(TExprId lookup, TExprId collection, bool ansi, TSourcePosition position) {
     const auto value = (*this)[lookup].Type, values = (*this)[collection].Type;
     if (!values.IsCollection() || values.OptionalDepth || value.IsCollection() || value.OptionalDepth > 1 || value.IsJson())
@@ -1756,6 +1773,7 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::RandomUuid: return Call("RandomUuid", node.Arguments, node.Position);
         case O::Collection: return Collection(node.Arguments, node.Type.Kind == K::List, node.Position);
         case O::TupleElement: return TupleElement(node.Arguments[0], std::get<std::uint64_t>(node.Value), node.Position);
+        case O::ListElement: return ListElement(node.Arguments[0], node.Arguments[1], node.Position);
         case O::InCollection: return InCollection(node.Arguments[0], node.Arguments[1], node.Name == "ansi", node.Position);
         case O::Literal: return Literal(node.Type, std::move(node.Value), node.Position);
         case O::Column: return Column(node.ColumnId, node.Type, node.Position);
@@ -2097,6 +2115,14 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         auto result = std::make_shared<TTupleValue>();
         for (auto id : node.Arguments) result->Items.push_back(*values[id]);
         return {node.Type, TTuple(std::move(result))};
+    }
+    if (node.Op == O::ListElement) {
+        if (argument(0).IsNull() || argument(1).IsNull()) return NullValue(node.Type);
+        const auto& items = std::get<TTuple>(argument(0).Data)->Items;
+        const auto index = std::get<std::uint64_t>(argument(1).Data);
+        if (index >= items.size()) return NullValue(node.Type);
+        const auto& value = items[index];
+        return {node.Type, node.Type.OptionalDepth > 1 ? TScalar{std::make_shared<const TValue>(value)} : value.Data};
     }
     if (node.Op == O::TupleElement) {
         const auto& tuple = argument(0);

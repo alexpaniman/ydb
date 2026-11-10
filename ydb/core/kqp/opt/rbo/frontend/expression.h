@@ -108,7 +108,7 @@ enum class EOpcode : std::uint8_t {
     Concat, Ensure, StablePickle, Find,
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
     CalendarShiftMonths, CalendarShiftYears, CalendarMinute, TemporalSeconds, UrlHost, UrlCutWWW,
-    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, Like, TupleElement,
+    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, Like, TupleElement, ListElement,
 };
 
 struct TExprNode {
@@ -147,6 +147,7 @@ public:
 
     TExprId Collection(std::span<const TExprId> items, bool list, TSourcePosition position = {});
     TExprId TupleElement(TExprId tuple, std::uint32_t index, TSourcePosition position = {});
+    TExprId ListElement(TExprId list, TExprId index, TSourcePosition position = {});
     TExprId InCollection(TExprId lookup, TExprId collection, bool ansi, TSourcePosition position = {});
     TExprId Literal(TType type, TScalar value, TSourcePosition position = {});
     TExprId Null(TSourcePosition position = {});

@@ -28,7 +28,7 @@ struct TWindowFrame {
 
 enum class ESyntaxKind : std::uint8_t {
     Integer, Real, String, Boolean, Null, Column, Variable, Star,
-    Unary, Binary, Call, Cast, Case, In, Between, ScalarSubquery, Exists, JsonValue,
+    Unary, Binary, Call, Cast, Case, In, Between, ScalarSubquery, Exists, JsonValue, Index,
 };
 
 struct TSyntaxExpr {
@@ -52,9 +52,10 @@ struct TSource {
     std::string Alias;
     std::shared_ptr<TSelect> Query;
     bool ParameterTable = false;
+    std::vector<std::string> ColumnAliases;
 };
 
-enum class EJoinKind : std::uint8_t { Inner, Cross, Left, Right, Full, LeftSemi, RightSemi, LeftOnly, RightOnly };
+enum class EJoinKind : std::uint8_t { Inner, Cross, Left, Right, Full, LeftSemi, RightSemi, LeftOnly, RightOnly, Exclusion };
 
 struct TJoin {
     EJoinKind Kind;
@@ -85,9 +86,15 @@ enum class EGroupingOperation : std::uint8_t { Product, Sets, Rollup, Cube };
 TGroupingSets ExpandGroupingSets(const std::vector<TGroupingSets>& elements,
     EGroupingOperation operation, std::size_t limit, TSourcePosition position);
 
+struct TCteBinding {
+    std::string Name;
+    std::vector<std::string> Columns;
+    std::shared_ptr<TSelect> Query;
+};
+
 struct TSelect {
     TSourcePosition Position;
-    std::vector<std::pair<std::string, std::shared_ptr<TSelect>>> Ctes;
+    std::vector<TCteBinding> Ctes;
     std::optional<TSource> Source;
     std::vector<TJoin> Joins;
     std::vector<TNamedExpr> Projection;

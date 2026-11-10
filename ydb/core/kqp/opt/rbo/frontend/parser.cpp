@@ -423,6 +423,14 @@ private:
         return false;
     }
 
+    std::vector<std::string> ColumnAliases() {
+        std::vector<std::string> names;
+        Expect("(");
+        do { names.push_back(Identifier()); } while (Take(",") && !Is(")"));
+        Expect(")");
+        return names;
+    }
+
     TSource Source() {
         TSource result; result.Position = Token().Position;
         if (Take("(")) { result.Query = Select(); Expect(")"); }
@@ -436,7 +444,10 @@ private:
                 if (Is(".")) Fail("cluster-qualified source requires grammar parser");
             }
         }
-        if (Take("AS") || CanAlias()) result.Alias = Identifier();
+        if (Take("AS") || CanAlias()) {
+            result.Alias = Identifier();
+            if (Is("(")) result.ColumnAliases = ColumnAliases();
+        }
         return result;
     }
 
@@ -455,6 +466,7 @@ private:
                 kind = Take("SEMI") ? EJoinKind::RightSemi : Take("ONLY") ? EJoinKind::RightOnly : EJoinKind::Right;
                 Take("OUTER"); Expect("JOIN");
             } else if (Take("FULL")) { Take("OUTER"); Expect("JOIN"); kind = EJoinKind::Full; }
+            else if (Take("EXCLUSION")) { Expect("JOIN"); kind = EJoinKind::Exclusion; }
             else break;
             TJoin join{kind, Source()};
             if (Take("ON")) join.Predicate = Expression();
@@ -525,8 +537,11 @@ private:
         auto result = std::make_shared<TSelect>(); result->Position = Token().Position;
         if (Take("WITH")) {
             do {
-                auto name = Identifier(TableIdentifier); Expect("AS"); Expect("(");
-                auto query = Select(); Expect(")"); result->Ctes.emplace_back(std::move(name), std::move(query));
+                auto name = Identifier(TableIdentifier);
+                auto columns = Is("(") ? ColumnAliases() : std::vector<std::string>{};
+                Expect("AS"); Expect("(");
+                auto query = Select(); Expect(")");
+                result->Ctes.push_back({std::move(name), std::move(columns), std::move(query)});
             } while (Take(",") && !Is("SELECT") && !Is("FROM"));
         }
         if (Take("FROM")) From(*result);
@@ -629,6 +644,11 @@ private:
     TSyntaxId Expression(int minimum = 1) {
         TDepth depth(*this);
         auto left = Primary();
+        while (Take("[")) {
+            const auto position = Tokens[Index - 1].Position;
+            const auto index = Expression(); Expect("]");
+            left = Add(ESyntaxKind::Index, position, {}, {left, index});
+        }
         bool predicate = false, ordering = false;
         while (Precedence() >= minimum) {
             const auto pos = Token().Position;
@@ -774,6 +794,15 @@ private:
         if (Take("EXISTS")) {
             Expect("("); auto query = Select(); Expect(")"); auto id = Add(ESyntaxKind::Exists, pos);
             Result.Expressions[id].Query = std::move(query); return id;
+        }
+        if (Take("[")) {
+            std::vector<TSyntaxId> items;
+            if (Take(",")) Expect("]");
+            else if (!Take("]")) {
+                do { items.push_back(Expression()); } while (Take(",") && !Is("]"));
+                Expect("]");
+            }
+            return Add(ESyntaxKind::Call, pos, "AsList", std::move(items));
         }
         if (Take("(")) {
             if (Is("SELECT") || Is("WITH") || Is("FROM")) {

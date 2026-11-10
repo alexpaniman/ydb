@@ -19,6 +19,129 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(TableDiscoveryAndBindingUseDeclarationScope) {
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        const std::vector<std::pair<std::string, std::vector<std::string>>> cases{
+            {"$q = SELECT id FROM c; WITH c AS (SELECT id FROM t) SELECT id FROM $q", {"c"}},
+            {"PRAGMA TablePathPrefix='/first'; $q = SELECT id FROM t; "
+             "PRAGMA TablePathPrefix='/second'; SELECT id FROM $q", {"/first/t"}},
+            {"WITH x AS (SELECT id FROM c), c AS (SELECT id FROM t) SELECT id FROM x", {"c"}},
+            {"WITH c AS (SELECT id FROM t), x AS (SELECT id FROM c) "
+             "SELECT id FROM (WITH c AS (SELECT id FROM other) SELECT id FROM x) AS d", {"t"}},
+            {"WITH c AS (SELECT id FROM t) "
+             "SELECT id FROM (WITH c AS (SELECT id FROM other) SELECT id FROM c) AS d", {"other"}},
+            {"PRAGMA TablePathPrefix='/first'; $q = SELECT id FROM t; $saved = $q; "
+             "PRAGMA TablePathPrefix='/second'; $q = SELECT id FROM t; "
+             "SELECT l.id FROM $saved AS l JOIN $q AS r ON l.id = r.id", {"/first/t", "/second/t"}},
+            {"PRAGMA TablePathPrefix='/first'; $q = SELECT id FROM t; "
+             "PRAGMA TablePathPrefix='/second'; INSERT INTO dest SELECT id FROM $q", {"/second/dest", "/first/t"}},
+        };
+        for (const auto& [sql, expected] : cases) {
+            const auto parsed = ParseNative(sql, settings);
+            std::vector<std::string> discovered, resolved;
+            for (const auto& request : CollectTables(parsed)) discovered.push_back(request.Name);
+            UNIT_ASSERT_C(discovered == expected, sql);
+            const auto program = BindNative(parsed, [&](std::string_view name, TSourcePosition) {
+                resolved.emplace_back(name);
+                return TCatalogTable{std::string(name), {{"id", {ETypeKind::Uint64}}}, TWriteSchema{{"id"}, {}, false}};
+            });
+            UNIT_ASSERT_C(resolved == expected, sql);
+            UNIT_ASSERT_VALUES_EQUAL(program.Get().Results.size(), 1);
+        }
+    }
+
+    Y_UNIT_TEST(ListSubscriptsBindBeforeUnaryAndBinaryOperators) {
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        for (const auto* sql : {
+            "SELECT [1,2][0u] AS v, CAST(3 AS Int64) + 2 AS n LIMIT 1",
+            "SELECT -[1,2][1u] + [3,4][0u]",
+            "DECLARE $items AS List<Int32?>; DECLARE $index AS Int64?; SELECT $items[$index]",
+            "SELECT [1, IF(false, 2)][0u], [1, IF(false, 2)][1u], [1, IF(false, 2)][2u]",
+        }) UNIT_ASSERT_C(CompileNative(sql, Catalog, settings).Program, sql);
+    }
+
+    Y_UNIT_TEST(ColumnAliasListsPreserveCatalogNamesAndIndependentBindings) {
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        for (const auto* sql : {
+            "WITH c(k) AS (SELECT id + 1 FROM a) SELECT l.k AS x, r.k AS y FROM c AS l JOIN c AS r ON l.k = r.k",
+            "SELECT d.key FROM (SELECT key FROM a AS x(key, label, count)) AS d",
+            "WITH c(k) AS (SELECT id FROM a) SELECT x.renamed FROM c AS x(renamed)",
+            "SELECT x.k FROM (SELECT id FROM a) AS x(k,)",
+            "DECLARE $rows AS List<Struct<id:Uint64>>; SELECT x.k FROM AS_TABLE($rows) AS x(k)",
+            "WITH c(k) AS (SELECT id FROM a) SELECT d.value FROM (WITH c(value) AS (SELECT name FROM b) SELECT value FROM c) AS d",
+        }) {
+            const auto compiled = CompileNative(sql, Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            for (const auto& relation : program.Relations) if (relation.Kind == ERelation::Read) {
+                UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[0]].Name, "id");
+                UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[1]].Name, "value");
+                UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[2]].Name, "name");
+            }
+        }
+        for (const auto* sql : {
+            "SELECT * FROM a AS x(k)",
+            "SELECT * FROM a AS x(k,k,n)",
+            "WITH c(k,n) AS (SELECT id FROM a) SELECT * FROM c",
+            "WITH c(k,k) AS (SELECT id,name FROM a) SELECT * FROM c",
+        }) UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TFrontendError, sql);
+    }
+
+    Y_UNIT_TEST(NamedQueryAliasesRetainProducerIdentityAndDefinitionScope) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(R"(
+                $offset = 1; $inc = ($x) -> ($x + $offset);
+                $q = SELECT $inc(id) AS k FROM a; $alias = $q; $saved = $alias;
+                $q = SELECT id FROM b; $offset = 100;
+                SELECT l.k, r.k FROM $saved AS l JOIN $alias AS r ON l.k = r.k
+            )", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            std::vector<TRelId> producers;
+            unsigned reads = 0;
+            for (const auto& relation : program.Relations) {
+                if (relation.Kind == ERelation::Read) {
+                    ++reads; UNIT_ASSERT_VALUES_EQUAL(relation.Table, "a");
+                }
+                if (relation.Kind == ERelation::Reuse) producers.push_back(relation.Inputs.at(0));
+            }
+            UNIT_ASSERT_VALUES_EQUAL(reads, 1);
+            UNIT_ASSERT_VALUES_EQUAL(producers.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(producers[0], producers[1]);
+        }
+    }
+
+    Y_UNIT_TEST(StarPresentationDoesNotChangeBoundSourceOrder) {
+        const auto compiled = CompileNative(R"(
+            SELECT * FROM a;
+            PRAGMA OrderedColumns;
+            SELECT * FROM a;
+            PRAGMA DisableOrderedColumns;
+            SELECT * FROM a;
+            SELECT value, id, name FROM a;
+        )", Catalog);
+        const auto& program = compiled.Program->Get();
+        const std::vector<std::vector<std::string>> expected{{"id", "name", "value"}, {"id", "value", "name"},
+            {"id", "name", "value"}, {"value", "id", "name"}};
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            std::vector<std::string> names;
+            for (const auto& column : program.Results[i].Columns) names.push_back(column.Name);
+            UNIT_ASSERT(names == expected[i]);
+        }
+        for (const auto& relation : program.Relations) if (relation.Kind == ERelation::Read) {
+            UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[0]].Name, "id");
+            UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[1]].Name, "value");
+            UNIT_ASSERT_VALUES_EQUAL(program.Columns[relation.Columns[2]].Name, "name");
+        }
+    }
+
+    Y_UNIT_TEST(ExclusionJoinMakesBothOutputSidesNullable) {
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        const auto compiled = CompileNative("SELECT l.id AS a, r.id AS b FROM a AS l EXCLUSION JOIN b AS r ON l.id = r.id", Catalog, settings);
+        const auto& program = compiled.Program->Get();
+        UNIT_ASSERT(Find(program, ERelation::Join).JoinKind == EJoinKind::Exclusion);
+        for (const auto& column : program.Results[0].Columns) UNIT_ASSERT(column.Type == (TType{ETypeKind::Uint64, true}));
+    }
+
     Y_UNIT_TEST(CapturesShareOneInputAcrossQueryClauses) {
         for (const auto parser : {EParser::Fast, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser;

@@ -98,10 +98,12 @@ public:
 
     TGlobalBindings(const TParsedQuery& syntax, const TBindSettings& settings)
         : Syntax(syntax), Settings(settings), References(syntax.Expressions.size(), Unknown), Seen(syntax.Expressions.size()),
-          WindowDefaults(syntax.Expressions.size(), settings.AnsiCurrentRow), AnsiCurrentRow(settings.AnsiCurrentRow) {
+          WindowDefaults(syntax.Expressions.size(), settings.AnsiCurrentRow), AnsiCurrentRow(settings.AnsiCurrentRow),
+          QueryBindings(syntax.Statements.size()), Prefix(settings.TablePathPrefix) {
         for (const auto& [name, type] : settings.ParameterTypes) Names[name] = Parameter;
         for (std::uint32_t i = 0; i < syntax.Statements.size(); ++i) {
             const auto& statement = syntax.Statements[i];
+            if (statement.Kind == EStatementKind::Pragma && Lower(statement.Name) == "tablepathprefix") Prefix = statement.Value;
             if (statement.Kind == EStatementKind::Pragma && statement.Value.empty()) {
                 const auto name = Lower(statement.Name);
                 if (name == "ansicurrentrow" || name == "disableansicurrentrow") AnsiCurrentRow = name == "ansicurrentrow";
@@ -116,13 +118,22 @@ public:
             if (statement.Query) Select(*statement.Query);
             if (statement.Write) {
                 const auto& write = *statement.Write;
+                Source(write.Target, true);
                 if (write.Input) Select(*write.Input);
                 for (const auto& row : write.Rows) for (auto value : row) Expression(value);
                 Expression(write.Where);
                 for (const auto& assignment : write.Assignments) Expression(assignment.Expression);
             }
             if (statement.Kind == EStatementKind::Declaration) Names[statement.Name] = Parameter;
-            if (statement.Kind == EStatementKind::Binding) Names[statement.Name] = i;
+            if (statement.Kind == EStatementKind::Binding) {
+                QueryBindings[i] = statement.Query;
+                if (!statement.Query && !statement.Lambda && statement.Expression != NoSyntax &&
+                    Syntax.Expressions[statement.Expression].Kind == ESyntaxKind::Variable) {
+                    const auto binding = References[statement.Expression];
+                    if (binding < QueryBindings.size()) QueryBindings[i] = QueryBindings[binding];
+                }
+                Names[statement.Name] = i;
+            }
         }
     }
 
@@ -131,14 +142,24 @@ public:
     bool WindowUsesAnsi(TSyntaxId expression) const { return WindowDefaults.at(expression); }
     bool AllowsUnnamedGroups(const TSelect& query) const { return UnnamedGroups.contains(&query); }
     std::uint32_t SourceBinding(const TSource& source) const { return Sources.at(&source); }
+    const TCteBinding* SourceCte(const TSource& source) const {
+        const auto it = CteSources.find(&source);
+        return it == CteSources.end() ? nullptr : it->second;
+    }
+    const std::string& PhysicalPath(const TSource& source) const { return PhysicalPaths.at(&source); }
+
+    bool IsQueryBinding(std::size_t index) const { return bool(QueryBindings.at(index)); }
     std::shared_ptr<TSelect> Query(const TSource& source) const {
         if (source.ParameterTable) return {};
-        if (source.Query || !source.Name.starts_with('$')) return source.Query;
+        if (source.Query) return source.Query;
+        if (!source.Name.starts_with('$')) {
+            const auto* cte = SourceCte(source);
+            return cte ? cte->Query : nullptr;
+        }
         const auto binding = Sources.at(&source);
         if (binding >= Syntax.Statements.size()) throw TFrontendError(source.Position, "unknown query binding: " + source.Name);
-        const auto& statement = Syntax.Statements[binding];
-        if (!statement.Query) throw TUnsupportedFeature(EFeature::Statement, source.Position, "native sources require a named query: " + source.Name);
-        return statement.Query;
+        if (!QueryBindings[binding]) throw TUnsupportedFeature(EFeature::Statement, source.Position, "native sources require a named query: " + source.Name);
+        return QueryBindings[binding];
     }
 
 private:
@@ -163,14 +184,30 @@ private:
             if (node.Query) Select(*node.Query);
         }
     }
-    void Source(const TSource& source) {
-        if (source.Query) Select(*source.Query);
-        else if (source.Name.starts_with('$')) Sources.emplace(&source, Resolve(source.Name.substr(1)));
+    void Source(const TSource& source, bool physical = false) {
+        if (!physical) {
+            if (source.Query) { Select(*source.Query); return; }
+            if (source.Name.starts_with('$')) { Sources.emplace(&source, Resolve(source.Name.substr(1))); return; }
+            for (auto scope = CteScopes.rbegin(); scope != CteScopes.rend(); ++scope) {
+                if (const auto it = scope->find(source.Name); it != scope->end()) {
+                    CteSources.emplace(&source, it->second);
+                    return;
+                }
+            }
+        }
+        auto path = source.Name;
+        if (!Prefix.empty() && !path.starts_with('/')) path = Prefix + (Prefix.ends_with('/') ? "" : "/") + path;
+        PhysicalPaths.emplace(&source, std::move(path));
     }
     void Select(const TSelect& query) {
         if (++Depth > Settings.MaxExpansionDepth) throw TResourceLimitError(query.Position, "binding scope depth limit exceeded");
         if (AllowUnnamedGroups) UnnamedGroups.insert(&query);
-        for (const auto& [name, cte] : query.Ctes) Select(*cte);
+        CteScopes.emplace_back();
+        for (const auto& cte : query.Ctes) {
+            if (CteScopes.back().contains(cte.Name)) throw TFrontendError(cte.Query->Position, "duplicate query binding: " + cte.Name);
+            Select(*cte.Query);
+            CteScopes.back().emplace(cte.Name, &cte);
+        }
         if (query.Source) Source(*query.Source);
         for (const auto& join : query.Joins) { Source(join.Source); Expression(join.Predicate); }
         for (const auto& item : query.Projection) Expression(item.Expression);
@@ -181,6 +218,7 @@ private:
         Expression(query.Limit);
         Expression(query.Offset);
         for (const auto& branch : query.SetInputs) Select(*branch);
+        CteScopes.pop_back();
         --Depth;
     }
 
@@ -195,6 +233,11 @@ private:
     std::unordered_map<std::string, std::uint32_t> Names;
     std::unordered_set<std::string> Arguments;
     std::unordered_map<const TSource*, std::uint32_t> Sources;
+    std::vector<std::shared_ptr<TSelect>> QueryBindings;
+    std::string Prefix;
+    std::vector<std::unordered_map<std::string, const TCteBinding*>> CteScopes;
+    std::unordered_map<const TSource*, const TCteBinding*> CteSources;
+    std::unordered_map<const TSource*, std::string> PhysicalPaths;
     std::size_t Depth = 0;
 };
 
@@ -340,7 +383,7 @@ struct TExprContext {
 class TBinder {
 public:
     TBinder(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings)
-        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), Prefix(settings.TablePathPrefix), AnsiIn(settings.AnsiIn), Values(syntax.Statements.size())
+        : Syntax(syntax), Catalog(catalog), Settings(settings), Bindings(syntax, settings), AnsiIn(settings.AnsiIn), Values(syntax.Statements.size())
     {
         Program.Parameters = settings.ParameterTypes;
         for (const auto& [name, type] : Program.Parameters) ValidateParameter(type, {});
@@ -384,11 +427,29 @@ public:
     }
 
     TBoundProgram Run() {
+        bool orderedColumns = false;
+        const auto sortPresentation = [](TQueryResult& result) {
+            std::stable_sort(result.Columns.begin(), result.Columns.end(), [](const auto& a, const auto& b) { return a.Name < b.Name; });
+        };
         for (std::size_t index = 0; index < Syntax.Statements.size(); ++index) {
             const auto& statement = Syntax.Statements[index];
             switch (statement.Kind) {
-                case EStatementKind::Query: Program.Results.push_back(Select(*statement.Query)); break;
-                case EStatementKind::Write: Program.Results.push_back(Write(*statement.Write)); break;
+                case EStatementKind::Query: {
+                    auto result = Select(*statement.Query);
+                    // Presentation is distinct from a source's column order:
+                    // aliases and nested queries retain their bound schemas.
+                    const auto& projection = statement.Query->Projection;
+                    if (!orderedColumns && projection.size() == 1 && Syntax.Expressions[projection[0].Expression].Kind == ESyntaxKind::Star)
+                        sortPresentation(result);
+                    Program.Results.push_back(std::move(result));
+                    break;
+                }
+                case EStatementKind::Write: {
+                    auto result = Write(*statement.Write);
+                    if (!orderedColumns && statement.Write->ReturningAll) sortPresentation(result);
+                    Program.Results.push_back(std::move(result));
+                    break;
+                }
                 case EStatementKind::Declaration: {
                     TParameterType type;
                     if (statement.RowFields) {
@@ -404,7 +465,7 @@ public:
                     break;
                 }
                 case EStatementKind::Binding: {
-                    if (!statement.Query && !statement.Lambda) {
+                    if (!Bindings.IsQueryBinding(index) && !statement.Lambda) {
                         const TScope empty;
                         TExprContext context{empty};
                         context.AllowSubqueries = false;
@@ -416,13 +477,13 @@ public:
                     throw TUnsupportedFeature(EFeature::Statement, statement.Position, "USE is not supported; resolve table paths through the catalog");
                 case EStatementKind::Pragma: {
                     const auto name = Lower(statement.Name);
-                    if (name == "tablepathprefix") Prefix = statement.Value;
+                    if (name == "tablepathprefix") { /* Captured with each source at its declaration. */ }
                     else if (name == "yqlselect" && Lower(statement.Value) == "force") {
                         // This selects relational translation, which is intrinsic here.
                     } else if (name == "ansiimplicitcrossjoin" && statement.Value.empty()) {
                         // Comma joins have one unambiguous cross-product meaning.
-                    } else if (name == "orderedcolumns" && statement.Value.empty()) {
-                        // Native result and subquery schemas retain projection order.
+                    } else if ((name == "orderedcolumns" || name == "disableorderedcolumns") && statement.Value.empty()) {
+                        orderedColumns = name == "orderedcolumns";
                     } else if ((name == "ansiinforemptyornullableitemscollections" || name == "disableansiinforemptyornullableitemscollections") && statement.Value.empty()) {
                         AnsiIn = name == "ansiinforemptyornullableitemscollections";
                     } else if ((name == "ansicurrentrow" || name == "disableansicurrentrow" ||
@@ -582,6 +643,28 @@ private:
     }
 
     TBoundSource Source(const TSource& source, TExprContext* outer) {
+        auto result = SourceInput(source, outer);
+        if (source.ColumnAliases.empty()) return result;
+        if (source.ColumnAliases.size() != result.Scope.Columns.size())
+            throw TFrontendError(source.Position, "column alias count does not match source column count");
+        // Rename visible bindings through an ordinary map. Stored read columns
+        // retain their catalog names, and every alias gets a distinct identity.
+        TRelation map{ERelation::Map, source.Position}; map.Inputs = {result.Relation};
+        TScope renamed;
+        std::unordered_set<std::string> names;
+        for (std::size_t i = 0; i < source.ColumnAliases.size(); ++i) {
+            const auto& name = source.ColumnAliases[i];
+            if (!names.insert(name).second) throw TFrontendError(source.Position, "duplicate column alias: " + name);
+            const auto& input = result.Scope.Columns[i];
+            const auto id = Column(name, input.Qualifier, input.Type, source.Position);
+            map.Columns.push_back(id);
+            map.Definitions.push_back({id, Program.Expressions.Column(input.Id, input.Type, source.Position)});
+            renamed.Add(ScopeColumn(id));
+        }
+        return {Relation(std::move(map)), std::move(renamed)};
+    }
+
+    TBoundSource SourceInput(const TSource& source, TExprContext* outer) {
         TDepth depth(*this, source.Position);
         if (source.ParameterTable) {
             const auto binding = Bindings.SourceBinding(source);
@@ -600,7 +683,7 @@ private:
             return {Relation(std::move(input)), std::move(scope)};
         }
         auto query = Bindings.Query(source);
-        if (!query) if (const auto named = Queries.find(source.Name); named != Queries.end()) query = named->second;
+        const auto* cte = Bindings.SourceCte(source);
         if (query) {
             if (!ActiveQueries.insert(query.get()).second) throw TFrontendError(source.Position, "recursive query binding is not supported");
             // A named, uncorrelated query has one producer and distinct bindings
@@ -614,6 +697,15 @@ private:
                 if (reusable) ReusableQueries.emplace(query.get(), result);
             }
             ActiveQueries.erase(query.get());
+            if (cte && !cte->Columns.empty()) {
+                if (cte->Columns.size() != result.Columns.size())
+                    throw TFrontendError(source.Position, "CTE column alias count does not match projection");
+                std::unordered_set<std::string> names;
+                for (std::size_t i = 0; i < cte->Columns.size(); ++i) {
+                    if (!names.insert(cte->Columns[i]).second) throw TFrontendError(source.Position, "duplicate CTE column alias: " + cte->Columns[i]);
+                    result.Columns[i].Name = cte->Columns[i];
+                }
+            }
             if (reusable) {
                 TRelation use{ERelation::Reuse, source.Position};
                 use.Inputs = {result.Root};
@@ -634,8 +726,7 @@ private:
     }
 
     TCatalogTable ResolveTable(const TSource& source) const {
-        auto path = source.Name;
-        if (!Prefix.empty() && !path.starts_with('/')) path = Prefix + (Prefix.ends_with('/') ? "" : "/") + path;
+        const auto& path = Bindings.PhysicalPath(source);
         auto table = Catalog(path, source.Position);
         if (table.Name.empty()) throw TFrontendError(source.Position, "catalog returned an unnamed table");
         return table;
@@ -817,11 +908,11 @@ private:
             const bool keepLeft = join.Kind != EJoinKind::RightSemi && join.Kind != EJoinKind::RightOnly;
             const bool keepRight = join.Kind != EJoinKind::LeftSemi && join.Kind != EJoinKind::LeftOnly;
             if (keepLeft) for (auto column : current.Scope.Columns) {
-                if (join.Kind == EJoinKind::Right || join.Kind == EJoinKind::Full) column.Type = column.Type.Optional();
+                if (join.Kind == EJoinKind::Right || join.Kind == EJoinKind::Full || join.Kind == EJoinKind::Exclusion) column.Type = column.Type.Optional();
                 output.Add(std::move(column));
             }
             if (keepRight) for (auto column : right.Scope.Columns) {
-                if (join.Kind == EJoinKind::Left || join.Kind == EJoinKind::Full) column.Type = column.Type.Optional();
+                if (join.Kind == EJoinKind::Left || join.Kind == EJoinKind::Full || join.Kind == EJoinKind::Exclusion) column.Type = column.Type.Optional();
                 output.Add(std::move(column));
             }
             TRelation relation{ERelation::Join, join.Source.Position}; relation.Inputs = {current.Relation, right.Relation};
@@ -833,14 +924,8 @@ private:
 
     TQueryResult Select(const TSelect& query, TExprContext* outer = nullptr) {
         TDepth depth(*this, query.Position);
-        const auto savedQueries = Queries;
-        for (const auto& [name, cte] : query.Ctes) {
-            if (Queries.contains(name)) throw TFrontendError(cte->Position, "duplicate query binding: " + name);
-            Queries.emplace(name, cte);
-        }
         if (!query.SetInputs.empty()) {
             auto result = SetQuery(query, outer);
-            Queries = savedQueries;
             return result;
         }
         auto source = From(query, outer);
@@ -1044,7 +1129,6 @@ private:
             node.SortKeys = std::move(sort); root = Relation(std::move(node));
         }
         root = Limit(root, query);
-        Queries = savedQueries;
         return {root, std::move(outputs)};
     }
 
@@ -1674,6 +1758,12 @@ private:
                 result = InResult(value, result, syntax.Position);
                 break;
             }
+            case ESyntaxKind::Index: {
+                const auto list = Expr(syntax.Arguments[0], context);
+                const auto index = Expr(syntax.Arguments[1], context);
+                result = arena.ListElement(list, index, syntax.Position);
+                break;
+            }
             case ESyntaxKind::Call: {
                 const auto name = Lower(syntax.Text);
                 if (syntax.Window) {
@@ -1760,13 +1850,11 @@ private:
     TGlobalBindings Bindings;
     TBoundProgram Program;
     std::vector<TColumnId> ColumnOrigins;
-    std::string Prefix;
     bool AnsiIn;
     std::vector<std::uint32_t> Canonical;
     std::vector<std::uint32_t> CanonicalWindows;
     std::vector<bool> ContainsAggregate;
     std::vector<std::optional<TExprId>> Values;
-    std::unordered_map<std::string, std::shared_ptr<TSelect>> Queries;
     std::unordered_map<const TSelect*, TQueryResult> ReusableQueries;
     std::unordered_set<std::string> Declared;
     std::unordered_set<const TSelect*> ActiveQueries;
@@ -1923,7 +2011,7 @@ void CheckProgram(const TBoundProgram& program) {
         for (const auto& function : relation.WindowFunctions)
             if (function.Input && program.Columns.at(*function.Input).Type.IsJson() && function.Function != "count")
                 throw TUnsupportedFeature(EFeature::Function, relation.Position, "native JSON windows support only COUNT");
-        if (relation.Kind == ERelation::Join && relation.JoinKind == EJoinKind::Full && relation.Predicate) {
+        if (relation.Kind == ERelation::Join && (relation.JoinKind == EJoinKind::Full || relation.JoinKind == EJoinKind::Exclusion) && relation.Predicate) {
             // The existing full-join backend cannot execute residual filters.
             // Only admit predicates that become column equality keys; leave
             // unsupported forms to whole-query legacy-optimizer delegation.
@@ -1969,10 +2057,9 @@ void CheckProgram(const TBoundProgram& program) {
 class TTableCollector {
 public:
     TTableCollector(const TParsedQuery& syntax, const TBindSettings& settings)
-        : Syntax(syntax), Settings(settings), Bindings(syntax, settings), Prefix(settings.TablePathPrefix) {}
+        : Syntax(syntax), Settings(settings), Bindings(syntax, settings) {}
     std::vector<TTableRequest> Run() {
         for (const auto& statement : Syntax.Statements) {
-            if (statement.Kind == EStatementKind::Pragma && Lower(statement.Name) == "tablepathprefix") Prefix = statement.Value;
             if (statement.Kind == EStatementKind::Query) Select(*statement.Query);
             if (statement.Write) {
                 const auto& write = *statement.Write;
@@ -2005,22 +2092,18 @@ private:
     void Source(const TSource& source) {
         if (source.ParameterTable) return;
         auto query = Bindings.Query(source);
-        if (!query) if (const auto it = Queries.find(source.Name); it != Queries.end()) query = it->second;
         if (query) {
             if (!Active.insert(query.get()).second) throw TFrontendError(source.Position, "recursive query binding");
             Select(*query);
             Active.erase(query.get());
         } else if (!source.Name.starts_with('$')) {
-            auto path = source.Name;
-            if (!Prefix.empty() && !path.starts_with('/')) path = Prefix + (Prefix.ends_with('/') ? "" : "/") + path;
+            auto path = Bindings.PhysicalPath(source);
             if (Seen.insert(path).second) Tables.push_back({std::move(path), source.Position});
         }
     }
     void Select(const TSelect& query) {
         if (++Depth > Settings.MaxExpansionDepth || ++Nodes > Settings.MaxNodes)
             throw TResourceLimitError(query.Position, "table discovery expansion limit exceeded");
-        auto saved = Queries;
-        for (const auto& [name, select] : query.Ctes) Queries[name] = select;
         if (query.Source) Source(*query.Source);
         for (const auto& join : query.Joins) { Source(join.Source); Expression(join.Predicate); }
         for (const auto& item : query.Projection) Expression(item.Expression);
@@ -2031,14 +2114,11 @@ private:
         Expression(query.Limit);
         Expression(query.Offset);
         for (const auto& branch : query.SetInputs) Select(*branch);
-        Queries = std::move(saved);
         --Depth;
     }
     const TParsedQuery& Syntax;
     const TBindSettings& Settings;
     TGlobalBindings Bindings;
-    std::string Prefix;
-    std::unordered_map<std::string, std::shared_ptr<TSelect>> Queries;
     std::unordered_set<const TSelect*> Active;
     std::unordered_set<std::string> Seen;
     std::vector<TTableRequest> Tables;

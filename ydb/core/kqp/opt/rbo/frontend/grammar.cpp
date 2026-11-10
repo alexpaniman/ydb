@@ -336,6 +336,9 @@ private:
                     value = Add(ESyntaxKind::Call, node, std::move(function), std::move(args));
                     Result.Expressions[value].Window = std::move(window);
                     if (auto* q = Child(child, "opt_set_quantifier")) Result.Expressions[value].Distinct = Has(q, "DISTINCT");
+                } else if (Name(child) == "key_expr") {
+                    const auto index = Expr(Child(child, "expr"));
+                    value = Add(ESyntaxKind::Index, child, {}, {value, index});
                 } else if (member) {
                     if (Result.Expressions[value].Kind != ESyntaxKind::Column) Unsupported(child, EFeature::Type, "member access on a value");
                     Result.Expressions[value].Text += "." + Id(child);
@@ -485,7 +488,7 @@ private:
             if (Has(node, "FLATTEN")) Unsupported(node, EFeature::Type, "FLATTEN");
             return Source(Child(node, "named_single_source"));
         }
-        for (auto name : {"row_pattern_recognition_clause", "pure_column_list", "sample_clause", "tablesample_clause"})
+        for (auto name : {"row_pattern_recognition_clause", "sample_clause", "tablesample_clause"})
             if (Child(node, name)) Unsupported(node, EFeature::Backend, name);
         auto* hinted = Child(node, "hinted_single_source");
         if (Child(hinted, "table_hints")) Unsupported(hinted, EFeature::Backend, "table hints");
@@ -493,6 +496,8 @@ private:
         TSource result; result.Position = Position(node);
         auto* alias = Child(node, "an_id"); if (!alias) alias = Child(node, "an_id_as_compat");
         if (alias) result.Alias = Id(alias);
+        if (auto* columns = Child(node, "pure_column_list"))
+            for (auto* column : Children(columns, "an_id")) result.ColumnAliases.push_back(Id(column));
         if (auto* query = Child(single, "select_stmt")) result.Query = Select(query);
         else if (auto* table = Child(single, "table_ref")) {
             if (Has(table, "(") && Child(table, "an_id_expr") && Upper(Id(Child(table, "an_id_expr"))) == "AS_TABLE") {
@@ -527,11 +532,12 @@ private:
                 if (join) result.Joins.push_back(std::move(*join));
                 const auto text = Upper(child->getText());
                 EJoinKind kind = EJoinKind::Inner;
-                if (Has(child, "NATURAL") || Has(child, "EXCLUSION")) Unsupported(child, EFeature::Backend, text);
+                if (Has(child, "NATURAL")) Unsupported(child, EFeature::Backend, text);
                 if (Has(child, ",") || Has(child, "CROSS")) kind = EJoinKind::Cross;
                 else if (Has(child, "LEFT")) kind = Has(child, "SEMI") ? EJoinKind::LeftSemi : Has(child, "ONLY") ? EJoinKind::LeftOnly : EJoinKind::Left;
                 else if (Has(child, "RIGHT")) kind = Has(child, "SEMI") ? EJoinKind::RightSemi : Has(child, "ONLY") ? EJoinKind::RightOnly : EJoinKind::Right;
                 else if (Has(child, "FULL")) kind = EJoinKind::Full;
+                else if (Has(child, "EXCLUSION")) kind = EJoinKind::Exclusion;
                 join.emplace(TJoin{kind, {}});
             } else if (Name(child) == "flatten_source") {
                 if (join) join->Source = Source(child); else result.Source = Source(child);
@@ -600,10 +606,13 @@ private:
             if (auto* with = Child(node, "cte_with_clause")) {
                 for (auto* binding : Children(with, "cte_binding")) {
                     auto* key = Child(binding, "cte_key");
-                    if (Has(binding, "RECURSIVE") || Child(key, "pure_column_list")) Unsupported(binding, EFeature::Subquery, "recursive or explicitly named CTE");
+                    if (Has(binding, "RECURSIVE")) Unsupported(binding, EFeature::Subquery, "recursive CTE");
                     auto* value = Child(binding, "cte_value");
                     if (!Child(value, "select_stmt")) Unsupported(value, EFeature::Statement, "VALUES CTE");
-                    result->Ctes.emplace_back(Id(Child(key, "id_table_or_type")), Select(Child(value, "select_stmt")));
+                    TCteBinding cte{Id(Child(key, "id_table_or_type")), {}, Select(Child(value, "select_stmt"))};
+                    if (auto* columns = Child(key, "pure_column_list"))
+                        for (auto* column : Children(columns, "an_id")) cte.Columns.push_back(Id(column));
+                    result->Ctes.push_back(std::move(cte));
                 }
             }
             return result;
@@ -905,14 +914,16 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
         out << ')';
     };
     auto source = [&](const TSource& value) {
-        text(value.Name); text(value.Alias); out << value.ParameterTable; if (value.Query) select(*value.Query);
+        text(value.Name); text(value.Alias); out << value.ParameterTable;
+        out << "aliases["; for (const auto& name : value.ColumnAliases) text(name); out << "]";
+        if (value.Query) select(*value.Query);
     };
     auto named = [&](const std::vector<TNamedExpr>& values) {
         out << '['; for (const auto& value : values) { expr(value.Expression); text(value.Alias); } out << ']';
     };
     select = [&](const TSelect& value) {
         out << '{' << value.Distinct;
-        for (const auto& [name, cte] : value.Ctes) { text(name); select(*cte); }
+        for (const auto& cte : value.Ctes) { text(cte.Name); out << "["; for (const auto& name : cte.Columns) text(name); out << "]"; select(*cte.Query); }
         if (value.Source) source(*value.Source);
         for (const auto& join : value.Joins) {
             out << static_cast<int>(join.Kind); source(join.Source); expr(join.Predicate);

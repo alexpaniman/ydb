@@ -21,6 +21,34 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(ListIndexDistinguishesAbsentRowsFromPresentNullItems) {
+        TExpressionArena arena;
+        const auto present = arena.Literal({K::Int32, true}, std::int64_t{7});
+        const auto absent = arena.Literal({K::Int32, true}, {});
+        const TExprId values[]{present, absent};
+        const auto list = arena.Collection(values, true);
+        for (const std::int64_t key : {-1, 0, 1, 2, 100}) {
+            const auto root = arena.ListElement(list, Integer(arena, key));
+            UNIT_ASSERT(arena[root].Type == (TType{K::Int32, 2}));
+            for (const auto id : {root, arena.FoldConstants(std::span(&root, 1)).front()}) {
+                const auto result = Evaluate(arena, id);
+                UNIT_ASSERT_VALUES_EQUAL(result.IsNull(), key < 0 || key >= 2);
+                if (!result.IsNull()) {
+                    const auto& item = *std::get<TOptionalValue>(result.Data);
+                    UNIT_ASSERT_VALUES_EQUAL(item.IsNull(), key == 1);
+                    if (!item.IsNull()) UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(item.Data), 7);
+                }
+            }
+        }
+        const auto index = arena.Parameter("index", {K::Uint32, true});
+        const auto root = arena.ListElement(list, index);
+        TEvaluationContext context; context.Parameter = [](auto) { return TValue{{K::Uint32, true}, {}}; };
+        UNIT_ASSERT(Evaluate(arena, root, context).IsNull());
+        TExpressionArena copied;
+        const auto imported = copied.Import(arena, root, [](auto, auto, auto) -> TExprId { UNIT_FAIL("unexpected column"); return 0; });
+        UNIT_ASSERT(Evaluate(copied, imported, context).IsNull());
+    }
+
     Y_UNIT_TEST(CalendarMinuteAndSecondsPreserveTypesAndNulls) {
         TExpressionArena arena;
         const TType types[]{{K::Date}, {K::Datetime}, {K::Timestamp}, {K::Date32}, {K::Datetime64}, {K::Timestamp64}};

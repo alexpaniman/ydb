@@ -1104,8 +1104,9 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
     Y_UNIT_TEST(DiscoverOnlyReachableTablesWithBindingPrefixAndCteScope) {
         const auto syntax = ParseNative("$unused = SELECT * FROM unused; $q = SELECT * FROM a; PRAGMA TablePathPrefix='/Root'; WITH c AS (SELECT * FROM b) SELECT * FROM $q CROSS JOIN c; SELECT * FROM a");
         const auto tables = CollectTables(syntax);
-        UNIT_ASSERT_VALUES_EQUAL(tables.size(), 2);
-        UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "/Root/a");
+        UNIT_ASSERT_VALUES_EQUAL(tables.size(), 3);
+        UNIT_ASSERT_VALUES_EQUAL(tables[0].Name, "a");
         UNIT_ASSERT_VALUES_EQUAL(tables[1].Name, "/Root/b");
+        UNIT_ASSERT_VALUES_EQUAL(tables[2].Name, "/Root/a");
     }
 }
