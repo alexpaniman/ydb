@@ -1543,7 +1543,7 @@ TExprId TExpressionArena::Find(TExprId input, TExprId needle, TExprId offset, TS
     return Append({O::Find, {K::Uint32, true}, position, {input, needle, offset}, {}, {}, 0});
 }
 
-TExprId TExpressionArena::Like(TExprId input, TExprId pattern, std::string escape, TSourcePosition position) {
+TExprId TExpressionArena::Like(TExprId input, TExprId pattern, std::string escape, TSourcePosition position, bool caseSensitive) {
     const auto inputType = (*this)[input].Type, patternType = (*this)[pattern].Type;
     if ((!inputType.IsString() && inputType.Kind != K::Null) || inputType.OptionalDepth > 1)
         Fail(position, "LIKE requires a string input");
@@ -1554,7 +1554,7 @@ TExprId TExpressionArena::Like(TExprId input, TExprId pattern, std::string escap
         Fail(position, "LIKE escape must be one ASCII character other than %, _ or backslash");
     input = Convert(input, {K::String, true}, position);
     pattern = Convert(pattern, {K::String}, position);
-    return Append({O::Like, {K::Bool}, position, {input, pattern}, {}, std::move(escape), 0});
+    return Append({caseSensitive ? O::Like : O::ILike, {K::Bool}, position, {input, pattern}, {}, std::move(escape), 0});
 }
 
 TExprId TExpressionArena::JsonValue(TExprId input, std::string path, TSourcePosition position) {
@@ -1795,7 +1795,8 @@ TExprId TExpressionArena::Rebuild(TExprNode node) {
         case O::Unwrap: return Call("Unwrap", node.Arguments, node.Position);
         case O::Find: return Find(node.Arguments[0], node.Arguments[1], node.Arguments[2], node.Position);
         case O::JsonValue: return JsonValue(node.Arguments[0], std::move(node.Name), node.Position);
-        case O::Like: return Like(node.Arguments[0], node.Arguments[1], std::move(node.Name), node.Position);
+        case O::Like: case O::ILike:
+            return Like(node.Arguments[0], node.Arguments[1], std::move(node.Name), node.Position, node.Op == O::Like);
         default:
             return node.Arguments.size() == 1 ? Unary(node.Op, node.Arguments[0], node.Position) :
                 Binary(node.Op, node.Arguments[0], node.Arguments[1], node.Position);
@@ -2512,10 +2513,10 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
             auto value = context.JsonValue(*values[node.Arguments[0]], node.Name);
             if (value.Type != node.Type) Fail(node.Position, "JSON_VALUE runtime returned an unexpected type");
             finish(std::move(value));
-        } else if (node.Op == O::Like) {
+        } else if (node.Op == O::Like || node.Op == O::ILike) {
             if (!context.Like) Fail(node.Position, "LIKE reference execution requires a pattern matching service");
             finish({node.Type, context.Like(*values[node.Arguments[0]],
-                std::get<std::string>(values[node.Arguments[1]]->Data), node.Name)});
+                std::get<std::string>(values[node.Arguments[1]]->Data), node.Name, node.Op == O::Like)});
         } else if (node.Op == O::RandomUuid) {
             if (!context.RandomUuid) Fail(node.Position, "Missing UUID generation service");
             finish({node.Type, context.RandomUuid()});
@@ -2538,7 +2539,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
         if (node.Op == O::Literal || node.Op == O::Column || node.Op == O::Parameter) return original;
         // Path compilation and JSON evaluation belong to the execution runtime,
         // including invalid-path errors and NULL inputs. Never invoke it here.
-        if (node.Op == O::JsonValue || node.Op == O::RandomUuid || node.Op == O::Like) return retain();
+        if (node.Op == O::JsonValue || node.Op == O::RandomUuid || node.Op == O::Like || node.Op == O::ILike) return retain();
         if (node.Op == O::If && (*this)[node.Arguments[0]].Op == O::Literal) {
             const auto& condition = (*this)[node.Arguments[0]].Value;
             return node.Arguments[std::holds_alternative<bool>(condition) && std::get<bool>(condition) ? 1 : 2];

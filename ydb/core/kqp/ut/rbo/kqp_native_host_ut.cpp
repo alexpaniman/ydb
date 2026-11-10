@@ -5785,14 +5785,14 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
-    Y_UNIT_TEST(RuntimeLikeEscapeAndUnderscoresMatchLegacy) {
+    Y_UNIT_TEST_TWIN(RuntimeLikeEscapeAndUnderscoresMatchLegacy, CaseSensitive) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
         auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
         auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
-        const char* patterns[]{"", "%", "_", "a_", "_b", "a_b", "a#_b", "a#%b", "a##b", "a%b%_", "%_b", "é_"};
-        for (const bool utf8 : {false, true}) {
-            TVector<std::optional<std::string>> inputs{std::nullopt, "", "ab", "a_b", "a%b", "a#b", "a\nb", "éж", std::string{"a\0b", 3}};
+        const char* patterns[]{"", "%", "_", "a_", "_b", "a_b", "a#_b", "a#%b", "a##b", "a%b%_", "%_b", "é_", "a%b%", "%a%b", "Σ_", "k%", "123%", "%Ж%", "😀%", "中"};
+        for (const bool utf8 : {false, true}) for (const bool utf8Pattern : {false, true}) {
+            TVector<std::optional<std::string>> inputs{std::nullopt, "", "ab", "a_b", "a%b", "a#b", "a\nb", "éж", "ÉЖ", "A_B", "AbBa", "ςσ", "Kelvin", "12345", "😀x", "中", std::string{"a\0b", 3}};
             if (!utf8) inputs.push_back(std::string{"a\xff" "b", 3});
             TString sql = utf8 ? "DECLARE $s AS Utf8?; " : "DECLARE $s AS String?; ";
             for (std::size_t i = 0; i < std::size(patterns); ++i)
@@ -5800,8 +5800,9 @@ $round = ($x,$y) -> {return $x;};
             sql += "SELECT ";
             for (std::size_t i = 0; i < std::size(patterns); ++i) {
                 if (i) sql += ", ";
-                sql += TStringBuilder() << "$s LIKE '" << patterns[i] << "' ESCAPE '#' AS lit" << i
-                    << ", $s LIKE $p" << i << " ESCAPE '#' AS dyn" << i;
+                sql += TStringBuilder() << "$s " << (CaseSensitive ? "LIKE" : "ILIKE") << " '" << patterns[i]
+                    << (utf8Pattern ? "'u" : "'") << " ESCAPE '#' AS lit" << i
+                    << ", $s " << (CaseSensitive ? "LIKE" : "ILIKE") << " $p" << i << " ESCAPE '#' AS dyn" << i;
             }
             for (const auto& input : inputs) {
                 TParamsBuilder builder;

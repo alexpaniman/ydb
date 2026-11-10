@@ -1,12 +1,14 @@
 #include "like.h"
 
+#include <util/charset/utf8.h>
+
 #include <algorithm>
 #include <limits>
 
 namespace NKikimr::NKqp::NFrontend::NDetail {
 
 TExprId BuildLike(TExpressionArena& arena, TExprId input, TExprId patternId,
-    std::optional<TExprId> escapeId, TSourcePosition pos) {
+    std::optional<TExprId> escapeId, TSourcePosition pos, bool caseSensitive) {
     std::string escape;
     if (escapeId) {
         const auto& node = arena[*escapeId];
@@ -21,7 +23,7 @@ TExprId BuildLike(TExpressionArena& arena, TExprId input, TExprId patternId,
     const auto pattern = arena[patternId];
     if (pattern.Op != EOpcode::Literal || !pattern.Type.IsString() ||
         !std::holds_alternative<std::string>(pattern.Value))
-        return arena.Like(input, patternId, std::move(escape), pos);
+        return arena.Like(input, patternId, std::move(escape), pos, caseSensitive);
     const auto& text = std::get<std::string>(pattern.Value);
     if (text.size() > std::numeric_limits<std::uint32_t>::max())
         throw TResourceLimitError(pos, "LIKE pattern exceeds Uint32 string length");
@@ -47,6 +49,17 @@ TExprId BuildLike(TExpressionArena& arena, TExprId input, TExprId patternId,
         auto& part = components.back();
         if (part.Simple) part.Prefix += ch;
         part.Suffix += ch;
+    }
+    if (!caseSensitive) {
+        // Literal patterns without cased characters use the ordinary LIKE
+        // simplifications, including their nullable result contracts. All
+        // other ILIKE patterns retain the runtime's Unicode case folding.
+        const bool invariant = pattern.Type.Kind == ETypeKind::Utf8
+            ? ToLowerUTF8(text) == ToUpperUTF8(text)
+            : std::none_of(text.begin(), text.end(), [](unsigned char ch) {
+                return ch >= 128 || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+            });
+        if (!invariant) return arena.Like(input, patternId, std::move(escape), pos, false);
     }
     if (std::any_of(components.begin(), components.end(), [](const auto& part) { return !part.Simple; })) {
         auto result = arena.Like(input, patternId, std::move(escape), pos);

@@ -141,24 +141,31 @@ void CheckScalar(std::string_view sql) {
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     Y_UNIT_TEST(LikeRuntimeOpcodeIsTerminalAndUnicodeAware) {
         using namespace NFrontend;
-        struct TCase { std::optional<std::string> Input; std::string Pattern; std::string Escape; bool Expected; };
+        struct TCase { std::optional<std::string> Input; std::string Pattern; std::string Escape; bool Expected; bool CaseSensitive = true; };
         for (const auto& test : std::vector<TCase>{
             {"a_b", "a#_b", "#", true}, {"acb", "a#_b", "#", false},
             {"a%b", "a#%b", "#", true}, {"a#b", "a##b", "#", true},
             {"é", "_", "", true}, {"éж", "_", "", false},
             {"a\nb", "a_b", "", true}, {std::string{"a\0b", 3}, "a_b", "", true},
             {std::string{"\xff", 1}, "_", "", false}, {std::nullopt, "%", "", false},
-            {"", "", "", true}, {"a.b", "a.b", "", true}}) {
+            {"", "", "", true}, {"a.b", "a.b", "", true},
+            {"Éж", "éЖ", "", true, false}, {"Σ", "ς", "", true, false},
+            {"K", "k", "", true, false}, {"A_B", "a#_b", "#", true, false},
+            {"a_b", "A_B", "", true, false}, {"a_b", "A_B", "", false},
+            {std::nullopt, "a%", "", false, false}, {std::string{"\xff", 1}, "_", "", false, false}}) {
             TExpressionArena arena;
             const auto input = arena.Parameter("input", {ETypeKind::String, true});
             const auto pattern = arena.Parameter("pattern", {ETypeKind::String});
-            const auto root = arena.Like(input, pattern, test.Escape);
+            const auto root = arena.Like(input, pattern, test.Escape, {}, test.CaseSensitive);
             TEvaluationContext evaluation;
             evaluation.Parameter = [&](std::string_view name) -> TValue {
                 if (name == "pattern") return {{ETypeKind::String}, test.Pattern};
                 return {{ETypeKind::String, true}, test.Input ? TScalar{*test.Input} : TScalar{}};
             };
-            evaluation.Like = [&](const TValue&, std::string_view, std::string_view) { return test.Expected; };
+            evaluation.Like = [&](const TValue&, std::string_view, std::string_view, bool caseSensitive) {
+                UNIT_ASSERT_VALUES_EQUAL(caseSensitive, test.CaseSensitive);
+                return test.Expected;
+            };
             CheckScalar(arena, root, "native LIKE runtime", evaluation, [&](NYql::NCommon::TMkqlBuildContext& build, NMiniKQL::TProgramBuilder& pb) {
                 auto value = test.Input ? pb.NewOptional(pb.NewDataLiteral<NUdf::EDataSlot::String>(
                     NUdf::TStringRef(test.Input->data(), test.Input->size()))) :
@@ -170,12 +177,12 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     }
 
 
-    Y_UNIT_TEST(LikeStorageApplyUsesTheNativeRuntimeExpression) {
+    Y_UNIT_TEST_TWIN(LikeStorageApplyUsesTheNativeRuntimeExpression, CaseSensitive) {
         using namespace NFrontend;
         TExpressionArena arena;
         const auto input = arena.Column(1, {ETypeKind::String, true});
         const auto pattern = arena.Literal({ETypeKind::String}, std::string{"_id%000_"});
-        const auto predicate = arena.Like(input, pattern);
+        const auto predicate = arena.Like(input, pattern, {}, {}, CaseSensitive);
         UNIT_ASSERT(!CanLowerNativeOlapPredicate(arena, predicate));
         UNIT_ASSERT(CanLowerNativeOlapPredicate(arena, predicate, true));
         TExprContext ctx;

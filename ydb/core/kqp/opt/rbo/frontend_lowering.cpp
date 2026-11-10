@@ -351,7 +351,7 @@ private:
         });
     }
 
-    TExprNode::TPtr Like(TExprNode::TPtr input, TExprNode::TPtr pattern, std::string_view escape) {
+    TExprNode::TPtr Like(TExprNode::TPtr input, TExprNode::TPtr pattern, std::string_view escape, bool caseSensitive) {
         const auto typed = [&](TStringBuf name, TExprNode::TListType args, const TTypeAnnotationNode* type) {
             auto result = Ctx.NewCallable(Pos, name, std::move(args)); result->SetTypeAnn(type); return result;
         };
@@ -376,7 +376,7 @@ private:
         for (const TStringBuf name : {"CaseSensitive", "DotNl", "Literal", "LogErrors", "LongestMatch", "MaxMem",
                 "NeverCapture", "NeverNl", "OneLine", "PerlClasses", "PosixSyntax", "Utf8", "WordBoundary"}) {
             auto value = name == "MaxMem" ? Literal({K::Uint64}, std::uint64_t{8 << 20}) :
-                Literal({K::Bool}, name == "CaseSensitive" || name == "LogErrors" || name == "Utf8");
+                Literal({K::Bool}, (name == "CaseSensitive" && caseSensitive) || name == "LogErrors" || name == "Utf8");
             fields.push_back(Ctx.MakeType<TItemExprType>(name, value->GetTypeAnn()));
             auto field = Ctx.NewList(Pos, {Atom(name), value});
             field->SetTypeAnn(Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
@@ -471,7 +471,7 @@ private:
                 // values. Preserve the terminal dependency-call contract.
                 for (std::size_t i = 0; i < args.size(); ++i) args[i] = Call("DependsOn", {args[i]}, types[i]);
                 return Call("RandomUuid", std::move(args), type);
-            case O::Like: return Like(args[0], args[1], node.Name);
+            case O::Like: case O::ILike: return Like(args[0], args[1], node.Name, node.Op == O::Like);
             case O::ListElement: {
                 const auto item = Arena.ListItem(types[0]);
                 return Present(std::move(args), types, type, [&](TExprNode::TListType values) {

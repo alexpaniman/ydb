@@ -95,8 +95,12 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
 
 
     Y_UNIT_TEST(LikeEscapeHasOneNativeSyntaxAndBindingPath) {
-        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) for (const bool caseSensitive : {false, true}) {
             TCompilerSettings settings; settings.Parser = parser;
+            const auto query = [&](std::string sql) {
+                if (!caseSensitive) sql.replace(sql.find("LIKE"), 4, "ILIKE");
+                return sql;
+            };
             for (const auto* sql : {
                 "DECLARE $p AS String; SELECT 'a_b' LIKE $p ESCAPE '#' AS yes",
                 "SELECT 'a_b' LIKE 'a#_b' ESCAPE '#' AS yes",
@@ -104,7 +108,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 "SELECT 'a#b' LIKE 'a##b' ESCAPE '#' AS yes",
                 "SELECT 'a.b' LIKE 'a_b' AS yes",
                 "SELECT 'a.b' LIKE 'a._' ESCAPE '.' AS yes"}) {
-                const auto result = CompileNative(sql, Catalog, settings);
+                const auto result = CompileNative(query(sql), Catalog, settings);
                 UNIT_ASSERT_C(result.Program, sql);
                 UNIT_ASSERT(result.Program->Get().Results.front().Columns.front().Type == TType{ETypeKind::Bool});
             }
@@ -114,7 +118,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 "SELECT 'x' LIKE 'x' ESCAPE 'é'", "SELECT 'x' LIKE 'x' ESCAPE Utf8('#')",
                 "SELECT 'x' LIKE 'x#' ESCAPE '#'",
                 "DECLARE $e AS String; SELECT 'x' LIKE 'x' ESCAPE $e"})
-                UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TFrontendError);
+                UNIT_ASSERT_EXCEPTION(CompileNative(query(sql), Catalog, settings), TFrontendError);
         }
     }
 

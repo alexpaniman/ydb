@@ -1846,8 +1846,8 @@ private:
                     {"=", EOpcode::Equal}, {"==", EOpcode::Equal}, {"!=", EOpcode::NotEqual}, {"<>", EOpcode::NotEqual},
                     {"<", EOpcode::Less}, {"<=", EOpcode::LessEqual}, {">", EOpcode::Greater}, {">=", EOpcode::GreaterEqual},
                     {"AND", EOpcode::And}, {"OR", EOpcode::Or}, {"||", EOpcode::Concat}};
-                if (syntax.Text == "LIKE") result = NDetail::BuildLike(arena, left, right,
-                    syntax.Arguments.size() == 3 ? std::optional{Expr(syntax.Arguments[2], context)} : std::nullopt, syntax.Position);
+                if (syntax.Text == "LIKE" || syntax.Text == "ILIKE") result = NDetail::BuildLike(arena, left, right,
+                    syntax.Arguments.size() == 3 ? std::optional{Expr(syntax.Arguments[2], context)} : std::nullopt, syntax.Position, syntax.Text == "LIKE");
                 else if (syntax.Text == "XOR") {
                     if (arena[left].Type.Kind != ETypeKind::Bool || arena[right].Type.Kind != ETypeKind::Bool) {
                         throw TFrontendError(syntax.Position, "XOR requires Boolean operands");

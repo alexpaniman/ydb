@@ -79,7 +79,7 @@ bool OlapScalarNodeSupported(const NFrontend::TExprNode& node) {
         case O::Literal: case O::Column: case O::Parameter: case O::Convert: case O::Cast:
         case O::Negate: case O::Not: case O::And: case O::Or: case O::If:
         case O::IsNull: case O::IsNotNull: case O::Abs: case O::Length: case O::OptionalWrap:
-        case O::Find: case O::Substring: case O::Concat: case O::Like:
+        case O::Find: case O::Substring: case O::Concat: case O::Like: case O::ILike:
             return true;
         default: return false;
     }

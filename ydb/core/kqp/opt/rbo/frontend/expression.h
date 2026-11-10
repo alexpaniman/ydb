@@ -108,7 +108,7 @@ enum class EOpcode : std::uint8_t {
     Concat, Ensure, StablePickle, Find,
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
     CalendarShiftMonths, CalendarShiftYears, CalendarMinute, TemporalSeconds, UrlHost, UrlCutWWW,
-    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, Like, TupleElement, ListElement,
+    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, Like, ILike, TupleElement, ListElement,
 };
 
 struct TExprNode {
@@ -174,7 +174,7 @@ public:
     TExprId JsonValue(TExprId input, std::string path, TSourcePosition position = {});
     // Runtime LIKE matching. Input may be NULL (false); pattern is required.
     // SQL literal-pattern simplifications belong to the binding layer.
-    TExprId Like(TExprId input, TExprId pattern, std::string escape = {}, TSourcePosition position = {});
+    TExprId Like(TExprId input, TExprId pattern, std::string escape = {}, TSourcePosition position = {}, bool caseSensitive = true);
     TExprId Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position = {});
 
     const TExprNode& operator[](TExprId id) const;
@@ -226,7 +226,7 @@ struct TEvaluationContext {
     // Runtime service for nondeterministic UUID generation. Dependency values
     // order evaluation; they are not random seeds. One reached node runs once.
     std::function<std::string()> RandomUuid = {};
-    std::function<bool(const TValue&, std::string_view, std::string_view)> Like = {};
+    std::function<bool(const TValue&, std::string_view, std::string_view, bool)> Like = {};
 };
 
 TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationContext& context = {});

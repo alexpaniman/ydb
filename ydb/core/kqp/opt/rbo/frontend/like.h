@@ -4,9 +4,9 @@
 
 namespace NKikimr::NKqp::NFrontend::NDetail {
 
-// Bind SQL LIKE, preserving literal simplifications and their result optionality.
+// Bind SQL LIKE/ILIKE, preserving literal simplifications and their result optionality.
 // Dynamic/complex patterns use the runtime matching opcode.
 TExprId BuildLike(TExpressionArena& arena, TExprId input, TExprId pattern,
-    std::optional<TExprId> escape, TSourcePosition position);
+    std::optional<TExprId> escape, TSourcePosition position, bool caseSensitive = true);
 
 } // namespace NKikimr::NKqp::NFrontend::NDetail

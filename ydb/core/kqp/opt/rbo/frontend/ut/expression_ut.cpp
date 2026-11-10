@@ -21,6 +21,38 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(LikeCaseModeSurvivesNativeRebindingAndFolding) {
+        for (const bool caseSensitive : {false, true}) {
+            TExpressionArena arena;
+            const auto input = arena.Column(1, {K::String, true});
+            const auto pattern = arena.Literal({K::String}, std::string{"A#_%"});
+            const auto original = arena.Like(input, pattern, "#", {}, caseSensitive);
+            const auto rewritten = arena.RewriteColumns(original, [&](auto, auto id, auto type, auto pos) {
+                return arena.Column(id + 1, type, pos);
+            });
+            TExpressionArena copy;
+            const auto imported = copy.Import(arena, rewritten, [&](auto id, auto type, auto pos) {
+                return copy.Column(id + 1, type, pos);
+            });
+            const auto folded = copy.FoldConstants(std::span(&imported, 1)).front();
+            UNIT_ASSERT(copy[folded].Op == (caseSensitive ? O::Like : O::ILike));
+            UNIT_ASSERT(copy[folded].Type == TType{K::Bool});
+            TEvaluationContext context;
+            context.Column = [](auto id) {
+                UNIT_ASSERT_VALUES_EQUAL(id, 3);
+                return TValue{{K::String, true}, std::string{"a_b"}};
+            };
+            context.Like = [&](const TValue& value, std::string_view text, std::string_view escape, bool mode) {
+                UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(value.Data), "a_b");
+                UNIT_ASSERT_VALUES_EQUAL(text, "A#_%");
+                UNIT_ASSERT_VALUES_EQUAL(escape, "#");
+                UNIT_ASSERT_VALUES_EQUAL(mode, caseSensitive);
+                return !caseSensitive;
+            };
+            UNIT_ASSERT_VALUES_EQUAL(std::get<bool>(Evaluate(copy, folded, context).Data), !caseSensitive);
+        }
+    }
+
     Y_UNIT_TEST(ListIndexDistinguishesAbsentRowsFromPresentNullItems) {
         TExpressionArena arena;
         const auto present = arena.Literal({K::Int32, true}, std::int64_t{7});
