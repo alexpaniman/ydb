@@ -200,7 +200,6 @@ struct TPlanProps {
     TStageGraph StageGraph;
     TSubplans Subplans;
     TColumnLineage ColumnLineage;
-    bool PgSyntax = false;
     bool WithEffects = false;
     bool WithReturning = false;
     // Execution contracts supplied at the frontend boundary; optimizer rules

@@ -479,9 +479,9 @@ TExpression MakeConstant(const TString& type, const TString& value, TPositionHan
     return TExpression::FromNative(arena, arena->Call(std::string_view(type.data(), type.size()), args), props, pos);
 }
 
-TExpression MakeConjunction(const TVector<TExpression>& vec, bool pgSyntax) {
+TExpression MakeConjunction(const TVector<TExpression>& vec) {
 
-    Y_ENSURE(!pgSyntax && !vec.empty(), "Native conjunction requires nonempty scalar operands");
+    Y_ENSURE(!vec.empty(), "Native conjunction requires nonempty scalar operands");
     if (vec.size() == 1) {
         return vec.front();
     }

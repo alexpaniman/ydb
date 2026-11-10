@@ -7,7 +7,7 @@ bool TExtractJoinExpressionsRule::QuickMatch(const TIntrusivePtr<IOperator>& inp
     return input->Kind == EOperator::Filter && CastOperator<TOpFilter>(input)->GetInput()->Kind == EOperator::Join;
 }
 
-bool TExtractJoinExpressionsRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext &, TPlanProps &props) {
+bool TExtractJoinExpressionsRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext &, TPlanProps &) {
     if (input->Kind != EOperator::Filter) {
         return false;
     }
@@ -57,7 +57,7 @@ bool TExtractJoinExpressionsRule::MatchAndApply(TIntrusivePtr<IOperator> &input,
         return false;
     }
 
-    filter->SetFilterExpression(MakeConjunction(newConjuncts, props.PgSyntax));
+    filter->SetFilterExpression(MakeConjunction(newConjuncts));
     auto newMap = MakeIntrusive<TOpMap>(join, input->Pos, std::move(mapElements), true);
     filter->SetInput(std::move(newMap));
     return true;

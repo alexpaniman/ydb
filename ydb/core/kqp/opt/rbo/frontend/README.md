@@ -56,6 +56,8 @@ single-use views need no materialization.
 and `TQueryExecutionMetadata`. Native queries do not build synthetic
 `KiDataQueryBlock` graphs. The legacy compiler imports the same execution metadata
 from its own query blocks.
+Column and relation IDs index dense translation tables; construction does not
+allocate hash entries for those IDs.
 Projected IN/EXISTS values are constructed at this handoff using the same mark-join
 builder as the existing filter rule. The rule retains its filter-only matching
 policy. Native OLAP capability checks live separately from physical emission.
@@ -86,9 +88,15 @@ arena-owned tuple shapes; nested optional types preserve each optional layer.
 `TRboTable` holds catalog identity and native column types as values. Read ranges,
 lookup point prefixes, OLAP predicates, sink settings and stream lookup key types remain native
 through stage assignment.
+Range and lookup-point validity conditions are native required Booleans without
+row dependencies. They reject unordered NaN bounds; open upper bounds for Float,
+Double and Decimal stop before the NaN storage key. Physical emission constructs
+typed conditional lists directly. It does not use YQL range expansion helpers.
+Copying and expression visitors preserve these conditions with their bounds.
 
 Physical builders cross the boundary through `ExportNativeType`,
 `ExportOperatorType`, `ExportIUType`, `LowerTable`, and `LowerExpressionLambda`.
+`LowerExecutionType` supplies fully typed backend type syntax for runtime values.
 Each export produces fresh objects in the backend context. Scalar lowering emits
 fully typed terminal operations; direct MiniKQL tests require neither annotation
 nor a semantic rewrite pass. Physical relational builders annotate the emitted graph and apply a bounded,

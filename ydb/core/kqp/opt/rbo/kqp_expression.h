@@ -147,7 +147,7 @@ TExpression MakeColumnAccess(TInfoUnitId column, IOperator& input,
 TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TPlanProps* props = nullptr);
 
 // Make a conjunction in the first operand's arena, preserving plan properties.
-TExpression MakeConjunction(const TVector<TExpression>& vec, bool pgSyntax = false);
+TExpression MakeConjunction(const TVector<TExpression>& vec);
 
 // Negate a predicate
 TExpression MakeNegation(const TExpression& expr);

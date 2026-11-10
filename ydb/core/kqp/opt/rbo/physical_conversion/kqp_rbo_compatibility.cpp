@@ -3,7 +3,6 @@
 
 #include <yql/essentials/core/yql_expr_optimize.h>
 #include <yql/essentials/core/yql_expr_type_annotation.h>
-#include <yql/essentials/core/yql_opt_range.h>
 #include <yql/essentials/core/yql_opt_utils.h>
 
 namespace NKikimr::NKqp {
@@ -400,6 +399,8 @@ TExprNode::TPtr ExpandScalarHasNull(
 
 TExprNode::TPtr FindCompatibilityNode(const TExprNode::TPtr& root) {
     return FindNode(root, [](const TExprNode::TPtr& node) {
+        // Legacy range macros remain forbidden at the execution boundary.
+        // Native ranges emit typed runtime values and never need expansion.
         return node->IsCallable({"ExtractMembers", "OptionalIf", "StrictCast", "HasNull", "SqlIn", "RangeEmpty", "AsRange", "RangeFor", "ReplicateScalars"}) ||
             CanLiftSafeCastOptional(node) || IsComplexComparison(node) || IsTupleMinMax(node);
     });
@@ -447,15 +448,6 @@ NYql::TExprNode::TPtr RewriteRboCompatibilityNode(
             return KeepSideEffects(std::move(result), node->HeadPtr(), ctx);
         }
         return ExpandTupleComparison(node, ctx);
-    }
-    if (node->IsCallable("RangeEmpty")) {
-        return ExpandRangeEmpty(node, ctx);
-    }
-    if (node->IsCallable("AsRange")) {
-        return ExpandAsRange(node, ctx);
-    }
-    if (node->IsCallable("RangeFor")) {
-        return ExpandRangeFor(node, ctx);
     }
     return node;
 }
