@@ -256,10 +256,20 @@ Speed ratios use per-query medians on the common successful cohort. Frontend
 time includes parsing, table discovery, binding/scalar typing and translation
 to operators. Operator typing is already inside the RBO span. These results
 show a compiler speedup but do **not** establish negligible frontend overhead,
-particularly on 1C and ClickBench. Full untraced controls are a separate pending
-check. The binaries, traces, hashes, commands and reports are retained locally
+particularly on 1C and ClickBench. The binaries, traces, hashes, commands and reports are retained locally
 under `/tmp/yqlv2-goal/full-warmed-candidate3`; the reproducible driver is in
 [`tools/bench_compilation`](tools/bench_compilation/README.md).
+
+The matching untraced control completed three warmup and three measured passes
+per query. All 20,937 measured native requests passed; every native batch also
+completed its warmups successfully. The same 351 distinct baseline failures
+remain excluded from the common successful cohort. Geometric mean request-time
+ratios (native/before) were 0.225 for 1C, 0.473 for TPC-H, 0.682 for TPC-DS,
+0.414 for ClickBench, 0.612 for medium and 0.313 for tiny. Request duration and
+the traced compiler span are different measurements; keep both when assessing
+the improvement. Control logs, commands and per-request observations are in
+`/tmp/yqlv2-goal/full-warmed-candidate3-untraced`. These measurements describe
+the frozen `9c5cb3fbadd` binary, not subsequent source changes.
 
 ### Earlier read-path validation, 2026-11-10
 
