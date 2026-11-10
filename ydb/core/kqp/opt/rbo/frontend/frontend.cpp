@@ -275,9 +275,17 @@ bool IsAggregate(std::string_view name) {
 
 struct TScopeColumn {
     TColumnId Id;
+    bool QualifiedOnly = false;
     std::string Name;
     std::string Qualifier;
     TType Type;
+
+    TScopeColumn(TColumnId id, std::string name, std::string qualifier, TType type)
+        : Id(id), Name(std::move(name)), Qualifier(std::move(qualifier)), Type(type) {}
+
+    bool MatchesStar(std::string_view qualifier) const {
+        return qualifier.empty() ? !QualifiedOnly : Qualifier == qualifier;
+    }
 };
 
 struct TStringHash {
@@ -298,12 +306,20 @@ public:
             auto [it, inserted] = Names.try_emplace(std::forward<decltype(name)>(name), index);
             if (!inserted) it->second = Ambiguous;
         };
-        addName(column.Name);
+        if (!column.QualifiedOnly) addName(column.Name);
         if (!column.Qualifier.empty()) {
             addName(column.Qualifier + "." + column.Name);
             Qualifiers.insert(column.Qualifier);
         }
         Columns.push_back(std::move(column));
+    }
+
+    // A USING key has one unqualified binding, while each input keeps its
+    // qualified binding and qualified-star projection (including NULL padding).
+    void Merge(TScopeColumn column) {
+        for (auto& existing : Columns) if (existing.Name == column.Name) existing.QualifiedOnly = true;
+        Names.erase(column.Name);
+        Add(std::move(column));
     }
 
     const TScopeColumn* Find(std::string_view name, TSourcePosition pos) const {
@@ -350,7 +366,7 @@ std::vector<std::string> ProjectionNames(const TSelect& query, const TParsedQuer
         const auto& expression = syntax.Expressions[projection.Expression];
         if (expression.Kind == ESyntaxKind::Star) {
             for (const auto& column : scope.Columns)
-                if (expression.Text.empty() || column.Qualifier == expression.Text) names.try_emplace(column.Name, false);
+                if (column.MatchesStar(expression.Text)) names.try_emplace(column.Name, false);
             continue;
         }
         auto& name = result[i];
@@ -1030,6 +1046,38 @@ private:
         return result;
     }
 
+    using TUsingKeys = std::vector<std::pair<TScopeColumn, TScopeColumn>>;
+
+    TUsingKeys ResolveUsingKeys(const TJoin& join, const TScope& left, const TScope& right) {
+        TUsingKeys keys;
+        std::unordered_set<std::string_view> seen;
+        for (const auto& name : join.Using) {
+            const auto pos = join.Source.Position;
+            if (!seen.insert(name).second) throw TFrontendError(pos, "duplicate USING column: " + name);
+            const auto* lhs = left.Find(name, pos);
+            const auto* rhs = right.Find(name, pos);
+            if (!lhs || !rhs) throw TFrontendError(pos, "USING column must exist in both inputs: " + name);
+            keys.emplace_back(*lhs, *rhs);
+        }
+        return keys;
+    }
+
+    TRelId MergeUsingKeys(TRelId input, TScope& output, TUsingKeys keys, EJoinKind kind, TSourcePosition pos) {
+        if (kind == EJoinKind::LeftSemi || kind == EJoinKind::LeftOnly ||
+            kind == EJoinKind::RightSemi || kind == EJoinKind::RightOnly) return input;
+        std::vector<TDefinition> definitions;
+        for (auto& [left, right] : keys) {
+            if (kind == EJoinKind::Right || kind == EJoinKind::Full || kind == EJoinKind::Exclusion) left.Type = left.Type.Optional();
+            if (kind == EJoinKind::Left || kind == EJoinKind::Full || kind == EJoinKind::Exclusion) right.Type = right.Type.Optional();
+            const TExprId arguments[]{Access(left, pos), Access(right, pos)};
+            const auto expression = Program.Expressions.Coalesce(arguments, pos);
+            const auto column = Column(left.Name, {}, Program.Expressions[expression].Type, pos);
+            definitions.push_back({column, expression});
+            output.Merge(ScopeColumn(column));
+        }
+        return Map(input, std::move(definitions), pos);
+    }
+
     TBoundSource From(const TSelect& query, TExprContext* outer) {
         TBoundSource current;
         if (query.Source) current = Source(*query.Source, outer);
@@ -1040,6 +1088,7 @@ private:
                 throw TFrontendError(join.Source.Position, join.Kind == EJoinKind::Cross ?
                     "CROSS JOIN cannot have ON or USING" : "JOIN requires ON or USING");
             auto right = Source(join.Source, outer);
+            auto usingKeys = ResolveUsingKeys(join, current.Scope, right.Scope);
             const auto leftColumns = current.Scope.Columns.size();
             TScope combined = current.Scope;
             combined.Reserve(leftColumns + right.Scope.Columns.size());
@@ -1049,16 +1098,16 @@ private:
             context.AllowSubqueries = false;
             std::optional<TExprId> predicate;
             if (join.Predicate != NoSyntax) predicate = Expr(join.Predicate, context);
-            current.Relation = BindInput(current.Relation, context, join.Source.Position);
-            if (!join.Using.empty()) {
-                // USING also changes unqualified projection/star semantics.
-                // Do not accept it until that output coalescing is represented.
-                throw TUnsupportedFeature(EFeature::JoinUsing, join.Source.Position, "JOIN USING is not supported; use an explicit ON predicate");
+            for (const auto& [left, right] : usingKeys) {
+                const auto pos = join.Source.Position;
+                const auto equal = Program.Expressions.Binary(EOpcode::Equal, Access(left, pos), Access(right, pos), pos);
+                predicate = predicate ? Program.Expressions.Binary(EOpcode::And, *predicate, equal, pos) : equal;
             }
+            current.Relation = BindInput(current.Relation, context, join.Source.Position);
             if (predicate && Program.Expressions[*predicate].Type.Kind != ETypeKind::Bool) throw TFrontendError(join.Source.Position, "join predicate must have Boolean type");
             const bool keepLeft = join.Kind != EJoinKind::RightSemi && join.Kind != EJoinKind::RightOnly;
             const bool keepRight = join.Kind != EJoinKind::LeftSemi && join.Kind != EJoinKind::LeftOnly;
-            // ON binding has already indexed both inputs. NULL padding changes
+            // Predicate binding has indexed both inputs. NULL padding changes
             // their types, not names or positions, so reuse that scope.
             TScope output = keepLeft && keepRight ? std::move(combined)
                 : keepLeft ? std::move(current.Scope) : std::move(right.Scope);
@@ -1069,7 +1118,8 @@ private:
             }
             TRelation relation{ERelation::Join, join.Source.Position}; relation.Inputs = {current.Relation, right.Relation};
             relation.Columns = output.Ids(); relation.Predicate = predicate; relation.JoinKind = join.Kind;
-            current = {Relation(std::move(relation)), std::move(output)};
+            const auto root = MergeUsingKeys(Relation(std::move(relation)), output, std::move(usingKeys), join.Kind, join.Source.Position);
+            current = {root, std::move(output)};
         }
         return current;
     }
@@ -1192,7 +1242,7 @@ private:
                 joinStar = joinStar || !query.Joins.empty();
                 if (!projection.Alias.empty()) throw TFrontendError(syntax.Position, "a star cannot have an alias");
                 bool found = false;
-                for (const auto& column : context.Scope.Columns) if (syntax.Text.empty() || column.Qualifier == syntax.Text) {
+                for (const auto& column : context.Scope.Columns) if (column.MatchesStar(syntax.Text)) {
                     outputs.push_back({column.Id, column.Name, column.Type}); outputScope.Add(column); found = true;
                 }
                 if (!found) throw TFrontendError(syntax.Position, "star has no matching columns");
@@ -2437,7 +2487,7 @@ std::string_view SupportManifest() {
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda","insert","upsert","replace","update","delete"],
 "scalar_collections":["fixed tuple/list constructors and declared or supplied scalar List parameters for IN; checked dynamic key conversion and ANSI/legacy NULL rules; not relational columns"],
 "row_parameters":["AS_TABLE of declared or supplied List<Struct<scalar fields>> parameters; nullable scalar fields and empty structs; no nested containers or optional row/list containers"],
-"relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery","named-query-in","effect"],
+"relations":["read","project","filter","on-join","using-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery","named-query-in","effect"],
 "types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Date32","Datetime64","Timestamp64","Interval64","Uuid","Decimal","Json","JsonDocument","Null","scalar optionals, including explicit nested optional casts"],
 "aggregates":["count","count_if","sum","avg","min","max","min_by","max_by","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
 "effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; literal and sequence defaults at emission; generated expression defaults, INSERT OR REVERT and batch writes are unsupported"],
@@ -2456,7 +2506,7 @@ std::string_view SupportManifest() {
 "string":["CostBasedOptimization=on/off/auto","HashJoinMode","OptimizerHints"],
 "false_only":["OptFallbackToLegacyOptimizer"],
 "rules":["static query settings applied in source order; every occurrence is validated","case-insensitive names; up to four single internal or trailing underscores","empty Boolean values mean true","HashJoinMode and OptimizerHints are validated at the RBO handoff","unknown settings delegate; malformed known values are errors"]},
-"restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing to integers, Bool, Float/Double, Decimal and Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no inherited/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DDL, arbitrary UDFs, general containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal constructors require canonical literal digits or inf/nan; text casts preserve runtime exponent parsing and rounding","no system columns, string suffixes other than s/u or extended string escapes"],
+"restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing to integers, Bool, Float/Double, Decimal and Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no inherited/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, named USING keys, DDL, arbitrary UDFs, general containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal constructors require canonical literal digits or inf/nan; text casts preserve runtime exponent parsing and rounding","no system columns, string suffixes other than s/u or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})manifest";
 }

@@ -123,12 +123,16 @@ alone does not establish SQL compatibility.
 
 Supported relational forms include SELECT/FROM-first SELECT, ordinary tables and supported system views,
 projections and unique-name stars, CTEs/query bindings, simple scalar lambdas,
-ON joins, grouping/HAVING, GROUPING SETS/ROLLUP/CUBE, windows, DISTINCT,
+ON/USING joins, grouping/HAVING, GROUPING SETS/ROLLUP/CUBE, windows, DISTINCT,
 UNION/INTERSECT/EXCEPT including ALL, sorting/limits and multiple results. Named queries also serve as
 single-column IN inputs in ordinary query expressions.
 Scalar/EXISTS/single-column IN subqueries support correlation within the checked
 backend profile. Scalar subqueries preserve NULL for no row and fail for more
 than one row. Scan queries require one result.
+USING keys bind on both inputs and become native equality predicates. Their merged
+unqualified values use ordinary coalesce maps; qualified keys and qualified stars
+retain each input's identity and outer-join NULL padding. Semi/only joins expose
+only the retained input. No new optimizer rule is involved.
 
 INSERT/UPSERT/REPLACE accept VALUES and SELECT inputs. UPDATE and DELETE accept
 predicates or explicit input rows; RETURNING retains its projection order.
@@ -163,7 +167,9 @@ Extended Date32/Datetime64/Timestamp64/Interval64 and Uuid are native types.
 it emits one internal parameter and exposes no user parameter.
 String `s`/`u` suffixes are supported. Integer promotion, checked casts, decimal
 rounding/exponents, Unicode case conversion, selected calendar operations,
-JSON_VALUE and constant LIKE patterns have runtime differential tests.
+JSON_VALUE, LIKE/ILIKE patterns, underscores and escapes have runtime differential
+tests. Static direct, inline `Udf(String::...)`, and bound callable forms resolve
+to the same checked native string functions. Arbitrary UDF resolution is excluded.
 
 `AS_TABLE` accepts declared or supplied `List<Struct<scalar fields>>` parameters,
 including nullable fields and empty structs. Source field names survive aliases,
@@ -184,8 +190,8 @@ Important exclusions remain explicit:
 - DDL, USE, PostgreSQL values, external/temporary tables, index-view syntax,
   table hints/sampling and unrecognized settings.
 - INSERT OR REVERT, batch writes and omitted generated expression defaults;
-  dynamic signed LIMIT/OFFSET and general row-valued scalar expressions.
-- JOIN USING, tuple IN subqueries, duplicate star names requiring coalescing,
+  dynamic Int64 LIMIT/OFFSET and general row-valued scalar expressions.
+- Named USING keys, tuple IN subqueries, duplicate non-key star names,
   and FULL JOIN residual predicates other than column equality keys.
 - Subqueries in ON, GROUP BY, direct ORDER BY, LIMIT/OFFSET, scalar bindings or
   lambda bodies; ungrouped outer references after aggregation.
@@ -195,8 +201,8 @@ Important exclusions remain explicit:
   Dynamic collection dictionary keys have a narrower checked scalar profile.
 - Bare-NULL arithmetic, unsupported mixed Decimal operations, floating Decimal
   casts, Float-to-32/64-bit-integer casts and unverified temporal conversions.
-- Dynamic LIKE patterns, `_`/escape forms, ILIKE, and unsupported JSON paths or
-  handlers. Calendar intermediates cannot cross relational boundaries.
+- Unsupported JSON paths or handlers. Calendar intermediates cannot cross
+  relational boundaries.
 
 Known backend limitations are admission checks, not a second scalar interpreter.
 Unsupported queries retain the legacy optimizer's behavior through whole-query
@@ -240,7 +246,12 @@ The full-corpus compilation checkpoint covers 6,979 queries with native-required
 admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and
 two additional 1C samples. This establishes compilation coverage, not complete
 effects parity or negligible frontend cost. The latest completed standalone run
-has 223 passing tests; subsequent changes require a fresh test run.
+has 249 passing tests. JOIN USING additionally has runtime value/type comparisons
+against explicit legacy ON/coalesce forms in scalar/block and nullable/required
+configurations, plus a handoff check with zero YQL expression/type allocations.
+The imported indexed-delete test had expectations explicitly marked as a legacy
+rescan bug; its native port instead checks one shared snapshot and the exact
+surviving rows and index contents in both index modes.
 
 The full warmed comparison of native revision `9c5cb3fbadd` against
 `d11af71c6d026b84c3e72650813372f3ffa979c2` completed five untraced warmup passes

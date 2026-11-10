@@ -7,6 +7,7 @@ SRCS(
     reference_parser_ut.cpp
     execution_ut.cpp
     binder_ut.cpp
+    join_using_ut.cpp
     writes_ut.cpp
     expression_ut.cpp
     parser_ut.cpp

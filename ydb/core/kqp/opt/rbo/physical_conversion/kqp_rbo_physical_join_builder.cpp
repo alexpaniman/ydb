@@ -738,7 +738,7 @@ TExprNode::TPtr TPhysicalJoinBuilder::BuildPhysicalOp(TExprNode::TPtr leftInput,
     }
 
     Y_ENSURE(joinKind == "inner" || joinKind == "left" || joinKind == "leftonly" || joinKind == "leftsemi" ||
-             joinKind == "full" || joinKind == "cross");
+             joinKind == "full" || joinKind == "exclusion" || joinKind == "cross");
 
     if(BadTypesForBlockJoin(Join, Ctx)) {
         useBlockHashJoin = false;

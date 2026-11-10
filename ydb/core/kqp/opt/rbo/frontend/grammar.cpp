@@ -552,8 +552,12 @@ private:
             } else if (Name(child) == "flatten_source") {
                 if (join) join->Source = Source(child); else result.Source = Source(child);
             } else if (Name(child) == "join_constraint") {
-                if (Has(child, "USING")) Unsupported(child, EFeature::JoinUsing, "JOIN USING");
-                join->Predicate = Expr(Child(child, "expr"));
+                if (Has(child, "USING")) {
+                    for (auto* key : Children(Child(child, "pure_column_or_named_list"), "pure_column_or_named")) {
+                        if (Child(key, "bind_parameter")) Unsupported(key, EFeature::JoinUsing, "named USING column");
+                        join->Using.push_back(Id(Child(key, "an_id")));
+                    }
+                } else join->Predicate = Expr(Child(child, "expr"));
             }
         }
         if (join) result.Joins.push_back(std::move(*join));
