@@ -2421,31 +2421,19 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     }
 
     Y_UNIT_TEST(ComputedJoinKeysStayOnTheirOwnInputs) {
-        for (const auto* kind : {"INNER", "LEFT", "RIGHT", "LEFT SEMI", "RIGHT SEMI", "LEFT ONLY", "RIGHT ONLY", "WHERE", "FILTERED CROSS"}) {
+        for (const auto* kind : {"INNER", "LEFT", "RIGHT", "LEFT SEMI", "RIGHT SEMI", "LEFT ONLY", "RIGHT ONLY", "WHERE"}) {
             for (const auto* predicate : {"a.x + 1 = b.x", "a.x + a.y = b.x + b.y", "b.x + 1 = a.x", "a.x + 1 = b.x AND a.y < b.y", "a.x + 1 = b.x AND a.y + 2 = b.y"}) {
                 NTests::TIdTestContext f;
                 const bool where = TStringBuf(kind) == "WHERE";
-                const bool filteredCross = TStringBuf(kind) == "FILTERED CROSS";
                 const TString sql = TStringBuilder() << "SELECT 1 AS result FROM "
-                    << "(SELECT 1 AS x, CAST(2 AS Int32?) AS y) AS a " << (where || filteredCross ? "CROSS" : kind)
-                    << " JOIN (SELECT 2 AS x, CAST(3 AS Int32?) AS y) AS b " << (where || filteredCross ? "WHERE " : "ON ") << predicate;
+                    << "(SELECT 1 AS x, CAST(2 AS Int32?) AS y) AS a " << (where ? "CROSS" : kind)
+                    << " JOIN (SELECT 2 AS x, CAST(3 AS Int32?) AS y) AS b " << (where ? "WHERE " : "ON ") << predicate;
                 auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx).Roots;
                 auto& root = *roots.front();
                 // ON normalization belongs to construction, before any RBO stage.
-                if (!where && !filteredCross) for (const auto& item : root) if (item.Current->Kind == EOperator::Join) {
+                if (!where) for (const auto& item : root) if (item.Current->Kind == EOperator::Join) {
                     UNIT_ASSERT_VALUES_EQUAL_C(CastOperator<TOpJoin>(*item.Current).JoinKeys.Items().size(),
                         TStringBuf(predicate).Contains("a.y + 2") ? 2 : 1, sql);
-                }
-                // Reproduce a rewrite that stores a computed predicate inside
-                // a Cross join. The shared normalizer must still handle it.
-                if (filteredCross) for (const auto& item : root) if (item.Current->Kind == EOperator::Filter) {
-                    auto& filter = CastOperator<TOpFilter>(*item.Current);
-                    if (filter.GetInput()->Kind != EOperator::Join) continue;
-                    auto& join = CastOperator<TOpJoin>(*filter.GetInput());
-                    join.JoinFilters = filter.GetFilterExpression().SplitConjunct();
-                    const auto& arena = root.PlanProps.NativeExpressions;
-                    filter.SetFilterExpression(TExpression::FromNative(arena,
-                        arena->Literal({NFrontend::ETypeKind::Bool}, true), &root.PlanProps));
                 }
                 auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
                     UNIT_FAIL("computed native join keys invoked YQL annotation");
@@ -2465,7 +2453,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 for (const auto& item : root) if (item.Current->Kind == EOperator::Join) {
                     const auto& join = CastOperator<TOpJoin>(*item.Current);
                     UNIT_ASSERT_VALUES_EQUAL_C(join.JoinKeys.Items().size(), TStringBuf(predicate).Contains("a.y + 2") ? 2 : 1, sql);
-                    if (where || filteredCross) UNIT_ASSERT_VALUES_EQUAL_C(join.JoinKind, "Inner", sql);
+                    if (where) UNIT_ASSERT_VALUES_EQUAL_C(join.JoinKind, "Inner", sql);
                     for (const auto& key : join.JoinKeys.Items()) {
                         UNIT_ASSERT(join.GetLeftInput()->GetOutputIUs().Contains(key.first));
                         UNIT_ASSERT(join.GetRightInput()->GetOutputIUs().Contains(key.second));
@@ -2480,6 +2468,37 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 }
             }
         }
+    }
+
+    Y_UNIT_TEST(JoinExpressionExtractionKeepsFilterOnlyMatching) {
+        NTests::TIdTestContext f;
+        auto roots = CompileNativeToRbo("SELECT 1 FROM (SELECT 1 AS x) AS a "
+            "CROSS JOIN (SELECT 2 AS x) AS b WHERE a.x + 1 = b.x", NoTables, f.ExprCtx).Roots;
+        auto& root = *roots.front();
+        auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
+            UNIT_FAIL("join expression matching invoked YQL annotation");
+            return IGraphTransformer::TStatus::Error;
+        });
+        TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
+        TExtractJoinExpressionsRule rule;
+        bool checked = false;
+        for (const auto& item : root) if (item.Current->Kind == EOperator::Filter) {
+            auto& filter = CastOperator<TOpFilter>(*item.Current);
+            auto input = filter.GetInput();
+            if (input->Kind != EOperator::Join) continue;
+            UNIT_ASSERT(rule.QuickMatch(TIntrusivePtr<IOperator>(item.Current)));
+            auto& join = CastOperator<TOpJoin>(*input);
+            // Predicates inside a join do not expand this rule's original
+            // matching policy. Native ON normalization happens at handoff.
+            join.JoinFilters = filter.GetFilterExpression().SplitConjunct();
+            UNIT_ASSERT(!rule.QuickMatch(input));
+            UNIT_ASSERT(!rule.MatchAndApply(input, context, root.PlanProps));
+            UNIT_ASSERT(join.JoinKeys.Items().empty());
+            UNIT_ASSERT_VALUES_EQUAL(join.JoinFilters.size(), 1);
+            UNIT_ASSERT_VALUES_EQUAL(join.JoinKind, "Cross");
+            checked = true;
+        }
+        UNIT_ASSERT(checked);
     }
 
     Y_UNIT_TEST(OptionalBooleanLiftsPreserveJoinKeys) {

@@ -4,15 +4,10 @@ namespace NKikimr {
 namespace NKqp {
 
 bool TExtractJoinExpressionsRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
-    if (input->Kind == EOperator::Join) {
-        const auto& filters = CastOperator<TOpJoin>(*input).JoinFilters;
-        return !filters.empty();
-    }
     return input->Kind == EOperator::Filter && CastOperator<TOpFilter>(input)->GetInput()->Kind == EOperator::Join;
 }
 
 bool TExtractJoinExpressionsRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TRBOContext &, TPlanProps &props) {
-    if (input->Kind == EOperator::Join) return ExtractNativeJoinKeys(CastOperator<TOpJoin>(*input), props);
     if (input->Kind != EOperator::Filter) {
         return false;
     }

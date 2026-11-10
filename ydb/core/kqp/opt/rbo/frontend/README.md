@@ -59,6 +59,9 @@ from its own query blocks.
 Projected IN/EXISTS values are constructed at this handoff using the same mark-join
 builder as the existing filter rule. The rule retains its filter-only matching
 policy. Native OLAP capability checks live separately from physical emission.
+Computed ON equalities become input maps and join keys during construction.
+That preparation is private to the frontend handoff; the existing expression
+extraction rule still matches only filters over joins.
 
 Explicit index views retain the main-table identity through binding and execution
 preparation. The catalog admits ready synchronous row indexes on demand.

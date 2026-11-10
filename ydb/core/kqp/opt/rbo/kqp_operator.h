@@ -1133,10 +1133,6 @@ private:
 
 };
 
-// Normalize native ON equalities into input maps and ordinary join keys.
-// Used at construction and after rewrites expose previously unresolved scalars.
-bool ExtractNativeJoinKeys(TOpJoin& join, TPlanProps& props);
-
 /**
  * Dependent join based on Neumann "Unnesting Arbitrary Queries".
  *
