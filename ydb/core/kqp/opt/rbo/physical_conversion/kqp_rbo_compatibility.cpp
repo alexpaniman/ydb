@@ -380,8 +380,7 @@ TExprNode::TPtr ExpandScalarHasNull(
 TExprNode::TPtr FindCompatibilityNode(const TExprNode::TPtr& root) {
     return FindNode(root, [](const TExprNode::TPtr& node) {
         return node->IsCallable({"ExtractMembers", "OptionalIf", "StrictCast", "HasNull", "SqlIn", "RangeEmpty", "AsRange", "RangeFor"}) ||
-            CanLiftSafeCastOptional(node) || IsComplexComparison(node) || IsTupleMinMax(node) ||
-            (node->IsCallable("RandomUuid") && node->ChildrenSize() == 0);
+            CanLiftSafeCastOptional(node) || IsComplexComparison(node) || IsTupleMinMax(node);
     });
 }
 
@@ -395,15 +394,6 @@ NYql::TExprNode::TPtr RewriteRboCompatibilityNode(
     const NYql::TExprNode::TPtr& node,
     NYql::TExprContext& ctx,
     const NYql::TTypeAnnotationContext& types) {
-    if (node->IsCallable("RandomUuid") && node->ChildrenSize() == 0) {
-        // Zero-argument randomness is query scoped, unlike dependency-bearing
-        // calls. Reuse KQP's cached internal input without a scalar peephole.
-        auto result = ctx.NewCallable(node->Pos(), "Parameter", {
-            ctx.NewAtom(node->Pos(), QueryRandomUuidParameter),
-            ExpandType(node->Pos(), *node->GetTypeAnn(), ctx)});
-        result->SetTypeAnn(node->GetTypeAnn());
-        return result;
-    }
     if (IsTupleMinMax(node)) return ExpandTupleMinMax(node, ctx);
     if (node->IsCallable("ExtractMembers")) {
         return ExpandExtractMembers(node, ctx);

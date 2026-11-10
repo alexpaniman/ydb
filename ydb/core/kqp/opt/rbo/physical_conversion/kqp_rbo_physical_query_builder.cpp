@@ -778,6 +778,7 @@ void TPhysicalQueryBuilder::TypeAnnotate(TExprNode::TPtr& input) {
     IGraphTransformer::TStatus status(IGraphTransformer::TStatus::Ok);
     do {
         status = RBOCtx.BackendTypeAnnTransformer.Transform(input, output, RBOCtx.ExprCtx);
+        if (output) input = output;
     } while (status == IGraphTransformer::TStatus::Repeat);
 
     if (status != IGraphTransformer::TStatus::Ok) {

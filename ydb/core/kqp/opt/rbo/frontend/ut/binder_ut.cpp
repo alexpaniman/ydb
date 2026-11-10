@@ -131,7 +131,7 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
             SELECT value, id, name FROM a;
         )", Catalog);
         const auto& program = compiled.Program->Get();
-        const std::vector<std::vector<std::string>> expected{{"id", "name", "value"}, {"id", "value", "name"},
+        const std::vector<std::vector<std::string>> expected{{"id", "value", "name"}, {"id", "value", "name"},
             {"id", "name", "value"}, {"value", "id", "name"}};
         for (std::size_t i = 0; i < expected.size(); ++i) {
             std::vector<std::string> names;

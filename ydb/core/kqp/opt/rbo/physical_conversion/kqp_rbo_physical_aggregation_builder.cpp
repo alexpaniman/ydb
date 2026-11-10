@@ -1313,55 +1313,13 @@ TExprNode::TPtr TPhysicalAggregationBuilder::CreateNothingForEmptyInput(const TV
         outputItems.push_back(Ctx.MakeType<TItemExprType>(traits.ResultColName, traits.OutputItemType));
     }
     const auto* aggStructType = Ctx.MakeType<TStructExprType>(outputItems);
-    auto newAggStructType = aggStructType;
-
-    bool processTuple = false;
-    if (Aggregate.GetAggregationPhase() == EOpPhase::Final) {
-        for (const auto& item : aggStructType->GetItems()) {
-            auto itemType = item->Cast<TItemExprType>();
-            auto originalFieldType = itemType->GetItemType();
-            if (auto fieldType = &RemoveOptionality(*originalFieldType); fieldType->GetKind() == ETypeAnnotationKind::Tuple) {
-                processTuple = true;
-                break;
-            }
-        }
-    }
-
-    if (processTuple) {
-        THashMap<TString, const TTypeAnnotationNode*> colTypeMap;
-        colTypeMap = GetIntermediateAggregationInputType();
-
-        TVector<const TItemExprType*> newItems;
-        for (const auto& traits : phyTraitsList) {
-            const auto inputType = traits.InputItemType;
-            const auto outputType = traits.OutputItemType;
-            const auto& originalColName = traits.OriginalColName;
-            const auto& resultColName = traits.ResultColName;
-            if (auto fieldType = &RemoveOptionality(*inputType); fieldType->GetKind() == ETypeAnnotationKind::Tuple) {
-                auto tupleType = fieldType->Cast<TTupleExprType>()->GetItems();
-                Y_ENSURE(tupleType.size() == 2);
-                auto newFieldType = tupleType.front();
-                if (IsDecimalType(newFieldType)) {
-                    const auto it = colTypeMap.find(originalColName);
-                    Y_ENSURE(it != colTypeMap.end(), TStringBuilder() << "Cannot find a col name: " << originalColName;);
-                    newFieldType = it->second;
-                }
-                if (inputType->IsOptionalOrNull()) {
-                    newFieldType = Ctx.MakeType<TOptionalExprType>(newFieldType);
-                }
-                newItems.emplace_back(Ctx.MakeType<TItemExprType>(resultColName, newFieldType));
-            } else {
-                newItems.emplace_back(Ctx.MakeType<TItemExprType>(resultColName, outputType));
-            }
-        }
-
-        newAggStructType = Ctx.MakeType<TStructExprType>(newItems);
-    }
+    // The native aggregate schema already distinguishes final results from
+    // intermediate states. A tuple result (MIN_BY/MAX_BY) is not an AVG state.
 
     // clang-format off
     return Build<TCoNothing>(Ctx, Pos)
         .OptionalType<TCoOptionalType>()
-            .ItemType(ExpandType(Pos, *newAggStructType, Ctx))
+            .ItemType(ExpandType(Pos, *aggStructType, Ctx))
         .Build()
     .Done().Ptr();
     // clang-format on

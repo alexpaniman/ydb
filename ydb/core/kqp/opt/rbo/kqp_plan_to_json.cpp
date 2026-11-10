@@ -7,6 +7,8 @@
 #include <library/cpp/json/writer/json.h>
 #include <library/cpp/json/json_reader.h>
 
+#include <algorithm>
+
 namespace NKikimr::NKqp {
 
 namespace {
@@ -573,13 +575,15 @@ TString SerializeRBOAnalyzePlan(const TVector<const TString>& txPlans, const NKq
     YQL_CLOG(TRACE, CoreDq) << "Serialize analyze plan";
 
 
-    if (txPlans.empty()) {
+    // Execution statistics also include phases without a relational plan,
+    // such as committing an interactive transaction. They carry empty text.
+    const auto plan = std::find_if(txPlans.rbegin(), txPlans.rend(), [](const auto& text) { return !text.empty(); });
+    if (plan == txPlans.rend()) {
         return "";
     }
 
-    auto txPlan = txPlans.back();
     NJson::TJsonValue txPlanJson;
-    NJson::ReadJsonTree(txPlan, &txPlanJson, true);
+    NJson::ReadJsonTree(*plan, &txPlanJson, true);
 
     AddStatsToSimplifiedPlan(txPlanJson);
     return SerializeRBOExplainPlan(txPlanJson);

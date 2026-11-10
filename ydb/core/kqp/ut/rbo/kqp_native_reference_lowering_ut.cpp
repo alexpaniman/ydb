@@ -120,7 +120,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
     Y_UNIT_TEST(RelationalExpressionsLowerAndReannotate) {
         for (const TString sql : {
             "SELECT value, SUM(id) AS s, COUNT(DISTINCT a) FROM t GROUP BY value HAVING s > 0 ORDER BY s;",
-            "SELECT a + 1 AS k, SUM(id) FROM t GROUP BY a + 1;",
+            "PRAGMA YqlSelectAllowUnnamedGroupByExpr; SELECT a + 1 AS k, SUM(id) FROM t GROUP BY a + 1;",
             "SELECT a, GROUPING(a), SUM(id) FROM t GROUP BY ROLLUP(a);",
             "SELECT a, SUM(SUM(id)) OVER (), RANK() OVER (ORDER BY SUM(id)) FROM t GROUP BY a;",
             "SELECT id FROM t UNION ALL SELECT a FROM t;",
@@ -216,7 +216,7 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
         for (const auto id : read->GetColumns()) {
             storedNames.push_back(root->PlanProps.InfoUnitRegistry.Get(id).GetColumnName());
         }
-        UNIT_ASSERT_VALUES_EQUAL(storedNames, (TVector<TString>{"a", "id", "value"}));
+        UNIT_ASSERT_VALUES_EQUAL(storedNames, (TVector<TString>{"id", "value", "a"}));
     }
 
     // Presentation ordering is separate from catalog order; DISTINCT must emit
@@ -224,9 +224,11 @@ Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
     Y_UNIT_TEST(StarPresentationAndDistinctKeys) {
         TFixture f;
         auto root = f.Run("SELECT * FROM t;");
-        UNIT_ASSERT_VALUES_EQUAL(root->GetColumns().Items()[0].second, "a");
+        UNIT_ASSERT_VALUES_EQUAL(root->GetColumns().Items()[0].second, "id");
         auto ordered = f.Lower(true);
         UNIT_ASSERT_VALUES_EQUAL(ordered->GetColumns().Items()[0].second, "id");
+        auto unordered = f.Run("PRAGMA DisableOrderedColumns; SELECT * FROM t;");
+        UNIT_ASSERT_VALUES_EQUAL(unordered->GetColumns().Items()[0].second, "a");
         auto distinct = f.Run("SELECT DISTINCT value AS v FROM t ORDER BY v;");
         auto* agg = static_cast<TOpAggregate*>(f.Find(*distinct, EOperator::Aggregate).at(0));
         UNIT_ASSERT(agg->GetOutputIUs() == distinct->GetOutputIUs());

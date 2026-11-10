@@ -507,7 +507,7 @@ public:
     }
 
     TBoundProgram Run() {
-        bool orderedColumns = false;
+        bool orderedColumns = true;
         const auto sortPresentation = [](TQueryResult& result) {
             std::stable_sort(result.Columns.begin(), result.Columns.end(), [](const auto& a, const auto& b) { return a.Name < b.Name; });
         };
@@ -1948,7 +1948,13 @@ private:
                     result = Expr(lambda.Expression, lambdaContext);
                     ActiveLambdas.erase(&lambda);
                 } else if (name == "aslist" || name == "astuple") result = arena.Collection(args, name == "aslist", syntax.Position);
-                else result = arena.Call(name, args, syntax.Position);
+                else if (name == "randomuuid" && args.empty())
+                    throw TFrontendError(syntax.Position, "RandomUuid requires at least one dependency argument");
+                else if (name == "yql::randomuuid") {
+                    if (!args.empty()) throw TUnsupportedFeature(EFeature::Function, syntax.Position,
+                        "raw RandomUuid dependencies require SQL RandomUuid(arguments)");
+                    result = arena.Call("RandomUuid", {}, syntax.Position);
+                } else result = arena.Call(name, args, syntax.Position);
                 break;
             }
             case ESyntaxKind::Star: throw TFrontendError(syntax.Position, "star is only valid in projection or COUNT(*)");

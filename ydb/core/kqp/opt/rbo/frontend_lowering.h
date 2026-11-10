@@ -6,6 +6,10 @@
 
 namespace NKikimr::NKqp {
 
+// KQP supplies zero-dependency randomness once per query execution. This name
+// is reserved by the backend and cannot be a native SQL parameter identifier.
+inline constexpr TStringBuf QueryRandomUuidParameter = "%kqp%random_uuid";
+
 class TOlapProgram;
 class TExpression;
 struct TRboTable;

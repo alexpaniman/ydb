@@ -133,6 +133,24 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
         }
     }
 
+    Y_UNIT_TEST(UuidSqlArityAndQueryScopedInputAreDistinct) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            UNIT_ASSERT_EXCEPTION(CompileNative("SELECT RandomUuid()", Catalog, settings), TFrontendError);
+            const auto compiled = CompileNative("SELECT YQL::RandomUuid() AS value", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            UNIT_ASSERT(program.Parameters.empty());
+            UNIT_ASSERT(program.Results[0].Columns[0].Type == TType{ETypeKind::Uuid});
+            bool found = false;
+            for (TExprId id = 0; id < program.Expressions.Size(); ++id) if (program.Expressions[id].Op == EOpcode::RandomUuid) {
+                found = true;
+                UNIT_ASSERT(program.Expressions[id].Arguments.empty());
+                UNIT_ASSERT(!program.Expressions[id].Repeatable);
+            }
+            UNIT_ASSERT(found);
+        }
+    }
+
     Y_UNIT_TEST(TemporalListMembershipBindsWithNativeKeyTypes) {
         const auto compiled = CompileNative(R"(
             DECLARE $values AS List<Timestamp64>;
