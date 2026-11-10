@@ -1277,7 +1277,11 @@ private:
             auto right = Source(join.Source, outer);
             auto usingKeys = ResolveUsingKeys(join, current.Scope, right.Scope);
             const auto leftColumns = current.Scope.Columns.size();
-            TScope combined = current.Scope;
+            const bool keepLeft = join.Kind != EJoinKind::RightSemi && join.Kind != EJoinKind::RightOnly;
+            const bool keepRight = join.Kind != EJoinKind::LeftSemi && join.Kind != EJoinKind::LeftOnly;
+            // Ordinary joins keep the combined scope after predicate binding.
+            // Transfer the left index instead of copying every name and column.
+            TScope combined = keepLeft && keepRight ? std::move(current.Scope) : current.Scope;
             combined.Reserve(leftColumns + right.Scope.Columns.size());
             for (const auto& column : right.Scope.Columns) combined.Add(column);
             TExprContext context{combined};
@@ -1292,8 +1296,6 @@ private:
             }
             current.Relation = BindInput(current.Relation, context, join.Source.Position);
             if (predicate && Program.Expressions[*predicate].Type.Kind != ETypeKind::Bool) throw TFrontendError(join.Source.Position, "join predicate must have Boolean type");
-            const bool keepLeft = join.Kind != EJoinKind::RightSemi && join.Kind != EJoinKind::RightOnly;
-            const bool keepRight = join.Kind != EJoinKind::LeftSemi && join.Kind != EJoinKind::LeftOnly;
             // Predicate binding has indexed both inputs. NULL padding changes
             // their types, not names or positions, so reuse that scope.
             TScope output = keepLeft && keepRight ? std::move(combined)
