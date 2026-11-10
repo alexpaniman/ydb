@@ -170,7 +170,13 @@ def summarize_all(out, batches):
                             only_after_success=sorted(paired['after'].keys()-paired['before'].keys()),
                             fallback_reasons=dict(reasons)))
     write(out / 'summary.json', json.dumps(summary,indent=2)+'\n')
-    print(json.dumps(summary,indent=2),flush=True)
+    # Full unmatched-query lists remain in the artifact. A coverage-only sweep
+    # otherwise prints thousands of successful query names to the console.
+    for item in summary:
+        compact = {key: len(value) if key in ('only_before_success', 'only_after_success') else value
+                   for key, value in item.items()}
+        print(json.dumps(compact), flush=True)
+    print('Summary:', out / 'summary.json', flush=True)
 
 
 def main():
