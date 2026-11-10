@@ -1296,20 +1296,29 @@ Y_UNIT_TEST_SUITE(KqpEffectsNewRbo) {
             UNIT_ASSERT_C(result.GetStatus() == NYdb::EStatus::SUCCESS, result.GetIssues().ToString());
             CompareYson(FormatResultSetYson(result.GetResultSet(0)), R"([[3u]])");
             CompareYson(FormatResultSetYson(result.GetResultSet(1)), R"([[3u]])");
-            // Wrong uncommitted changes TODO: fix it
-            CompareYson(FormatResultSetYson(result.GetResultSet(2)), UseSecondaryIndex ? R"([[0u]])" : R"([[3u]])");
-            CompareYson(FormatResultSetYson(result.GetResultSet(3)), UseSecondaryIndex ? R"([[1u]])" : R"([[3u]])");
+            // All consumers share the producer captured before the deletes.
+            // The imported test recorded a legacy index-dependent rescan bug
+            // here; an index must not change the bound query's snapshot.
+            CompareYson(FormatResultSetYson(result.GetResultSet(2)), R"([[3u]])");
+            CompareYson(FormatResultSetYson(result.GetResultSet(3)), R"([[3u]])");
         }
 
         {
             auto result = session.ExecuteDataQuery(R"(
-                SELECT COUNT(*) FROM `/Root/Rows`;
-                SELECT COUNT(*) FROM `/Root/GlobalKeyToRows`;
+                SELECT rowKey, v1, v2 FROM `/Root/Rows` ORDER BY rowKey;
+                SELECT globalKey, rowKey FROM `/Root/GlobalKeyToRows` ORDER BY globalKey, rowKey;
             )", NYdb::NTable::TTxControl::BeginTx().CommitTx()).ExtractValueSync();
             UNIT_ASSERT_VALUES_EQUAL_C(result.GetStatus(), EStatus::SUCCESS, result.GetIssues().ToString());
-            // Wrong uncommitted changes TODO: fix it
-            CompareYson(FormatResultSetYson(result.GetResultSet(0)), UseSecondaryIndex ? R"([[0u]])" : R"([[1u]])");
-            CompareYson(FormatResultSetYson(result.GetResultSet(1)), UseSecondaryIndex ? R"([[0u]])" : R"([[1u]])");
+            // The newly inserted row was never part of $toDelete.
+            CompareYson(FormatResultSetYson(result.GetResultSet(0)), R"([[5u;1u;1u]])");
+            CompareYson(FormatResultSetYson(result.GetResultSet(1)), R"([[1u;5u]])");
+        }
+        if (UseSecondaryIndex) {
+            const auto result = session.ExecuteDataQuery(
+                "SELECT v2, rowKey FROM `/Root/Rows/idx_2/indexImplTable` ORDER BY rowKey;",
+                NYdb::NTable::TTxControl::BeginTx().CommitTx()).ExtractValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            CompareYson(FormatResultSetYson(result.GetResultSet(0)), R"([[1u;5u]])");
         }
     }
 
