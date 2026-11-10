@@ -236,6 +236,12 @@ public:
         return std::move(Result);
     }
 
+    TParsedExpression RunExpression() {
+        const auto root = Expression();
+        if (!End()) Fail("expected end of expression");
+        return {std::move(Result.Expressions), root};
+    }
+
 private:
     struct TDepth {
         TParser& Parser;
@@ -961,6 +967,10 @@ TGroupingSets ExpandGroupingSets(const std::vector<TGroupingSets>& elements,
 
 TParsedQuery Parse(std::string_view sql, const TParseSettings& settings) {
     return TParser(sql, settings).Run();
+}
+
+TParsedExpression ParseExpression(std::string_view sql, const TParseSettings& settings) {
+    return TParser(sql, settings).RunExpression();
 }
 
 } // namespace NKikimr::NKqp::NFrontend

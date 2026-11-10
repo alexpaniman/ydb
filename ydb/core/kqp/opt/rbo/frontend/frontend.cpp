@@ -593,6 +593,21 @@ public:
         }
     }
 
+    std::pair<TBoundProgram, TExprId> RunExpression(TSyntaxId root, std::span<const TCatalogColumn> columns, TType target) {
+        TScope scope;
+        scope.Reserve(columns.size());
+        const auto pos = Syntax.Expressions.at(root).Position;
+        for (const auto& column : columns) {
+            if (scope.FindUnambiguous(column.Name)) throw TFrontendError(pos, "duplicate expression input: " + column.Name);
+            scope.Add(ScopeColumn(Column(column.Name, {}, column.Type, pos)));
+        }
+        TExprContext context{scope};
+        context.AllowSubqueries = false;
+        const auto value = Program.Expressions.Convert(Expr(root, context), target, pos);
+        CheckSize(pos);
+        return {std::move(Program), value};
+    }
+
     TBoundProgram Run() {
         bool orderedColumns = true;
         const auto sortPresentation = [](TQueryResult& result) {
@@ -2452,6 +2467,32 @@ TParsedQuery ParseNative(std::string_view sql, const TCompilerSettings& settings
 
 std::vector<TTableRequest> CollectTables(const TParsedQuery& syntax, const TBindSettings& settings) {
     return TTableCollector(syntax, settings).Run();
+}
+
+TRowExpression CompileRowExpression(std::string_view sql, std::span<const TCatalogColumn> columns,
+    TType target, const TParseSettings& settings) {
+    auto parsed = [&] {
+        try { return ParseExpression(sql, settings); }
+        catch (const TResourceLimitError&) { throw; }
+        catch (const TFrontendError&) { return ParseGrammarExpression(sql, settings); }
+    }();
+    TParsedQuery syntax{std::move(parsed.Expressions), {}};
+    CheckSyntax(syntax);
+    for (const auto& node : syntax.Expressions) {
+        if (node.Kind == ESyntaxKind::Variable || (node.Kind == ESyntaxKind::Call && node.Text.starts_with('$')))
+            throw TFrontendError(node.Position, "row expressions cannot reference query bindings");
+    }
+    TBindSettings binding;
+    binding.MaxNodes = settings.MaxNodes;
+    const TTableResolver noTables = [](std::string_view, TSourcePosition pos) -> TCatalogTable {
+        throw TFrontendError(pos, "row expressions cannot read tables");
+    };
+    auto [program, root] = TBinder(syntax, noTables, binding).RunExpression(parsed.Root, columns, target);
+    CheckProgram(program);
+    root = program.Expressions.FoldConstants(std::span<const TExprId>(&root, 1)).front();
+    TRowExpression result{std::move(program.Expressions), root, {}};
+    for (const auto& column : columns) result.Columns.push_back(column.Name);
+    return result;
 }
 
 TCompiledProgram BindNative(const TParsedQuery& syntax, const TTableResolver& catalog, const TBindSettings& settings) {

@@ -14,6 +14,17 @@ struct TCatalogColumn {
     bool operator==(const TCatalogColumn&) const = default;
 };
 
+// A checked scalar over an explicit row schema. Column IDs are schema ordinals,
+// independent of query IUs. Catalog expressions use this boundary before RBO.
+struct TRowExpression {
+    TExpressionArena Expressions;
+    TExprId Root;
+    std::vector<std::string> Columns;
+};
+
+TRowExpression CompileRowExpression(std::string_view sql, std::span<const TCatalogColumn> columns,
+    TType target, const TParseSettings& settings = {});
+
 // Parameters are either executable scalars or external lists of flat rows.
 // Row schemas are canonical by field name and do not require an expression arena.
 class TParameterType {

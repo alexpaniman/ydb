@@ -86,6 +86,11 @@ public:
         return std::move(Result);
     }
 
+    TParsedQuery RunExpression(TRule* root, TSyntaxId& expression) {
+        expression = Expr(root);
+        return std::move(Result);
+    }
+
 private:
     std::string_view Name(TTree* node) const {
         if (auto* rule = dynamic_cast<TRule*>(node)) return Names.at(rule->getRuleIndex());
@@ -875,7 +880,7 @@ private:
 };
 
 template<class TLexer, class TParser>
-TParsedQuery Run(std::string_view sql, const TParseSettings& settings, bool translate) {
+TParsedQuery Run(std::string_view sql, const TParseSettings& settings, bool translate, TSyntaxId* expression = nullptr) {
     if (sql.size() > settings.MaxQueryBytes) throw TResourceLimitError({}, "query size limit exceeded");
     TPositions positions(sql);
     TErrors errors(positions);
@@ -892,19 +897,29 @@ TParsedQuery Run(std::string_view sql, const TParseSettings& settings, bool tran
     parser.removeErrorListeners(); parser.addErrorListener(&errors);
     TLimits limits(settings, positions);
     parser.addParseListener(&limits);
-    auto* root = parser.sql_query();
+    TRule* root = expression ? static_cast<TRule*>(parser.expr()) : static_cast<TRule*>(parser.sql_query());
     if (parser.getNumberOfSyntaxErrors()) throw TFrontendError({}, "invalid SQL");
+    if (expression) {
+        if (tokens.LA(1) != antlr4::Token::EOF)
+            throw TFrontendError(positions.Get(tokens.LT(1)), "expected end of expression");
+        return TTranslate(parser.getRuleNames(), positions, settings).RunExpression(root, *expression);
+    }
     return translate ? TTranslate(parser.getRuleNames(), positions, settings).Run(root) : TParsedQuery{};
 }
 
-TParsedQuery Run(std::string_view sql, const TParseSettings& settings, bool translate) {
-    if (settings.AnsiQuotes) return Run<NativeRboAnsi::NativeRboAnsiLexer, NativeRboAnsi::NativeRboAnsiParser>(sql, settings, translate);
-    return Run<NativeRboDefault::NativeRboDefaultLexer, NativeRboDefault::NativeRboDefaultParser>(sql, settings, translate);
+TParsedQuery Run(std::string_view sql, const TParseSettings& settings, bool translate, TSyntaxId* expression = nullptr) {
+    if (settings.AnsiQuotes) return Run<NativeRboAnsi::NativeRboAnsiLexer, NativeRboAnsi::NativeRboAnsiParser>(sql, settings, translate, expression);
+    return Run<NativeRboDefault::NativeRboDefaultLexer, NativeRboDefault::NativeRboDefaultParser>(sql, settings, translate, expression);
 }
 } // namespace
 
 void ValidateGrammar(std::string_view sql, const TParseSettings& settings) { Run(sql, settings, false); }
 TParsedQuery ParseGrammar(std::string_view sql, const TParseSettings& settings) { return Run(sql, settings, true); }
+TParsedExpression ParseGrammarExpression(std::string_view sql, const TParseSettings& settings) {
+    TSyntaxId root;
+    auto syntax = Run(sql, settings, true, &root);
+    return {std::move(syntax.Expressions), root};
+}
 
 std::string SyntaxFingerprint(const TParsedQuery& query) {
     std::ostringstream out;

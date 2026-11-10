@@ -9,6 +9,7 @@ SRCS(
     binder_ut.cpp
     join_using_ut.cpp
     writes_ut.cpp
+    row_expression_ut.cpp
     expression_ut.cpp
     parser_ut.cpp
     grammar_ut.cpp
