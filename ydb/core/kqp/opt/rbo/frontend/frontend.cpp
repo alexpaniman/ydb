@@ -2186,47 +2186,6 @@ TBoundProgram NDetail::Compile(std::string_view sql, const TTableResolver& catal
     return Bind(Parse(sql, parseSettings), catalog, bindSettings);
 }
 
-std::string Explain(const TBoundProgram& program) {
-    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture", "Window", "Parameter", "Reuse", "Effect"};
-    std::ostringstream out;
-    for (std::size_t i = 0; i < program.Relations.size(); ++i) {
-        const auto& relation = program.Relations[i];
-        out << i << ": " << names[static_cast<unsigned>(relation.Kind)];
-        if (!relation.Table.empty()) out << ' ' << relation.Table;
-        if (!relation.Alias.empty()) out << " alias=" << relation.Alias;
-        out << " inputs=[";
-        for (std::size_t j = 0; j < relation.Inputs.size(); ++j) out << (j ? "," : "") << relation.Inputs[j];
-        out << "] columns=[";
-        for (std::size_t j = 0; j < relation.Columns.size(); ++j) out << (j ? "," : "") << relation.Columns[j];
-        out << ']';
-        for (const auto& capture : relation.Captures) out << " capture=" << capture.Local << "<-" << capture.Outer;
-        for (const auto& function : relation.WindowFunctions) out << " window=" << function.Output << ':' << function.Function;
-        for (const auto& set : relation.GroupingSets) {
-            out << " grouping-set=[";
-            for (std::size_t j = 0; j < set.size(); ++j) out << (j ? "," : "") << set[j];
-            out << ']';
-        }
-        for (const auto& [output, input] : relation.GroupingColumns) out << " grouping-output=" << output << "<-" << input;
-        for (const auto& [output, input] : relation.GroupingIndicators) out << " grouping-indicator=" << output << "<-" << input;
-        out << '\n';
-    }
-    std::vector<TColumnId> bindings;
-    for (const auto& [binding, subplan] : program.Subplans) bindings.push_back(binding);
-    std::sort(bindings.begin(), bindings.end());
-    for (const auto binding : bindings) {
-        const auto& subplan = program.Subplans.at(binding);
-        out << (subplan.Kind == ESubquery::Exists ? "exists " : subplan.Kind == ESubquery::In ? "in " : "scalar ") << binding << " root=" << subplan.Root << " result=" << subplan.Result;
-        if (subplan.Lookup) out << " lookup=" << *subplan.Lookup;
-        out << '\n';
-    }
-    for (std::size_t i = 0; i < program.Results.size(); ++i) {
-        out << "result " << i << " root=" << program.Results[i].Root << ':';
-        for (const auto& column : program.Results[i].Columns) out << ' ' << column.Name << '=' << column.Column << ':' << column.Type.ToString();
-        out << '\n';
-    }
-    return out.str();
-}
-
 namespace {
 
 void CheckSyntax(const TParsedQuery& syntax) {

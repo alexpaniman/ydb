@@ -240,13 +240,16 @@ rotating order. Current modes are legacy, native automatic and native required.
 Historical YQL+new-RBO comparisons require the preserved pre-removal binary;
 current admission modes are not separate compiler architectures. Request wall
 time also includes execution on empty tables and is reported separately.
-Parser-only CLI timings exclude catalog I/O, RBO and backend compilation.
+Standalone CLI `--bench N` includes parsing, binding, native checks and destruction;
+it excludes asynchronous catalog I/O, RBO and backend compilation.
+`--bench-explain N` measures native plan formatting and destruction separately,
+after an untimed compile and formatting warmup.
 
 The full-corpus compilation checkpoint covers 6,979 queries with native-required
 admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and
 two additional 1C samples. This establishes compilation coverage, not complete
 effects parity or negligible frontend cost. The latest completed standalone run
-has 249 passing tests. JOIN USING additionally has runtime value/type comparisons
+has 250 passing tests. JOIN USING additionally has runtime value/type comparisons
 against explicit legacy ON/coalesce forms in scalar/block and nullable/required
 configurations, plus a handoff check with zero YQL expression/type allocations.
 The imported indexed-delete test had expectations explicitly marked as a legacy

@@ -13,6 +13,7 @@ int main(int argc, char** argv) {
         std::unordered_map<std::string, TCatalogTable> tables;
         unsigned iterations = 1;
         bool benchmark = false;
+        bool benchmarkExplain = false;
         TCompilerSettings settings;
         for (int i = 1; i < argc; ++i) {
             const std::string_view arg = argv[i];
@@ -21,6 +22,7 @@ int main(int argc, char** argv) {
                              "  --table NAME COLUMNS   comma-separated name:type schema (Decimal commas allowed)\n"
                              "  --write NAME KEYS     enable writes with comma-separated primary-key names\n"
                              "  --bench N              parse+bind N times and report average time\n"
+                             "  --bench-explain N      format one compiled native plan N times\n"
                              "  --ansi                 ANSI string escaping and nested comments\n"
                              "  --parser NAME          fast (default), grammar, handwritten, verify\n"
                              "  --mode NAME            required (default), auto, legacy\n"
@@ -46,11 +48,12 @@ int main(int argc, char** argv) {
                 else throw std::runtime_error("unknown compiler mode");
                 continue;
             }
-            if (arg == "--bench" && i + 1 < argc) {
+            if ((arg == "--bench" || arg == "--bench-explain") && i + 1 < argc) {
                 const std::string_view text = argv[++i];
                 auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), iterations);
                 if (error != std::errc() || end != text.data() + text.size() || !iterations) throw std::runtime_error("invalid iteration count");
                 benchmark = true;
+                benchmarkExplain = arg == "--bench-explain";
                 continue;
             }
             if (arg == "--write" && i + 2 < argc) {
@@ -110,7 +113,14 @@ int main(int argc, char** argv) {
         }
         const auto& program = result.Program->Get();
         if (!benchmark) std::cout << Explain(program);
-        else {
+        else if (benchmarkExplain) {
+            std::size_t bytes = Explain(program).size(); // warm up formatting separately
+            const auto start = std::chrono::steady_clock::now();
+            for (unsigned i = 0; i < iterations; ++i) bytes += Explain(program).size();
+            const auto elapsed = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+            std::cout << "format_us=" << elapsed / iterations << " iterations=" << iterations
+                      << " bytes=" << bytes / (static_cast<std::size_t>(iterations) + 1) << '\n';
+        } else {
             std::size_t expressions = 0, relations = 0;
             const auto start = std::chrono::steady_clock::now();
             for (unsigned i = 0; i < iterations; ++i) {
