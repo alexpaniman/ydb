@@ -141,7 +141,7 @@ struct TConnectionInfo {
 struct TPlanLookupIndex {
     THashMap<i64, TOperatorLocation> Operators;
     THashMap<TString, TConnectionInfo> Connections;
-    TVector<i64> OperatorOrder;
+    TVector<std::pair<i64, TOperatorLocation>> OperatorOrder;
 };
 
 enum class EPlanIndexKind {
@@ -173,13 +173,14 @@ void BuildPlanLookupIndex(
             auto& itemMap = item.GetMapSafe();
             if (auto itemId = itemMap.find("OperatorId"); itemId != itemMap.end()) {
                 const i64 id = itemId->second.GetIntegerSafe();
+                const TOperatorLocation location{&planNode, &item, static_cast<int>(i)};
                 if (kind == EPlanIndexKind::Simplified) {
-                    index.OperatorOrder.push_back(id);
+                    // One producer can appear under several consumers in the
+                    // simplified view. Every occurrence receives its stats.
+                    index.OperatorOrder.emplace_back(id, location);
+                } else {
+                    index.Operators.try_emplace(id, location);
                 }
-                index.Operators.try_emplace(
-                    id,
-                    TOperatorLocation{&planNode, &item, static_cast<int>(i)}
-                );
             }
         }
     }
@@ -248,16 +249,14 @@ void AddStatsToSimplifiedPlan(NJson::TJsonValue& txPlan) {
     execPlanIndex.Connections.reserve(simplifiedPlanIndex.OperatorOrder.size());
     BuildPlanLookupIndex(execPlan, execPlanIndex, EPlanIndexKind::Execution);
 
-    for (const auto opId : simplifiedPlanIndex.OperatorOrder) {
+    for (const auto& [opId, explainLocation] : simplifiedPlanIndex.OperatorOrder) {
         const auto execLocation = execPlanIndex.Operators.find(opId);
-        const auto explainLocation = simplifiedPlanIndex.Operators.find(opId);
         Y_ENSURE(execLocation != execPlanIndex.Operators.end());
-        Y_ENSURE(explainLocation != simplifiedPlanIndex.Operators.end());
 
         auto* execPlanStage = execLocation->second.Stage;
         auto* execPlanOp = execLocation->second.Operator;
         const int execOperatorIdx = execLocation->second.OperatorIndex;
-        auto* explainPlanOp = explainLocation->second.Operator;
+        auto* explainPlanOp = explainLocation.Operator;
 
         if(!execPlanStage->GetMapSafe().contains("Stats")) {
             continue;
@@ -401,6 +400,13 @@ NJson::TJsonValue TOpRoot::GetExecutionJson(ui64& nodeCounter, ui32& operatorIdx
     result["PlanNodeType"] = "ResultSet";
     result["Node Type"] = "ResultSet";
 
+    if (PlanProps.MaterializedResult) {
+        result["PlanNodeType"] = "Materialize";
+        result["Node Type"] = "Precompute";
+        result["Parent Relationship"] = "InitPlan";
+        result["Subplan Name"] = "CTE " + *PlanProps.MaterializedResult;
+    }
+
     // Add the final stage
     NJson::TJsonValue finalStage;
     NJson::TJsonValue plans;
@@ -411,6 +417,7 @@ NJson::TJsonValue TOpRoot::GetExecutionJson(ui64& nodeCounter, ui32& operatorIdx
     // Then iterate through stage ids and output a plan node for each stage
 
     THashMap<int, TVector<IOperator*>> stageOpMap;
+    THashMap<int, std::set<TString>> stageParameters;
     std::set<int> stages;
 
     for (const auto& it : *this) {
@@ -421,6 +428,12 @@ NJson::TJsonValue TOpRoot::GetExecutionJson(ui64& nodeCounter, ui32& operatorIdx
         }
 
         auto & stageOps = stageOpMap.at(stageId);
+        if (currOp->Kind == EOperator::EmptySource) {
+            const auto& parameter = CastOperator<TOpEmptySource>(*currOp).NativeInput;
+            if (parameter) {
+                stageParameters[stageId].insert(parameter->Name);
+            }
+        }
 
         if (currOp->Kind != EOperator::EmptySource && !IsReplicateOperator(*currOp)) {
             // This map defines which operators can be correlated across execution and simplified plans.
@@ -455,6 +468,15 @@ NJson::TJsonValue TOpRoot::GetExecutionJson(ui64& nodeCounter, ui32& operatorIdx
 
         // Build a list of subplans - these are connection objects of input stages
         auto planList = NJson::TJsonValue(NJson::EJsonValueType::JSON_ARRAY);
+        if (const auto parameters = stageParameters.find(stageId); parameters != stageParameters.end()) {
+            for (const auto& parameter : parameters->second) {
+                NJson::TJsonValue source;
+                source["PlanNodeId"] = nodeCounter++;
+                source["Node Type"] = "Parameter";
+                source["Parameter"] = parameter;
+                planList.AppendValue(std::move(source));
+            }
+        }
         const auto & stageInputs = PlanProps.StageGraph.StageInputs.at(stageId);
         THashMap<int, size_t> inputOccurrences;
         for (auto inputId : stageInputs) {
@@ -471,7 +493,7 @@ NJson::TJsonValue TOpRoot::GetExecutionJson(ui64& nodeCounter, ui32& operatorIdx
             if (ops.size()) {
                 finalStage["Operators"] = operatorList;
             }
-            if (stageInputs.size()) {
+            if (!planList.GetArraySafe().empty()) {
                 finalStage["Plans"] = planList;
             }
         }
@@ -498,7 +520,7 @@ NJson::TJsonValue TOpRoot::GetExecutionJson(ui64& nodeCounter, ui32& operatorIdx
                     if (ops.size()) {
                         stage["Operators"] = operatorList;
                     }
-                    if (stageInputs.size()) {
+                    if (!planList.GetArraySafe().empty()) {
                         stage["Plans"] = planList;
                     }
                     if (stageOutputs.size() > 1) {
@@ -584,6 +606,30 @@ TString SerializeRBOAnalyzePlan(const TVector<const TString>& txPlans, const NKq
 
     NJson::TJsonValue txPlanJson;
     NJson::ReadJsonTree(*plan, &txPlanJson, true);
+
+    // Each execution phase carries the complete plan with statistics for its
+    // own stages. Retain producer statistics from earlier materialization
+    // phases before correlating the combined plan with its simplified view.
+    THashMap<TString, NJson::TJsonValue> stageStats;
+    const auto collect = [&](const auto& self, const NJson::TJsonValue& node) -> void {
+        if (node.Has("StageGuid") && node.Has("Stats")) {
+            stageStats.insert_or_assign(node["StageGuid"].GetStringSafe(), node["Stats"]);
+        }
+        if (node.Has("Plans")) for (const auto& child : node["Plans"].GetArraySafe()) self(self, child);
+    };
+    for (const auto& text : txPlans) if (!text.empty()) {
+        NJson::TJsonValue phase;
+        NJson::ReadJsonTree(text, &phase, true);
+        collect(collect, phase);
+    }
+    const auto attach = [&](const auto& self, NJson::TJsonValue& node) -> void {
+        if (node.Has("StageGuid")) {
+            const auto stats = stageStats.find(node["StageGuid"].GetStringSafe());
+            if (stats != stageStats.end()) node["Stats"] = stats->second;
+        }
+        if (node.Has("Plans")) for (auto& child : node["Plans"].GetArraySafe()) self(self, child);
+    };
+    attach(attach, txPlanJson);
 
     AddStatsToSimplifiedPlan(txPlanJson);
     return SerializeRBOExplainPlan(txPlanJson);
