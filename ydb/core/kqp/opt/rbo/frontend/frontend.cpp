@@ -1385,7 +1385,6 @@ private:
         context.Windows = &windows;
         std::vector<TDefinition> definitions;
         std::vector<TResultColumn> outputs;
-        TScope outputScope;
         const auto projectionNames = ProjectionNames(query, Syntax, context.Scope);
         bool joinStar = false;
         std::unordered_map<std::string, TProjectionAlias> projectionAliases;
@@ -1397,7 +1396,7 @@ private:
                 if (!projection.Alias.empty()) throw TFrontendError(syntax.Position, "a star cannot have an alias");
                 bool found = false;
                 for (const auto& column : context.Scope.Columns) if (column.MatchesStar(syntax.Text)) {
-                    outputs.push_back({column.Id, column.Name, column.Type}); outputScope.Add(column); found = true;
+                    outputs.push_back({column.Id, column.Name, column.Type}); found = true;
                 }
                 if (!found) throw TFrontendError(syntax.Position, "star has no matching columns");
                 continue;
@@ -1406,7 +1405,7 @@ private:
             const auto& name = projectionNames[index];
             auto id = Materialize(expr, definitions, syntax.Position, name);
             auto type = Program.Expressions[expr].Type;
-            outputs.push_back({id, name, type}); outputScope.Add({id, name, {}, type});
+            outputs.push_back({id, name, type});
             if (query.Having != NoSyntax && !projection.Alias.empty()) projectionAliases.emplace(name, TProjectionAlias{expr, ContainsWindow[projection.Expression]});
         }
 
@@ -1421,14 +1420,12 @@ private:
         // RBO result bindings are unique IDs even when SQL projects one
         // source column repeatedly under different output names.
         std::unordered_set<TColumnId> projected;
-        outputScope = {};
         for (auto& output : outputs) {
             if (!projected.insert(output.Column).second) {
                 const auto expression = Program.Expressions.Column(output.Column, output.Type, query.Position);
                 output.Column = Column(output.Name, {}, output.Type, query.Position);
                 definitions.push_back({output.Column, expression});
             }
-            outputScope.Add({output.Column, output.Name, {}, output.Type});
         }
 
         context.Windows = nullptr;
@@ -1448,6 +1445,11 @@ private:
         // appropriate input/grouping scope. They are materialized once.
         std::vector<TBoundSortKey> sort;
         std::vector<TDefinition> sortDefinitions;
+        TScope outputScope;
+        if (!query.OrderBy.empty()) {
+            outputScope.Reserve(outputs.size());
+            for (const auto& output : outputs) outputScope.Add({output.Column, output.Name, {}, output.Type});
+        }
         context.AllowSubqueries = false;
         context.Aliases = &outputScope;
         for (const auto& key : query.OrderBy) {
