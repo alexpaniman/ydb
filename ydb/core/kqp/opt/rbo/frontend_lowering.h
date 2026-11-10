@@ -26,6 +26,9 @@ namespace NFrontend { class TParameterType; struct TRowExpression; }
 // has a finite, explicit lowering; no SQL/YQL normalization is performed here.
 const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::TExprContext& ctx,
     const NFrontend::TExpressionArena* arena = nullptr);
+// Fully typed type syntax for physical builders that emit executable values.
+NYql::TExprNode::TPtr LowerExecutionType(const NYql::TTypeAnnotationNode* type,
+    NYql::TExprContext& ctx, NYql::TPositionHandle pos);
 NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena = nullptr);
 const NYql::TTypeAnnotationNode* ExportNativeParameterType(const NFrontend::TParameterType& type, NYql::TExprContext& ctx);
 NYql::TExprNode::TPtr LowerNativeParameter(const TString& name, const NFrontend::TParameterType& type,

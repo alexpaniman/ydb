@@ -401,12 +401,17 @@ TVector<std::reference_wrapper<const TExpression>> TOpRead::GetExpressions() con
         }
     }
     if (RangeInfo && RangeInfo->NativeRanges) {
-        for (const auto& range : *RangeInfo->NativeRanges) for (const auto* bound : {&range.Lower, &range.Upper}) {
-            for (const auto& value : bound->Values) result.push_back(std::cref(value));
+        for (const auto& range : *RangeInfo->NativeRanges) {
+            if (range.Condition) result.push_back(std::cref(*range.Condition));
+            for (const auto* bound : {&range.Lower, &range.Upper})
+                for (const auto& value : bound->Values) result.push_back(std::cref(value));
         }
     }
     if (RangeInfo) for (const auto& prefix : RangeInfo->PointPrefixes) if (prefix.NativePoints)
-        for (const auto& row : prefix.NativePoints->Rows) for (const auto& value : row) result.push_back(std::cref(value));
+        for (const auto& row : prefix.NativePoints->Rows) {
+            if (row.Condition) result.push_back(std::cref(*row.Condition));
+            for (const auto& value : row.Values) result.push_back(std::cref(value));
+        }
     return result;
 }
 
@@ -424,12 +429,17 @@ void TOpRead::RewriteExpressions(const TExpressionRewrite& rewrite) {
     }
     if (OriginalPredicate && OriginalPredicate->IsNative()) OriginalPredicate = rewrite(*OriginalPredicate);
     if (RangeInfo && RangeInfo->NativeRanges) {
-        for (auto& range : *RangeInfo->NativeRanges) for (auto* bound : {&range.Lower, &range.Upper}) {
-            for (auto& value : bound->Values) value = rewrite(value);
+        for (auto& range : *RangeInfo->NativeRanges) {
+            if (range.Condition) range.Condition = rewrite(*range.Condition);
+            for (auto* bound : {&range.Lower, &range.Upper})
+                for (auto& value : bound->Values) value = rewrite(value);
         }
     }
     if (RangeInfo) for (auto& prefix : RangeInfo->PointPrefixes) if (prefix.NativePoints)
-        for (auto& row : prefix.NativePoints->Rows) for (auto& value : row) value = rewrite(value);
+        for (auto& row : prefix.NativePoints->Rows) {
+            if (row.Condition) row.Condition = rewrite(*row.Condition);
+            for (auto& value : row.Values) value = rewrite(value);
+        }
 }
 
 TString StripAliasPrefix(const TString& column) {
@@ -523,6 +533,7 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
                 NJson::TJsonValue item(NJson::EJsonValueType::JSON_MAP);
                 item["Lower"] = describe(range.Lower);
                 item["Upper"] = describe(range.Upper);
+                if (range.Condition) item["Condition"] = range.Condition->ToExplainString(registry);
                 ranges.AppendValue(std::move(item));
             }
             res["ReadRanges"] = std::move(ranges);
@@ -574,9 +585,11 @@ TString TOpRead::ToString(TExprContext&, const TInfoUnitRegistry& registry) {
             }
             return text;
         };
-        for (const auto& range : *RangeInfo->NativeRanges)
+        for (const auto& range : *RangeInfo->NativeRanges) {
             res << " Range: " << (range.Lower.Inclusive ? '[' : '(') << '(' << format(range.Lower)
                 << "), (" << format(range.Upper) << ')' << (range.Upper.Inclusive ? ']' : ')');
+            if (range.Condition) res << " When: (" << range.Condition->ToExplainString(registry) << ')';
+        }
     }
     if (SortDir != ESortDir::None) {
         res << " Sort direction: (" << ((SortDir == ESortDir::Asc) ? "ASC" : "DESC");
@@ -1211,7 +1224,10 @@ void TOpTableLookup::RewriteExpressions(const TExpressionRewrite& rewrite) {
     if (FetchedRowFilter) *FetchedRowFilter = rewrite(*FetchedRowFilter);
     if (SourceRead && SourceRead->Predicate.IsNative()) SourceRead->Predicate = rewrite(SourceRead->Predicate);
     const auto rewritePoints = [&](TOpRead::TPointPrefix& prefix) {
-        if (prefix.NativePoints) for (auto& row : prefix.NativePoints->Rows) for (auto& value : row) value = rewrite(value);
+        if (prefix.NativePoints) for (auto& row : prefix.NativePoints->Rows) {
+            if (row.Condition) row.Condition = rewrite(*row.Condition);
+            for (auto& value : row.Values) value = rewrite(value);
+        }
     };
     if (Prefix) rewritePoints(*Prefix);
     if (SourceRead) for (auto& prefix : SourceRead->PointPrefixes) rewritePoints(prefix);
@@ -1228,8 +1244,10 @@ TVector<std::reference_wrapper<const TExpression>> TOpTableLookup::GetExpression
     TVector<std::reference_wrapper<const TExpression>> result;
     if (FetchedRowFilter) result.push_back(std::cref(*FetchedRowFilter));
     const auto addPoints = [&](const TOpRead::TPointPrefix& prefix) {
-        if (prefix.NativePoints) for (const auto& row : prefix.NativePoints->Rows)
-            for (const auto& value : row) result.push_back(std::cref(value));
+        if (prefix.NativePoints) for (const auto& row : prefix.NativePoints->Rows) {
+            if (row.Condition) result.push_back(std::cref(*row.Condition));
+            for (const auto& value : row.Values) result.push_back(std::cref(value));
+        }
     };
     if (Prefix) addPoints(*Prefix);
     if (SourceRead) for (const auto& prefix : SourceRead->PointPrefixes) addPoints(prefix);

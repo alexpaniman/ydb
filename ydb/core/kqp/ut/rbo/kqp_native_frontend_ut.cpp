@@ -1912,9 +1912,9 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     });
                     for (size_t i = 0; i < pointCount; ++i) {
                         const auto original = Evaluate(*arena,
-                            extracted.RangeInfo->PointPrefixes.front().NativePoints->Rows[i].front().GetNativeRoot());
+                            extracted.RangeInfo->PointPrefixes.front().NativePoints->Rows[i].Values.front().GetNativeRoot());
                         const auto rewritten = Evaluate(*arena,
-                            copiedPrefixes.front().NativePoints->Rows[i].front().GetNativeRoot());
+                            copiedPrefixes.front().NativePoints->Rows[i].Values.front().GetNativeRoot());
                         if (original.IsNull()) UNIT_ASSERT(rewritten.IsNull());
                         else {
                             const auto value = std::get<std::int64_t>(original.Data);
@@ -1949,7 +1949,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 TVector<TExpression> row{TExpression::FromNative(arena, key, &f.Props)};
                 if (composite) row.push_back(TExpression::FromNative(arena,
                     arena->Literal({K::String}, suffix), &f.Props));
-                points.Rows.push_back(std::move(row));
+                points.Rows.push_back({std::move(row), {}});
             };
             add(arena->Parameter("p", {K::Uint64}), binary);
             if (multiple) {

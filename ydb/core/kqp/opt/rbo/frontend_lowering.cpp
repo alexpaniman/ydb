@@ -641,6 +641,11 @@ private:
 };
 } // namespace
 
+NYql::TExprNode::TPtr LowerExecutionType(const NYql::TTypeAnnotationNode* type,
+    NYql::TExprContext& ctx, NYql::TPositionHandle pos) {
+    return ExecutionType(type, ctx, pos);
+}
+
 const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::TExprContext& ctx,
     const NFrontend::TExpressionArena* arena) {
     const TTypeAnnotationNode* result;

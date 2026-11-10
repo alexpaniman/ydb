@@ -87,7 +87,17 @@ TExprNode::TPtr LowerNativeRanges(const TOpRead::TRangeInfo& info, const TStruct
     TExprNode::TListType lists;
     for (const auto& range : *info.NativeRanges) {
         auto pair = tuple({lower(range.Lower, true), lower(range.Upper, false)});
-        lists.push_back(call("AsList", {pair}, ctx.MakeType<TListExprType>(pair->GetTypeAnn())));
+        const auto* type = ctx.MakeType<TListExprType>(pair->GetTypeAnn());
+        auto list = call("AsList", {pair}, type);
+        if (range.Condition) {
+            const auto& expression = *range.Condition;
+            Y_ENSURE(expression.IsNative() && expression.GetRawInputIUs().Empty() &&
+                expression.GetNativeType() == NFrontend::TType{NFrontend::ETypeKind::Bool}, "Invalid range condition");
+            const auto condition = LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, pos)->TailPtr();
+            const auto empty = call("List", {LowerExecutionType(type, ctx, pos)}, type);
+            list = call("If", {condition, list, empty}, type);
+        }
+        lists.push_back(std::move(list));
     }
     Y_ENSURE(!lists.empty(), "Native range extraction must produce an interval");
     const TTypeAnnotationNode* listType = lists.front()->GetTypeAnn();
@@ -141,6 +151,7 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
                 });
             };
             if (Read.RangeInfo && Read.RangeInfo->NativeRanges && Read.RangeInfo->NativeRanges->size() == 1 &&
+                !Read.RangeInfo->NativeRanges->front().Condition &&
                 directNativeBound(Read.RangeInfo->NativeRanges->front().Lower) &&
                 directNativeBound(Read.RangeInfo->NativeRanges->front().Upper)) {
                 const auto lower = [&](const TOpRead::TKeyBound& bound) {

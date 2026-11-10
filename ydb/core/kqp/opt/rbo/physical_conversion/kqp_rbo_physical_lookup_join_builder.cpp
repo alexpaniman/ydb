@@ -64,21 +64,33 @@ TExprNode::TPtr BuildLookupPoints(const TOpRead::TPointPrefix& prefix, TExprCont
     }
     const auto* rowType = ctx.MakeType<TStructExprType>(fields);
     const auto* listType = ctx.MakeType<TListExprType>(rowType);
+    const bool guarded = AnyOf(points.Rows, [](const auto& point) { return point.Condition.has_value(); });
+    TExprNode::TPtr empty;
+    if (guarded) empty = call("List", {LowerExecutionType(listType, ctx, pos)}, listType);
     TExprNode::TListType rows;
     for (const auto& row : points.Rows) {
-        Y_ENSURE(row.size() == prefix.Columns.size());
+        Y_ENSURE(row.Values.size() == prefix.Columns.size());
         TExprNode::TListType members;
-        for (size_t i = 0; i < row.size(); ++i) {
-            const auto& expression = row[i];
+        for (size_t i = 0; i < row.Values.size(); ++i) {
+            const auto& expression = row.Values[i];
             Y_ENSURE(expression.IsNative() && expression.GetRawInputIUs().Empty(), "Lookup point depends on a row");
             auto value = LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, pos)->TailPtr();
             if (points.Types[i].OptionalDepth && !expression.GetNativeType().OptionalDepth) value = call("Just", {value}, types[i]);
             Y_ENSURE(IsSameAnnotation(*value->GetTypeAnn(), *types[i]), "Lookup point type mismatch");
             members.push_back(tuple({atom(prefix.Columns[i]), value}));
         }
-        rows.push_back(call("AsStruct", std::move(members), rowType));
+        auto value = call("AsStruct", std::move(members), rowType);
+        if (guarded) value = call("AsList", {value}, listType);
+        if (row.Condition) {
+            const auto& expression = *row.Condition;
+            Y_ENSURE(expression.IsNative() && expression.GetRawInputIUs().Empty() &&
+                expression.GetNativeType() == NFrontend::TType{NFrontend::ETypeKind::Bool}, "Invalid lookup point condition");
+            const auto condition = LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, pos)->TailPtr();
+            value = call("If", {condition, value, empty}, listType);
+        }
+        rows.push_back(std::move(value));
     }
-    auto list = call("AsList", std::move(rows), listType);
+    auto list = guarded && rows.size() == 1 ? rows.front() : call(guarded ? "Extend" : "AsList", std::move(rows), listType);
     if (points.Rows.size() == 1) return list;
     // Distinct parameter names may bind to the same value. Deduplicate complete
     // prefix tuples at runtime to avoid multiplying joined rows. ToDict and

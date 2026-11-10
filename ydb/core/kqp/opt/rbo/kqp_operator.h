@@ -636,13 +636,19 @@ public:
     };
     struct TKeyRange {
         TKeyBound Lower, Upper;
+        // A required Bool with no row dependencies. False produces no range.
+        std::optional<TExpression> Condition;
     };
 
     // Leading key columns of a table pinned by the read predicate to a set of points. A lookup join
     // uses the points as a constant prefix of its lookup keys.
     struct TNativePointSet {
+        struct TPoint {
+            TVector<TExpression> Values;
+            std::optional<TExpression> Condition;
+        };
         TVector<NFrontend::TType> Types;
-        TVector<TVector<TExpression>> Rows;
+        TVector<TPoint> Rows;
     };
     struct TPointPrefix {
         TString Table;                // path of the main table or of an index implementation table

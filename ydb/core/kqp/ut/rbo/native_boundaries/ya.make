@@ -9,6 +9,8 @@ SRCS(
 
 PEERDIR(
     ydb/core/kqp/opt
+    yql/essentials/minikql/comp_nodes
+    yql/essentials/providers/common/mkql
     yql/essentials/minikql/invoke_builtins
     yql/essentials/public/udf/service/exception_policy
     yql/essentials/sql/pg_dummy

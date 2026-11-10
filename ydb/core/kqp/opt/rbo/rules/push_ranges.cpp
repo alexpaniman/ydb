@@ -4,6 +4,8 @@
 
 
 #include <utility>
+#include <cmath>
+#include <limits>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -207,6 +209,28 @@ NFrontend::TExprId StripNativeOptionalLift(const NFrontend::TExpressionArena& ar
     return id;
 }
 
+bool HasUnorderedNativeKeys(NFrontend::TType type) {
+    using K = NFrontend::ETypeKind;
+    return type.Kind == K::Float || type.Kind == K::Double || type.Kind == K::Decimal;
+}
+
+// NaN is the largest storage key, but is unordered in SQL comparisons. A
+// parameter bound therefore needs a native validity condition. Finite literals
+// and SQL NULL points are already known and need no runtime condition.
+std::optional<NFrontend::TExprId> NativeBoundCondition(NFrontend::TExpressionArena& arena, NFrontend::TExprId value) {
+    using namespace NFrontend;
+    const auto& node = arena[value];
+    if (!HasUnorderedNativeKeys(node.Type)) return {};
+    if (node.Op == EOpcode::Literal) {
+        if (std::holds_alternative<std::monostate>(node.Value)) return {};
+        const bool nan = node.Type.Kind == ETypeKind::Decimal
+            ? std::get<TDecimal>(node.Value).Coefficient == TDecimal::NaN() : std::isnan(std::get<double>(node.Value));
+        if (!nan) return {};
+        return arena.Literal({ETypeKind::Bool}, false);
+    }
+    return arena.Binary(EOpcode::Equal, value, value);
+}
+
 // Storage bounds use the key's exact type. Integer comparisons in the native
 // IR compare mathematical values across widths/signedness: never round them
 // through Double or narrow an out-of-range value into the key domain.
@@ -364,11 +388,13 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         }
         if ((*arena)[column].Op != O::Column) continue;
         const auto keyType = (*arena)[column].Type;
-        // Floating/Decimal NaNs and value-changing column casts require an
-        // explicit ordering proof. Identity/optional lifts are the only casts
-        // stripped here; integer literals alone may change width exactly.
+        // Identity/optional lifts are the only column casts stripped here;
+        // integer literals alone may change width exactly. Unordered keys get
+        // explicit native bounds and validity conditions below.
         if (!keyType.IsIntegral() && !keyType.IsString() && keyType.Kind != K::Bool && keyType.Kind != K::Date &&
-            keyType.Kind != K::Datetime && keyType.Kind != K::Timestamp && keyType.Kind != K::Interval) continue;
+            keyType.Kind != K::Datetime && keyType.Kind != K::Timestamp && keyType.Kind != K::Interval &&
+            keyType.Kind != K::Date32 && keyType.Kind != K::Datetime64 && keyType.Kind != K::Timestamp64 &&
+            keyType.Kind != K::Interval64 && keyType.Kind != K::Uuid && !HasUnorderedNativeKeys(keyType)) continue;
         // IS NULL is a finite NULL point, unlike comparison with NULL (UNKNOWN).
         const auto bound = nullPoint
             ? (keyType.OptionalDepth ? std::optional{arena->Literal(keyType, {})} : std::nullopt)
@@ -385,6 +411,12 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
         THashSet<size_t> Consumed;
         bool AllConsumed = true;
     };
+    const auto addCondition = [&](std::optional<TExpression>& condition, TExprId value) {
+        if (const auto valid = NativeBoundCondition(*arena, value)) {
+            const auto root = condition ? arena->Binary(O::And, condition->GetNativeRoot(), *valid) : *valid;
+            condition = TExpression::FromNative(arena, root, &props, read->Pos);
+        }
+    };
     const auto build = [&](const TKikimrTableMetadata& metadata) {
         TCandidate result;
         auto& info = result.Info;
@@ -400,7 +432,7 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
             const auto append = [&](TOpRead::TKeyBound& bound, const TCondition& condition) {
                 bound.Values.push_back(TExpression::FromNative(arena, condition.Value, &props, read->Pos));
                 bound.Inclusive = condition.Inclusive;
-                consumed.insert(condition.Term);
+                if (consumed.insert(condition.Term).second) addCondition(range.Condition, condition.Value);
             };
             for (const auto& key : metadata.KeyColumnNames) {
                 const auto found = branchKeys[branch].find(key);
@@ -415,6 +447,13 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
                 }
                 if (!conditions.Lower && !conditions.Upper) break;
                 if (conditions.Lower) append(range.Lower, *conditions.Lower);
+                if (conditions.Lower && !conditions.Upper && HasUnorderedNativeKeys(conditions.Lower->KeyType)) {
+                    const auto type = conditions.Lower->KeyType.Required();
+                    const TScalar nan = type.Kind == K::Decimal ? TScalar{TDecimal{TDecimal::NaN()}}
+                        : TScalar{std::numeric_limits<double>::quiet_NaN()};
+                    range.Upper.Values.push_back(TExpression::FromNative(arena, arena->Literal(type, nan), &props, read->Pos));
+                    range.Upper.Inclusive = false;
+                }
                 if (conditions.Upper) {
                     append(range.Upper, *conditions.Upper);
                     // Exclude SQL NULL from an upper-only interval, including
@@ -475,7 +514,9 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
                 key << cell.size() << ':' << cell;
             }
             if (!seen.insert(key).second) continue;
-            points.Rows.emplace_back(range.Lower.Values.begin(), range.Lower.Values.begin() + length);
+            auto& point = points.Rows.emplace_back();
+            point.Values.assign(range.Lower.Values.begin(), range.Lower.Values.begin() + length);
+            for (const auto& value : point.Values) addCondition(point.Condition, value.GetNativeRoot());
             if (points.Rows.size() > limit) return;
         }
         prefix.ExpectedMaxPoints = points.Rows.size();
