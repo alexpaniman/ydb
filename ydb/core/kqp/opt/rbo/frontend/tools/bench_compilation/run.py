@@ -19,6 +19,8 @@ HERE = Path(__file__).resolve().parent
 VIEWER = Path.home() / 'projects/violinoscope/violinoscope.py'
 FRAMEWORK = Path.home() / 'projects/optimizer-test-framework/compilation_bench'
 NAMES = corpus.NAMES
+FRONTEND_PHASES = ('Native parse', 'Native table discovery', 'Native binding and scalar typing',
+                   'Native plan formatting', 'Native operator translation')
 
 
 def write(path, value):
@@ -72,10 +74,11 @@ def summarize(trace, expected, first_index, native):
             assert required <= names, (trace, attrs, required - names)
             assert all(s.get('status', {}).get('code') != 2 for s in spans
                        if s['name'] in required), (trace, attrs)
-        frontend_ms=sum(phase_ms[n] for n in ('Native parse','Native table discovery','Native binding and scalar typing','Native operator translation'))
+        frontend_ms = sum(phase_ms[n] for n in FRONTEND_PHASES)
         rbo_ms=phase_ms['New RBO optimization']
         result.append(dict(frontend_ms=frontend_ms, operator_typing_ms=phase_ms['Native operator typing'], rbo_ms=rbo_ms, frontend_over_rbo=frontend_ms/rbo_ms if rbo_ms else None, query=attrs['query.name'], index=int(attrs['query.index']), success=success,
                            ms=phase_ms['Compile query'], phases=dict(phase_ms), fallback=fallback,
+                           frontend_phases_measured=[n for n in FRONTEND_PHASES if n in names],
                            native=bool(native and not fallback and 'Native operator translation' in names)))
     assert len(result) == expected, (trace, len(result), expected)
     return result

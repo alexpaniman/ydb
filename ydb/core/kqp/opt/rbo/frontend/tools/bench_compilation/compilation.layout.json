@@ -22,6 +22,9 @@
             "span": "Native binding and scalar typing"
           },
           {
+            "span": "Native plan formatting"
+          },
+          {
             "span": "Native operator translation"
           }
         ]

@@ -42,6 +42,12 @@ outer `Compile query` span, while native traces also expose individual phases.
 Operator typing is included in RBO optimization and must not be added to it a
 second time.
 
+Frontend totals include parsing, table discovery, binding/scalar typing, native
+plan formatting, and operator translation. Plan formatting was first measured
+separately in candidate `7dfea86f68f`; earlier traces cannot isolate that cost.
+Each measurement records which frontend phases were present so comparisons do
+not silently treat missing instrumentation as measured zero work.
+
 The manifest records binary, driver and layout hashes, input commands, source
 snapshot, observations, and trace hashes. `--resume` validates batch signatures
 and trace hashes, and preserves the original source snapshot. `--render-only`
