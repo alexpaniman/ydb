@@ -139,6 +139,25 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(ListOperationsEmitExecutableTerminalNodes) {
+        for (const auto* sql : {
+            "SELECT ListConcat(CAST(ListFromRange(1, 10) AS List<String>), '..')",
+            "SELECT ListConcat(CAST(ListFromRange(5, -1, -2) AS List<String>), ',')",
+            "SELECT ListConcat(CAST(ListFromRange(Just(1), 4) AS List<String>), ',')",
+            "SELECT ListConcat(CAST(ListFromRange(CAST(NULL AS Int32?), 4) AS List<String>))",
+            "SELECT ListConcat(CAST(ListFromRange(1, 1) AS List<String>))",
+            "SELECT ListConcat(AsList('a', NULL, 'b', NULL), ',')",
+            "SELECT ListConcat(AsList(NULL, 'a', NULL), ',')",
+            "SELECT ListConcat(AsList('a', 'b'), CAST(NULL AS String?))",
+            "SELECT ListConcat(AsList('a'u, NULL, '\\xc3\\xa9'u), ','u)",
+            "SELECT CAST(AsList('1', 'bad') AS List<Int32>) IS NULL",
+            "SELECT CAST(AsList('1', 'bad') AS List<Int32>?) IS NULL",
+            "SELECT CAST(AsList(127, 128) AS List<Int8>) IS NULL",
+            "SELECT ListConcat(CAST(CAST(AsList('1', 'bad', '2') AS List<Int32?>) AS List<String?>), ',')",
+            "SELECT ListConcat(CAST(AsList() AS List<String>))",
+        }) CheckScalar(sql);
+    }
+
     Y_UNIT_TEST(LambdaClosuresProduceTheSameNativeOperatorsAsInlineScalars) {
         using namespace NFrontend;
         std::optional<TString> plan;

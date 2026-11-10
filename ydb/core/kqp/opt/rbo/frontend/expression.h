@@ -109,6 +109,7 @@ enum class EOpcode : std::uint8_t {
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
     CalendarShiftMonths, CalendarShiftYears, CalendarMinute, TemporalSeconds, UrlHost, UrlCutWWW,
     Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, RandomNumber, Like, ILike, TupleElement, ListElement,
+    ListFromRange, ListConcat,
 };
 
 struct TExprNode {
@@ -142,6 +143,7 @@ public:
     std::span<const TType> TupleItems(TType type) const;
     TType ListType(TType item, TSourcePosition position = {});
     TType ListItem(TType type) const;
+    TType ParseTypeName(std::string_view name, TSourcePosition position = {});
     TType ImportType(const TExpressionArena& source, TType type);
     void ValidateType(TType type, TSourcePosition position = {}) const;
 
@@ -203,7 +205,7 @@ public:
     TExprId FactorCommonConjuncts(TExprId root);
 
     // Fold shared constant DAGs once across all roots. Keep runtime assertions
-    // deferred, preserve types, and bound newly materialized string data.
+    // deferred, preserve types, and bound materialized strings and list storage.
     std::vector<TExprId> FoldConstants(std::span<const TExprId> roots, std::size_t maxStringBytes = 1024 * 1024);
 
 private:

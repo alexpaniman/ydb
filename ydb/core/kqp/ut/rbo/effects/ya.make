@@ -19,6 +19,10 @@ SRCS(
 
 PEERDIR(
     ydb/core/kqp/ut/common
+    # The shared YDB test server references these runtime symbols even when
+    # the tested native frontend excludes PostgreSQL expressions.
+    yql/essentials/sql/pg
+    yql/essentials/parser/pg_wrapper
 )
 
 IF (OS_WINDOWS)

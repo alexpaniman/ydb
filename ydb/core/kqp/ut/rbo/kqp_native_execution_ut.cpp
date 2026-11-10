@@ -39,6 +39,72 @@ void CreateTables(TKikimrRunner& kikimr, TSession& session) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExecutionRuntime) {
+    Y_UNIT_TEST_TWIN(ListOperationsMatchLegacyValuesAndNullability, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const std::pair<TString, std::optional<TString>> cases[]{
+            {"ListConcat(CAST(ListFromRange(1, 10) AS List<String>), '..')", "1..2..3..4..5..6..7..8..9"},
+            {"ListConcat(CAST(ListFromRange(5, -1, -2) AS List<String>), ',')", "5,3,1"},
+            {"ListConcat(CAST(ListFromRange(1u, 6u, 2) AS List<String>))", "135"},
+            {"ListConcat(CAST(ListFromRange(1, 1) AS List<String>))", std::nullopt},
+            {"ListConcat(CAST(ListFromRange(1, 8, 0) AS List<String>))", std::nullopt},
+            {"ListConcat(CAST(ListFromRange(Just(1), 4) AS List<String>), ',')", "1,2,3"},
+            {"ListConcat(CAST(ListFromRange(CAST(NULL AS Int32?), 4) AS List<String>))", std::nullopt},
+            {"ListConcat(AsList('a', NULL, 'b', NULL), ',')", "a,,b,"},
+            {"ListConcat(AsList(NULL, 'a', NULL), ',')", "a,"},
+            {"ListConcat(AsList('a', 'b'), CAST(NULL AS String?))", "ab"},
+            {"ListConcat(CAST(CAST(AsList('1', 'bad', '2') AS List<Int32?>) AS List<String?>), ',')", "1,,2"},
+            {"ListConcat(CAST(AsList() AS List<String>))", std::nullopt},
+        };
+        for (const auto& [expression, expected] : cases) {
+            const auto sql = "SELECT " + expression + " AS value";
+            const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+            Success(result);
+            UNIT_ASSERT_VALUES_EQUAL_C(result.GetResultSet(0).GetColumnsMeta()[0].Type.ToString(), "String?", sql);
+            TResultSetParser rows(result.GetResultSet(0));
+            UNIT_ASSERT(rows.TryNextRow());
+            const auto actual = rows.ColumnParser(0).GetOptionalString();
+            UNIT_ASSERT_VALUES_EQUAL_C(bool(actual), bool(expected), sql);
+            if (expected) UNIT_ASSERT_VALUES_EQUAL_C(*actual, *expected, sql);
+        }
+        const auto params = TParamsBuilder()
+            .AddParam("$start").OptionalInt32(2).Build()
+            .AddParam("$stop").Int32(7).Build()
+            .AddParam("$step").Int32(2).Build()
+            .AddParam("$separator").OptionalString(",").Build()
+            .Build();
+        const auto dynamic = session.ExecuteDataQuery(R"(
+            DECLARE $start AS Int32?; DECLARE $stop AS Int32; DECLARE $step AS Int32; DECLARE $separator AS String?;
+            SELECT ListConcat(CAST(ListFromRange($start, $stop, $step) AS List<String>), $separator) AS value;
+        )", TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+        Success(dynamic);
+        UNIT_ASSERT_VALUES_EQUAL(FormatResultSetYson(dynamic.GetResultSet(0)), "[[[\"2,4,6\"]]]");
+        const auto items = TParamsBuilder().AddParam("$items").BeginList()
+            .AddListItem().String("1").AddListItem().String("bad").AddListItem().String("2")
+            .EndList().Build().Build();
+        const auto cast = session.ExecuteDataQuery(R"(
+            DECLARE $items AS List<String>;
+            SELECT CAST($items AS List<Int32>) IS NULL AS failed,
+                CAST($items AS List<Int32>?) IS NULL AS optional_failed,
+                ListConcat(CAST(CAST($items AS List<Int32>) AS List<String>), ',') AS filtered,
+                ListConcat(CAST(CAST($items AS List<Int32?>) AS List<String?>), ',') AS retained;
+        )", TTxControl::BeginTx().CommitTx(), items).GetValueSync();
+        Success(cast);
+        TResultSetParser castRows(cast.GetResultSet(0));
+        UNIT_ASSERT(castRows.TryNextRow());
+        UNIT_ASSERT(!castRows.ColumnParser("failed").GetBool());
+        UNIT_ASSERT(!castRows.ColumnParser("optional_failed").GetBool());
+        UNIT_ASSERT_VALUES_EQUAL(*castRows.ColumnParser("filtered").GetOptionalString(), "1,2");
+        UNIT_ASSERT_VALUES_EQUAL(*castRows.ColumnParser("retained").GetOptionalString(), "1,,2");
+        const auto unicode = session.ExecuteDataQuery("SELECT ListConcat(AsList('a'u, NULL, 'é'u), ','u) AS value",
+            TTxControl::BeginTx().CommitTx()).GetValueSync();
+        Success(unicode);
+        UNIT_ASSERT_VALUES_EQUAL(unicode.GetResultSet(0).GetColumnsMeta()[0].Type.ToString(), "Utf8?");
+        TResultSetParser unicodeRows(unicode.GetResultSet(0));
+        UNIT_ASSERT(unicodeRows.TryNextRow());
+        UNIT_ASSERT_VALUES_EQUAL(*unicodeRows.ColumnParser(0).GetOptionalUtf8(), "a,,é");
+    }
+
     Y_UNIT_TEST_TWIN(LambdaClosuresCaptureRowsAndStaticCallables, Native) {
         TKikimrRunner kikimr(Settings(Native));
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();

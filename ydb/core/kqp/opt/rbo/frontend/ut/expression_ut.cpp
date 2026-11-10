@@ -22,6 +22,56 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(ListOperationsPreserveShapesOnImportRewriteAndFold) {
+        TExpressionArena arena;
+        const auto from = arena.Column(3, {K::Int32});
+        const std::array bounds{from, arena.Literal({K::Int32}, std::int64_t{5})};
+        const auto range = arena.Call("ListFromRange", bounds);
+        const auto strings = arena.Cast(range, arena.ListType({K::String}));
+        const std::array args{strings, arena.Literal({K::String}, std::string{","})};
+        const auto joined = arena.Call("ListConcat", args);
+        TEvaluationContext context;
+        context.Column = [](TColumnId id) { return TValue{{id == 3 ? K::Int32 : K::Int64}, std::int64_t{2}}; };
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, joined, context)), "2,3,4");
+        const auto rewritten = arena.RewriteColumns(joined, [&](auto, auto, auto, auto) { return arena.Column(7, {K::Int64}); });
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, rewritten, context)), "2,3,4");
+        TExpressionArena imported;
+        imported.ListType({K::Bool}); // Deliberately different local shape IDs.
+        const auto copied = imported.Import(arena, rewritten, [&](auto id, auto type, auto pos) { return imported.Column(id, type, pos); });
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(imported, copied, context)), "2,3,4");
+        const auto constant = arena.RewriteColumns(joined, [&](auto, auto, auto, auto) { return arena.Literal({K::Int32}, std::int64_t{2}); });
+        const auto folded = arena.FoldConstants(std::span(&constant, 1)).front();
+        UNIT_ASSERT(arena[folded].Op == O::Literal);
+        UNIT_ASSERT(arena[folded].Type == arena[joined].Type);
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(Evaluate(arena, folded)), "2,3,4");
+    }
+
+    Y_UNIT_TEST(ListRangesRespectIntegerEdgesAndMaterializationBudget) {
+        TExpressionArena arena;
+        const auto begin = Integer(arena, std::numeric_limits<std::int64_t>::max());
+        const auto end = Integer(arena, std::numeric_limits<std::int64_t>::min());
+        const std::array bounds{begin, end, end};
+        const auto range = arena.Call("ListFromRange", bounds);
+        const auto value = Evaluate(arena, range);
+        const auto& items = std::get<TTuple>(value.Data)->Items;
+        UNIT_ASSERT_VALUES_EQUAL(items.size(), 2);
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(items[0]), "9223372036854775807");
+        UNIT_ASSERT_VALUES_EQUAL(FormatValue(items[1]), "-1");
+        const std::array hugeBounds{arena.Literal({K::Uint64}, std::uint64_t{0}),
+            arena.Literal({K::Uint64}, std::numeric_limits<std::uint64_t>::max())};
+        const auto huge = arena.Call("ListFromRange", hugeBounds);
+        const auto folded = arena.FoldConstants(std::span(&huge, 1), 1024).front();
+        UNIT_ASSERT(arena[folded].Op == O::ListFromRange);
+        UNIT_ASSERT_EXCEPTION(Evaluate(arena, huge), TResourceLimitError);
+        const auto a = arena.Literal({K::String}, std::string{"a"});
+        const std::array many{a, a, a, a, a, a, a, a};
+        const auto list = arena.Collection(many, true);
+        const std::array concatArgs{list, arena.Literal({K::String}, std::string(1000, '-'))};
+        const auto concat = arena.Call("ListConcat", concatArgs);
+        const auto limited = arena.FoldConstants(std::span(&concat, 1), 2048).front();
+        UNIT_ASSERT(arena[limited].Op == O::ListConcat);
+    }
+
     Y_UNIT_TEST(FilterPreparationPreservesTruthAndScalarEvaluationOrder) {
         TExpressionArena arena;
         const auto p = arena.Parameter("p", {K::Bool, true});

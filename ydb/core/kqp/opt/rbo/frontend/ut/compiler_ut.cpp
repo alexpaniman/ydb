@@ -32,6 +32,45 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(ListRangesCastsAndConcatenationHaveNativeTypesAndValues) {
+        const std::pair<std::string_view, std::string_view> cases[]{
+            {"ListConcat(CAST(ListFromRange(1, 10) AS List<String>), '..')", "1..2..3..4..5..6..7..8..9"},
+            {"ListConcat(CAST(ListFromRange(5, -1, -2) AS List<String>), ',')", "5,3,1"},
+            {"ListConcat(CAST(ListFromRange(1u, 6u, 2) AS List<String>))", "135"},
+            {"ListConcat(CAST(ListFromRange(1, 1) AS List<String>))", "NULL"},
+            {"ListConcat(CAST(ListFromRange(1, 8, 0) AS List<String>))", "NULL"},
+            {"ListConcat(CAST(ListFromRange(Just(1), 4) AS List<String>), ',')", "1,2,3"},
+            {"ListConcat(CAST(ListFromRange(CAST(NULL AS Int32?), 4) AS List<String>))", "NULL"},
+            {"ListConcat(AsList('a', NULL, 'b', NULL), ',')", "a,,b,"},
+            {"ListConcat(AsList(NULL, 'a', NULL), ',')", "a,"},
+            {"ListConcat(AsList('a', 'b'), CAST(NULL AS String?))", "ab"},
+            {"ListConcat(AsList('a'u, NULL, '\\xc3\\xa9'u), ','u)", "a,,é"},
+            {"CAST(AsList('1', 'bad') AS List<Int32>) IS NULL", "false"},
+            {"CAST(AsList('1', 'bad') AS List<Int32>?) IS NULL", "false"},
+            {"ListConcat(CAST(CAST(AsList(127, 128) AS List<Int8>) AS List<String>))", "127"},
+            {"ListConcat(CAST(CAST(AsList('1', 'bad', '2') AS List<Int32?>) AS List<String?>), ',')", "1,,2"},
+            {"ListConcat(CAST(AsList() AS List<String>))", "NULL"},
+            {"ListConcat(AsList())", "NULL"},
+        };
+        for (const auto& [expression, expected] : cases) {
+            const auto sql = "SELECT " + std::string(expression);
+            AssertParserAgreement(sql);
+            for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+                TCompilerSettings settings; settings.Parser = parser;
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& program = compiled.Program->Get();
+                const auto output = program.Results[0].Columns[0].Column;
+                bool found = false;
+                for (const auto& relation : program.Relations) for (const auto& definition : relation.Definitions) {
+                    if (definition.Column != output) continue;
+                    found = true;
+                    UNIT_ASSERT_VALUES_EQUAL_C(FormatValue(Evaluate(program.Expressions, definition.Expression)), expected, sql);
+                }
+                UNIT_ASSERT(found);
+            }
+        }
+    }
+
     Y_UNIT_TEST(PostgresValuesAndConversionsAreOutsideNativeProfile) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
             TCompilerSettings settings; settings.Parser = parser;

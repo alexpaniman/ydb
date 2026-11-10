@@ -2079,7 +2079,16 @@ private:
                 else throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "unsupported binary operator: " + syntax.Text);
                 break;
             }
-            case ESyntaxKind::Cast: result = arena.Cast(Expr(syntax.Arguments[0], context), ParseType(syntax.Text, syntax.Position), syntax.Position); break;
+            case ESyntaxKind::Cast: {
+                const auto type = arena.ParseTypeName(syntax.Text, syntax.Position);
+                const auto target = type.Kind == ETypeKind::List ? arena.ListItem(type) : type;
+                if (!target.IsIntegral() && !target.IsString() && target.Kind != ETypeKind::Bool &&
+                    target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double && target.Kind != ETypeKind::Decimal &&
+                    !target.IsDate() && !target.IsInterval() && target.Kind != ETypeKind::Uuid)
+                    throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "explicit cast target is outside the native scalar profile");
+                result = arena.Cast(Expr(syntax.Arguments[0], context), type, syntax.Position);
+                break;
+            }
             case ESyntaxKind::JsonValue: result = arena.JsonValue(Expr(syntax.Arguments[0], context), syntax.Text, syntax.Position); break;
             case ESyntaxKind::Case: {
                 result = Expr(syntax.Arguments.back(), context);
@@ -2370,13 +2379,7 @@ void CheckSyntax(const TParsedQuery& syntax) {
             const auto name = Lower(node.Text);
             CheckFunctionProfile(name, node.Position);
         }
-        if (node.Kind == ESyntaxKind::Cast) {
-            const auto target = ParseType(node.Text, node.Position);
-            if (!target.IsIntegral() && !target.IsString() && target.Kind != ETypeKind::Bool &&
-                target.Kind != ETypeKind::Float && target.Kind != ETypeKind::Double && target.Kind != ETypeKind::Decimal &&
-                !target.IsDate() && !target.IsInterval() && target.Kind != ETypeKind::Uuid)
-                throw TUnsupportedFeature(EFeature::Expression, node.Position, "explicit cast target is outside the native scalar profile");
-        }
+
     }
 }
 
@@ -2407,22 +2410,26 @@ void CheckProgram(const TBoundProgram& program) {
             }
         }
         if (node.Op == EOpcode::Cast) {
-            const auto from = program.Expressions[node.Arguments[0]].Type;
+            auto from = program.Expressions[node.Arguments[0]].Type;
+            auto target = node.Type;
+            if (from.Kind == ETypeKind::List && target.Kind == ETypeKind::List) {
+                from = program.Expressions.ListItem(from);
+                target = program.Expressions.ListItem(target);
+            }
             const bool temporal = (from.IsDate() || from.IsInterval()) &&
-                (node.Type.IsDate() || node.Type.IsInterval() || node.Type.IsNumeric());
+                (target.IsDate() || target.IsInterval() || target.IsNumeric());
             if (!from.IsIntegral() && !from.IsString() && from.Kind != ETypeKind::Null &&
                 from.Kind != ETypeKind::Bool && from.Kind != ETypeKind::Float && from.Kind != ETypeKind::Double && from.Kind != ETypeKind::Decimal && from.Kind != ETypeKind::Uuid && !temporal)
                 throw TUnsupportedFeature(EFeature::Expression, node.Position, "runtime cast input is outside the native scalar profile");
+            if (target.IsString()) {
+                if (!from.IsString() && !from.IsIntegral() && from.Kind != ETypeKind::Bool && from.Kind != ETypeKind::Decimal && from.Kind != ETypeKind::Uuid && from.Kind != ETypeKind::Null) {
+                    throw TUnsupportedFeature(EFeature::Expression, node.Position,
+                        "native-read-v1 does not implement this type's YQL text formatting");
+                }
+            }
         }
         if ((node.Op == EOpcode::Lower || node.Op == EOpcode::Upper) && node.Type.Kind != ETypeKind::String)
             throw TUnsupportedFeature(EFeature::Function, node.Position, "native ASCII case functions require String input");
-        if (node.Op == EOpcode::Cast && node.Type.IsString()) {
-            const auto input = program.Expressions[node.Arguments[0]].Type;
-            if (!input.IsString() && !input.IsIntegral() && input.Kind != ETypeKind::Bool && input.Kind != ETypeKind::Decimal && input.Kind != ETypeKind::Uuid && input.Kind != ETypeKind::Null) {
-                throw TUnsupportedFeature(EFeature::Expression, node.Position,
-                    "native-read-v1 does not implement this type's YQL text formatting");
-            }
-        }
     }
     for (const auto& relation : program.Relations) {
         const auto jsonKey = [&](TColumnId id) {
@@ -2681,7 +2688,7 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"manifest({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda","insert","upsert","replace","update","delete"],
-"scalar_collections":["fixed tuple/list constructors and declared or supplied scalar List parameters for IN; checked dynamic key conversion and ANSI/legacy NULL rules; not relational columns"],
+"scalar_collections":["fixed tuple/list constructors and declared or supplied scalar List parameters for IN; checked dynamic key conversion and ANSI/legacy NULL rules; integral ListFromRange, flat scalar list casts using scalar conversion rules, String/Utf8 ListConcat; bounded constant materialization and lazy runtime ranges; not relational columns"],
 "row_parameters":["AS_TABLE of declared or supplied List<Struct<scalar fields>> parameters; nullable scalar fields and empty structs; no nested containers or optional row/list containers"],
 "index_views":["ready synchronous row indexes, including unique indexes; covering reads and nullable-primary-key lookups; shared named view producers materialize once; no async/specialized indexes or VIEW PRIMARY KEY"],
 "relations":["read","project","filter","on-join","using-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery","named-query-in","effect"],

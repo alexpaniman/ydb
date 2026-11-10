@@ -894,14 +894,94 @@ void ValidateValue(const TExpressionArena& arena, const TValue& value, TSourcePo
     }
 }
 
-bool ChargeStringBytes(const TScalar& value, std::size_t& remaining) {
+bool WideningIntegerCast(TType source, TType target) {
+    return source.IsIntegral() && target.IsIntegral() &&
+        ((source.IsSigned() == target.IsSigned() && Width(source.Kind) <= Width(target.Kind)) ||
+         (!source.IsSigned() && target.IsSigned() && Width(source.Kind) < Width(target.Kind)));
+}
+
+// One conversion contract for scalar operands and elements of list casts.
+// A nullable result beyond the requested type denotes a potentially failing cast.
+TType ScalarCastType(TType source, TType target, bool literal, TSourcePosition position) {
+    if ((source.IsJson() || target.IsJson()) && source.Kind != K::Null && source.Required() != target.Required())
+        throw TUnsupportedFeature(EFeature::Expression, position, "JSON conversion is outside the native scalar profile");
+    if (source.Kind == K::Calendar || target.Kind == K::Calendar)
+        throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime accessors or constructors");
+    if (target.Kind == K::Null) {
+        Fail(position, "Cannot cast to Null");
+    }
+    if (source.Kind == K::Float && target.IsIntegral() && Width(target.Kind) >= 32) {
+        throw TUnsupportedFeature(EFeature::Expression, position,
+            "Float to 32/64-bit integers is outside the native profile pending runtime boundary semantics");
+    }
+    if (target.IsString() && (source.Kind == K::Float || source.Kind == K::Double)) {
+        throw TUnsupportedFeature(EFeature::Expression, position, "Floating point to string formatting is not supported");
+    }
+    if (source.Kind == K::Decimal && target.IsIntegral() && source.Precision == source.Scale)
+        Fail(position, "Decimal to integer cast requires integral digits");
+    if (target.Kind == K::Decimal && ((source.IsIntegral() && target.Precision == target.Scale) ||
+        (source.Kind == K::Decimal && !std::min(source.Precision - source.Scale, target.Precision - target.Scale) &&
+            !std::min(source.Scale, target.Scale)))) {
+        Fail(position, "Decimal cast requires overlapping integral or fractional digits");
+    }
+    if (source.Kind != K::Null && source.Required() != target.Required() && !source.IsString() && !target.IsString()) {
+        const bool sourceDate = IsDate(source.Kind), targetDate = IsDate(target.Kind);
+        const bool sourceFloat = source.Kind == K::Float || source.Kind == K::Double;
+        const bool targetFloat = target.Kind == K::Float || target.Kind == K::Double;
+        const bool allowed = (source.IsIntegral() && (target.IsNumeric() || target.Kind == K::Bool || targetDate || target.IsInterval())) ||
+            (sourceFloat && (target.IsIntegral() || targetFloat || target.Kind == K::Bool)) ||
+            (source.Kind == K::Bool && (target.IsIntegral() || targetFloat)) ||
+            (source.Kind == K::Decimal && (target.IsNumeric())) ||
+            (sourceDate && (targetDate || target.IsIntegral() || targetFloat)) ||
+            (source.IsInterval() && (target.IsIntegral() || targetFloat || target.IsInterval()));
+        if (!allowed) Fail(position, "Unsupported cast from " + source.ToString() + " to " + target.ToString());
+    }
+    if (source.Required() == target.Required() || WideningIntegerCast(source, target)) {
+        target.OptionalDepth = std::max(target.OptionalDepth, source.OptionalDepth);
+        return target;
+    }
+    if (source.IsString() && !target.IsString()) {
+        if (!literal && !target.IsIntegral() && target.Kind != K::Bool && target.Kind != K::Float &&
+            target.Kind != K::Double && target.Kind != K::Date && target.Kind != K::Decimal && target.Kind != K::Uuid)
+            throw TUnsupportedFeature(EFeature::Expression, position, "Text conversion to " + target.ToString() + " requires a literal; dynamic text parsing is not supported");
+        return target.Optional();
+    }
+    // A potentially lossy conversion is not necessarily nullable: integer to
+    // float, float narrowing and integral truth conversion are total in YQL.
+    const bool sourceFloat = source.Kind == K::Float || source.Kind == K::Double;
+    const bool targetFloat = target.Kind == K::Float || target.Kind == K::Double;
+    const bool temporalInteger = (source.IsDate() || source.IsInterval()) && target.IsIntegral() && [&] {
+        const auto [minimum, maximum] = TemporalBounds(source.Kind);
+        return target.IsSigned() ? FitsSigned(minimum, Width(target.Kind)) && FitsSigned(maximum, Width(target.Kind)) :
+            FitsUnsigned(minimum, Width(target.Kind)) && FitsUnsigned(maximum, Width(target.Kind));
+    }();
+    const bool total = temporalInteger ||
+        (source.IsDate() && target.IsDate() && (!source.IsExtendedTemporal() || target.IsExtendedTemporal())) ||
+        (source.Kind == K::Interval && target.Kind == K::Interval64) ||
+        (source.IsIntegral() && (target.IsDate() || target.IsInterval()) &&
+            FitsTemporal(source.IsSigned() ? -(__int128{1} << (Width(source.Kind) - 1)) : 0, target.Kind) &&
+            FitsTemporal((__int128{1} << (Width(source.Kind) - source.IsSigned())) - 1, target.Kind)) ||
+        (targetFloat && (source.IsIntegral() || sourceFloat || source.IsDate() || source.IsInterval() || source.Kind == K::Bool || source.Kind == K::Decimal)) ||
+        (target.Kind == K::Decimal && (source.IsIntegral() || source.Kind == K::Decimal)) ||
+        (source.Kind == K::Bool && target.IsIntegral()) ||
+        (target.Kind == K::Bool && source.IsIntegral()) ||
+        (target.IsString() && (source.IsIntegral() || source.Kind == K::Bool || source.Kind == K::Utf8 || source.Kind == K::Decimal || source.Kind == K::Uuid));
+    target.OptionalDepth = std::max<std::uint8_t>(target.OptionalDepth, source.OptionalDepth || !total);
+    return target;
+}
+
+bool ChargeMaterializedBytes(const TScalar& value, TType type, std::size_t& remaining) {
     if (const auto* text = std::get_if<std::string>(&value)) {
         if (text->size() > remaining) return false;
         remaining -= text->size();
     } else if (const auto* optional = std::get_if<TOptionalValue>(&value)) {
-        return ChargeStringBytes((*optional)->Data, remaining);
+        return ChargeMaterializedBytes((*optional)->Data, (*optional)->Type, remaining);
     } else if (const auto* tuple = std::get_if<TTuple>(&value)) {
-        for (const auto& item : (*tuple)->Items) if (!ChargeStringBytes(item.Data, remaining)) return false;
+        if (type.Kind == K::List) {
+            if ((*tuple)->Items.size() > remaining / sizeof(TValue)) return false;
+            remaining -= (*tuple)->Items.size() * sizeof(TValue);
+        }
+        for (const auto& item : (*tuple)->Items) if (!ChargeMaterializedBytes(item.Data, item.Type, remaining)) return false;
     }
     return true;
 }
@@ -1050,15 +1130,29 @@ TType TExpressionArena::ListItem(TType type) const {
     return TupleTypes_[type.Shape - 1].at(0);
 }
 
+TType TExpressionArena::ParseTypeName(std::string_view name, TSourcePosition position) {
+    const auto original = name;
+    std::uint8_t optional = 0;
+    while (!name.empty() && name.back() == '?') {
+        if (optional == 64) throw TResourceLimitError(position, "Optional type nesting exceeds 64");
+        ++optional;
+        name.remove_suffix(1);
+    }
+    if (name.size() > 6 && EqualAsciiCase(name.substr(0, 5), "List<") && name.back() == '>') {
+        auto type = ListType(ParseType(name.substr(5, name.size() - 6), position), position);
+        type.OptionalDepth = optional;
+        return type;
+    }
+    return ParseType(original, position);
+}
+
 TExprId TExpressionArena::Collection(std::span<const TExprId> items, bool list, TSourcePosition position) {
     std::vector<TType> types;
     std::vector<TExprId> arguments(items.begin(), items.end());
     for (auto id : items) types.push_back((*this)[id].Type);
-    // An untyped empty collection has the same membership contract as an
-    // empty tuple. Typed empty lists arrive through parameters/literals.
     TType type;
-    if (list && !items.empty()) {
-        auto common = types.front();
+    if (list) {
+        auto common = types.empty() ? TType{K::Null} : types.front();
         for (auto item : types) common = CommonType(common, item, position);
         type = ListType(common, position);
         for (auto& id : arguments) id = Convert(id, common, position);
@@ -1097,7 +1191,8 @@ TExprId TExpressionArena::InCollection(TExprId lookup, TExprId collection, bool 
     if (!values.IsCollection() || values.OptionalDepth || value.IsCollection() || value.OptionalDepth > 1 || value.IsJson())
         throw TUnsupportedFeature(EFeature::Type, position, "IN requires a flat collection and a scalar lookup");
     const TType item = values.Kind == K::List ? ListItem(values) : TType{};
-    const auto fields = values.Kind == K::List ? std::span(&item, 1) : TupleItems(values);
+    const bool empty = (*this)[collection].Op == O::Collection && (*this)[collection].Arguments.empty();
+    const auto fields = empty ? std::span<const TType>{} : values.Kind == K::List ? std::span(&item, 1) : TupleItems(values);
     bool nullable = value.OptionalDepth || value.Kind == K::Null;
     for (auto field : fields) {
         if (field.OptionalDepth > 1) throw TUnsupportedFeature(EFeature::Type, position, "IN collection items require at most one optional layer");
@@ -1234,83 +1329,26 @@ TExprId TExpressionArena::Cast(TExprId input, TType target, TSourcePosition posi
             return Convert(input, target, position);
         throw TUnsupportedFeature(EFeature::Type, position, "Nested optional casts require matching scalar types and cannot remove optional layers");
     }
-    if ((source.IsJson() || target.IsJson()) && source.Kind != K::Null && source.Required() != target.Required())
-        throw TUnsupportedFeature(EFeature::Expression, position, "JSON conversion is outside the native scalar profile");
+    if (source.Kind == K::List && target.Kind == K::List) {
+        const auto from = ListItem(source), to = ListItem(target);
+        if (from.Kind == K::Null && (*this)[input].Op == O::Collection && (*this)[input].Arguments.empty())
+            return Literal(target, TTuple(std::make_shared<TTupleValue>()), position);
+        if (from.OptionalDepth > 1 || to.OptionalDepth > 1)
+            throw TUnsupportedFeature(EFeature::Type, position, "list casts require scalar elements with at most one optional layer");
+        ScalarCastType(from, to, false, position);
+        // SQL list casts discard failed required elements. Container
+        // optionality preserves an absent input, not element-level failure.
+        target.OptionalDepth = std::max(target.OptionalDepth, source.OptionalDepth);
+        return Append({O::Cast, target, position, {input}, {}, {}, 0});
+    }
     if (source.IsCollection() || target.IsCollection()) return Convert(input, target, position);
-    if (source.Kind == K::Calendar || target.Kind == K::Calendar)
-        throw TUnsupportedFeature(EFeature::Type, position, "calendar values require DateTime accessors or constructors");
-    if (target.Kind == K::Null) {
-        Fail(position, "Cannot cast to Null");
-    }
-    if (source.Kind == K::Float && target.IsIntegral() && Width(target.Kind) >= 32) {
-        throw TUnsupportedFeature(EFeature::Expression, position,
-            "Float to 32/64-bit integers is outside the native profile pending runtime boundary semantics");
-    }
-    if (target.IsString() && (source.Kind == K::Float || source.Kind == K::Double)) {
-        throw TUnsupportedFeature(EFeature::Expression, position, "Floating point to string formatting is not supported");
-    }
-    if (source.Kind == K::Decimal && target.IsIntegral() && source.Precision == source.Scale)
-        Fail(position, "Decimal to integer cast requires integral digits");
-    if (target.Kind == K::Decimal && ((source.IsIntegral() && target.Precision == target.Scale) ||
-        (source.Kind == K::Decimal && !std::min(source.Precision - source.Scale, target.Precision - target.Scale) &&
-            !std::min(source.Scale, target.Scale)))) {
-        Fail(position, "Decimal cast requires overlapping integral or fractional digits");
-    }
-    if (source.Kind != K::Null && source.Required() != target.Required() && !source.IsString() && !target.IsString()) {
-        const bool sourceDate = IsDate(source.Kind), targetDate = IsDate(target.Kind);
-        const bool sourceFloat = source.Kind == K::Float || source.Kind == K::Double;
-        const bool targetFloat = target.Kind == K::Float || target.Kind == K::Double;
-        const bool allowed = (source.IsIntegral() && (target.IsNumeric() || target.Kind == K::Bool || targetDate || target.IsInterval())) ||
-            (sourceFloat && (target.IsIntegral() || targetFloat || target.Kind == K::Bool)) ||
-            (source.Kind == K::Bool && (target.IsIntegral() || targetFloat)) ||
-            (source.Kind == K::Decimal && (target.IsNumeric())) ||
-            (sourceDate && (targetDate || target.IsIntegral() || targetFloat)) ||
-            (source.IsInterval() && (target.IsIntegral() || targetFloat || target.IsInterval()));
-        if (!allowed) Fail(position, "Unsupported cast from " + source.ToString() + " to " + target.ToString());
-    }
-    if (source.Required() == target.Required()) {
-        target.OptionalDepth = std::max(target.OptionalDepth, source.OptionalDepth);
+    target = ScalarCastType(source, target, (*this)[input].Op == O::Literal, position);
+    if (source.Required() == target.Required() || WideningIntegerCast(source, target))
         return Convert(input, target, position);
-    }
-    if (source.IsIntegral() && target.IsIntegral() &&
-        ((source.IsSigned() == target.IsSigned() && Width(source.Kind) <= Width(target.Kind)) ||
-         (!source.IsSigned() && target.IsSigned() && Width(source.Kind) < Width(target.Kind)))) {
-        target.OptionalDepth = std::max(target.OptionalDepth, source.OptionalDepth);
-        return Convert(input, target, position);
-    }
-    if (source.IsString() && !target.IsString()) {
-        const auto& node = (*this)[input];
-        if (node.Op != O::Literal) {
-            if (target.IsIntegral() || target.Kind == K::Bool || target.Kind == K::Float || target.Kind == K::Double || target.Kind == K::Date || target.Kind == K::Decimal || target.Kind == K::Uuid)
-                return Append({O::Cast, target.Optional(), position, {input}, {}, {}, 0});
-            throw TUnsupportedFeature(EFeature::Expression, position, "Text conversion to " + target.ToString() + " requires a literal; dynamic text parsing is not supported");
-        }
-        // Literal text is converted once with the native lexical contract.
-        // Runtime Date parsing uses this same parser in reference execution.
-        auto converted = ConvertValue({source, node.Value}, target.Optional());
+    if (source.IsString() && !target.IsString() && (*this)[input].Op == O::Literal) {
+        auto converted = ConvertValue({source, (*this)[input].Value}, target);
         return Literal(converted.Type, std::move(converted.Data), position);
     }
-    // A potentially lossy conversion is not necessarily nullable: integer to
-    // float, float narrowing and integral truth conversion are total in YQL.
-    const bool sourceFloat = source.Kind == K::Float || source.Kind == K::Double;
-    const bool targetFloat = target.Kind == K::Float || target.Kind == K::Double;
-    const bool temporalInteger = (source.IsDate() || source.IsInterval()) && target.IsIntegral() && [&] {
-        const auto [minimum, maximum] = TemporalBounds(source.Kind);
-        return target.IsSigned() ? FitsSigned(minimum, Width(target.Kind)) && FitsSigned(maximum, Width(target.Kind)) :
-            FitsUnsigned(minimum, Width(target.Kind)) && FitsUnsigned(maximum, Width(target.Kind));
-    }();
-    const bool total = temporalInteger ||
-        (source.IsDate() && target.IsDate() && (!source.IsExtendedTemporal() || target.IsExtendedTemporal())) ||
-        (source.Kind == K::Interval && target.Kind == K::Interval64) ||
-        (source.IsIntegral() && (target.IsDate() || target.IsInterval()) &&
-            FitsTemporal(source.IsSigned() ? -(__int128{1} << (Width(source.Kind) - 1)) : 0, target.Kind) &&
-            FitsTemporal((__int128{1} << (Width(source.Kind) - source.IsSigned())) - 1, target.Kind)) ||
-        (targetFloat && (source.IsIntegral() || sourceFloat || source.IsDate() || source.IsInterval() || source.Kind == K::Bool || source.Kind == K::Decimal)) ||
-        (target.Kind == K::Decimal && (source.IsIntegral() || source.Kind == K::Decimal)) ||
-        (source.Kind == K::Bool && target.IsIntegral()) ||
-        (target.Kind == K::Bool && source.IsIntegral()) ||
-        (target.IsString() && (source.IsIntegral() || source.Kind == K::Bool || source.Kind == K::Utf8 || source.Kind == K::Decimal || source.Kind == K::Uuid));
-    target.OptionalDepth = std::max<std::uint8_t>(target.OptionalDepth, source.OptionalDepth || !total);
     return Append({O::Cast, target, position, {input}, {}, {}, 0});
 }
 
@@ -1569,6 +1607,53 @@ TExprId TExpressionArena::JsonValue(TExprId input, std::string path, TSourcePosi
 
 TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> arguments, TSourcePosition position) {
     const auto lowered = Lower(name);
+    if (lowered == "listfromrange") {
+        if (arguments.size() < 2 || arguments.size() > 3) Fail(position, "ListFromRange expects two or three arguments");
+        auto bounds = CommonType((*this)[arguments[0]].Type, (*this)[arguments[1]].Type, position);
+        if (bounds.Kind == K::Null && arguments.size() == 3)
+            bounds = CommonType(bounds, (*this)[arguments[2]].Type, position);
+        if (bounds.Kind == K::Null) return Null(position);
+        if (!bounds.IsIntegral() || bounds.OptionalDepth > 1)
+            throw TUnsupportedFeature(EFeature::Type, position, "native ListFromRange requires integral bounds");
+        auto stepType = bounds.Required();
+        if (!stepType.IsSigned()) stepType.Kind = static_cast<K>(static_cast<unsigned>(stepType.Kind) -
+            (static_cast<unsigned>(K::Uint8) - static_cast<unsigned>(K::Int8)));
+        const auto step = arguments.size() == 3 ? arguments[2] : Literal(stepType, std::int64_t{1}, position);
+        const auto supplied = (*this)[step].Type;
+        if (supplied.OptionalDepth > 1 || (!supplied.IsIntegral() && supplied.Kind != K::Null))
+            Fail(position, "ListFromRange step requires an integer");
+        stepType.OptionalDepth = supplied.OptionalDepth || supplied.Kind == K::Null;
+        auto type = ListType(bounds.Required(), position);
+        type.OptionalDepth = bounds.OptionalDepth || stepType.OptionalDepth;
+        std::vector<TExprId> args{Convert(arguments[0], bounds, position), Convert(arguments[1], bounds, position),
+            Convert(step, stepType, position)};
+        return Append({O::ListFromRange, type, position, std::move(args), {}, {}, 0});
+    }
+    if (lowered == "listconcat") {
+        if (arguments.empty() || arguments.size() > 2) Fail(position, "ListConcat expects one or two arguments");
+        const auto list = arguments[0];
+        const auto input = (*this)[list].Type;
+        if (input.Kind == K::Null) return Null(position);
+        if (input.Kind != K::List || input.OptionalDepth > 1)
+            Fail(position, "ListConcat requires a flat list");
+        const auto item = ListItem(input);
+        if (item.Kind == K::Null) return Null(position);
+        if (!item.IsString() || item.OptionalDepth > 1) Fail(position, "ListConcat requires String or Utf8 elements");
+        auto separator = arguments.size() == 2 ? arguments[1] : Literal(item.Required(), std::string{}, position);
+        auto separatorType = (*this)[separator].Type;
+        if (separatorType.Kind == K::Null) {
+            separator = Literal(item.Required(), std::string{}, position);
+            separatorType = item.Required();
+        }
+        if (!separatorType.IsString() || separatorType.OptionalDepth > 1)
+            Fail(position, "ListConcat separator requires String or Utf8");
+        const auto result = CommonType(item, separatorType, position).Required();
+        auto convertedItem = result; convertedItem.OptionalDepth = item.OptionalDepth;
+        auto convertedList = ListType(convertedItem, position); convertedList.OptionalDepth = input.OptionalDepth;
+        auto convertedSeparator = result; convertedSeparator.OptionalDepth = separatorType.OptionalDepth;
+        std::vector<TExprId> args{Cast(list, convertedList, position), Convert(separator, convertedSeparator, position)};
+        return Append({O::ListConcat, result.Optional(), position, std::move(args), {}, {}, 0});
+    }
     if (lowered == "ensure") {
         if (arguments.size() < 2 || arguments.size() > 3) Fail(position, "Ensure expects two or three arguments");
         const auto predicate = (*this)[arguments[1]].Type;
@@ -1809,6 +1894,8 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
 
 TExprId TExpressionArena::Rebuild(TExprNode node) {
     switch (node.Op) {
+        case O::ListFromRange: return Call("ListFromRange", node.Arguments, node.Position);
+        case O::ListConcat: return Call("ListConcat", node.Arguments, node.Position);
         case O::RandomUuid: return Call("RandomUuid", node.Arguments, node.Position);
         case O::RandomNumber: return Call("RandomNumber", node.Arguments, node.Position);
         case O::Collection: return Collection(node.Arguments, node.Type.Kind == K::List, node.Position);
@@ -2150,8 +2237,62 @@ std::string StablePickle(const TValue& value) {
     return payload;
 }
 
-TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& values) {
+std::uint64_t IntegralRangeSize(const TValue& begin, const TValue& end, const TValue& increment) {
+    if (begin.IsNull() || end.IsNull() || increment.IsNull()) return 0;
+    const auto step = *IntegralValue(increment);
+    const auto distance = step < 0 ? *IntegralValue(begin) - *IntegralValue(end) : *IntegralValue(end) - *IntegralValue(begin);
+    if (!step || distance <= 0) return 0;
+    const auto magnitude = step < 0 ? -step : step;
+    return static_cast<std::uint64_t>(distance / magnitude + (distance % magnitude != 0));
+}
+
+TValue Execute(const TExpressionArena& arena, const TExprNode& node, const std::vector<std::optional<TValue>>& values) {
     auto argument = [&](std::size_t index) -> const TValue& { return *values[node.Arguments[index]]; };
+    if (node.Op == O::ListFromRange) {
+        for (auto id : node.Arguments) if (values[id]->IsNull()) return NullValue(node.Type);
+        const auto count = IntegralRangeSize(argument(0), argument(1), argument(2));
+        // The reference executor materializes lists; physical execution keeps
+        // ranges lazy. Constant folding checks its own smaller budget first.
+        if (count > 1024 * 1024) throw TResourceLimitError(node.Position, "reference list evaluation exceeds one million elements");
+        auto result = std::make_shared<TTupleValue>();
+        result->Items.reserve(count);
+        const auto item = arena.ListItem(node.Type);
+        auto value = *IntegralValue(argument(0));
+        const auto step = *IntegralValue(argument(2));
+        for (std::uint64_t i = 0; i < count; ++i, value += step)
+            result->Items.push_back({item, item.IsSigned() ? TScalar{static_cast<std::int64_t>(value)} : TScalar{static_cast<std::uint64_t>(value)}});
+        return {node.Type, TTuple(std::move(result))};
+    }
+    if (node.Op == O::ListConcat) {
+        if (argument(0).IsNull()) return NullValue(node.Type);
+        std::optional<std::string> result;
+        const auto separator = argument(1).IsNull() ? std::string_view{} : std::string_view(std::get<std::string>(argument(1).Data));
+        for (const auto& item : std::get<TTuple>(argument(0).Data)->Items) {
+            // Fold1 applies Concat(state, separator) before AggrConcat(item).
+            // A NULL item can therefore leave a separator in a present state.
+            if (result) *result += separator;
+            if (!item.IsNull()) {
+                if (!result) result.emplace();
+                *result += std::get<std::string>(item.Data);
+            }
+        }
+        return {node.Type, result ? TScalar{std::move(*result)} : TScalar{}};
+    }
+    if ((node.Op == O::Cast || node.Op == O::Convert) && node.Type.Kind == K::List) {
+        if (argument(0).IsNull()) return NullValue(node.Type);
+        const auto item = arena.ListItem(node.Type);
+        auto result = std::make_shared<TTupleValue>();
+        const auto& input = std::get<TTuple>(argument(0).Data)->Items;
+        result->Items.reserve(input.size());
+        for (const auto& value : input) {
+            auto converted = ConvertValue(value, item);
+            if (converted.IsNull() && !item.OptionalDepth) {
+                continue;
+            }
+            result->Items.push_back(std::move(converted));
+        }
+        return {node.Type, TTuple(std::move(result))};
+    }
     if (node.Op == O::Collection) {
         auto result = std::make_shared<TTupleValue>();
         for (auto id : node.Arguments) result->Items.push_back(*values[id]);
@@ -2468,7 +2609,7 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
             else if (!values[value]->IsNull()) finish(values[value]->Type.OptionalDepth > 1 ?
                 *std::get<TOptionalValue>(values[value]->Data) : *values[value]);
             else if (node.Arguments.size() == 2 && !values[node.Arguments[1]]) stack.push_back({node.Arguments[1]});
-            else finish(Execute(node, values));
+            else finish(Execute(arena, node, values));
             continue;
         }
         if (node.Op == O::Ensure) {
@@ -2556,7 +2697,7 @@ TValue Evaluate(const TExpressionArena& arena, TExprId root, const TEvaluationCo
         } else if (node.Op == O::RandomNumber) {
             if (!context.RandomNumber) Fail(node.Position, "Missing random number generation service");
             finish({node.Type, context.RandomNumber()});
-        } else finish(Execute(node, values));
+        } else finish(Execute(arena, node, values));
     }
     return *values[root];
 }
@@ -2568,7 +2709,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
         auto retain = [&] { return changed ? Rebuild(node) : original; };
         auto literal = [&](TScalar value) {
             auto remaining = maxStringBytes;
-            if (!ChargeStringBytes(value, remaining)) return retain();
+            if (!ChargeMaterializedBytes(value, node.Type, remaining)) return retain();
             maxStringBytes = remaining;
             return Literal(node.Type, std::move(value), node.Position);
         };
@@ -2615,7 +2756,7 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
         for (const auto arg : node.Arguments) {
             const auto& value = (*this)[arg];
             if (value.Op != O::Literal) return retain();
-            if (!ChargeStringBytes(value.Value, inputBudget)) return retain();
+            if (!ChargeMaterializedBytes(value.Value, value.Type, inputBudget)) return retain();
         }
         // Compact operands avoid allocating a root-sized evaluator cache for
         // every constant operation in a large/shared arena.
@@ -2627,7 +2768,16 @@ std::vector<TExprId> TExpressionArena::FoldConstants(std::span<const TExprId> ro
             values.push_back(TValue{value.Type, value.Value});
             arg = values.size() - 1;
         }
-        auto value = Execute(executable, values);
+        if (node.Op == O::ListFromRange &&
+            IntegralRangeSize(*values[0], *values[1], *values[2]) > maxStringBytes / sizeof(TValue)) return retain();
+        if (node.Op == O::ListConcat && !values[0]->IsNull()) {
+            const auto& items = std::get<TTuple>(values[0]->Data)->Items;
+            const auto separator = values[1]->IsNull() ? 0 : std::get<std::string>(values[1]->Data).size();
+            unsigned __int128 size = items.empty() ? 0 : static_cast<unsigned __int128>(items.size() - 1) * separator;
+            for (const auto& item : items) if (!item.IsNull()) size += std::get<std::string>(item.Data).size();
+            if (size > maxStringBytes) return retain();
+        }
+        auto value = Execute(*this, executable, values);
         return literal(std::move(value.Data));
     };
     for (auto root : roots) {

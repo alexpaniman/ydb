@@ -144,6 +144,8 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::ILike: return "ILike";
         case TNativeOp::TupleElement: return "TupleElement";
         case TNativeOp::ListElement: return "ListElement";
+        case TNativeOp::ListFromRange: return "ListFromRange";
+        case TNativeOp::ListConcat: return "ListConcat";
         case TNativeOp::OptionalWrap: return "Just";
         case TNativeOp::UnicodeLower: return "Unicode::ToLower";
         case TNativeOp::UnicodeUpper: return "Unicode::ToUpper";

@@ -203,6 +203,7 @@ private:
         if (source.Required() == target.Required()) {
             return !source.OptionalDepth && target.OptionalDepth ? Call("Just", {value}, target) : value;
         }
+        if (source.Kind == K::List && target.Kind == K::List) return ListCast(value, source, target);
         // Native temporal values format their numeric execution payload. Keep
         // formatting independent from YQL's ISO string conversion policy.
         if (target.IsString() && (source.IsDate() || source.IsInterval())) {
@@ -224,13 +225,53 @@ private:
         return actual != target ? Call("Just", {result}, target) : result;
     }
 
-    TExprNode::TPtr Lambda(TExprNode::TPtr argument, TExprNode::TPtr body) {
-        auto args = Ctx.NewArguments(Pos, {argument});
+    TExprNode::TPtr Lambda(TExprNode::TListType arguments, TExprNode::TPtr body) {
+        auto args = Ctx.NewArguments(Pos, std::move(arguments));
         args->SetTypeAnn(Ctx.MakeType<TUnitExprType>());
         const TTypeAnnotationNode* type = body->GetTypeAnn();
         auto lambda = Ctx.NewLambda(Pos, std::move(args), std::move(body));
         lambda->SetTypeAnn(type);
         return lambda;
+    }
+
+    TExprNode::TPtr Lambda(TExprNode::TPtr argument, TExprNode::TPtr body) {
+        return Lambda(TExprNode::TListType{std::move(argument)}, std::move(body));
+    }
+
+    TExprNode::TPtr ListCast(TExprNode::TPtr value, NFrontend::TType source, NFrontend::TType target) {
+        const auto from = Arena.ListItem(source), to = Arena.ListItem(target);
+        return Present({value}, {source}, target, [&](TExprNode::TListType values) {
+            auto item = Ctx.NewArgument(Pos, "item");
+            item->SetTypeAnn(ExportNativeType(from, Ctx));
+            auto converted = Cast(item, from, to.Optional());
+            return Call(to.OptionalDepth ? "OrderedMap" : "OrderedFlatMap",
+                {values[0], Lambda(item, converted)}, target.Required());
+        });
+    }
+
+    TExprNode::TPtr ListConcat(TExprNode::TPtr list, TExprNode::TPtr separator,
+        NFrontend::TType listType, NFrontend::TType separatorType, NFrontend::TType resultType) {
+        const auto itemType = Arena.ListItem(listType);
+        if (listType.OptionalDepth)
+            list = Call("Coalesce", {list, Call("List", {Type(listType.Required())}, listType.Required())}, listType.Required());
+        if (separatorType.OptionalDepth)
+            separator = Call("Coalesce", {separator, Literal(separatorType.Required(), std::string{})}, separatorType.Required());
+        auto item = Ctx.NewArgument(Pos, "item");
+        item->SetTypeAnn(ExportNativeType(itemType, Ctx));
+        auto state = Ctx.NewArgument(Pos, "state");
+        state->SetTypeAnn(ExportNativeType(itemType, Ctx));
+        auto prefix = Call("Concat", {state, separator}, itemType);
+        auto next = Call("AggrConcat", {prefix, item}, itemType);
+        auto foldedType = itemType; ++foldedType.OptionalDepth;
+        auto first = Ctx.NewArgument(Pos, "first");
+        first->SetTypeAnn(ExportNativeType(itemType, Ctx));
+        auto result = Call("Fold1", {list, Lambda(first, first), Lambda(TExprNode::TListType{item, state}, next)}, foldedType);
+        if (itemType.OptionalDepth) {
+            auto present = Ctx.NewArgument(Pos, "present");
+            present->SetTypeAnn(ExportNativeType(itemType, Ctx));
+            result = Call("FlatMap", {result, Lambda(present, present)}, resultType);
+        }
+        return result;
     }
 
     TExprNode::TPtr InCollection(TExprNode::TPtr lookup, TExprNode::TPtr list,
@@ -461,6 +502,11 @@ private:
         if (node.Op >= O::Equal && node.Op <= O::GreaterEqual &&
             (types[0].Kind == K::Null || types[1].Kind == K::Null)) return Nothing(type);
         switch (node.Op) {
+            case O::ListFromRange:
+                return Present(std::move(args), types, type, [&](TExprNode::TListType values) {
+                    return Call("ListFromRange", std::move(values), type.Required());
+                });
+            case O::ListConcat: return ListConcat(args[0], args[1], types[0], types[1], type);
             case O::Collection: {
                 if (type.Kind == K::List) {
                     args.insert(args.begin(), Type(type));
