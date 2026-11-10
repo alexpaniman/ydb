@@ -63,6 +63,19 @@ struct TFixture : NTests::TIdTestContext {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceRboLowering) {
+    Y_UNIT_TEST(DoesNotResetCallerCompilationStages) {
+        TFixture f;
+        f.ExprCtx.Step.Done(TExprStep::LoadTablesMetadata);
+        f.ExprCtx.Step.Done(TExprStep::ExpandApplyForLambdas);
+        f.ExprCtx.RepeatTransformCounter = 17;
+        auto root = f.Run("SELECT id + 1, value ?? 'none' FROM t WHERE a > 1;");
+        UNIT_ASSERT(f.Recompute(*root) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT(f.ExprCtx.Step.IsDone(TExprStep::LoadTablesMetadata));
+        UNIT_ASSERT(f.ExprCtx.Step.IsDone(TExprStep::ExpandApplyForLambdas));
+        UNIT_ASSERT(!f.ExprCtx.Step.IsDone(TExprStep::Configure));
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.RepeatTransformCounter, 17);
+    }
+
     Y_UNIT_TEST(WriteDefaultsReachTheExistingEffectWithoutBackendExpressions) {
         NTests::TIdTestContext f;
         const auto nodes = f.ExprCtx.NodeAllocationCounter;

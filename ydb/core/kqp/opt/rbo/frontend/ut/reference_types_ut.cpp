@@ -61,6 +61,47 @@ struct TFixture {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeReferenceTypes) {
+    Y_UNIT_TEST(SetMatchingColumnsPreserveMixedCoercionPositions) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar})
+        for (const std::string op : {"UNION ALL", "UNION", "INTERSECT", "EXCEPT"}) {
+            TFixture f; f.Settings.Parser = parser;
+            // Default YQL sets match names, while the reference frontend test
+            // matches positions. Give both operands the same aliases to retain
+            // its mixed-coercion contract without changing SQL set semantics.
+            f.Ok("SELECT id AS same, id AS widened, value AS nullable, amount AS decimal_same, "
+                "amount AS decimal_widened FROM t " + op + " SELECT id AS same, score AS widened, "
+                "value AS nullable, amount AS decimal_same, CAST(amount AS Decimal(15,2)) "
+                "AS decimal_widened FROM t ORDER BY same;");
+            f.Types({"Int64", "Int64?", "String?", "Decimal(12,2)", "Decimal(15,2)"});
+            std::unordered_map<TColumnId, TExprId> definitions;
+            for (const auto& relation : f.Program.Relations) for (const auto& definition : relation.Definitions)
+                definitions.emplace(definition.Column, definition.Expression);
+            std::unordered_set<std::string> conversions;
+            for (const auto& relation : f.Program.Relations) for (const auto& definition : relation.Definitions) {
+                const auto& expression = f.Program.Expressions[definition.Expression];
+                if (expression.Op != EOpcode::Convert) continue;
+                auto source = expression.Arguments.at(0);
+                // Repeated projections acquire distinct output IDs. Follow
+                // their identity maps back to the original catalog field.
+                while (f.Program.Expressions[source].Op == EOpcode::Column) {
+                    const auto found = definitions.find(f.Program.Expressions[source].ColumnId);
+                    if (found == definitions.end()) break;
+                    source = found->second;
+                }
+                const auto& input = f.Program.Expressions[source];
+                UNIT_ASSERT(input.Op == EOpcode::Column);
+                conversions.insert(f.Program.Columns.at(input.ColumnId).Name + ":" + input.Type.ToString()
+                    + "->" + f.Program.Columns.at(definition.Column).Name + ":" + expression.Type.ToString());
+                UNIT_ASSERT(expression.Type == f.Program.Columns.at(definition.Column).Type);
+            }
+            // Widening and optional wrapping must still reference the right
+            // operand's field, with unchanged fields between the conversions.
+            UNIT_ASSERT(conversions.contains("id:Int64->widened:Int64?"));
+            UNIT_ASSERT(conversions.contains("score:Int32?->widened:Int64?"));
+            UNIT_ASSERT(conversions.contains("amount:Decimal(12,2)->decimal_widened:Decimal(15,2)"));
+        }
+    }
+
     Y_UNIT_TEST(PreambleLambdasArePolymorphicAndCaptureLexically) {
         for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
             TFixture f; f.Settings.Parser = parser;
