@@ -1,0 +1,68 @@
+#include <ydb/core/kqp/ut/common/kqp_ut_common.h>
+
+namespace NKikimr::NKqp {
+namespace {
+using namespace NYdb;
+
+TKikimrSettings Settings(bool native) {
+    NKikimrConfig::TAppConfig app;
+    auto* config = app.MutableTableServiceConfig();
+    config->SetEnableNewRBO(native);
+    config->SetNativeFrontendMode(native ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED
+                                        : NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+    config->SetEnableFallbackToYqlOptimizer(false);
+    auto settings = TKikimrSettings(app).SetWithSampleTables(false);
+    settings.LogSettings = TTestLogSettings();
+    settings.LogSettings->DefaultLogPriority = NActors::NLog::PRI_CRIT;
+    return settings;
+}
+} // namespace
+
+Y_UNIT_TEST_SUITE(KqpNativeQuotedRuntime) {
+    Y_UNIT_TEST_TWIN(QuotedBytesAndUnicodeMatchLegacy, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        TString sql = "SELECT ";
+        TVector<TString> expected;
+        const auto add = [&](const TString& literal, const TString& value) {
+            if (!expected.empty()) sql += ", ";
+            sql += TStringBuilder() << literal << " AS v" << expected.size();
+            expected.push_back(value);
+        };
+        constexpr TStringBuf hex = "0123456789abcdef";
+        for (unsigned value = 0; value < 256; ++value) {
+            add(TStringBuilder() << "'\\x" << hex[value >> 4] << hex[value & 15] << "'", TString(1, static_cast<char>(value)));
+            add(TStringBuilder() << "'\\" << static_cast<char>('0' + (value >> 6)) <<
+                static_cast<char>('0' + ((value >> 3) & 7)) << static_cast<char>('0' + (value & 7)) << "'", TString(1, static_cast<char>(value)));
+        }
+        add(R"('\a\b\f\n\r\t\v')", "\a\b\f\n\r\t\v");
+        add(R"('\u007f\u0080\u07ff\u0800\ud7ff\ue000\uffff')", "\x7f\xc2\x80\xdf\xbf\xe0\xa0\x80\xed\x9f\xbf\xee\x80\x80\xef\xbf\xbf");
+        add(R"('\U00010000\U0010ffff')", "\xf0\x90\x80\x80\xf4\x8f\xbf\xbf");
+        add(R"('\q\4\?')", "q4?");
+        const auto result = session.ExecuteDataQuery(sql, NYdb::NTable::TTxControl::BeginTx().CommitTx()).GetValueSync();
+        UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).ColumnsCount(), expected.size());
+        TResultSetParser rows(result.GetResultSet(0));
+        UNIT_ASSERT(rows.TryNextRow());
+        for (size_t i = 0; i < expected.size(); ++i)
+            UNIT_ASSERT_VALUES_EQUAL_C(rows.ColumnParser(i).GetString(), expected[i], i);
+    }
+
+    Y_UNIT_TEST_TWIN(MultilineAndAnsiQuotingMatchLegacy, Native) {
+        TKikimrRunner kikimr(Settings(Native));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        for (const auto& [sql, expected] : TVector<std::pair<TString, TVector<TString>>>{
+                {R"(SELECT 'a\n\x00b' AS a, @@one@@@@two@@ AS b, @@\x30@@ AS c)", {TString("a\n\0b", 4), "one@@two", R"(\x30)"}},
+                {"--!ansi_lexer\nSELECT 'it''s' AS a, '\\x30' AS b", {"it's", R"(\x30)"}}}) {
+            const auto result = session.ExecuteDataQuery(sql, NYdb::NTable::TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+            TResultSetParser rows(result.GetResultSet(0));
+            UNIT_ASSERT(rows.TryNextRow());
+            for (size_t i = 0; i < expected.size(); ++i)
+                UNIT_ASSERT_VALUES_EQUAL_C(rows.ColumnParser(i).GetString(), expected[i], sql);
+        }
+    }
+}
+} // namespace NKikimr::NKqp

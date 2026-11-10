@@ -13,6 +13,7 @@ SRCS(
     execution.cpp
     expression.cpp
     predicate.cpp
+    quoted.cpp
     like.cpp
     parser.cpp
     grammar.cpp

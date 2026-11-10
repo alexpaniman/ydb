@@ -7,6 +7,65 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(QuotedEscapesAgreeAcrossBothParsersAndPragmas) {
+        const auto check = [](const std::string& text, const std::string& expected, bool ansi = false) {
+            TParseSettings settings; settings.AnsiQuotes = ansi;
+            const auto sql = "SELECT '" + text + "' AS value";
+            const auto fast = Parse(sql, settings), grammar = ParseGrammar(sql, settings);
+            UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(fast), SyntaxFingerprint(grammar));
+            const auto id = fast.Statements[0].Query->Projection[0].Expression;
+            UNIT_ASSERT_VALUES_EQUAL(fast.Expressions[id].Text, expected);
+            const auto pragma = "PRAGMA custom = '" + text + "'; SELECT 1";
+            UNIT_ASSERT_VALUES_EQUAL(Parse(pragma, settings).Statements[0].Value, expected);
+            UNIT_ASSERT_VALUES_EQUAL(ParseGrammar(pragma, settings).Statements[0].Value, expected);
+        };
+        constexpr std::string_view hex = "0123456789abcdef";
+        for (unsigned value = 0; value < 256; ++value) {
+            const std::string expected(1, static_cast<char>(value));
+            check(std::string("\\x") + hex[value >> 4] + hex[value & 15], expected);
+            check(std::string("\\") + static_cast<char>('0' + (value >> 6)) +
+                static_cast<char>('0' + ((value >> 3) & 7)) + static_cast<char>('0' + (value & 7)), expected);
+        }
+        for (const auto& [text, expected] : std::vector<std::pair<std::string, std::string>>{
+                {R"(\a\b\f\n\r\t\v)", "\a\b\f\n\r\t\v"},
+                {R"(\q\4\?\'\"\\)", "q4?'\"\\"},
+                {R"(\u007f\u0080\u07ff\u0800\ud7ff\ue000\uffff)", "\x7f\xc2\x80\xdf\xbf\xe0\xa0\x80\xed\x9f\xbf\xee\x80\x80\xef\xbf\xbf"},
+                {R"(\U00010000\U0010ffff)", "\xf0\x90\x80\x80\xf4\x8f\xbf\xbf"},
+                {R"(\u0000\U00000000)", std::string(2, '\0')}}) check(text, expected);
+        check(R"(\x30\n)", R"(\x30\n)", true);
+        check("it''s", "it's", true);
+        for (const bool ansi : {false, true}) {
+            TParseSettings settings; settings.AnsiQuotes = ansi;
+            const auto sql = R"(SELECT `a\x20\u0062``c` FROM `t\x31`)";
+            const auto fast = Parse(sql, settings), grammar = ParseGrammar(sql, settings);
+            UNIT_ASSERT_VALUES_EQUAL(SyntaxFingerprint(fast), SyntaxFingerprint(grammar));
+            const auto& query = *fast.Statements[0].Query;
+            UNIT_ASSERT_VALUES_EQUAL(fast.Expressions[query.Projection[0].Expression].Text, "a b`c");
+            UNIT_ASSERT_VALUES_EQUAL(query.Source->Name, "t1");
+        }
+    }
+
+    Y_UNIT_TEST(MalformedEscapesAreErrorsInBothParsers) {
+        for (const auto* text : {R"(\x)", R"(\x0)", R"(\x0g)", R"(\0)", R"(\00)", R"(\378)",
+                R"(\u000)", R"(\uD800)", R"(\uDFFF)", R"(\U00110000)", R"(\Uffffffff)", R"(\U0000000x)"}) {
+            for (const auto& sql : {std::string("SELECT '") + text + "'", std::string("PRAGMA custom='") + text + "'; SELECT 1"}) {
+                UNIT_ASSERT_EXCEPTION_C(Parse(sql), TFrontendError, sql);
+                UNIT_ASSERT_EXCEPTION_C(ParseGrammar(sql), TFrontendError, sql);
+            }
+        }
+    }
+
+    Y_UNIT_TEST(MultilineDelimiterEscapesDecodeOnce) {
+        TCompilerSettings settings;
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            settings.Parser = parser;
+            const auto parsed = ParseNative("SELECT @@one@@@@two@@, @@\\x30@@", settings);
+            const auto& projection = parsed.Statements[0].Query->Projection;
+            UNIT_ASSERT_VALUES_EQUAL(parsed.Expressions[projection[0].Expression].Text, "one@@two");
+            UNIT_ASSERT_VALUES_EQUAL(parsed.Expressions[projection[1].Expression].Text, R"(\x30)");
+        }
+    }
+
     Y_UNIT_TEST(ParenthesizedSetOperandsPreserveLocalClauses) {
         for (const auto* sql : {
             "SELECT * FROM ((SELECT 1 AS x) UNION ALL (SELECT 2 AS x))",

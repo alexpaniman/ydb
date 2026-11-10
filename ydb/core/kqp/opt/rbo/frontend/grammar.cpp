@@ -1,4 +1,5 @@
 #include "parser.h"
+#include "quoted.h"
 
 #include <ydb/core/kqp/opt/rbo/frontend/grammar/NativeRboDefaultLexer.h>
 #include <ydb/core/kqp/opt/rbo/frontend/grammar/NativeRboDefaultParser.h>
@@ -139,7 +140,16 @@ private:
         if (text.empty()) return text;
         if (text.starts_with("@@")) {
             if (!text.ends_with("@@")) Unsupported(node, EFeature::Syntax, "multiline string suffix");
-            return text.substr(2, text.size() - 4);
+            const auto body = std::string_view(text).substr(2, text.size() - 4);
+            std::string result;
+            std::size_t start = 0;
+            for (auto next = body.find("@@@@"); next != body.npos; next = body.find("@@@@", start)) {
+                result.append(body.substr(start, next - start));
+                result += "@@";
+                start = next + 4;
+            }
+            result.append(body.substr(start));
+            return result;
         }
         const char quote = text.front();
         if (quote != '\'' && quote != '"' && quote != char(96)) return text;
@@ -149,15 +159,8 @@ private:
             char c = text[i];
             if (c == quote && i + 2 < text.size() && text[i + 1] == quote) ++i;
             else if (c == '\\' && (!Settings.AnsiQuotes || (identifier && quote == char(96)))) {
-                c = text[++i];
-                switch (c) {
-                    case 'n': c = '\n'; break;
-                    case 'r': c = '\r'; break;
-                    case 't': c = '\t'; break;
-                    case '0': c = '\0'; break;
-                    case '\\': case '\'': case '"': case char(96): break;
-                    default: Unsupported(node, EFeature::Syntax, "string escape outside native profile");
-                }
+                i += AppendQuotedEscape(std::string_view(text).substr(i + 1, text.size() - i - 2), result, Position(node));
+                continue;
             }
             result += c;
         }

@@ -1,4 +1,5 @@
 #include "parser.h"
+#include "quoted.h"
 
 #include <algorithm>
 #include <array>
@@ -138,16 +139,8 @@ public:
                 if (current == '\\' && (!Ansi || identifier)) {
                     value.append(Text.substr(chunk, Position.Offset - chunk - 1));
                     if (Position.Offset == Text.size()) break;
-                    current = Peek(); Advance();
-                    switch (current) {
-                        case 'n': current = '\n'; break;
-                        case 'r': current = '\r'; break;
-                        case 't': current = '\t'; break;
-                        case '0': current = '\0'; break;
-                        case '\\': case '\'': case '"': case '`': break;
-                        default: throw TFrontendError(Position, "unsupported string escape");
-                    }
-                    value += current;
+                    const auto consumed = AppendQuotedEscape(Text.substr(Position.Offset), value, pos);
+                    for (std::size_t i = 0; i < consumed; ++i) Advance();
                     chunk = Position.Offset;
                 }
             }

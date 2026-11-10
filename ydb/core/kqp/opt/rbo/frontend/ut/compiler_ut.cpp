@@ -250,6 +250,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             for (const auto* sql : {
                     "PRAGMA ydb.CostBasedOptimizationLevel = '0'; SELECT 1",
                     "PRAGMA KiKiMr.Cost_Based_Optimization_Level('0'); SELECT 1",
+                    "PRAGMA KiKiMr.Cost_Based_Optimization_Level('\\x30'); SELECT 1",
                     "PRAGMA ydb.CostBasedOptimizationLevel(+0); SELECT 1",
                     "--!ansi_lexer\nPRAGMA \"ydb\".\"CostBasedOptimizationLevel\" = '0'; SELECT 1"}) {
                 const auto compiled = CompileNative(sql, Catalog, settings);

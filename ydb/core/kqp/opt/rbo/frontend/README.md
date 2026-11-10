@@ -138,6 +138,9 @@ operator combinations, malformed mutations and lexer modes.
 Backticks quote identifiers. Double quotes remain strings under this grammar.
 ANSI lexer mode changes escaping and nested comments. Leading syntax/parser/ANSI
 directives are recognized; directive text inside strings has no effect.
+Both parsers share byte, octal and Unicode escape decoding for quoted strings,
+identifiers and pragma values. ANSI strings retain backslashes literally;
+multiline literals decode doubled `@@` delimiters without interpreting escapes.
 
 ## Execution profile
 
