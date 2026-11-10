@@ -34,6 +34,7 @@ SRCS(
 )
 
 PEERDIR(
+    ydb/core/kqp/tracing
     library/cpp/containers/absl
     library/cpp/containers/stack_vector
     ydb/core/kqp/common

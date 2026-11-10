@@ -7,6 +7,7 @@ SIZE(MEDIUM)
 REQUIREMENTS(cpu:2)
 
 SRCS(
+    kqp_native_effects_ut.cpp
     kqp_native_expression_arena_ut.cpp
     kqp_rbo_compatibility_ut.cpp
     kqp_rbo_copy_ut.cpp
@@ -76,3 +77,7 @@ NO_COMPILER_WARNINGS()
 YQL_LAST_ABI_VERSION()
 
 END()
+
+RECURSE_FOR_TESTS(
+    effects
+)

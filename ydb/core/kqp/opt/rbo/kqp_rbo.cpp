@@ -1,3 +1,4 @@
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include "kqp_rbo.h"
 #include "traces/kqp_rbo_rule_trace.h"
 
@@ -85,6 +86,7 @@ void EnsureRequiredProps(TOpRoot& root, ui32 props, ui32& computedProps, TRBOCon
     }
 
     if (HasProperty(props, ERuleProperties::RequireTypes) && !HasProperty(computedProps, ERuleProperties::RequireTypes)) {
+        TCompileTraceScope types(ctx.KqpCtx.CompileTrace, "Native operator typing");
         if (root.ComputeTypes(ctx) != IGraphTransformer::TStatus::Ok) {
             Y_ENSURE(false, TStringBuilder() << "RBO type annotation failed in stage " << stageName);
         }
@@ -197,47 +199,52 @@ TExprNode::TPtr TRuleBasedOptimizer::Optimize(const TVector<TIntrusivePtr<TOpRoo
     auto& ctx = rboCtx.ExprCtx;
     int stageCounter = 0;
 
-    for (auto & rootPtr : roots) {
-        auto & root = *rootPtr;
-        root.PlanProps.StageGraph.StageCounter = stageCounter;
-        SubmitInitialPlanTrace(root, rboCtx);
+    {
+        TCompileTraceScope optimize(rboCtx.KqpCtx.CompileTrace, "New RBO optimization");
+        for (auto & rootPtr : roots) {
+            auto & root = *rootPtr;
+            root.PlanProps.StageGraph.StageCounter = stageCounter;
+            SubmitInitialPlanTrace(root, rboCtx);
 
-        if (needToLog) {
-            YQL_CLOG(TRACE, CoreDq) << "Original plan:\n" << root.PlanToString(ctx);
-        }
-
-        for (const auto& stage : Stages) {
-            if (rboCtx.NeedToLog()) {
-                rboCtx.TraceLog.stage(std::string(stage->StageName.c_str()));
-            }
-            YQL_CLOG(TRACE, CoreDq) << "Running stage: " << stage->StageName;
-            if (stage->NeedsInitialProps()) {
-                ComputeRequiredProps(root, stage->Props, rboCtx, stage->StageName);
-            }
             if (needToLog) {
-                YQL_CLOG(TRACE, CoreDq) << "Before stage:\n" << root.PlanToString(ctx);
+                YQL_CLOG(TRACE, CoreDq) << "Original plan:\n" << root.PlanToString(ctx);
             }
-            stage->RunStage(root, rboCtx);
+
+            for (const auto& stage : Stages) {
+                TCompileTraceScope stageTrace(rboCtx.KqpCtx.CompileTrace, std::optional<TString>{stage->StageName});
+                if (rboCtx.NeedToLog()) {
+                    rboCtx.TraceLog.stage(std::string(stage->StageName.c_str()));
+                }
+                YQL_CLOG(TRACE, CoreDq) << "Running stage: " << stage->StageName;
+                if (stage->NeedsInitialProps()) {
+                    ComputeRequiredProps(root, stage->Props, rboCtx, stage->StageName);
+                }
+                if (needToLog) {
+                    YQL_CLOG(TRACE, CoreDq) << "Before stage:\n" << root.PlanToString(ctx);
+                }
+                stage->RunStage(root, rboCtx);
+                if (needToLog) {
+                    YQL_CLOG(TRACE, CoreDq) << "After stage:\n" << root.PlanToString(ctx);
+                }
+            }
+
+            auto convertProps = ERuleProperties::RequireParents | ERuleProperties::RequireStatistics
+                | ERuleProperties::RequireLiveness | ERuleProperties::RequireTypes;
+            ComputeRequiredProps(root, convertProps, rboCtx, "Physical plan generaion");
+            TUnorderedIUs live;
+            for (const auto& item : root) {
+                live.UnionWith(GetLiveOut(item.Current));
+            }
+            root.PlanProps.InfoUnitRegistry.FinalizeDisplayNames(live);
             if (needToLog) {
-                YQL_CLOG(TRACE, CoreDq) << "After stage:\n" << root.PlanToString(ctx);
+                YQL_CLOG(TRACE, CoreDq) << "Final plan before generation:\n" << root.PlanToString(ctx, EPrintPlanOptions::PrintFullMetadata | EPrintPlanOptions::PrintBasicStatistics);
             }
+
+            stageCounter = root.PlanProps.StageGraph.StageCounter;
         }
 
-        auto convertProps = ERuleProperties::RequireParents | ERuleProperties::RequireStatistics
-            | ERuleProperties::RequireLiveness | ERuleProperties::RequireTypes;
-        ComputeRequiredProps(root, convertProps, rboCtx, "Physical plan generaion");
-        TUnorderedIUs live;
-        for (const auto& item : root) {
-            live.UnionWith(GetLiveOut(item.Current));
-        }
-        root.PlanProps.InfoUnitRegistry.FinalizeDisplayNames(live);
-        if (needToLog) {
-            YQL_CLOG(TRACE, CoreDq) << "Final plan before generation:\n" << root.PlanToString(ctx, EPrintPlanOptions::PrintFullMetadata | EPrintPlanOptions::PrintBasicStatistics);
-        }
-
-        stageCounter = root.PlanProps.StageGraph.StageCounter;
     }
-
+    TCompileTraceScope emission(rboCtx.KqpCtx.CompileTrace, "Emit native physical plan");
     YQL_CLOG(TRACE, CoreDq) << "New RBO finished, generating physical plan";
 
     auto [execJson, explainJson] = BuildPlans(roots);

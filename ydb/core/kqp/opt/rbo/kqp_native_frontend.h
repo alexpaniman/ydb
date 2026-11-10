@@ -6,6 +6,8 @@
 
 namespace NKikimr::NKqp {
 
+struct TCompileTrace;
+
 struct TNativeTable {
     NFrontend::TCatalogTable Schema;
     TRboTable Table;
@@ -17,6 +19,7 @@ using TNativeTableResolver = std::function<TNativeTable(std::string_view, NFront
 // The checked compiler's complete handoff. Roots own scalar arenas and ordered
 // result columns; parameters and execution metadata require no YQL graph.
 struct TNativeQuery {
+    std::shared_ptr<TCompileTrace> CompileTrace;
     TVector<TIntrusivePtr<TOpRoot>> Roots;
     std::unordered_map<std::string, NFrontend::TParameterType> Parameters;
     TQueryExecutionMetadata Execution;

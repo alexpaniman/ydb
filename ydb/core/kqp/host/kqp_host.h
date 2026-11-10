@@ -16,6 +16,7 @@ namespace NKikimr {
 namespace NKqp {
 
 struct TKqpQueryRef;
+struct TCompileTrace;
 
 using TSqlVersion = ui16;
 
@@ -51,6 +52,7 @@ public:
         TMaybe<bool> IsInternalCall;
         TMaybe<bool> ConcurrentResults;
         bool UsePessimisticLocks = false;
+        std::shared_ptr<TCompileTrace> CompileTrace;
 
         TString ToString() const {
             return TStringBuilder() << "TPrepareSettings{"

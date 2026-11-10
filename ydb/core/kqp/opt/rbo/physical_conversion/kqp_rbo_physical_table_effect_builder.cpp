@@ -1,4 +1,5 @@
 #include "kqp_rbo_physical_table_effect_builder.h"
+#include <algorithm>
 #include <yql/essentials/core/yql_expr_optimize.h>
 #include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 using namespace NYql::NNodes;
@@ -13,18 +14,17 @@ TExprNode::TPtr TPhysicalTableEffectBuilder::BuildPhysicalOp(TExprNode::TPtr inp
     return NPhysicalConvertionUtils::BuildRenameMap(input, columns, Ctx, /*ordered=*/true);
 }
 
-TExprNode::TPtr NKikimr::NKqp::LowerTableSinkSettings(const TTableSinkSettings& sink, TExprContext& ctx, TPositionHandle Pos) {
+TExprNode::TPtr NKikimr::NKqp::LowerTableSinkSettings(const TTableSinkSettings& sink, TExprContext& ctx, TPositionHandle Pos, ui64 priority) {
     const auto& Options = sink.Options;
     const auto EffectType = sink.EffectType;
-    if (Options.ReturningColumns.has_value() && Options.ReturningColumns->size()) {
-        Y_ENSURE(false, "Returning columns not supported in new optimizer");
-    }
 
     TString mode;
 
     switch(EffectType) {
         case EEffectType::InsertRows:
         case EEffectType::InsertRowsIndex:
+            Y_ENSURE(!Options.OnConflict || Options.OnConflict->empty() || *Options.OnConflict == "abort",
+                "INSERT conflict handling must be lowered before sink emission");
             mode = "insert";
             break;
         case EEffectType::UpdateRows:
@@ -42,6 +42,21 @@ TExprNode::TPtr NKikimr::NKqp::LowerTableSinkSettings(const TTableSinkSettings& 
         default:
             Y_ENSURE(false, "Unsupported DML in new optimizer");
     }
+
+    if (Options.Settings) for (const auto& setting : *Options.Settings) {
+        if (!setting.empty() && setting.front() == "Mode") {
+            Y_ENSURE(setting.size() == 2);
+            mode = setting[1];
+        }
+    }
+    TVector<TExprNode::TPtr> returningColumns;
+    if (Options.ReturningColumns) for (const auto& name : *Options.ReturningColumns)
+        returningColumns.push_back(ctx.NewAtom(Pos, name));
+    // Storage row layouts use canonical names; the result projection restores
+    // the SQL RETURNING order after the sink.
+    std::sort(returningColumns.begin(), returningColumns.end(), [](const auto& a, const auto& b) {
+        return a->Content() < b->Content();
+    });
 
     TString isBatch = "false";
     if (Options.IsBatch.has_value() && Options.IsBatch.value()){
@@ -68,14 +83,14 @@ TExprNode::TPtr NKikimr::NKqp::LowerTableSinkSettings(const TTableSinkSettings& 
             .Table(LowerTable(sink.Table, ctx, Pos))
             .InconsistentWrite().Build("false")
             .Mode().Build(mode)
-            .Priority().Build("0")
+            .Priority().Build(ToString(priority))
             .StreamWrite().Build("false")
             .IsBatch().Build(isBatch)
             .IsIndexImplTable().Build("false")
             .DefaultColumns()
                 .Add(defaultColumns)
             .Build()
-            .ReturningColumns().Build()
+            .ReturningColumns().Add(returningColumns).Build()
             .Settings()
                 .Add(settings)
             .Build()

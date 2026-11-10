@@ -25,6 +25,7 @@ class TKikimrTableDescription;
 
 namespace NKikimr::NKqp {
 
+struct TCompileTrace;
 struct TUserRequestContext;
 struct TOptimizerHints;
 
@@ -42,6 +43,7 @@ struct TKqpOptimizeContext : public TSimpleRefCount<TKqpOptimizeContext> {
     const TIntrusivePtr<NYql::TKikimrTablesData> Tables;
     const TIntrusivePtr<NKikimr::NKqp::TUserRequestContext> UserRequestContext;
     bool UsePessimisticLocks;
+    std::shared_ptr<NKikimr::NKqp::TCompileTrace> CompileTrace;
     int JoinsCount{};
     int EquiJoinsCount{};
     std::shared_ptr<NJson::TJsonValue> OverrideStatistics{};

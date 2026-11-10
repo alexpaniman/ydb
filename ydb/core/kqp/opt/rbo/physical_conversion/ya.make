@@ -20,7 +20,6 @@ SRCS(
 
 PEERDIR(
     ydb/core/kqp/opt/physical
-    ydb/core/kqp/opt/peephole
 )
 
 END()

@@ -1,9 +1,9 @@
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include <ydb/library/yql/providers/ydb_external/common/provider_names.h>
 #include "kqp_host_impl.h"
 #include "kqp_statement_rewrite.h"
 #include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
-#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 
 #include <ydb/core/base/appdata.h>
 #include <ydb/core/external_sources/external_source_factory.h>
@@ -1489,7 +1489,7 @@ private:
             if (settings.UsePgParser.GetOrElse(false) || settings.SyntaxVersion.GetOrElse(1) != 1)
                 throw F::TUnsupportedFeature(F::EFeature::LanguageVersion, {}, "native frontend supports SQL v1");
             if (queryType != EKikimrQueryType::Dml && queryType != EKikimrQueryType::Scan && queryType != EKikimrQueryType::Query)
-                throw F::TUnsupportedFeature(F::EFeature::Statement, {}, "native frontend supports data, scan and generic read queries");
+                throw F::TUnsupportedFeature(F::EFeature::Statement, {}, "native frontend supports data, scan and generic queries");
             F::TCompilerSettings options;
             options.Binding.AnsiIn = queryType == EKikimrQueryType::Query;
             options.Binding.AnsiCurrentRow = queryType == EKikimrQueryType::Query;
@@ -1524,8 +1524,14 @@ private:
                 options.Binding.ParameterTypes.emplace(std::move(key), native);
             }
             const std::string_view sql(query.Text.data(), query.Text.size());
-            auto syntax = std::make_shared<F::TParsedQuery>(F::ParseNative(sql, options));
-            const auto requests = F::CollectTables(*syntax, options.Binding);
+            auto syntax = [&] {
+                TCompileTraceScope phase(settings.CompileTrace, "Native parse");
+                return std::make_shared<F::TParsedQuery>(F::ParseNative(sql, options));
+            }();
+            const auto requests = [&] {
+                TCompileTraceScope phase(settings.CompileTrace, "Native table discovery");
+                return F::CollectTables(*syntax, options.Binding);
+            }();
             TVector<TFuture<IKikimrGateway::TTableMetadataResult>> loads;
             for (const auto& request : requests) {
                 IKikimrGateway::TLoadTableMetadataSettings loadSettings;
@@ -1561,17 +1567,31 @@ private:
                         auto schema = [&](std::string_view path, F::TSourcePosition pos) {
                             const auto& meta = metadata.at(std::string(path));
                             F::TCatalogTable table{std::string(meta->Name), {}};
+                            bool sinkWrites = meta->Kind == EKikimrTableKind::Datashard;
+                            F::TWriteSchema writes;
+                            for (const auto& key : meta->KeyColumnNames) writes.Keys.emplace_back(key);
+                            for (const auto& index : meta->Indexes) if (index.ItUsedForWrite()) {
+                                writes.HasIndexes = true;
+                                sinkWrites &= index.IsWrittenBySink(SessionCtx->Config().GetEnableIndexStreamWrite());
+                            }
                             auto column = [&](const TString& name) {
                                 const auto& item = meta->Columns.at(name);
+                                sinkWrites &= !item.IsBuildInProgress && !item.SetNotNullInProgress;
+                                if (item.DefaultKind != NKikimrKqp::TKqpColumnMetadataProto::DEFAULT_KIND_UNSPECIFIED || item.DefaultExpression)
+                                    writes.DefaultColumns.emplace_back(name);
                                 auto type = F::ParseType(std::string_view(item.Type.data(), item.Type.size()), pos);
                                 type.OptionalDepth = !item.NotNull;
                                 table.Columns.push_back({std::string(name), type});
                             };
                             if (!meta->ColumnOrder.empty()) for (const auto& name : meta->ColumnOrder) column(name);
                             else for (const auto& [name, item] : meta->Columns) column(name);
+                            if (sinkWrites) table.WriteSchema = std::move(writes);
                             return table;
                         };
-                        auto program = F::BindNative(*syntax, schema, options.Binding);
+                        auto program = [&] {
+                            TCompileTraceScope phase(settings.CompileTrace, "Native binding and scalar typing");
+                            return F::BindNative(*syntax, schema, options.Binding);
+                        }();
                         const auto explain = TString(F::Explain(program.Get()));
 
                         // RBO/backend boundary. Up to here the query was parsed,
@@ -1579,23 +1599,25 @@ private:
                         Config->SetEnableNewRBO(true);
                         SetupSession(queryType, /*nativeFrontend=*/true);
                         const auto sqlVersion = SetupQueryParameters(settings, queryType);
-                        auto native = ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
-                            const auto& meta = metadata.at(std::string(path));
-                            return TNativeTable{schema(path, pos), MakeRboTable(*meta),
-                                meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
-                        }, ctx, SessionCtx->ConfigPtr().Get());
-                        // Runtime catalog annotations belong to backend setup.
-                        // Native binding and RBO conversion use value schemas only.
+                        auto native = [&] {
+                            TCompileTraceScope phase(settings.CompileTrace, "Native operator translation");
+                            return ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
+                                const auto& meta = metadata.at(std::string(path));
+                                return TNativeTable{schema(path, pos), MakeRboTable(*meta),
+                                    meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
+                            }, ctx, SessionCtx->ConfigPtr().Get());
+                        }();
+                        native.CompileTrace = settings.CompileTrace;
+                        // Register metadata for statistics and storage identities.
+                        // Runtime type annotations are constructed by emission.
                         for (const auto& [name, meta] : metadata) {
                             if (name != std::string(meta->Name)) continue;
                             auto& desc = SessionCtx->Tables().GetOrAddTable(Cluster, SessionCtx->GetDatabase(), meta->Name);
                             desc.Metadata = meta;
-                            YQL_ENSURE(desc.Load(ctx, SessionCtx->Config().SystemColumnsEnabled()));
                             for (auto impl : meta->ImplTables) while (impl) {
                                 auto& index = SessionCtx->Tables().GetOrAddTable(Cluster, SessionCtx->GetDatabase(), impl->Name);
                                 SessionCtx->Tables().AddIndexImplTableToMainTableMapping(meta->Name, impl->Name);
                                 index.Metadata = impl;
-                                YQL_ENSURE(index.Load(ctx, SessionCtx->Config().SystemColumnsEnabled()));
                                 impl = impl->Next;
                             }
                         }
@@ -1603,15 +1625,6 @@ private:
                         // RBO roots already built. No YQL frontend pipeline is
                         // constructed on this path.
                         Init(queryType, /*nativeBackend=*/true);
-                        for (const auto& [name, type] : native.Parameters) {
-                            auto& param = *SessionCtx->Query().PreparingQuery->AddParameters();
-                            param.SetName("$" + TString(name));
-                            auto allocatorGuard = SessionCtx->Query().QueryData->TypeEnv().BindAllocator();
-                            NMiniKQL::TTypeBuilder builder(SessionCtx->Query().QueryData->TypeEnv());
-                            auto* exported = NCommon::BuildType({}, *ExportNativeParameterType(type, ctx), builder);
-                            YQL_ENSURE(exported);
-                            NMiniKQL::ExportTypeToProto(exported, *param.MutableType());
-                        }
                         IKikimrQueryExecutor::TExecuteSettings execute;
                         auto prepared = KqpRunner->PrepareNativeQuery(Cluster, std::move(native), ctx, execute);
                         return AsyncApplyResult<TQueryResult, TQueryResult>(prepared,

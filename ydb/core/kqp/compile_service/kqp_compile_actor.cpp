@@ -1,3 +1,4 @@
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include "kqp_compile_service.h"
 #include "kqp_warmup_compile_actor.h"
 
@@ -386,6 +387,7 @@ private:
             false, false, std::move(TempTablesState), nullptr, SplitCtx.get(), UserRequestContext, UsePessimisticLocks);
 
         IKqpHost::TPrepareSettings prepareSettings;
+        prepareSettings.CompileTrace = TCompileTrace::Create(CompileActorSpan.GetTraceId());
         prepareSettings.DocumentApiRestricted = QueryId.Settings.DocumentApiRestricted;
         prepareSettings.IsInternalCall = QueryId.Settings.IsInternalCall;
         prepareSettings.RuntimeParameterSizeLimit = QueryId.Settings.RuntimeParameterSizeLimit;

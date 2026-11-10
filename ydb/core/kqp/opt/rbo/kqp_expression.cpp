@@ -134,6 +134,9 @@ TStringBuf NativeOpName(TNativeOp op) {
         case TNativeOp::Unwrap: return "Unwrap";
         case TNativeOp::Collection: return "Collection";
         case TNativeOp::InCollection: return "IN";
+        case TNativeOp::RandomUuid: return "RandomUuid";
+        case TNativeOp::Like: return "Like";
+        case TNativeOp::TupleElement: return "TupleElement";
         case TNativeOp::OptionalWrap: return "Just";
         case TNativeOp::UnicodeLower: return "Unicode::ToLower";
         case TNativeOp::UnicodeUpper: return "Unicode::ToUpper";
@@ -236,7 +239,8 @@ std::optional<TString> FormatNative(const TNativeArena& arena, TNativeId id,
         }
         result << *argument;
     }
-    if (node.Op == TNativeOp::JsonValue) result << ", " << QuoteString(TStringBuf(node.Name.data(), node.Name.size()));
+    if (node.Op == TNativeOp::TupleElement) result << ", " << std::get<std::uint64_t>(node.Value);
+    if (node.Op == TNativeOp::JsonValue || node.Op == TNativeOp::Like) result << ", " << QuoteString(TStringBuf(node.Name.data(), node.Name.size()));
     return result << ")";
 }
 

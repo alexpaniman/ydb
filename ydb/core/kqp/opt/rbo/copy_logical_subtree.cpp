@@ -17,6 +17,10 @@ bool CanDuplicateAggregation(const TOpAggregate& aggregate) {
 }
 
 bool IsRepeatable(const IOperator& op) {
+    for (const auto& expression : op.GetExpressions()) {
+        const auto& scalar = expression.get();
+        if (scalar.IsNative() && !(*scalar.GetNativeArena())[scalar.GetNativeRoot()].Repeatable) return false;
+    }
     switch (op.Kind) {
         case EOperator::Replicate:
         case EOperator::AddDependencies:

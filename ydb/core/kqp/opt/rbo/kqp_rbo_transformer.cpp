@@ -355,7 +355,6 @@ void TKqpNewRBOTransformer::SetNativeRoots(TVector<TIntrusivePtr<TOpRoot>> roots
     Y_ENSURE(Roots.empty() && !roots.empty(), "Native roots must be supplied once before optimization");
     for (const auto& root : roots) {
         Y_ENSURE(root && root->PlanProps.NativeExpressions, "Expected a native RBO root");
-        Y_ENSURE(!root->PlanProps.WithEffects, "Native frontend does not support effects");
     }
     Roots = std::move(roots);
 }

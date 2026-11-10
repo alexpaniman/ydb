@@ -203,6 +203,13 @@ struct TPlanProps {
     bool PgSyntax = false;
     bool WithEffects = false;
     bool WithReturning = false;
+    // Execution contracts supplied at the frontend boundary; optimizer rules
+    // preserve them while rewriting each root's relational input.
+    ui64 PhysicalTxGroup = 0;
+    ui64 EffectPriority = 0;
+    std::optional<ui32> ResultIndex;
+    std::optional<TString> MaterializedResult;
+    std::optional<ui64> ReturningRowsLimit;
 };
 
 }

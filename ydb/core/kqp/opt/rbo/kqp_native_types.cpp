@@ -249,6 +249,16 @@ void ComputeNativeTypes(IOperator& op, TPlanProps& props) {
             }
             break;
         }
+        case EOperator::TableEffect: {
+            const auto& effect = CastOperator<TOpTableEffect>(op);
+            Y_ENSURE(effect.Table.NativeColumns, "Native write requires a catalog schema");
+            for (const auto& [id, name] : effect.GetColumns().Items())
+                Y_ENSURE(effect.GetInput()->GetNativeIUType(id) == effect.Table.NativeColumns->at(name),
+                    "Write inputs must be coerced at the native binding boundary");
+            for (const auto& [id, name] : effect.GetReturningColumns().Items())
+                row.emplace(id, effect.Table.NativeColumns->at(name));
+            break;
+        }
         case EOperator::TableLookup: {
             auto& lookup = CastOperator<TOpTableLookup>(op);
             row = ReadRow(lookup.Table, lookup.GetColumns(), props);

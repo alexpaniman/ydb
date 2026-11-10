@@ -13,9 +13,9 @@
 #include "kqp_rbo_physical_table_effect_builder.h"
 #include "kqp_rbo_physical_query_builder.h"
 
-#include <ydb/core/kqp/opt/peephole/kqp_opt_peephole.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
+#include <ydb/core/kqp/provider/yql_kikimr_provider.h>
 #include <ydb/library/yql/dq/opt/dq_opt_peephole.h>
 
 #include <yql/essentials/core/yql_expr_optimize.h>
@@ -63,6 +63,14 @@ TVector<ui32> GetUnionAllInputArgumentOrder(TOpUnionAll& unionAll) {
 
 TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, TRBOContext& rboCtx) {
     TExprContext& ctx = rboCtx.ExprCtx;
+    // Optimization consumes metadata plus native column schemas. YQL catalog
+    // types are needed only while emitting storage reads and effects.
+    auto& tables = *rboCtx.KqpCtx.Tables;
+    for (const auto& [key, description] : tables.GetTables()) {
+        if (description.Metadata && !description.SchemeNode &&
+            !tables.GetTable(key.first, key.second).Load(ctx, rboCtx.KqpCtx.Config->SystemColumnsEnabled()))
+            return nullptr;
+    }
     ui32 stageInputCounter = 0;
 
     if (rboCtx.NeedToLog()) {
@@ -290,7 +298,8 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
                 }
 
                 // The full physical-stage peephole performs this pruning later.
-                const bool pruneUnusedOutputs = !rboCtx.KqpCtx.Config->GetEnableNewRBOPhysicalStagePeephole();
+                // Native emission constructs the live output layout directly.
+                const bool pruneUnusedOutputs = true;
                 currentStageBody = NPhysicalConvertionUtils::TransformStageOutput(currentStageBody, [&](TExprNode::TPtr body) {
                     return TPhysicalAggregationBuilder(aggregate, ctx, op->Pos, names, pruneUnusedOutputs,
                         rboCtx.KqpCtx.Config->GetDqHashOperatorsUseBlocks()).BuildPhysicalOp(body, memLimit);

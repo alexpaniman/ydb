@@ -1,3 +1,4 @@
+#include <ydb/core/kqp/tracing/kqp_compile_trace.h>
 #include "kqp_host_impl.h"
 
 #include <ydb/core/kqp/common/kqp_yql.h>
@@ -14,6 +15,10 @@
 #include <ydb/core/kqp/opt/physical/kqp_opt_phy.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_transformer.h>
 #include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
+#include <ydb/library/mkql_proto/mkql_proto.h>
+#include <yql/essentials/minikql/mkql_type_builder.h>
+#include <yql/essentials/providers/common/mkql/yql_type_mkql.h>
 #include <ydb/core/kqp/provider/yql_kikimr_provider_impl.h>
 #include <ydb/core/kqp/query_compiler/kqp_query_compiler.h>
 #include <ydb/library/yql/providers/dq/common/yql_dq_settings.h>
@@ -83,7 +88,8 @@ public:
         TTypeAnnotationContext& typesCtx,
         const NMiniKQL::IFunctionRegistry& funcRegistry,
         const TKikimrConfiguration::TPtr& config,
-        std::optional<TQueryExecutionMetadata> nativeMetadata = std::nullopt
+        std::optional<TQueryExecutionMetadata> nativeMetadata = std::nullopt,
+        std::unordered_map<std::string, NFrontend::TParameterType> nativeParameters = {}
     )
         : Cluster(cluster)
         , Database(database)
@@ -93,6 +99,7 @@ public:
         , FuncRegistry(funcRegistry)
         , Config(config)
         , NativeMetadata(std::move(nativeMetadata))
+        , NativeParameters(std::move(nativeParameters))
     {
     }
 
@@ -102,7 +109,25 @@ public:
         if (!TransformerFinished) {
             TransformerFinished = true;
             auto& preparedQuery = *TransformCtx.QueryCtx->PreparingQuery;
+            TCompileTraceScope phase(OptimizeCtx.CompileTrace, "Compile emitted physical query");
             TKqpPhysicalQuery physicalQuery(input);
+
+            // Public parameter descriptions are backend output. Their native
+            // types were already checked before optimization; serialization
+            // needs no YQL annotation before the physical plan exists.
+            if (NativeMetadata) {
+                auto& environment = TransformCtx.QueryCtx->QueryData->TypeEnv();
+                auto allocatorGuard = environment.BindAllocator();
+                NMiniKQL::TTypeBuilder builder(environment);
+                for (const auto& [name, type] : NativeParameters) {
+                    auto& parameter = *preparedQuery.AddParameters();
+                    parameter.SetName("$" + TString(name));
+                    auto* exported = NCommon::BuildType({}, *ExportNativeParameterType(type, ctx), builder);
+                    YQL_ENSURE(exported);
+                    NMiniKQL::ExportTypeToProto(exported, *parameter.MutableType());
+                }
+            }
+
 
             YQL_ENSURE(NativeMetadata || TransformCtx.DataQueryBlocks);
             auto compiler = CreateKqpQueryCompiler(Cluster, Database, FuncRegistry, TypesCtx, OptimizeCtx, Config);
@@ -156,6 +181,7 @@ private:
     const NMiniKQL::IFunctionRegistry& FuncRegistry;
     TKikimrConfiguration::TPtr Config;
     const std::optional<TQueryExecutionMetadata> NativeMetadata;
+    const std::unordered_map<std::string, NFrontend::TParameterType> NativeParameters;
     bool TransformerFinished = false;
 };
 
@@ -210,6 +236,7 @@ public:
         TNativeQuery query, TExprContext& ctx,
         const IKikimrQueryExecutor::TExecuteSettings& settings) override
     {
+        OptimizeCtx->CompileTrace = query.CompileTrace;
         auto& roots = query.Roots;
         YQL_ENSURE(cluster == Cluster);
         YQL_ENSURE(!settings.CommitTx && !settings.RollbackTx);
@@ -226,10 +253,16 @@ public:
             return MakeKikimrResultHolder(ResultFromErrors<IKqpHost::TQueryResult>(ctx.IssueManager.GetIssues()));
         }
 
-        YQL_ENSURE(query.Execution.DiscardResults.size() == roots.size());
+        YQL_ENSURE(query.Execution.DiscardResults.size() == std::count_if(roots.begin(), roots.end(), [](const auto& root) {
+            return !root->PlanProps.WithEffects || root->PlanProps.WithReturning;
+        }));
         bool isOlap = false;
         for (const auto& root : roots) {
-            YQL_ENSURE(root && root->PlanProps.NativeExpressions && !root->PlanProps.WithEffects);
+            YQL_ENSURE(root && root->PlanProps.NativeExpressions);
+            if (queryType == EKikimrQueryType::Scan && root->PlanProps.WithEffects) {
+                ctx.AddError(TIssue(ctx.GetPosition(root->Pos), "Scan queries cannot contain writes"));
+                return MakeKikimrResultHolder(ResultFromErrors<IKqpHost::TQueryResult>(ctx.IssueManager.GetIssues()));
+            }
             for (const auto& item : IterateSubtreeWithSubplans(root.Get(), root->PlanProps)) {
                 if (item.Current->Kind == EOperator::Source &&
                     CastOperator<TOpRead>(*item.Current).GetTableStorageType() == NYql::EStorageType::ColumnStorage)
@@ -241,12 +274,17 @@ public:
         if (queryType == EKikimrQueryType::Query) ConfigureBlockEngine(isOlap);
         if (queryType == EKikimrQueryType::Dml) {
             auto& prepared = *TransformCtx->QueryCtx->PreparingQuery;
-            for (ui32 i = 0; i < roots.size(); ++i) {
+            auto resultRoots = roots;
+            std::stable_sort(resultRoots.begin(), resultRoots.end(), [](const auto& a, const auto& b) {
+                return a->PlanProps.ResultIndex < b->PlanProps.ResultIndex;
+            });
+            for (ui32 i = 0; i < resultRoots.size(); ++i) {
+                if (resultRoots[i]->PlanProps.WithEffects && !resultRoots[i]->PlanProps.WithReturning) continue;
                 auto& result = *prepared.AddResults();
                 result.SetKqlIndex(0);
-                result.SetResultIndex(i);
+                result.SetResultIndex(*resultRoots[i]->PlanProps.ResultIndex);
                 result.SetRowsLimit(Config->_ResultRowsLimit.Get().GetOrElse(0));
-                for (const auto& [id, name] : roots[i]->GetColumns().Items()) {
+                for (const auto& [id, name] : resultRoots[i]->GetColumns().Items()) {
                     Y_UNUSED(id);
                     *result.AddColumnHints() = name;
                 }
@@ -266,7 +304,7 @@ public:
         TAutoPtr<IGraphTransformer> nativeRbo(rbo);
         TAutoPtr<IGraphTransformer> compile(new TCompilePhysicalQueryTransformer(Cluster,
             SessionCtx->GetDatabase(), *TransformCtx, *OptimizeCtx, TypesCtx, FunctionRegistry, Config,
-            std::move(query.Execution)));
+            std::move(query.Execution), std::move(query.Parameters)));
         // RBO emits fresh transaction/result-binding nodes. The legacy entry
         // re-enters its surrounding annotation pipeline after that rewrite;
         // native entry performs this backend-only step explicitly.

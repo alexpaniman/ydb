@@ -2,6 +2,7 @@
 #include "frontend/frontend.h"
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
 
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -119,7 +120,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     query.Parameters = std::move(program.Parameters);
     ApplyPlannerSettings(program.PlannerSettings, config);
     std::unordered_map<std::string, TNativeTable> tables;
-    for (const auto& relation : program.Relations) if (relation.Kind == NFrontend::ERelation::Read && !tables.contains(relation.Table)) {
+    for (const auto& relation : program.Relations) if ((relation.Kind == NFrontend::ERelation::Read || relation.Kind == NFrontend::ERelation::Effect) && !tables.contains(relation.Table)) {
         auto table = resolve(relation.Table, relation.Position);
         if (!table.Table) throw NFrontend::TFrontendError(relation.Position, "table resolver returned no table identity");
         auto columns = std::make_shared<TRboTable::TColumns>();
@@ -211,6 +212,36 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                     const auto alias = String(relation.Alias);
                     op = MakeIntrusive<TOpRead>(alias, std::move(columns), table.Storage, table.Table, nullptr, std::nullopt,
                         std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, pos);
+                    break;
+                }
+                case R::Effect: {
+                    const auto& effect = *relation.Effect;
+                    const auto& table = tables.at(relation.Table);
+                    Y_ENSURE(table.Storage == NYql::EStorageType::RowStorage);
+                    TEffectOptions options;
+                    options.OnConflict = String(effect.OnConflict);
+                    options.IsBatch = effect.Batch;
+                    options.Columns.emplace();
+                    options.ReturningColumns.emplace();
+                    TOrderedIUs<TString> columns, returning;
+                    for (const auto& [id, name] : effect.Columns) {
+                        columns.Append(id, String(name)); options.Columns->push_back(String(name));
+                    }
+                    for (const auto& [id, name] : effect.Returning) {
+                        returning.Append(id, String(name)); options.ReturningColumns->push_back(String(name));
+                    }
+                    using W = NFrontend::EWriteKind;
+                    EEffectType kind;
+                    switch (effect.Kind) {
+                        case W::Insert: kind = effect.HasIndexes ? EEffectType::InsertRowsIndex : EEffectType::InsertRows; break;
+                        case W::Replace: options.Settings = TVector<TVector<TString>>{{"Mode", "replace"}}; [[fallthrough]];
+                        case W::Upsert: kind = effect.HasIndexes ? EEffectType::UpsertRowsIndex : EEffectType::UpsertRows; break;
+                        case W::Update: kind = effect.HasIndexes ? EEffectType::UpdateRowsIndex : EEffectType::UpdateRows; break;
+                        case W::Delete: kind = effect.HasIndexes ? EEffectType::DeleteRowsIndex : EEffectType::DeleteRows; break;
+                    }
+                    op = MakeIntrusive<TOpTableEffect>(input(), pos, table.Table, kind, std::move(options), std::move(columns), std::move(returning));
+                    props.WithEffects = true;
+                    props.WithReturning = !effect.Returning.empty();
                     break;
                 }
                 case R::Map: {
@@ -381,6 +412,12 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         TOrderedIUs<TString> columns;
         for (const auto& column : result.Columns) columns.Append(column.Column, String(column.Name));
         auto root = MakeIntrusive<TOpRoot>(converted.at(result.Root), converted.at(result.Root)->Pos, std::move(columns));
+        props.PhysicalTxGroup = props.WithEffects ? 1 : 0;
+        props.EffectPriority = roots.size();
+        if (!props.WithEffects || props.WithReturning) {
+            props.ResultIndex = query.Execution.DiscardResults.size();
+            query.Execution.DiscardResults.push_back(false);
+        }
         root->PlanProps = std::move(props);
         for (const auto& item : IterateSubtreeWithSubplans(root.Get(), root->PlanProps)) item.Current->BindExpressionPlanProps(&root->PlanProps);
         root->RecomputeOutputIUsSubtree(); root->ComputeParents(); roots.push_back(std::move(root));
@@ -398,7 +435,24 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
             operation.SetOperation(static_cast<ui32>(NYql::TYdbOperation::Select));
         }
     }
-    query.Execution.DiscardResults.resize(roots.size(), false);
+    for (const auto& relation : program.Relations) if (relation.Effect) {
+        const auto& effect = *relation.Effect;
+        using W = NFrontend::EWriteKind;
+        using O = NYql::TYdbOperation;
+        const auto kind = effect.Kind == W::Insert ? (effect.OnConflict == "revert" ? O::InsertRevert : O::InsertAbort) :
+            effect.Kind == W::Replace ? O::Replace : effect.Kind == W::Upsert ? O::Upsert :
+            effect.Kind == W::Update ? (effect.InputRows ? O::UpdateOn : O::Update) : (effect.InputRows ? O::DeleteOn : O::Delete);
+        auto& operation = query.Execution.TableOperations.emplace_back();
+        operation.MutablePosition()->SetRow(relation.Position.Line);
+        operation.MutablePosition()->SetColumn(relation.Position.Column);
+        operation.SetTable(tables.at(relation.Table).Table.Path);
+        operation.SetOperation(static_cast<ui32>(kind));
+    }
+    // A SQL block observes one pre-write snapshot. Result order remains source
+    // order even though reads precede effects in the physical transaction list.
+    std::stable_sort(roots.begin(), roots.end(), [](const auto& a, const auto& b) {
+        return a->PlanProps.PhysicalTxGroup < b->PlanProps.PhysicalTxGroup;
+    });
     return query;
 }
 

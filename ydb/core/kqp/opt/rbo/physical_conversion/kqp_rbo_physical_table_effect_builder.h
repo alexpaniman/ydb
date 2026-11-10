@@ -18,5 +18,5 @@ private:
 };
 
 namespace NKikimr::NKqp {
-NYql::TExprNode::TPtr LowerTableSinkSettings(const TTableSinkSettings& sink, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
+NYql::TExprNode::TPtr LowerTableSinkSettings(const TTableSinkSettings& sink, NYql::TExprContext& ctx, NYql::TPositionHandle pos, ui64 priority = 0);
 }

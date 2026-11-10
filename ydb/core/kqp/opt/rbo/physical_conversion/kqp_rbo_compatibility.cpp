@@ -59,6 +59,38 @@ TExprNode::TPtr TupleItem(const TExprNode::TPtr& tuple, size_t index, TExprConte
         {tuple, ctx.NewAtom(tuple->Pos(), ToString(index), TNodeFlags::Default)});
 }
 
+bool IsTupleMinMax(const TExprNode::TPtr& node) {
+    if (!node->IsCallable({"AggrMin", "AggrMax"}) || !node->GetTypeAnn()) return false;
+    return RemoveAllOptionals(node->GetTypeAnn())->GetKind() == ETypeAnnotationKind::Tuple;
+}
+
+TExprNode::TPtr ExpandTupleMinMax(const TExprNode::TPtr& node, TExprContext& ctx) {
+    const auto pos = node->Pos();
+    const TTypeAnnotationNode* type = node->GetTypeAnn();
+    const auto* tupleType = RemoveAllOptionals(type)->Cast<TTupleExprType>();
+    Y_ENSURE(GetOptionalLevel(type) <= 1, "Nested optional aggregate tuple state");
+    const auto choose = [&](const TExprNode::TPtr& left, const TExprNode::TPtr& right) {
+        auto preferred = MakeBool(pos, true, ctx);
+        const auto fields = tupleType->GetItems();
+        const TStringBuf compare = node->IsCallable("AggrMin") ? "AggrLess" : "AggrGreater";
+        for (size_t i = fields.size(); i-- > 0;) {
+            Y_ENSURE(IsSqlScalar(fields[i]), "Aggregate tuple fields must be scalar");
+            if (fields[i]->GetKind() == ETypeAnnotationKind::Null) continue;
+            auto a = TupleItem(left, i, ctx), b = TupleItem(right, i, ctx);
+            preferred = ctx.NewCallable(pos, "If", {ctx.NewCallable(pos, "AggrEquals", {a, b}),
+                preferred, ctx.NewCallable(pos, compare, {a, b})});
+        }
+        return ctx.NewCallable(pos, "If", {preferred, left, right});
+    };
+    if (type->GetKind() != ETypeAnnotationKind::Optional) return choose(node->HeadPtr(), node->TailPtr());
+    auto left = ctx.NewArgument(pos, "left_state"), right = ctx.NewArgument(pos, "right_state");
+    auto selected = ctx.NewCallable(pos, "Just", {choose(left, right)});
+    auto rightPresent = ctx.NewCallable(pos, "IfPresent", {node->TailPtr(),
+        ctx.NewLambda(pos, ctx.NewArguments(pos, {right}), std::move(selected)), ctx.NewCallable(pos, "Just", {left})});
+    return ctx.NewCallable(pos, "IfPresent", {node->HeadPtr(),
+        ctx.NewLambda(pos, ctx.NewArguments(pos, {left}), std::move(rightPresent)), node->TailPtr()});
+}
+
 bool CanExpandTupleComparison(const TExprNode::TPtr& node) {
     const auto leftType = node->Head().GetTypeAnn();
     const auto rightType = node->Tail().GetTypeAnn();
@@ -348,7 +380,7 @@ TExprNode::TPtr ExpandScalarHasNull(
 TExprNode::TPtr FindCompatibilityNode(const TExprNode::TPtr& root) {
     return FindNode(root, [](const TExprNode::TPtr& node) {
         return node->IsCallable({"ExtractMembers", "OptionalIf", "StrictCast", "HasNull", "SqlIn", "RangeEmpty", "AsRange", "RangeFor"}) ||
-            CanLiftSafeCastOptional(node) || IsComplexComparison(node);
+            CanLiftSafeCastOptional(node) || IsComplexComparison(node) || IsTupleMinMax(node);
     });
 }
 
@@ -362,6 +394,7 @@ NYql::TExprNode::TPtr RewriteRboCompatibilityNode(
     const NYql::TExprNode::TPtr& node,
     NYql::TExprContext& ctx,
     const NYql::TTypeAnnotationContext& types) {
+    if (IsTupleMinMax(node)) return ExpandTupleMinMax(node, ctx);
     if (node->IsCallable("ExtractMembers")) {
         return ExpandExtractMembers(node, ctx);
     }

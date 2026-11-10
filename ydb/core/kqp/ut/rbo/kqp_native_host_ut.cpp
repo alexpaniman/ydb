@@ -5672,6 +5672,75 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
+    Y_UNIT_TEST(ValueByAggregatesPreserveLegacyRowsAndTypes) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        struct TRow { i32 Group; std::optional<i32> Key; std::optional<i32> Value; };
+        const TRow rows[]{{1, 20, 200}, {1, 10, 100}, {1, std::nullopt, 300},
+            {2, std::nullopt, 700}, {3, 4, std::nullopt}, {4, 10, 100}, {4, 10, 100}};
+        for (const bool optionalKey : {false, true}) for (const bool optionalValue : {false, true}) {
+            TParamsBuilder builder;
+            auto& list = builder.AddParam("$rows").BeginList();
+            for (const auto& row : rows) {
+                if ((!optionalKey && !row.Key) || (!optionalValue && !row.Value)) continue;
+                list.AddListItem().BeginStruct().AddMember("g").Int32(row.Group);
+                if (optionalKey) list.AddMember("k").OptionalInt32(row.Key);
+                else list.AddMember("k").Int32(*row.Key);
+                if (optionalValue) list.AddMember("v").OptionalInt32(row.Value);
+                else list.AddMember("v").Int32(*row.Value);
+                list.EndStruct();
+            }
+            list.EndList().Build();
+            const auto params = builder.Build();
+            const TString declaration = TStringBuilder() << "DECLARE $rows AS List<Struct<g:Int32,k:Int32"
+                << (optionalKey ? "?" : "") << ",v:Int32" << (optionalValue ? "?" : "") << ">>; ";
+            for (const TStringBuf suffix : {"", " WHERE false", " WHERE k IS NULL", " WHERE g = 3"}) {
+                const TString sql = declaration + "SELECT MIN_BY(v,k) AS lo, MAX_BY(v,k) AS hi FROM AS_TABLE($rows)" + TString(suffix);
+                const auto expected = legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                const auto actual = native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                AssertSame(Snapshot(actual), Snapshot(expected));
+            }
+            const TString sql = declaration + "SELECT g, MIN_BY(v,k) AS lo, MAX_BY(v,k) AS hi FROM AS_TABLE($rows) GROUP BY g ORDER BY g";
+            AssertSame(Snapshot(native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()),
+                Snapshot(legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync()));
+        }
+    }
+
+    Y_UNIT_TEST(RuntimeLikeEscapeAndUnderscoresMatchLegacy) {
+        TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
+        TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
+        auto native = nativeRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        auto legacy = legacyRunner.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const char* patterns[]{"", "%", "_", "a_", "_b", "a_b", "a#_b", "a#%b", "a##b", "a%b%_", "%_b", "é_"};
+        for (const bool utf8 : {false, true}) {
+            TVector<std::optional<std::string>> inputs{std::nullopt, "", "ab", "a_b", "a%b", "a#b", "a\nb", "éж", std::string{"a\0b", 3}};
+            if (!utf8) inputs.push_back(std::string{"a\xff" "b", 3});
+            TString sql = utf8 ? "DECLARE $s AS Utf8?; " : "DECLARE $s AS String?; ";
+            for (std::size_t i = 0; i < std::size(patterns); ++i)
+                sql += TStringBuilder() << "DECLARE $p" << i << " AS String; ";
+            sql += "SELECT ";
+            for (std::size_t i = 0; i < std::size(patterns); ++i) {
+                if (i) sql += ", ";
+                sql += TStringBuilder() << "$s LIKE '" << patterns[i] << "' ESCAPE '#' AS lit" << i
+                    << ", $s LIKE $p" << i << " ESCAPE '#' AS dyn" << i;
+            }
+            for (const auto& input : inputs) {
+                TParamsBuilder builder;
+                auto& value = builder.AddParam("$s");
+                if (utf8) value.OptionalUtf8(input).Build();
+                else value.OptionalString(input).Build();
+                for (std::size_t i = 0; i < std::size(patterns); ++i)
+                    builder.AddParam(TStringBuilder() << "$p" << i).String(patterns[i]).Build();
+                const auto params = builder.Build();
+                const auto expected = legacy.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                const auto actual = native.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx(), params).GetValueSync();
+                AssertSame(Snapshot(actual), Snapshot(expected));
+            }
+        }
+    }
+
     Y_UNIT_TEST(RuntimePercentLikePatternsMatchLegacy) {
         TKikimrRunner nativeRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED));
         TKikimrRunner legacyRunner(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));

@@ -219,7 +219,7 @@ private:
             tuple->SetTypeAnn(ExportNativeType(type.Required(), Ctx, &Arena));
             return Lift(std::move(tuple), type);
         }
-        const auto text = NFrontend::FormatValue({type, value});
+        const auto text = type.Kind == K::Uuid ? std::get<std::string>(value) : NFrontend::FormatValue({type, value});
         TExprNode::TListType args{Atom(String(text))};
         if (type.Kind == K::Decimal) {
             args.push_back(Atom(ToString(type.Precision)));
@@ -400,6 +400,48 @@ private:
         });
     }
 
+    TExprNode::TPtr Like(TExprNode::TPtr input, TExprNode::TPtr pattern, std::string_view escape) {
+        const auto typed = [&](TStringBuf name, TExprNode::TListType args, const TTypeAnnotationNode* type) {
+            auto result = Ctx.NewCallable(Pos, name, std::move(args)); result->SetTypeAnn(type); return result;
+        };
+        const auto* voidType = Ctx.MakeType<TVoidExprType>();
+        const auto* stringType = ExportNativeType({K::String}, Ctx);
+        const auto* optionalString = ExportNativeType({K::String, true}, Ctx);
+        const auto* boolType = ExportNativeType({K::Bool}, Ctx);
+        const auto udf = [&](TStringBuf name, const TCallableExprType* signature, TExprNode::TPtr config) {
+            auto settings = Ctx.NewList(Pos, {}); AnnotateTypeSyntax(*settings, Ctx);
+            return typed("Udf", {Atom(name), config, Type(voidType), Atom(""), Type(signature),
+                Type(config->GetTypeAnn()), Atom(""), settings}, signature);
+        };
+        const auto* converter = Ctx.MakeType<TCallableExprType>(stringType,
+            TVector<TCallableExprType::TArgumentInfo>{{stringType, {}, 0}, {optionalString, {}, 0}}, 1, TStringBuf{});
+        auto escapeValue = escape.empty() ? Nothing({K::String, true}) : Literal({K::String, true}, std::string(escape));
+        auto regex = typed("Apply", {udf("Re2.PatternFromLike", converter, typed("Void", {}, voidType)), pattern, escapeValue}, stringType);
+
+        // Re2.Match's public run-config ABI. Supplying its standard SQL options
+        // keeps '_' Unicode-aware even when the pattern contains only ASCII.
+        TVector<const TItemExprType*> fields;
+        TExprNode::TListType values;
+        for (const TStringBuf name : {"CaseSensitive", "DotNl", "Literal", "LogErrors", "LongestMatch", "MaxMem",
+                "NeverCapture", "NeverNl", "OneLine", "PerlClasses", "PosixSyntax", "Utf8", "WordBoundary"}) {
+            auto value = name == "MaxMem" ? Literal({K::Uint64}, std::uint64_t{8 << 20}) :
+                Literal({K::Bool}, name == "CaseSensitive" || name == "LogErrors" || name == "Utf8");
+            fields.push_back(Ctx.MakeType<TItemExprType>(name, value->GetTypeAnn()));
+            auto field = Ctx.NewList(Pos, {Atom(name), value});
+            field->SetTypeAnn(Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{
+                Ctx.MakeType<TUnitExprType>(), value->GetTypeAnn()}));
+            values.push_back(std::move(field));
+        }
+        const auto* optionsType = Ctx.MakeType<TStructExprType>(fields);
+        const auto* optionalOptions = Ctx.MakeType<TOptionalExprType>(optionsType);
+        auto options = typed("Just", {typed("AsStruct", std::move(values), optionsType)}, optionalOptions);
+        auto config = Ctx.NewList(Pos, {regex, options});
+        config->SetTypeAnn(Ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{stringType, optionalOptions}));
+        const auto* signature = Ctx.MakeType<TCallableExprType>(boolType,
+            TVector<TCallableExprType::TArgumentInfo>{{optionalString, {}, 0}}, 0, TStringBuf{});
+        return typed("Apply", {udf("Re2.Match", signature, config), input}, boolType);
+    }
+
     TExprNode::TPtr JsonValue(TExprNode::TPtr value, NFrontend::TType inputType, std::string_view path) {
         const auto typed = [&](TStringBuf name, TExprNode::TListType args, const TTypeAnnotationNode* type) {
             auto result = Ctx.NewCallable(Pos, name, std::move(args)); result->SetTypeAnn(type); return result;
@@ -472,6 +514,15 @@ private:
             }
             case O::InCollection: return InCollection(args[0], args[1], types[0], Arena.ListItem(types[1]), type, node.Name == "ansi");
             case O::JsonValue: return JsonValue(args[0], types[0], node.Name);
+            case O::RandomUuid: return Call("RandomUuid", std::move(args), type);
+            case O::Like: return Like(args[0], args[1], node.Name);
+            case O::TupleElement: {
+                const auto index = std::get<std::uint64_t>(node.Value);
+                const auto itemType = Arena.TupleItems(types[0])[index];
+                return Present(args, types, type, [&](TExprNode::TListType values) {
+                    return Call("Nth", {values[0], Atom(ToString(index))}, itemType);
+                });
+            }
             case O::Literal: return Literal(type, node.Value);
             case O::Column: {
                 const auto [it, inserted] = Columns.emplace(node.ColumnId, type);

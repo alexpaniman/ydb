@@ -111,7 +111,7 @@ void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id
                 if (actual == 0) UNIT_ASSERT_VALUES_EQUAL_C(std::signbit(actual), std::signbit(number), sql);
                 break;
             }
-            case K::String: case K::Utf8: UNIT_ASSERT_VALUES_EQUAL_C(TString(value.AsStringRef()), TString(std::get<std::string>(expected.Data)), sql); break;
+            case K::String: case K::Utf8: case K::Uuid: UNIT_ASSERT_VALUES_EQUAL_C(TString(value.AsStringRef()), TString(std::get<std::string>(expected.Data)), sql); break;
             case K::Decimal: UNIT_ASSERT_C(value.GetInt128() == std::get<NFrontend::TDecimal>(expected.Data).Coefficient, sql); break;
             case K::Null: UNIT_FAIL("unexpected non-null Null");
             case K::Tuple: {
@@ -134,6 +134,106 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(LikeRuntimeOpcodeIsTerminalAndUnicodeAware) {
+        using namespace NFrontend;
+        struct TCase { std::optional<std::string> Input; std::string Pattern; std::string Escape; bool Expected; };
+        for (const auto& test : std::vector<TCase>{
+            {"a_b", "a#_b", "#", true}, {"acb", "a#_b", "#", false},
+            {"a%b", "a#%b", "#", true}, {"a#b", "a##b", "#", true},
+            {"é", "_", "", true}, {"éж", "_", "", false},
+            {"a\nb", "a_b", "", true}, {std::string{"a\0b", 3}, "a_b", "", true},
+            {std::string{"\xff", 1}, "_", "", false}, {std::nullopt, "%", "", false},
+            {"", "", "", true}, {"a.b", "a.b", "", true}}) {
+            TExpressionArena arena;
+            const auto input = arena.Parameter("input", {ETypeKind::String, true});
+            const auto pattern = arena.Parameter("pattern", {ETypeKind::String});
+            const auto root = arena.Like(input, pattern, test.Escape);
+            TEvaluationContext evaluation;
+            evaluation.Parameter = [&](std::string_view name) -> TValue {
+                if (name == "pattern") return {{ETypeKind::String}, test.Pattern};
+                return {{ETypeKind::String, true}, test.Input ? TScalar{*test.Input} : TScalar{}};
+            };
+            evaluation.Like = [&](const TValue&, std::string_view, std::string_view) { return test.Expected; };
+            CheckScalar(arena, root, "native LIKE runtime", evaluation, [&](NYql::NCommon::TMkqlBuildContext& build, NMiniKQL::TProgramBuilder& pb) {
+                auto value = test.Input ? pb.NewOptional(pb.NewDataLiteral<NUdf::EDataSlot::String>(
+                    NUdf::TStringRef(test.Input->data(), test.Input->size()))) :
+                    pb.NewEmptyOptional(pb.NewOptionalType(pb.NewDataType(NUdf::TDataType<char*>::Id)));
+                build.Parameters = pb.NewStruct({{"$input", value}, {"$pattern",
+                    pb.NewDataLiteral<NUdf::EDataSlot::String>(NUdf::TStringRef(test.Pattern.data(), test.Pattern.size()))}});
+            });
+        }
+    }
+
+
+    Y_UNIT_TEST(TemporalListDictionaryMembershipMatchesRuntime) {
+        using namespace NFrontend;
+        for (bool ansi : {false, true}) for (bool empty : {false, true}) {
+            TExpressionArena arena;
+            const TType item{ETypeKind::Timestamp64, true};
+            const auto listType = arena.ListType(item);
+            auto rows = std::make_shared<TTupleValue>();
+            if (!empty) rows->Items = {{item, std::int64_t{-1000001}}, {item, {}}};
+            const auto list = arena.Literal(listType, TTuple(rows));
+            for (const TScalar& key : {TScalar{std::int64_t{-1000001}}, TScalar{std::int64_t{0}}, TScalar{}}) {
+                const auto found = arena.InCollection(arena.Literal(item, key), list, ansi);
+                CheckScalar(arena, found, "Timestamp64 dictionary membership");
+            }
+        }
+    }
+
+    Y_UNIT_TEST(DecimalListDictionaryMembershipMatchesRuntime) {
+        using namespace NFrontend;
+        for (bool ansi : {false, true}) for (bool empty : {false, true}) {
+            TExpressionArena arena;
+            const TType item{ETypeKind::Decimal, true, 1, 0};
+            const auto listType = arena.ListType(item);
+            auto rows = std::make_shared<TTupleValue>();
+            if (!empty) rows->Items = {{item, TDecimal{1}}, {item, TDecimal{TDecimal::NaN()}}, {item, {}}};
+            const auto list = arena.Literal(listType, TTuple(rows));
+            for (const TScalar& key : {TScalar{TDecimal{1}}, TScalar{TDecimal{2}}, TScalar{TDecimal{TDecimal::NaN()}}, TScalar{}})
+                CheckScalar(arena, arena.InCollection(arena.Literal(item, key), list, ansi), "Decimal dictionary membership");
+        }
+    }
+
+    Y_UNIT_TEST(DecimalComparisonsPreserveOperandScalesAtRuntime) {
+        using namespace NFrontend;
+        using O = EOpcode;
+        __int128 limit = 1;
+        for (unsigned i = 0; i < 35; ++i) limit *= 10;
+        for (const unsigned scale : {0, 2, 9, 35}) {
+            TExpressionArena arena;
+            const TType leftType{ETypeKind::Decimal, false, 35, 2}, rightType{ETypeKind::Decimal, false, 35, static_cast<std::uint8_t>(scale)};
+            for (const __int128 a : {__int128{0}, __int128{1}, __int128{-1}, limit - 1, 1 - limit, TDecimal::Inf(), -TDecimal::Inf(), TDecimal::NaN()}) {
+                for (const __int128 b : {__int128{0}, __int128{1}, __int128{-1}, limit - 1, 1 - limit, TDecimal::Inf(), -TDecimal::Inf(), TDecimal::NaN()}) {
+                    const auto left = arena.Literal(leftType, TDecimal{a}), right = arena.Literal(rightType, TDecimal{b});
+                    for (const auto op : {O::Equal, O::NotEqual, O::Less, O::LessEqual, O::Greater, O::GreaterEqual})
+                        CheckScalar(arena, arena.Binary(op, left, right), "Decimal cross-scale comparison");
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(UuidContractMatchesDirectRuntimeWithoutPeepholes) {
+        using namespace NFrontend;
+        for (const std::string text : {"01234567-89ab-cdef-0123-456789abcdef", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", "", "0123456789abcdef0123456789abcdef", "01234567-89ab-cdef-0123-456789abcdeg"}) {
+            TExpressionArena arena;
+            const auto uuid = arena.Cast(arena.Literal({ETypeKind::String}, text), {ETypeKind::Uuid});
+            const auto native = Evaluate(arena, uuid);
+            const auto runtime = NMiniKQL::ValueFromString(NUdf::EDataSlot::Uuid, NUdf::TStringRef(text.data(), text.size()));
+            UNIT_ASSERT_VALUES_EQUAL_C(native.IsNull(), !runtime, text);
+            if (runtime) UNIT_ASSERT_VALUES_EQUAL(TString(runtime.AsStringRef()), TString(std::get<std::string>(native.Data)));
+            CheckScalar(arena, uuid, "native UUID literal and parse");
+            CheckScalar(arena, arena.Cast(uuid, {ETypeKind::Utf8}), "native UUID canonical string");
+            CheckScalar(arena, arena.Unary(EOpcode::StablePickle, uuid), "native UUID stable key");
+        }
+        TExpressionArena arena;
+        const auto random = arena.Call("RandomUuid", {});
+        TEvaluationContext context;
+        context.RandomUuid = [] { return std::string(16, '\0'); };
+        CheckScalar(arena, arena.Binary(EOpcode::Equal, random, random), "same volatile node", context);
+        CheckScalar(arena, arena.Unary(EOpcode::Length, arena.Cast(random, {ETypeKind::String})), "UUID text length", context);
+    }
+
     Y_UNIT_TEST(ExtendedTemporalSemanticsMatchRuntime) {
         using namespace NFrontend;
         using K = ETypeKind;
@@ -162,9 +262,20 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             for (const auto value : {minimum - 1, maximum + 1})
                 CheckScalar(arena, arena.Cast(arena.Literal({K::Int64}, value), {kind}), "extended temporal range rejection");
         }
+        for (const auto source : {K::Date, K::Datetime, K::Timestamp, K::Interval, K::Date32, K::Datetime64, K::Timestamp64, K::Interval64}) {
+            for (const auto target : {K::Int8, K::Uint8, K::Int16, K::Uint16, K::Int32, K::Uint32, K::Int64, K::Uint64,
+                    K::Float, K::Double}) {
+                const auto options = *NUdf::GetCastResult(*NUdf::FindDataSlot(TString(TType{source}.ToString())),
+                    *NUdf::FindDataSlot(TString(TType{target}.ToString())));
+                TExpressionArena arena;
+                const auto converted = arena.Cast(arena.Parameter("p", {source}), {target});
+                UNIT_ASSERT_VALUES_EQUAL_C(bool(arena[converted].Type.OptionalDepth), bool(options & NUdf::MayFail),
+                    TType{source}.ToString() << " -> " << TType{target}.ToString());
+            }
+        }
         for (const auto kind : {K::Date32, K::Datetime64, K::Timestamp64}) {
             const auto slot = *NUdf::FindDataSlot(TString(TType{kind}.ToString()));
-            for (const std::string date : {"-144169-01-01", "-400-02-29", "-1-02-29", "0-01-01", "1-01-01",
+            for (const std::string date : {"--01-02", "-+1-01-01", "-144169-01-01", "-400-02-29", "-1-02-29", "0-01-01", "1-01-01",
                     "1900-02-29", "1969-12-31", "2000-02-29", "+120000-06-30", "148107-12-31", "148108-01-01"}) {
                 for (const std::string time : {"", "T23:59:59Z", "T23:59:59.999999Z", "T23:59:59+01:30"}) {
                     const auto text = date + time;
