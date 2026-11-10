@@ -1616,8 +1616,16 @@ private:
                             TCompileTraceScope phase(settings.CompileTrace, "Native operator translation");
                             return ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
                                 const auto& meta = metadata.at(std::string(path));
-                                return TNativeTable{schema(path, pos), MakeRboTableIdentity(*meta),
+                                TNativeTable table{schema(path, pos), MakeRboTableIdentity(*meta),
                                     meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
+                                for (size_t i = 0; i < meta->Indexes.size(); ++i) {
+                                    const auto& index = meta->Indexes[i];
+                                    if (index.Type == TIndexDescription::EType::GlobalSyncUnique &&
+                                        (Config->FeatureFlags.GetEnableOnlineAddUniqueIndex() || index.State == TIndexDescription::EIndexState::Ready)) {
+                                        table.UniqueConstraints.push_back({MakeRboTable(*meta->ImplTables.at(i)), index.KeyColumns});
+                                    }
+                                }
+                                return table;
                             }, ctx, SessionCtx->ConfigPtr().Get());
                         }();
                         native.CompileTrace = settings.CompileTrace;

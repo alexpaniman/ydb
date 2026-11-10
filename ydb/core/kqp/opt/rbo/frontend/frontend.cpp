@@ -1012,8 +1012,6 @@ private:
         const auto& table = ResolveTable(write.Target);
         if (!table.WriteSchema)
             throw TUnsupportedFeature(EFeature::Statement, pos, "table does not support native writes: " + table.Name);
-        if (write.OnConflict == "revert")
-            throw TUnsupportedFeature(EFeature::Statement, pos, "INSERT OR REVERT requires native conflict lowering");
         if (write.Batch)
             throw TUnsupportedFeature(EFeature::Statement, pos, "batch writes require a batch execution plan");
         const auto& schema = *table.WriteSchema;
@@ -1133,6 +1131,9 @@ private:
             }
         }
         PrepareGeneratedColumns(generated, written, keys, effect, pos);
+        if (write.OnConflict == "revert" && (!effect.DefaultColumns.empty() || !effect.GeneratedColumns.empty()))
+            throw TUnsupportedFeature(EFeature::Statement, pos,
+                "INSERT OR REVERT with defaults or generated columns requires shared row preparation before conflict checks");
         TRelation relation{ERelation::Effect, pos};
         relation.Table = table.Name;
         relation.Inputs = {Map(input, std::move(definitions), pos)};

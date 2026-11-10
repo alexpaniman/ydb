@@ -8,10 +8,16 @@ namespace NKikimr::NKqp {
 
 struct TCompileTrace;
 
+struct TNativeUniqueConstraint {
+    TRboTable Table;
+    TVector<TString> Keys;
+};
+
 struct TNativeTable {
     NFrontend::TCatalogTable Schema;
     TRboTable Table;
     NYql::EStorageType Storage = NYql::EStorageType::RowStorage;
+    TVector<TNativeUniqueConstraint> UniqueConstraints = {};
 };
 
 using TNativeTableResolver = std::function<TNativeTable(std::string_view, NFrontend::TSourcePosition)>;

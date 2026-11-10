@@ -163,8 +163,13 @@ omitted nullable dependencies as NULL. UPSERT/UPDATE can generate values when al
 changed dependencies are available in the input; cases requiring existing stored
 dependencies remain explicitly unsupported. Explicit GENERATED ALWAYS values,
 self/cross-generated dependencies and non-deterministic expressions are rejected.
-INSERT OR REVERT remains an explicit gap, along with the unsupported
-forms listed below. Imported effects tests cover mixed reads/writes, indexes,
+INSERT OR REVERT shares its input across primary/unique-key duplicate checks,
+storage lookups and the write. A scalar conflict count gates the whole statement;
+the ordinary insert sink retains write-time constraint checks. Its conflict
+preparation constructs existing operators before optimization and adds no RBO rule.
+Defaults and generated columns in INSERT OR REVERT remain unsupported until
+their prepared values can be shared before these checks.
+Imported effects tests cover mixed reads/writes, indexes,
 shared producers and interactive transactions; their expansion is still in progress.
 
 Named sources outside correlated contexts retain one producer with distinct
@@ -212,8 +217,8 @@ Important exclusions remain explicit:
 
 - DDL, USE, PostgreSQL values, external/temporary tables, index-view syntax,
   table hints/sampling and unrecognized settings.
-- INSERT OR REVERT, batch writes, virtual generated columns and generated writes
-  requiring stored dependency lookup;
+- Batch writes, virtual generated columns, generated writes requiring stored
+  dependency lookup, and INSERT OR REVERT with defaults or generated columns;
   dynamic Int64 LIMIT/OFFSET and general row-valued scalar expressions.
 - Named USING keys, tuple IN subqueries, duplicate non-key star names,
   and FULL JOIN residual predicates other than column equality keys.
@@ -272,8 +277,8 @@ after an untimed compile and formatting warmup.
 The full-corpus compilation checkpoint covers 6,979 queries with native-required
 admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and
 two additional 1C samples. This establishes compilation coverage, not complete
-effects parity or negligible frontend cost. The latest completed standalone run
-has 257 passing tests. JOIN USING additionally has runtime value/type comparisons
+effects parity or negligible frontend cost. The `e1fc80d8039` validation included
+257 passing standalone tests. JOIN USING additionally has runtime value/type comparisons
 against explicit legacy ON/coalesce forms in scalar/block and nullable/required
 configurations, plus a handoff check with zero YQL expression/type allocations.
 The imported indexed-delete test had expectations explicitly marked as a legacy

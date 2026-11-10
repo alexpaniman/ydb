@@ -1,4 +1,5 @@
 #include "kqp_native_frontend.h"
+#include "kqp_native_write_preparation.h"
 #include "kqp_subplan_value.h"
 #include "frontend/frontend.h"
 #include "frontend/execution.h"
@@ -252,7 +253,14 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                         case W::Update: kind = effect.HasIndexes ? EEffectType::UpdateRowsIndex : EEffectType::UpdateRows; break;
                         case W::Delete: kind = effect.HasIndexes ? EEffectType::DeleteRowsIndex : EEffectType::DeleteRows; break;
                     }
-                    op = MakeIntrusive<TOpTableEffect>(input(), pos, table.Table, kind, std::move(options), std::move(columns), std::move(returning));
+                    auto prepared = input();
+                    if (effect.OnConflict == "revert") {
+                        prepared = PrepareInsertRevert(std::move(prepared), columns, table, pos, props);
+                        // Prechecks use the transaction's read snapshot. Keep
+                        // ordinary insert constraint enforcement for races.
+                        options.OnConflict = "abort";
+                    }
+                    op = MakeIntrusive<TOpTableEffect>(std::move(prepared), pos, table.Table, kind, std::move(options), std::move(columns), std::move(returning));
                     props.WithEffects = true;
                     props.WithReturning = !effect.Returning.empty();
                     break;

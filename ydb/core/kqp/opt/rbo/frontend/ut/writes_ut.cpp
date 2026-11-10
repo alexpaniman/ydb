@@ -21,6 +21,27 @@ const TBoundEffect& Effect(const TBoundProgram& program, std::size_t index = 0) 
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeWrites) {
+    Y_UNIT_TEST(InsertRevertRetainsStatementModeAndPreparedColumnTypes) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto result = CompileNative("INSERT OR REVERT INTO t (id) VALUES (1ul), (1ul) RETURNING name, id", WriteCatalog, settings);
+            const auto& effect = Effect(result.Program->Get());
+            UNIT_ASSERT(effect.Kind == EWriteKind::Insert);
+            UNIT_ASSERT_VALUES_EQUAL(effect.OnConflict, "revert");
+            UNIT_ASSERT_VALUES_EQUAL(effect.Columns.size(), 3);
+            UNIT_ASSERT_VALUES_EQUAL(effect.Returning.at(0).second, "name");
+            UNIT_ASSERT_VALUES_EQUAL(effect.Returning.at(1).second, "id");
+            auto defaults = [](std::string_view name, TSourcePosition pos) {
+                auto table = WriteCatalog(name, pos);
+                table.WriteSchema->Defaults.emplace_back("value", EColumnDefault::Literal);
+                return table;
+            };
+            UNIT_ASSERT_EXCEPTION(CompileNative("INSERT OR REVERT INTO t (id) VALUES (1ul)", defaults, settings), TUnsupportedFeature);
+            // Explicit values remove the runtime default dependency.
+            UNIT_ASSERT(CompileNative("INSERT OR REVERT INTO t (id, value) VALUES (1ul, 2)", defaults, settings).Program);
+        }
+    }
+
     Y_UNIT_TEST(IndependentParsersAgreeOnWriteStructure) {
         for (const auto* sql : {
             "INSERT INTO t (id, value) VALUES (1, 2), (3, NULL) RETURNING id, value;",

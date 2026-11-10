@@ -6,6 +6,7 @@ SRCS(
     global_pruning.cpp
     frontend_lowering.cpp
     kqp_native_frontend.cpp
+    kqp_native_write_preparation.cpp
     kqp_native_types.cpp
     kqp_native_olap.cpp
     kqp_subplan_value.cpp

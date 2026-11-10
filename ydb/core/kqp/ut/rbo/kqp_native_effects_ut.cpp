@@ -88,6 +88,86 @@ TVector<TString> WriteResults(bool native, bool peephole) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeEffects) {
+    Y_UNIT_TEST_TWIN(InsertRevertNoOpPreservesReturningAndOtherStatements, Peephole) {
+        NKikimrConfig::TAppConfig config;
+        auto* service = config.MutableTableServiceConfig();
+        service->SetEnableNewRBO(true);
+        service->SetEnableFallbackToYqlOptimizer(false);
+        service->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+        service->SetEnableNewRBOPhysicalStagePeephole(Peephole);
+        service->SetEnableIndexStreamWrite(true);
+        TKikimrRunner kikimr(TKikimrSettings(config).SetWithSampleTables(false));
+        auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+        const auto created = session.ExecuteSchemeQuery(R"(
+            CREATE TABLE Target (id Uint64, value String, PRIMARY KEY(id), INDEX by_value GLOBAL UNIQUE ON(value));
+            CREATE TABLE Audit (id Uint64, PRIMARY KEY(id));
+        )").GetValueSync();
+        UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+        auto execute = [&](const TString& sql) {
+            auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
+            UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos,
+                result.GetIssues().ToString());
+            return result;
+        };
+        auto inserted = execute("INSERT OR REVERT INTO Target (id, value) VALUES (1ul, 'old') RETURNING value, id;");
+        CompareYson(R"([[["old"];[1u]]])", FormatResultSetYson(inserted.GetResultSet(0)));
+        for (const TString& rows : {TString("(2ul, 'a'), (2ul, 'b'), (3ul, 'c')"), TString("(4ul, 'old'), (5ul, 'new')")}) {
+            auto reverted = execute("INSERT OR REVERT INTO Target (id, value) VALUES " + rows + " RETURNING value, id;");
+            CompareYson("[]", FormatResultSetYson(reverted.GetResultSet(0)));
+        }
+        auto mixed = execute(R"(
+            UPSERT INTO Audit (id) VALUES (1ul);
+            INSERT OR REVERT INTO Target (id, value) VALUES (1ul, 'conflict'), (9ul, 'unused');
+            SELECT COUNT(*) FROM Audit;
+            SELECT id, value FROM Target;
+        )");
+        CompareYson("[[1u]]", FormatResultSetYson(mixed.GetResultSet(0)));
+        CompareYson(R"([[[1u];["old"]]])", FormatResultSetYson(mixed.GetResultSet(1)));
+    }
+
+    Y_UNIT_TEST_TWIN(InsertRevertChecksAreNativeBeforeOptimization, UniqueIndex) {
+        using namespace NFrontend;
+        NTests::TIdTestContext fixture;
+        const auto nodes = fixture.ExprCtx.NodeAllocationCounter;
+        const auto types = fixture.ExprCtx.TypeNodes.size();
+        auto query = CompileNativeToRbo(R"(
+            INSERT OR REVERT INTO t (id, value) VALUES (NULL, NULL), (1ul, 'same') RETURNING value, id;
+        )", [](std::string_view, TSourcePosition) {
+            TNativeTable table{{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::String, true}}},
+                TWriteSchema{{"id"}, {}, UniqueIndex}}, TRboTable{"/Root/t", "1:2", "", "3"}};
+            if constexpr (UniqueIndex) {
+                TRboTable index{"/Root/t/by_value/indexImplTable", "1:3", "", "3"};
+                auto columns = std::make_shared<TRboTable::TColumns>();
+                columns->emplace("value", TType{ETypeKind::String, true});
+                index.NativeColumns = std::move(columns);
+                table.UniqueConstraints.push_back({std::move(index), {"value"}});
+            }
+            return table;
+        }, fixture.ExprCtx);
+        UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 1);
+        auto& root = *query.Roots.front();
+        UNIT_ASSERT(root.ComputeTypes(fixture.RboCtx) == IGraphTransformer::TStatus::Ok);
+        const auto& effect = CastOperator<TOpTableEffect>(*root.GetInput());
+        UNIT_ASSERT_VALUES_EQUAL(*effect.Options.OnConflict, "abort");
+        UNIT_ASSERT(effect.GetInput()->Kind == EOperator::Join);
+        UNIT_ASSERT_VALUES_EQUAL(effect.GetReturningColumns().Items()[0].second, "value");
+        size_t lookups = 0;
+        for (const auto& item : root) {
+            UNIT_ASSERT(item.Current->NativeSchema);
+            for (const auto& expression : item.Current->GetExpressions()) UNIT_ASSERT(expression.get().IsNative());
+            if (item.Current->Kind == EOperator::TableLookup) {
+                ++lookups;
+                const auto& lookup = CastOperator<TOpTableLookup>(*item.Current);
+                UNIT_ASSERT(lookup.AllowNullKeys);
+                UNIT_ASSERT_VALUES_EQUAL(lookup.LookupKeys.Items().size(), 1);
+            }
+        }
+        UNIT_ASSERT_VALUES_EQUAL(lookups, UniqueIndex ? 2 : 1);
+        UNIT_ASSERT_VALUES_EQUAL(fixture.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(fixture.ExprCtx.TypeNodes.size(), types);
+    }
+
     Y_UNIT_TEST_TWIN(WritesAndReturningMatchLegacyStorageSemantics, Peephole) {
         const auto expected = WriteResults(false, Peephole);
         const auto actual = WriteResults(true, Peephole);
