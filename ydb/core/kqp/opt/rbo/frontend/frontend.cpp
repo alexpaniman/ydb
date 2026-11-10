@@ -989,15 +989,15 @@ private:
         const std::unordered_set<std::string>& written, const std::unordered_set<std::string>& keys,
         TBoundEffect& effect, TSourcePosition pos) {
         if (effect.Kind != EWriteKind::Delete) for (const auto& [name, value] : generated) {
-            std::unordered_set<std::string_view> dependencies;
-            for (const auto& node : value->Expressions.Nodes()) if (node.Op == EOpcode::Column)
-                dependencies.insert(value->Columns.at(node.ColumnId));
             // UPDATE changes generated values only when one of their inputs
             // changes. Primary keys identify rows and cannot change here.
-            if (effect.Kind == EWriteKind::Update && std::none_of(dependencies.begin(), dependencies.end(),
-                    [&](const auto dependency) { return written.contains(std::string(dependency)) && !keys.contains(std::string(dependency)); })) continue;
-            for (const auto dependency : dependencies) {
-                const auto key = std::string(dependency);
+            if (effect.Kind == EWriteKind::Update && std::none_of(value->Dependencies.begin(), value->Dependencies.end(),
+                    [&](const auto dependency) {
+                        const auto& key = value->Columns[dependency];
+                        return written.contains(key) && !keys.contains(key);
+                    })) continue;
+            for (const auto dependency : value->Dependencies) {
+                const auto& key = value->Columns[dependency];
                 const bool defaultOnInsert = effect.Kind == EWriteKind::Upsert && !keys.contains(key) &&
                     std::find(effect.DefaultColumns.begin(), effect.DefaultColumns.end(), key) != effect.DefaultColumns.end();
                 if (!written.contains(key) || defaultOnInsert)
@@ -2554,8 +2554,25 @@ TRowExpression CompileRowExpression(std::string_view sql, std::span<const TCatal
     auto [program, root] = TBinder(syntax, noTables, binding).RunExpression(parsed.Root, columns, target);
     CheckProgram(program);
     root = program.Expressions.FoldConstants(std::span<const TExprId>(&root, 1)).front();
-    TRowExpression result{std::move(program.Expressions), root, {}};
+    TRowExpression result{std::move(program.Expressions), root, {}, {}};
+    result.Columns.reserve(columns.size());
     for (const auto& column : columns) result.Columns.push_back(column.Name);
+    // The arena is append-only: folded-away branches still have nodes, but
+    // must not become row dependencies or trigger stored-value lookups.
+    std::vector<bool> visited(result.Expressions.Size());
+    std::vector<bool> used(columns.size());
+    std::vector<TExprId> pending{root};
+    visited[root] = true;
+    while (!pending.empty()) {
+        const auto id = pending.back(); pending.pop_back();
+        const auto& node = result.Expressions[id];
+        if (node.Op == EOpcode::Column) used.at(node.ColumnId) = true;
+        for (const auto child : node.Arguments) if (!visited[child]) {
+            visited[child] = true;
+            pending.push_back(child);
+        }
+    }
+    for (TColumnId id = 0; id < used.size(); ++id) if (used[id]) result.Dependencies.push_back(id);
     return result;
 }
 

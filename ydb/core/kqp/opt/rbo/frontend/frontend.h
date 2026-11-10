@@ -20,6 +20,8 @@ struct TRowExpression {
     TExpressionArena Expressions;
     TExprId Root;
     std::vector<std::string> Columns;
+    // Schema ordinals used by the folded root, in schema order.
+    std::vector<TColumnId> Dependencies;
 };
 
 TRowExpression CompileRowExpression(std::string_view sql, std::span<const TCatalogColumn> columns,

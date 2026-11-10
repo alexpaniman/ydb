@@ -264,6 +264,29 @@ Y_UNIT_TEST_SUITE(KqpNativeWrites) {
             UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, catalog), TFrontendError, sql);
     }
 
+    Y_UNIT_TEST(FoldedGeneratedDependenciesDoNotRequireStoredValues) {
+        const auto catalog = [](auto name, auto pos) {
+            auto table = WriteCatalog(name, pos);
+            table.Columns[0].Type = {ETypeKind::Int32};
+            table.Columns.push_back({"g", {ETypeKind::Int32, true}});
+            table.WriteSchema->Defaults = {{"value", EColumnDefault::Literal}};
+            table.WriteSchema->GeneratedColumns = {{"g", "CASE WHEN TRUE THEN id ELSE value END"}};
+            return table;
+        };
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto bound = CompileNative(R"(
+                UPSERT INTO t (id) VALUES (3) RETURNING g;
+                UPDATE t SET value = 7 WHERE id = 3 RETURNING g;
+            )", catalog, settings);
+            const auto& program = bound.Program->Get();
+            const auto& generated = Effect(program).GeneratedColumns;
+            UNIT_ASSERT_VALUES_EQUAL(generated.size(), 1);
+            UNIT_ASSERT(generated[0].second->Dependencies == (std::vector<TColumnId>{0}));
+            UNIT_ASSERT(Effect(program, 1).GeneratedColumns.empty());
+        }
+    }
+
     Y_UNIT_TEST(GeneratedMetadataRejectsInvalidDependenciesAndDefinitions) {
         for (const auto* expression : {"g + 1", "missing + 1", "$query_parameter", "SUM(value)", "(SELECT id FROM t)",
                 "id; SELECT 1", "CAST(RandomUuid(id) AS String)"}) {

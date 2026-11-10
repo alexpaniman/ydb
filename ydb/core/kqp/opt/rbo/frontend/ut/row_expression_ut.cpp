@@ -32,6 +32,7 @@ Y_UNIT_TEST_SUITE(KqpNativeRowExpressions) {
         const TCatalogColumn columns[]{{"id", {ETypeKind::Int32}}, {"payload", {ETypeKind::Int32, true}}};
         const auto value = CompileRowExpression("id * (2 + 8) + COALESCE(payload, 0)", columns, {ETypeKind::Int32, true});
         UNIT_ASSERT(value.Columns == (std::vector<std::string>{"id", "payload"}));
+        UNIT_ASSERT(value.Dependencies == (std::vector<TColumnId>{0, 1}));
         UNIT_ASSERT(value.Expressions[value.Root].Type == (TType{ETypeKind::Int32, true}));
         for (const auto payload : {std::optional<std::int64_t>{7}, std::optional<std::int64_t>{}}) {
             TEvaluationContext context;
@@ -43,10 +44,27 @@ Y_UNIT_TEST_SUITE(KqpNativeRowExpressions) {
                 30 + payload.value_or(0));
         }
         const auto constant = CompileRowExpression("(2 + 8) * 3", {}, {ETypeKind::Int32});
+        UNIT_ASSERT(constant.Dependencies.empty());
         UNIT_ASSERT(constant.Expressions[constant.Root].Op == EOpcode::Literal);
         UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(constant.Expressions, constant.Root).Data), 30);
         const auto unicode = CompileRowExpression("'привет'u", {}, {ETypeKind::Utf8});
         UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(Evaluate(unicode.Expressions, unicode.Root).Data), "привет");
+    }
+
+    Y_UNIT_TEST(DependenciesDescribeTheFoldedRoot) {
+        const TCatalogColumn columns[]{{"unused", {ETypeKind::Int32}}, {"id", {ETypeKind::Int32}},
+            {"payload", {ETypeKind::Int32, true}}};
+        for (const auto* sql : {"CASE WHEN TRUE THEN id ELSE payload END", "COALESCE(id, payload)",
+                "IF(FALSE, unused, id + id)"}) {
+            const auto value = CompileRowExpression(sql, columns, {ETypeKind::Int32, true});
+            UNIT_ASSERT_C(value.Dependencies == (std::vector<TColumnId>{1}), sql);
+            TEvaluationContext context;
+            context.Column = [&](TColumnId id) -> TValue {
+                UNIT_ASSERT_VALUES_EQUAL(id, 1);
+                return {columns[id].Type, std::int64_t{3}};
+            };
+            UNIT_ASSERT(!Evaluate(value.Expressions, value.Root, context).IsNull());
+        }
     }
 
     Y_UNIT_TEST(RowExpressionsAreClosedAndBounded) {
