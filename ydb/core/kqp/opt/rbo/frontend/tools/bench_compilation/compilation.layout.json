@@ -1,0 +1,60 @@
+{
+  "format": "violinoscope-layout",
+  "version": 4,
+  "name": "Native frontend migration",
+  "unit": "Compile query",
+  "tree": {
+    "span": "Compile query",
+    "open": true,
+    "rest": true,
+    "children": [
+      {
+        "group": "Native frontend",
+        "open": true,
+        "children": [
+          {
+            "span": "Native parse"
+          },
+          {
+            "span": "Native table discovery"
+          },
+          {
+            "span": "Native binding and scalar typing"
+          },
+          {
+            "span": "Native operator translation"
+          }
+        ]
+      },
+      {
+        "span": "New RBO optimization",
+        "open": true,
+        "children": [
+          {
+            "span": "Invoke CBO"
+          },
+          {
+            "span": "Constant folding stage"
+          },
+          {
+            "span": "Index selection rules"
+          }
+        ]
+      },
+      {
+        "span": "Emit native physical plan",
+        "open": true
+      },
+      {
+        "span": "Compile emitted physical query",
+        "open": true
+      }
+    ]
+  },
+  "projections": [
+    {
+      "span": "Native operator typing",
+      "open": true
+    }
+  ]
+}
