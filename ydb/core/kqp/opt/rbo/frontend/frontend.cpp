@@ -294,8 +294,8 @@ public:
 
     void Add(TScopeColumn column) {
         const auto index = Columns.size();
-        auto addName = [&](const std::string& name) {
-            auto [it, inserted] = Names.emplace(name, index);
+        auto addName = [&](auto&& name) {
+            auto [it, inserted] = Names.try_emplace(std::forward<decltype(name)>(name), index);
             if (!inserted) it->second = Ambiguous;
         };
         addName(column.Name);
@@ -866,6 +866,14 @@ private:
         if (const auto found = Tables.find(path); found != Tables.end()) return found->second;
         auto table = Catalog(path, source.Position);
         if (table.Name.empty()) throw TFrontendError(source.Position, "catalog returned an unnamed table");
+        // Validate the immutable snapshot once for both reads and writes.
+        // These temporary views expire before the snapshot is moved into Tables.
+        {
+            std::unordered_set<std::string_view> names;
+            names.reserve(table.Columns.size());
+            for (const auto& column : table.Columns)
+                if (!names.insert(column.Name).second) throw TFrontendError(source.Position, "duplicate catalog column: " + column.Name);
+        }
         return Tables.emplace(path, std::move(table)).first->second;
     }
 
@@ -877,10 +885,7 @@ private:
         TScope scope;
         scope.Reserve(table.Columns.size());
         read.Columns.reserve(table.Columns.size());
-        std::unordered_set<std::string> names;
-        names.reserve(table.Columns.size());
         for (const auto& column : table.Columns) {
-            if (!names.insert(column.Name).second) throw TFrontendError(source.Position, "duplicate catalog column: " + column.Name);
             auto id = Column(column.Name, alias, column.Type, source.Position); read.Columns.push_back(id); scope.Add(ScopeColumn(id));
         }
         return {Relation(std::move(read)), std::move(scope)};
@@ -899,8 +904,7 @@ private:
         std::unordered_map<std::string, TType> types;
         for (const auto& column : table.Columns) {
             Program.Expressions.ValidateType(column.Type, pos);
-            if (!types.emplace(column.Name, column.Type).second)
-                throw TFrontendError(pos, "duplicate catalog column: " + column.Name);
+            types.emplace(column.Name, column.Type);
         }
         auto columnType = [&](const std::string& name) {
             const auto found = types.find(name);

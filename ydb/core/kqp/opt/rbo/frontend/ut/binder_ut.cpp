@@ -21,6 +21,17 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(CatalogColumnUniquenessIsCheckedForReadsAndWrites) {
+        const auto invalid = [](std::string_view name, TSourcePosition) {
+            TCatalogTable table{std::string(name), {{"id", {ETypeKind::Uint64}}, {"id", {ETypeKind::String}}}};
+            table.WriteSchema = TWriteSchema{{"id"}, {}};
+            return table;
+        };
+        for (const auto* sql : {"SELECT id FROM a", "UPSERT INTO a(id) VALUES (1ul)"}) {
+            UNIT_ASSERT_EXCEPTION_CONTAINS(CompileNative(sql, invalid), TFrontendError, "duplicate catalog column: id");
+        }
+    }
+
     Y_UNIT_TEST(NamedInQueriesReuseTheSourceProducer) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;
