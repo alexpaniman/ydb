@@ -466,7 +466,7 @@ private:
     }
 
     void AppendSet(std::shared_ptr<TSelect>& left, ESetOperation op, std::shared_ptr<TSelect> right) {
-        if (left->SetInputs.empty()) {
+        if (left->SetInputs.empty() || !left->OrderBy.empty() || left->Limit != NoSyntax) {
             auto set = std::make_shared<TSelect>(); set->Position = left->Position;
             set->Ctes = std::move(left->Ctes);
             set->AppendSetInput(std::move(left)); left = std::move(set);
@@ -513,6 +513,15 @@ private:
     }
 
     std::shared_ptr<TSelect> SelectCore() {
+        if (Take("(")) {
+            // SQL v1's parenthesized set operand is one SELECT kind. Nested
+            // compounds and WITH belong in a derived table, not this form.
+            if (!Is("SELECT") && !Is("FROM")) Fail("expected SELECT in parenthesized set operand");
+            auto result = Select();
+            if (!result->SetInputs.empty()) Fail("compound query is not a parenthesized set operand");
+            Expect(")");
+            return result;
+        }
         auto result = std::make_shared<TSelect>(); result->Position = Token().Position;
         if (Take("WITH")) {
             do {

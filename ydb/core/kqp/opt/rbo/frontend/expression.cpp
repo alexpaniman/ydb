@@ -2,6 +2,7 @@
 
 #include <contrib/libs/double-conversion/double-conversion/string-to-double.h>
 #include <util/charset/utf8.h>
+#include <library/cpp/string_utils/url/url.h>
 
 #include <algorithm>
 #include <bit>
@@ -1314,9 +1315,17 @@ TExprId TExpressionArena::Unary(O op, TExprId input, TSourcePosition position) {
         if (!IsDate(type.Kind) || type.IsExtendedTemporal())
             throw TUnsupportedFeature(EFeature::Type, position, "DateTime::Split requires Date, Datetime or Timestamp");
         type = {K::Calendar, type.OptionalDepth};
-    } else if (op == O::CalendarDate || op == O::CalendarDatetime || op == O::CalendarTimestamp || op == O::CalendarYear) {
+    } else if (op == O::TemporalSeconds) {
+        if (!type.IsDate()) Fail(position, "DateTime::ToSeconds requires a date or timestamp");
+        type = {type.IsExtendedTemporal() ? K::Int64 : K::Uint32, type.OptionalDepth};
+    } else if (op == O::UrlHost || op == O::UrlCutWWW) {
+        if (type.Kind == K::Null) input = Convert(input, {K::String, true}, position);
+        else if (type.IsString()) input = Convert(input, {K::String, true}, position);
+        else Fail(position, "URL function requires String or Utf8");
+        type = {K::String, true};
+    } else if (op == O::CalendarDate || op == O::CalendarDatetime || op == O::CalendarTimestamp || op == O::CalendarYear || op == O::CalendarMinute) {
         if (type.Kind != K::Calendar) Fail(position, "calendar operation requires a calendar value");
-        type = {op == O::CalendarDate ? K::Date : op == O::CalendarDatetime ? K::Datetime : op == O::CalendarTimestamp ? K::Timestamp : K::Uint16, type.OptionalDepth};
+        type = {op == O::CalendarDate ? K::Date : op == O::CalendarDatetime ? K::Datetime : op == O::CalendarTimestamp ? K::Timestamp : op == O::CalendarMinute ? K::Uint8 : K::Uint16, type.OptionalDepth};
     } else if (op == O::StablePickle) {
         if (type.IsJson()) throw TUnsupportedFeature(EFeature::Type, position, "JSON key serialization is outside the native profile");
         if (type.IsCollection()) Fail(position, "Collection serialization is not supported");
@@ -1577,8 +1586,13 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
         }
         return Append({O::Unwrap, type.Unwrapped(), position, {arguments.begin(), arguments.end()}, {}, {}, 0});
     }
+    if (lowered == "url::gethost" || lowered == "url::cutwww") {
+        arity(1);
+        return Unary(lowered == "url::gethost" ? O::UrlHost : O::UrlCutWWW, arguments[0], position);
+    }
     if (lowered.starts_with("datetime::") || lowered.starts_with("datetime2::")) {
         const auto function = lowered.substr(lowered.find("::") + 2);
+        if (function == "toseconds") { arity(1); return Unary(O::TemporalSeconds, arguments[0], position); }
         if (function == "intervalfromdays" || function == "intervalfromhours" || function == "intervalfromminutes") {
             arity(1);
             auto amount = arguments[0];
@@ -1618,7 +1632,7 @@ TExprId TExpressionArena::Call(std::string_view name, std::span<const TExprId> a
             return Binary(function == "shiftmonths" ? O::CalendarShiftMonths : O::CalendarShiftYears, calendar(arguments[0]), amount, position);
         }
         for (const auto& [functionName, op] : {std::pair{"makedate", O::CalendarDate}, {"makedatetime", O::CalendarDatetime},
-            {"maketimestamp", O::CalendarTimestamp}, {"getyear", O::CalendarYear}}) {
+            {"maketimestamp", O::CalendarTimestamp}, {"getyear", O::CalendarYear}, {"getminute", O::CalendarMinute}}) {
             if (function == functionName) { arity(1); return Unary(op, calendar(arguments[0]), position); }
         }
     }
@@ -2148,6 +2162,24 @@ TValue Execute(const TExprNode& node, const std::vector<std::optional<TValue>>& 
         return {node.Type, std::get<std::uint64_t>(left.Data) / DateUnit(node.Type.Kind)};
     if (node.Op == O::CalendarYear)
         return {node.Type, static_cast<std::uint64_t>(int(CalendarDate(std::get<std::uint64_t>(left.Data)).year()))};
+    if (node.Op == O::CalendarMinute)
+        return {node.Type, std::get<std::uint64_t>(left.Data) / 60'000'000 % 60};
+    if (node.Op == O::TemporalSeconds) {
+        if (left.Type.IsExtendedTemporal()) {
+            const auto value = std::get<std::int64_t>(left.Data);
+            return {node.Type, left.Type.Kind == K::Date32 ? value * 86400 :
+                left.Type.Kind == K::Timestamp64 ? value / 1'000'000 : value};
+        }
+        const auto value = std::get<std::uint64_t>(left.Data);
+        return {node.Type, std::uint64_t(std::uint32_t(left.Type.Kind == K::Date ? value * 86400 :
+            left.Type.Kind == K::Timestamp ? value / 1'000'000 : value))};
+    }
+    if (node.Op == O::UrlHost || node.Op == O::UrlCutWWW) {
+        const auto& text = std::get<std::string>(left.Data);
+        const TStringBuf input(text.data(), text.size());
+        const auto result = node.Op == O::UrlHost ? GetOnlyHost(input) : CutWWWPrefix(input);
+        return result.empty() ? NullValue(node.Type) : TValue{node.Type, std::string(result.data(), result.size())};
+    }
     if (node.Op == O::CalendarShiftMonths || node.Op == O::CalendarShiftYears) {
         const auto shifted = ShiftCalendar(std::get<std::uint64_t>(left.Data), std::get<std::int64_t>(argument(1).Data), node.Op == O::CalendarShiftYears);
         return shifted ? TValue{node.Type, *shifted} : NullValue(node.Type);

@@ -21,6 +21,63 @@ TExprId Integer(TExpressionArena& arena, std::int64_t value) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeExpressions) {
+    Y_UNIT_TEST(CalendarMinuteAndSecondsPreserveTypesAndNulls) {
+        TExpressionArena arena;
+        const TType types[]{{K::Date}, {K::Datetime}, {K::Timestamp}, {K::Date32}, {K::Datetime64}, {K::Timestamp64}};
+        for (const auto type : types) {
+            for (const bool nullable : {false, true}) {
+                const auto inputType = nullable ? type.Optional() : type;
+                const TExprId arg[]{arena.Column(0, inputType)};
+                const auto seconds = arena.Call("DateTime::ToSeconds", arg);
+                UNIT_ASSERT(arena[seconds].Type == (TType{type.IsExtendedTemporal() ? K::Int64 : K::Uint32, nullable}));
+                const bool days = type.Kind == K::Date || type.Kind == K::Date32;
+                const bool micros = type.Kind == K::Timestamp || type.Kind == K::Timestamp64;
+                for (const std::int64_t value : {-1, 0, 1, 86399, 86400, 86401}) {
+                    if (!type.IsExtendedTemporal() && value < 0) continue;
+                    TEvaluationContext context;
+                    const auto payload = days ? value / 86400 : micros ? value * 1'000'000 + (value < 0 ? -123456 : 123456) : value;
+                    context.Column = [&](auto) { return TValue{inputType, type.IsExtendedTemporal() ? TScalar{payload} : TScalar{std::uint64_t(payload)}}; };
+                    const auto actual = Evaluate(arena, seconds, context);
+                    const auto expected = days ? value / 86400 * 86400 : value;
+                    if (type.IsExtendedTemporal()) UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(actual.Data), expected);
+                    else UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(actual.Data), expected);
+                    if (!type.IsExtendedTemporal()) {
+                        const auto minute = arena.Call("DateTime::GetMinute", arg);
+                        UNIT_ASSERT(arena[minute].Type == (TType{K::Uint8, nullable}));
+                        UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(arena, minute, context).Data), days ? 0 : value / 60 % 60);
+                    }
+                }
+                if (nullable) {
+                    TEvaluationContext context; context.Column = [&](auto) { return TValue{inputType, {}}; };
+                    UNIT_ASSERT(Evaluate(arena, seconds, context).IsNull());
+                }
+            }
+        }
+    }
+
+    Y_UNIT_TEST(UrlFunctionsMatchExistingByteSemantics) {
+        TExpressionArena arena;
+        const std::pair<const char*, const char*> cases[]{
+            {"https://www.example.org:443/path?x=1", "example.org"},
+            {"WWW.Example.org/path", "Example.org"},
+            {"localhost:80/path", "localhost"},
+            {"", nullptr}, {"http:///path", nullptr}, {"www.", nullptr},
+        };
+        for (const auto& [input, expected] : cases) {
+            const TExprId arg[]{arena.Literal({K::String}, std::string(input))};
+            const TExprId host[]{arena.Call("Url::GetHost", arg)};
+            const auto root = arena.Call("Url::CutWWW", host);
+            UNIT_ASSERT(arena[root].Type == (TType{K::String, true}));
+            for (auto id : {root, arena.FoldConstants(std::span(&root, 1)).front()}) {
+                const auto actual = Evaluate(arena, id);
+                UNIT_ASSERT_VALUES_EQUAL(actual.IsNull(), !expected);
+                if (expected) UNIT_ASSERT_VALUES_EQUAL(std::get<std::string>(actual.Data), expected);
+            }
+        }
+        const TExprId null[]{arena.Literal({K::Null}, {})};
+        UNIT_ASSERT(Evaluate(arena, arena.Call("Url::GetHost", null)).IsNull());
+    }
+
     Y_UNIT_TEST(TupleElementPreservesPayloadAndStateNullability) {
         TExpressionArena arena;
         for (const TType payloadType : {TType{K::Int32}, TType{K::Int32, true}, TType{K::Null}}) {

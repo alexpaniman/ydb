@@ -107,7 +107,7 @@ enum class EOpcode : std::uint8_t {
     Abs, Length, Lower, Upper, Contains, StartsWith, EndsWith, Substring,
     Concat, Ensure, StablePickle, Find,
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
-    CalendarShiftMonths, CalendarShiftYears,
+    CalendarShiftMonths, CalendarShiftYears, CalendarMinute, TemporalSeconds, UrlHost, UrlCutWWW,
     Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection, RandomUuid, Like, TupleElement,
 };
 

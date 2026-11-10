@@ -107,7 +107,9 @@ struct TSelect {
     std::vector<ESetOperation> SetOperations;
 
     void AppendSetInput(std::shared_ptr<TSelect> input) {
-        if (input->SetInputs.empty()) {
+        // Sorting, limits and local CTEs belong to this operand. Flatten only
+        // a pure set expression, otherwise those semantics would be lost.
+        if (input->SetInputs.empty() || !input->OrderBy.empty() || input->Limit != NoSyntax || !input->Ctes.empty()) {
             SetInputs.push_back(std::move(input));
             SetOperations.push_back(ESetOperation::Push);
         } else {

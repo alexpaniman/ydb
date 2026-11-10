@@ -7,6 +7,36 @@
 using namespace NKikimr::NKqp::NFrontend;
 
 Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
+    Y_UNIT_TEST(ParenthesizedSetOperandsPreserveLocalClauses) {
+        for (const auto* sql : {
+            "SELECT * FROM ((SELECT 1 AS x) UNION ALL (SELECT 2 AS x))",
+            "SELECT * FROM ((SELECT 1 AS x ORDER BY x LIMIT 1) UNION ALL SELECT 3 AS x)",
+            "SELECT * FROM (SELECT 1 AS x UNION ALL (SELECT 2 AS x ORDER BY x DESC LIMIT 1))",
+            "SELECT * FROM ((SELECT 1 AS x) EXCEPT (SELECT 2 AS x) INTERSECT (SELECT 3 AS x))",
+            "WITH q AS (SELECT 1 AS x) SELECT * FROM ((SELECT x FROM q LIMIT 1) UNION SELECT 3 AS x)",
+        }) {
+            const auto fast = Parse(sql);
+            const auto grammar = ParseGrammar(sql);
+            UNIT_ASSERT_VALUES_EQUAL_C(SyntaxFingerprint(fast), SyntaxFingerprint(grammar), sql);
+            TCompilerSettings settings; settings.Mode = ECompilerMode::NativeRequired; settings.Parser = EParser::Verify;
+            const auto result = CompileNative(sql, {}, settings);
+            UNIT_ASSERT_C(result.Program, sql);
+        }
+        const auto parsed = Parse("SELECT * FROM ((SELECT 1 AS x LIMIT 1) UNION SELECT 3 AS x)");
+        const auto& set = *parsed.Statements[0].Query->Source->Query;
+        UNIT_ASSERT_VALUES_EQUAL(set.SetInputs.size(), 2);
+        UNIT_ASSERT(set.SetInputs[0]->Limit != NoSyntax);
+        UNIT_ASSERT(set.SetInputs[0]->SetInputs.empty());
+        for (const auto* sql : {
+            "SELECT * FROM ((SELECT 1 AS x UNION SELECT 2 AS x) UNION SELECT 3 AS x)",
+            "SELECT * FROM ((WITH q AS (SELECT 1 AS x) SELECT x FROM q) UNION SELECT 3 AS x)",
+            "SELECT * FROM (((SELECT 1 AS x)))",
+        }) {
+            UNIT_ASSERT_EXCEPTION_C(Parse(sql), TFrontendError, sql);
+            UNIT_ASSERT_EXCEPTION_C(ParseGrammar(sql), TFrontendError, sql);
+        }
+    }
+
     Y_UNIT_TEST(GroupingSetsHaveSharedBoundedExpansion) {
         const std::pair<const char*, TGroupingSets> cases[]{
             {"id, value", {}},
