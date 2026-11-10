@@ -836,7 +836,7 @@ FROM (
             UNIT_ASSERT_C(insert.IsSuccess(), insert.GetIssues().ToString());
         }
         const auto after = GetNewRBOCompileCounters(kikimr);
-        UNIT_ASSERT_VALUES_EQUAL(after.first, before.first);
+        UNIT_ASSERT_VALUES_EQUAL(after.first - before.first, queries.size());
         UNIT_ASSERT_VALUES_EQUAL(after.second, before.second);
 
         auto result = session.ExecuteQuery(R"(
@@ -10714,10 +10714,13 @@ FROM (
 
     std::vector<std::string> GetQueriesToTestFallbackToYql() {
         std::vector<std::string> queries = {
-            // Insert is not supported.
+            // VALUES inserts are now supported by the native frontend.
             R"(
                 INSERT INTO `/Root/t1` (a, b, c) VALUES (1, 2, 3);
             )",
+            // Unsupported scalar collection operations exercise automatic
+            // fallback and strict rejection independently of DML support.
+            "SELECT ListLength([1, 2]) AS n;",
             // Simple supported query in new RBO.
             R"(
                 select t1.a from `/Root/t1` as t1;
@@ -10735,6 +10738,7 @@ FROM (
     std::vector<std::pair<ui32, ui32>> GetCompileCountersToTestFallbackToYql(bool fallbackEnabled) {
         // Represents the number of successes and fails for each query with new RBO compiler pipeline.
         std::vector<std::pair<ui32, ui32>> expectedCompileCounters = {
+            {1, 0},
             {0, fallbackEnabled ? 0u : 1u},
             {1, 0},
             {0, fallbackEnabled ? 0u : 1u}
@@ -10745,21 +10749,21 @@ FROM (
 
     Y_UNIT_TEST(FallbackToYqlEnabled) {
         // Automatic mode handles unsupported queries through the legacy optimizer.
-        const std::vector<bool> expectedResult{true, true, true};
+        const std::vector<bool> expectedResult{true, true, true, true};
         TestFallbackToYql(/*fallbackToYqlEnabled=*/true, GetQueriesToTestFallbackToYql(), GetCompileCountersToTestFallbackToYql(true),
                           expectedResult, NQuery::EExecMode::Explain);
     }
 
     Y_UNIT_TEST(FallbackToYqlDisabled) {
-        // The INSERT and explicit legacy pragma are rejected in native-required mode.
-        const std::vector<bool> expectedResult{false, true, false};
+        // Unsupported collections and explicit legacy pragmas are rejected in native-required mode.
+        const std::vector<bool> expectedResult{true, false, true, false};
         TestFallbackToYql(/*fallbackToYqlEnabled=*/false, GetQueriesToTestFallbackToYql(), GetCompileCountersToTestFallbackToYql(false),
                           expectedResult, NQuery::EExecMode::Explain);
     }
 
     Y_UNIT_TEST(FallbackToYqlEnabledExecute) {
         // Automatic mode handles unsupported queries through the legacy optimizer.
-        const std::vector<bool> expectedResult{true, true, true};
+        const std::vector<bool> expectedResult{true, true, true, true};
         TestFallbackToYql(/*fallbackToYqlEnabled=*/true, GetQueriesToTestFallbackToYql(), GetCompileCountersToTestFallbackToYql(true),
                           expectedResult, NQuery::EExecMode::Execute);
     }
@@ -10871,8 +10875,8 @@ FROM (
     }
 
     Y_UNIT_TEST(FallbackToYqlDisabledExecute) {
-        // The INSERT and explicit legacy pragma are rejected in native-required mode.
-        const std::vector<bool> expectedResult{false, true, false};
+        // Unsupported collections and explicit legacy pragmas are rejected in native-required mode.
+        const std::vector<bool> expectedResult{true, false, true, false};
         TestFallbackToYql(/*fallbackToYqlEnabled=*/false, GetQueriesToTestFallbackToYql(), GetCompileCountersToTestFallbackToYql(false),
                           expectedResult, NQuery::EExecMode::Execute);
     }

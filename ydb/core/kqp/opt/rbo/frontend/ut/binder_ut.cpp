@@ -19,6 +19,57 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(NamedInQueriesReuseTheSourceProducer) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative(
+                "$q = SELECT value FROM a; SELECT value IN $q AS found FROM $q", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto saved = CompileNative(
+                "$q = SELECT id FROM a; $saved = $q; $q = SELECT id FROM b; SELECT 1ul IN $saved", Catalog, settings);
+            UNIT_ASSERT_VALUES_EQUAL(Find(saved.Program->Get(), ERelation::Read).Table, "a");
+            UNIT_ASSERT_VALUES_EQUAL(program.Subplans.size(), 1);
+            UNIT_ASSERT(program.Results[0].Columns[0].Type == (TType{ETypeKind::Bool, true}));
+            std::vector<TRelId> producers;
+            size_t reads = 0;
+            for (const auto& relation : program.Relations) {
+                reads += relation.Kind == ERelation::Read;
+                if (relation.Kind == ERelation::Reuse) producers.push_back(relation.Inputs.at(0));
+            }
+            UNIT_ASSERT_VALUES_EQUAL(reads, 1);
+            UNIT_ASSERT_VALUES_EQUAL(producers.size(), 2);
+            UNIT_ASSERT_VALUES_EQUAL(producers[0], producers[1]);
+        }
+    }
+
+    Y_UNIT_TEST(NamedInDiscoveryFollowsDeclarationScopeAndScalarClosures) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                "$q = SELECT id FROM a; $saved = $q; $q = SELECT id FROM b; SELECT 1ul IN $saved",
+                "$q = SELECT id FROM a; $found = 1ul IN $q; $q = SELECT id FROM b; SELECT $found",
+                "$q = SELECT id FROM a; $f = ($v)->{ RETURN $v IN $q; }; $q = SELECT id FROM b; SELECT $f(1ul)",
+            }) {
+                const auto parsed = ParseNative(sql, settings);
+                const auto tables = CollectTables(parsed);
+                UNIT_ASSERT_VALUES_EQUAL_C(tables.size(), 1, sql);
+                UNIT_ASSERT_VALUES_EQUAL_C(tables[0].Name, "a", sql);
+
+            }
+        }
+    }
+
+    Y_UNIT_TEST(NamedInQueriesValidateShapeAndDoNotCaptureConsumerColumns) {
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        for (const auto* sql : {
+            "$q = SELECT id, value FROM a; SELECT 1ul IN $q",
+            "$q = SELECT id; SELECT id IN $q FROM a",
+            "SELECT 1ul IN $missing",
+        }) UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TFrontendError, sql);
+        UNIT_ASSERT_EXCEPTION(CompileNative(
+            "$q = SELECT id FROM a; SELECT a.id FROM a JOIN b ON a.id IN $q", Catalog, settings), TUnsupportedFeature);
+    }
+
     Y_UNIT_TEST(NamedSourcesDoNotAcquireConsumerColumnCaptures) {
         TCompilerSettings settings; settings.Parser = EParser::Verify;
         for (const auto* sql : {

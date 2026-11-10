@@ -476,7 +476,7 @@ Y_UNIT_TEST_TWIN(ReturningWorks, QueryService) {
             [#;[7];["Payload7"]];
             [[101];[101];["Payload1"]]
         ])",
-        ExecuteReturningQuery(kikimr, QueryService, "SELECT * FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
+        ExecuteReturningQuery(kikimr, QueryService, "SELECT Fk, Key, Value FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
     );
 }
 
@@ -503,7 +503,7 @@ Y_UNIT_TEST_TWIN(ReturningWorksIndexedUpsert, QueryService) {
             [#;[7];["Payload7"]];
             [[110];[110];["Payload5"]]
         ])",
-        ExecuteReturningQuery(kikimr, QueryService, "SELECT * FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
+        ExecuteReturningQuery(kikimr, QueryService, "SELECT Fk, Key, Value FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
     );
 }
 
@@ -528,7 +528,7 @@ Y_UNIT_TEST_TWIN(ReturningWorksIndexedDelete, QueryService) {
             [[2];[2];["Payload2"]];
             [#;[7];["Payload7"]];
         ])",
-        ExecuteReturningQuery(kikimr, QueryService, "SELECT * FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
+        ExecuteReturningQuery(kikimr, QueryService, "SELECT Fk, Key, Value FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
     );
 }
 
@@ -550,7 +550,7 @@ Y_UNIT_TEST_TWIN(ReturningWorksIndexedDeleteV2, QueryService) {
             [[5];[5];["Payload5"]];
             [#;[7];["Payload7"]];
         ])",
-        ExecuteReturningQuery(kikimr, QueryService, "SELECT * FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
+        ExecuteReturningQuery(kikimr, QueryService, "SELECT Fk, Key, Value FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
     );
 }
 
@@ -580,7 +580,7 @@ Y_UNIT_TEST_TWIN(ReturningWorksIndexedInsert, QueryService) {
             [#;[7];["Payload7"]];
             [[101];[101];["Payload1"]]
         ])",
-        ExecuteReturningQuery(kikimr, QueryService, "SELECT * FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
+        ExecuteReturningQuery(kikimr, QueryService, "SELECT Fk, Key, Value FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
     );
 }
 
@@ -609,7 +609,7 @@ Y_UNIT_TEST_TWIN(ReturningWorksIndexedReplace, QueryService) {
             [#;[7];["Payload7"]];
             [[101];[101];["Payload1"]]
         ])",
-        ExecuteReturningQuery(kikimr, QueryService, "SELECT * FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
+        ExecuteReturningQuery(kikimr, QueryService, "SELECT Fk, Key, Value FROM `/Root/SecondaryKeys` ORDER BY Key, Fk;")
     );
 }
 

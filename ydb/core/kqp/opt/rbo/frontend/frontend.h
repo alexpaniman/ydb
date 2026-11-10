@@ -153,7 +153,7 @@ struct TSubplan {
 // Keep source order: every occurrence is validated, including overwritten hints.
 enum class EPlannerSetting : std::uint8_t {
     OptDisableAutoIndexSelection, EnableAutoIndexSelectionForIndexLookupJoin,
-    OptDisableTopSort, OptEnablePredicateExtract,
+    OptDisableTopSort, OptEnablePredicateExtract, OptEnableInplaceUpdate,
     OptShuffleElimination, OptShuffleEliminationWithMap, OptShuffleEliminationForAggregation,
     EnableNewRBOPhysicalStagePeephole, WindowFunctionsV2,
     OptEnableOlapPushdown, OptEnableOlapPushdownAggregate, OptEnableOlapPushdownProjections, OptEnableOlapPushdownRegexp,

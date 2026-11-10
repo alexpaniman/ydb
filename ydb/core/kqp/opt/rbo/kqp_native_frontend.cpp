@@ -61,6 +61,7 @@ void ApplyPlannerSettings(const std::vector<NFrontend::TPlannerSetting>& setting
             case S::EnableAutoIndexSelectionForIndexLookupJoin: config->EnableAutoIndexSelectionForIndexLookupJoin = std::get<bool>(option.Value); break;
             case S::OptDisableTopSort: config->OptDisableTopSort = std::get<bool>(option.Value); break;
             case S::OptEnablePredicateExtract: config->OptEnablePredicateExtract = std::get<bool>(option.Value); break;
+            case S::OptEnableInplaceUpdate: config->OptEnableInplaceUpdate = std::get<bool>(option.Value); break;
             case S::OptShuffleElimination: config->OptShuffleElimination = std::get<bool>(option.Value); break;
             case S::OptShuffleEliminationWithMap: config->OptShuffleEliminationWithMap = std::get<bool>(option.Value); break;
             case S::OptShuffleEliminationForAggregation: config->OptShuffleEliminationForAggregation = std::get<bool>(option.Value); break;
@@ -155,6 +156,7 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         std::vector<std::pair<NFrontend::TRelId, bool>> pending{{result.Root, false}};
         std::unordered_set<NFrontend::TExprId> visitedExpressions;
         auto scheduleExpression = [&](NFrontend::TExprId root) {
+            if (program.Subplans.empty()) return;
             std::vector<NFrontend::TExprId> expressions{root};
             while (!expressions.empty()) {
                 const auto id = expressions.back(); expressions.pop_back();

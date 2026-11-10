@@ -398,12 +398,13 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 PRAGMA ydb.OptimizerHints;
                 PRAGMA ydb.CostBasedOptimization = 'AuTo';
                 PRAGMA ydb.OptFallbackToLegacyOptimizer = 'false';
+                PRAGMA kikimr.OptEnableInplaceUpdate = 'true';
                 SELECT 2;
             )", Catalog, settings);
             const auto& program = compiled.Program->Get();
             const auto& options = program.PlannerSettings;
             UNIT_ASSERT_VALUES_EQUAL(program.Results.size(), 2);
-            UNIT_ASSERT_VALUES_EQUAL(options.size(), 9);
+            UNIT_ASSERT_VALUES_EQUAL(options.size(), 10);
             UNIT_ASSERT(options[0].Kind == S::OptDisableAutoIndexSelection && !std::get<bool>(options[0].Value));
             UNIT_ASSERT(options[1].Kind == S::OptDisableAutoIndexSelection && std::get<bool>(options[1].Value));
             UNIT_ASSERT(options[2].Kind == S::CostBasedOptimizationLevel && std::get<std::uint32_t>(options[2].Value) == 4);
@@ -413,6 +414,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             UNIT_ASSERT(options[6].Kind == S::OptimizerHints && std::get<std::string>(options[6].Value).empty());
             UNIT_ASSERT(options[7].Kind == S::CostBasedOptimization && std::get<std::string>(options[7].Value) == "auto");
             UNIT_ASSERT(options[8].Kind == S::OptFallbackToLegacyOptimizer && !std::get<bool>(options[8].Value));
+            UNIT_ASSERT(options[9].Kind == S::OptEnableInplaceUpdate && std::get<bool>(options[9].Value));
             for (size_t i = 1; i < options.size(); ++i) UNIT_ASSERT(options[i - 1].Position.Line < options[i].Position.Line);
             for (const auto* enabled : {"", "true", "TRUE", "t", "yes", "y", "on", "1", "da"}) {
                 const auto sql = std::string("PRAGMA ydb.WindowFunctionsV2='") + enabled + "'; SELECT 1";

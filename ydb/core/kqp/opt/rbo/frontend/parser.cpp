@@ -109,16 +109,21 @@ public:
             const bool identifier = ch == '`';
             Advance();
             std::string value;
+            auto chunk = Position.Offset;
             bool closed = false;
             while (Position.Offset < Text.size()) {
                 char current = Peek();
                 Advance();
                 if (current == ch) {
-                    if ((Ansi || identifier) && Peek() == ch) { Advance(); value += ch; continue; }
+                    value.append(Text.substr(chunk, Position.Offset - chunk - 1));
+                    if ((Ansi || identifier) && Peek() == ch) {
+                        Advance(); value += ch; chunk = Position.Offset; continue;
+                    }
                     closed = true;
                     break;
                 }
                 if (current == '\\' && (!Ansi || identifier)) {
+                    value.append(Text.substr(chunk, Position.Offset - chunk - 1));
                     if (Position.Offset == Text.size()) break;
                     current = Peek(); Advance();
                     switch (current) {
@@ -129,8 +134,9 @@ public:
                         case '\\': case '\'': case '"': case '`': break;
                         default: throw TFrontendError(Position, "unsupported string escape");
                     }
+                    value += current;
+                    chunk = Position.Offset;
                 }
-                value += current;
             }
             if (!closed) throw TFrontendError(pos, "unterminated quoted value");
             std::string suffix;
@@ -627,17 +633,32 @@ private:
     // YQL precedence, from SQLv1Antlr4.g.in: OR, AND, XOR, equality /
     // predicates, ordering comparisons, bit ops / ??, +/-, */%, ||, unary.
     int Precedence() const {
-        if (Is("OR")) return 1;
-        if (Is("AND")) return 2;
-        if (Is("XOR")) return 3;
-        if (Is("=") || Is("==") || Is("!=") || Is("<>") || Is("IS") || Is("ISNULL") || Is("NOTNULL") ||
-            Is("IN") || Is("BETWEEN") || Is("LIKE") || Is("ILIKE") ||
-            (Is("NOT") && (Is("IN", 1) || Is("BETWEEN", 1) || Is("LIKE", 1) || Is("ILIKE", 1)))) return 4;
-        if (Is("<") || Is("<=") || Is(">") || Is(">=")) return 5;
-        if (Is("??") || Is("&") || Is("|") || Is("^") || Is("<<") || Is(">>")) return 6;
-        if (Is("+") || Is("-")) return 7;
-        if (Is("*") || Is("/") || Is("%")) return 8;
-        if (Is("||")) return 9;
+        const auto& token = Token();
+        if (token.Kind == EToken::Symbol) {
+            // Delimiters end expressions immediately. In particular, a wide
+            // projection should not compare every comma against every keyword.
+            const auto& op = token.Text;
+            switch (op[0]) {
+                case '=': return 4;
+                case '!': return op == "!=" ? 4 : 0;
+                case '<': return op == "<>" ? 4 : op == "<<" ? 6 : 5;
+                case '>': return op == ">>" ? 6 : 5;
+                case '?': return op == "??" ? 6 : 0;
+                case '&': case '^': return 6;
+                case '|': return op == "||" ? 9 : 6;
+                case '+': case '-': return 7;
+                case '*': case '/': case '%': return 8;
+                default: return 0;
+            }
+        }
+        if (token.Kind != EToken::Identifier) return 0;
+        const auto& word = token.Word;
+        if (word == "OR") return 1;
+        if (word == "AND") return 2;
+        if (word == "XOR") return 3;
+        if (word == "IS" || word == "ISNULL" || word == "NOTNULL" || word == "IN" ||
+            word == "BETWEEN" || word == "LIKE" || word == "ILIKE" ||
+            (word == "NOT" && (Is("IN", 1) || Is("BETWEEN", 1) || Is("LIKE", 1) || Is("ILIKE", 1)))) return 4;
         return 0;
     }
 
@@ -650,9 +671,10 @@ private:
             left = Add(ESyntaxKind::Index, position, {}, {left, index});
         }
         bool predicate = false, ordering = false;
-        while (Precedence() >= minimum) {
-            const auto pos = Token().Position;
+        while (true) {
             const int precedence = Precedence();
+            if (precedence < minimum) break;
+            const auto pos = Token().Position;
             if ((precedence == 4 && std::exchange(predicate, true)) ||
                 (precedence == 5 && std::exchange(ordering, true)))
                 throw TUnsupportedFeature(EFeature::Expression, pos, "chained comparison requires grammar parser");

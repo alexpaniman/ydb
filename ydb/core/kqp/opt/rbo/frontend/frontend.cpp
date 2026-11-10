@@ -41,6 +41,7 @@ std::optional<TPlannerSetting> PlannerSetting(const TStatement& statement) {
         {"optdisableautoindexselection", S::OptDisableAutoIndexSelection},
         {"enableautoindexselectionforindexlookupjoin", S::EnableAutoIndexSelectionForIndexLookupJoin},
         {"optdisabletopsort", S::OptDisableTopSort}, {"optenablepredicateextract", S::OptEnablePredicateExtract},
+        {"optenableinplaceupdate", S::OptEnableInplaceUpdate},
         {"optshuffleelimination", S::OptShuffleElimination}, {"optshuffleeliminationwithmap", S::OptShuffleEliminationWithMap},
         {"optshuffleeliminationforaggregation", S::OptShuffleEliminationForAggregation},
         {"enablenewrbophysicalstagepeephole", S::EnableNewRBOPhysicalStagePeephole}, {"windowfunctionsv2", S::WindowFunctionsV2},
@@ -149,6 +150,11 @@ public:
     const std::string& PhysicalPath(const TSource& source) const { return PhysicalPaths.at(&source); }
 
     bool IsQueryBinding(std::size_t index) const { return bool(QueryBindings.at(index)); }
+    const TSelect* QueryReference(TSyntaxId expression) const {
+        if (Syntax.Expressions.at(expression).Kind != ESyntaxKind::Variable) return {};
+        const auto binding = References.at(expression);
+        return binding < QueryBindings.size() ? QueryBindings[binding].get() : nullptr;
+    }
     std::shared_ptr<TSelect> Query(const TSource& source) const {
         if (source.ParameterTable) return {};
         if (source.Query) return source.Query;
@@ -261,6 +267,11 @@ struct TScopeColumn {
     TType Type;
 };
 
+struct TStringHash {
+    using is_transparent = void;
+    std::size_t operator()(std::string_view value) const { return std::hash<std::string_view>{}(value); }
+};
+
 class TScope {
 public:
     void Add(TScopeColumn column) {
@@ -278,7 +289,7 @@ public:
     }
 
     const TScopeColumn* Find(std::string_view name, TSourcePosition pos) const {
-        auto it = Names.find(std::string(name));
+        auto it = Names.find(name);
         if (it == Names.end()) return nullptr;
         if (it->second == Ambiguous) throw TFrontendError(pos, "ambiguous column: " + std::string(name));
         return &Columns[it->second];
@@ -286,12 +297,12 @@ public:
     // Identity comparison only merges names whose local binding is known.
     // Ordinary expression binding still diagnoses absent or ambiguous names.
     const TScopeColumn* FindUnambiguous(std::string_view name) const {
-        const auto it = Names.find(std::string(name));
+        const auto it = Names.find(name);
         return it == Names.end() || it->second == Ambiguous ? nullptr : &Columns[it->second];
     }
     bool ShadowsQualifier(std::string_view name) const {
         const auto dot = name.rfind('.');
-        return dot != name.npos && Qualifiers.contains(std::string(name.substr(0, dot)));
+        return dot != name.npos && Qualifiers.contains(name.substr(0, dot));
     }
 
     std::vector<TColumnId> Ids() const {
@@ -303,21 +314,24 @@ public:
     std::vector<TScopeColumn> Columns;
 private:
     static constexpr std::size_t Ambiguous = std::numeric_limits<std::size_t>::max();
-    std::unordered_map<std::string, std::size_t> Names;
-    std::unordered_set<std::string> Qualifiers;
+    std::unordered_map<std::string, std::size_t, TStringHash, std::equal_to<>> Names;
+    std::unordered_set<std::string, TStringHash, std::equal_to<>> Qualifiers;
 };
 
 // Reserve explicit and star names before assigning anonymous projection names.
 // Result naming is independent of scalar typing and never changes column IDs.
 std::vector<std::string> ProjectionNames(const TSelect& query, const TParsedQuery& syntax, const TScope& scope) {
     std::vector<std::string> result(query.Projection.size());
-    std::unordered_set<std::string> used, named;
+    // A reserved star name may also be projected explicitly; two explicit
+    // results with the same name remain an error.
+    std::unordered_map<std::string, bool> names;
+    names.reserve(query.Projection.size());
     for (std::size_t i = 0; i < query.Projection.size(); ++i) {
         const auto& projection = query.Projection[i];
         const auto& expression = syntax.Expressions[projection.Expression];
         if (expression.Kind == ESyntaxKind::Star) {
             for (const auto& column : scope.Columns)
-                if (expression.Text.empty() || column.Qualifier == expression.Text) used.insert(column.Name);
+                if (expression.Text.empty() || column.Qualifier == expression.Text) names.try_emplace(column.Name, false);
             continue;
         }
         auto& name = result[i];
@@ -325,15 +339,16 @@ std::vector<std::string> ProjectionNames(const TSelect& query, const TParsedQuer
         if (name.empty() && expression.Kind == ESyntaxKind::Column)
             name = query.Joins.empty() ? expression.Text.substr(expression.Text.find_last_of('.') + 1) : expression.Text;
         if (!name.empty()) {
-            if (!named.insert(name).second) throw TFrontendError(expression.Position, "duplicate output column: " + name);
-            used.insert(name);
+            auto [entry, inserted] = names.try_emplace(name, true);
+            if (!inserted && entry->second) throw TFrontendError(expression.Position, "duplicate output column: " + name);
+            entry->second = true;
         }
     }
     for (std::size_t i = 0; i < result.size(); ++i) {
         if (!result[i].empty() || syntax.Expressions[query.Projection[i].Expression].Kind == ESyntaxKind::Star) continue;
         for (std::size_t suffix = i;; ++suffix) {
             auto name = "column" + std::to_string(suffix);
-            if (used.insert(name).second) { result[i] = std::move(name); break; }
+            if (names.try_emplace(name, true).second) { result[i] = std::move(name); break; }
         }
     }
     return result;
@@ -765,21 +780,11 @@ private:
         auto query = Bindings.Query(source);
         const auto* cte = Bindings.SourceCte(source);
         if (query) {
-            if (!ActiveQueries.insert(query.get()).second) throw TFrontendError(source.Position, "recursive query binding is not supported");
-            // A named, uncorrelated query has one producer and distinct bindings
-            // at its use sites. RBO decides whether to copy or share that producer.
-            // Named statements are closed over their declaration scope. A CTE
-            // can capture columns only from the query that declared it.
+            // Named statements keep their declaration scope. A CTE can
+            // capture columns only from the query that declared it.
             auto* queryOuter = source.Name.starts_with('$') ? nullptr : cte ? CteContexts.at(cte) : outer;
             const bool reusable = !source.Query && !queryOuter;
-            TQueryResult result;
-            if (const auto found = ReusableQueries.find(query.get()); reusable && found != ReusableQueries.end()) {
-                result = found->second;
-            } else {
-                result = Select(*query, queryOuter);
-                if (reusable) ReusableQueries.emplace(query.get(), result);
-            }
-            ActiveQueries.erase(query.get());
+            auto result = BindQuery(*query, queryOuter, reusable, source.Position);
             if (cte && !cte->Columns.empty()) {
                 if (cte->Columns.size() != result.Columns.size())
                     throw TFrontendError(source.Position, "CTE column alias count does not match projection");
@@ -789,23 +794,41 @@ private:
                     result.Columns[i].Name = cte->Columns[i];
                 }
             }
-            if (reusable) {
-                TRelation use{ERelation::Reuse, source.Position};
-                use.Inputs = {result.Root};
-                for (auto& column : result.Columns) {
-                    const auto id = Column(column.Name, source.Alias, column.Type, source.Position);
-                    use.Columns.push_back(id);
-                    use.Definitions.push_back({id, Program.Expressions.Column(column.Column, column.Type, source.Position)});
-                    column.Column = id;
-                }
-                result.Root = Relation(std::move(use));
-            }
+            if (reusable) result = ReuseQuery(std::move(result), source.Alias, source.Position);
             TScope scope;
             for (const auto& column : result.Columns) scope.Add({column.Column, column.Name, source.Alias.empty() ? source.Name : source.Alias, column.Type});
             return {result.Root, std::move(scope)};
         }
         if (source.Name.starts_with('$')) throw TFrontendError(source.Position, "unknown query binding: " + source.Name);
         return ReadTable(source, ResolveTable(source));
+    }
+
+    TQueryResult BindQuery(const TSelect& query, TExprContext* outer, bool reusable, TSourcePosition pos) {
+        if (!ActiveQueries.insert(&query).second) throw TFrontendError(pos, "recursive query binding is not supported");
+        TQueryResult result;
+        if (const auto found = ReusableQueries.find(&query); reusable && found != ReusableQueries.end()) {
+            result = found->second;
+        } else {
+            result = Select(query, outer);
+            if (reusable) ReusableQueries.emplace(&query, result);
+        }
+        ActiveQueries.erase(&query);
+        return result;
+    }
+
+    // One producer has distinct column identities at each use site. The same
+    // contract applies to FROM sources and named queries used by IN.
+    TQueryResult ReuseQuery(TQueryResult result, const std::string& qualifier, TSourcePosition pos) {
+        TRelation use{ERelation::Reuse, pos};
+        use.Inputs = {result.Root};
+        for (auto& column : result.Columns) {
+            const auto id = Column(column.Name, qualifier, column.Type, pos);
+            use.Columns.push_back(id);
+            use.Definitions.push_back({id, Program.Expressions.Column(column.Column, column.Type, pos)});
+            column.Column = id;
+        }
+        result.Root = Relation(std::move(use));
+        return result;
     }
 
     TCatalogTable ResolveTable(const TSource& source) const {
@@ -1830,11 +1853,13 @@ private:
                 result = arena.Binary(EOpcode::And, a, b, syntax.Position); break;
             }
             case ESyntaxKind::In: {
-                if (syntax.Query && !context.AllowSubqueries)
+                const auto namedQuery = syntax.Text == "collection" ? Bindings.QueryReference(syntax.Arguments.at(1)) : nullptr;
+                if ((syntax.Query || namedQuery) && !context.AllowSubqueries)
                     throw TUnsupportedFeature(EFeature::Subquery, syntax.Position, "subqueries in this expression context are outside the native profile");
                 auto value = Expr(syntax.Arguments[0], context);
-                if (syntax.Query) {
-                    auto query = Subquery(*syntax.Query, context);
+                if (syntax.Query || namedQuery) {
+                    auto query = syntax.Query ? Subquery(*syntax.Query, context)
+                        : ReuseQuery(BindQuery(*namedQuery, nullptr, true, syntax.Position), {}, syntax.Position);
                     if (query.Columns.size() != 1) throw TFrontendError(syntax.Position, "IN subquery must return exactly one column");
                     const auto output = query.Columns.front();
                     if (arena[value].Type.OptionalDepth > 1 || output.Type.OptionalDepth > 1)
@@ -2209,7 +2234,8 @@ private:
     void Expression(TSyntaxId root) {
         if (root == NoSyntax) return;
         const auto& expression = Syntax.Expressions[root];
-        if (expression.Arguments.empty() && !expression.Query && !expression.Window) return;
+        if (expression.Arguments.empty() && !expression.Query && !expression.Window &&
+            Bindings[root] >= Syntax.Statements.size()) return;
         std::vector<TSyntaxId> pending{root};
         std::unordered_set<TSyntaxId> seen;
         while (!pending.empty()) {
@@ -2220,15 +2246,24 @@ private:
             pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
             WindowChildren(node, pending);
             if (node.Query) Select(*node.Query);
+            if (const auto query = Bindings.QueryReference(id)) {
+                NamedQuery(*query, node.Position);
+            } else if (const auto binding = Bindings[id]; binding < Syntax.Statements.size()) {
+                const auto expression = Syntax.Statements[binding].Expression;
+                if (expression != NoSyntax) pending.push_back(expression);
+            }
         }
+    }
+    void NamedQuery(const TSelect& query, TSourcePosition pos) {
+        if (!Active.insert(&query).second) throw TFrontendError(pos, "recursive query binding");
+        Select(query);
+        Active.erase(&query);
     }
     void Source(const TSource& source) {
         if (source.ParameterTable) return;
         auto query = Bindings.Query(source);
         if (query) {
-            if (!Active.insert(query.get()).second) throw TFrontendError(source.Position, "recursive query binding");
-            Select(*query);
-            Active.erase(query.get());
+            NamedQuery(*query, source.Position);
         } else if (!source.Name.starts_with('$')) {
             auto path = Bindings.PhysicalPath(source);
             if (Seen.insert(path).second) Tables.push_back({std::move(path), source.Position});
@@ -2331,13 +2366,15 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 }
 
 std::string_view SupportManifest() {
-    return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
-"statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
+    return R"manifest({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
+"statements":["select","declare","scalar-binding","query-binding","scalar-lambda","insert","upsert","replace","update","delete"],
 "scalar_collections":["fixed tuple/list constructors and declared or supplied scalar List parameters for IN; checked dynamic key conversion and ANSI/legacy NULL rules; not relational columns"],
 "row_parameters":["AS_TABLE of declared or supplied List<Struct<scalar fields>> parameters; nullable scalar fields and empty structs; no nested containers or optional row/list containers"],
-"relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
-"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Json","JsonDocument","Null","scalar optionals, including explicit nested optional casts"],
-"aggregates":["count","sum","avg","min","max","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
+"relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery","named-query-in","effect"],
+"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Date32","Datetime64","Timestamp64","Interval64","Uuid","Decimal","Json","JsonDocument","Null","scalar optionals, including explicit nested optional casts"],
+"aggregates":["count","count_if","sum","avg","min","max","min_by","max_by","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
+"effects":["VALUES and SELECT inputs; predicate UPDATE/DELETE and explicit input rows; ordered RETURNING; source-order dependencies and shared named producers; defaults, sequences, INSERT OR REVERT and batch writes are unsupported"],
+"volatile_operations":["RandomUuid(dependencies)","YQL::RandomUuid() syntax for a query-scoped internal UUID input"],
 "math_operations":["Math::IsNaN on typed integer/Float/Double inputs"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],
@@ -2345,16 +2382,16 @@ std::string_view SupportManifest() {
 "unicode_operations":["Unicode::ToUpper","Unicode::ToLower"],
 "windows":["inline OVER","named WINDOW definitions without inheritance","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
-"pragmas":["OrderedColumns","TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
+"pragmas":["OrderedColumns","DisableOrderedColumns","TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
 "planner_pragmas":{"prefixes":["ydb","kikimr"],
-"boolean":["OptDisableAutoIndexSelection","EnableAutoIndexSelectionForIndexLookupJoin","OptDisableTopSort","OptEnablePredicateExtract","OptShuffleElimination","OptShuffleEliminationWithMap","OptShuffleEliminationForAggregation","EnableNewRBOPhysicalStagePeephole","WindowFunctionsV2","OptEnableOlapPushdown","OptEnableOlapPushdownAggregate","OptEnableOlapPushdownProjections","OptEnableOlapPushdownRegexp","DqHashOperatorsUseBlocks","UseBlockHashJoin","DisableBlockExecution"],
+"boolean":["OptDisableAutoIndexSelection","EnableAutoIndexSelectionForIndexLookupJoin","OptDisableTopSort","OptEnablePredicateExtract","OptEnableInplaceUpdate","OptShuffleElimination","OptShuffleEliminationWithMap","OptShuffleEliminationForAggregation","EnableNewRBOPhysicalStagePeephole","WindowFunctionsV2","OptEnableOlapPushdown","OptEnableOlapPushdownAggregate","OptEnableOlapPushdownProjections","OptEnableOlapPushdownRegexp","DqHashOperatorsUseBlocks","UseBlockHashJoin","DisableBlockExecution"],
 "uint32":["CostBasedOptimizationLevel","DqChannelVersion"],
 "string":["CostBasedOptimization=on/off/auto","HashJoinMode","OptimizerHints"],
 "false_only":["OptFallbackToLegacyOptimizer"],
 "rules":["static query settings applied in source order; every occurrence is validated","case-insensitive names; up to four single internal or trailing underscores","empty Boolean values mean true","HashJoinMode and OptimizerHints are validated at the RBO handoff","unknown settings delegate; malformed known values are errors"]},
-"restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing to integers, Bool, Float/Double, Decimal and Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no inherited/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, arbitrary UDFs, general containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal constructors require canonical literal digits or inf/nan; text casts preserve runtime exponent parsing and rounding","no string literals as identifiers, system columns, string suffixes other than s/u or extended string escapes"],
+"restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing to integers, Bool, Float/Double, Decimal and Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no inherited/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DDL, arbitrary UDFs, general containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal constructors require canonical literal digits or inf/nan; text casts preserve runtime exponent parsing and rounding","no system columns, string suffixes other than s/u or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
-"status":"experimental; grammar recognition exceeds execution coverage"})";
+"status":"experimental; grammar recognition exceeds execution coverage"})manifest";
 }
 
 } // namespace NKikimr::NKqp::NFrontend

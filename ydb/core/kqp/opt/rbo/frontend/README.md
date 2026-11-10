@@ -11,6 +11,7 @@ SQL
   -> compact syntax + asynchronous catalog resolution
   -> native name binding, types, scalar DAG and relations
   -> checked TCompiledProgram
+  -> native execution preparation: shared producers and ordered effects
   -> owning TNativeQuery: RBO roots, ordered outputs, parameters, execution metadata
   -> existing RBO rules, CBO and stage assignment using native expressions
   -> explicit physical emission: backend types, lambdas, tables and runtime operators
@@ -21,8 +22,17 @@ SQL
 
 `ParseNative`, `CollectTables`, and `BindNative` separate syntax from asynchronous
 catalog I/O. `CompileNative` combines them for callers with a synchronous catalog.
+Global references resolve to declaration IDs, including aliases of named queries;
+source and IN uses share that resolution. Table discovery follows those bindings
+before catalog I/O. Scalar typing and local column resolution consume the owning
+syntax, never revisit the CST or reparse individual pragmas.
 Only checked compilation can construct `TCompiledProgram`; conversion consumes it
 once. A raw binder result cannot enter RBO.
+
+`PrepareExecution` owns statement dependencies and shared producers. A single
+result without named producers needs no scheduling graph. Other programs retain
+source-order read/write dependencies and materialize shared producers at first
+use; reads after writes cannot be moved ahead of those writes.
 
 `ConvertNativeToRbo` constructs ordinary RBO operators directly. Its result,
 `TNativeQuery`, owns the roots, native parameter schemas, ordered output names,
@@ -48,8 +58,10 @@ Physical builders cross the boundary through `ExportNativeType`,
 `ExportOperatorType`, `ExportIUType`, `LowerTable`, and `LowerExpressionLambda`.
 Each export produces fresh objects in the backend context. Scalar lowering emits
 fully typed terminal operations; direct MiniKQL tests require neither annotation
-nor a semantic rewrite pass. Physical relational builders retain their existing
-backend annotation and peephole pipeline.
+nor a semantic rewrite pass. Physical relational builders annotate the emitted graph and apply a bounded,
+owned lowering pass for execution callables. They do not invoke YQL peepholes.
+Tuple aggregate results use their native result schema instead of assuming that
+every tuple is an AVG accumulator.
 
 The migration preserves the existing rule schedule, join enumeration, cost
 formulas, stage assignment, shuffle policy and runtime algorithms. Expression
@@ -77,7 +89,7 @@ retry. The old `EnableFallbackToYqlOptimizer` flag does not enable error retries
 use `NATIVE_REQUIRED` to forbid unsupported-query fallback. There is no
 YQL-to-new-RBO import pipeline.
 
-Native data, scan and generic read preparation bypass the YQL AST cache. Internal
+Native data, scan and generic query preparation bypass the YQL AST cache. Internal
 ANALYZE requests and internal metadata maintenance retain their legacy entry. Native explain ASTs contain
 `native frontend: native-read-v1`, parser selection and the native relational
 plan. The CLI reports admission decisions but cannot execute the legacy compiler.
@@ -109,10 +121,18 @@ alone does not establish SQL compatibility.
 Supported relational forms include SELECT/FROM-first SELECT, ordinary tables and supported system views,
 projections and unique-name stars, CTEs/query bindings, simple scalar lambdas,
 ON joins, grouping/HAVING, GROUPING SETS/ROLLUP/CUBE, windows, DISTINCT,
-UNION/INTERSECT/EXCEPT including ALL, sorting/limits and multiple results.
+UNION/INTERSECT/EXCEPT including ALL, sorting/limits and multiple results. Named queries also serve as
+single-column IN inputs in ordinary query expressions.
 Scalar/EXISTS/single-column IN subqueries support correlation within the checked
 backend profile. Scalar subqueries preserve NULL for no row and fail for more
 than one row. Scan queries require one result.
+
+INSERT/UPSERT/REPLACE accept VALUES and SELECT inputs. UPDATE and DELETE accept
+predicates or explicit input rows; RETURNING retains its projection order.
+Effects use the existing table sink and transaction boundaries. Defaults,
+sequences and INSERT OR REVERT remain explicit gaps, along with the unsupported
+forms listed below. Imported effects tests cover mixed reads/writes, indexes,
+shared producers and interactive transactions; their expansion is still in progress.
 
 Named sources outside correlated contexts retain one producer with distinct
 bindings at each use. Existing RBO replication, copying and spilling rules decide
@@ -121,7 +141,7 @@ emission uses storage operations or the existing optional scalar-apply kernel.
 Predicates containing checked expressions remain intact when storage filtering
 could suppress their errors.
 
-Aggregates include COUNT, SUM, AVG, MIN, MAX, SOME and sample standard deviation.
+Aggregates include COUNT/COUNT_IF, SUM, AVG, MIN/MAX, MIN_BY/MAX_BY, SOME and sample standard deviation.
 DISTINCT groups original values before accumulator conversion. Native partial
 states preserve Decimal AVG and nullable interval SUM. Window support includes
 inline and named WINDOW definitions, aggregates/ranking and ROWS/RANGE frames with
@@ -131,6 +151,10 @@ Scalar types include Boolean, signed/unsigned integers, Float/Double, String/Utf
 Date/Datetime/Timestamp/Interval, Decimal, Json/JsonDocument and NULL. Explicit
 nested optional casts, Just and Unwrap preserve outer absence versus inner NULL;
 general arithmetic and comparison on nested optionals are not admitted.
+Extended Date32/Datetime64/Timestamp64/Interval64 and Uuid are native types.
+`RandomUuid(dependencies)` retains its runtime dependencies and cannot fold.
+`YQL::RandomUuid()` is accepted as SQL spelling for a query-scoped native input;
+it emits one internal parameter and exposes no user parameter.
 String `s`/`u` suffixes are supported. Integer promotion, checked casts, decimal
 rounding/exponents, Unicode case conversion, selected calendar operations,
 JSON_VALUE and constant LIKE patterns have runtime differential tests.
@@ -151,15 +175,17 @@ frontend account for its different star-column order by name.
 
 Important exclusions remain explicit:
 
-- Writes/DDL, effects, USE, PostgreSQL, external/temporary tables, views, table
-  hints/sampling and unrecognized settings.
+- DDL, USE, PostgreSQL values, external/temporary tables, index-view syntax,
+  table hints/sampling and unrecognized settings.
+- INSERT OR REVERT, batch writes, omitted default expressions and sequences;
+  dynamic signed LIMIT/OFFSET and general row-valued scalar expressions.
 - JOIN USING, tuple IN subqueries, duplicate star names requiring coalescing,
   and FULL JOIN residual predicates other than column equality keys.
 - Subqueries in ON, GROUP BY, direct ORDER BY, LIMIT/OFFSET, scalar bindings or
   lambda bodies; ungrouped outer references after aggregation.
 - Correlated windows and correlated INTERSECT ALL/EXCEPT ALL; inherited,
   DISTINCT/filtered windows, NULL treatment and unsupported frame forms.
-- Arbitrary UDFs, volatile functions, higher-order values and general containers.
+- Arbitrary UDFs, volatile functions other than the UUID forms above, higher-order values and general containers.
   Dynamic collection dictionary keys have a narrower checked scalar profile.
 - Bare-NULL arithmetic, unsupported mixed Decimal operations, floating Decimal
   casts, Float-to-32/64-bit-integer casts and unverified temporal conversions.
@@ -204,9 +230,16 @@ current admission modes are not separate compiler architectures. Request wall
 time also includes execution on empty tables and is reported separately.
 Parser-only CLI timings exclude catalog I/O, RBO and backend compilation.
 
-### Completion checks, 2026-11-10
+The full-corpus compilation checkpoint covers 6,979 queries with native-required
+admission and fallback disabled: 6,813 1C, 22 TPC-H, 99 TPC-DS, 43 ClickBench and
+two additional 1C samples. This establishes compilation coverage, not complete
+effects parity or negligible frontend cost. The latest standalone run has 223
+passing tests. Full warmed before/after and untraced controls remain separate
+completion checks.
 
-The relwithdebinfo build, standalone CLI smoke check and these suites pass:
+### Earlier read-path validation, 2026-11-10
+
+Before the effects and full-corpus expansion, the following suites passed:
 
 | Scope | Passing test cases |
 | --- | ---: |
@@ -215,17 +248,17 @@ The relwithdebinfo build, standalone CLI smoke check and these suites pass:
 | Existing SQL read regressions | 226 |
 | Host compilation, execution, routing, parameters and caches | 68 |
 
-The full read and host runs cover the final semantic changes, including tuple
+Those read and host runs covered their candidate semantic changes, including tuple
 comparisons, floating remainder and storage filtering. A subsequent API-only
 cleanup removed unused backend-context arguments from scalar factories. All
 targets were rebuilt and the 220 RBO/OLAP tests passed again; repeated runs are
-not added to the counts above. The final benchmark uses that rebuilt binary.
+not added to the counts above. The eight-query benchmark below used that rebuilt binary.
 The TPC execution coverage and populated-data limitations are described above.
 
-### Complete compiler measurements, 2026-11-10
+### Earlier eight-query compiler measurements, 2026-11-10
 
 Two before/after batches compared the preserved YQL+new-RBO binary from
-2026-11-09 with the final native-required binary. Each binary ran eight queries
+2026-11-09 with that native-required candidate. Each binary ran eight queries
 in three modes for nine measured rounds, after warm-up: 216 samples per binary
 per batch, 864 samples overall. The ratios below compare per-query median
 compiler counters and use a geometric mean across queries. Cache hits and native
@@ -235,7 +268,7 @@ The host reports AMD EPYC 9654 and 128 CPUs. The first batch used normal
 scheduling. An independent worktree build introduced timing variation, so a
 second batch gave both binaries the same CPU affinity, CPUs 24–31. The machine
 was shared in both batches. Legacy-compiler CPU counters provide a control;
-their ratio is baseline divided by final, just like the speedup columns.
+their ratio is baseline divided by the candidate, just like the speedup columns.
 
 | Batch | Compiler CPU speedup | Compiler wall-time speedup | Legacy CPU control ratio |
 | --- | ---: | ---: | ---: |
