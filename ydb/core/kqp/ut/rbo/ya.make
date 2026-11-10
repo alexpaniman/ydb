@@ -25,6 +25,7 @@ SRCS(
 # debug-section limit. Keep source/stack locations for these files; production
 # code and the other tests retain their usual debug information.
 IF (OS_LINUX AND CLANG)
+    SRC(kqp_native_olap_policy_ut.cpp -gline-tables-only)
     SRC(kqp_native_range_policy_ut.cpp -gline-tables-only)
     SRC(kqp_native_execution_ut.cpp -gline-tables-only)
     SRC(kqp_native_index_ut.cpp -gline-tables-only)
@@ -35,6 +36,7 @@ IF (OS_LINUX AND CLANG)
     SRC(kqp_native_host_ut.cpp -gline-tables-only)
     SRC(kqp_rbo_yql_ut.cpp -gline-tables-only)
 ELSE()
+    SRCS(kqp_native_olap_policy_ut.cpp)
     SRCS(kqp_native_range_policy_ut.cpp kqp_native_execution_ut.cpp kqp_native_index_ut.cpp kqp_native_optimizer_pragma_ut.cpp kqp_native_quoted_ut.cpp kqp_native_reference_lowering_ut.cpp kqp_native_frontend_ut.cpp kqp_native_host_ut.cpp kqp_rbo_yql_ut.cpp)
 ENDIF()
 

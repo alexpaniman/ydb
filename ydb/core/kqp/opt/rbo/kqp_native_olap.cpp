@@ -119,6 +119,17 @@ bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFron
         const unsigned mode = filterTruth ? 1 : 2;
         if (const auto found = supported.find(id); found != supported.end() && (found->second.Checked & mode)) continue;
         const auto& node = arena[id];
+        if (node.Op >= O::Equal && node.Op <= O::GreaterEqual) {
+            // Preserve the storage collector's comparison-type policy for
+            // both kernels and scalar apply. In particular, Bool and Uuid
+            // comparisons are compute predicates, even though native scalar
+            // emission can execute them.
+            for (const auto arg : node.Arguments) {
+                const auto type = arena[arg].Type;
+                if (!(type.IsNumeric() || type.IsString() || type.IsDate() || type.IsInterval()) || type.Kind == K::Decimal)
+                    return false;
+            }
+        }
         if (!OlapNodeSupported(arena, node, filterTruth) && !(allowScalarApply && OlapScalarNodeSupported(node))) return false;
         if (!ready) {
             pending.push_back({id, true, filterTruth});
