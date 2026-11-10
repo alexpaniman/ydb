@@ -42,6 +42,8 @@ TVector<TString> WriteResults(bool native, bool peephole) {
         execute("REPLACE INTO " + table + " (id, value) VALUES (2ul, 21) RETURNING id, name, value", empty);
         execute("UPDATE " + table + " SET value = value + 1 WHERE id = 1ul RETURNING value, id, name", empty);
         execute("UPDATE " + table + " ON (id, value) VALUES (3ul, 31) RETURNING id, value", empty);
+        execute("UPDATE " + table + " SET value = 99 WHERE id = 99ul RETURNING id, value", empty);
+        execute("UPDATE " + table + " ON (id, value) VALUES (99ul, 99) RETURNING id, value", empty);
         execute("SELECT id, value, name FROM " + table + " ORDER BY id", empty);
         execute("DELETE FROM " + table + " WHERE id = 2ul RETURNING name, id, value", empty);
         execute("DELETE FROM " + table + " ON (id) VALUES (3ul) RETURNING id, value", empty);
@@ -88,6 +90,51 @@ TVector<TString> WriteResults(bool native, bool peephole) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeEffects) {
+    Y_UNIT_TEST_TWIN(PredicateUpdateHandoffPreservesExistingRowKnowledge, StreamWrite) {
+        using namespace NFrontend;
+        for (const bool indexed : {false, true}) {
+            NTests::TIdTestContext fixture;
+            fixture.Config->SetEnableIndexStreamWrite(StreamWrite);
+            const auto nodes = fixture.ExprCtx.NodeAllocationCounter;
+            const auto types = fixture.ExprCtx.TypeNodes.size();
+            auto query = CompileNativeToRbo(R"(
+                UPDATE t SET value = value + 1 WHERE id = 1ul RETURNING value, id;
+                UPDATE t ON (id, value) VALUES (2ul, 20) RETURNING id, value;
+            )", [indexed](std::string_view, TSourcePosition) {
+                return TNativeTable{{"/Root/t", {{"id", {ETypeKind::Uint64, true}}, {"value", {ETypeKind::Int32, true}}},
+                    TWriteSchema{{"id"}, {}, indexed}}, TRboTable{"/Root/t", "1:2", "", "3"}};
+            }, fixture.ExprCtx, {}, {}, fixture.Config.Get());
+            UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 2);
+            const auto& predicate = CastOperator<TOpTableEffect>(*query.Roots[0]->GetInput());
+            const auto& on = CastOperator<TOpTableEffect>(*query.Roots[1]->GetInput());
+            UNIT_ASSERT(predicate.EffectType == (indexed ? EEffectType::UpdateRowsIndex : EEffectType::UpsertRows));
+            UNIT_ASSERT(on.EffectType == (indexed ? EEffectType::UpdateRowsIndex : EEffectType::UpdateRows));
+            UNIT_ASSERT(!on.Options.Settings);
+            if (indexed) {
+                UNIT_ASSERT(!predicate.Options.Settings);
+            } else {
+                const TVector<TVector<TString>> expected{{"Mode", StreamWrite ? "update_conditional" : "upsert"},
+                    {"IsUpdate"}, {"IsConditionalUpdate"}};
+                UNIT_ASSERT(predicate.Options.Settings && *predicate.Options.Settings == expected);
+            }
+            UNIT_ASSERT_VALUES_EQUAL(predicate.GetReturningColumns().Items()[0].second, "value");
+            UNIT_ASSERT_VALUES_EQUAL(on.GetReturningColumns().Items()[0].second, "id");
+            UNIT_ASSERT_VALUES_EQUAL(query.Execution.TableOperations.size(), 3);
+            UNIT_ASSERT_VALUES_EQUAL(query.Execution.TableOperations[0].GetOperation(), static_cast<ui32>(NYql::TYdbOperation::Select));
+            UNIT_ASSERT_VALUES_EQUAL(query.Execution.TableOperations[1].GetOperation(), static_cast<ui32>(NYql::TYdbOperation::Update));
+            UNIT_ASSERT_VALUES_EQUAL(query.Execution.TableOperations[2].GetOperation(), static_cast<ui32>(NYql::TYdbOperation::UpdateOn));
+            for (const auto& root : query.Roots) {
+                UNIT_ASSERT(root->ComputeTypes(fixture.RboCtx) == IGraphTransformer::TStatus::Ok);
+                for (const auto& item : *root) {
+                    UNIT_ASSERT(item.Current->NativeSchema);
+                    for (const auto& expression : item.Current->GetExpressions()) UNIT_ASSERT(expression.get().IsNative());
+                }
+            }
+            UNIT_ASSERT_VALUES_EQUAL(fixture.ExprCtx.NodeAllocationCounter, nodes);
+            UNIT_ASSERT_VALUES_EQUAL(fixture.ExprCtx.TypeNodes.size(), types);
+        }
+    }
+
     Y_UNIT_TEST_TWIN(InsertRevertNoOpPreservesReturningAndOtherStatements, Peephole) {
         NKikimrConfig::TAppConfig config;
         auto* service = config.MutableTableServiceConfig();

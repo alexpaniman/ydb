@@ -250,7 +250,19 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
                         case W::Insert: kind = effect.HasIndexes ? EEffectType::InsertRowsIndex : EEffectType::InsertRows; break;
                         case W::Replace: options.Settings = TVector<TVector<TString>>{{"Mode", "replace"}}; [[fallthrough]];
                         case W::Upsert: kind = effect.HasIndexes ? EEffectType::UpsertRowsIndex : EEffectType::UpsertRows; break;
-                        case W::Update: kind = effect.HasIndexes ? EEffectType::UpdateRowsIndex : EEffectType::UpdateRows; break;
+                        case W::Update:
+                            if (!effect.HasIndexes && !effect.InputRows) {
+                                // Predicate updates already read existing rows. Match
+                                // BuildUpdateTable's conditional write construction;
+                                // UPDATE ON still needs the sink's existence check.
+                                kind = EEffectType::UpsertRows;
+                                options.Settings = TVector<TVector<TString>>{
+                                    {"Mode", config && config->GetEnableIndexStreamWrite() ? "update_conditional" : "upsert"},
+                                    {"IsUpdate"}, {"IsConditionalUpdate"}};
+                            } else {
+                                kind = effect.HasIndexes ? EEffectType::UpdateRowsIndex : EEffectType::UpdateRows;
+                            }
+                            break;
                         case W::Delete: kind = effect.HasIndexes ? EEffectType::DeleteRowsIndex : EEffectType::DeleteRows; break;
                     }
                     auto prepared = input();
