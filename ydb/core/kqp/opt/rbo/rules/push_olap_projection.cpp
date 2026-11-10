@@ -20,10 +20,10 @@ bool IsSuitableToPushProjectionToColumnTables(IOperator* input) {
     const auto filter = CastOperator<TOpMap>(input);
     const auto maybeRead = filter->GetInput().Get();
     return ((maybeRead->Kind == EOperator::Source) && (CastOperator<TOpRead>(maybeRead)->GetTableStorageType() == NYql::EStorageType::ColumnStorage) &&
-            filter->GetTypeAnn());
+            filter->HasSchema());
 }
 
-TIntrusivePtr<IOperator> PushNativeProjections(const TIntrusivePtr<TOpMap>& map, TPlanProps& props, TExprContext& ctx) {
+TIntrusivePtr<IOperator> PushNativeProjections(const TIntrusivePtr<TOpMap>& map, TPlanProps& props) {
     using namespace NFrontend;
     const auto read = CastOperator<TOpRead>(map->GetInput().Get());
     Y_ENSURE(!read->OlapProgram || read->OlapProgram.IsNative(), "Native read contains a legacy storage program");
@@ -89,14 +89,14 @@ TIntrusivePtr<IOperator> PushNativeProjections(const TIntrusivePtr<TOpMap>& map,
         const auto& expression = map->GetMapElements().At(candidate.Output).GetExpression();
         const auto& arena = expression.GetNativeArena();
         if (!program.Projections.Find(candidate.Column)) program.Projections.Add(candidate.Column,
-            TExpression::FromNative(arena, candidate.Json, &ctx, &props, expression.Pos()));
+            TExpression::FromNative(arena, candidate.Json, &props, expression.Pos()));
         const auto replacement = arena->Column(candidate.Column, (*arena)[candidate.Json].Type);
         const auto root = arena->Rewrite(expression.GetNativeRoot(), [&](TExprId id) { return id == candidate.Json ? replacement : id; });
-        elements.Replace(candidate.Output, TMapElement(TExpression::FromNative(arena, root, &ctx, &props, expression.Pos())));
+        elements.Replace(candidate.Output, TMapElement(TExpression::FromNative(arena, root, &props, expression.Pos())));
         changed = true;
     }
     if (!changed) return map;
-    auto source = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->StorageType, read->TableCallable,
+    auto source = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->StorageType, read->TableRef,
         TOlapProgram(std::move(program)), read->Limit, read->RangeInfo, read->OriginalPredicate, read->SortDir, read->Props, read->Pos);
     return MakeIntrusive<TOpMap>(source, map->Pos, std::move(elements));
 }
@@ -118,136 +118,7 @@ TIntrusivePtr<IOperator> TPushOlapProjectionRule::SimpleMatchAndApply(const TInt
     }
 
     const auto map = CastOperator<TOpMap>(input);
-    if (props.NativeExpressions) return PushNativeProjections(map, props, ctx.ExprCtx);
-    for (const auto& [id, element] : map->GetMapElements().Items()) {
-        Y_UNUSED(id);
-        if (element.GetExpression().IsNative()) {
-            return input;
-        }
-    }
-    const auto read = CastOperator<TOpRead>(map->GetInput().Get());
-    // Preserve the input's IU-ID atoms and row-schema fields during construction.
-    const TPushdownOptions pushdownOptions(false, false, /*StripAliasPrefixForColumnName=*/false);
-
-    TVector<std::pair<TString, TExprNode::TPtr>> olapOperationsForProjections;
-    auto memberPred = [](const TExprNode::TPtr& node) -> bool { return !!TMaybeNode<TCoMember>(node); };
-    THashSet<TString> projectionMembers;
-    THashSet<TString> predicateMembers;
-    THashSet<TString> notSuitableToPushMembers;
-    // OLAP projection overwrites the source field. An implicit pass-through
-    // or an explicit copy still needs its original value and type.
-    auto passthrough = GetLiveOut(map.Get());
-    passthrough.IntersectWith(read->GetOutputIUs());
-    for (const auto id : passthrough) {
-        notSuitableToPushMembers.insert(ToString(id));
-    }
-    for (const auto& [id, element] : map->GetMapElements().Items()) {
-        if (element.IsColumnAccess()) {
-            notSuitableToPushMembers.insert(ToString(element.GetColumnAccess()));
-        }
-    }
-    ui32 nextMemberId = 0;
-
-    TVector<std::tuple<TString, TExprNode::TPtr, TExprNode::TPtr, TExprNode::TPtr>> projectionCandidates;
-    TVector<TInfoUnitId> inMapIds;
-    const auto& mapElements = map->GetMapElements();
-    // Iterate over map elements and try to find an expression to push down to column shard.
-    for (const auto output : mapElements.Keys()) {
-        const auto& mapElement = *mapElements.Find(output);
-        if (!mapElement.IsColumnAccess()) {
-            const auto lambda = TCoLambda(mapElement.GetExpression().Node);
-            const auto& arg = lambda.Args().Arg(0).Ref();
-            auto body = lambda.Body().Ptr();
-            if (!CollectOlapOperationForProjection(body, arg, predicateMembers, projectionMembers, projectionCandidates, nextMemberId, ctx.ExprCtx,
-                                                   pushdownOptions)) {
-                auto members = FindNodes(body, memberPred);
-                for (const auto& member : members) {
-                    notSuitableToPushMembers.insert(TString(TExprBase(member).Cast<TCoMember>().Name()));
-                }
-            } else {
-                inMapIds.push_back(output);
-            }
-        }
-    }
-
-    if (projectionCandidates.empty()) {
-        return input;
-    }
-
-    ui32 projectionIndex = 0;
-    TMapIUs newMapElements;
-    for (const auto output : mapElements.Keys()) {
-        TMapElement mapElement = *mapElements.Find(output);
-        if (projectionIndex < inMapIds.size() && inMapIds[projectionIndex] == output) {
-            const auto& [colName, projection, replace, olapOperation] = projectionCandidates[projectionIndex++];
-            Y_ENSURE(colName.find(NOpt::KqpOlapProjectionNamePrefix) == TString::npos, "Multiple projections for same column is not supported");
-            if (!notSuitableToPushMembers.count(colName)) {
-                olapOperationsForProjections.emplace_back(colName, olapOperation);
-                // Replace old expression with new.
-                auto oldLambda = TCoLambda(mapElement.GetExpression().Node);
-                // clang-format off
-                auto newLambda = Build<TCoLambda>(ctx.ExprCtx, projection->Pos())
-                    .Args({"arg"})
-                    .Body<TExprApplier>()
-                        .Apply(TExprBase(ctx.ExprCtx.ReplaceNode(oldLambda.Body().Ptr(), *projection, replace)))
-                        .With(oldLambda.Args().Arg(0), "arg")
-                    .Build()
-                .Done().Ptr();
-                // clang-format on
-                mapElement = TMapElement(TExpression(newLambda, &ctx.ExprCtx, &props));
-            }
-        }
-        newMapElements.Add(output, std::move(mapElement));
-    }
-
-    if (olapOperationsForProjections.empty()) {
-        return input;
-    }
-
-    TVector<TExprBase> projections;
-    for (const auto& [columnName, olapOperation] : olapOperationsForProjections) {
-        // clang-format off
-        auto olapProjection = Build<TKqpOlapProjection>(ctx.ExprCtx, olapOperation->Pos())
-            .OlapOperation(olapOperation)
-            .ColumnName().Build(columnName)
-        .Done();
-        // clang-format on
-        projections.push_back(olapProjection);
-    }
-
-    const auto olapProcess =
-        read->OlapProgram ? TCoLambda(read->OlapProgram.Legacy()) :
-            // clang-format off
-            Build<TCoLambda>(ctx.ExprCtx, read->Pos)
-                .Args({"arg_0"})
-                .Body("arg_0")
-            .Done();
-            // clang-format on
-
-    // clang-format off
-    auto olapProjections = Build<TKqpOlapProjections>(ctx.ExprCtx, olapProcess.Pos())
-        .Input(olapProcess.Body())
-        .Projections()
-            .Add(projections)
-        .Build()
-    .Done();
-    // clang-format on
-
-    // clang-format off
-    auto newLambda = Build<TCoLambda>(ctx.ExprCtx, olapProcess.Pos())
-        .Args({"arg"})
-        .Body<TExprApplier>()
-            .Apply(olapProjections)
-            .With(olapProcess.Args().Arg(0), "arg")
-        .Build()
-    .Done().Ptr();
-    // clang-format on
-
-    YQL_CLOG(TRACE, ProviderKqp) << "Pushed OLAP projection: " << KqpExprToPrettyString(TExprBase(newLambda), ctx.ExprCtx);
-
-    auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->StorageType, read->TableCallable, newLambda, read->Limit,
-                                          read->RangeInfo, read->OriginalPredicate, read->SortDir, read->Props, read->Pos);
-    return MakeIntrusive<TOpMap>(newRead, map->Pos, newMapElements);
+    return PushNativeProjections(map, props);
 }
 
 } // namespace NKikimr::NKqp

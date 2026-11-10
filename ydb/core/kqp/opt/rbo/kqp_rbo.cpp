@@ -1,6 +1,5 @@
 #include "kqp_rbo.h"
 #include "traces/kqp_rbo_rule_trace.h"
-#include "kqp_plan_conversion_utils.h"
 
 #include <yql/essentials/utils/log/log.h>
 

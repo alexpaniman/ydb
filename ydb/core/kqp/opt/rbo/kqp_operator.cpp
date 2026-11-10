@@ -1,5 +1,4 @@
 #include "kqp_operator.h"
-#include "frontend_lowering.h"
 #include "kqp_expression.h"
 #include "kqp_rbo_utils.h"
 #include <ydb/core/base/table_index.h>
@@ -39,18 +38,24 @@ TString FormatSortElements(const TSortIUs& keys, const TInfoUnitRegistry& regist
     return result;
 }
 
-NFrontend::TType GetNativeColumnType(IOperator& input, TInfoUnitId column, TExprContext& ctx, NFrontend::TExpressionArena& arena) {
-    if (input.Type) {
-        if (const auto* type = input.GetIUType(column, ctx)) return ImportNativeType(*type, &arena);
-    }
-    if (input.Kind == EOperator::Map) {
+NFrontend::TType GetNativeColumnType(IOperator& input, TInfoUnitId column, NFrontend::TExpressionArena& arena, const TPlanProps& props) {
+    if (input.NativeSchema) return arena.ImportType(*input.NativeSchema->Arena, input.GetNativeIUType(column));
+    if (input.Kind == EOperator::Source) {
+        const auto& read = CastOperator<TOpRead>(input);
+        if (read.OlapProgram.IsNative()) {
+            if (const auto* value = read.OlapProgram.Native().Projections.Find(column))
+                return arena.ImportType(*value->GetNativeArena(), value->GetNativeType());
+        }
+        Y_ENSURE(read.TableRef.NativeColumns, "Missing native source schema");
+        return read.TableRef.NativeColumns->at(props.InfoUnitRegistry.Get(column).GetColumnName());
+    } else if (input.Kind == EOperator::Map) {
         if (const auto* value = CastOperator<TOpMap>(input).FindOutputElement(column)) {
             Y_ENSURE(value->GetExpression().IsNative(), "Expected a native map definition");
             return arena.ImportType(*value->GetExpression().GetNativeArena(), value->GetExpression().GetNativeType());
         }
     } else if (input.Kind == EOperator::AddDependencies) {
         if (const auto* capture = CastOperator<TOpAddDependencies>(input).GetDependencies().Find(column))
-            return ImportNativeType(*capture->Type, &arena);
+            return capture->NativeType.value();
     } else if (input.Kind == EOperator::EmptySource) {
         const auto& source = CastOperator<TOpEmptySource>(input);
         if (source.NativeInput) return source.NativeInput->Fields.At(column).Type;
@@ -58,19 +63,19 @@ NFrontend::TType GetNativeColumnType(IOperator& input, TInfoUnitId column, TExpr
         auto& port = CastOperator<TOpReplicate>(input);
         const auto source = port.MapToInput({column});
         Y_ENSURE(source.Size() == 1, "Missing native replicate binding");
-        return GetNativeColumnType(*port.GetInput(), *source.begin(), ctx, arena);
+        return GetNativeColumnType(*port.GetInput(), *source.begin(), arena, props);
     } else if (input.Kind == EOperator::UnionAll) {
         auto& unionAll = CastOperator<TOpUnionAll>(input);
         const auto& row = unionAll.GetColumns().At(column);
-        auto type = GetNativeColumnType(*unionAll.GetChild(0), row.Inputs[0], ctx, arena);
+        auto type = GetNativeColumnType(*unionAll.GetChild(0), row.Inputs[0], arena, props);
         for (size_t i = 1; i < row.Inputs.size(); ++i)
-            type = NFrontend::CommonType(type, GetNativeColumnType(*unionAll.GetChild(i), row.Inputs[i], ctx, arena));
+            type = NFrontend::CommonType(type, GetNativeColumnType(*unionAll.GetChild(i), row.Inputs[i], arena, props));
         return type;
     }
     for (size_t i = 0; i < input.GetChildCount(); ++i) {
         auto& child = *input.GetChild(i);
         if (!child.GetOutputIUs().Contains(column)) continue;
-        auto type = GetNativeColumnType(child, column, ctx, arena);
+        auto type = GetNativeColumnType(child, column, arena, props);
         if (input.Kind == EOperator::Join) {
             const auto& kind = CastOperator<TOpJoin>(input).JoinKind;
             if (kind == "Full" || (i == 0 && kind == "Right") || (i == 1 && kind == "Left")) type = type.Optional();
@@ -87,15 +92,10 @@ NFrontend::TType GetNativeColumnType(IOperator& input, TInfoUnitId column, TExpr
  */
 
 TExpression MakeColumnAccess(TInfoUnitId column, IOperator& input,
-    TPositionHandle pos, TExprContext* ctx, TPlanProps* props) {
-    if (!props || !props->NativeExpressions) return MakeColumnAccess(column, pos, ctx, props);
+    TPositionHandle pos, TPlanProps* props) {
+    Y_ENSURE(props && props->NativeExpressions, "A column requires its query arena");
     const auto& arena = props->NativeExpressions;
-    return TExpression::FromNative(arena, arena->Column(column, GetNativeColumnType(input, column, *ctx, *arena)), ctx, props, pos);
-}
-
-const TTypeAnnotationNode* IOperator::GetIUType(TInfoUnitId iu, TExprContext& ctx) const {
-    auto structType = Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
-    return structType->FindItemType(ctx.GetIndexAsString(iu));
+    return TExpression::FromNative(arena, arena->Column(column, GetNativeColumnType(input, column, *arena, *props)), props, pos);
 }
 
 TUnorderedIUs IOperator::GetSubplanIUs(const TSubplans& subplans) const {
@@ -178,7 +178,7 @@ TOpReplicate::TOpReplicate(TIntrusivePtr<TReplicate> input, ui32 index)
     , Index_(index)
 {
     if (IsPrimary()) {
-        Type = GetInput()->Type;
+        NativeSchema = GetInput()->NativeSchema;
     }
 }
 
@@ -203,7 +203,7 @@ std::optional<ui32> GetReplicateOutputIndex(const IOperator& op) {
     });
 }
 
-bool TOpReplicate::TryCollapse(TIntrusivePtr<IOperator>& slot, TExprContext& ctx, TPlanProps& props) {
+bool TOpReplicate::TryCollapse(TIntrusivePtr<IOperator>& slot, TExprContext&, TPlanProps& props) {
     if (slot->Kind != EOperator::Replicate) {
         return false;
     }
@@ -217,7 +217,7 @@ bool TOpReplicate::TryCollapse(TIntrusivePtr<IOperator>& slot, TExprContext& ctx
     if (!port.IsPrimary()) {
         const auto& bindings = port.GetRebindings();
         for (const auto source : hub.GetInput()->GetOutputIUs()) {
-            copies.Add(*bindings.Find(source), MakeColumnAccess(source, *hub.GetInput(), port.Pos, &ctx, &props));
+            copies.Add(*bindings.Find(source), MakeColumnAccess(source, *hub.GetInput(), port.Pos, &props));
         }
     }
     auto replacement = hub.GetInput();
@@ -340,9 +340,7 @@ TString TOpEmptySource::ToString(TExprContext& ctx, const TInfoUnitRegistry&) {
 
 NJson::TJsonValue TOpEmptySource::ToJson(ui32 explainFlags, const TInfoUnitRegistry& registry) {
     auto res = IOperator::ToJson(explainFlags, registry);
-    if (Input && TCoParameter::Match(Input.Get())) {
-        res["Parameter"] = TCoParameter(Input).Name().StringValue();
-    }
+
     if (NativeInput) res["Parameter"] = NativeInput->Name;
     if (HasInput()) {
         res["Columns"] = TStringBuilder() << "{" << FormatIds(Columns, &registry) << "}";
@@ -354,31 +352,13 @@ NJson::TJsonValue TOpEmptySource::ToJson(ui32 explainFlags, const TInfoUnitRegis
  * OpRead operator methods
  */
 
-TIntrusivePtr<TOpRead> TOpRead::FromExpr(TExprNode::TPtr node, TInfoUnitRegistry& registry) {
-    const auto opSource = TKqpOpRead(node);
-    const auto alias = opSource.Alias().StringValue();
-
-    // Keep each Read's definitions consecutive, then bulk-build the bitset.
-    TVector<TInfoUnitId> ids;
-    ids.reserve(opSource.Columns().Size());
-    for (const auto& column : opSource.Columns()) {
-        ids.push_back(registry.Add(TInfoUnit(alias, column.StringValue())));
-    }
-
-    TUnorderedIUs columns;
-    columns.Assign(ids);
-    const auto storageType = opSource.SourceType().StringValue() == "Row" ? NYql::EStorageType::RowStorage : NYql::EStorageType::ColumnStorage;
-    return MakeIntrusive<TOpRead>(alias, std::move(columns), storageType, opSource.Table().Ptr(),
-        nullptr, std::nullopt, std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, node->Pos());
-}
-
 TOpRead::TOpRead(const TString& alias, TUnorderedIUs columns, const NYql::EStorageType storageType,
-                 const TExprNode::TPtr& tableCallable, const TOlapProgram& olapProgram, std::optional<ui64> limit, std::optional<TRangeInfo> ranges,
+                 const TRboTable& tableRef, const TOlapProgram& olapProgram, std::optional<ui64> limit, std::optional<TRangeInfo> ranges,
                  const std::optional<TExpression>& originalPredicate, const ESortDir sortDir, const TPhysicalOpProps& props, TPositionHandle pos)
     : IOperator(EOperator::Source, pos, props)
     , Alias(alias)
     , StorageType(storageType)
-    , TableCallable(tableCallable)
+    , TableRef(tableRef)
     , OlapProgram(olapProgram)
     , Limit(limit)
     , OriginalPredicate(originalPredicate)
@@ -392,6 +372,7 @@ NYql::EStorageType TOpRead::GetTableStorageType() const {
 }
 
 TUnorderedIUs TOpRead::GetRequiredColumns(TExprContext& ctx) const {
+    Y_UNUSED(ctx);
     TUnorderedIUs required;
     if (OriginalPredicate) {
         required = OriginalPredicate->GetRawInputIUs();
@@ -405,20 +386,6 @@ TUnorderedIUs TOpRead::GetRequiredColumns(TExprContext& ctx) const {
             required.UnionWith(projection.GetRawInputIUs());
         }
         return required;
-    }
-    if (!OlapProgram) {
-        return required;
-    }
-
-    const auto inspection = NOpt::InspectOlapProcessLambda(OlapProgram.Legacy());
-    if (inspection.RequiresAllInputColumns) {
-        return Columns_;
-    }
-    // Match canonical ID atoms, not registry labels or storage column names.
-    for (const auto id : Columns_) {
-        if (inspection.Columns.contains(ctx.GetIndexAsString(id))) {
-            required.Add(id);
-        }
     }
     return required;
 }
@@ -476,7 +443,7 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
     // Tables are usually named in a path-like fashion, like "/<path>/<name>".
     // In such case we extract the name of a table from a path,
     // fallback to the whole name otherwise.
-    auto path = TKqpTable(TableCallable).Path().StringValue();
+    auto path = TableRef.Path;
     auto slash = path.rfind('/');
     res["Table"] = (slash == TString::npos) ? path : path.substr(slash + 1);
 
@@ -527,8 +494,6 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
                     << (hasFrom ? from.Values[i].ToExplainString(registry) : TString("-∞")) << ", "
                     << (hasTo ? to.Values[i].ToExplainString(registry) : TString("+∞")) << (toInclusive ? ']' : ')'));
             }
-        } else {
-            descriptions = NOpt::BuildReadRangeDescriptions(RangeInfo->ComputeNode, RangeInfo->KeyColumns, usedLen);
         }
         for (const auto& label : descriptions.empty() ? rangedKeys : descriptions) {
             readColumns.AppendValue(label);
@@ -581,9 +546,9 @@ NJson::TJsonValue TOpRead::ToJson(ui32 explainFlags, const TInfoUnitRegistry& re
     return res;
 }
 
-TString TOpRead::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) {
+TString TOpRead::ToString(TExprContext&, const TInfoUnitRegistry& registry) {
     auto res = TStringBuilder();
-    res << "Read (" << TKqpTable(TableCallable).Path().StringValue() << "," << Alias << ", [";
+    res << "Read (" << TableRef.Path << "," << Alias << ", [";
 
     TStringBuf separator;
     for (const auto id : Columns_) {
@@ -598,18 +563,6 @@ TString TOpRead::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) 
         if (program.Predicate) res << " OlapFilter: (" << program.Predicate->ToExplainString(registry) << ")";
         for (const auto& [id, projection] : program.Projections.Items())
             res << " OlapProjection: (" << registry.GetDebugName(id) << " = " << projection.ToExplainString(registry) << ")";
-    } else if (OlapProgram) {
-        THashMap<TString, TString> names;
-        for (const auto id : GetRequiredColumns(ctx)) {
-            names.emplace(ctx.GetIndexAsString(id), registry.GetDebugName(id));
-        }
-        res << " OlapFilter: (" << PrintRBOExpression(NOpt::TOlapFilterInspector::RenameColumns(OlapProgram.Legacy(), names, ctx), ctx) << ")";
-    }
-    if (const auto ranges = GetRanges()) {
-        res << " Ranges: (" << PrintRBOExpression(ranges, ctx) << ")";
-    }
-    if (const auto literalRange = GetLiteralRange()) {
-        res << " Literal range: (" << PrintRBOExpression(literalRange, ctx) << ")";
     }
     if (RangeInfo && RangeInfo->NativeRanges) {
         const auto format = [&](const TKeyBound& bound) {
@@ -709,13 +662,6 @@ TVector<std::reference_wrapper<const TExpression>> TOpMap::GetExpressions() cons
     return result;
 }
 
-void TOpMap::ApplyReplaceMap(const TNodeOnNodeOwnedMap& replacements, TRBOContext& ctx) {
-    // Replacing values keeps the map structure; keys and iterators stay valid.
-    for (const auto& [id, element] : MapElements.Items()) {
-        SetMapElementExpression(id, element.GetExpression().ApplyReplaceMap(replacements, ctx));
-    }
-}
-
 TString TOpMap::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) {
     Y_UNUSED(ctx);
     TStringBuilder text;
@@ -763,7 +709,7 @@ bool TOpAddDependencies::RebindCaptures(const TSubstitutions& substitutions) {
     auto dependencies = Dependencies;
     for (const auto& [local, capture] : Dependencies.Items()) {
         if (const auto outer = Substitute(capture.Outer, substitutions); outer != capture.Outer) {
-            dependencies.Replace(local, TCapturedIU{outer, capture.Type});
+            dependencies.Replace(local, TCapturedIU{outer, capture.NativeType});
             changed = true;
         }
     }
@@ -819,10 +765,6 @@ void TOpFilter::SetFilterExpression(TExpression filterExpr) {
     FilterExpr = std::move(filterExpr);
 }
 
-void TOpFilter::ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOContext & ctx) {
-    SetFilterExpression(FilterExpr.ApplyReplaceMap(map, ctx));
-}
-
 TUnorderedIUs TOpFilter::GetFilterIUs(TPlanProps& props) const {
     FilterExpr.BindPlanProps(&props);
     return FilterExpr.GetInputIUs(true, true);
@@ -847,6 +789,47 @@ NJson::TJsonValue TOpFilter::ToJson(ui32 explainFlags, const TInfoUnitRegistry& 
 /**
  * OpJoin operator methods
  */
+
+// ON predicates are evaluated against the inputs before outer-join padding.
+// A computed equality whose operands each belong to one input can therefore
+// become a key on that input, including for outer, semi and anti joins.
+bool ExtractNativeJoinKeys(TOpJoin& join, TPlanProps& props) {
+    if (!props.NativeExpressions) return false;
+    const auto left = join.GetLeftInput()->GetOutputIUs(), right = join.GetRightInput()->GetOutputIUs();
+    TMapIUs leftDefinitions, rightDefinitions;
+    TVector<TExpression> remaining;
+    bool changed = false;
+    for (const auto& predicate : join.JoinFilters) {
+        if (!predicate.MaybeExprEquiJoinCondition() || ReferencesUnresolvedSubplan(predicate, props)) {
+            remaining.push_back(predicate);
+            continue;
+        }
+        TEquiJoinCondition condition(predicate);
+        const bool forward = condition.LeftIUs.IsSubsetOf(left) && condition.RightIUs.IsSubsetOf(right);
+        const bool reverse = condition.LeftIUs.IsSubsetOf(right) && condition.RightIUs.IsSubsetOf(left);
+        if (!forward && !reverse) {
+            remaining.push_back(predicate);
+            continue;
+        }
+        TMappedIUs<TExpression> definitions;
+        const auto extracted = condition.ExtractExpressions(definitions);
+        const TEquiJoinCondition keys(extracted ? *extracted : predicate);
+        join.JoinKeys.Add(forward ? keys.GetLeftIU() : keys.GetRightIU(), forward ? keys.GetRightIU() : keys.GetLeftIU());
+        for (const auto& [id, value] : definitions.Items()) {
+            auto& destination = value.GetInputIUs(false, true).IsSubsetOf(left) ? leftDefinitions : rightDefinitions;
+            destination.Add(id, value);
+        }
+        changed = true;
+    }
+    if (!changed) return false;
+    if (join.JoinKind == "Cross") join.JoinKind = "Inner";
+    if (!leftDefinitions.Keys().Empty())
+        join.SetLeftInput(MakeIntrusive<TOpMap>(join.GetLeftInput(), join.Pos, std::move(leftDefinitions), true));
+    if (!rightDefinitions.Keys().Empty())
+        join.SetRightInput(MakeIntrusive<TOpMap>(join.GetRightInput(), join.Pos, std::move(rightDefinitions), true));
+    join.JoinFilters = std::move(remaining);
+    return true;
+}
 
 TOpJoin::TOpJoin(TIntrusivePtr<IOperator> left, TIntrusivePtr<IOperator> right, TPositionHandle pos,
     TString kind, TJoinIUs keys)
@@ -1208,7 +1191,7 @@ TString TOpSort::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) 
     return text << " Phase: " << ToStringPhase(SortPhase);
 }
 
-TOpTableLookup::TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TExprNode::TPtr& table,
+TOpTableLookup::TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TRboTable& table,
     TUnorderedIUs columns, TLookupKeys keys)
     : IUnaryOperator(EOperator::TableLookup, pos, input)
     , Table(table)
@@ -1216,7 +1199,7 @@ TOpTableLookup::TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle p
     , Columns(std::move(columns))
 {}
 
-TOpTableLookup::TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TExprNode::TPtr& table,
+TOpTableLookup::TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TRboTable& table,
     TUnorderedIUs columns, TLookupKeys keys, const TString& kind, const std::optional<TExpression>& filter,
     const std::optional<TLookupKeyPrefix>& prefix, TJoinIUs residualKeys)
     : TOpTableLookup(std::move(input), pos, table, std::move(columns), std::move(keys))
@@ -1307,7 +1290,7 @@ static TString FormatLookupKeys(const TOpTableLookup::TLookupKeys& keys, const T
 TString TOpTableLookup::ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) {
     Y_UNUSED(ctx);
     TStringBuilder res;
-    res << GetExplainName() << ": " << TKqpTable(Table).Path().StringValue();
+    res << GetExplainName() << ": " << Table.Path;
     if (IsJoin()) {
         res << ", kind: " << JoinKind;
     }
@@ -1338,7 +1321,7 @@ TString TOpTableLookup::ToString(TExprContext& ctx, const TInfoUnitRegistry& reg
 
 NJson::TJsonValue TOpTableLookup::ToJson(ui32 explainFlags, const TInfoUnitRegistry& registry) {
     auto result = IOperator::ToJson(explainFlags, registry);
-    result["Table"] = TKqpTable(Table).Path().StringValue();
+    result["Table"] = Table.Path;
     if (IsJoin()) {
         result["JoinKind"] = JoinKind;
         TStringBuilder condition;
@@ -1762,7 +1745,7 @@ TString TOpCBOTree::ToString(TExprContext& ctx, const TInfoUnitRegistry& registr
 /**
 * Table Effect operator methods: these are inserts/updates/deletes
 */
-TOpTableEffect::TOpTableEffect(TIntrusivePtr<IOperator> input, TPositionHandle pos, TExprNode::TPtr table,
+TOpTableEffect::TOpTableEffect(TIntrusivePtr<IOperator> input, TPositionHandle pos, TRboTable table,
     EEffectType type, TEffectOptions options, TOrderedIUs<TString> columns, TOrderedIUs<TString> returning)
     : IUnaryOperator(EOperator::TableEffect, pos, input)
     , Table(std::move(table))
@@ -1799,69 +1782,6 @@ TString TOpTableEffect::GetExplainName() const {
 TString TOpTableEffect::ToString(TExprContext& ctx, const TInfoUnitRegistry&) {
     Y_UNUSED(ctx);
     return GetExplainName();
-}
-
-TExprNode::TPtr TOpTableEffect::BuildSettings(TExprContext& ctx) {
-    if (Options.ReturningColumns.has_value() && Options.ReturningColumns->size()) {
-        Y_ENSURE(false, "Returning columns not supported in new optimizer");
-    }
-
-    TString mode;
-    
-    switch(EffectType) {
-        case EEffectType::InsertRows:
-        case EEffectType::InsertRowsIndex:
-            mode = "insert";
-            break;
-        case EEffectType::UpdateRows:
-        case EEffectType::UpdateRowsIndex:
-            mode = "update";
-            break;
-        case EEffectType::UpsertRows:
-        case EEffectType::UpsertRowsIndex:
-            mode = "upsert";
-            break;
-        case EEffectType::DeleteRows:
-        case EEffectType::DeleteRowsIndex:
-            mode = "delete";
-            break;
-        default:
-            Y_ENSURE(false, "Unsupported DML in new optimizer");
-    }
-
-    TString isBatch = "false";
-    if (Options.IsBatch.has_value() && Options.IsBatch.value()){
-        isBatch = "true";
-    }
-
-    TVector<TExprNode::TPtr> defaultColumns;
-    if (Options.DefaultColumns.has_value()) {
-        for (auto c : Options.DefaultColumns.value()) {
-            defaultColumns.push_back(ctx.NewAtom(Pos, c));
-        }
-    }
-
-    TVector<TExprNode::TPtr> settings;
-    if (Options.Settings.has_value()) {
-        settings = Options.Settings.value();
-    }
-
-    return Build<TKqpTableSinkSettings>(ctx, Pos)
-            .Table(Table)
-            .InconsistentWrite().Build("false")
-            .Mode().Build(mode)
-            .Priority().Build("0")
-            .StreamWrite().Build("false")
-            .IsBatch().Build(isBatch)
-            .IsIndexImplTable().Build("false")
-            .DefaultColumns()
-                .Add(defaultColumns)
-            .Build()
-            .ReturningColumns().Build()
-            .Settings()
-                .Add(settings)
-            .Build()
-            .Done().Ptr();
 }
 
 /**
@@ -1940,7 +1860,7 @@ void InvalidateProperties(TOpRoot& root) {
         op.Props.Metadata.reset();
         op.Props.Statistics.reset();
         op.Props.ClearLogicalAnalysis();
-        op.Type = nullptr;
+        op.NativeSchema.reset();
         op.Parents.clear();
     }
     root.RecomputeOutputIUsSubtree();

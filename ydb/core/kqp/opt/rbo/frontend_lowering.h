@@ -8,6 +8,11 @@ namespace NKikimr::NKqp {
 
 class TOlapProgram;
 class TExpression;
+struct TRboTable;
+class IOperator;
+NYql::TExprNode::TPtr LowerTable(const TRboTable& table, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
+const NYql::TTypeAnnotationNode* ExportOperatorType(const IOperator& op, NYql::TExprContext& ctx);
+const NYql::TTypeAnnotationNode* ExportIUType(const IOperator& op, unsigned int id, NYql::TExprContext& ctx);
 namespace NFrontend { class TParameterType; }
 
 // The execution compatibility boundary. The native frontend and its type
@@ -29,7 +34,7 @@ NYql::TExprNode::TPtr LowerExpressionLambda(const TExpression& expression, NYql:
 
 // Capability inspection reads only native nodes. Storage opcodes are emitted
 // at physical conversion, never during native optimization or type binding.
-bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root);
+bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root, bool allowScalarApply = false);
 bool CanLowerNativeOlapProjection(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root);
 NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena,
     NFrontend::TExprId root, NYql::TExprContext& ctx, NYql::TPositionHandle pos);

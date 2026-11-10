@@ -9,11 +9,12 @@ namespace {
 using namespace NYdb;
 
 Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
-    Y_UNIT_TEST_TWIN(SafeCastOptionalResults, PhysicalStagePeephole) {
+    void RunSafeCastOptionalResults(bool PhysicalStagePeephole, bool native) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBOPhysicalStagePeephole(PhysicalStagePeephole);
+        if (native) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         TKikimrRunner kikimr(TKikimrSettings(appConfig).SetWithSampleTables(false));
 
         const auto params = TParamsBuilder()
@@ -46,6 +47,7 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
             FROM AS_TABLE($rows) ORDER BY number DESC;
         )", NQuery::TTxControl::NoTx(), params).GetValueSync();
         UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
         const auto& resultSet = result.GetResultSet(0);
         UNIT_ASSERT_VALUES_EQUAL(resultSet.RowsCount(), 2);
         const TVector<TString> types = {"Decimal(7,0)?", "Decimal(7,0)?", "String?",
@@ -87,11 +89,15 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
         }
     }
 
-    Y_UNIT_TEST(ManyJoinsWithDecimalRanges) {
+    Y_UNIT_TEST_TWIN(SafeCastOptionalResults, PhysicalStagePeephole) { RunSafeCastOptionalResults(PhysicalStagePeephole, false); }
+    Y_UNIT_TEST_TWIN(NativeSafeCastOptionalResults, PhysicalStagePeephole) { RunSafeCastOptionalResults(PhysicalStagePeephole, true); }
+
+    void RunManyJoinsWithDecimalRanges(bool native) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
         appConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(false);
         appConfig.MutableTableServiceConfig()->SetEnableNewRBOPhysicalStagePeephole(false);
+        if (native) appConfig.MutableTableServiceConfig()->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
         TKikimrRunner kikimr(TKikimrSettings(appConfig).SetWithSampleTables(false));
 
         // Filtering each joined table by a non-nullable decimal key produces
@@ -126,11 +132,15 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
         const auto result = kikimr.GetQueryClient().ExecuteQuery(query, NQuery::TTxControl::NoTx(),
             NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
         UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+        UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
         UNIT_ASSERT(result.GetStats() && result.GetStats()->GetPlan());
         UNIT_ASSERT(!result.GetStats()->GetPlan()->empty());
         UNIT_ASSERT_VALUES_EQUAL(successes->Val(), successesBefore + 1);
         UNIT_ASSERT_VALUES_EQUAL(failures->Val(), failuresBefore);
     }
+    Y_UNIT_TEST(ManyJoinsWithDecimalRanges) { RunManyJoinsWithDecimalRanges(false); }
+    Y_UNIT_TEST(NativeManyJoinsWithDecimalRanges) { RunManyJoinsWithDecimalRanges(true); }
+
 }
 
 } // namespace

@@ -57,7 +57,11 @@ Y_UNIT_TEST_SUITE(KqpNativeParser) {
         const auto& projection = parsed.Statements[0].Query->Projection;
         UNIT_ASSERT_VALUES_EQUAL(projection[0].Alias, "u");
         UNIT_ASSERT(parsed.Expressions[projection[0].Expression].Kind == ESyntaxKind::String);
-        UNIT_ASSERT_EXCEPTION(Parse("SELECT 'y'u AS y"), TFrontendError);
+        const auto typed = Parse("SELECT 'y'u AS y");
+        const auto& value = typed.Expressions[typed.Statements[0].Query->Projection[0].Expression];
+        UNIT_ASSERT(value.Kind == ESyntaxKind::Call);
+        UNIT_ASSERT_VALUES_EQUAL(value.Text, "Utf8");
+        UNIT_ASSERT_VALUES_EQUAL(typed.Expressions[value.Arguments[0]].Text, "y");
     }
 
     Y_UNIT_TEST(CasePredicatesAndJoins) {

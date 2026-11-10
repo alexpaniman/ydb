@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <limits>
+#include <map>
 #include <utility>
 
 namespace NKikimr {
@@ -14,8 +15,8 @@ namespace {
 using namespace NFrontend;
 
 // Statistics operate on the reachable typed DAG, not a lowered YQL lambda.
-// Only identity/optional conversions retain source-column statistics: casts
-// which change values need statistics of their own.
+// Scalar inspection preserves the established selectivity policy. Native
+// bounds probe typed storage statistics without generating YQL expressions.
 class TNativeSelectivity {
     static constexpr TExprId Missing = std::numeric_limits<TExprId>::max();
     struct TBound {
@@ -26,52 +27,152 @@ class TNativeSelectivity {
         TExprId Column;
         TBound Lower, Upper;
     };
-    struct TEstimate {
-        double True = 0.5, False = 0.5;
+    struct TMetadata {
         bool ColumnFree = true;
+        bool HasParameters = false;
         TExprId Column = Missing, Literal = Missing;
-        std::optional<TRange> Range;
     };
+    struct TEstimate {
+        double Value = 1.0;
+        bool Leaf = false;
+        ui64 Key = 0;
+        TRange Range{Missing, {}, {}};
+    };
+    static constexpr ui64 EmptyAttribute = ui64{1} << 32;
+    static constexpr ui64 NonConstant = EmptyAttribute + 1;
+    static constexpr ui64 Parameter = EmptyAttribute + 2;
+    static constexpr ui64 NoAttribute = EmptyAttribute + 3;
 
 public:
     TNativeSelectivity(const TExpressionArena& arena, const TOptimizerStatistics& stats, TNativePredicateStatistics* usage = nullptr)
         : Arena(arena), Stats(stats), Usage(usage) {}
 
     double Compute(TExprId root) {
-        // A shared expression is estimated once, without a recursion limit or
-        // allocating scratch space for unrelated roots in the query's arena.
-        TVector<std::pair<TExprId, bool>> work{{root, false}};
-        while (!work.empty()) {
-            const auto [id, ready] = work.back();
-            work.pop_back();
-            if (Estimates.contains(id)) continue;
+        // Scalar metadata is computed once per reachable DAG node. Boolean
+        // chains are flattened only when consumed, rather than copying a map
+        // of column ranges through every intermediate binary AND/OR node.
+        TVector<std::pair<TExprId, bool>> nodes{{root, false}};
+        while (!nodes.empty()) {
+            const auto [id, ready] = nodes.back(); nodes.pop_back();
+            if (Metadata.contains(id)) continue;
+            const auto& node = Arena[id];
             if (!ready) {
-                work.emplace_back(id, true);
-                for (const auto arg : Arena[id].Arguments) {
-                    if (!Estimates.contains(arg)) work.emplace_back(arg, false);
+                nodes.emplace_back(id, true);
+                for (const auto arg : node.Arguments) if (!Metadata.contains(arg)) nodes.emplace_back(arg, false);
+                continue;
+            }
+            TMetadata result;
+            for (const auto arg : node.Arguments) {
+                result.ColumnFree &= Metadata.at(arg).ColumnFree;
+                result.HasParameters |= Metadata.at(arg).HasParameters;
+            }
+            if (node.Op == EOpcode::Column) { result.Column = id; result.ColumnFree = false; }
+            else if (node.Op == EOpcode::Literal) result.Literal = id;
+            else if (node.Op == EOpcode::Parameter) result.HasParameters = true;
+            else if (node.Op == EOpcode::Convert || node.Op == EOpcode::Cast || node.Op == EOpcode::Unwrap) {
+                const auto& input = Metadata.at(node.Arguments[0]);
+                // Attribute recognition follows the existing selectivity policy.
+                // Literal probes still use the original storage width and reject
+                // an unrepresentable boundary instead of truncating its bytes.
+                result.Column = input.Column;
+                if (node.Type.Required() == Arena[node.Arguments[0]].Type.Required() ||
+                    (input.Literal != Missing && std::holds_alternative<std::monostate>(Arena[input.Literal].Value)))
+                    result.Literal = input.Literal;
+            }
+            Metadata.emplace(id, result);
+        }
+        const auto key = Normalize(root, false);
+        TVector<std::pair<ui64, bool>> work{{key, false}};
+        while (!work.empty()) {
+            const auto [current, ready] = work.back(); work.pop_back();
+            if (Estimates.contains(current)) continue;
+            const auto id = Node(current);
+            const auto op = Arena[id].Op;
+            if (op != EOpcode::And && op != EOpcode::Or) {
+                Estimates.emplace(current, EstimateLeaf(id, Negated(current)));
+                continue;
+            }
+            if (!ready) {
+                auto operands = LogicalOperands(current);
+                work.emplace_back(current, true);
+                for (auto [child, count] : operands) {
+                    Y_UNUSED(count);
+                    if (!Estimates.contains(child)) work.emplace_back(child, false);
                 }
+                Operands.emplace(current, std::move(operands));
             } else {
-                Estimates.emplace(id, Estimate(id));
+                Estimates.emplace(current, EstimateLogical(current));
             }
         }
         if (Usage) CollectJoinKeys(root);
-        return Estimates.at(root).True;
+        const auto& result = Estimates.at(key);
+        return result ? std::min(1.0, result->Value) : 1.0;
     }
 
 private:
+    static TExprId Node(ui64 key) { return key >> 1; }
+    static bool Negated(ui64 key) { return key & 1; }
+
+    ui64 Normalize(TExprId id, bool negative) const {
+        for (;;) {
+            const auto& node = Arena[id];
+            if (node.Op == EOpcode::Not) { negative = !negative; id = node.Arguments[0]; }
+            else if (node.Op == EOpcode::Convert && node.Type.Kind == ETypeKind::Bool &&
+                node.Type.Required() == Arena[node.Arguments[0]].Type.Required()) id = node.Arguments[0];
+            else if (node.Op == EOpcode::Coalesce && node.Type.Kind == ETypeKind::Bool) {
+                // The legacy estimator consumes the predicate of COALESCE.
+                // Constant NULL alternatives have already folded on real plans;
+                // recognize them here as well for standalone scalar estimates.
+                size_t at = 0;
+                while (at + 1 < node.Arguments.size()) {
+                    const auto literal = Metadata.at(node.Arguments[at]).Literal;
+                    if (literal == Missing || !std::holds_alternative<std::monostate>(Arena[literal].Value)) break;
+                    ++at;
+                }
+                id = node.Arguments[at];
+            } else break;
+        }
+        return (ui64{id} << 1) | negative;
+    }
+
+    bool Conjunction(ui64 key) const { return (Arena[Node(key)].Op == EOpcode::And) != Negated(key); }
+
+    TVector<std::pair<ui64, ui64>> LogicalOperands(ui64 root) const {
+        // Parents have larger IDs than their operands. Propagate occurrence
+        // counts in that order so shared Boolean DAGs remain bounded without
+        // dropping repeated predicates from the established grouping policy.
+        std::map<ui64, ui64, std::greater<ui64>> work{{root, 1}};
+        TVector<std::pair<ui64, ui64>> result;
+        const bool conjunction = Conjunction(root);
+        while (!work.empty()) {
+            const auto [key, count] = *work.begin(); work.erase(work.begin());
+            const auto& node = Arena[Node(key)];
+            if ((node.Op == EOpcode::And || node.Op == EOpcode::Or) && Conjunction(key) == conjunction) {
+                for (auto arg : node.Arguments) {
+                    auto& occurrences = work[Normalize(arg, Negated(key))];
+                    occurrences += std::min(count, std::numeric_limits<ui64>::max() - occurrences);
+                }
+            } else result.emplace_back(key, count);
+        }
+        return result;
+    }
+
     void CollectJoinKeys(TExprId root) {
         TVector<TExprId> work{root};
         THashSet<TExprId> visited;
+        const auto column = [&](TExprId id) {
+            while ((Arena[id].Op == EOpcode::Convert || Arena[id].Op == EOpcode::Cast || Arena[id].Op == EOpcode::Unwrap) &&
+                Arena[id].Type.Required() == Arena[Arena[id].Arguments[0]].Type.Required()) id = Arena[id].Arguments[0];
+            return Arena[id].Op == EOpcode::Column ? id : Missing;
+        };
         while (!work.empty()) {
-            const auto id = work.back();
-            work.pop_back();
+            const auto id = work.back(); work.pop_back();
             if (!visited.insert(id).second) continue;
             const auto& node = Arena[id];
-            if (node.Op == EOpcode::And) {
-                work.insert(work.end(), node.Arguments.begin(), node.Arguments.end());
-            } else if (node.Op == EOpcode::Coalesce) {
+            if (node.Op == EOpcode::And) work.insert(work.end(), node.Arguments.begin(), node.Arguments.end());
+            else if (node.Op == EOpcode::Coalesce) {
                 const bool falseFallback = std::all_of(node.Arguments.begin() + 1, node.Arguments.end(), [&](TExprId arg) {
-                    const auto literal = Estimates.at(arg).Literal;
+                    const auto literal = Metadata.at(arg).Literal;
                     if (literal == Missing) return false;
                     const auto& value = Arena[literal].Value;
                     return std::holds_alternative<std::monostate>(value) ||
@@ -79,12 +180,10 @@ private:
                 });
                 if (falseFallback) work.push_back(node.Arguments[0]);
             } else if ((node.Op == EOpcode::Convert || node.Op == EOpcode::Cast || node.Op == EOpcode::Unwrap) &&
-                node.Type.Required() == Arena[node.Arguments[0]].Type.Required()) {
-                work.push_back(node.Arguments[0]);
-            } else if (node.Op == EOpcode::Equal) {
-                const auto left = Estimates.at(node.Arguments[0]).Column, right = Estimates.at(node.Arguments[1]).Column;
-                if (left != Missing && right != Missing)
-                    Usage->JoinKeys.emplace_back(Arena[left].ColumnId, Arena[right].ColumnId);
+                node.Type.Required() == Arena[node.Arguments[0]].Type.Required()) work.push_back(node.Arguments[0]);
+            else if (node.Op == EOpcode::Equal) {
+                const auto left = column(node.Arguments[0]), right = column(node.Arguments[1]);
+                if (left != Missing && right != Missing) Usage->JoinKeys.emplace_back(Arena[left].ColumnId, Arena[right].ColumnId);
             }
         }
     }
@@ -166,7 +265,7 @@ private:
         });
     }
 
-    double RangeEstimate(const TRange& range) const {
+    double RangeEstimate(const TRange& range, bool recomputed = false) const {
         const auto* stats = ColumnStats(range.Column);
         const auto estimate = WithColumnType(range.Column, [&]<typename T>() -> std::optional<double> {
             const auto lower = LiteralAs<T>(range.Lower.Literal), upper = LiteralAs<T>(range.Upper.Literal);
@@ -185,6 +284,11 @@ private:
                 return EqualityDefault(range.Column);
             }
             if (!lower && !upper) return 1.0;
+            if (recomputed && (!Stats.ColumnStatistics || !Stats.Nrows)) {
+                if constexpr (!std::is_same_v<T, std::string_view>)
+                    if (Usage) Usage->HistogramColumns.Add(Arena[range.Column].ColumnId);
+                return EqualityDefault(range.Column);
+            }
             if constexpr (!std::is_same_v<T, std::string_view>) {
                 if (Usage) Usage->HistogramColumns.Add(Arena[range.Column].ColumnId);
                 if (stats && stats->EqWidthHistogramEstimator && Stats.Nrows > 0) {
@@ -224,136 +328,172 @@ private:
             const auto lower = bound(a.Lower, b.Lower, true, true), upper = bound(a.Upper, b.Upper, false, true);
             if (lower.Literal != Missing && upper.Literal != Missing) {
                 const int cmp = *Compare(a.Column, lower.Literal, upper.Literal);
-                if (cmp > 0 || (cmp == 0 && !lower.Inclusive && !upper.Inclusive)) return std::nullopt;
+                if (cmp > 0 || (cmp == 0 && (!lower.Inclusive || !upper.Inclusive))) return std::nullopt;
             }
         }
         return TRange{a.Column, bound(a.Lower, b.Lower, true, conjunction), bound(a.Upper, b.Upper, false, conjunction)};
     }
 
-    TEstimate Estimate(TExprId id) const {
+    double EstimateGroup(TVector<TEstimate> group, bool conjunction) const {
+        if (group.size() == 1) return group.front().Value;
+        if (conjunction) {
+            auto range = group.front().Range;
+            for (size_t i = 1; i < group.size(); ++i) {
+                if (range.Column == Missing) range.Column = group[i].Range.Column;
+                auto other = group[i].Range;
+                if (other.Column == Missing) other.Column = range.Column;
+                if (range.Column == Missing) continue;
+                const auto merged = MergeRanges(range, other, true);
+                Y_ENSURE(merged, "Conjuncts grouped by one source column must have compatible ranges");
+                range = *merged;
+            }
+            return range.Column == Missing ? 1.0 : RangeEstimate(range, true);
+        }
+        // The existing policy unions only direct leaf ranges for one column.
+        // Nested conjunctions contribute their independent estimates instead of
+        // being promoted into an interval and merged through an enclosing OR.
+        std::sort(group.begin(), group.end(), [&](const TEstimate& a, const TEstimate& b) {
+            const auto left = a.Range.Lower, right = b.Range.Lower;
+            if (left.Literal == Missing) return right.Literal != Missing;
+            if (right.Literal == Missing) return false;
+            const auto cmp = *Compare(a.Range.Column, left.Literal, right.Literal);
+            return cmp ? cmp < 0 : left.Inclusive && !right.Inclusive;
+        });
+        double value = 0;
+        auto range = group.front().Range;
+        for (size_t i = 1; i < group.size(); ++i) {
+            if (range.Column == Missing) range.Column = group[i].Range.Column;
+            auto other = group[i].Range;
+            if (other.Column == Missing) other.Column = range.Column;
+            if (range.Column == Missing) continue;
+            if (auto merged = MergeRanges(range, other, false)) range = *merged;
+            else { value += RangeEstimate(range, true); range = other; }
+        }
+        return std::min(1.0, value + (range.Column == Missing ? 1.0 : RangeEstimate(range, true)));
+    }
+
+    TEstimate EstimateLogical(ui64 key) const {
+        const bool conjunction = Conjunction(key);
+        double value = conjunction ? 1.0 : 0.0;
+        THashMap<ui64, TVector<TEstimate>> groups;
+        const auto combine = [&](double item) { if (conjunction) value *= item; else value += item; };
+        for (auto [child, count] : Operands.at(key)) {
+            const auto& estimate = Estimates.at(child);
+            if (!estimate) continue;
+            if (estimate->Leaf) {
+                auto& group = groups[estimate->Key];
+                group.push_back(*estimate);
+                // Two identical ranges already trigger recomputation; more
+                // occurrences do not change their intersection or union.
+                if (count > 1) group.push_back(*estimate);
+            } else combine(conjunction ? std::pow(estimate->Value, count) : estimate->Value * count);
+        }
+        for (auto& [column, group] : groups) { Y_UNUSED(column); combine(EstimateGroup(std::move(group), conjunction)); }
+        return {conjunction ? value : std::min(1.0, value)};
+    }
+
+    static EOpcode SwapComparison(EOpcode op) {
+        using O = EOpcode;
+        switch (op) {
+            case O::Less: return O::Greater;
+            case O::LessEqual: return O::GreaterEqual;
+            case O::Greater: return O::Less;
+            case O::GreaterEqual: return O::LessEqual;
+            default: return op;
+        }
+    }
+
+    static EOpcode NegateComparison(EOpcode op) {
+        using O = EOpcode;
+        switch (op) {
+            case O::Equal: return O::NotEqual;
+            case O::NotEqual: return O::Equal;
+            case O::Less: return O::GreaterEqual;
+            case O::LessEqual: return O::Greater;
+            case O::Greater: return O::LessEqual;
+            case O::GreaterEqual: return O::Less;
+            default: Y_UNREACHABLE();
+        }
+    }
+
+    std::optional<TEstimate> EstimateLeaf(TExprId id, bool negative) const {
         using O = EOpcode;
         const auto& node = Arena[id];
-        TEstimate result;
-        for (const auto arg : node.Arguments) result.ColumnFree &= Estimates.at(arg).ColumnFree;
-        const auto child = [&](size_t i) -> const TEstimate& { return Estimates.at(node.Arguments[i]); };
-        const auto probability = [&](double value) {
-            result.True = value;
-            result.False = 1.0 - value;
+        const auto child = [&](size_t i) -> const TMetadata& { return Metadata.at(node.Arguments[i]); };
+        const auto constant = [&](bool value) { return TEstimate{double(value != negative)}; };
+        const auto leaf = [&](ui64 key, double value, TExprId column = Missing) {
+            return TEstimate{value, true, key, {column, {}, {}}};
         };
-        switch (node.Op) {
-            case O::Literal:
-                result.Literal = id;
-                if (std::holds_alternative<std::monostate>(node.Value)) result.True = result.False = 0;
-                else if (const auto* value = std::get_if<bool>(&node.Value)) probability(*value ? 1.0 : 0.0);
-                break;
-            case O::Column:
-                result.Column = id;
-                result.ColumnFree = false;
-                break;
-            case O::Convert: case O::Cast: case O::Unwrap:
-                if (node.Type.Required() == Arena[node.Arguments[0]].Type.Required() ||
-                    (child(0).Literal != Missing && std::holds_alternative<std::monostate>(Arena[child(0).Literal].Value)))
-                    result = child(0);
-                break;
-            case O::Coalesce:
-                if (node.Type.Kind == ETypeKind::Bool) {
-                    result.True = result.False = 0;
-                    double remaining = 1;
-                    for (const auto arg : node.Arguments) {
-                        const auto& item = Estimates.at(arg);
-                        result.True += remaining * item.True;
-                        result.False += remaining * item.False;
-                        remaining *= std::max(0.0, 1 - item.True - item.False);
-                    }
-                }
-                break;
-            case O::Not:
-                result.True = child(0).False;
-                result.False = child(0).True;
-                if (child(0).Range) {
-                    auto range = *child(0).Range;
-                    if ((range.Lower.Literal == Missing) != (range.Upper.Literal == Missing)) {
-                        std::swap(range.Lower, range.Upper);
-                        range.Lower.Inclusive = !range.Lower.Inclusive;
-                        range.Upper.Inclusive = !range.Upper.Inclusive;
-                        result.Range = range;
-                        probability(RangeEstimate(range));
-                    }
-                }
-                break;
-            case O::And: case O::Or: {
-                const auto& a = child(0);
-                const auto& b = child(1);
-                const bool conjunction = node.Op == O::And;
-                if (node.Arguments[0] == node.Arguments[1]) return a;
-                result.True = conjunction ? a.True * b.True : a.True + b.True - a.True * b.True;
-                result.False = conjunction ? a.False + b.False - a.False * b.False : a.False * b.False;
-                if (a.Range && b.Range && Arena[a.Range->Column].ColumnId == Arena[b.Range->Column].ColumnId) {
-                    result.Range = MergeRanges(*a.Range, *b.Range, conjunction);
-                    if (result.Range) probability(RangeEstimate(*result.Range));
-                    else if (!conjunction) probability(std::min(1.0, a.True + b.True));
-                }
-                break;
-            }
-            case O::Equal: case O::NotEqual: case O::Less: case O::LessEqual: case O::Greater: case O::GreaterEqual: {
-                auto left = child(0), right = child(1);
-                auto op = node.Op;
-                if (left.Column == Missing && right.Column != Missing) {
-                    std::swap(left, right);
-                    if (op == O::Less) op = O::Greater;
-                    else if (op == O::LessEqual) op = O::GreaterEqual;
-                    else if (op == O::Greater) op = O::Less;
-                    else if (op == O::GreaterEqual) op = O::LessEqual;
-                }
-                if (Arena[node.Arguments[0]].Type.Kind == ETypeKind::Null || Arena[node.Arguments[1]].Type.Kind == ETypeKind::Null ||
-                    (left.Literal != Missing && std::holds_alternative<std::monostate>(Arena[left.Literal].Value)) ||
-                    (right.Literal != Missing && std::holds_alternative<std::monostate>(Arena[right.Literal].Value))) {
-                    result.True = result.False = 0;
-                } else if (left.Column != Missing && right.Column != Missing) {
-                    probability(op == O::NotEqual ? 0.7 : 0.3);
-                } else if (left.Column != Missing && right.ColumnFree) {
-                    const bool equality = op == O::Equal || op == O::NotEqual;
-                    double value = equality ? EqualityDefault(left.Column) : 0.4;
-                    if (right.Literal != Missing && Compare(left.Column, right.Literal, right.Literal)) {
-                        TRange range{left.Column, {}, {}};
-                        if (equality || op == O::Greater || op == O::GreaterEqual)
-                            range.Lower = {right.Literal, equality || op == O::GreaterEqual};
-                        if (equality || op == O::Less || op == O::LessEqual)
-                            range.Upper = {right.Literal, equality || op == O::LessEqual};
-                        value = RangeEstimate(range);
-                        if (op != O::NotEqual) result.Range = range;
-                    }
-                    probability(op == O::NotEqual ? 1 - value : value);
-                }
-                break;
-            }
-            case O::IsNull: case O::IsNotNull: {
-                const auto type = Arena[node.Arguments[0]].Type;
-                double nulls = type.Kind == ETypeKind::Null ? 1.0 : (type.Nullable ? 0.1 : 0.0);
-                if (child(0).Literal != Missing)
-                    nulls = std::holds_alternative<std::monostate>(Arena[child(0).Literal].Value) ? 1.0 : 0.0;
-                probability(node.Op == O::IsNull ? nulls : 1 - nulls);
-                break;
-            }
-            case O::Contains: case O::StartsWith: case O::EndsWith:
-                if (child(0).Column != Missing && child(1).ColumnFree)
-                    probability(node.Op == O::Contains ? 0.1 : 0.5);
-                break;
-            case O::If: {
-                const auto& condition = child(0);
-                result.True = condition.True * child(1).True + (1 - condition.True) * child(2).True;
-                result.False = condition.True * child(1).False + (1 - condition.True) * child(2).False;
-                break;
-            }
-            default: break;
+        if (node.Op == O::Literal) {
+            if (std::holds_alternative<std::monostate>(node.Value)) return TEstimate{0.0};
+            if (const auto* value = std::get_if<bool>(&node.Value)) return constant(*value);
         }
-        return result;
+        if (node.Op == O::IsNull || node.Op == O::IsNotNull) {
+            if (child(0).Literal != Missing) {
+                const bool absent = std::holds_alternative<std::monostate>(Arena[child(0).Literal].Value);
+                return constant(absent == (node.Op == O::IsNull));
+            }
+            const auto type = Arena[node.Arguments[0]].Type;
+            if (type.Kind == ETypeKind::Null) return constant(node.Op == O::IsNull);
+            if (!type.OptionalDepth) return constant(node.Op == O::IsNotNull);
+            return std::nullopt;
+        }
+        if (node.Op == O::Equal || node.Op == O::NotEqual || node.Op == O::Less || node.Op == O::LessEqual ||
+            node.Op == O::Greater || node.Op == O::GreaterEqual) {
+            auto left = child(0), right = child(1);
+            auto op = node.Op;
+            const auto null = [&](const TMetadata& value) {
+                return value.Literal != Missing && std::holds_alternative<std::monostate>(Arena[value.Literal].Value);
+            };
+            if (null(left) || null(right)) return TEstimate{0.0};
+            if (left.Column == Missing && right.Column != Missing) { std::swap(left, right); op = SwapComparison(op); }
+            if (left.Column == Missing) return leaf(EmptyAttribute, 1.0);
+            const auto column = left.Column;
+            const auto key = Arena[column].ColumnId;
+            if (right.Column != Missing) return leaf(key, 0.3, column);
+            if (!right.ColumnFree) return leaf(NonConstant, 1.0);
+            // Parameter comparisons use the existing equality default for every
+            // comparison sign, including under NOT. They are not literal ranges.
+            if (right.HasParameters) return leaf(Parameter, EqualityDefault(column));
+            if (negative) op = NegateComparison(op);
+            const bool literal = right.Literal != Missing && Compare(column, right.Literal, right.Literal).has_value();
+            const auto comparison = [&](O comparison) {
+                auto result = leaf(key, comparison == O::Equal ? EqualityDefault(column) : 0.4, column);
+                if (literal) {
+                    if (comparison == O::Equal || comparison == O::Greater || comparison == O::GreaterEqual)
+                        result.Range.Lower = {right.Literal, comparison == O::Equal || comparison == O::GreaterEqual};
+                    if (comparison == O::Equal || comparison == O::Less || comparison == O::LessEqual)
+                        result.Range.Upper = {right.Literal, comparison == O::Equal || comparison == O::LessEqual};
+                    result.Value = RangeEstimate(result.Range);
+                }
+                return result;
+            };
+            if (op == O::NotEqual) return TEstimate{EstimateGroup({comparison(O::Less), comparison(O::Greater)}, false)};
+            return comparison(op);
+        }
+        if (node.Op == O::Contains || node.Op == O::StartsWith || node.Op == O::EndsWith || node.Op == O::Find) {
+            auto left = child(0), right = child(1);
+            const auto originalColumn = left.Column;
+            if (left.Column == Missing && left.ColumnFree && right.Column != Missing) std::swap(left, right);
+            double value = 1.0;
+            if (left.Column != Missing) {
+                if (right.Column != Missing) value = 0.3;
+                else if (right.ColumnFree) value = (node.Op == O::Contains || node.Op == O::Find) && !right.HasParameters ? 0.1 : 0.5;
+            }
+            return leaf(originalColumn == Missing ? NoAttribute : Arena[originalColumn].ColumnId,
+                negative ? 1 - value : value, originalColumn);
+        }
+        // Unsupported predicates are omitted from logical groups, exactly as
+        // by the existing estimator, rather than inventing a 50% selectivity.
+        return std::nullopt;
     }
 
     const TExpressionArena& Arena;
     const TOptimizerStatistics& Stats;
     TNativePredicateStatistics* Usage;
-    THashMap<TExprId, TEstimate> Estimates;
+    THashMap<TExprId, TMetadata> Metadata;
+    THashMap<ui64, std::optional<TEstimate>> Estimates;
+    THashMap<ui64, TVector<std::pair<ui64, ui64>>> Operands;
 };
 
 } // namespace

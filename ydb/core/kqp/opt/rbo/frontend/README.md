@@ -1,1335 +1,287 @@
-# Native SQL frontend for RBO
+# Native SQL frontend and RBO expressions
 
-The native path uses a handwritten SQL subset with a shared-grammar parser for
-unhandled syntax, binds names and types in its own representation, and constructs
-new RBO operators directly. It skips YQL SQL translation, `CompileExpr`, graph type annotation, `BuildKqlQuery`,
-`RewriteSelect`, and `PlanConverter` before entering RBO.
+New RBO has one scalar representation: typed native expressions in a query-owned
+arena. SQL translation, YQL scalar graphs, `CompileExpr`, and YQL graph type
+annotation do not participate in native binding or logical optimization. The
+existing catalog/session services, physical compiler, and runtime remain in use.
 
-This is an opt-in read-query frontend, not a full YQL replacement. Existing
-catalog/session infrastructure, RBO schema wrappers, and the physical backend
-remain in use. After RBO, the backend may still run
-YQL annotation and lowering. Removing those dependencies is a later boundary.
-
-```
-SQL -> fast parser (grammar for unhandled syntax) -> compact syntax
-                                  |
-                         catalog + native binding
-                                  |
-                    typed scalar arena + relations
-                                  |
-                       direct RBO construction
-                                  |
-                  existing physical compiler/runtime
+```text
+SQL
+  -> fast parser / independently generated shared-grammar parser
+  -> compact syntax + asynchronous catalog resolution
+  -> native name binding, types, scalar DAG and relations
+  -> checked TCompiledProgram
+  -> owning TNativeQuery: RBO roots, ordered outputs, parameters, execution metadata
+  -> existing RBO rules, CBO and stage assignment using native expressions
+  -> explicit physical emission: backend types, lambdas, tables and runtime operators
+  -> existing physical compiler and execution
 ```
 
-## Routing and integration
+## Boundaries and ownership
 
-`TTableServiceConfig.NativeFrontendMode` is compile-cache invalidating:
+`ParseNative`, `CollectTables`, and `BindNative` separate syntax from asynchronous
+catalog I/O. `CompileNative` combines them for callers with a synchronous catalog.
+Only checked compilation can construct `TCompiledProgram`; conversion consumes it
+once. A raw binder result cannot enter RBO.
 
-- `NATIVE_LEGACY` (default): preserves the existing frontend/configuration.
-- `NATIVE_REQUIRED`: compile natively or report an error; never retry YQL.
-- `NATIVE_AUTO`: compile natively when supported; delegate the whole query to
-  the legacy YQL optimizer only for a structured `TUnsupportedFeature`.
+`ConvertNativeToRbo` constructs ordinary RBO operators directly. Its result,
+`TNativeQuery`, owns the roots, native parameter schemas, ordered output names,
+and `TQueryExecutionMetadata`. Native queries do not build synthetic
+`KiDataQueryBlock` graphs. The legacy compiler imports the same execution metadata
+from its own query blocks.
 
-The host supports native data, scan, and generic read-query preparation. Native
-RBO roots are constructed before initializing backend providers. This path does
-not construct either YQL frontend pipeline or the legacy optimizer pipeline; the
-runner creates legacy optimizer pipelines only when its legacy entry is used.
-It loads catalog metadata asynchronously through the existing authenticated
-gateway and binds against plain native column descriptions. Parameter names
-are adapted to the backend's `$name` convention at the RBO boundary.
-The compile service bypasses its YQL AST cache in native mode. Internal
-ANALYZE requests retain their existing legacy path.
+`TExpression` holds an arena and a node ID. There is no YQL expression constructor,
+legacy lambda arm, implicit export, or mutable backend annotation. Rewrites append
+native nodes, share existing subgraphs, and use explicit column-ID substitutions.
+Scalar factories take native types and plan properties, with no backend expression
+context argument.
+Copying a plan rebinds expressions, captures, read predicates and OLAP projections.
 
-Fallback reports `[native_frontend_fallback]`, `compiler=legacy-yql`, a stable
-feature identifier, source position, and reason. It does not run the old YQL
-frontend into new RBO. Invalid supported syntax/types, resource-limit errors,
-internal errors, and native RBO failures do not trigger fallback. Native
-explain ASTs identify `native-read-v1`, the selected parser (`handwritten` or
-`grammar`), and the native relational plan.
+`TNativeSchema` describes rows and aggregate states. `ComputeNativeTypes` checks
+operators and rebinds scalars using native types. AVG/statistical states use
+arena-owned tuple shapes; nested optional types preserve each optional layer.
+`TRboTable` holds catalog identity and native column types as values. Read ranges,
+lookup point prefixes, OLAP predicates, sink settings and stream lookup key types remain native
+through stage assignment.
 
-The APIs are:
+Physical builders cross the boundary through `ExportNativeType`,
+`ExportOperatorType`, `ExportIUType`, `LowerTable`, and `LowerExpressionLambda`.
+Each export produces fresh objects in the backend context. Scalar lowering emits
+fully typed terminal operations; direct MiniKQL tests require neither annotation
+nor a semantic rewrite pass. Physical relational builders retain their existing
+backend annotation and peephole pipeline.
 
-- `ParseNative` / `CollectTables` / `BindNative`: separate parsing
-  and binding around asynchronous metadata I/O (all in `NFrontend`).
-- `CompileNative`: standalone compile/routing decision with a catalog callback.
-- `ConvertNativeToRbo`: consume a validated `TCompiledProgram` once at the optimizer boundary.
-  Only checked compilation can construct this type; raw binder output cannot
-  be passed to the converter.
-- `CompileNativeToRbo`: synchronous convenience API using the same grammar and
-  execution profile, with no fallback.
+The migration preserves the existing rule schedule, join enumeration, cost
+formulas, stage assignment, shuffle policy and runtime algorithms. Expression
+construction and inspection use the native arena. Computed ON keys are exposed
+as ordinary maps and join keys before outer-join NULL padding. Native selectivity
+retains the existing estimator's policies, including its capped OR heuristic and
+fallback estimates, rather than changing cost decisions as part of migration.
 
-The CLI reports fallback decisions but cannot execute the legacy compiler.
+## Admission and fallback
 
-## Grammar and parser migration
+`EnableNewRBO` selects the native frontend. `NativeFrontendMode` additionally
+controls admission:
 
-The `grammar` build target generates independent, namespaced C++
-parsers from `yql/essentials/sql/v1/SQLv1Antlr4.g.in` at build time. They depend
-on the generic ANTLR C++ runtime, not YQL parser wrappers, protobuf parse trees,
-translation, or type libraries. Strict recognition covers the full shared
-grammar; the translator explicitly rejects productions outside the native
-semantic subset. Error-recovered trees are never compiled.
+| Mode | Behavior |
+| --- | --- |
+| `NATIVE_LEGACY` (default) | Legacy entry when new RBO is disabled; native automatic admission when enabled. |
+| `NATIVE_AUTO` | Opt into native admission, including when `EnableNewRBO` is initially disabled. |
+| `NATIVE_REQUIRED` | Compile natively or report an error. |
 
-`--parser fast` is the default in both the CLI and host. It uses the handwritten
-subset, and invokes the independent generated parser for unhandled syntax or
-parse errors. The generated parser then supplies authoritative diagnostics or
-an equivalent native syntax tree. This parser dispatch never invokes YQL
-translation or the legacy optimizer. Binding errors do not retry parsing, and
-resource-limit errors never retry either parser.
+Automatic admission delegates **the whole query to the legacy optimizer** only
+for a structured `TUnsupportedFeature`. It reports `[native_frontend_fallback]`,
+`compiler=legacy-yql`, feature, position and reason. Invalid supported syntax,
+type errors, resource limits, internal errors and RBO failures do not silently
+retry. The old `EnableFallbackToYqlOptimizer` flag does not enable error retries;
+use `NATIVE_REQUIRED` to forbid unsupported-query fallback. There is no
+YQL-to-new-RBO import pipeline.
 
-The handwritten lexer's identifier categories are generated from the original
-grammar at build time. Ambiguous aliases, non-ASCII input, multiline strings,
-and other uncovered syntax can use generated parsing. `--parser grammar` forces
-the generated parser; `--parser handwritten` runs only the small parser.
-`--parser verify` compares their complete syntax fingerprints, including
-precedence, clauses, names, and types. Verify is a development tool and can
-reject syntax outside the handwritten subset even if fast mode supports it.
+Native data, scan and generic read preparation bypass the YQL AST cache. Internal
+ANALYZE requests and internal metadata maintenance retain their legacy entry. Native explain ASTs contain
+`native frontend: native-read-v1`, parser selection and the native relational
+plan. The CLI reports admission decisions but cannot execute the legacy compiler.
 
-Correspondence tests cover all 164 checked-in benchmark queries, every keyword
-in identifier/alias/join contexts, operator combinations, syntax mutations, and
-both lexer modes. They check rejection as well as structure. Generated parsing
-is still an essential part of the fast mode's compatibility contract.
+## Parsing
 
-ANSI mode changes string escaping and nested-comment behavior. Double quotes
-remain string quotes in this YQL grammar; backticks quote identifiers. Leading
-`--!syntax_v1`, `--!antlr4_parser`, and `--!ansi_lexer` directives are handled by
-the native compiler. Text resembling a directive inside a string is ordinary
-string data.
+The default `fast` route uses a handwritten subset and invokes independently
+generated ANTLR C++ parsing for unhandled syntax or syntax errors. The generated
+parser shares `SQLv1Antlr4.g.in`, not YQL parser wrappers, protobuf trees,
+translation or type libraries. Error-recovered trees are never compiled.
+
+`--parser grammar` forces generated parsing; `--parser handwritten` disables
+parser dispatch. `--parser verify` compares complete syntax fingerprints, including
+precedence, clauses and types. It is a development check and may reject syntax
+outside the handwritten subset. Binding and resource-limit errors do not retry
+parsing. Correspondence tests cover the 164-query corpus, keyword contexts,
+operator combinations, malformed mutations and lexer modes.
+
+Backticks quote identifiers. Double quotes remain strings under this grammar.
+ANSI lexer mode changes escaping and nested comments. Leading syntax/parser/ANSI
+directives are recognized; directive text inside strings has no effect.
 
 ## Execution profile
 
-`frontend.cpp` enforces `native-read-v1`; `--support` prints its
-machine-readable description. Grammar recognition is deliberately broader
-than execution support. The profile is experimental and grows with legacy
-result/type parity tests.
+`frontend.cpp` checks `native-read-v1`; `--support` returns the machine-readable
+manifest. Grammar recognition is broader than execution support. Arena support
+alone does not establish SQL compatibility.
 
-Supported relational forms include SELECT and FROM-first SELECT, projection,
-filters, aliases/stars, ordinary table reads, CTEs/derived tables, scalar/query
-bindings, simple scalar lambdas, ON joins (inner/cross/outer/semi/only), grouping,
-HAVING, GROUPING SETS/ROLLUP/CUBE and GROUPING masks, inline windows, DISTINCT, UNION/INTERSECT/EXCEPT (including ALL), ordering, limits, scalar/EXISTS/IN subqueries with correlation,
-and multiple result statements.
+Supported relational forms include SELECT/FROM-first SELECT, ordinary tables and supported system views,
+projections and unique-name stars, CTEs/query bindings, simple scalar lambdas,
+ON joins, grouping/HAVING, GROUPING SETS/ROLLUP/CUBE, windows, DISTINCT,
+UNION/INTERSECT/EXCEPT including ALL, sorting/limits and multiple results.
+Scalar/EXISTS/single-column IN subqueries support correlation within the checked
+backend profile. Scalar subqueries preserve NULL for no row and fail for more
+than one row. Scan queries require one result.
 
-`AS_TABLE($rows)` accepts declared or API-supplied `List<Struct<...>>` parameters
-with scalar fields, including nullable fields and empty structs. Field schemas
-are canonical by name. The input is a native relation; it does not add general
-list or struct values to the scalar arena. Its source field names survive aliases,
-pruning and copied column IDs. Only physical conversion emits the fully typed
-backend parameter and iterator. Nested containers, optional rows/lists and
-computed list arguments remain explicitly unsupported.
+Named sources outside correlated contexts retain one producer with distinct
+bindings at each use. Existing RBO replication, copying and spilling rules decide
+how to execute it. OLAP predicates stay native through optimization; physical
+emission uses storage operations or the existing optional scalar-apply kernel.
+Predicates containing checked expressions remain intact when storage filtering
+could suppress their errors.
 
-Set operands align by field name, infer common types once across the chain, and
-fill missing fields with NULL. INTERSECT has higher precedence; UNION and EXCEPT
-associate left. A flat postfix syntax keeps long chains shallow, and consecutive
-UNION ALL operands use one n-ary RBO union. DISTINCT uses ordinary grouping;
-INTERSECT/EXCEPT use semi/anti joins with stable keys for equal-NULL semantics.
-Their ALL variants number equal rows on each side and match those ordinals, so
-duplicate counts require no row-expansion operation. Global ordering/limits and
-parenthesized operand-local clauses are supported. Result field order follows
-YqlSelect's common-prefix rule; the older translator emits lexical order in some
-mixed-schema cases. Tests pin that existing difference explicitly.
-Aggregates are COUNT, SUM, AVG, MIN, MAX, SOME, and sample standard deviation
-(`STDDEV`, `STDDEV_SAMPLE`, `STDDEV_SAMP`, `STDDEV_S`, and their spellings without
-underscores). Standard deviation accepts integer/Float/Double inputs and returns
-Double with ordinary aggregate nullability. Singleton groups produce NaN;
-empty/all-NULL inputs produce NULL. The RBO handoff maps the semantic aggregate
-directly to the existing sample-deviation backend trait. Partial outputs carry
-the actual `(mean, count, M2)` state: three required Doubles, with an optional
-tuple only when the input is nullable. The final aggregate checks that state
-shape and returns Double with ordinary aggregate nullability. The backend
-consumes the typed state without changing its numerical algorithm. Decimal arguments,
-window forms and mixed aggregate combinations containing DISTINCT explicitly delegate.
-`Math::IsNaN` on typed integer/Float/Double inputs uses native scalar IEEE
-inequality, retaining NULLs; it needs no UDF or semantic lowering pass.
-Multiple DISTINCT aggregates can be combined with ordinary COUNT, SUM, MIN,
-MAX, SOME and AVG. AVG carries a typed `(sum, count)` state and preserves its
-original scalar result type, including Decimal precision. DISTINCT groups the
-original input values before conversion into the accumulator type.
-Computed GROUP BY keys require explicit
-aliases (`GROUP BY expression AS key`, then `SELECT key`) or
-`PRAGMA YqlSelectAllowUnnamedGroupByExpr`. Its enable/disable state is captured
-when a query is defined, including named queries. Unnamed keys are materialized
-once and referenced by their canonical expression; internal column names are
-not exposed as SQL bindings. Scan queries require one result.
+Aggregates include COUNT, SUM, AVG, MIN, MAX, SOME and sample standard deviation.
+DISTINCT groups original values before accumulator conversion. Native partial
+states preserve Decimal AVG and nullable interval SUM. Window support includes
+inline and named WINDOW definitions, aggregates/ranking and ROWS/RANGE frames with
+checked literal offsets. Inherited windows are excluded.
 
-Both parsers expand grouping syntax into bounded key lists, preserving duplicate
-sets. Binding assigns outward key/result IDs and nullable types once; GROUPING
-masks use ordinary Uint64 arithmetic over indicator columns. The RBO handoff
-emits aggregate branches, native NULL/optional/indicator maps and one union,
-sharing the input through Replicate. DISTINCT expands independently in each
-branch. Ordinary keys common to every set retain required types. Bare NULL
-keys in grouping sets require an explicit scalar cast; GROUP BY modifiers and
-hopping-window grouping remain outside the profile. ORDER BY expressions can
-refer to output aliases; their map is placed above the projection map.
+Scalar types include Boolean, signed/unsigned integers, Float/Double, String/Utf8,
+Date/Datetime/Timestamp/Interval, Decimal, Json/JsonDocument and NULL. Explicit
+nested optional casts, Just and Unwrap preserve outer absence versus inner NULL;
+general arithmetic and comparison on nested optionals are not admitted.
+String `s`/`u` suffixes are supported. Integer promotion, checked casts, decimal
+rounding/exponents, Unicode case conversion, selected calendar operations,
+JSON_VALUE and constant LIKE patterns have runtime differential tests.
 
-The grouping matrix exercises 24 query forms on populated and empty row/column
-tables: duplicate sets/keys, composite keys, common required keys, nullable
-measures, mixed DISTINCT, HAVING, windows and alias shadowing. Known older-path
-failures are asserted separately. The old optimizer drops duplicate empty sets;
-the old frontend with RBO combines DISTINCT states incorrectly across rollup
-levels and leaves required SUM non-null on empty input. Tests pin these existing
-results without changing either implementation. Native preserves duplicate
-sets and computes each level independently. The converter invariant test forbids
-YQL annotation and verifies native expressions through pruning, DISTINCT
-expansion and Replicate copying.
+`AS_TABLE` accepts declared or supplied `List<Struct<scalar fields>>` parameters,
+including nullable fields and empty structs. Source field names survive aliases,
+pruning and copying. Separately, scalar List parameters and fixed tuple/list
+constructors support IN membership. Dynamic list membership uses checked key
+conversion and explicit ANSI/legacy NULL semantics; it emits typed dictionary
+operations rather than a `SqlIn` macro. Collections cannot be relational columns.
+Fixed tuple comparisons expand into native scalar comparisons with SQL NULL
+semantics and lexicographic ordering.
 
-Scalar types are Bool, signed/unsigned integers, Float/Double, String/Utf8,
-Date/Datetime/Timestamp/Interval, Decimal, Null, and one optional layer. Arithmetic,
-comparisons, Boolean logic, CASE/IF, COALESCE, IN lists, BETWEEN, null tests,
-byte-string concatenation, Length, StartsWith/EndsWith, ASCII case functions,
-and constant LIKE patterns containing literal text and % wildcards have native operations.
-Bracket IN lists accept scalar literals of one type, optionally with NULL, and
-empty lists; mixed-type and dynamic list elements remain explicit unsupported
-features. They lower to native comparisons without general list values. Primitive data
-constructors require string literals and produce required values. Explicit
-casts cover integers, Bool, Float/Double, Decimal, String/Utf8, and narrow temporal
-types (text parsing to Decimal/Datetime/Timestamp requires literals). Text casts to
-integers, Bool, Float/Double and Date also accept runtime String/Utf8 values and
-return NULL when parsing fails. Temporal inputs may be cast to other
-temporal types. Total casts preserve non-nullability, including integer to
-floating point. Floating division preserves IEEE infinity/NaN. Substring slices
-String bytes; NULL offsets mean zero/to-end. Dynamic offsets accept Uint8/16/32;
-other integral offsets must be literals that fit Uint32.
+Set operands align by name and infer common types across the chain. Missing
+fields become NULL. Set ALL operations preserve duplicate counts. Output order
+follows the existing common-prefix contract; comparisons with the legacy
+frontend account for its different star-column order by name.
 
-Json and JsonDocument are opaque typed inputs. JSON_VALUE accepts a literal
-selector path and returns Utf8? with NULL ON EMPTY and NULL ON ERROR. Paths may
-use lax/strict mode, root, member names, wildcards and nonnegative Uint32 array
-indexes. The SQL syntax has its own native node, so variable or parenthesized
-paths and ordinary function-call quantifiers cannot bypass the grammar.
-Selector validation runs before RBO; terminal lowering emits typed Json2 runtime
-calls directly, including their result handling, without YQL semantic expansion.
-The standalone compiler has no JSON runtime dependency. Its reference evaluator
-can receive an explicit JSON service; constant folding never invokes that service.
-Escaped member names, general JSONPath expressions, PASSING, RETURNING, explicit
-handlers and JSON constructors remain unsupported. JSON grouping, ordering,
-comparison, DISTINCT, tuple states and correlated captures are excluded; COUNT
-is the only aggregate/window operation on the opaque input itself. Storage
-projection pushdown carries native JSON_VALUE expressions through optimization
-and emits storage operations only at physical conversion. It can replace a
-source field when the original value is no longer live. Different paths of the
-same source, direct uses of the original value and multiple IDs for one storage
-field stay in compute. Repeated uses of the same path share one projection.
-Pruning removes unused projections; copying renames their outputs and inputs. Wildcard
-selectors stay in compute because the existing storage path accessor rejects
-them; quoted asterisks are ordinary member names and may be pushed.
+Important exclusions remain explicit:
 
-JSON validation covers 601 selector comparisons with the original parser, nine
-invalid SQL argument forms, 120 direct MiniKQL executions without semantic
-lowering, populated row/column results across all three compiler paths and
-prepared-parameter reuse. The corrected revision passed 103 frontend and 462
-RBO tests: a 600-second shard timeout interrupted TPC-H and left 17 tests
-unlaunched; those exact 18 tests passed in a completion run with unchanged
-sources. The standalone CLI contains no YQL/MiniKQL symbols. Existing host
-fixtures and all 121 benchmark SQL files remain byte-preserved; populated
-coverage remains 22/22 TPC-H and 51/99 TPC-DS. Compilation timings were not
-remeasured for that scalar-lowering increment.
+- Writes/DDL, effects, USE, PostgreSQL, external/temporary tables, views, table
+  hints/sampling and unrecognized settings.
+- JOIN USING, tuple IN subqueries, duplicate star names requiring coalescing,
+  and FULL JOIN residual predicates other than column equality keys.
+- Subqueries in ON, GROUP BY, direct ORDER BY, LIMIT/OFFSET, scalar bindings or
+  lambda bodies; ungrouped outer references after aggregation.
+- Correlated windows and correlated INTERSECT ALL/EXCEPT ALL; inherited,
+  DISTINCT/filtered windows, NULL treatment and unsupported frame forms.
+- Arbitrary UDFs, volatile functions, higher-order values and general containers.
+  Dynamic collection dictionary keys have a narrower checked scalar profile.
+- Bare-NULL arithmetic, unsupported mixed Decimal operations, floating Decimal
+  casts, Float-to-32/64-bit-integer casts and unverified temporal conversions.
+- Dynamic LIKE patterns, `_`/escape forms, ILIKE, and unsupported JSON paths or
+  handlers. Calendar intermediates cannot cross relational boundaries.
 
-Native storage projection validation retains all four original projection queries
-and their plan/result assertions, plus the original live-source regression. Ten
-operator scenarios check native typing, copying, pruning, shared extraction and
-storage eligibility. A 22-case JSON matrix covers Json and JsonDocument on row
-and column tables across all three compiler paths, including scalar roots,
-nested indexes, wildcard paths and quoted asterisks. Runtime text casts are
-checked directly against MiniKQL; bracket IN lists are checked across both
-parsers and ANSI/non-ANSI filter/projection execution. The legacy optimizer
-rejects wildcard storage paths, and the old YQL-to-RBO predicate extractor fails
-on NOT IN [] filters. Tests pin those existing failures while requiring correct
-native results; neither old component is patched.
+Known backend limitations are admission checks, not a second scalar interpreter.
+Unsupported queries retain the legacy optimizer's behavior through whole-query
+fallback. See the manifest and negative tests for precise restrictions.
 
-This revision passed 104 frontend and 468 RBO tests. The full run passed 557
-tests before a 600-second shard limit interrupted ManyJoinsWithDecimalRanges
-and left 14 tests unlaunched; those exact 15 passed in a completion run on
-unchanged sources. The populated 22/22 TPC-H and 51/99 TPC-DS fixtures passed,
-and all 121 benchmark SQL files remain byte-preserved. The standalone CLI still
-contains no YQL/MiniKQL symbols. Refreshed compilation measurements appear below.
+## Validation and measurement
 
-Unicode::ToUpper/ToLower accept Utf8 values and valid UTF-8 string literals,
-preserve optionality, and use the runtime's simple Unicode codepoint mapping.
-Native evaluation uses the generic Unicode library; terminal backend lowering
-calls the typed Unicode runtime functions directly.
-The SQL aliases tinyint, smallint, int/integer, bigint and varchar resolve to
-canonical scalar types in declarations, casts and literal constructors.
-Integer comparisons preserve each operand's width and signedness and compare
-their mathematical values, including Int64 against Uint64. They return nullable
-Bool when either input is nullable; no common-type casts are needed. Arithmetic,
-IF/COALESCE and set operands use SQL numeric rank: wider integers win, signed
-wins at equal width, then Float and Double. Implicit integer conversions wrap
-modulo the target width; explicit CAST remains checked. Float/integer promotion
-converts directly to Float, avoiding intermediate Double rounding. All these
-conversions preserve input NULLs and lower directly to a typed runtime Convert.
-Numeric text conversion uses the generic `double-conversion` library with the
-runtime's lexical policy, including leading spaces, hexadecimal integers,
-and overflow/underflow to infinity/zero; it imports no YQL conversion code.
-Decimal arithmetic preserves YQL infinity/NaN and rounds scale reductions to
-nearest with ties to even. Precision overflow produces infinity; Decimal
-arithmetic does not add a nullable layer. Constructors accept canonical literal
-digits/dot or inf/nan, with literal precision/scale. Decimal-to-integer conversion
-rounds through the source's integral precision before checking the integer range,
-matching the existing runtime. Backend lowering emits direct typed arithmetic
-and casts, without finite-only guards or extra rounding wrappers. Comparisons,
-IF/CASE branches and UNION ALL use an exact common Decimal type with integers
-or other Decimals. Integer widths follow SQL metadata (including 20 digits for
-both 64-bit integer types), without conversion through floating point.
-Decimal multiplication also accepts integer factors in either order, preserving
-the Decimal operand's precision and scale. The factor remains integral: a large
-integer cannot overflow an intermediate Decimal cast and change a zero product
-into NaN. Overflow, infinity, NaN and NULL follow the existing runtime directly.
-Decimal division accepts an integer divisor without widening or rescaling
-either operand. Integer division uses the existing runtime's coefficient
-rounding, including its negative-divisor quirk: non-ties truncate, while exact
-ties round to even. The native evaluator and constant folder preserve that
-behavior; the backend lowers directly to DecimalDiv. No old runtime is changed.
-Decimal COALESCE permits precision widening when all Decimal operands retain
-the same scale. It preserves coefficients and each alternative's nullability,
-including 35-digit SUM results with a narrower zero fallback. Different scales
-and mixed integer/Decimal alternatives still require explicit casts.
-CASE requires an explicit ELSE branch. Supported language pragmas are TablePathPrefix, YqlSelect="force", and
-AnsiImplicitCrossJoin, AnsiInForEmptyOrNullableItemsCollections, and
-DisableAnsiInForEmptyOrNullableItemsCollections, AnsiCurrentRow and DisableAnsiCurrentRow,
-YqlSelectAllowUnnamedGroupByExpr and DisableYqlSelectAllowUnnamedGroupByExpr.
+Validation is split by boundary:
 
-Planner pragmas use `ydb.` or `kikimr.`. The 22 admitted settings are listed by
-type in `--support`: index selection, TopSort, predicate extraction, shuffle
-elimination, physical-stage peepholes, windows, OLAP pushdown, block execution,
-CBO, channel version, hash-join mode, optimizer hints, and
-`OptFallbackToLegacyOptimizer=false`. Names are case-insensitive and allow up to
-four single internal/trailing underscores. Empty Boolean values mean true;
-malformed known values are errors, while unknown settings explicitly delegate.
-Requesting fallback with a true value is unsupported in native mode.
+- Standalone parser, binder, type, expression evaluator and corpus tests.
+- Native RBO invariant tests for column IDs, sharing/captures, copying, schemas,
+  and unchanged expression/type allocation counters during logical optimization.
+- Direct MiniKQL scalar execution, including dynamic parameters, NULL, overflow,
+  Decimal and collection semantics, without scalar annotation or compatibility
+  rewriting.
+- Host tests for complete compilation, populated results, ordered names/types,
+  fallback, prepared parameters, caches, row/column storage and physical options.
+- Original SQL regression tests admitted in native-required mode, retaining their
+  SQL and result expectations.
 
-These are static query settings, retained and applied in source order at the
-RBO handoff. Every occurrence is validated, including an invalid hint later
-overwritten by a valid one. Primitive values are checked by the native binder;
-hash-join modes and hints use the existing optimizer parsers at the handoff,
-before applying any settings. No YQL configuration or annotation transformer
-runs. Conversion requires a configuration when settings are present; it cannot
-silently discard them. Session reset restores defaults. Native reads retain
-their source aliases before pruning so row-count and join hints can match them.
+The selectivity oracle compares 7,832 predicate roots under three statistics
+configurations (23,496 comparisons). A separate 20,000-node shared Boolean DAG
+checks bounded traversal without expanding the graph into a tree.
 
-Inline OVER supports COUNT, numeric SUM/AVG, MIN/MAX, Rank, DenseRank and
-RowNumber, with partitioning, ordering, ROWS and RANGE frames. Frame offsets
-are nonnegative integer literals within Int32; ROWS literals must have Int32
-type. RANGE offsets require one integer or floating order key. Functions with
-the same specification share an RBO window operator, and repeated calls share
-one result. Window inputs and grouped aggregates are ordinary typed columns;
-the scalar model has no window macro. Window syntax currently uses the shared
-grammar route. Generic queries default ordered windows to RANGE; data/scan
-queries default to ROWS. Explicit pragmas override that choice, and named query
-bindings retain the default from their definition site. The whole-partition
-rewrite constructs native expressions, including checked optional unwrapping,
-which executes and lowers directly and keeps failed constant checks lazy.
+All 22 TPC-H and 99 TPC-DS benchmark queries have native-required full-compilation
+checks with fallback disabled and the existing CBO invariants. Execution fixtures
+cover all 121 queries. All 22 TPC-H and 54 TPC-DS fixtures have populated result
+checks; the remaining 45 TPC-DS queries execute and compare every result, but
+some produce empty or NULL-only results and need stronger data before claiming
+populated coverage. Q4 retains the original contradictory predicates.
 
-DateTime::Split, GetYear, MakeDate/MakeDatetime/MakeTimestamp, ShiftMonths and
-ShiftYears have typed native operations for UTC Date/Datetime/Timestamp inputs.
-Calendar values are scalar intermediates, including inside bindings and lambdas;
-they must be converted to a temporal value before crossing a relational boundary.
-Shifts accept required Int32 amounts or fitting integer literals. The reference
-evaluator preserves month-end clamping, microseconds, range failures and the
-existing narrow runtime's 12-bit year wraparound for large shifts. Terminal
-lowering constructs fully typed runtime calls directly, with no annotation or
-semantic rewrite pass. Timezone and wide-date types remain outside the profile.
+`KqpNativeHost::NativeCompilationBenchmark` measures complete compiler CPU and
+wall time on eight queries with AST/compilation caches disabled, one warm-up and
+rotating order. Current modes are legacy, native automatic and native required.
+Historical YQL+new-RBO comparisons require the preserved pre-removal binary;
+current admission modes are not separate compiler architectures. Request wall
+time also includes execution on empty tables and is reported separately.
+Parser-only CLI timings exclude catalog I/O, RBO and backend compilation.
 
-Runtime String/Utf8-to-Date casts use the same bounded numeric date contract as
-literal parsing; malformed or out-of-range dates produce NULL. DateTime's
-IntervalFromDays/Hours/Minutes accept Int32 (including nullable inputs) or fitting
-integer literals. They become ordinary widening, wrapping integer multiplication
-and a checked Interval cast, with no extra expression kind or runtime UDF.
+### Completion checks, 2026-11-10
 
-LIKE compiles to ordered byte searches and prefix/suffix checks, with no regex
-object or runtime semantic lowering. It preserves YQL's pattern-dependent NULL
-behavior and result types: forms handled by YQL's regex matcher return false
-for NULL and invalid UTF-8; its simple string-operation forms propagate NULL.
-The native binder inserts ordinary UTF-8 casts and Boolean operations for this
-compatibility behavior. Repeated % wildcards, anchored suffixes and overlapping
-literal pieces are covered by exhaustive short-pattern tests and runtime parity.
+The relwithdebinfo build, standalone CLI smoke check and these suites pass:
 
-Scalar subqueries bind to typed relational results and use RBO's existing
-cardinality check: no row yields NULL and more than one row raises a runtime
-error. Scalar DAGs reference these results as columns; they contain no opaque
-SQL or subquery execution node. EXISTS/NOT EXISTS also bind to ordinary required-Bool
-columns. Existing RBO semi/anti joins handle direct filter conjuncts; the
-Boolean-result rewrite handles OR predicates and native projection Maps. Native
-expression composition is used throughout both rewrites. Populated tests cover
-nested correlation, NULLs, duplicates, empty inputs, UNION ALL, and aggregate
-subqueries under both null-safe join settings. The old frontend/RBO still fails
-projected EXISTS cases; the old optimizer incorrectly returns false for EXISTS
-of a global aggregate over an empty correlated input. Tests pin those existing
-boundaries and require correct native results.
+| Scope | Passing test cases |
+| --- | ---: |
+| Standalone parser, binder, compiler and scalar arena | 119 |
+| Native RBO, copying, decorrelation, IDs, lookup joins and OLAP | 220 |
+| Existing SQL read regressions | 226 |
+| Host compilation, execution, routing, parameters and caches | 68 |
 
-Uncorrelated scalar/EXISTS/IN subqueries may contain windows, including windows
-inside derived tables or named query bindings. The binder checks actual external
-column captures after binding the subquery. Correlated subqueries containing
-windows remain explicitly unsupported because the existing backend cannot
-decorrelate them; merely having an enclosing query does not imply correlation.
+The full read and host runs cover the final semantic changes, including tuple
+comparisons, floating remainder and storage filtering. A subsequent API-only
+cleanup removed unused backend-context arguments from scalar factories. All
+targets were rebuilt and the 220 RBO/OLAP tests passed again; repeated runs are
+not added to the counts above. The final benchmark uses that rebuilt binary.
+The TPC execution coverage and populated-data limitations are described above.
 
-Single-column IN subqueries also bind to Boolean columns. Computed lookup keys
-and common-type conversions are materialized once as ordinary native Maps;
-nested IN expressions use the same mechanism. The existing RBO subplan rules
-handle empty sets, nullable keys/items and correlated inputs. Generic queries
-default to ANSI IN semantics; data/scan queries preserve their legacy default,
-with either explicit pragma overriding it. IN lists obey the same setting.
-Lookup filters retain native expressions through typing and lower only at the
-physical boundary. Tests require correct native truth tables and separately pin
-existing old-frontend failures for projected/computed lookups and inconsistent
-legacy NOT IN filters; those older components are unchanged.
+### Complete compiler measurements, 2026-11-10
 
-Table discovery includes nested query bodies. ORDER BY may reference a projected
-subquery result through its alias, but direct scalar subqueries in sort keys
-are excluded because the existing RBO backend fails their physical typing.
-Outer columns receive typed local captures below their consumers; nested
-subqueries forward captures through each caller scope. Aggregate arguments use
-the input scope, and grouped callers expose their grouping keys. Ungrouped
-outer references in a grouped projection or HAVING are explicitly unsupported,
-matching YQL's grouping restriction. Existing RBO decorrelation and replicate
-expansion construct native scalars without invoking YQL expression annotation.
+Two before/after batches compared the preserved YQL+new-RBO binary from
+2026-11-09 with the final native-required binary. Each binary ran eight queries
+in three modes for nine measured rounds, after warm-up: 216 samples per binary
+per batch, 864 samples overall. The ratios below compare per-query median
+compiler counters and use a geometric mean across queries. Cache hits and native
+fallback were forbidden; every nontrivial CBO tree had to be optimized.
 
-Populated correlation tests compare the old frontend plus new RBO with native
-execution under both null-safe join settings. They also pin existing legacy
-differences: the old optimizer returns NULL for empty correlated COUNT groups
-and fails ordered correlated LIMIT with a missing sort member. New RBO and
-native preserve zero counts and correct ordered results. The old frontend also
-rejects a grandparent reference through SELECT without FROM; native execution
-of that case is checked against explicit table values, not counted as legacy
-parity. These existing components are unchanged.
+The host reports AMD EPYC 9654 and 128 CPUs. The first batch used normal
+scheduling. An independent worktree build introduced timing variation, so a
+second batch gave both binaries the same CPU affinity, CPUs 24–31. The machine
+was shared in both batches. Legacy-compiler CPU counters provide a control;
+their ratio is baseline divided by final, just like the speedup columns.
 
-Named scalars, lambdas and queries may be rebound. References resolve to
-definition IDs in one walk; lambda/query captures keep their original IDs
-when a later statement reuses a name. Table discovery uses the same resolution
-as binding. No environment snapshot is copied per definition or expansion.
+| Batch | Compiler CPU speedup | Compiler wall-time speedup | Legacy CPU control ratio |
+| --- | ---: | ---: | ---: |
+| Normal scheduling | 1.344x | 1.362x | 0.996 |
+| Fixed CPU affinity | 1.503x | 1.522x | 1.027 |
 
-Explicitly outside the profile:
+Per-query CPU results, retaining both batches:
 
-- DML/DDL, USE, scripting effects, arbitrary pragmas/settings, views, temporary
-  and external tables, table hints, sampling, and PostgreSQL syntax/types.
-- Tuple IN subqueries; subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET,
-  scalar bindings or lambda bodies, JOIN USING,
-  duplicate result names within a set operand, and join-star projections with
-  duplicate output names (which require column-name coalescing). Plain and
-  qualified stars over joins with unique output names are supported.
-- Correlated set expressions containing INTERSECT ALL or EXCEPT ALL: the existing
-  backend cannot decorrelate their numbering windows. Uncorrelated scalar/EXISTS/IN
-  subqueries containing those operations execute natively.
-- FULL JOIN predicates other than conjunctions of column equality keys. The
-  existing RBO backend can ignore residual full-join filters; native-required
-  rejects them before RBO, and automatic mode explicitly delegates the whole
-  query to the legacy optimizer. The pre-existing backend is unchanged.
-- Named/inherited windows, DISTINCT or filtered window functions, NULL treatment,
-  frame exclusions, GROUPS frames other than whole partitions, and RANGE without
-  ordering other than whole partitions. Windows inside correlated scalar/EXISTS/IN subqueries,
-  subqueries in window arguments/keys, and direct window calls in ORDER BY are
-  excluded; ordering by a projected window alias is supported.
-- Arbitrary UDFs, higher-order values, containers/structs/tuples, nested optionals.
-- Bare-NULL arithmetic, dynamic
-  text parsing to Decimal/Datetime/Timestamp, and runtime casts from temporal inputs to non-temporal types.
-  Decimal text with exponents or malformed text and Float/Double-to-Decimal
-  conversions are excluded. Apart from integer multiplication factors and divisors, Decimal
-  arithmetic requires matching input types or explicit casts. COALESCE additionally
-  permits same-scale Decimal precision widening; its other mixed-type rules remain
-  outside the profile, independently of comparison and IF/UNION promotion.
-- Float to Int32/Uint32/Int64/Uint64: the existing runtime rounds the upper
-  integer bound to Float before checking, admitting an out-of-range value.
-  These casts remain explicit unsupported features; no existing runtime fix is
-  included. Double to integer and Float to 8/16-bit integer casts are supported.
-- LIKE with _, escapes or dynamic patterns, ILIKE, and unverified function aliases. Invalid aliases are
-  delegated in auto mode so legacy YQL supplies its own diagnostic.
-- String literals used as identifiers (use backticks), system columns,
-  typed-string suffixes, and string escapes beyond newline,
-  carriage return, tab, zero, quote/backtick, and backslash.
+| Query | Normal-scheduling speedup | Fixed-affinity YQL+RBO, ms | Fixed-affinity native, ms | Fixed-affinity speedup |
+| --- | ---: | ---: | ---: | ---: |
+| TPC-H Q1 | 1.64x | 81.2 | 46.6 | 1.74x |
+| TPC-H Q5 | 1.28x | 154.5 | 104.9 | 1.47x |
+| TPC-H Q9 | 1.41x | 154.5 | 123.7 | 1.25x |
+| TPC-H Q21 | 1.19x | 202.4 | 139.3 | 1.45x |
+| TPC-DS Q17 | 1.42x | 318.6 | 185.3 | 1.72x |
+| TPC-DS Q28 | 0.95x | 403.6 | 334.0 | 1.21x |
+| TPC-DS Q51 | 1.62x | 171.5 | 96.6 | 1.78x |
+| TPC-DS Q52 | 1.36x | 97.1 | 64.2 | 1.51x |
 
-These exclusions avoid known semantic differences in the early expression
-prototype. The lower-level arena and reference evaluator can represent more
-operations than this profile permits; accepting an operation there does not
-certify SQL compatibility.
+The measured aggregate reduction in compilation CPU is 25.6–33.5%. Q28's initial
+4.9% slowdown did not reproduce with fixed affinity, where its legacy control
+ratio was 1.001. Per-query gains depend on workload and scheduling; these shared
+host measurements support an aggregate improvement on this workload. Compiler
+wall counters exclude the empty-table execution included in request timings.
 
-## Expression model and performance
+## Build and run
 
-The scalar arena contains only typed execution operations: no unresolved names,
-SQL subqueries, lambda applications, provider macros, or type expressions.
-Children precede parents. Constructors resolve each node's type and insert
-explicit conversions from already typed children. Binding does not run a type
-fixpoint or repeat semantic lowering passes. Named-query/lambda expansion can
-duplicate work and is bounded, as are input bytes, tokens, nodes, and depth.
+Use the project compiler balancer and normal relwithdebinfo build:
 
-Nodes are immutable after construction in a query-owned **append-only** arena.
-Existing IDs remain valid when the arena grows. Same-arena composition appends
-only the new operation; rewrites share unchanged subgraphs and copy changed
-ancestors. There is no whole-arena copy per Boolean composition. Vector element
-references may be invalidated by appends; mutation is serialized per query.
-Foreign-arena imports copy only reachable nodes.
+```bash
+~/projects/clang-balancer/balance ./ya make --build relwithdebinfo \
+  ydb/core/kqp/opt/rbo/frontend/ut ydb/core/kqp/ut/rbo
 
-Native expressions remain native through logical RBO typing and rewrites.
-Physical builders request a terminal scalar graph from `LowerNativeLambda`.
-Each opcode has a direct execution lowering; there is no SQL semantic rewrite
-loop in that adapter. Reference evaluation and direct MiniKQL tests check this
-boundary separately from host-level comparison against legacy YQL.
+~/projects/clang-balancer/balance ./ya make --build relwithdebinfo -tA \
+  ydb/core/kqp/opt/rbo/frontend/ut 2>&1 | tail
 
-Native constant folding visits shared scalar DAGs once per arena batch and
-bounds generated string payloads. It preserves result types and keeps failing
-runtime assertions deferred, including in conditional branches. The assertion
-opcode also lowers directly to the backend's executable Ensure operation.
-
-Common-conjunct extraction compares typed structural identities over the
-reachable DAG, including literal payloads and parameter names. It factors
-shared predicates out of OR branches without constructing YQL expressions,
-preserves SQL three-valued logic and the result type, and leaves runtime
-Ensure/Unwrap checks behind their original short-circuit guards.
-
-SQL `Unwrap(value[, message])` uses the existing executable unwrap opcode. Its
-optional String/Utf8 message must be non-null and is evaluated only when the
-value is NULL; required values are returned unchanged, as in YQL. Rewrites
-preserve both arguments and failing checks remain deferred. Bare NULL would
-produce Void in YQL and is explicitly outside the native scalar profile.
-
-The internal StablePickle opcode produces the backend's exact scalar key
-encoding, including nullable values and normalization of floating NaNs and
-signed zero. It has native reference execution and constant folding, lowers
-directly to MiniKQL, and is checked byte-for-byte for every native scalar type.
-The existing decorrelation rules use these keys when equal-NULL join keys are
-disabled. Fresh forwarding operators supply native column types directly to
-scalar factories, without an additional plan annotation pass.
-
-Column-store predicate pushdown keeps the original native scalar DAG through
-optimization, pruning and copying. Only physical source conversion constructs
-the backend storage program. Eligibility uses native types and operations;
-it invokes no YQL annotation or peephole pipeline. Supported shapes include
-comparisons, Boolean columns/logic, numeric arithmetic, IF/COALESCE, direct-column
-null tests, parameters and simple string predicates. A supported leading
-conjunction can move into storage while the remaining predicate stays in native
-compute. Checked assertions prevent this split, preserving their error behavior.
-
-Decimal/calendar operations, nontrivial casts, comparisons that consume the same
-column twice, scalar-only Boolean branches, and predicates with external column
-dependencies stay in compute. These are storage capability boundaries, not
-frontend fallback. Native Boolean construction removes neutral operands such as
-the initial `false OR` in an IN list before storage lowering. This avoids sending
-a redundant scalar branch to the storage streaming-logic executor.
-
-Pushed read limits are plain optional Uint64 values for both frontends. Literal
-limit/top-N pushdown therefore needs no legacy expression in RBO; physical
-conversion creates the backend literal. The OLAP tests compare 40 predicates on
-populated tables across native/existing frontends with pushdown on/off, including
-NULLs, integer extremes, NaN/infinity and Unicode. They also check empty/limited
-results, nullable parameters, count-only reads, partial pushdown, result metadata,
-and storage-filter/item-limit presence in explain output.
-Validation covered all 79 standalone frontend and 395 RBO tests, with a final
-arena-suite rerun after updating its neutral-expression fixture. All execution
-tests passed, including the unchanged populated TPC-H and TPC-DS fixtures.
-
-Native filter statistics now consume the existing column histograms, frequency
-sketches and key metadata directly from the typed expression DAG. The visitor
-in `kqp_rbo_statistics.cpp` estimates each reachable node once, including shared
-subexpressions, and allocates no YQL graph. Both ordinary filters and pushed
-read predicates use it. The same visitor identifies which columns need sketches
-or histograms for the existing asynchronous statistics loader. Positive
-column-equality conjuncts also request join-key histograms and available tuple
-histograms; OR/NOT branches do not invent join keys. Source lineage keeps
-aggregate results and computed columns from borrowing base-table statistics.
-Sketch probes retain the column's storage width,
-including signed/unsigned 64-bit values beyond Double's exact range, temporal
-units and embedded string bytes. Source statistics cross optional/identity
-conversions only; other casts and computed expressions use heuristics.
-
-Equality uses a frequency sketch when available, otherwise the existing key
-or non-key default. Comparisons use typed histogram boundaries when available.
-Nested single-column intervals intersect under AND and overlapping intervals
-merge under OR; empty intervals and endpoint inclusivity are retained. Literal
-NULL/Boolean predicates, Boolean combinations, COALESCE, null checks, CASE and
-simple string predicates have explicit estimates. Parameters use heuristics;
-statistics never evaluate them or runtime assertions during compilation.
-
-These are cost estimates, not a second semantic evaluator. Decimal boundaries,
-value-changing casts, correlations across columns and compound disjoint interval
-sets still use heuristics. Without a measured null fraction, nullable column
-null checks use a 10% default; other predicates assume no unknown null fraction.
-Native and legacy estimation do not promise identical plans. Tests check storage
-widths, key defaults, interval endpoints, NULLs, a 20,000-node shared DAG and
-agreement between ordinary and pushed filters without native-to-YQL lowering.
-The complete 430-test RBO suite passed, including unchanged populated execution
-of all 22 TPC-H and then-covered 41 TPC-DS queries across the three compiler paths.
-Both benchmark fixtures subsequently passed with TPC-DS expanded to 44 queries.
-
-Native row- and column-table range extraction reads the typed DAG directly. Equality
-and `IS NULL` conjuncts pin a contiguous key prefix, optionally followed by one interval. AND/OR
-branches form a union of these intervals, including literal IN lists. Expansion
-respects the configured range limit and a 100,000-unit work budget even when that
-limit is disabled. If expansion exceeds either budget, ordinary top-level
-conjuncts can still supply a prefix while the disjunction stays in compute.
-Every branch must constrain the leading key. Fully consumed predicates disappear;
-otherwise a multi-range read retains the whole original predicate, preserving
-branch-specific residuals. Single-range residuals retain their order.
-Bounds are literals or required parameters of the exact key type. Integral
-literal widths and signedness may change only when the mathematical value fits.
-`IS NULL` on a nullable key supplies a finite NULL point; `= NULL` retains SQL
-UNKNOWN semantics and does not supply a point. NULL keys are excluded from
-upper-only comparisons with an explicit exclusive NULL lower bound. Nullable
-parameters, out-of-domain literals, value-changing
-column casts, floating/Decimal keys and unconstrained disjunctions remain filters. Any checked
-expression prevents extraction rather than risking suppression of its error.
-The read stores native bound expressions and exposes them to ordinary expression
-rewrites. Physical conversion emits `KqlKeyRange` for a single row-table interval;
-column reads and multiple row-table intervals use typed `RangeFinalize` input.
-`RangeUnion` sorts and merges multiple intervals, eliminating duplicate reads
-from overlapping branches. These operations execute directly in MiniKQL and use
-the existing backend's range materialization; they need no
-`AsRange`/`RangeFor` lowering or predicate-extraction pipeline. The complete
-storage schema supplies types for unbounded key suffixes even when those columns
-were pruned from the read's output. Backend optional layers distinguish infinity
-from a finite SQL NULL key. An infinite upper endpoint is encoded as exclusive:
-the storage decoder reserves an inclusive empty upper endpoint for point lookups.
-Explain shows every interval's values and inclusivity. The complete original predicate survives for
-statistics and fetched-row filtering when a lookup join replaces the range scan.
-Tests forbid YQL annotation during extraction, check copying/pruning and a
-20,000-node shared DAG, and compare populated query executions across the native
-frontend and both existing compiler paths. Native plans assert range versus full
-scans, including composite and NULL keys, descending limits with residual filters,
-contradictory and overlapping intervals, unbounded reads, exact 64-bit boundaries
-and prepared-parameter reuse. Column-store checks also preserve non-key OLAP
-filters. Direct MiniKQL cases execute typed range values and unions with required
-and nullable composite keys, pruned key columns, finite NULL bounds, exact large
-integers and empty intervals. The existing OLAP test requires exact range
-bounds when extraction consumes its key predicate; its remaining filter checks
-are retained. These are correctness checks, not a compilation speedup measurement.
-
-Native range extraction also selects ready ordinary synchronous secondary
-indexes, including unique indexes. It collects comparisons once, builds bounds
-in each candidate's physical key order, and shares the existing key-prefix and
-top-sort scoring policy. Main-table ties, covering-index preference and index-name
-tie-breaking remain deterministic. Asynchronous, unready and specialized indexes
-are excluded. A covering index supplies the original outputs directly; a
-non-covering index supplies fresh column IDs and primary keys to a table lookup.
-The latter requires the whole predicate to be evaluable from index columns.
-Bounds and residual filters remain native. The saved source read retains its full
-predicate and native point prefixes. Lookup-join replacement rebinds the predicate
-for fetched-row filtering, so replacing its scan cannot discard the range condition.
-
-Lookup-join point prefixes reuse the same bounded range analysis. Proper leading
-prefixes of row-table primary and secondary keys stay as native typed rows through
-optimization; the existing point-count limit, index selection and join-kind
-policies still apply. Static duplicate tuples are removed, while adjacent integer
-points remain distinct prefix rows. At physical conversion, typed `ToDict` and
-`DictPayloads` remove runtime duplicates when different parameter names bind to
-the same tuple. This prevents multiplying result rows. The generated point list
-executes directly in MiniKQL without YQL predicate extraction, type annotation or
-semantic lowering.
-
-Sixteen model combinations check index order, covering columns, residuals and
-the disable setting while forbidding YQL annotation. Populated tests compare
-index reads across all three compiler paths and assert native index/range plans.
-They include NULL primary and secondary keys, exact large integers, contradictory
-and overlapping ranges, sort/limit choices, prepared-parameter reuse and joins.
-Twenty row/column model combinations check Boolean range distribution, residuals,
-unsupported bounds and expansion limits; eight direct MiniKQL combinations check
-union normalization with required/nullable and simple/composite keys. The original
-range-explain and populated range-analyze tests also run in native-required mode,
-preserving their SQL, helpers and assertions. The full 442-test RBO regression run
-passed, retaining all 438 previous tests and the unchanged 22 TPC-H / 44 TPC-DS
-populated expectations. No new files or pre-existing compiler/backend fixes were
-needed. Compilation timings were not remeasured for this increment.
-
-The original `Indexes_newRbo` fixture also runs in native-required mode. All nine
-queries retain their schema, populated data, settings, expected results and
-index-choice assertions, including main-table preference, deterministic index
-ties, covering indexes and sort/limit choices. Only the compiler mode differs.
-Both original index fixtures, the native variant and the populated native index
-range fixture pass together; this addition required no production changes.
-
-Thirteen native-required variants of the original lookup-join fixtures preserve
-their SQL, schemas, populated data, settings, expected results and plan assertions.
-The shared plan-text helper canonicalizes equivalent numeric atom spellings only.
-Additional prepared-query tests reuse coincident and distinct parameter tuples,
-including exact Uint64 values above 2^53; direct MiniKQL tests also cover nullable
-and composite keys, embedded NUL bytes and duplicate NULL points. Model tests
-cover prefix limits, copying and rewriting. Five additional populated range cases
-exercise `IS NULL` through all three compiler paths. Native optimization now runs
-once even when backend annotation restarts the surrounding pipeline, preserving
-the stage-assignment invariant with physical stage peepholes disabled.
-
-All 459 RBO regression tests passed across a full run and a completion run of the
-22 unfinished tests after a 600-second shard timeout. These runs used identical
-sources and unchanged timeout/sharding settings. All 443 previous tests remain,
-with 16 new registrations. The unchanged populated 22 TPC-H and 49 TPC-DS queries
-passed again across all three compiler paths. Compilation timings were not
-remeasured for this increment.
-
-Column-store projection pushdown now carries eligible JSON_VALUE operations in
-the native storage program. The original projection queries retain their SQL,
-schemas, setup, settings, result and plan assertions in native-required variants.
-Legacy scalar peepholes are not run on native scalars. Dual scalar/storage-program
-representations still support the existing frontend during migration. Removing
-this debt and establishing plan/execution parity remain required before broad
-rollout. A faster frontend alone does not prove faster complete query execution.
-
-Native scalar handles no longer cache or implicitly generate YQL lambdas.
-Physical builders explicitly call `LowerExpressionLambda` at the execution
-boundary; mutable backend annotations remain in the generated graph. The
-remaining legacy inspection accessors reject native expressions. Aggregate-state
-column inspection reads scalar nodes directly, including nullable lifts, without
-generating backend expressions. RBO schema/type wrappers and the legacy scalar
-alternative remain migration debt.
-
-Computed equality operands now use native definitions in the existing join-key
-extraction rule. WHERE predicates use the ordinary map/filter rewrites; ON
-predicates materialize each operand on its own input before outer-join NULL
-padding. Residual predicates remain attached to the join. Neither path uses a
-YQL replacement map for native scalars.
-
-The computed-key revision passed all 104 standalone frontend and 475 RBO
-checks. The full run completed 565 tests; the exact 14 tests interrupted or not
-launched by the existing 600-second shard limit passed in a separate completion
-run with identical sources and assertions. All previous 574 tests remain, with
-five additional registrations. Structural checks forbid YQL annotation, verify
-extraction without allocating YQL nodes, and cover 45 join/predicate forms.
-Populated row/column tests check 96 native executions against an independent
-row-pair oracle, including NULLs, wrapping arithmetic, duplicate matches, outer
-padding, semi/anti results, residual predicates and two computed keys. Plans
-must use equality keys and eliminate filtered cross joins. The old paths provide
-130 successful comparisons and 62 explicitly checked, pre-existing rejections
-of residual ON predicates or SEMI/ONLY syntax; native execution must succeed in
-every case. Original populated 22-query TPC-H and 51-query TPC-DS fixtures passed
-across all three compiler paths; archived query markers confirm 66 and 153
-executions respectively.
-
-Thirteen additional original read-query fixtures now also run in native-required
-mode with unchanged SQL, setup and assertions. They cover common join predicates,
-constant propagation, left-join elimination, sorting, read pushdown, aggregates,
-unions, scalar subqueries, stage connections and multiple results. Bound sort
-keys retain null placement from their actual scope, including outer joins,
-aliases, windows and set outputs. Required keys use the canonical nulls-first
-marker; nullable descending keys retain nulls-last and ordered-index selection.
-
-This revision passed all 108 standalone frontend and 491 RBO tests. The full
-run passed 584 tests; the exact 15 tests interrupted or not launched by the
-existing 600-second shard limit passed separately with identical sources and
-assertions. All previous 579 registrations remain, with 20 additions. New
-populated row/column fixtures check 48 query executions across the three compiler
-paths, including 16 native executions, against an independent row-pair oracle.
-They require correct values, types, ordering and keyed join plans. Scalar tests
-cover 90 Boolean/NULL cases, structural identity, a 10,000-level shared DAG and
-deferred runtime checks; the RBO bridge must allocate no YQL expression nodes.
-The unchanged populated 22-query TPC-H and 51-query TPC-DS fixtures passed again
-on all three paths. The reused explain fixtures are not additional populated
-benchmark coverage. The standalone CLI still contains no YQL/MiniKQL symbols.
-
-## Build and test
-
-```
-./ya make --build relwithdebinfo -tA ydb/core/kqp/opt/rbo/frontend
-./ya make --build relwithdebinfo -tA ydb/core/kqp/ut/rbo -F 'KqpNative*'
-./ya make --build relwithdebinfo ydb/core/kqp/opt/rbo/frontend/cli
-
-echo 'SELECT id, value + 1 AS next FROM t WHERE value > 0 LIMIT 10' | \
+~/projects/clang-balancer/balance ./ya make --build relwithdebinfo ydb/core/kqp/opt/rbo/frontend/cli
+printf '%s\n' 'SELECT id, value + 1 FROM t WHERE value > 0' | \
   ydb/core/kqp/opt/rbo/frontend/cli/kqp_native_frontend \
   --table t 'id:Uint64,value:Int32?'
-
-echo 'SELECT id, SUM(value) AS total FROM t GROUP BY id' | \
-  ydb/core/kqp/opt/rbo/frontend/cli/kqp_native_frontend \
-  --table t 'id:Uint64,value:Int32?' --parser grammar --bench 10000
 ```
 
-The CLI benchmark includes parsing, binding, profile validation, allocation,
-and destruction with an in-memory catalog. It excludes catalog I/O, RBO, and
-backend compilation. Use identical SQL/schema/settings for parser comparisons;
-do not interpret grammar acceptance or parse/bind success as execution coverage.
-
-`python3 ydb/core/kqp/opt/rbo/frontend/tools/probe_corpus.py --output /tmp/native-coverage.json`
-reports per-query native/legacy/error routing against the checked-in benchmark
-schemas and prepends the same three scalar helpers as `RunPerf_YqlTest`.
-`--bare` measures the SQL files alone. With the complete helper prelude, fast
-and generated modes currently agree on these frontend routing counts:
-
-| Suite | Native | Explicit legacy delegation |
-| --- | ---: | ---: |
-| TPC-H | 22/22 | 0 |
-| TPC-DS | 99/99 | 0 |
-| ClickBench | 40/43 | 3 |
-
-There are no hard errors in this probe. Acceptance here means parsing, binding
-and profile validation, not RBO optimization or execution. All 22 TPC-H
-queries separately have native-required execution parity on populated column
-tables. Fifty-four TPC-DS queries also have populated native-required execution
-checks (listed below); the other accepted TPC-DS and ClickBench queries still need
-that validation. The report preserves
-unsupported diagnostics per query, including unavailable statistical aggregates.
-
-Join-star expansion with unique output names admits Q10, Q35, Q69 and Q88.
-Q88 has populated execution coverage; the other three have frontend coverage.
-Sample standard deviation and `Math::IsNaN` additionally admit Q17/Q39 at the
-frontend. Both have populated execution coverage below.
-Same-scale Decimal COALESCE widening additionally admits Q78, with populated
-execution coverage below. Typed AVG states additionally admit TPC-DS Q28 and
-ClickBench Q10 at the frontend. Q28 has populated execution coverage below;
-ClickBench Q10 execution is still pending.
-
-Integer Decimal division and Unicode case conversion newly admit TPC-DS Q4,
-Q24, Q54 and Q66. Q24, Q54 and Q66 have populated execution parity below; Q4
-still needs execution validation. The original Q4 web-sales branch emits
-`sale_type = 's'`, while its final join requires `'w'`, so that unchanged query
-is logically empty for every dataset. This pre-existing SQL issue is not repaired
-or used as evidence of nonempty-result arithmetic coverage.
-
-The set-operation increment newly admits Q8, Q49 and Q75. Q8 additionally has
-populated execution parity across all three compilers, with duplicate zip
-prefixes, strict customer-count thresholds, failed date/join predicates and NULL
-profits. Fifty-one set queries run on row and column tables and explicitly distinguish
-native success from existing translator/backend failures (ALL operations, mixed
-set precedence, some mixed-schema sorts and bare-NULL grouping). No existing
-compiler/backend defects are repaired by this increment.
-
-Validation covers 80 standalone frontend and 397 RBO tests. The full run passed
-475 of 477 checks; the two new compatibility-matrix tests were subsequently
-rerun after pinning the old frontend's additional failures. The final native
-bare-NULL sort normalization was checked with the set matrix and both populated
-benchmark fixtures. Warm parse/bind scaling for 10/100/1,000 UNION ALL branches
-was approximately 37/279/2,556 microseconds (three 100-iteration trials, concurrent
-regression tests); these measurements exclude RBO and backend compilation.
-
-SQL Unwrap additionally admits Q38 and Q87. Both execute unchanged on populated
-tables through all three compiler paths, with exact counts of four intersected
-and three remaining name/date keys. The fixture covers duplicate sales, NULL
-and empty names, invalid dates mapped to the epoch, date bounds, missing join
-keys, and matches in only one competing channel. All 17 populated TPC-DS
-queries pass together. Validation also passed 81 standalone frontend tests and
-22 native RBO/frontend regression tests, plus the selected reused-session scalar
-and runtime-Unwrap tests. Both parsers agree on all 164 final corpus routes.
-The scalar checks caught and fixed a native validation error rejecting
-`CAST(NULL AS String/Utf8)`; no older compiler or backend was changed.
-
-Mixed DISTINCT additionally admits TPC-DS Q16, Q94 and Q95, and ClickBench Q23.
-The existing RBO expansion retains its partial-aggregation/union/final-aggregation
-plan. Native padding uses typed NULLs and optional lifts; COUNT's empty-input zero
-and grouped required results use explicit native COALESCE/Unwrap expressions.
-No YQL expression annotation is needed during expansion, pruning or copying,
-and output types remain unchanged before terminal lowering. AVG and sample-deviation
-partial outputs expose their actual tuple types, while final outputs retain the scalar type.
-The terminal builder uses that scalar type to finish Decimal AVG without
-reconstructing its original precision from an earlier plan.
-Forty sample-deviation handoff cases check required/optional numeric inputs,
-global and grouped aggregation, rollup and duplicate grouping sets. Partial-state
-forwarding, pruning and replicate copying preserve native expressions and result
-types with YQL annotation forbidden. Eleven runtime query forms compare sample
-deviation alone and alongside AVG, Decimal AVG, COUNT and SUM on row/column
-tables through all three compiler paths (66 executions). These retain the earlier queries and
-add mixed-state cases with exact average/count/sum checks, including empty and
-all-NULL inputs. Mixed DISTINCT with sample deviation remains explicitly unsupported.
-
-The expression arena can carry internal flat tuple states with scalar fields.
-Shapes are interned per query; copying between arenas imports the shape ID.
-NULL padding, optional lifting, lazy IF/COALESCE, reference execution and direct
-MiniKQL lowering retain the field types. Folding counts strings inside tuple
-values against the existing byte budget. SQL container syntax, nested tuples,
-tuple comparison, arithmetic and serialization remain explicitly unsupported.
-The extension passes all 99 standalone tests and 27 selected RBO/host tests,
-including direct MiniKQL execution, mixed DISTINCT on row/column tables, and the
-unchanged populated 22 TPC-H / 37 TPC-DS checks across all three compiler paths.
-The Linux build measures 8-byte type handles and 128-byte expression nodes; the
-standalone CLI still contains no YQL or MiniKQL symbols.
-The AVG handoff separately passes 99 frontend and 13 RBO/host tests, including
-all currently populated benchmarks, grouping sets, windows and correlation.
-Four-partition tests preserve DISTINCT on Int64 values above double precision:
-`2^53`, `2^53+1`, `-2^53` must average to `2^53/3`, whereas prematurely deduplicating
-after conversion would give zero. Required/nullable, all-NULL and empty inputs,
-multiple AVG states and original Decimal precisions are compared across all
-three compiler paths.
-
-Eighty mixed-DISTINCT queries run on both row and column tables, checking required
-and nullable inputs, multiple distinct states, computed arguments, Decimal values,
-NULL keys, all-NULL groups and empty input. Values and metadata match the old
-optimizer. The old frontend plus RBO also matches except for its existing rejection
-of computed DISTINCT arguments, which is pinned without changing that frontend.
-All 20 populated TPC-DS queries pass through all three compilers. Q16/Q94 each
-return three unreturned orders with shipping cost 3 and profit 9; Q95 returns two
-returned orders with shipping cost 5 and profit 3. Duplicate warehouses/returns,
-NULL measures, both shipping-date bounds, invalid/missing dates and failed dimension
-joins are covered with the original SQL, full schemas, helpers and settings.
-The broad run passed 145/147 checks; the two new matrix failures were the old
-computed-DISTINCT rejection. After pinning it and making native result restoration
-explicit, all 28 targeted checks passed, including both populated benchmarks and
-unchanged aggregation regressions. All 82 standalone frontend tests pass; both
-parsers agree on all 164 corpus decisions with no hard errors.
-
-## Validation and measurements
-
-Populated validation now covers all 22 TPC-H and 54 TPC-DS queries
-through the legacy optimizer, YQL-to-RBO and native-required compilation, with
-fallback disabled. The shared fixtures retain the original SQL, schemas, scalar
-helpers and settings. Forty-five TPC-DS queries still need populated validation.
-
-The row-parameter increment passes 111 standalone frontend and 496 RBO tests,
-retaining all 599 previous registrations and adding eight. The full RBO run
-passed 484 tests; the exact 12 interrupted or unlaunched by the existing
-600-second shard limit passed separately with unchanged sources and assertions.
-The original `AsTable` fixture also runs in native-required mode. Parameter tests
-cover declared and supplied schemas, field ordering, nullable and dotted fields,
-joins, subqueries, prepared-query reuse, populated/empty inputs and empty structs.
-They pin two pre-existing failures without modifying either old path: the legacy
-optimizer's row-parameter IN subquery and YQL-to-RBO's dotted source field.
-Structural checks require zero YQL expression allocations through native source
-construction, typing and copying, followed by complete terminal type annotation.
-The standalone CLI still contains no YQL/MiniKQL symbols. Original benchmark SQL,
-schemas, helpers, settings and previous host assertions remain unchanged; all
-22 TPC-H and 54 TPC-DS cases passed on each of the three compiler paths.
-The existing Linux/Clang line-table debug policy also covers the modified
-`kqp_rbo_yql_ut.cpp`, retaining source locations while avoiding the test binary's
-32-bit debug-section relocation limit.
-
-Q13, Q26 and Q96 extend the 51-query fixture while retaining every earlier
-expected result. Q13 exercises join equalities shared across demographic and
-address OR branches, all price/profit bands and their inclusive boundaries,
-duplicate dimension attributes, NULL predicates and separate AVG denominators.
-Its independent aggregate sums/counts are 970/28, 200/29 and 385/28, with a
-wholesale-cost sum of 385. Q26 reuses Q7's complete promotion dataset, including
-rejected rows, NULLs, duplicates, Decimal rounding and distinct item keys with
-the same output name, through the catalog-sales columns. Q96 checks time and
-household joins, minute boundaries and NULL/missing keys; exactly five facts
-qualify. All 162 query executions pass their result, metadata, ordering and CBO
-checks across the three compiler paths. This increment changes only the existing
-fixture and documentation; production code and the compilation benchmark remain
-unchanged, and timings were not remeasured.
-
-Q43 and Q48 extend the previous 49-query fixture without changing any earlier
-expected results. Q43 checks seven independent weekday CASE/SUM states, repeated
-sales, negative/zero/NULL values, absent weekdays, NULL grouping keys, and rejected
-date/offset/join rows. Q48 crosses every demographic/price band with every
-state/profit band, checks all nine admitted states and inclusive Decimal bounds,
-and rejects missing or NULL join/filter inputs. Duplicate dimension attributes
-must not multiply facts; the independently calculated quantity sum is 1570.
-All 153 TPC-DS executions and their existing result/metadata/CBO checks pass
-across the three paths, alongside the unchanged 22-query TPC-H fixture. The
-balanced build and both populated benchmark tests passed; this fixture-only
-increment did not rerun the full RBO suite or remeasure compilation timings.
-
-Q1, Q3, Q7, Q15 and Q19 extend the previous 44-query fixture without changing its
-expected results. Q1 checks independently known per-store averages, strict
-threshold equality, negative/NULL totals and duplicate output customer IDs. Q3
-pins ten ordered year/brand groups, including shared keys and all-NULL sums. Q7
-checks five grouped averages with repeated rows, distinct items sharing an ID,
-Decimal rounding and nullable promotion disjunctions. Q15 and Q19 exercise
-five-byte ZIP substrings, inclusive date bounds, every admitting OR arm, NULLs,
-strict price thresholds and all manufacturer/brand grouping keys. Missing join
-rows and rejected dimension values have explicit outcomes. Result values,
-metadata, ordering and existing CBO plan checks pass across all three paths.
-Only the host fixture and this record changed; no compiler/runtime fixes or
-compilation timing measurements were needed for this increment.
-
-The planner-setting increment passes all 101 standalone frontend and 438 RBO
-tests, retaining all 433 previous RBO tests. It adds checked settings handoff,
-populated pragma/session-reset checks, and native-required variants of the
-original ExplainAnalyze, ExplainJoin and ExplainReadRowsHints tests. Their SQL,
-fixtures and existing assertions are preserved; the original explain fixtures
-are empty and are not counted as populated benchmark execution.
-The pragma fixture checks 36 successful populated executions and 36 plans
-across the three compiler paths, plus 19 expected errors. It verifies index
-selection, option ordering, default restoration and explicit rejection.
-
-Two pre-existing failures are pinned without changing either old compiler:
-a trailing configuration pragma fails with an unexecuted ResWrite in both old
-paths, and `OptFallbackToLegacyOptimizer=false` still forces fallback in the
-YQL-to-RBO transformer because it tests optional-value presence. That fatal
-error closes its session, so the test isolates it from the reset checks.
-Native mode executes these cases without fallback. The full suite retains
-populated execution of all 22 TPC-H and 44 TPC-DS queries. Fast and grammar
-modes still agree on all 164 corpus decisions and diagnostics, and the rebuilt
-standalone CLI contains no YQL/MiniKQL symbols. No compilation timings were
-remeasured for this increment.
-
-`KqpNativeHost::NativeCompilationBenchmark` compares complete compilation through
-the legacy optimizer, the existing YQL frontend into new RBO, and native-required
-mode. It uses the original SQL, schemas and scalar helpers for eight queries
-already validated on populated tables. All paths use column storage with 16
-partitions and the same settings except compiler selection. CBO remains enabled,
-fallback is disabled, and the new-RBO plans must optimize every CBO tree.
-
-One warmup round precedes nine measured rounds, rotating compiler order within
-each query and round. The AST cache is disabled. The bounded query cache is
-evicted by cycling the eight queries, and every request must report a cache miss.
-The harness executes on empty tables because `Explain` does not expose compilation
-counters through this API. Compiler CPU/wall counters are reported separately from
-request wall time, which includes execution. These empty-table runs are timing
-measurements, not additional populated execution coverage.
-
-On 2026-11-01, the row-parameter revision passed all 216 measured
-compilations on the local `relwithdebinfo` build. Median compiler CPU times across
-nine samples, in milliseconds:
-
-| Query | Legacy optimizer | YQL frontend + RBO | Native frontend + RBO |
-| --- | ---: | ---: | ---: |
-| TPC-H Q1 | 191.76 | 72.31 | 45.80 |
-| TPC-H Q5 | 408.83 | 134.13 | 127.88 |
-| TPC-H Q9 | 389.77 | 123.01 | 109.92 |
-| TPC-H Q21 | 835.75 | 179.69 | 123.79 |
-| TPC-DS Q17 | 1119.88 | 293.02 | 164.93 |
-| TPC-DS Q28 | 1820.36 | 412.54 | 315.42 |
-| TPC-DS Q51 | 716.55 | 162.74 | 114.37 |
-| TPC-DS Q52 | 200.66 | 74.38 | 57.41 |
-
-The geometric mean ratio against the existing YQL frontend plus RBO is 1.36,
-or about 26% less compilation CPU, with per-query ratios of 1.05–1.78. Against
-the legacy optimizer the ratio is 4.79, which includes the optimizer change and
-must not be attributed solely to the frontend. This small local sample measures
-the current full compilation paths, including their backend and plan differences;
-it is neither an isolated frontend measurement nor an execution-speed guarantee.
-The default test run skips the timing loop. To reproduce it after a balanced build:
-
-```
-./ya make --build relwithdebinfo -tA ydb/core/kqp/ut/rbo \
-  -F '*NativeCompilationBenchmark*' \
-  --test-param NATIVE_COMPILATION_BENCH_ITERATIONS=9 2>&1 | tail -25
-```
-
-The test's stdout contains CSV records with compiler CPU, compiler wall and
-request wall microseconds for every measured request. No timing threshold is
-used as a correctness assertion.
-
-The same-scale Decimal COALESCE increment passed all 97 standalone frontend
-tests and four selected runtime/host tests. All three compiler paths agree on
-exact parameterized values and metadata for nullable/required alternatives,
-operand order, three arguments, 35-digit limits, infinities and NaNs. A required
-first alternative keeps an unreachable failing Unwrap unevaluated. Native
-evaluation and constant folding preserve coefficients at scales 0, 2 and 3.
-All 22 populated TPC-H and 36 populated TPC-DS regressions pass. With the corpus
-probe's schema-nullability handling corrected, both parsers agree on all 164
-routes and diagnostics. At that stage Q78 bound natively and Q28 was the last
-TPC-DS delegation; the typed AVG handoff subsequently removed that boundary.
-
-The sample-deviation increment passed all 95 standalone frontend tests and five
-selected host tests. Row/column fixtures compare all three compiler paths on
-grouped/global/sole-DISTINCT aggregates, required and optional integer inputs,
-Float/Double conversions, singleton/all-NULL/empty groups, infinity and NaN.
-Values, names, types and column order are checked explicitly; floating results
-use a 1e-12 tolerance. Row keys span four uniform partitions. Direct `IsNaN`
-parameter tests compare exact values and metadata for Float/Double, integer
-limits, NULLs, signed zero, infinities and NaNs. All 22 populated TPC-H and
-35 populated TPC-DS regressions pass. Fast/generated parsers agree on all
-164 routes and diagnostics, and the standalone CLI has no YQL/MiniKQL symbols.
-
-The join-star increment passed all 93 standalone frontend tests and six selected
-host tests. Nine join kinds on both row and column storage check values, output
-names/order and nullability, including qualified and reversed stars, duplicate
-keys and unmatched/NULL keys. Duplicate output names remain explicitly
-unsupported. The legacy optimizer supplies comparison coverage; the existing
-frontend into new RBO's rejection of qualified stars and SEMI/ONLY syntax is
-pinned without changing it. All 22 populated TPC-H and 35 populated TPC-DS
-queries pass, and fast/generated parser routes and diagnostics agree on all
-164 corpus queries with no hard errors.
-
-The Decimal-divisor and Unicode-case increment passed all 92 standalone frontend
-tests and nine selected runtime/host tests. Decimal arithmetic is compared with
-the existing runtime across all eight integer widths and four Decimal shapes,
-including negative-divisor rounding, NULLs, overflow, infinity and NaN. Parameter
-tests compare values and metadata with both existing compiler paths. Unicode
-tests check required/optional inputs, invalid String-to-Utf8 casts, supplementary
-codepoints, combining characters and embedded zero bytes. Terminal runtime
-tests require no expression annotation or semantic lowering pass. All 22
-populated TPC-H and 33 populated TPC-DS queries pass together with their original
-SQL, schemas, helpers and settings.
-
-The full-join boundary passed 20 targeted compiler/integration tests. Row and
-column fixtures pin the old frontend plus new RBO's incorrect residual-filter
-matches, require native-required rejection, and verify explicit whole-query
-delegation to the correct legacy optimizer. A following supported query stays
-native. Missing join constraints and constrained CROSS JOINs are validation
-errors, rather than accepted native queries. All 13 populated TPC-DS queries
-still pass, all 164 parser routing decisions are unchanged, and the standalone
-compiler has no YQL or MiniKQL symbols.
-
-The window increment passed 74 standalone frontend tests, 45 native/RBO
-tests and eight unchanged window regressions. Its populated matrix executes 160 native queries across row/column
-tables, both window engines, and data/scan/generic APIs. It compares values and
-metadata, with NULL partitions/keys/measures, ties, grouped inputs, empty and
-sliding frames, Decimal aggregates, required inputs, outer joins, retained pragma
-settings and an IN lookup above a window. The old frontend incorrectly leaves
-SUM(required) non-nullable for potentially empty frames, so both existing
-optimizer paths fail type checking in five cases. Tests pin those original
-failures, obtain reference values by widening only the argument's nullability,
-and require native to execute the original required-input query. No older
-compiler or runtime is fixed. Separate RBO tests forbid YQL expression annotation
-through native window expansion and copying; terminal unwrap is tested directly.
-
-Fast and generated parser routes agree on all 164 corpus decisions with no
-hard errors. Windows newly admit TPC-DS Q12, Q20, Q51, Q53, Q63, Q89 and Q98,
-bringing frontend acceptance to 56/99; their populated benchmark execution is
-verified for all seven. The standalone CLI still has no YQL or MiniKQL symbols.
-
-Integer comparisons additionally admit TPC-DS Q6, Q9, Q34, Q41, Q44 and Q73,
-and ClickBench Q28. Apart from Q41, these additions have frontend acceptance,
-not yet populated benchmark execution coverage. Fast and generated parsers agree on all 164 routes
-with no hard errors, and the standalone CLI has no YQL or MiniKQL symbols.
-The comparison increment passed 102 compiler/expression/integration tests,
-including all eight integer widths, constant folding, 1,920 direct runtime
-evaluations and 3,072 parameterized result comparisons. Eight join kinds in both
-operand orders pass explicit value checks on row and column tables, including
-negative values, signed/unsigned limits, duplicate keys and NULLs. Native matches
-the legacy optimizer for all these joins and the old frontend plus RBO for
-ordinary/outer joins; that frontend's existing rejection of explicit SEMI/ONLY
-syntax is pinned separately. All 22 populated TPC-H and 13 populated TPC-DS
-queries were rerun successfully. No existing frontend or backend was fixed.
-
-Forty-four TPC-DS queries (Q8, Q12, Q16, Q17, Q20, Q21, Q22, Q23, Q24, Q25, Q27, Q28, Q29, Q32, Q36, Q37,
-Q38, Q39, Q40, Q41, Q42, Q47, Q51, Q52, Q53, Q54, Q55, Q57, Q62, Q63, Q66, Q70, Q78, Q82, Q86, Q87, Q88, Q89, Q90,
-Q92, Q94, Q95, Q98 and Q99) pass populated execution
-against explicit expected values and the existing frontend plus new RBO, with
-identical result values, column names/types/order and successful CBO invariants.
-Q17 checks three ordered groups across its store-sales/returns/catalog join,
-including catalog fanout, every date-quarter filter, mismatched/NULL keys and
-missing dimension rows. The ten-row group has exact means 1/2/5, sample
-standard deviations 2/4/0 and coefficients 2/2/0. Other groups distinguish
-singleton NaNs sanitized by the query's local lambda, all-NULL measures, and
-NaN from division by a zero mean. Counts, values and result metadata/order
-match both existing compilers. All 39 queries pass together with the previous
-38 expectations unchanged and successful CBO checks; the original SQL, schema,
-helpers and settings are preserved.
-Q25 and Q29 each check four ordered groups through the same three-fact join,
-with their different original date predicates and Decimal/integer sums. Catalog
-fanout, equal store names on distinct IDs, NULL group attributes, all-NULL
-measures, negative and zero totals, missing/mismatched keys, and all three date
-filters have explicit expected results. Q25 includes a 399999.96 sum from
-Decimal(7,2) inputs, with Decimal(35,2) output; Q29 includes cancellation of large
-Int64 quantities. All 41 queries pass together through all three compiler paths
-with the previous 39 expectations unchanged, exact metadata/order and CBO checks.
-Q42, Q52 and Q55 each add seven ordered revenue groups. Distinct items share
-group keys, equal names have different IDs, and equal IDs have different names;
-NULL keys, all-NULL sums, negative/zero totals and tied sums remain distinct.
-December endpoints, excluded years/months and managers, and missing/NULL join
-keys have explicit outcomes. All 44 queries pass together through both existing
-compilers and native-required mode, preserving the previous 41 expectations,
-original SQL/schema/helpers/settings, exact metadata/order and CBO checks.
-This increment changes only the shared host fixture and this coverage record.
-Q28 checks all eighteen columns from its six cross-joined scalar aggregates.
-Expected means are 9.75, 57.12, 42.10, -16593.58, 83.50 and 16682.75, each retaining
-Decimal(7,2) optional metadata. Counts distinguish duplicate and NULL prices.
-The fixture covers every quantity range and OR arm, inclusive and excluded
-bounds, NULL quantity, both rounding-tie directions, and a sum exceeding the
-input Decimal precision while the mean fits. Each existing compiler's SELECT *
-column order is pinned. All 38 queries pass together through all three compiler
-paths with the previous 37 expectations unchanged and all CBO invariants intact.
-Q78 adds five ordered channel-comparison results with exact quantities, Decimal
-costs/prices and integer ratios. It checks all three return anti-joins (including
-wrong item/order keys), missing competing channels, all-NULL amounts, NULL store
-quantity, and a zero denominator despite a positive channel passing the WHERE.
-Wrong customer/item/year keys, NULL customers, nonpositive/NULL channel quantities
-and missing dates are excluded. All 37 queries pass together through all three
-compiler paths with the previous 36 expectations unchanged, original SQL,
-schemas, helpers and settings, exact metadata/order and successful CBO checks.
-Q39 checks both original result sets against exact expected values, with three
-rows in the first and two in the second. Inventory groups have sample deviations
-2, 4, 6 or 8 and coefficients 2 or 4/3. Exclusions cover zero/negative means,
-the exact coefficient-one threshold, singleton/all-NULL groups, missing months
-and dimensions, and wrong/NULL years. A NULL warehouse name and a shared item
-across warehouses exercise the grouping and self-join keys. All 36 queries pass
-together through all three compiler paths, with the previous 35 expectations
-unchanged and the original SQL, schemas, helpers and settings preserved.
-Q24 checks Unicode country comparison, both return-join keys, NULL dimensions
-and amounts, the strict 5% threshold, and grouped amounts that collapse in the
-outer aggregation; its three paid totals are 30, 50 and 21. Q54 checks duplicate
-customers across both channels, distinct scalar month queries, date bounds,
-address-based store matching and Decimal-to-integer segment rounding. Its five
-segment/count results are `(NULL,1), (-2,1), (0,1), (2,3), (4,1)`.
-Q66 adds seven warehouse groups with explicit values for all twelve monthly
-sales, per-area and net-paid measures. It checks channel-specific fields,
-quantity multiplication, division before the outer sum, rounding ties, negative,
-zero and NULL areas, all-NULL amounts, identical attributes on distinct warehouse
-IDs, and both time and shipping filters. All 34 queries pass together through
-all three compilers; the previous 33 expectations remain unchanged.
-Q88 adds eight cross-joined scalar counts with expected values 1 through 8.
-It checks half-hour boundaries, all three household branches, wrong stores and
-NULL/missing dimension rows. All 35 queries pass through all three compiler
-paths, preserving the original SQL, schemas, helpers and settings, and all
-previous 34 expectations. The test pins the legacy optimizer's alphabetical
-star-column order separately and requires native to match the existing RBO order.
-Q47/Q57 exercise mixed signed/unsigned rank offsets and adjacent-month joins,
-with duplicate sales, missing ranks, NULL keys, zero/NULL means and exact
-deviation thresholds. Q90 checks the count ratio 5/(1+3)=1.25, including both
-hour/character bounds and missing/NULL dimension rows. All 34 pass together
-through all three compiler paths with the original SQL, schemas and helpers.
-Q22, Q27, Q36 and Q86 check four-key inventory rollup, demographic-filtered
-averages, hierarchy margins and sales ranks. Their independent expected values
-cover real NULL keys versus subtotal NULLs, all-NULL measures, shared prefixes,
-negative/zero amounts, date boundaries and missing dimension rows. All four
-match both existing compiler paths, with the original SQL and full schemas.
-Q70 adds an uncorrelated window inside IN and state/county hierarchy ranks. Its
-13 rows match explicit totals and ranks on all three compiler paths, including
-NULL states excluded by IN, NULL counties, all-NULL measures and month bounds.
-Separate scalar/EXISTS/IN window-subquery tests cover empty inputs, duplicate
-values, named query bindings and row/column storage. Existing RBO's projected
-EXISTS failure is pinned separately; native matches the legacy optimizer.
-Q62/Q99 cover all shipping-duration bucket bounds, duplicate computed warehouse
-keys, NULL deltas and grouping fields, date bounds and missing dimensions. Q23
-checks both result statements, a total of 87 and six customer/channel totals,
-strict item-frequency and 95% revenue thresholds, all-NULL inputs and distinct
-year filters for maximum versus qualifying-customer revenue. All three retain
-the original SQL and match both older compiler paths in values, metadata and
-ordering. The computed-grouping matrix also pins an existing RBO failure for
-HAVING on a computed key; native matches the old optimizer on that case.
-Q41 checks all eight correlated predicate branches, numeric manufacturer-range
-boundaries, inner matches outside that range, duplicate products, NULL product
-and manufacturer values, missing matches and individual invalid/NULL predicate
-components. Its nine expected result rows and metadata match both existing
-compiler paths; all fourteen populated queries pass together without fallback.
-The three revenue/window queries also match the legacy optimizer exactly on
-eight result rows each, with different totals for each sales channel, shared
-classes across categories, NULL partitions and all-NULL groups, zero/negative
-revenue, date boundaries, invalid dates and missing dimension rows.
-The remaining window cases check cumulative SUM/MAX across a full outer join,
-monthly versus quarterly grouping, compound and NULL partition keys, and the
-strict 10% threshold. Q51 exposed an optional Boolean lift hiding a native join
-equality. Native predicate splitting and equality inspection now look through
-that value-preserving lift, including nested conjunctions, so both equalities
-become join keys. The existing join backend is unchanged. The fix and expanded
-fixtures passed all 50 tests across native expression/host suites and unchanged
-window regressions, including all 22 populated TPC-H queries.
-They retain the original SQL, full schema, helpers and benchmark settings.
-Fixtures exercise date/price/quantity bounds, invalid and NULL dates, duplicate
-sales, missing matches, strict correlated-average thresholds, NULL refunds and
-negative net sales. All values also agree with the old optimizer. Q21, Q51,
-Q53, Q63 and Q89 pin an existing metadata difference: the old optimizer alphabetizes SELECT * columns,
-whereas new RBO preserves the derived table's projection order. Native retains
-the existing RBO order; neither older compiler is changed.
-
-The runtime Date/interval extension passed all 112 native tests. Native Date
-parsing matches the existing runtime on 127,512 padded/unpadded date strings
-across and beyond the supported range, plus malformed and binary suffix cases.
-Direct MiniKQL tests keep casts dynamic and need no annotation pass. Host tests
-compare 1,540 values and their types across nullable String/Utf8 inputs, interval
-boundaries and 64-bit wrapping before interval validation. All 22 populated
-TPC-H queries remain passing. TPC-DS frontend acceptance is now 49/99; Q21,
-Q32, Q37, Q40, Q58, Q72, Q82, Q83 and Q92 were newly accepted by that increment.
-
-The integer-factor extension passed all 109 native tests. It compares 1,600
-arithmetic cases with the existing runtime across all eight integer widths,
-four Decimal shapes, both operand orders and constant folding. Direct MiniKQL
-tests require no annotation or semantic lowering. Parameterized SQL compares
-900 values and their types with YQL, including NULLs, zero, full-width factors,
-overflow, infinity and NaN.
-
-All 22 checked-in TPC-H queries now pass populated native-required execution,
-exact expected results, complete value/type/name parity against both legacy
-paths, and RBO CBO invariants. Q11 includes positive inventory values and NULL,
-zero and negative groups rejected by HAVING. Fast and generated grammar modes
-agree on all 164 corpus routing decisions; the standalone CLI still contains
-no YQL or MiniKQL symbols. That increment raised TPC-DS acceptance to 40/99,
-with Q61, Q64 and Q93 newly accepted.
-
-The calendar extension passed all 107 native tests. Direct MiniKQL execution
-requires no graph annotation or peephole pass. Runtime parameter tests compare
-660 calendar/cast values and their types with YQL, including NULLs, leap years,
-month-end clamping, microseconds, nested shifts and range/wrap boundaries.
-Additional tests check constant results, total cast metadata, rejection of
-untyped NULL arguments, constant folding and scalar reconstruction. Both parser
-routes agree on all 164 corpus routing decisions, with no hard errors.
-
-The populated TPC-H fixture also passes Q4, Q5, Q6, Q7, Q9, Q10, Q12 and Q15
-through all three compiler paths. It checks exact revenues, counts, profits,
-years and tied maxima on 27 additional joined rows, with date boundaries,
-nonqualifying rows and NULLs. All 18 queries retain matching values, metadata,
-and successful CBO invariants on the unchanged benchmark SQL and schema.
-
-Q8, Q14 and Q20 also pass all three paths. Eleven more joined rows exercise
-Brazilian/non-Brazilian market shares, promotional date boundaries, and nested
-IN with correlated SUM: duplicate qualifying supplier keys, equality excluded
-by a strict comparison, and empty aggregate inputs. Their exact ratios and
-supplier results are checked alongside all earlier cases, bringing populated
-TPC-H execution coverage to 21/22 in that increment.
-
-The LIKE extension passed all 103 native tests. The standalone matcher compares
-all 121 patterns of up to four characters over `ab%` against all 31 strings over
-`ab`, through both parser routes. Runtime parameter tests compare 360 values
-and types with YQL, including NULL, Unicode, invalid UTF-8, newlines and embedded
-zero bytes. Reconstruction tests also verify that native COALESCE retains a
-required fallback through imports, type changes and constant folding.
-
-The IN extension passed 124 selected native, decorrelation and lookup tests,
-including 208 native populated executions across API defaults, explicit ANSI
-settings, projected/filter predicates and both null-safe join settings. Fast
-and generated parsing agree on all 164 corpus routes, with no hard errors.
-
-The EXISTS extension passed 121 selected native and decorrelation tests,
-including 22 native populated execution cases and unchanged legacy regressions.
-
-The selected relwithdebinfo checks passed 140 tests: 52 standalone frontend
-tests, 16 native/RBO/host tests, and 72 shared RBO regression tests. Host tests
-compare values and column names/types against the legacy optimizer, including
-prepared parameters, table reads, joins, aggregation, DISTINCT, UNION ALL,
-ordering, limits, generic multiple results, scans, and explicit fallback.
-They also check handwritten/generated parser selection through explain output
-and execute both routes. This is a regression suite, not proof of complete YQL
-compatibility.
-
-The scalar extension subsequently passed 72 native tests, including direct
-MiniKQL execution, numeric-text comparisons with the runtime, large integer
-to Float rounding, and legacy-optimizer result/type parity with runtime
-parameters. It enables floating division, scalar casts and Substring without
-enabling Decimal or the remaining relational features.
-
-The standalone CLI contains no YQL or MiniKQL symbols; the frontend's only parser runtime
-dependency is generic ANTLR.
-
-The Decimal extension passed all 79 native tests, plus 10 compiler checks after
-correcting unsupported statistical-aggregate routing. Tests compare native
-Decimal values with the existing arithmetic implementation, execute terminal
-MiniKQL graphs without annotation, and compare runtime parameters with legacy
-SQL values/types. All 22 checked-in TPC-H queries run with the complete schema,
-helper prelude, maximum language version, and 16-partition column tables. Their
-nonempty results match both the legacy optimizer and the old frontend with new
-RBO. The fixture covers duplicate line items, nulls, date/quantity boundaries,
-unmatched rows, and all three Q19 OR branches. Q3 revenues are explicitly checked
-as 190 and 180; Q19 revenue is 750. Q2 checks tied European minimum costs,
-excluded suppliers, NULL costs, and size/type filters. Q13 checks the distribution
-of orders surviving NOT LIKE, including YQL's NULL-comment behavior, returning
-counts/distribution `(0,10), (7,1), (2,1), (1,1)`. Q16 checks distinct suppliers
-across parts, ordered complaint words and excluded brand/type/size values,
-returning supplier counts 3 and 1. Q17 checks a Decimal
-result of 1.43. Q18 checks sums above/equal to/below 300 and an all-NULL
-group, returning orders 100, 102 and 104 with quantities 301, 302 and 301;
-price/date ordering is checked with tied prices. Q21 checks duplicate qualifying late lines, competing suppliers,
-unfinished orders and NULL dates, returning supplier counts 3 and 1. Q22 checks
-an average qualifying account balance of 180 and excludes customers with orders,
-returning country totals 200 and 250. Both RBO paths also satisfy the existing
-benchmark invariant: all CBO trees are optimized, with at least one tree for the
-join queries. The common-Decimal-type extension also passed all 79 native tests,
-including runtime comparisons beyond double precision, IF/UNION result types,
-and explicit rejection of unsupported mixed arithmetic and COALESCE.
-
-Run `python3 ydb/core/kqp/opt/rbo/frontend/tools/bench_parsers.py --output /tmp/native-parser-bench.json`
-with an idle machine to compare generated parsing with fast mode. A local
-relwithdebinfo run on 2026-10-30 measured these medians of five trials of 1,000
-warm compilations each (microseconds per compilation):
-
-| Query | Shared grammar | Fast | Ratio |
-| --- | ---: | ---: | ---: |
-| Projection/filter | 48.52 | 6.18 | 7.86 |
-| Grouping/sort | 130.16 | 11.64 | 11.18 |
-| Join | 124.83 | 13.38 | 9.33 |
-| 100 computed columns | 1832.16 | 232.12 | 7.89 |
-
-After lexical binding support, the corresponding fast-mode medians were 6.18,
-11.70, 13.68 and 232.44 microseconds with the same settings. Its native suite
-passed 75 tests, including rebinding and captured-query table discovery.
-
-These compare two native frontends, not complete native versus legacy YQL
-compilation. Fast mode still delegates unhandled syntax to generated parsing;
-its correspondence tests exercise that full dispatch path. The benchmark cases
-also verify direct handwritten/generated syntax agreement before timing.
-
-## Migration scope and baseline
-
-The compiler is contained in four implementation files in this directory:
-`expression.cpp` (types and execution operations), `parser.cpp` (fast syntax),
-`grammar.cpp` (shared grammar adaptation), and `frontend.cpp` (binding and
-checked compilation). `grammar/` contains build rules only. RBO conversion and
-backend lowering are in the enclosing RBO directory. Tests share one `ut`
-target. New language support belongs in these files rather than a new framework
-or a directory per feature.
-
-The unchanged baseline at `f9967857753` passed all 357 RBO tests on 2026-10-30.
-Existing benchmark expectations are 22/22 TPC-H and 97/99 TPC-DS explain
-successes. TPC-DS 17 and 44 are omitted from the success requirement; that
-does not itself establish that either query fails. The migration target is all 121 queries with native-required compilation and
-execution validation, plus previously working YQL read-query tests. Writes
-and PostgreSQL are tracked separately. Pre-existing RBO/backend defects remain
-outside this patch; failures caused by native translation or migration are fixed.
-
-Scalar-subquery context checks also record existing limitations with
-`YqlSelect=force`: the legacy optimizer leaves a sublink inside a SUM argument
-unlowered, while the existing RBO path executes that case. Direct subqueries in
-ORDER BY fail physical typing in the existing RBO backend; subqueries in GROUP
-BY keys are rejected by the existing SQL translator. The native profile excludes
-the latter two forms explicitly. These existing components are not patched.
+Do not edit sources during compilation. Full host suites may exceed the default
+shard timeout; direct binary selectors use `+Suite` or `+Suite::Test`. The
+compilation benchmark accepts `--test-param NATIVE_COMPILATION_BENCH_ITERATIONS=9`
+without `--fork-tests`, whose child invocation does not forward test parameters.
+`tools/probe_corpus.py` reports per-query parser/binder routing; it is not an
+execution test. `tools/bench_parsers.py` compares native parser routes on an idle
+machine.

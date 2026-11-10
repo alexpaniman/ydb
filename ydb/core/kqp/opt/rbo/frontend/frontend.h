@@ -19,13 +19,16 @@ struct TCatalogColumn {
 class TParameterType {
 public:
     using TRows = std::vector<TCatalogColumn>;
+    struct TList { TType Item; bool operator==(const TList&) const = default; };
     TParameterType(TType scalar = {}) : Value(scalar) {}
     TParameterType(TRows rows);
+    TParameterType(TList list) : Value(list) {}
+    const TList* ScalarList() const { return std::get_if<TList>(&Value); }
     const TType* Scalar() const { return std::get_if<TType>(&Value); }
     const TRows* Rows() const { return std::get_if<TRows>(&Value); }
     bool operator==(const TParameterType&) const = default;
 private:
-    std::variant<TType, TRows> Value;
+    std::variant<TType, TRows, TList> Value;
 };
 
 struct TCatalogTable {
@@ -69,7 +72,7 @@ struct TWindowFunction {
     std::string Function;
 };
 
-enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture, Window, Parameter };
+enum class ERelation : std::uint8_t { Unit, Read, Map, Filter, Join, Aggregate, Sort, Limit, UnionAll, Capture, Window, Parameter, Reuse };
 
 struct TCapture {
     TColumnId Local;
@@ -83,6 +86,7 @@ struct TRelation {
     std::vector<TRelId> Inputs;
     std::vector<TColumnId> Columns;
     std::string Table;
+    std::string Alias;
     std::vector<TDefinition> Definitions;
     std::vector<TCapture> Captures;
     std::optional<TExprId> Predicate;

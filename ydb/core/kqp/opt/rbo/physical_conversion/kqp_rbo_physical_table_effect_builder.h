@@ -16,3 +16,7 @@ public:
 private:
     TOpTableEffect& TableEffect;
 };
+
+namespace NKikimr::NKqp {
+NYql::TExprNode::TPtr LowerTableSinkSettings(const TTableSinkSettings& sink, NYql::TExprContext& ctx, NYql::TPositionHandle pos);
+}

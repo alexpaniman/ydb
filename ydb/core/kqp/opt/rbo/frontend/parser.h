@@ -129,6 +129,7 @@ struct TStatement {
     std::shared_ptr<TSelect> Query;
     std::vector<std::string> Parameters;
     bool Lambda = false;
+    bool ScalarList = false;
     // DECLARE List<Struct<...>> describes an external row source. Its fields
     // remain scalar type spellings; containers never enter scalar expressions.
     std::optional<std::vector<std::pair<std::string, std::string>>> RowFields;

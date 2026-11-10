@@ -1,5 +1,8 @@
 #pragma once
 
+#include "kqp_rbo_table.h"
+#include "kqp_native_types.h"
+
 #include "kqp_info_unit.h"
 #include "kqp_expression.h"
 #include "kqp_rbo_context.h"
@@ -206,7 +209,6 @@ private:
 class TOpRoot;
 class TLogicalCopyContext;
 
-
 class IOperator: public TSimpleRefCount<IOperator> {
 public:
     IOperator(EOperator kind, TPositionHandle pos)
@@ -278,7 +280,8 @@ public:
     // The result itself is intentionally not cached.
     TUnorderedIUs GetSubplanIUs(const TSubplans& subplans) const;
 
-    const TTypeAnnotationNode* GetIUType(TInfoUnitId iu, TExprContext& ctx) const;
+    NFrontend::TType GetNativeIUType(TInfoUnitId iu) const;
+    bool HasSchema() const { return NativeSchema.has_value(); }
 
     virtual TVector<std::reference_wrapper<const TExpression>> GetExpressions() const {
         return {};
@@ -291,11 +294,6 @@ public:
 
     // Overrides must also bind stored expressions not exposed by GetExpressions().
     virtual void BindExpressionPlanProps(TPlanProps* props);
-
-    virtual void ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOContext& ctx) {
-        Y_UNUSED(map);
-        Y_UNUSED(ctx);
-    }
 
     virtual void ReplaceChild(const TIntrusivePtr<IOperator> oldChild, const TIntrusivePtr<IOperator> newChild);
 
@@ -333,10 +331,6 @@ public:
 
     virtual NJson::TJsonValue ToJson(ui32 explainFlags, const TInfoUnitRegistry& registry);
 
-    const TTypeAnnotationNode* GetTypeAnn() const {
-        return Type;
-    }
-
     EOperator GetKind() const {
         return Kind;
     }
@@ -344,7 +338,8 @@ public:
     const EOperator Kind;
     TPositionHandle Pos;
     TPhysicalOpProps Props;
-    const TTypeAnnotationNode* Type = nullptr;
+    // Only physical lowering exports this schema into the backend type system.
+    std::optional<TNativeSchema> NativeSchema;
     TVector<std::pair<IOperator*, ui32>> Parents;
 
 protected:
@@ -579,18 +574,13 @@ public:
         // Source field spellings are fixed independently of mutable IU labels.
         TMappedIUs<NFrontend::TCatalogColumn> Fields;
     };
-    TOpEmptySource(TPositionHandle pos, TExprNode::TPtr input = nullptr, TUnorderedIUs columns = {})
-        : IOperator(EOperator::EmptySource, pos)
-        , Input(std::move(input))
-        , Columns(std::move(columns)) {
-        Y_ENSURE(Input || Columns.Empty(), "A unit source cannot define columns");
-    }
+    explicit TOpEmptySource(TPositionHandle pos) : IOperator(EOperator::EmptySource, pos) {}
     TOpEmptySource(TPositionHandle pos, TParameterInput input)
         : IOperator(EOperator::EmptySource, pos), NativeInput(std::move(input)) {
         Y_ENSURE(!NativeInput->Name.empty(), "A parameter source needs a name");
         for (const auto& [id, field] : NativeInput->Fields.Items()) { Y_UNUSED(field); Columns.Add(id); }
     }
-    bool HasInput() const { return Input || NativeInput.has_value(); }
+    bool HasInput() const { return NativeInput.has_value(); }
 
     virtual TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
     virtual TString GetExplainName() const override { return "EmptySource"; }
@@ -600,7 +590,6 @@ public:
     virtual void ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) override;
 
     // Represents a custom input, basically it is an external param.
-    TExprNode::TPtr Input;
     std::optional<TParameterInput> NativeInput;
 
 protected:
@@ -610,8 +599,7 @@ private:
     TUnorderedIUs Columns;
 };
 
-// A storage program stays native until physical conversion. The legacy arm
-// preserves existing OLAP programs while the old expression path is migrated.
+// A storage program stays native until physical conversion.
 class TOlapProgram {
 public:
     struct TNative {
@@ -621,7 +609,6 @@ public:
         TMappedIUs<TExpression> Projections;
     };
     TOlapProgram(std::nullptr_t = nullptr) {}
-    TOlapProgram(TExprNode::TPtr lambda) : Value_(std::move(lambda)) {}
     explicit TOlapProgram(TExpression predicate) : Value_(TNative{std::move(predicate), {}}) { Y_ENSURE(Native().Predicate->IsNative()); }
     explicit TOlapProgram(TNative program) : Value_(std::move(program)) {
         Y_ENSURE(!Native().Predicate || Native().Predicate->IsNative());
@@ -630,14 +617,12 @@ public:
             Y_ENSURE(projection.IsNative());
         }
     }
-    bool IsNative() const { return std::holds_alternative<TNative>(Value_); }
-    explicit operator bool() const { return IsNative() || bool(Legacy()); }
-    TExprNode::TPtr& Legacy() { return std::get<TExprNode::TPtr>(Value_); }
-    const TExprNode::TPtr& Legacy() const { return std::get<TExprNode::TPtr>(Value_); }
-    TNative& Native() { return std::get<TNative>(Value_); }
-    const TNative& Native() const { return std::get<TNative>(Value_); }
+    bool IsNative() const { return Value_.has_value(); }
+    explicit operator bool() const { return Value_.has_value(); }
+    TNative& Native() { return Value_.value(); }
+    const TNative& Native() const { return Value_.value(); }
 private:
-    std::variant<TExprNode::TPtr, TNative> Value_;
+    std::optional<TNative> Value_;
 };
 
 class TOpRead: public IOperator {
@@ -661,24 +646,19 @@ public:
     };
     struct TPointPrefix {
         TString Table;                // path of the main table or of an index implementation table
-        TExprNode::TPtr Points;
-        const TStructExprType* PointsItemType = nullptr;
         TVector<TString> Columns;     // physical key columns pinned by the points
         TMaybe<size_t> ExpectedMaxPoints;
         // Scalar values have no row dependencies. Only physical conversion
         // constructs a backend list and removes runtime parameter duplicates.
-        // Mutually exclusive with legacy Points/PointsItemType.
         std::optional<TNativePointSet> NativePoints;
 
         bool HasPoints() const {
-            return !Columns.empty() && (NativePoints
-                ? !Points && !PointsItemType && !NativePoints->Rows.empty() && NativePoints->Types.size() == Columns.size()
-                : Points && PointsItemType);
+            return !Columns.empty() && NativePoints && !NativePoints->Rows.empty()
+                && NativePoints->Types.size() == Columns.size();
         }
     };
 
     struct TRangeInfo {
-        TExprNode::TPtr ComputeNode;  // ranges expression pushed into the read
         TVector<TString> KeyColumns;  // all table key columns (with or without alias prefix)
         size_t UsedPrefixLen = 0;     // how many leading key columns are range-constrained
         size_t PointPrefixLen = 0;    // how many are pinned to one value per interval
@@ -689,13 +669,8 @@ public:
         // Path of the main table, which differs from the read's own table once the read is redirected
         // to an index. Empty means the read is on the main table.
         TString MainTable;
-        // The ranges as a single KqlKeyRange with literal or parameter bounds, when they are known at compile
-        // time. A row storage read passes it to the source as is, so the ranges are not computed in a separate
-        // transaction. ComputeNode describes the same ranges.
-        TExprNode::TPtr LiteralRange;
         // A union of intervals. Physical lowering normalizes overlaps and empty
         // intervals; optimizer bounds remain typed native scalars throughout.
-        // Mutually exclusive with the legacy ComputeNode/LiteralRange fields.
         std::optional<TVector<TKeyRange>> NativeRanges;
 
         // The prefix computed for a particular table, by its path.
@@ -709,13 +684,9 @@ public:
         }
     };
 
-    // Fresh definitions, allocated together in source-schema order. Conversion
-    // memoization reuses an existing Read rather than calling this factory again.
-    static TIntrusivePtr<TOpRead> FromExpr(TExprNode::TPtr node, TInfoUnitRegistry& registry);
-
     // Reconstruction preserves the supplied bindings; it never allocates IDs.
     TOpRead(const TString& alias, TUnorderedIUs columns, const NYql::EStorageType storageType,
-            const TExprNode::TPtr& tableCallable, const TOlapProgram& olapProgram, std::optional<ui64> limit, std::optional<TRangeInfo> ranges,
+            const TRboTable& tableRef, const TOlapProgram& olapProgram, std::optional<ui64> limit, std::optional<TRangeInfo> ranges,
             const std::optional<TExpression>& originalPredicate, const ESortDir sortDirection, const TPhysicalOpProps& props, TPositionHandle pos);
 
     const TUnorderedIUs& GetColumns() const Y_LIFETIME_BOUND { return Columns_; }
@@ -741,16 +712,14 @@ public:
     virtual void ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) override;
     NYql::EStorageType GetTableStorageType() const;
 
-    TExprNode::TPtr GetRanges() const { return RangeInfo ? RangeInfo->ComputeNode : nullptr; }
-    TExprNode::TPtr GetLiteralRange() const { return RangeInfo ? RangeInfo->LiteralRange : nullptr; }
-    TExprNode::TPtr GetTable() const { return TableCallable; }
+    const TRboTable& GetTable() const { return TableRef; }
 
     // TODO: make it private members, we should not access it directly
     TString Alias;
     NYql::EStorageType StorageType;
 
     // TODO: put it in read settings.
-    TExprNode::TPtr TableCallable;
+    TRboTable TableRef;
     // Binding atoms and embedded row-schema fields use decimal IU IDs. The
     // program preserves Columns_ membership, but may change values and types.
     TOlapProgram OlapProgram;
@@ -813,7 +782,6 @@ public:
     void RewriteExpressions(const TExpressionRewrite& rewrite) override;
     void PropagateLiveness(ILivenessContext& ctx) override;
     bool PruneOutputs(const TUnorderedIUs& liveOut, TExprContext& ctx) override;
-    void ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOContext& ctx) override;
 
     void RenameUsedIUs(const TSubstitutions& substitutions) override;
     void ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) override;
@@ -845,12 +813,12 @@ private:
  */
 struct TCapturedIU {
     TInfoUnitId Outer;
-    const TTypeAnnotationNode* Type;
+    std::optional<NFrontend::TType> NativeType = std::nullopt;
 };
 
 struct TCaptureDependencies {
     void Validate(const TCapturedIU& capture) const {
-        Y_ENSURE(capture.Type && capture.Outer != TUnorderedIUs::InvalidBit, "Invalid captured IU");
+        Y_ENSURE(capture.NativeType && capture.Outer != TUnorderedIUs::InvalidBit, "Invalid captured IU");
     }
 
     auto operator()(const TCapturedIU& capture) const {
@@ -1040,17 +1008,6 @@ struct TOpWindowFrame {
     }
 };
 
-template <typename TFrameNode>
-TOpWindowFrame WindowFrameFromNode(const TFrameNode& node) {
-    TOpWindowFrame frame;
-    frame.Type = WindowFrameTypeFromString(TString(node.FrameType()));
-    frame.BeginKind = WindowFrameBoundFromString(TString(node.BeginKind()));
-    frame.BeginValue = FromString<ui64>(TString(node.BeginValue()));
-    frame.EndKind = WindowFrameBoundFromString(TString(node.EndKind()));
-    frame.EndValue = FromString<ui64>(TString(node.EndValue()));
-    return frame;
-}
-
 // Represents a window function.
 class TOpWindow: public IUnaryOperator {
 public:
@@ -1102,7 +1059,6 @@ public:
     virtual TVector<std::reference_wrapper<const TExpression>> GetExpressions() const override;
     void RewriteExpressions(const TExpressionRewrite& rewrite) override;
     virtual void PropagateLiveness(ILivenessContext& ctx) override;
-    virtual void ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOContext& ctx) override;
 
     TUnorderedIUs GetFilterIUs(TPlanProps& props) const;
     void RenameUsedIUs(const TSubstitutions& substitutions) override;
@@ -1120,8 +1076,6 @@ protected:
 private:
     TExpression FilterExpr;
 };
-
-bool TestAndExtractEqualityPredicate(TExprNode::TPtr pred, TExprNode::TPtr& leftArg, TExprNode::TPtr& rightArg);
 
 // Equality semantics travel with the ID pair through every join rewrite.
 struct TJoinKey {
@@ -1178,6 +1132,10 @@ private:
     mutable TUnorderedIUs RawInputIUs;
 
 };
+
+// Normalize native ON equalities into input maps and ordinary join keys.
+// Used at construction and after rewrites expose previously unresolved scalars.
+bool ExtractNativeJoinKeys(TOpJoin& join, TPlanProps& props);
 
 /**
  * Dependent join based on Neumann "Unnesting Arbitrary Queries".
@@ -1338,9 +1296,9 @@ public:
         TLookupKeys Equalities;
     };
 
-    TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TExprNode::TPtr& table,
+    TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TRboTable& table,
         TUnorderedIUs columns, TLookupKeys keys);
-    TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TExprNode::TPtr& table,
+    TOpTableLookup(TIntrusivePtr<IOperator> input, TPositionHandle pos, const TRboTable& table,
         TUnorderedIUs columns, TLookupKeys keys, const TString& kind,
         const std::optional<TExpression>& filter, const std::optional<TLookupKeyPrefix>& prefix = std::nullopt,
         TJoinIUs residualKeys = {});
@@ -1362,7 +1320,7 @@ public:
         Columns = std::move(columns);
         Props.OutputIUs.reset();
     }
-    TExprNode::TPtr Table;
+    TRboTable Table;
     TLookupKeys LookupKeys;
     TString JoinKind;
     std::optional<TExpression> FetchedRowFilter;
@@ -1449,7 +1407,6 @@ public:
     virtual TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
     virtual TString GetExplainName() const override { return "CBOTree"; }
 
-
     virtual void ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) override;
     virtual void ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) override;
 
@@ -1466,29 +1423,9 @@ private:
 
 // Table Effects operator inserts/updates/deletes rows based on input tuples
 
-enum class EEffectType : ui32 {
-    InsertRows,
-    InsertRowsIndex,
-    UpdateRows,
-    UpdateRowsIndex,
-    UpsertRows,
-    UpsertRowsIndex,
-    DeleteRows,
-    DeleteRowsIndex
-};
-
-struct TEffectOptions {
-    std::optional<TVector<TString>> Columns;
-    std::optional<TVector<TString>> ReturningColumns;
-    std::optional<TVector<TString>> DefaultColumns;
-    std::optional<TString> OnConflict;
-    std::optional<bool> IsBatch;
-    std::optional<TVector<TExprNode::TPtr>> Settings;
-};
-
 class TOpTableEffect: public IUnaryOperator {
 public:
-    TOpTableEffect(TIntrusivePtr<IOperator> input, TPositionHandle pos, TExprNode::TPtr table,
+    TOpTableEffect(TIntrusivePtr<IOperator> input, TPositionHandle pos, TRboTable table,
         EEffectType type, TEffectOptions options, TOrderedIUs<TString> columns, TOrderedIUs<TString> returning);
     TString GetExplainName() const override;
     TUnorderedIUs GetUsedIUs(TPlanProps& props) override;
@@ -1498,9 +1435,8 @@ public:
     void RenameUsedIUs(const TSubstitutions& substitutions) override;
     void PropagateLiveness(ILivenessContext& ctx) override;
     TString ToString(TExprContext& ctx, const TInfoUnitRegistry& registry) override;
-    TExprNode::TPtr BuildSettings(TExprContext& ctx);
 
-    TExprNode::TPtr Table;
+    TRboTable Table;
     EEffectType EffectType;
     const TEffectOptions Options; // Storage settings; these names are not IU identity.
 
@@ -1807,7 +1743,6 @@ public:
     NJson::TJsonValue GetExplainJson(ui64 & nodeCounter, const THashMap<IOperator*, ui32>& operatorIds, ui32 explainFlags = 0x00);
 
     TPlanProps PlanProps;
-    TExprNode::TPtr Node;
 
 private:
     // External labels, order and arity never change. Copy elimination may

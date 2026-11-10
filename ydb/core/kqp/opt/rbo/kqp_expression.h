@@ -1,14 +1,12 @@
 #pragma once
 
 #include "kqp_info_unit.h"
-#include "kqp_rbo_context.h"
 #include "kqp_plan_props.h"
 #include "frontend/expression.h"
 
+#include <functional>
 #include <memory>
 #include <optional>
-
-#include <ydb/core/kqp/common/kqp_yql.h>
 
 
 namespace NKikimr {
@@ -17,35 +15,21 @@ namespace NKqp {
 using namespace NYql;
 
 /**
- * Scalar expression handle for native typed DAGs and legacy YQL lambdas.
+ * Scalar expression handle for the query-owned native typed DAG.
  * Native handles share a query-owned append-only arena; existing roots remain
  * immutable when optimizer composition appends new nodes.
  */
 class TExpression {
   public:
     static TExpression FromNative(std::shared_ptr<NFrontend::TExpressionArena> arena,
-        NFrontend::TExprId root, TExprContext* ctx, TPlanProps* props = nullptr, TPositionHandle pos = {});
+        NFrontend::TExprId root, TPlanProps* props = nullptr, TPositionHandle pos = {});
 
     bool IsNative() const { return bool(NativeArena_); }
     const std::shared_ptr<NFrontend::TExpressionArena>& GetNativeArena() const { return NativeArena_; }
     NFrontend::TExprId GetNativeRoot() const { return NativeRoot_; }
     NFrontend::TType GetNativeType() const { return (*NativeArena_)[NativeRoot_].Type; }
     TExpression WithNativeColumnTypes(const std::function<NFrontend::TType(TInfoUnitId)>& typeOf) const;
-    TPositionHandle Pos() const { return IsNative() ? NativePos_ : Node->Pos(); }
-
-    // Conversion-only source spellings. Never reconstruct this scope from
-    // mutable registry labels after conversion.
-    using TBindings = THashMap<TString, TInfoUnitId>;
-
-    // Bind only Members of this lambda's row argument. Whole-row values are
-    // reconstructed from those members, preserving their source struct shape.
-    // Explicit replacements are already ID-bound (e.g. extracted sublinks).
-    static TExpression FromExpr(TExprNode::TPtr lambda, const TBindings& bindings,
-        TExprContext& ctx, TPlanProps& props, TNodeOnNodeOwnedMap replacements = {});
-
-    // Internal construction: references already use decimal IDs. A bare body
-    // is wrapped in a lambda, rebinding free row arguments, not inner locals.
-    TExpression(TExprNode::TPtr node, TExprContext* ctx, TPlanProps* props = nullptr); 
+    TPositionHandle Pos() const { return NativePos_; }
 
     TExpression() = default;
     TExpression(const TExpression&) = default;
@@ -81,11 +65,6 @@ class TExpression {
     // Check if this is a potential comparison of a column with a constant
     bool MaybeConstantCondition() const;
 
-    // Legacy-only inspection during migration. Native expressions cannot be
-    // converted through these accessors; physical builders use frontend_lowering.
-    TExprNode::TPtr GetLegacyLambda() const;
-    TExprNode::TPtr GetLegacyBody() const;
-
     // Return all column references used in this expression
     // Optionally include columns that bind to subplan results and external columns inside correlated subqueries
     // Nonempty expressions need plan properties for subplan classification.
@@ -95,7 +74,7 @@ class TExpression {
     const TUnorderedIUs& GetInputIUs(bool includeSubplanVars = false, bool includeCorrelatedDeps = false) const Y_LIFETIME_BOUND;
 
     // Return direct row-reference IDs without subplan classification.
-    // The result depends only on Node and is cached after the first AST traversal.
+    // The result depends only on the scalar and is cached after its first traversal.
     const TUnorderedIUs& GetRawInputIUs() const Y_LIFETIME_BOUND;
 
     void BindPlanProps(TPlanProps* props) const {
@@ -104,9 +83,6 @@ class TExpression {
 
     // Simultaneous ID substitution, not a change to registry display labels.
     TExpression ApplyRenames(const TSubstitutions& substitutions) const;
-
-    // Legacy graph replacement used by the old constant-folding path.
-    TExpression ApplyReplaceMap(const TNodeOnNodeOwnedMap& map, TRBOContext& ctx) const;
 
     // Extract common conjuncts from OR branches.
     std::optional<TExpression> TryExtractCommonConjuncts() const;
@@ -117,8 +93,6 @@ class TExpression {
     // Produce a compact string suitable for explain output. Complex expressions are summarized by dependencies.
     TString ToExplainString(const TInfoUnitRegistry& registry) const;
 
-    TExprNode::TPtr Node;
-    TExprContext* Ctx = nullptr;
     mutable TPlanProps* PlanProps = nullptr;
 
   private:
@@ -129,7 +103,6 @@ class TExpression {
 
     bool MaybeEquiJoinConditionInternal(bool includeExpressions) const;
 
-    mutable TExprNode::TPtr RawInputIUsCacheKey;
     mutable TUnorderedIUs RawInputIUs;
     // Reusable scratch buffer. Every resolving call refreshes it against the
     // current subplan registry, so registry mutations cannot stale the result.
@@ -153,7 +126,7 @@ class TEquiJoinCondition {
 
     // Materialize computed equality operands as typed definitions and return
     // the equality over their column bindings. Native rewrites stay in the DAG.
-    std::optional<TExpression> ExtractExpressions(TMappedIUs<TExpression>& expressions, TRBOContext& ctx);
+    std::optional<TExpression> ExtractExpressions(TMappedIUs<TExpression>& expressions);
 
     const TExpression& Expr;
     TUnorderedIUs LeftIUs;
@@ -162,24 +135,18 @@ class TEquiJoinCondition {
     bool IncludesExpressions = true;
 };
 
-// Create an expression that accesses a single column
-TExpression MakeColumnAccess(TInfoUnitId column, TPositionHandle pos, TExprContext* ctx, TPlanProps* props = nullptr);
-// Typed optimizer factories append directly to a native plan's arena.
-TExpression MakeColumnAccess(TInfoUnitId column, const TTypeAnnotationNode* type,
-    TPositionHandle pos, TExprContext* ctx, TPlanProps* props);
+// Typed factories append directly to the query arena.
+TExpression MakeColumnAccess(TInfoUnitId column, NFrontend::TType type,
+    TPositionHandle pos, TPlanProps* props);
 // Follow freshly constructed forwarding operators to their typed producer.
 // Native factories need this before the next whole-plan property refresh.
 TExpression MakeColumnAccess(TInfoUnitId column, IOperator& input,
-    TPositionHandle pos, TExprContext* ctx, TPlanProps* props);
+    TPositionHandle pos, TPlanProps* props);
 
 // Create a constant expression; native plans supply their destination arena through properties.
-TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TExprContext* ctx, TPlanProps* props = nullptr);
+TExpression MakeConstant(const TString& type, const TString& value, TPositionHandle pos, TPlanProps* props = nullptr);
 
-// Create. a null expression of a specific type, also doesn't need plan properties
-TExpression MakeNothing(TPositionHandle pos, const TTypeAnnotationNode* type, TExprContext* ctx);
-
-// Make a conjunction from a list of conjuncts. Expression context and plan properies will be extracted
-// from one of the conjuncts.
+// Make a conjunction in the first operand's arena, preserving plan properties.
 TExpression MakeConjunction(const TVector<TExpression>& vec, bool pgSyntax = false);
 
 // Negate a predicate
@@ -194,13 +161,6 @@ TExpression MakeUnaryCallable(const TString& callable, const TExpression& arg);
 // Make ensure.
 TExpression MakeEnsure(const TExpression& value, const TExpression& predicate, const TString& message);
 
-// The ID a row argument's `Member` refers to.
-TInfoUnitId GetMemberId(const TExprNode& member);
-
-// Get all members from a expression node
-void GetAllMembers(TExprNode::TPtr node, TVector<TInfoUnit>& IUs);
-
-TString PrintRBOExpression(TExprNode::TPtr expr, TExprContext& ctx, const TInfoUnitRegistry* registry = nullptr);
-
 }
+
 }

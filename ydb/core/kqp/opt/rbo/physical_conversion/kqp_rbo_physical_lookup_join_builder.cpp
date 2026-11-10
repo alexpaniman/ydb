@@ -42,7 +42,6 @@ namespace NKikimr::NKqp::NLookupJoinBuilder {
 
 TExprNode::TPtr BuildLookupPoints(const TOpRead::TPointPrefix& prefix, TExprContext& ctx, TPositionHandle pos) {
     Y_ENSURE(prefix.HasPoints());
-    if (!prefix.NativePoints) return prefix.Points;
     const auto& points = *prefix.NativePoints;
     const auto* unit = ctx.MakeType<TUnitExprType>();
     const auto atom = [&](TStringBuf text) {
@@ -73,7 +72,7 @@ TExprNode::TPtr BuildLookupPoints(const TOpRead::TPointPrefix& prefix, TExprCont
             const auto& expression = row[i];
             Y_ENSURE(expression.IsNative() && expression.GetRawInputIUs().Empty(), "Lookup point depends on a row");
             auto value = LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, pos)->TailPtr();
-            if (points.Types[i].Nullable && !expression.GetNativeType().Nullable) value = call("Just", {value}, types[i]);
+            if (points.Types[i].OptionalDepth && !expression.GetNativeType().OptionalDepth) value = call("Just", {value}, types[i]);
             Y_ENSURE(IsSameAnnotation(*value->GetTypeAnn(), *types[i]), "Lookup point type mismatch");
             members.push_back(tuple({atom(prefix.Columns[i]), value}));
         }
@@ -111,7 +110,7 @@ TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, TExprNode::TPtr inputS
         TVector<const TItemExprType*> types;
         for (const auto& [id, column] : lookup.LookupKeys.Items()) {
             columns.emplace_back(names.Get(id), column);
-            types.push_back(ctx.MakeType<TItemExprType>(column, input.GetIUType(id, ctx)));
+            types.push_back(ctx.MakeType<TItemExprType>(column, ExportIUType(input, id, ctx)));
         }
         auto stage = NPhysicalConvertionUtils::TransformStageOutput(inputStage, [&](TExprNode::TPtr body) {
             return NPhysicalConvertionUtils::BuildRenameMap(body, columns, ctx);
@@ -133,7 +132,7 @@ TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, TExprNode::TPtr inputS
             return;
         }
 
-        auto type = input.GetIUType(iu, ctx);
+        auto type = ExportIUType(input, iu, ctx);
         Y_ENSURE(type, "Type of the lookup join input column " << names.Get(iu) << " is not available");
         leftMembers.push_back(BuildMemberTuple(name, name, row, ctx, pos));
         leftItems.push_back(ctx.MakeType<TItemExprType>(name, type));
@@ -155,8 +154,7 @@ TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, TExprNode::TPtr inputS
     TVector<const TItemExprType*> keyItems;
     TVector<TExprBase> equalities;
     if (lookup.Prefix) {
-        const auto* pointType = lookup.Prefix->NativePoints
-            ? points->GetTypeAnn()->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>() : lookup.Prefix->PointsItemType;
+        const auto* pointType = points->GetTypeAnn()->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
         Y_ENSURE(pointType);
         for (const auto& column : lookup.Prefix->Columns) {
             auto type = pointType->FindItemType(column);
@@ -186,7 +184,7 @@ TLookupKeysResult BuildLookupKeys(TOpTableLookup& lookup, TExprNode::TPtr inputS
     }
 
     for (const auto& [key, column] : lookup.LookupKeys.Items()) {
-        auto type = input.GetIUType(key, ctx);
+        auto type = ExportIUType(input, key, ctx);
         Y_ENSURE(type, "Type of the lookup join key " << names.Get(key) << " is not available");
         keyMembers.push_back(BuildMemberTuple(column, names.Get(key), row, ctx, pos));
         keyItems.push_back(ctx.MakeType<TItemExprType>(column, type));
@@ -286,11 +284,11 @@ TExprNode::TPtr BuildKeysFromInputLookupType(const TOpTableLookup& inputLookup, 
                                              const TPhysicalNames& names, const TInfoUnitRegistry& registry, TExprContext& ctx) {
     Y_ENSURE(inputLookup.IsJoin(), "Keys are taken from a table lookup in join mode only");
     Y_ENSURE(leftRowType, "Type of the left rows of the input lookup is not available");
-    Y_ENSURE(inputLookup.Type, "Type of the input lookup is not available");
+    Y_ENSURE(inputLookup.HasSchema(), "Type of the input lookup is not available");
 
     // The logical type of the input lookup names fetched columns by display name, the stream lookup
     // returns them by storage name.
-    const auto* tupleType = inputLookup.Type->Cast<TListExprType>()->GetItemType()->Cast<TTupleExprType>();
+    const auto* tupleType = ExportOperatorType(inputLookup, ctx)->Cast<TListExprType>()->GetItemType()->Cast<TTupleExprType>();
     const auto* fetchedRowType = tupleType->GetItems()[1]->Cast<TOptionalExprType>()->GetItemType()->Cast<TStructExprType>();
     TVector<const TItemExprType*> keyItems;
     for (const auto id : inputLookup.GetColumns()) {

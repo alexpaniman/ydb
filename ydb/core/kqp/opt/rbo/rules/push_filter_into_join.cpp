@@ -1,116 +1,50 @@
 #include "kqp_rules_include.h"
 
-#include <unordered_map>
 
 namespace {
 using namespace NYql::NNodes;
 using namespace NKikimr;
 using namespace NKikimr::NKqp;
 
-bool IsSimpleConstant(const TExprBase& input) {
-    if (auto maybeData = input.Maybe<TCoDataCtor>()) {
-        auto data = maybeData.Cast();
-        return data.Maybe<TCoBool>() || data.Maybe<TCoFloat>() || data.Maybe<TCoDouble>() || data.Maybe<TCoInt8>() || data.Maybe<TCoInt16>() ||
-               data.Maybe<TCoInt32>() || data.Maybe<TCoInt64>() || data.Maybe<TCoUint8>() || data.Maybe<TCoUint16>() || data.Maybe<TCoUint32>() ||
-               data.Maybe<TCoUint64>() || data.Maybe<TCoUtf8>() || data.Maybe<TCoString>() || data.Maybe<TCoDate>() || data.Maybe<TCoDate32>() ||
-               data.Maybe<TCoDatetime>() || data.Maybe<TCoDatetime64>() || data.Maybe<TCoTimestamp64>() || data.Maybe<TCoInterval64>() ||
-               data.Maybe<TCoInterval>() || data.Maybe<TCoTimestamp>();
-    }
-    return false;
-}
-
-bool IsAllowedComparator(TExprNode::TPtr input) {
-    return input->IsCallable({"==", "<=", ">=", "<", ">", "!=", "StringContains", "StartsWith", "EndsWith", "StringContainsIgnoreCase", "StartsWithIgnoreCase",
-                              "EndsWithIgnoreCase"});
-}
-
-bool IsSimpleColumnAccess(const TExprBase& colAccess, const TExprBase& columnArg) {
-    if (auto maybeMember = colAccess.Maybe<TCoMember>()) {
-        return maybeMember.Cast().Struct().Ptr().Get() == columnArg.Ptr().Get();
-    }
-    return false;
-}
-
-template <typename T>
-bool IsNullRejecting(const TExprBase& input, const TExprBase& lambdaArg) {
-    auto compare = input.Cast<T>();
-    auto leftArg = compare.Left();
-    auto rightArg = compare.Right();
-    return (IsSimpleColumnAccess(leftArg, lambdaArg) && IsSimpleConstant(rightArg)) || (IsSimpleColumnAccess(rightArg, lambdaArg) && IsSimpleConstant(leftArg));
-}
-
-TExprBase PruneNot(const TExprBase& node) {
-    if (auto maybeNot = node.Maybe<TCoNot>()) {
-        return maybeNot.Cast().Value();
-    }
-    return node;
-}
-
 bool IsNullRejectingPredicate(const TExpression& filter) {
-    if (filter.IsNative()) {
-        using O = NFrontend::EOpcode;
-        struct TNullResult {
-            bool AlwaysNull = false;
-            bool NeverTrue = false;
-        };
-        const auto& arena = *filter.GetNativeArena();
-        std::unordered_map<NFrontend::TExprId, TNullResult> results;
-        std::vector<std::pair<NFrontend::TExprId, bool>> pending{{filter.GetNativeRoot(), false}};
-        while (!pending.empty()) {
-            const auto [id, ready] = pending.back();
-            pending.pop_back();
-            if (results.contains(id)) continue;
-            const auto& node = arena[id];
-            if (!ready) {
-                pending.emplace_back(id, true);
-                for (auto child : node.Arguments) pending.emplace_back(child, false);
-                continue;
-            }
-            bool anyNull = false, allNull = !node.Arguments.empty();
-            bool anyNeverTrue = false, allNeverTrue = !node.Arguments.empty();
-            for (auto child : node.Arguments) {
-                const auto state = results.at(child);
-                anyNull |= state.AlwaysNull;
-                allNull &= state.AlwaysNull;
-                anyNeverTrue |= state.NeverTrue;
-                allNeverTrue &= state.NeverTrue;
-            }
-            TNullResult state;
-            // This function is called only for a predicate whose columns all
-            // come from the nullable join side. Substitute NULL for each one.
-            switch (node.Op) {
-                case O::Column: state = {true, true}; break;
-                case O::Parameter: break;
-                case O::Literal:
-                    state.AlwaysNull = std::holds_alternative<std::monostate>(node.Value);
-                    state.NeverTrue = state.AlwaysNull || (std::holds_alternative<bool>(node.Value) && !std::get<bool>(node.Value));
-                    break;
-                case O::IsNull: break;
-                case O::IsNotNull: state.NeverTrue = anyNull; break;
-                case O::And: state = {allNull, anyNeverTrue}; break;
-                case O::Or: case O::Coalesce: state = {allNull, allNeverTrue}; break;
-                case O::If:
-                    if (results.at(node.Arguments[0]).AlwaysNull) {
-                        state = results.at(node.Arguments[2]);
-                    } else {
-                        state = {results.at(node.Arguments[1]).AlwaysNull && results.at(node.Arguments[2]).AlwaysNull,
-                            results.at(node.Arguments[1]).NeverTrue && results.at(node.Arguments[2]).NeverTrue};
-                    }
-                    break;
-                default: state = {anyNull, anyNull}; break;
-            }
-            results.emplace(id, state);
-        }
-        return results.at(filter.GetNativeRoot()).NeverTrue;
-    }
-    auto lambda = TCoLambda(filter.GetLegacyLambda());
-    auto arg = lambda.Args().Arg(0);
 
-    auto predicate = PruneNot(lambda.Body());
-    if (IsAllowedComparator(predicate.Ptr())) {
-        return IsNullRejecting<TCoCompare>(predicate, arg);
+    using O = NFrontend::EOpcode;
+    using K = NFrontend::ETypeKind;
+    const auto& arena = *filter.GetNativeArena();
+    const auto stripLift = [&](NFrontend::TExprId id) {
+        while (arena[id].Op == O::Convert &&
+            arena[id].Type.Required() == arena[arena[id].Arguments[0]].Type.Required())
+            id = arena[id].Arguments[0];
+        return id;
+    };
+    auto id = stripLift(filter.GetNativeRoot());
+    if (arena[id].Op == O::Not) id = stripLift(arena[id].Arguments[0]);
+    const auto& predicate = arena[id];
+    switch (predicate.Op) {
+        case O::Equal: case O::NotEqual: case O::Less: case O::LessEqual:
+        case O::Greater: case O::GreaterEqual: case O::Contains:
+        case O::StartsWith: case O::EndsWith: break;
+        default: return false;
     }
-    return false;
+    const auto isConstant = [&](NFrontend::TExprId id) {
+        const auto& node = arena[stripLift(id)];
+        if (node.Op != O::Literal || node.Type.OptionalDepth || std::holds_alternative<std::monostate>(node.Value)) return false;
+        return node.Type.IsIntegral() || node.Type.IsString() || node.Type.Kind == K::Bool ||
+            node.Type.Kind == K::Float || node.Type.Kind == K::Double || node.Type.Kind == K::Date ||
+            node.Type.Kind == K::Datetime || node.Type.Kind == K::Timestamp || node.Type.Kind == K::Interval;
+    };
+    const auto left = predicate.Arguments[0], right = predicate.Arguments[1];
+    const auto isColumn = [&](NFrontend::TExprId value) {
+        value = stripLift(value);
+        if ((predicate.Op == O::Contains || predicate.Op == O::StartsWith || predicate.Op == O::EndsWith) &&
+            arena[value].Op == O::Convert && arena[value].Type.Kind == K::String &&
+            arena[arena[value].Arguments[0]].Type.Kind == K::Utf8)
+            value = stripLift(arena[value].Arguments[0]);
+        return arena[value].Op == O::Column;
+    };
+    // Retain the existing rule's column-versus-literal criterion. Native
+    // representation does not broaden outer-join rewrite policy.
+    return (isColumn(left) && isConstant(right)) || (isColumn(right) && isConstant(left));
 }
 }
 

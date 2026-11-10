@@ -272,47 +272,31 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
         YQL_CLOG(TRACE, CoreDq) << "Assign stage to window";
     } else if (input->Kind == EOperator::TableLookup) {
         auto lookup = CastOperator<TOpTableLookup>(input);
-        auto& exprCtx = ctx.ExprCtx;
 
         const auto inputStageId = *(lookup->GetInput()->Props.StageId);
         const auto outputIndex = OutputIndex(*lookup->GetInput(), props.StageGraph);
         const auto newStageId = props.StageGraph.AddStage();
         input->Props.StageId = newStageId;
 
-        TVector<NYql::NNodes::TCoAtom> columnAtoms;
+        TVector<TString> columns;
         THashSet<TString> fetchedNames;
         for (const auto id : lookup->GetColumns()) {
             const auto column = props.InfoUnitRegistry.Get(id).GetColumnName();
-            if (fetchedNames.insert(column).second) {
-                columnAtoms.push_back(NYql::NNodes::Build<NYql::NNodes::TCoAtom>(exprCtx, lookup->Pos).Value(column).Done());
-            }
+            if (fetchedNames.insert(column).second) columns.push_back(column);
         }
-        auto columnsNode = NYql::NNodes::Build<NYql::NNodes::TCoAtomList>(exprCtx, lookup->Pos).Add(columnAtoms).Done().Ptr();
-
-        TKqpStreamLookupSettings settings;
-        NYql::TExprNode::TPtr inputTypeNode;
+        auto connection = MakeIntrusive<TStreamLookupConnection>(outputIndex, lookup->Table, std::move(columns));
+        connection->Arena = props.NativeExpressions;
         if (lookup->IsJoin()) {
-            settings.Strategy = lookup->JoinKind == "LeftSemi" ? EStreamLookupStrategyType::LookupSemiJoinRows : EStreamLookupStrategyType::LookupJoinRows;
-            // For point prefix lookup we allow null keys with it size.
+            connection->Strategy = lookup->JoinKind == "LeftSemi" ? TStreamLookupConnection::EStrategy::SemiJoinRows :
+                TStreamLookupConnection::EStrategy::JoinRows;
             const size_t prefixSize = lookup->Prefix ? lookup->Prefix->Columns.size() : 0;
-            settings.AllowNullKeysPrefixSize = prefixSize + (lookup->AllowNullKeys ? lookup->LookupKeys.Items().size() : 0);
+            connection->AllowNullKeysPrefixSize = prefixSize + (lookup->AllowNullKeys ? lookup->LookupKeys.Items().size() : 0);
         } else {
-            settings.Strategy = EStreamLookupStrategyType::LookupRows;
-
-            TVector<const NYql::TItemExprType*> keyItems;
             for (const auto& [key, column] : lookup->LookupKeys.Items()) {
-                const auto* keyType = lookup->GetInput()->GetIUType(key, exprCtx);
-                Y_ENSURE(keyType, "Lookup key type is not available");
-                keyItems.push_back(exprCtx.MakeType<NYql::TItemExprType>(column, keyType));
+                connection->Keys.emplace_back(column, lookup->GetInput()->GetNativeIUType(key));
             }
-            const auto* keyStructType = exprCtx.MakeType<NYql::TStructExprType>(keyItems);
-            const auto* keyListType = exprCtx.MakeType<NYql::TListExprType>(keyStructType);
-            inputTypeNode = NYql::ExpandType(lookup->Pos, *keyListType, exprCtx);
         }
-        auto settingsNode = settings.BuildNode(exprCtx, lookup->Pos).Ptr();
-
-        props.StageGraph.Connect(inputStageId, newStageId,
-                                 MakeIntrusive<TStreamLookupConnection>(outputIndex, lookup->Table, columnsNode, inputTypeNode, settingsNode));
+        props.StageGraph.Connect(inputStageId, newStageId, std::move(connection));
         YQL_CLOG(TRACE, CoreDq) << "Assign stages table lookup";
     } else if (input->Kind == EOperator::IndexLookupJoin) {
         // The lookup join shares the stage of its table lookup: the joined pairs only exist inside
@@ -324,7 +308,7 @@ void AssignStage(IOperator* input, TRBOContext& ctx, TPlanProps& props) {
     } else if (input->Kind == EOperator::TableEffect) {
         auto tableEffect = CastOperator<TOpTableEffect>(input);
 
-        const auto newStageId = props.StageGraph.AddSinkStage(tableEffect->BuildSettings(ctx.ExprCtx));
+        const auto newStageId = props.StageGraph.AddSinkStage({tableEffect->Table, tableEffect->EffectType, tableEffect->Options});
         const auto inputStageId = *(tableEffect->GetInput()->Props.StageId);
         const auto outputIndex = OutputIndex(*tableEffect->GetInput(), props.StageGraph);
 

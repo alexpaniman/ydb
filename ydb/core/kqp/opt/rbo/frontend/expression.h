@@ -29,34 +29,36 @@ public:
     TSourcePosition Position;
 };
 
-// Optionality is one SQL NULL bit. Nested optionals and general YQL containers
-// deliberately do not enter the execution model. Internal tuples carry typed
-// aggregate states; they do not enable SQL container syntax.
+// Scalar optionality records its depth so explicit nested optional casts retain
+// the difference between Nothing and Just(Nothing). Internal tuples carry typed
+// aggregate states and fixed IN operands; lists are scalar IN operands.
 enum class ETypeKind : std::uint8_t {
     Null, Bool, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64,
     Float, Double, String, Utf8, Decimal, Date, Datetime, Timestamp, Interval, Json, JsonDocument,
     // Internal UTC calendar value, carried as timestamp microseconds. It is
     // executable but cannot be stored or cross a relational boundary.
-    Calendar, Tuple,
+    Calendar, Tuple, List,
 };
 
 struct TType {
     ETypeKind Kind = ETypeKind::Null;
-    bool Nullable = false;
+    std::uint8_t OptionalDepth = 0;
     std::uint8_t Precision = 0;
     std::uint8_t Scale = 0;
-    // Tuple shapes are interned in the owning expression arena. Zero for scalars.
+    // Collection shapes are interned in the owning expression arena. Zero for scalars.
     // Like expression IDs, a shape ID must be imported when crossing arenas.
     std::uint32_t Shape = 0;
 
     bool operator==(const TType&) const = default;
     TType Optional() const;
     TType Required() const;
+    TType Unwrapped() const;
     bool IsIntegral() const;
     bool IsNumeric() const;
     bool IsString() const;
     bool IsJson() const { return Kind == ETypeKind::Json || Kind == ETypeKind::JsonDocument; }
     bool IsSigned() const;
+    bool IsCollection() const { return Kind == ETypeKind::Tuple || Kind == ETypeKind::List; }
     std::string ToString() const;
 };
 
@@ -71,8 +73,10 @@ struct TDecimal {
 };
 
 struct TTupleValue;
+struct TValue;
+using TOptionalValue = std::shared_ptr<const TValue>;
 using TTuple = std::shared_ptr<const TTupleValue>;
-using TScalar = std::variant<std::monostate, bool, std::int64_t, std::uint64_t, double, std::string, TDecimal, TTuple>;
+using TScalar = std::variant<std::monostate, bool, std::int64_t, std::uint64_t, double, std::string, TDecimal, TTuple, TOptionalValue>;
 
 struct TValue {
     TType Type;
@@ -100,7 +104,7 @@ enum class EOpcode : std::uint8_t {
     Concat, Ensure, StablePickle, Find,
     CalendarSplit, CalendarDate, CalendarDatetime, CalendarTimestamp, CalendarYear,
     CalendarShiftMonths, CalendarShiftYears,
-    Unwrap, UnicodeLower, UnicodeUpper, JsonValue,
+    Unwrap, UnicodeLower, UnicodeUpper, JsonValue, OptionalWrap, Collection, InCollection,
 };
 
 struct TExprNode {
@@ -131,9 +135,13 @@ public:
     // Construction validates and interns each shape once; scalar types need no lookup.
     TType TupleType(std::span<const TType> items, TSourcePosition position = {});
     std::span<const TType> TupleItems(TType type) const;
+    TType ListType(TType item, TSourcePosition position = {});
+    TType ListItem(TType type) const;
     TType ImportType(const TExpressionArena& source, TType type);
     void ValidateType(TType type, TSourcePosition position = {}) const;
 
+    TExprId Collection(std::span<const TExprId> items, bool list, TSourcePosition position = {});
+    TExprId InCollection(TExprId lookup, TExprId collection, bool ansi, TSourcePosition position = {});
     TExprId Literal(TType type, TScalar value, TSourcePosition position = {});
     TExprId Null(TSourcePosition position = {});
     TExprId Column(TColumnId column, TType type, TSourcePosition position = {});
@@ -142,9 +150,10 @@ public:
     TExprId Binary(EOpcode op, TExprId left, TExprId right, TSourcePosition position = {});
     // Total numeric conversion/optional lifting; rejects conversions that can fail.
     TExprId Convert(TExprId input, TType target, TSourcePosition position = {});
-    // Text-to-Decimal/Datetime/Timestamp casts require literals and fold here.
-    // Other numeric/Boolean casts, Date parsing and String/Utf8 conversion
-    // also support runtime input, returning NULL when parsing fails.
+    // Text-to-Datetime/Timestamp casts require literals and fold here.
+    // Decimal/numeric/Boolean casts, Date parsing and String/Utf8 conversion
+    // support runtime input, returning NULL when parsing fails. Explicit nested
+    // optional targets preserve each optional layer.
     TExprId Cast(TExprId input, TType target, TSourcePosition position = {});
     TExprId If(TExprId condition, TExprId thenExpr, TExprId elseExpr, TSourcePosition position = {});
     TExprId Coalesce(std::span<const TExprId> arguments, TSourcePosition position = {});

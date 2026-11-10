@@ -55,12 +55,8 @@ bool IsSuitableToPropagateTopSortThroughStage(const TIntrusivePtr<IOperator>& in
     }
 
     const auto sort = CastOperator<TOpSort>(input);
-    for (const auto& [column, order] : sort->GetSortElements().Items()) {
-        const auto* sortColumnType = sort->GetIUType(column, ctx);
-        if (!sortColumnType || RemoveOptionalType(sortColumnType)->GetKind() == ETypeAnnotationKind::Pg) {
-            return false;
-        }
-    }
+    Y_UNUSED(ctx);
+
 
     return sort->GetSortPhase() != EOpPhase::Final;
 }
@@ -141,7 +137,7 @@ bool CanPushSortToOlapRead(const TIntrusivePtr<TOpSort>& sort, const TIntrusiveP
         return false;
     }
 
-    const auto tablePath = TExprBase(read->GetTable()).Cast<TKqpTable>().Path().StringValue();
+    const auto tablePath = read->GetTable().Path;
     auto& kqpCtx = ctx.KqpCtx;
     auto table = kqpCtx.Tables->EnsureTableExists(kqpCtx.Cluster, tablePath, read->Pos, ctx.ExprCtx);
     if (!table) {
@@ -189,7 +185,7 @@ bool CanPushSortToRowRead(const TIntrusivePtr<TOpSort>& sort, const TIntrusivePt
         }
     }
 
-    const auto tablePath = TExprBase(read->GetTable()).Cast<TKqpTable>().Path().StringValue();
+    const auto tablePath = read->GetTable().Path;
     auto& kqpCtx = ctx.KqpCtx;
     const auto table = kqpCtx.Tables->EnsureTableExists(kqpCtx.Cluster, tablePath, read->Pos, ctx.ExprCtx);
     if (!table || !table->Metadata) {
@@ -248,14 +244,14 @@ TIntrusivePtr<IOperator> TPropagateTopSortThroughStageRule::SimpleMatchAndApply(
     } else if (CanPushSortToOlapRead(sort, sortInput, ctx, props.InfoUnitRegistry, sortDirecion)) {
         const auto read = CastOperator<TOpRead>(sortInput);
         const auto limitCond = sort->LimitCond->GetUint64Literal();
-        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapProgram, limitCond,
+        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableRef, read->OlapProgram, limitCond,
                                                     read->RangeInfo, read->OriginalPredicate, static_cast<ESortDir>(sortDirecion), read->Props, read->Pos);
         // We keep sort in stage even after push to read, because cs read can return values not sorted.
         return MakeIntrusive<TOpSort>(newRead, sort->Pos, sort->Props, sort->GetSortElements(), sort->LimitCond, EOpPhase::Intermediate);
     } else if (CanPushSortToRowRead(sort, sortInput, ctx, props.InfoUnitRegistry, sortDirecion)) {
         const auto read = CastOperator<TOpRead>(sortInput);
         const auto limitCond = sort->LimitCond->GetUint64Literal();
-        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableCallable, read->OlapProgram, limitCond,
+        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(), read->TableRef, read->OlapProgram, limitCond,
                                       read->RangeInfo, read->OriginalPredicate, static_cast<ESortDir>(sortDirecion), read->Props, read->Pos);
         // TODO: We need to handle merge connection for row storage. So we keep sort until add them.
         return MakeIntrusive<TOpSort>(newRead, sort->Pos, sort->Props, sort->GetSortElements(), sort->LimitCond, EOpPhase::Intermediate);

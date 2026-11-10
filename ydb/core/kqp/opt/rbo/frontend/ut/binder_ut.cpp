@@ -19,6 +19,52 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(CapturesShareOneInputAcrossQueryClauses) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* sql : {
+                "SELECT (SELECT MAX(b.value - a.value) FROM b WHERE b.id <= a.id) FROM a",
+                "SELECT (SELECT b.value + a.value FROM b WHERE b.id = a.id) FROM a"}) {
+                const auto compiled = CompileNative(sql, Catalog, settings);
+                const auto& program = compiled.Program->Get();
+                std::size_t captures = 0;
+                for (const auto& relation : program.Relations) if (relation.Kind == ERelation::Capture) {
+                    ++captures;
+                    UNIT_ASSERT_VALUES_EQUAL_C(relation.Captures.size(), 2, sql);
+                }
+                UNIT_ASSERT_VALUES_EQUAL_C(captures, 1, sql);
+            }
+            const auto compiled = CompileNative("SELECT id FROM a LIMIT 1 + 2 OFFSET 3 - 1", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            const auto& limit = Find(program, ERelation::Limit);
+            UNIT_ASSERT(program.Expressions[*limit.Count].Type == (TType{ETypeKind::Uint64}));
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(program.Expressions, *limit.Count).Data), 3);
+            UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(program.Expressions, *limit.Offset).Data), 2);
+        }
+    }
+
+    Y_UNIT_TEST(NamedWindowsResolveWithinTheirQueryScope) {
+        TCompilerSettings settings;
+        settings.Parser = EParser::Grammar;
+        const auto compiled = CompileNative(R"(
+            SELECT SUM(value) OVER w AS total, COUNT(*) OVER w AS n
+            FROM a WINDOW w AS (PARTITION BY name ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+        )", Catalog, settings);
+        const auto& window = Find(compiled.Program->Get(), ERelation::Window);
+        UNIT_ASSERT_VALUES_EQUAL(window.WindowFunctions.size(), 2);
+        UNIT_ASSERT_VALUES_EQUAL(window.GroupKeys.size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(window.WindowFrame.BeginOffset, 1);
+        UNIT_ASSERT_EXCEPTION(CompileNative("SELECT ROWNUMBER() OVER missing FROM a", Catalog, settings), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(CompileNative("SELECT ROWNUMBER() OVER w FROM a WINDOW w AS (), w AS ()", Catalog, settings), TFrontendError);
+        UNIT_ASSERT_EXCEPTION(CompileNative("SELECT (SELECT ROWNUMBER() OVER w FROM b) FROM a WINDOW w AS ()", Catalog, settings), TFrontendError);
+        const auto nested = CompileNative(R"(
+            SELECT ROWNUMBER() OVER w FROM
+                (SELECT id, ROWNUMBER() OVER w AS r FROM b WINDOW w AS (ORDER BY value)) AS q
+            WINDOW w AS (ORDER BY id)
+        )", Catalog, settings);
+        UNIT_ASSERT(!nested.UsesLegacy());
+    }
+
     Y_UNIT_TEST(SortNullOrderingUsesTheBoundScope) {
         struct TCase { const char* Sql; ERelation Kind; std::vector<bool> First; };
         const TCase cases[]{
@@ -186,8 +232,8 @@ Y_UNIT_TEST_SUITE(KqpNativeBinder) {
 
     Y_UNIT_TEST(JoinScopeAndOuterNullability) {
         const auto program = Compile("SELECT a.id AS a_id, b.id AS b_id FROM a LEFT JOIN b ON a.id == b.id", Catalog);
-        UNIT_ASSERT(!program.Results[0].Columns[0].Type.Nullable);
-        UNIT_ASSERT(program.Results[0].Columns[1].Type.Nullable);
+        UNIT_ASSERT(!program.Results[0].Columns[0].Type.OptionalDepth);
+        UNIT_ASSERT(program.Results[0].Columns[1].Type.OptionalDepth);
         UNIT_ASSERT_VALUES_UNEQUAL(program.Results[0].Columns[0].Column, program.Results[0].Columns[1].Column);
         UNIT_ASSERT_EXCEPTION(Compile("SELECT id FROM a JOIN b ON a.id == b.id", Catalog), TFrontendError);
         UNIT_ASSERT_EXCEPTION(Compile("SELECT b.id FROM a LEFT SEMI JOIN b ON a.id == b.id", Catalog), TFrontendError);

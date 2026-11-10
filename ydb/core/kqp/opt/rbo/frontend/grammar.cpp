@@ -229,11 +229,11 @@ private:
     }
     TSyntaxId Parenthesis(TTree* node) {
         auto* sub = Child(node, "select_subexpr");
-        if (!sub) Unsupported(node, EFeature::Type, "empty tuple");
+        if (!sub) return Add(ESyntaxKind::Call, node, "AsTuple");
         auto* unwrapped = Unwrap(sub);
         if (Name(unwrapped) == "tuple_or_expr") {
             auto args = TupleItems(sub);
-            if (args.size() != 1 || Has(unwrapped, ",")) Unsupported(node, EFeature::Type, "tuple value");
+            if (args.size() != 1 || Has(unwrapped, ",")) return Add(ESyntaxKind::Call, node, "AsTuple", std::move(args));
             return args.front();
         }
         auto query = Select(sub);
@@ -251,9 +251,18 @@ private:
             if (Has(node, "NULL")) return Add(ESyntaxKind::Null, node);
             if (Child(node, "bool_value")) return Add(ESyntaxKind::Boolean, node, Upper(node->getText()) == "TRUE" ? "true" : "false");
             auto text = node->getText();
-            if (!text.empty() && (text[0] == '\'' || text[0] == '"' || text.starts_with("@@")))
-                return Add(ESyntaxKind::String, node, Decode(text, node));
+            if (!text.empty() && (text[0] == '\'' || text[0] == '"' || text.starts_with("@@"))) {
+                const auto suffix = Upper(text.substr(text.size() - 1));
+                if (suffix == "U" || suffix == "S") text.pop_back();
+                const auto value = Add(ESyntaxKind::String, node, Decode(text, node));
+                return suffix == "U" ? Add(ESyntaxKind::Call, node, "Utf8", {value}) : value;
+            }
             Unsupported(node, EFeature::Expression, "literal " + text);
+        }
+        if (name == "list_literal") {
+            std::vector<TSyntaxId> args;
+            if (auto* list = Child(node, "expr_list")) for (auto* item : Children(list, "expr")) args.push_back(Expr(item));
+            return Add(ESyntaxKind::Call, node, "AsList", std::move(args));
         }
         if (name == "bind_parameter") return Add(ESyntaxKind::Variable, node, Variable(node));
         if (name == "id_expr" || name == "id_expr_in") return Add(ESyntaxKind::Column, node, Id(node));
@@ -355,8 +364,10 @@ private:
                     if (auto* list = Child(lambda, "expr_list"))
                         for (auto* item : Children(list, "expr")) args.push_back(Expr(item));
                     left = Add(ESyntaxKind::In, condition, "list", std::move(args));
+                } else if (Name(lambda) != "lambda") {
+                    left = Add(ESyntaxKind::In, condition, "collection", {left, Expr(in)});
                 } else {
-                    if (Name(lambda) != "lambda" || Has(lambda, "->")) Unsupported(in, EFeature::Expression, "IN requires a literal expression list");
+                    if (Has(lambda, "->")) Unsupported(in, EFeature::Expression, "IN does not accept a lambda");
                     auto* paren = Child(lambda, "smart_parenthesis");
                     auto* sub = Child(paren, "select_subexpr");
                     if (!sub) Unsupported(in, EFeature::Expression, "empty IN list");
@@ -383,7 +394,7 @@ private:
         if (name == "expr" || name == "or_subexpr" || name == "and_subexpr" || name == "xor_subexpr" ||
             name == "eq_subexpr" || name == "neq_subexpr" || name == "bit_subexpr" ||
             name == "add_subexpr" || name == "mul_subexpr" || name == "con_subexpr" ||
-            name == "unary_subexpr" || name == "in_unary_subexpr") {
+            name == "unary_subexpr" || name == "in_unary_subexpr" || name == "in_expr") {
             if (rules.size() == 1 && node->children.size() == 1) return Expr(rules[0]);
             if (name == "eq_subexpr" && rules.size() > 2)
                 Unsupported(node, EFeature::Expression, "chained ordering comparison");
@@ -531,8 +542,13 @@ private:
         if (join) result.Joins.push_back(std::move(*join));
     }
     std::shared_ptr<TSyntaxWindow> Window(TTree* node) {
-        auto* spec = Child(node, "window_specification");
-        if (!spec) Unsupported(node, EFeature::Window, "named windows are outside the native profile");
+        auto* spec = Name(node) == "window_specification" ? node : Child(node, "window_specification");
+        if (!spec) {
+            const auto name = Id(Child(node, "window_name"));
+            const auto found = NamedWindows.find(name);
+            if (found == NamedWindows.end()) throw TFrontendError(Position(node), "unknown window: " + name);
+            return found->second;
+        }
         auto* details = Child(spec, "window_specification_details");
         if (Child(details, "existing_window_name")) Unsupported(details, EFeature::Window, "inherited window specification");
         auto result = std::make_shared<TSyntaxWindow>();
@@ -633,7 +649,23 @@ private:
         }
         if (name != "select_core") Unsupported(node, EFeature::Subquery, "select form " + std::string(name));
         if (Has(node, "STREAM") || Has(node, "WITHOUT")) Unsupported(node, EFeature::Statement, "STREAM or WITHOUT");
-        if (Child(node, "window_clause")) Unsupported(node, EFeature::Window, "WINDOW clause");
+        // Resolve each query's named specifications before its calls. Their
+        // expression IDs then precede the calls, preserving the native DAG's
+        // topological construction and normal window deduplication.
+        auto outerWindows = std::exchange(NamedWindows, {});
+        struct TRestoreWindows {
+            decltype(NamedWindows)& Current;
+            decltype(NamedWindows)& Saved;
+            ~TRestoreWindows() { Current = std::move(Saved); }
+        } restoreWindows{NamedWindows, outerWindows};
+        if (auto* clause = Child(node, "window_clause")) {
+            for (auto* definition : Children(Child(clause, "window_definition_list"), "window_definition")) {
+                const auto name = Id(Child(definition, "new_window_name"));
+                auto window = Window(Child(definition, "window_specification"));
+                if (!NamedWindows.emplace(name, std::move(window)).second)
+                    throw TFrontendError(Position(definition), "duplicate window: " + name);
+            }
+        }
         auto result = std::make_shared<TSelect>(); result->Position = Position(node);
         result->Distinct = Has(Child(node, "opt_set_quantifier"), "DISTINCT");
         for (auto* column : Children(node, "result_column")) result->Projection.push_back(Named(column));
@@ -679,7 +711,9 @@ private:
             auto* form = TypeForm(type);
             if (Name(form) == "type_name_list") {
                 auto* row = TypeForm(Child(form, "type_name_or_bind"));
-                if (Name(row) != "type_name_struct") Unsupported(row, EFeature::Type, "native table parameters require List<Struct<...>>");
+                if (Name(row) != "type_name_struct") {
+                    result.ScalarList = true; result.Value = Type(Child(form, "type_name_or_bind")); return result;
+                }
                 result.RowFields.emplace();
                 for (auto* field : Children(row, "struct_arg")) {
                     if (result.RowFields->size() >= Settings.MaxNodes) throw TResourceLimitError(Position(field), "parameter field limit exceeded");
@@ -736,6 +770,7 @@ private:
     const TPositions& Positions;
     const TParseSettings& Settings;
     TParsedQuery Result;
+    std::unordered_map<std::string, std::shared_ptr<TSyntaxWindow>> NamedWindows;
 };
 
 template<class TLexer>
@@ -832,7 +867,7 @@ std::string SyntaxFingerprint(const TParsedQuery& query) {
     };
     for (const auto& statement : query.Statements) {
         out << static_cast<int>(statement.Kind) << ':' << statement.Lambda;
-        text(statement.Name); text(statement.Value);
+        text(statement.Name); text(statement.Value); out << statement.ScalarList;
         out << bool(statement.RowFields);
         if (statement.RowFields) for (const auto& [name, type] : *statement.RowFields) { text(name); text(type); }
         for (const auto& parameter : statement.Parameters) text(parameter);

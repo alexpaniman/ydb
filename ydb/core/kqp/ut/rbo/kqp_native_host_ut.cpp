@@ -3,12 +3,14 @@
 #include <library/cpp/json/json_reader.h>
 #include <util/stream/file.h>
 #include <util/string/subst.h>
+#include <ydb/public/sdk/cpp/include/ydb-cpp-sdk/client/proto/accessor.h>
 
 #include <array>
 #include <bit>
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <numeric>
 
 namespace NKikimr::NKqp {
 namespace {
@@ -28,6 +30,7 @@ TKikimrSettings NativeSettings(TMode mode) {
 struct TResultSnapshot {
     TString Values;
     TVector<std::pair<TString, TString>> Columns;
+    TString NamedValues;
 };
 
 TResultSnapshot SnapshotRows(const TResultSet& rows) {
@@ -35,6 +38,24 @@ TResultSnapshot SnapshotRows(const TResultSet& rows) {
     for (const auto& column : rows.GetColumnsMeta()) {
         snapshot.Columns.emplace_back(column.Name, column.Type.ToString());
     }
+    // The native and legacy frontends differ in SELECT * projection order.
+    // Keep the original positional snapshot and also compare every value by
+    // column name, without changing row order or normalizing types.
+    const auto& source = TProtoAccessor::GetProto(rows);
+    auto named = source;
+    TVector<size_t> order(rows.ColumnsCount());
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        return source.columns(a).name() < source.columns(b).name();
+    });
+    named.clear_columns();
+    for (const auto column : order) *named.add_columns() = source.columns(column);
+    for (int row = 0; row < source.rows_size(); ++row) {
+        auto* values = named.mutable_rows(row);
+        values->clear_items();
+        for (const auto column : order) *values->add_items() = source.rows(row).items(column);
+    }
+    snapshot.NamedValues = FormatResultSetYson(TResultSet(std::move(named)));
     return snapshot;
 }
 
@@ -52,6 +73,14 @@ void AssertSame(const TResultSnapshot& native, const TResultSnapshot& legacy) {
         UNIT_ASSERT_VALUES_EQUAL(native.Columns[i].first, legacy.Columns[i].first);
         UNIT_ASSERT_VALUES_EQUAL(native.Columns[i].second, legacy.Columns[i].second);
     }
+}
+
+void AssertSameByName(const TResultSnapshot& native, const TResultSnapshot& legacy) {
+    auto actual = native.Columns, expected = legacy.Columns;
+    std::sort(actual.begin(), actual.end());
+    std::sort(expected.begin(), expected.end());
+    UNIT_ASSERT_VALUES_EQUAL(actual, expected);
+    UNIT_ASSERT_VALUES_EQUAL(native.NamedValues, legacy.NamedValues);
 }
 
 TResultSnapshot ConstantQuery(TMode mode) {
@@ -626,7 +655,7 @@ $round = ($x,$y) -> {return $x;};
     return snapshots;
 }
 
-TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo) {
+TVector<TResultSnapshot> TpcdsReadQueries(TMode mode, bool newRbo, bool remaining = false) {
     NKikimrConfig::TAppConfig config;
     auto* service = config.MutableTableServiceConfig();
     service->SetEnableNewRBO(newRbo);
@@ -2081,16 +2110,28 @@ $to_decimal_max_precision = ($x) -> { return cast($x as Decimal(35, 2)); };
 $round = ($x,$y) -> {return $x;};
 )";
     TVector<TResultSnapshot> snapshots;
-    for (const auto [query, expectedRows] : {std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
+    TVector<std::pair<int, int>> queries{std::pair{21, 1}, {32, 1}, {37, 3}, {40, 3}, {82, 3}, {92, 1},
             {12, 8}, {20, 8}, {98, 8}, {53, 7}, {63, 8}, {89, 6}, {51, 4}, {41, 9}, {8, 3}, {38, 1}, {87, 1}, {16, 1}, {94, 1}, {95, 1},
             {22, 26}, {27, 7}, {36, 13}, {86, 13}, {70, 13}, {62, 4}, {99, 4}, {23, 1}, {47, 3}, {57, 3}, {90, 1}, {54, 5}, {24, 3}, {66, 7}, {88, 1}, {39, 3}, {78, 5}, {28, 1}, {17, 3}, {25, 4}, {29, 4}, {42, 7}, {52, 7}, {55, 7},
-            {1, 4}, {3, 10}, {7, 5}, {15, 9}, {19, 6}, {43, 6}, {48, 1}, {13, 1}, {26, 5}, {96, 1}}) {
+            {1, 4}, {3, 10}, {7, 5}, {15, 9}, {19, 6}, {43, 6}, {48, 1}, {13, 1}, {26, 5}, {96, 1}};
+    if (remaining) {
+        queries.clear();
+        const THashMap<int, int> nonempty{{5, 1}, {14, 1}, {18, 1}, {44, 1}, {61, 1}, {65, 4},
+            {67, 58}, {76, 96}, {77, 1}, {80, 1}, {97, 1}};
+        for (int query : {2, 4, 5, 6, 9, 10, 11, 14, 18, 30, 31, 33, 34, 35, 44, 45, 46, 49, 50, 56,
+                58, 59, 60, 61, 64, 65, 67, 68, 69, 71, 72, 73, 74, 75, 76, 77, 79, 80, 81, 83, 84, 85, 91, 93, 97}) {
+            const auto& only = GetTestParam("NATIVE_TPCDS_QUERY");
+            if (only.empty() || FromString<int>(only) == query)
+                queries.emplace_back(query, nonempty.contains(query) ? nonempty.at(query) : 0);
+        }
+    }
+    for (const auto [query, expectedRows] : queries) {
         Cerr << "TPC-DS Q" << query << ", native mode " << int(mode) << ", new RBO " << newRbo << Endl;
         const auto sql = prelude + TFileInput(SRC_(TStringBuilder() << "data/yql-tpcds/q" << query << ".yql")).ReadAll();
         const auto result = kikimr.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
         UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
         UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
-        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), query == 23 || query == 39 ? 2 : 1);
+        UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), query == 14 || query == 23 || query == 39 ? 2 : 1);
         UNIT_ASSERT_VALUES_EQUAL_C(result.GetResultSet(0).RowsCount(), expectedRows, SnapshotRows(result.GetResultSet(0)).Values);
         TResultSetParser values(result.GetResultSet(0));
         auto assertDecimal = [&](const char* column, const std::optional<std::string>& expected) {
@@ -2722,7 +2763,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         };
         TVector<TResultSnapshot> reference;
         std::string parameterType;
-        for (unsigned strategy = 0; strategy < 3; ++strategy) {
+        for (const unsigned strategy : {0u, 2u}) {
             NKikimrConfig::TAppConfig app;
             auto* config = app.MutableTableServiceConfig();
             config->SetEnableNewRBO(strategy != 0);
@@ -2769,17 +2810,13 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             for (const bool empty : {false, true}) {
                 const TString sql = "DECLARE $p AS List<Struct<`z.z`:Int32?,a:Int32>>; SELECT * FROM AS_TABLE($p) ORDER BY a";
                 const auto result = session.ExecuteQuery(sql, NQuery::TTxControl::NoTx(), parameters(empty, false, true)).GetValueSync();
-                if (strategy == 1) {
-                    UNIT_ASSERT(!result.IsSuccess());
-                    UNIT_ASSERT_STRING_CONTAINS(result.GetIssues().ToString(), "Member not found: _yql_source_0.z.z");
-                    session = kikimr.GetQueryClient().GetSession().GetValueSync().GetSession();
-                } else {
+
                     UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
                     const auto actual = SnapshotRows(result.GetResultSet(0));
                     UNIT_ASSERT_VALUES_EQUAL(actual.Values, empty ? "[]" : "[[1;[10]];[2;#];[3;[30]]]");
                     UNIT_ASSERT_VALUES_EQUAL(actual.Columns, (TVector<std::pair<TString, TString>>{{"a", "Int32"}, {"z.z", "Int32?"}}));
                     UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
-                }
+
             }
             auto tableSession = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
             const auto prepared = tableSession.PrepareDataQuery(declaration + queries[0]).GetValueSync();
@@ -2824,7 +2861,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
             {R"({"a":{"b":[1,2]}})", "$.a.b[1]", "2"}, {"[1,2]", "$[0]", "1"},
             {"[]", "$[4294967295]", std::nullopt}};
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {0, 1, 2}) {
+        for (const int strategy : {0, 2}) {
             auto settings = NativeSettings(strategy == 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED :
                 NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
             settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(strategy != 0);
@@ -2919,7 +2956,7 @@ Y_UNIT_TEST_SUITE(KqpNativeHost) {
         const auto iterations = FromString<ui32>(requested);
         UNIT_ASSERT(iterations > 0 && iterations <= 100);
         std::array<std::unique_ptr<TKikimrRunner>, 3> runners;
-        const char* modes[]{"legacy", "yql-rbo", "native-rbo"};
+        const char* modes[]{"legacy", "native-auto", "native-required"};
         for (size_t mode = 0; mode < runners.size(); ++mode) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
@@ -3042,7 +3079,7 @@ $round = ($x,$y) -> {return $x;};
             {"key = 1 AND tag != 8", {7, 6}, true, "ORDER BY suffix DESC LIMIT 2"},
         };
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3193,7 +3230,7 @@ $round = ($x,$y) -> {return $x;};
     Y_UNIT_TEST(PlannerPragmasPreserveIndexChoiceAndSessionDefaults) {
         const TString select = "SELECT id, payload FROM `/Root/NativeOptions` WHERE g = 2 ORDER BY id";
         TVector<TResultSnapshot> reference;
-        for (int strategy : {0, 1, 2}) {
+        for (int strategy : {0, 2}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3225,19 +3262,7 @@ $round = ($x,$y) -> {return $x;};
                 // compile again instead of reusing an earlier default-settings plan.
                 const TString sql = TStringBuilder() << "-- option case " << snapshot << '\n' << header << select << ';' << tail;
                 Cerr << "Planner pragma strategy " << strategy << ": " << sql << Endl;
-                if (strategy == 1 && header.Contains("OptFallbackToLegacyOptimizer")) {
-                    // The existing YQL-to-RBO transformer checks presence of the
-                    // optional setting, so even false forces a fallback there.
-                    // Its fatal error closes the session; isolate this baseline
-                    // failure from the session used to check settings reset.
-                    auto failedSession = client.CreateSession().GetValueSync().GetSession();
-                    const auto failed = failedSession.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
-                    UNIT_ASSERT(!failed.IsSuccess());
-                    UNIT_ASSERT_C(failed.GetIssues().ToString().find("Forced fallback to legacy optimizer") != std::string::npos,
-                        failed.GetIssues().ToString());
-                    ++snapshot;
-                    return;
-                }
+
                 const auto result = session.ExecuteDataQuery(sql, TTxControl::BeginTx().CommitTx()).GetValueSync();
                 const auto actual = Snapshot(result);
                 UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[1;[\"row1\"]];[2;[\"row2\"]]]");
@@ -3334,13 +3359,13 @@ $round = ($x,$y) -> {return $x;};
             {"x = 2 AND id > 3", {6, 7, 9, 10, 11, 13, 14}, "ByX"},
             {"2 = g AND 5 > x AND x >= 0", {1, 3, 4, 10, 11, 13, 14}, "AGroup"},
             {"g = 2", {1, 12, 2}, "GroupOrder", "ORDER BY id LIMIT 3", "AGroup"},
-            {"g = 2", {11, 10, 14}, "GroupOrder", "ORDER BY id DESC LIMIT 3", "AGroup"},
+            {"g = 2", {11, 10, 14}, "AGroup", "ORDER BY id DESC LIMIT 3"},
             {"g = 2 AND x > 0", {11, 10}, "AGroup", "ORDER BY id DESC LIMIT 2"},
             {"id >= 2 AND id <= 4 AND g = 2", {3, 4, 5}, "GroupOrder"},
             {"g = 2 AND x >= 5 AND x < 0", {}, "AGroup"},
             {"g = 2 AND x = 2 AND id > 3", {10, 11, 13, 14}, "AGroup"}};
         TVector<TResultSnapshot> reference;
-        for (int strategy : {0, 1, 2}) {
+        for (int strategy : {0, 2}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3486,7 +3511,7 @@ $round = ($x,$y) -> {return $x;};
             {"key = 1 AND v IS NOT NULL", {7, 6}, true, "ORDER BY suffix DESC LIMIT 2"},
         };
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3603,7 +3628,7 @@ $round = ($x,$y) -> {return $x;};
                 COALESCE($b,Decimal('0',7,2)) AS c6, COALESCE($c,Unwrap(CAST(NULL AS Decimal(35,2)))) AS c7
         )";
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3646,7 +3671,7 @@ $round = ($x,$y) -> {return $x;};
     }
 
     Y_UNIT_TEST_TWIN(SampleStandardDeviationMatchesExistingCompilers, ColumnStore) {
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3750,7 +3775,7 @@ $round = ($x,$y) -> {return $x;};
         const TString sql = "DECLARE $x AS Double; DECLARE $o AS Double?; DECLARE $f AS Float?; DECLARE $i AS Int64; DECLARE $u AS Uint64; "
             "SELECT Math::IsNaN($x), Math::IsNaN($o), Math::IsNaN($f), Math::IsNaN($i), Math::IsNaN($u), Math::IsNaN(CAST(NULL AS Double))";
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3791,7 +3816,7 @@ $round = ($x,$y) -> {return $x;};
             "a.x = b.x OR (a.x = b.x AND a.y = 1)",
             "(a.x = b.x AND a.id > 1 AND a.y = 1) OR (a.x = b.x AND a.id > 1 AND b.y = 2)"}};
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {0, 1, 2}) {
+        for (const int strategy : {0, 2}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3901,7 +3926,7 @@ $round = ($x,$y) -> {return $x;};
             UNIT_ASSERT_C(positive, predicates[test]);
         }
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -3962,14 +3987,7 @@ $round = ($x,$y) -> {return $x;};
                             sql << ": " << result.GetIssues().ToString());
                         continue;
                     }
-                    if (strategy == 1 && (leftOnly || rightOnly)) {
-                        // The unchanged YqlSelect translator rejects these
-                        // forms, as in JoinStarsPreserveValuesNamesAndNullability.
-                        UNIT_ASSERT(!result.IsSuccess());
-                        UNIT_ASSERT_C(result.GetIssues().ToString().find("YqlSelect unsupported: (ONLY | SEMI)") != std::string::npos,
-                            sql << ": " << result.GetIssues().ToString());
-                        continue;
-                    }
+
                     UNIT_ASSERT_C(result.IsSuccess(), sql << ": " << result.GetIssues().ToString());
                     UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
                     UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
@@ -4023,7 +4041,7 @@ $round = ($x,$y) -> {return $x;};
             {"LEFT ONLY", {{2, {}}, {3, {}}}}, {"RIGHT ONLY", {{{}, 12}, {{}, 13}}},
             {"CROSS", {}}};
         for (const auto& left : leftRows) for (const auto& right : rightRows) cases.back().second.emplace_back(left.Id, right.Id);
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4063,16 +4081,7 @@ $round = ($x,$y) -> {return $x;};
                         << (onlyLeft ? "aid" : onlyRight ? "bid" : "COALESCE(aid,99),COALESCE(bid,99)");
                     Cerr << "join star strategy " << strategy << ": " << sql << Endl;
                     const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
-                    if (strategy == 1 && (onlyLeft || onlyRight || TStringBuf(projection) != "*")) {
-                        // Preserve the old YqlSelect translator's explicit
-                        // rejection of qualified stars and SEMI/ONLY syntax.
-                        UNIT_ASSERT(!result.IsSuccess());
-                        const auto* diagnostic = TStringBuf(projection) == "*" ?
-                            "YqlSelect unsupported: (ONLY | SEMI)" : "YqlSelect unsupported: an_id DOT ASTERISK";
-                        UNIT_ASSERT_C(result.GetIssues().ToString().find(diagnostic) != std::string::npos,
-                            result.GetIssues().ToString());
-                        continue;
-                    }
+
                     UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
                     UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
                     UNIT_ASSERT_VALUES_EQUAL(result.GetResultSets().size(), 1);
@@ -4114,7 +4123,7 @@ $round = ($x,$y) -> {return $x;};
 
     Y_UNIT_TEST_TWIN(WindowSubqueriesMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4161,13 +4170,7 @@ $round = ($x,$y) -> {return $x;};
                     NQuery::TTxControl::NoTx()).GetValueSync();
                 // The old RBO path does not inline projected EXISTS; the
                 // existing non-window EXISTS matrix pins the same failure.
-                if (strategy == 1 && index >= 8 && index <= 10) {
-                    UNIT_ASSERT_C(!result.IsSuccess(), sql);
-                    UNIT_ASSERT_C(result.GetIssues().ToString().find("column not found") != std::string::npos,
-                        sql << "\n" << result.GetIssues().ToString());
-                    ++index;
-                    continue;
-                }
+
                 UNIT_ASSERT_C(result.IsSuccess(), sql << "\n" << result.GetIssues().ToString());
                 UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
                 const auto actual = SnapshotRows(result.GetResultSet(0));
@@ -4181,7 +4184,7 @@ $round = ($x,$y) -> {return $x;};
 
     Y_UNIT_TEST_TWIN(GroupingSetsMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4250,14 +4253,7 @@ $round = ($x,$y) -> {return $x;};
                     case 14: failure = "IsGroupByColumn(): requirement !GroupingCols_.empty() failed"; break;
                     case 18: failure = "Duplicate grouping column: k"; break;
                 }
-                if (strategy == 1) switch (caseIndex) {
-                    case 4: case 5: failure = "Unsupported grouping sets. Only rollup is supported."; break;
-                    case 10: case 23: failure = "Invalid number of filters for HAVING."; break;
-                    case 14: failure = "IsGroupByColumn(): requirement !GroupingCols_.empty() failed"; break;
-                    case 15: failure = "Translate(): requirement !\"Unexpected usage\" failed"; break;
-                    case 16: failure = "GROUPING SETS with nested ROLLUP/CUBE/GROUPING SETS"; break;
-                    case 17: failure = "GROUP BY aliases"; break;
-                }
+
                 if (failure) {
                     UNIT_ASSERT_C(!result.IsSuccess(), sql);
                     UNIT_ASSERT_C(result.GetIssues().ToString().find(failure) != std::string::npos, sql << "\n" << result.GetIssues().ToString());
@@ -4287,14 +4283,7 @@ $round = ($x,$y) -> {return $x;};
                             "[#;#;1u;2u];[[1];#;1u;3u];[[2];#;1u;2u];[[3];#;1u;1u];[#;#;3u;8u]]";
                     }
                     if (strategy == 0 && caseIndex == 19) expected.Values = empty ? "[[0u;#]]" : "[[8u;[16]]]";
-                    if (strategy == 1 && caseIndex == 9) {
-                        // Existing RBO expands DISTINCT before ROLLUP: the
-                        // grand total counts values repeated in different groups,
-                        // and required SUM incorrectly remains required on empty input.
-                        expected.Values = empty ? "[[#;1u;0u;0;#]]" :
-                            "[[#;0u;2u;12;[2]];[[1];0u;1u;3;[2]];[[2];0u;0u;0;#];[[3];0u;1u;1;[2]];[#;1u;4u;16;[6]]]";
-                        expected.Columns.at(3).second = "Int64";
-                    }
+
                     AssertSame(actual, expected);
                 }
                 ++index;
@@ -4304,7 +4293,7 @@ $round = ($x,$y) -> {return $x;};
 
     Y_UNIT_TEST_TWIN(MixedDistinctAggregatesMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4354,13 +4343,7 @@ $round = ($x,$y) -> {return $x;};
                             << " FROM `/Root/MixedDistinct`" << filter << (grouped ? " GROUP BY k ORDER BY k" : "");
                         Cerr << "mixed DISTINCT strategy " << strategy << ": " << sql << Endl;
                         const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
-                        if (strategy == 1 && TStringBuf(projection).Contains("DISTINCT v + 1")) {
-                            UNIT_ASSERT(!result.IsSuccess());
-                            UNIT_ASSERT_C(result.GetIssues().ToString().find("Nested distinct on expression is not supported") != std::string::npos,
-                                result.GetIssues().ToString());
-                            ++index;
-                            continue;
-                        }
+
                         UNIT_ASSERT_C(result.IsSuccess(), sql << "\n" << result.GetIssues().ToString());
                         UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
                         const auto actual = SnapshotRows(result.GetResultSet(0));
@@ -4377,7 +4360,7 @@ $round = ($x,$y) -> {return $x;};
 
     Y_UNIT_TEST_TWIN(DistinctAverageKeepsOriginalIntegerKeysAcrossPartitions, ColumnStore) {
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4492,7 +4475,7 @@ $round = ($x,$y) -> {return $x;};
         queries[41].second = "[[#];[#];[[1]];[[1]];[[1]];[[2]];[[4]]]";
         TVector<TResultSnapshot> reference;
         TString failures;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4540,16 +4523,7 @@ $round = ($x,$y) -> {return $x;};
                 // execute every independent case and match the working path.
                 TString oldError;
                 if (strategy == 0 && sql.Contains("b.v = a.v")) oldError = "Member not found: a";
-                if (strategy == 1) {
-                    if (sql.Contains("INTERSECT ALL") || sql.Contains("EXCEPT ALL")) oldError = "Unsupported set operation";
-                    else if (index == 21) oldError = "opsInputCount <= 2";
-                    else if (index == 24 || index == 25 || index == 26 || index == 29) oldError = "No such column:";
-                    else if (index == 27 || index == 28) oldError = "Member not found: a";
-                    else if (index == 48 || index == 49) oldError = "Member not found: q.a";
-                    else if (index == 30 || index == 31 || index == 33) oldError = "Expected data or optional of data";
-                    else if (index == 50) oldError = "Expected data type, but got: Null";
-                    else if (index == 39) oldError = "YqlSelect unsupported: ORDER BY within UNION/EXCEPT/INTERSECT component";
-                }
+
                 if (!oldError.empty()) {
                     UNIT_ASSERT_C(!result.IsSuccess(), context);
                     UNIT_ASSERT_C(result.GetIssues().ToString().find(oldError.c_str()) != std::string::npos,
@@ -4598,7 +4572,7 @@ $round = ($x,$y) -> {return $x;};
             const bool push = strategy == 1 || strategy == 3;
             auto settings = NativeSettings(strategy >= 2 ? NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY :
                 NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
-            settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+            settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(strategy < 2);
             settings.AppConfig.MutableTableServiceConfig()->SetEnableOlapScalarApply(false);
             settings.AppConfig.MutableTableServiceConfig()->SetAllowOlapDataQuery(true);
             NKikimrKqp::TKqpSetting setting;
@@ -4738,7 +4712,7 @@ $round = ($x,$y) -> {return $x;};
 
     Y_UNIT_TEST_TWIN(MixedIntegerJoinsMatchLegacyOnPopulatedTables, ColumnStore) {
         TVector<TResultSnapshot> expected;
-        for (const int strategy : {0, 1, 2}) {
+        for (const int strategy : {0, 2}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4785,16 +4759,7 @@ $round = ($x,$y) -> {return $x;};
                         << " JOIN `/Root/UnsignedKeys` AS b ON " << (reverse ? "b.k = a.k" : "a.k = b.k") << " ORDER BY "
                         << (TString(kind).Contains("RIGHT ") ? "r" : TString(kind).Contains("LEFT ") ? "l" : "l,r");
                     const auto result = runner.GetQueryClient().ExecuteQuery(sql, NQuery::TTxControl::NoTx()).GetValueSync();
-                    if (strategy == 1 && (TString(kind).Contains("SEMI") || TString(kind).Contains("ONLY"))) {
-                        // The existing YqlSelect translator rejects explicit
-                        // SEMI/ONLY syntax. Native still executes the original
-                        // query and matches the legacy optimizer below.
-                        UNIT_ASSERT(!result.IsSuccess());
-                        UNIT_ASSERT_C(result.GetIssues().ToString().find("YqlSelect unsupported: (ONLY | SEMI)") != std::string::npos,
-                            result.GetIssues().ToString());
-                        ++index;
-                        continue;
-                    }
+
                     UNIT_ASSERT_C(result.IsSuccess(), TStringBuilder() << "strategy=" << strategy << " " << sql << ": " << result.GetIssues().ToString());
                     UNIT_ASSERT_C(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, result.GetIssues().ToString());
                     const auto actual = SnapshotRows(result.GetResultSet(0));
@@ -4828,7 +4793,7 @@ $round = ($x,$y) -> {return $x;};
                 "CAST($s AS Float) + CAST($u AS Double)", "IF($s < 0, Float('inf'), $u)",
                 "COALESCE(CAST($s AS Float), $u)", "CAST($s AS Float) < $u"}) append(expression);
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4877,7 +4842,7 @@ $round = ($x,$y) -> {return $x;};
 
     Y_UNIT_TEST_TWIN(FullJoinResidualsAreRejectedOrDelegated, ColumnStore) {
         std::optional<TResultSnapshot> legacy;
-        for (const int strategy : {0, 1, 2, 3}) {
+        for (const int strategy : {0, 2, 3}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -4919,11 +4884,7 @@ $round = ($x,$y) -> {return $x;};
             }
             UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
             const auto actual = SnapshotRows(result.GetResultSet(0));
-            if (strategy == 1) {
-                // Pin the pre-existing RBO backend defect: it ignores the
-                // residual condition. Do not change that backend in this work.
-                UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;[5]];[[1];[3]];[[1];[4]];[[2];#]]");
-            } else {
+
                 UNIT_ASSERT_VALUES_EQUAL(actual.Values, "[[#;[3]];[#;[5]];[[1];[4]];[[2];#]]");
                 if (strategy == 0) legacy = actual;
                 else {
@@ -4937,7 +4898,7 @@ $round = ($x,$y) -> {return $x;};
                     UNIT_ASSERT_VALUES_EQUAL(SnapshotRows(next.GetResultSet(0)).Values, "[[#;[5]];[[1];[3]];[[1];[4]];[[2];#]]");
                     UNIT_ASSERT_C(next.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos, next.GetIssues().ToString());
                 }
-            }
+
         }
     }
 
@@ -4979,7 +4940,7 @@ $round = ($x,$y) -> {return $x;};
         queries.emplace_back("$q = (SELECT k, SUM(1) OVER(ORDER BY k) AS n FROM `/Root/WindowRows`); PRAGMA DisableAnsiCurrentRow; SELECT k, n FROM $q ORDER BY k, n", 12);
         TVector<std::optional<TResultSnapshot>> reference(queries.size());
         std::optional<TResultSnapshot> apiReference[2];
-        for (const bool windowV2 : {false, true}) for (const int strategy : {0, 1, 2}) {
+        for (const bool windowV2 : {false, true}) for (const int strategy : {0, 2}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -5121,7 +5082,7 @@ $round = ($x,$y) -> {return $x;};
             {"CAST(a.id AS String) IN ['1','3','1',]", {true, false, true, false, false, false}, {}},
         };
         TVector<std::optional<TResultSnapshot>> reference(cases.size() * 8);
-        for (const int strategy : {0, 2, 1}) {
+        for (const int strategy : {0, 2}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -5166,16 +5127,7 @@ $round = ($x,$y) -> {return $x;};
                         if (index == 4) expectedError = "Member not found: _yql_join_sublink_0__alias_a.value";
                         if (index == 7) expectedError = "Expected persistable data, but got: Unit";
                         if (index == 10) expectedError = "Only SqlIn for any/all is supported on YqlSelect";
-                    } else if (strategy == 1 && index < 13) {
-                        if (index == 7) expectedError = "Expected persistable data, but got: Unit";
-                        else if (projection && index == 0) expectedError = "column not found";
-                        else if (projection && index != 11 && index != 12 && !(index == 10 && !ansi))
-                            expectedError = "Rewrite error, type should be";
-                        else if (index == 5 || index == 6 || index == 9 || index == 10 || index == 12)
-                            expectedError = "Only a single column reference in the IN clause is supported";
                     }
-                    if (strategy == 1 && !projection && TStringBuf(test.Expression) == "a.value NOT IN []")
-                        expectedError = "Unexpected IN collection type: EmptyList";
                     auto inspect = [&](const auto& result) {
                         if (expectedError) {
                             UNIT_ASSERT_C(!result.IsSuccess(), context);
@@ -5194,7 +5146,7 @@ $round = ($x,$y) -> {return $x;};
                         // in the old filter rewrites: the old optimizer keeps NULL
                         // lookups, and old RBO uses ANSI NULL-item semantics.
                         const bool legacyNotInBoundary = !projection && !ansi && index == 2;
-                        if (legacyNotInBoundary && strategy != 2) ids = strategy == 0 ? TVector<ui64>{2, 3, 5, 6} : TVector<ui64>{};
+                        if (legacyNotInBoundary && strategy == 0) ids = TVector<ui64>{2, 3, 5, 6};
                         UNIT_ASSERT_VALUES_EQUAL_C(resultSet.RowsCount(), ids.size(), context);
                         {
                             TResultSetParser parser(resultSet);
@@ -5245,7 +5197,7 @@ $round = ($x,$y) -> {return $x;};
             {"SELECT a.id FROM `/Root/ExistsRows` AS a WHERE EXISTS(SELECT id FROM `/Root/ExistsRows` WHERE id = 99ul UNION ALL SELECT id FROM `/Root/ExistsRows` WHERE id = 1ul) ORDER BY a.id", {1, 2, 3, 4, 5, 6}},
         };
         TVector<std::optional<TResultSnapshot>> reference(cases.size());
-        for (const int strategy : {1, 2, 0}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -5276,13 +5228,7 @@ $round = ($x,$y) -> {return $x;};
                     TTxControl::BeginTx().CommitTx()).GetValueSync();
                 // Original new RBO does not inline projected EXISTS calls. Preserve
                 // these baseline failures; only the native Map path is enabled here.
-                if (strategy == 1 && index >= 6 && index <= 8) {
-                    UNIT_ASSERT(!result.IsSuccess());
-                    UNIT_ASSERT_C(result.GetIssues().ToString().find(index == 6 ? "Unknown operator encountered: AddDependencies" : "column not found") != std::string::npos,
-                        result.GetIssues().ToString());
-                    session = client.CreateSession().GetValueSync().GetSession();
-                    continue;
-                }
+
                 const auto actual = Snapshot(result);
                 UNIT_ASSERT_VALUES_EQUAL(result.GetResultSet(0).RowsCount(), test.Ids.size());
                 TResultSetParser parser(result.GetResultSet(0));
@@ -5307,7 +5253,7 @@ $round = ($x,$y) -> {return $x;};
     Y_UNIT_TEST_TWIN(CorrelatedScalarSubqueriesMatchLegacyOnPopulatedTables, EqualNullsJoinKeys) {
         TVector<std::optional<TResultSnapshot>> reference;
         TString failures;
-        for (const int strategy : {1, 2, 0}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -5350,7 +5296,7 @@ $round = ($x,$y) -> {return $x;};
                 Cerr << "Correlated scalar strategy=" << strategy << ", case=" << index << ": " << sql << Endl;
                 const auto result = session.ExecuteDataQuery(TString("PRAGMA YqlSelect='force'; ") + sql,
                     TTxControl::BeginTx().CommitTx()).GetValueSync();
-                if (strategy == 1) reference.emplace_back();
+                if (strategy == 2) reference.emplace_back();
                 // The existing SQL frontend cannot resolve this grandparent
                 // reference through a SELECT without FROM. Its failure is not
                 // a native execution reference; the result is checked below.
@@ -5401,7 +5347,7 @@ $round = ($x,$y) -> {return $x;};
                         }
                     }
                 }
-                if (strategy == 1) reference[index] = actual;
+                if (strategy == 2) reference[index] = actual;
                 else if (reference.at(index)) {
                     if (strategy == 0 && (index == 3 || index == 4 || index == 10)) UNIT_ASSERT(actual.Columns == reference[index]->Columns);
                     else AssertSame(actual, *reference[index]);
@@ -5433,7 +5379,7 @@ $round = ($x,$y) -> {return $x;};
             std::optional<i64> Total;
         };
         TVector<std::optional<TResultSnapshot>> reference;
-        for (const int strategy : {1, 0, 2}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -5475,7 +5421,7 @@ $round = ($x,$y) -> {return $x;};
                 const TString query = TString("PRAGMA YqlSelect='force'; ") + test.Sql;
                 Cerr << "Scalar subquery strategy=" << strategy << ": " << test.Sql << Endl;
                 const auto result = session.ExecuteDataQuery(query, TTxControl::BeginTx().CommitTx()).GetValueSync();
-                if (strategy == 1) reference.emplace_back();
+                if (strategy == 2) reference.emplace_back();
                 if (const auto* error = test.Errors[strategy]) {
                     UNIT_ASSERT_C(!result.IsSuccess(), test.Sql);
                     UNIT_ASSERT_C(result.GetIssues().ToString().find(error) != std::string::npos, result.GetIssues().ToString());
@@ -5497,7 +5443,7 @@ $round = ($x,$y) -> {return $x;};
                     UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("first_value").GetOptionalUint64().value(), 1);
                     UNIT_ASSERT_VALUES_EQUAL(values.ColumnParser("last_value").GetOptionalUint64().value(), 3);
                 }
-                if (strategy == 1) reference[index] = actual;
+                if (strategy == 2) reference[index] = actual;
                 else {
                     UNIT_ASSERT(reference.at(index));
                     AssertSame(actual, *reference.at(index));
@@ -5545,6 +5491,8 @@ $round = ($x,$y) -> {return $x;};
             "$q = SELECT 1 AS x; $saved = SELECT x FROM $q; $q = SELECT 2 AS x; SELECT x FROM $saved",
             "$x = 1; $x = $x + 1; SELECT $x",
             "SELECT 1 = NULL, NULL = NULL, NULL IN (1, NULL)",
+            "SELECT (1, 2) = (1, 2), (1, 2) != (1, 3), (1, 3) < (2, 0), (1, 3) >= (1, 3)",
+            "SELECT (1, NULL) < (2, NULL), (1, NULL) = (2, NULL), (1, NULL) = (1, NULL), (NULL, 1) > (NULL, 0)",
             "SELECT SUM(x) AS total, COUNT(*) AS n FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q",
             "SELECT a.x, b.x AS matched FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) AS a LEFT JOIN (SELECT 1 AS x) AS b ON a.x = b.x ORDER BY a.x",
             "SELECT DISTINCT x FROM (SELECT 1 AS x UNION ALL SELECT 1 AS x UNION ALL SELECT 2 AS x) AS q ORDER BY x",
@@ -5572,6 +5520,7 @@ $round = ($x,$y) -> {return $x;};
             "SELECT -128t, -2147483648, -9223372036854775808, -1u",
             "SELECT 7 / 2, 7 % 2, 1 / 0, 1 % 0",
             "SELECT 7.0 / 2.0, 1.0 / 0.0, 0.0 / 0.0, -1.0 / 0.0, 1.0 / Double('-0')",
+            "SELECT -5.5 % 2.0, Float('-5.5') % Float('2'), 1.0 % 0.0, Double('inf') % 2.0, 1.0 % Double('inf')",
             "SELECT Float('1') / Float('0'), Float('0') / Float('0'), IF(false, 1.0) / 2.0",
             "SELECT CAST(42 AS Double), CAST(42 AS Float), CAST(1.5 AS Float), CAST(Float('1.5') AS Double)",
             "SELECT CAST(9223372586610589697ul AS Float), CAST(4611686293305294849L AS Float)",
@@ -5609,7 +5558,7 @@ $round = ($x,$y) -> {return $x;};
 
     Y_UNIT_TEST(RuntimeUnwrapMatchesLegacyIncludingLazyMessages) {
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -5793,7 +5742,7 @@ $round = ($x,$y) -> {return $x;};
                 Unicode::ToUpper('école'), Unicode::ToLower(Utf8('Σ')), Unicode::ToUpper(NULL)
         )";
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -5845,7 +5794,7 @@ $round = ($x,$y) -> {return $x;};
                 int('12'), Integer('12'), BIGINT('12'), varchar('abc')
         )";
         TVector<TResultSnapshot> reference;
-        for (const int strategy : {2, 0, 1}) {
+        for (const int strategy : {2, 0}) {
             NKikimrConfig::TAppConfig config;
             auto* service = config.MutableTableServiceConfig();
             service->SetEnableNewRBO(strategy != 0);
@@ -5906,23 +5855,34 @@ $round = ($x,$y) -> {return $x;};
 
     Y_UNIT_TEST(TpcdsReadQueriesMatchLegacyOnPopulatedColumnTables) {
         const auto legacy = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, false);
-        const auto rbo = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, true);
+        const auto automatic = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, true);
         const auto native = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED, true);
-        UNIT_ASSERT_VALUES_EQUAL(rbo.size(), legacy.size());
+        UNIT_ASSERT_VALUES_EQUAL(automatic.size(), legacy.size());
         UNIT_ASSERT_VALUES_EQUAL(native.size(), legacy.size());
         for (std::size_t i = 0; i < legacy.size(); ++i) {
-            AssertSame(native[i], rbo[i]);
-            // The SELECT * queries already have different output order in the
-            // two existing compilers. The fixture pins both orders and every
-            // value by name; also compare all named types. Native must preserve
-            // the existing RBO order exactly.
+            AssertSame(native[i], automatic[i]);
+            // The native and legacy frontends can order star columns differently.
+            // Compare every value and type by name for those projections.
             if (i != 0 && (i < 9 || i >= 13) && i != 29 && i != 30 && i != 35 && i != 39) AssertSame(native[i], legacy[i]);
             else {
-                auto actual = native[i].Columns, expected = legacy[i].Columns;
-                std::sort(actual.begin(), actual.end());
-                std::sort(expected.begin(), expected.end());
-                UNIT_ASSERT_VALUES_EQUAL(actual, expected);
+                AssertSameByName(native[i], legacy[i]);
             }
+        }
+    }
+
+    Y_UNIT_TEST(RemainingTpcdsReadQueriesMatchBothCompilers) {
+        // Execute every remaining original benchmark query, including the
+        // deliberately contradictory sale_type predicates in Q4. Empty and
+        // NULL-only outputs here still need stronger data fixtures; they are
+        // not counted as the populated-result parity proof above.
+        const auto native = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED, true, true);
+        const auto automatic = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, true, true);
+        const auto legacy = TpcdsReadQueries(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY, false, true);
+        UNIT_ASSERT_VALUES_EQUAL(native.size(), automatic.size());
+        UNIT_ASSERT_VALUES_EQUAL(native.size(), legacy.size());
+        for (size_t i = 0; i < native.size(); ++i) {
+            AssertSame(native[i], automatic[i]);
+            AssertSameByName(native[i], legacy[i]);
         }
     }
 
@@ -5980,8 +5940,12 @@ $round = ($x,$y) -> {return $x;};
             TableQuery(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY));
     }
 
-    Y_UNIT_TEST(AutoModeReportsUnsupportedFallback) {
-        TKikimrRunner kikimr(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_AUTO));
+    Y_UNIT_TEST_TWIN(AutoModeReportsUnsupportedFallback, DefaultMode) {
+        auto settings = NativeSettings(DefaultMode ? NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY : NKikimrConfig::TTableServiceConfig::NATIVE_AUTO);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableAstCache(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(true);
+        TKikimrRunner kikimr(settings);
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
         const auto result = session.ExecuteDataQuery("SELECT ListLength([1, 2]) AS n",
             TTxControl::BeginTx().CommitTx()).GetValueSync();
@@ -5991,6 +5955,22 @@ $round = ($x,$y) -> {return $x;};
         const auto next = session.ExecuteDataQuery("SELECT 3 AS n",
             TTxControl::BeginTx().CommitTx()).GetValueSync();
         UNIT_ASSERT_VALUES_EQUAL(Snapshot(next).Values, "[[3]]");
+    }
+
+    Y_UNIT_TEST(DefaultNewRboEntryBypassesTheYqlAstCache) {
+        auto settings = NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableAstCache(true);
+        TKikimrRunner kikimr(settings);
+        for (int round = 0; round < 2; ++round) {
+            const auto result = kikimr.GetQueryClient().ExecuteQuery("SELECT q.* FROM (SELECT 1 AS value) AS q",
+                NQuery::TTxControl::NoTx(), NQuery::TExecuteQuerySettings().ExecMode(NQuery::EExecMode::Explain)).GetValueSync();
+            UNIT_ASSERT_C(result.IsSuccess(), result.GetIssues().ToString());
+            UNIT_ASSERT(result.GetStats() && result.GetStats()->GetAst());
+            UNIT_ASSERT_C(result.GetStats()->GetAst()->find("native frontend: native-read-v1") != std::string::npos,
+                *result.GetStats()->GetAst());
+            UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+        }
     }
 
     Y_UNIT_TEST(RequiredModeRejectsUnsupportedWithoutFallback) {
@@ -6003,8 +5983,12 @@ $round = ($x,$y) -> {return $x;};
         }
     }
 
-    Y_UNIT_TEST(AutoModeDoesNotFallbackForInvalidQueries) {
-        TKikimrRunner kikimr(NativeSettings(NKikimrConfig::TTableServiceConfig::NATIVE_AUTO));
+    Y_UNIT_TEST_TWIN(AutoModeDoesNotFallbackForInvalidQueries, DefaultMode) {
+        auto settings = NativeSettings(DefaultMode ? NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY : NKikimrConfig::TTableServiceConfig::NATIVE_AUTO);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableAstCache(true);
+        settings.AppConfig.MutableTableServiceConfig()->SetEnableFallbackToYqlOptimizer(true);
+        TKikimrRunner kikimr(settings);
         auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
         for (const auto* sql : {"SELECT missing_column", "SELECT FROM", "SELECT NOT NOT true", "SELECT * AS x FROM t",
                                "$unused = *; SELECT 1"}) {

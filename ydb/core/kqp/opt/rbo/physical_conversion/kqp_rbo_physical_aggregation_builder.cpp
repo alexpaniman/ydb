@@ -1,3 +1,4 @@
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include "kqp_rbo_physical_aggregation_builder.h"
 #include "kqp_rbo_physical_convertion_utils.h"
 
@@ -1242,8 +1243,8 @@ void TPhysicalAggregationBuilder::BuildPhysicalAggregationTraits(const TVector<T
         const auto& aggregationTraits = *aggregationTraitsList.Find(output);
         const TString originalColName = Names.Get(aggregationTraits.Input);
         const TString resultColName = Names.Get(output);
-        const TTypeAnnotationNode* inputItemType = Aggregate.GetInput()->GetIUType(aggregationTraits.Input, Ctx);
-        const TTypeAnnotationNode* outputItemType = Aggregate.GetIUType(output, Ctx);
+        const TTypeAnnotationNode* inputItemType = ExportIUType(*Aggregate.GetInput(), aggregationTraits.Input, Ctx);
+        const TTypeAnnotationNode* outputItemType = ExportIUType(Aggregate, output, Ctx);
         Y_ENSURE(inputItemType && outputItemType, "Cannot find type for item");
         aggColumns[originalColName].push_back(
             std::make_tuple(aggregationTraits.AggFunction, resultColName, inputItemType, outputItemType, aggregationTraits.Unwrap));
@@ -1477,7 +1478,7 @@ THashMap<TString, const TTypeAnnotationNode*> TPhysicalAggregationBuilder::GetIn
             }
             const auto& partial = CastOperator<TOpAggregate>(*branch);
             if (const auto* traits = partial.GetAggregationTraits().Find(id)) {
-                const auto* type = partial.GetInput()->GetIUType(traits->Input, Ctx);
+                const auto* type = ExportIUType(*partial.GetInput(), traits->Input, Ctx);
                 colTypeMap.emplace(Names.Get(output), &RemoveOptionality(*type));
                 break;
             }

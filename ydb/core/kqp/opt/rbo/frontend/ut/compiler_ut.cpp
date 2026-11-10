@@ -32,6 +32,30 @@ void AssertParserAgreement(std::string_view sql, bool ansi = false) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
+    Y_UNIT_TEST(ScalarListsBindWithoutRelationalizingMembership) {
+        for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto compiled = CompileNative("DECLARE $p AS List<Int32?>; SELECT id IN $p AS found FROM t", Catalog, settings);
+            const auto& program = compiled.Program->Get();
+            UNIT_ASSERT(program.Parameters.at("p").ScalarList()->Item == (TType{ETypeKind::Int32, true}));
+            UNIT_ASSERT(program.Results[0].Columns[0].Type == (TType{ETypeKind::Bool, true}));
+            UNIT_ASSERT(std::any_of(program.Expressions.Nodes().begin(), program.Expressions.Nodes().end(),
+                [](const auto& node) { return node.Op == EOpcode::InCollection; }));
+            UNIT_ASSERT(std::none_of(program.Relations.begin(), program.Relations.end(),
+                [](const auto& relation) { return relation.Kind == ERelation::Join; }));
+            settings.Binding.ParameterTypes.emplace("p", TParameterType::TList{{ETypeKind::Int32, true}});
+            UNIT_ASSERT(!CompileNative("SELECT id NOT IN $p FROM t", Catalog, settings).UsesLegacy());
+            UNIT_ASSERT_EXCEPTION(CompileNative("DECLARE $p AS List<Int64>; SELECT id IN $p FROM t", Catalog, settings), TFrontendError);
+        }
+        for (const auto* sql : {
+            "SELECT Yql::SqlIn((1, NULL), 2, AsTuple(AsTuple(AsAtom('ansi'))))",
+            "SELECT Yql::SqlIn([1, 2], 2, AsTuple())",
+            "SELECT Yql::SqlIn(AsList(), NULL, AsTuple())"}) {
+            const auto compiled = CompileNative(sql, Catalog);
+            UNIT_ASSERT(!compiled.UsesLegacy());
+        }
+    }
+
     Y_UNIT_TEST(RowParametersBindAsRelationsWithScalarColumns) {
         for (const auto parser : {EParser::Fast, EParser::Grammar, EParser::Verify}) {
             TCompilerSettings settings; settings.Parser = parser;
@@ -262,7 +286,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 for (const auto* type : {"Int8", "Uint8", "Int16", "Uint16", "Int32", "Uint32", "Int64", "Uint64", "Float", "Double"}) {
                     for (const bool nullable : {false, true}) for (const bool grouped : {false, true}) {
                         const auto catalog = [&](std::string_view name, TSourcePosition) {
-                            auto valueType = ParseType(type); valueType.Nullable = nullable;
+                            auto valueType = ParseType(type); valueType.OptionalDepth = nullable;
                             return TCatalogTable{std::string(name), {{"k", {ETypeKind::Int32}}, {"v", valueType}}};
                         };
                         const auto sql = std::string("SELECT ") + alias + "(v) AS s FROM t" + (grouped ? " GROUP BY k" : "");
@@ -408,8 +432,8 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
                 UNIT_ASSERT_VALUES_EQUAL(std::get<std::uint64_t>(Evaluate(program.Expressions, *mask, eval).Data), bits);
             }
             const auto common = CompileNative("SELECT id, value, SUM(id) FROM t GROUP BY id, ROLLUP(value)", Catalog, settings);
-            UNIT_ASSERT(!common.Program->Get().Results[0].Columns[0].Type.Nullable);
-            UNIT_ASSERT(!common.Program->Get().Results[0].Columns[2].Type.Nullable);
+            UNIT_ASSERT(!common.Program->Get().Results[0].Columns[0].Type.OptionalDepth);
+            UNIT_ASSERT(!common.Program->Get().Results[0].Columns[2].Type.OptionalDepth);
             const auto duplicate = CompileNative("SELECT id, GROUPING(id) FROM t GROUP BY GROUPING SETS ((id,id),(id),(id))", Catalog, settings);
             for (const auto& relation : duplicate.Program->Get().Relations) if (relation.Kind == ERelation::Aggregate) {
                 UNIT_ASSERT_VALUES_EQUAL(relation.GroupKeys.size(), 1);
@@ -589,7 +613,6 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             }
         }
         for (const auto* sql : {
-            "SELECT SUM(value) OVER w FROM t WINDOW w AS ()",
             "SELECT SUM(DISTINCT value) OVER() FROM t",
             "SELECT Lag(value) OVER(ORDER BY id) FROM t",
             "SELECT SUM(value) FILTER(WHERE value > 0) OVER() FROM t",
@@ -679,7 +702,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
     Y_UNIT_TEST(FastParserAndGrammarRouting) {
         for (const auto* sql : {"SELECT 1", "SELECT value FROM t WHERE value > 0", "SELECT Int32('1')", "SELECT 1 IN (1, 2,)",
                                "SELECT 1 IN [1, 2,]", "SELECT NULL IN []", "SELECT 1 NOT IN [,]",
-                               "SELECT 'x' AS `from`", "SELECT x FROM t AS a JOIN t AS b ON a.id = b.id"}) {
+                               "SELECT 'x' AS `from`", "SELECT 'x'u", "SELECT x FROM t AS a JOIN t AS b ON a.id = b.id"}) {
             UNIT_ASSERT_C(!ParseNative(sql).UsedGeneratedParser, sql);
             AssertParserAgreement(sql);
         }
@@ -688,7 +711,7 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             AssertParserAgreement(sql);
         }
         for (const auto* sql : {"SELECT * AS x FROM t", "SELECT NOT NOT true", "SELECT FROM FROM t", "SELECT 1 IN ()",
-                               "SELECT 'x'u", "SELECT 1 IS NULL = true", "SELECT 1 < 2 < 3", "SELECT 1 == 2 == 3",
+                               "SELECT 1 IS NULL = true", "SELECT 1 < 2 < 3", "SELECT 1 == 2 == 3",
                                "SELECT 1 IN [1,,2]", "SELECT 1 IN [1,2", "SELECT 1 IN [1] + 1",
                                "SELECT 1 UNION ALL SELECT 2 LIMIT 1", "SELECT a.x.y.* FROM a"}) AssertParserAgreement(sql);
     }
@@ -839,12 +862,49 @@ Y_UNIT_TEST_SUITE(KqpNativeCompiler) {
             UNIT_ASSERT(divisionColumns[0].Type == (TType{ETypeKind::Decimal, false, 3, 2}));
             UNIT_ASSERT(divisionColumns[1].Type == (TType{ETypeKind::Decimal, true, 35, 35}));
             UNIT_ASSERT(divisionColumns[2].Type == (TType{ETypeKind::Int32, true}));
-            for (const auto* sql : {"SELECT Decimal('1e2',8,2)", "SELECT CAST('1e2' AS Decimal(8,2))",
+            for (const auto* sql : {"SELECT Decimal('1e2',8,2)",
                 "SELECT Decimal('1',8,2) + 1", "SELECT Decimal('1',8,2) + Decimal('1',12,2)",
                 "SELECT 2 / Decimal('1',8,2)", "SELECT Decimal('1',8,2) % 2",
-                "SELECT COALESCE(IF(false, Decimal('1.25',8,2)), 1L)",
-                "DECLARE $s AS String; SELECT CAST($s AS Decimal(8,2))"})
+                "SELECT COALESCE(IF(false, Decimal('1.25',8,2)), 1L)"})
                 UNIT_ASSERT_EXCEPTION(CompileNative(sql, Catalog, settings), TUnsupportedFeature);
+        }
+    }
+
+    Y_UNIT_TEST(DecimalTextAndNestedOptionalCastsUseNativeTypesInBothParsers) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto result = CompileNative(R"(
+                DECLARE $s AS String?;
+                SELECT CAST($s AS Decimal(8,2)) AS parsed, CAST('1e2' AS Decimal(8,2)) AS exponent,
+                    CAST($s AS String??) AS nested, CAST(NULL AS String??) AS absent,
+                    Unwrap(CAST($s AS String??)) AS unwrapped;
+            )", Catalog, settings);
+            UNIT_ASSERT(result.Program);
+            const auto& columns = result.Program->Get().Results[0].Columns;
+            UNIT_ASSERT(columns[0].Type == (TType{ETypeKind::Decimal, 1, 8, 2}));
+            UNIT_ASSERT(columns[1].Type == columns[0].Type);
+            UNIT_ASSERT(columns[2].Type == (TType{ETypeKind::String, 2}));
+            UNIT_ASSERT(columns[3].Type == columns[2].Type);
+            UNIT_ASSERT(columns[4].Type == (TType{ETypeKind::String, 1}));
+            const auto combined = CompileNative(R"(SELECT CAST('a' AS String?) AS x UNION ALL SELECT CAST('b' AS String??) AS x)", Catalog, settings);
+            UNIT_ASSERT(combined.Program->Get().Results[0].Columns[0].Type == (TType{ETypeKind::String, 2}));
+            settings.Mode = ECompilerMode::Auto;
+            for (const auto* sql : {
+                    R"(SELECT SUM(CAST(1 AS Int32??)))", R"(SELECT AVG(CAST(1 AS Int32??)))",
+                    R"(SELECT CAST(1 AS Int32??) IN (SELECT CAST(1 AS Int32??)))",
+                    R"(SELECT IF(true, CAST(1 AS Int32??), CAST(2 AS Int64??)))"})
+                UNIT_ASSERT_C(CompileNative(sql, Catalog, settings).UsesLegacy(), sql);
+        }
+    }
+
+    Y_UNIT_TEST(TypedStringSuffixesUseNativeLiteralsInBothParsers) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar, EParser::Verify}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            const auto result = CompileNative(R"(SELECT 'abc'u AS a, "def"U AS b, 'ghi's AS c, "jkl"S AS d)", Catalog, settings);
+            const auto& columns = result.Program->Get().Results[0].Columns;
+            UNIT_ASSERT_VALUES_EQUAL(columns.size(), 4);
+            for (size_t i = 0; i < columns.size(); ++i)
+                UNIT_ASSERT(columns[i].Type == (TType{i < 2 ? ETypeKind::Utf8 : ETypeKind::String}));
         }
     }
 

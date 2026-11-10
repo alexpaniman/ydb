@@ -1,5 +1,6 @@
 #include "kqp_rbo_physical_query_builder.h"
 #include "kqp_rbo_compatibility.h"
+#include "kqp_rbo_physical_table_effect_builder.h"
 
 #include <ydb/core/kqp/common/kqp_yql.h>
 #include <ydb/core/kqp/opt/peephole/kqp_opt_peephole.h>
@@ -250,7 +251,7 @@ TVector<TExprNode::TPtr> TPhysicalQueryBuilder::BuildPhysicalStageGraph(int root
             auto stageGUID = graph.StageGUIDs.at(id);
             if (graph.IsSinkStage(id)) {
                 stage = BuildDqPhySinkStage(stageInputConnections, stageInputArgs, Stages[rootIdx].at(id), NYql::NDq::TDqStageSettings().New(stageGUID).BuildNode(ctx, StagePos[rootIdx].at(id)),
-                                    graph.GetSinkSettings(id), ctx, StagePos[rootIdx].at(id));
+                                    LowerTableSinkSettings(graph.GetSinkSettings(id), ctx, StagePos[rootIdx].at(id)), ctx, StagePos[rootIdx].at(id));
             }
             else {
                 stage = BuildDqPhyStage(stageInputConnections, stageInputArgs, Stages[rootIdx].at(id), NYql::NDq::TDqStageSettings().New(stageGUID).BuildNode(ctx, StagePos[rootIdx].at(id)),
@@ -1042,11 +1043,11 @@ TExprNode::TPtr TPhysicalQueryBuilder::PeepHoleOptimize(TExprNode::TPtr input, c
 }
 
 void TPhysicalQueryBuilder::TypeAnnotate(TExprNode::TPtr& input) {
-    RBOCtx.TypeAnnTransformer.Rewind();
+    RBOCtx.BackendTypeAnnTransformer.Rewind();
     TExprNode::TPtr output;
     IGraphTransformer::TStatus status(IGraphTransformer::TStatus::Ok);
     do {
-        status = RBOCtx.TypeAnnTransformer.Transform(input, output, RBOCtx.ExprCtx);
+        status = RBOCtx.BackendTypeAnnTransformer.Transform(input, output, RBOCtx.ExprCtx);
     } while (status == IGraphTransformer::TStatus::Repeat);
 
     if (status != IGraphTransformer::TStatus::Ok) {

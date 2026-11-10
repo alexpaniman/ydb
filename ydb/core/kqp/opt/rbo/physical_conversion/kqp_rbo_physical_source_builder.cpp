@@ -22,7 +22,7 @@ namespace {
 // executable directly, without AsRange/RangeFor macros or annotation passes.
 TExprNode::TPtr LowerNativeRanges(const TOpRead::TRangeInfo& info, const TStructExprType& schema,
     TExprContext& ctx, TPositionHandle pos) {
-    Y_ENSURE(info.NativeRanges && !info.ComputeNode && !info.LiteralRange);
+    Y_ENSURE(info.NativeRanges);
     NFrontend::TExpressionArena constants;
     const auto scalar = [&](NFrontend::TType type, NFrontend::TScalar value) {
         return LowerNativeLambda(constants, constants.Literal(type, std::move(value)), ctx, pos)->TailPtr();
@@ -128,16 +128,21 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
         columns.push_back(Ctx.NewAtom(Pos, column));
     }
     // Extract ranges.
-    TExprNode::TPtr ranges = Read.GetRanges() ? Read.GetRanges() : Build<TCoVoid>(Ctx, Pos).Done().Ptr();
+    TExprNode::TPtr ranges = Build<TCoVoid>(Ctx, Pos).Done().Ptr();
 
     switch (Read.GetTableStorageType()) {
         case NYql::EStorageType::RowStorage: {
             // A literal range is passed to the source as is, so it needs no materialization.
-            if (const auto literalRange = Read.GetLiteralRange()) {
-                ranges = literalRange;
-            }
-            if (Read.RangeInfo && Read.RangeInfo->NativeRanges && Read.RangeInfo->NativeRanges->size() == 1) {
-                Y_ENSURE(!Read.GetRanges() && !Read.GetLiteralRange(), "Mixed native and legacy read ranges");
+
+            const auto directNativeBound = [](const TOpRead::TKeyBound& bound) {
+                return AllOf(bound.Values, [](const TExpression& value) {
+                    const auto op = (*value.GetNativeArena())[value.GetNativeRoot()].Op;
+                    return op == NFrontend::EOpcode::Literal || op == NFrontend::EOpcode::Parameter;
+                });
+            };
+            if (Read.RangeInfo && Read.RangeInfo->NativeRanges && Read.RangeInfo->NativeRanges->size() == 1 &&
+                directNativeBound(Read.RangeInfo->NativeRanges->front().Lower) &&
+                directNativeBound(Read.RangeInfo->NativeRanges->front().Upper)) {
                 const auto lower = [&](const TOpRead::TKeyBound& bound) {
                     TExprNode::TListType values;
                     for (const auto& value : bound.Values) {
@@ -169,7 +174,7 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             if (IsSysView) {
                 // clang-format off
                 sourceSettings = Build<TKqpReadSysViewSourceSettings>(Ctx, Pos)
-                    .Table(Read.TableCallable)
+                    .Table(LowerTable(Read.TableRef, Ctx, Pos))
                     .Columns().Add(columns).Build()
                     .Settings(settings.BuildNode(Ctx, Pos))
                     .RangesExpr(ranges)
@@ -178,7 +183,7 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             } else {
                 // clang-format off
                 sourceSettings = Build<TKqpReadRangesSourceSettings>(Ctx, Pos)
-                    .Table(Read.TableCallable)
+                    .Table(LowerTable(Read.TableRef, Ctx, Pos))
                     .Columns()
                         .Add(columns)
                     .Build()
@@ -229,7 +234,7 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
             if (Read.OlapProgram) {
                 // Do not carry the optimizer's ID-keyed argument type across the
                 // storage-name boundary. The read annotator supplies the storage row.
-                const auto program = Read.OlapProgram.IsNative() ? LowerNativeOlapProgram(Read.OlapProgram, Ctx, Pos) : Read.OlapProgram.Legacy();
+                const auto program = LowerNativeOlapProgram(Read.OlapProgram, Ctx, Pos);
                 processLambda = Ctx.DeepCopyLambda(*NOpt::TOlapFilterInspector::RenameColumns(program, olapNames, Ctx));
             }
 
@@ -248,7 +253,7 @@ TExprNode::TPtr TPhysicalSourceBuilder::BuildPhysicalOp() {
 
             // clang-format off
             auto olapRead = Build<TKqpBlockReadOlapTableRanges>(Ctx, Pos)
-                .Table(Read.TableCallable)
+                .Table(LowerTable(Read.TableRef, Ctx, Pos))
                 .Ranges(ranges)
                 .Columns().Add(columns).Build()
                 .Settings(settings.BuildNode(Ctx, Pos))

@@ -1,5 +1,4 @@
 #include "kqp_native_frontend.h"
-#include "frontend_lowering.h"
 #include "frontend/frontend.h"
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
 
@@ -88,7 +87,7 @@ void ApplyPlannerSettings(const std::vector<NFrontend::TPlannerSetting>& setting
 }
 } // namespace
 
-TVector<TIntrusivePtr<TOpRoot>> CompileNativeToRbo(std::string_view sql,
+TNativeQuery CompileNativeToRbo(std::string_view sql,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx,
     const NFrontend::TBindSettings& bindSettings, const NFrontend::TParseSettings& parseSettings, NYql::TKikimrConfiguration* config) {
     std::unordered_map<std::string, TNativeTable> tables;
@@ -113,28 +112,41 @@ TVector<TIntrusivePtr<TOpRoot>> CompileNativeToRbo(std::string_view sql,
     }, ctx, config);
 }
 
-TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
+TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
     const TNativeTableResolver& resolve, NYql::TExprContext& ctx, NYql::TKikimrConfiguration* config) {
     auto program = std::move(compiled).Release();
+    TNativeQuery query;
+    query.Parameters = std::move(program.Parameters);
     ApplyPlannerSettings(program.PlannerSettings, config);
     std::unordered_map<std::string, TNativeTable> tables;
     for (const auto& relation : program.Relations) if (relation.Kind == NFrontend::ERelation::Read && !tables.contains(relation.Table)) {
         auto table = resolve(relation.Table, relation.Position);
         if (!table.Table) throw NFrontend::TFrontendError(relation.Position, "table resolver returned no table identity");
+        auto columns = std::make_shared<TRboTable::TColumns>();
+        for (const auto& column : table.Schema.Columns) columns->emplace(String(column.Name), column.Type);
+        table.Table.NativeColumns = std::move(columns);
         tables.emplace(relation.Table, std::move(table));
     }
     auto arena = std::make_shared<NFrontend::TExpressionArena>(std::move(program.Expressions));
+    std::unordered_map<NFrontend::TColumnId, std::string_view> sourceAliases;
+    for (const auto& relation : program.Relations) if (relation.Kind == NFrontend::ERelation::Read)
+        for (const auto column : relation.Columns) sourceAliases.emplace(column, relation.Alias);
     std::unordered_map<NFrontend::TRelId, NFrontend::TColumnId> subplanBindings;
     for (const auto& [binding, subplan] : program.Subplans) subplanBindings.emplace(subplan.Root, binding);
-    TVector<TIntrusivePtr<TOpRoot>> roots;
+    auto& roots = query.Roots;
     for (const auto& result : program.Results) {
         TPlanProps props;
         props.NativeExpressions = arena;
-        for (const auto& column : program.Columns) props.InfoUnitRegistry.Add(TInfoUnit(String(column.Qualifier), String(column.Name)));
+        for (NFrontend::TColumnId id = 0; id < program.Columns.size(); ++id) {
+            const auto& column = program.Columns[id];
+            const auto alias = sourceAliases.find(id);
+            props.InfoUnitRegistry.Add(TInfoUnit(String(alias == sourceAliases.end() ? column.Qualifier : alias->second), String(column.Name)));
+        }
         auto expression = [&](NFrontend::TExprId id) {
-            return TExpression::FromNative(arena, id, &ctx, &props, Position((*arena)[id].Position, ctx));
+            return TExpression::FromNative(arena, id, &props, Position((*arena)[id].Position, ctx));
         };
         std::unordered_map<NFrontend::TRelId, TIntrusivePtr<IOperator>> converted;
+        std::unordered_map<NFrontend::TRelId, TIntrusivePtr<TReplicate>> shared;
         std::vector<std::pair<NFrontend::TRelId, bool>> pending{{result.Root, false}};
         std::unordered_set<NFrontend::TExprId> visitedExpressions;
         auto scheduleExpression = [&](NFrontend::TExprId root) {
@@ -168,6 +180,19 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
             auto input = [&](std::size_t index = 0) { return converted.at(relation.Inputs.at(index)); };
             using R = NFrontend::ERelation;
             switch (relation.Kind) {
+                case R::Reuse: {
+                    auto& hub = shared[relation.Inputs.front()];
+                    if (!hub) hub = TReplicate::Create(input(), pos, props.InfoUnitRegistry);
+                    auto port = hub->AddOutput();
+                    TMapIUs definitions;
+                    for (const auto& definition : relation.Definitions) {
+                        const auto& column = (*arena)[definition.Expression];
+                        const auto id = port->IsPrimary() ? column.ColumnId : port->GetRebindings().At(column.ColumnId);
+                        definitions.Add(definition.Column, MakeColumnAccess(id, column.Type, pos, &props));
+                    }
+                    op = MakeIntrusive<TOpMap>(port, pos, std::move(definitions));
+                    break;
+                }
                 case R::Unit: op = MakeIntrusive<TOpEmptySource>(pos); break;
                 case R::Parameter: {
                     TOpEmptySource::TParameterInput parameter;
@@ -183,7 +208,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                     TUnorderedIUs columns; for (auto column : relation.Columns) columns.Add(column);
                     // Capture the source binding before pruning its columns: row
                     // and join hints use this identity, not the table's path.
-                    const auto alias = relation.Columns.empty() ? TString{} : String(program.Columns.at(relation.Columns.front()).Qualifier);
+                    const auto alias = String(relation.Alias);
                     op = MakeIntrusive<TOpRead>(alias, std::move(columns), table.Storage, table.Table, nullptr, std::nullopt,
                         std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, pos);
                     break;
@@ -196,7 +221,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                 case R::Capture: {
                     TDependencyIUs captures;
                     for (const auto& capture : relation.Captures) captures.Add(capture.Local,
-                        TCapturedIU{capture.Outer, ExportNativeType(program.Columns.at(capture.Local).Type, ctx, arena.get())});
+                        TCapturedIU{capture.Outer, program.Columns.at(capture.Local).Type});
                     op = MakeIntrusive<TOpAddDependencies>(input(), pos, std::move(captures)); break;
                 }
                 case R::Filter: op = MakeIntrusive<TOpFilter>(input(), pos, expression(*relation.Predicate)); break;
@@ -217,7 +242,10 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                             filters.push_back(std::move(predicate));
                         }
                     }
-                    op = MakeIntrusive<TOpJoin>(left, right, pos, JoinName(relation.JoinKind), std::move(keys), filters); break;
+                    auto join = MakeIntrusive<TOpJoin>(left, right, pos, JoinName(relation.JoinKind), std::move(keys), std::move(filters));
+                    ExtractNativeJoinKeys(*join, props);
+                    op = std::move(join);
+                    break;
                 }
                 case R::Aggregate: {
                     if (relation.GroupingSets.empty()) {
@@ -288,7 +316,10 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                     break;
                 }
                 case R::Sort: {
-                    TSortIUs keys; for (const auto& key : relation.SortKeys) keys.Append(key.Column, TSortOrder{!key.Descending, key.NullsFirst});
+                    // RBO's existing SQL entry records NULL as the first base
+                    // comparison value even for descending order. Preserve that
+                    // construction convention and its read-pushdown decisions.
+                    TSortIUs keys; for (const auto& key : relation.SortKeys) keys.Append(key.Column, TSortOrder{!key.Descending, true});
                     op = MakeIntrusive<TOpSort>(input(), pos, std::move(keys), std::nullopt); break;
                 }
                 case R::Window: {
@@ -300,7 +331,7 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
                             function.Input ? EWindowFuncKind::Aggregate : EWindowFuncKind::Native, std::move(arguments)});
                     }
                     TOrderedIUs<> partitions; for (auto key : relation.GroupKeys) partitions.Append(key);
-                    TSortIUs order; for (const auto& key : relation.SortKeys) order.Append(key.Column, TSortOrder{!key.Descending, key.NullsFirst});
+                    TSortIUs order; for (const auto& key : relation.SortKeys) order.Append(key.Column, TSortOrder{!key.Descending, true});
                     auto bound = [](NFrontend::EWindowBound kind) {
                         using B = NFrontend::EWindowBound;
                         switch (kind) {
@@ -354,7 +385,21 @@ TVector<TIntrusivePtr<TOpRoot>> ConvertNativeToRbo(NFrontend::TCompiledProgram c
         for (const auto& item : IterateSubtreeWithSubplans(root.Get(), root->PlanProps)) item.Current->BindExpressionPlanProps(&root->PlanProps);
         root->RecomputeOutputIUsSubtree(); root->ComputeParents(); roots.push_back(std::move(root));
     }
-    return roots;
+    THashSet<TString> readTables;
+    for (const auto& root : roots) for (const auto& item : IterateSubtreeWithSubplans(root.Get(), root->PlanProps)) {
+        if (item.Current->Kind != EOperator::Source) continue;
+        const auto& table = CastOperator<TOpRead>(*item.Current).GetTable();
+        if (readTables.insert(table.Path).second) {
+            auto& operation = query.Execution.TableOperations.emplace_back();
+            const auto position = ctx.GetPosition(item.Current->Pos);
+            operation.MutablePosition()->SetRow(position.Row);
+            operation.MutablePosition()->SetColumn(position.Column);
+            operation.SetTable(table.Path);
+            operation.SetOperation(static_cast<ui32>(NYql::TYdbOperation::Select));
+        }
+    }
+    query.Execution.DiscardResults.resize(roots.size(), false);
+    return query;
 }
 
 } // namespace NKikimr::NKqp

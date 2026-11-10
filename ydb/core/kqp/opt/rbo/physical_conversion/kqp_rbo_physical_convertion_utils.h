@@ -9,6 +9,8 @@ using namespace NKikimr::NKqp;
 
 namespace NKikimr::NKqp::NPhysicalConvertionUtils {
 
+TInfoUnitId GetMemberId(const TExprNode& member);
+
 TString GetFullName(const TString& name, const TPhysicalNames& names);
 TString GetFullName(TInfoUnitId id, const TPhysicalNames& names);
 

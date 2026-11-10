@@ -54,7 +54,7 @@ public:
     NOpt::TKqpOptimizeContext& KqpCtx;
     NYql::TExprContext& ExprCtx;
     NYql::TTypeAnnotationContext& TypeCtx;
-    NYql::IGraphTransformer& TypeAnnTransformer;
+    NYql::IGraphTransformer& BackendTypeAnnTransformer;
     const NMiniKQL::IFunctionRegistry& FuncRegistry;
     NOpt::TKqpProviderContext CBOCtx;
     std::optional<NJson::TJsonValue> ExecutionJson;

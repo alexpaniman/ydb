@@ -38,29 +38,9 @@ struct TKqpOptimizeContext;
 
 } // namespace NOpt
 
-class TKqpRewriteSelectTransformer : public NYql::TSyncTransformerBase {
-public:
-    TKqpRewriteSelectTransformer(const TIntrusivePtr<NOpt::TKqpOptimizeContext>& kqpCtx, NYql::TTypeAnnotationContext& typeCtx)
-        : TypeCtx(typeCtx), KqpCtx(*kqpCtx), UniqueSourceIdCounter(0), UniqueColumnIdCounter(0) {}
-
-    // Main method of the transformer
-    IGraphTransformer::TStatus DoTransform(NYql::TExprNode::TPtr input, NYql::TExprNode::TPtr& output, NYql::TExprContext& ctx) final;
-    void Rewind() override;
-
-private:
-    NYql::TTypeAnnotationContext& TypeCtx;
-    NOpt::TKqpOptimizeContext& KqpCtx;
-    ui64 UniqueSourceIdCounter = 0;
-    ui64 UniqueColumnIdCounter = 0;
-    bool RboTraceRewriteSelectStarted = false;
-};
-
-TAutoPtr<NYql::IGraphTransformer> CreateKqpRewriteSelectTransformer(const TIntrusivePtr<NOpt::TKqpOptimizeContext>& kqpCtx,
-                                                             NYql::TTypeAnnotationContext& typeCtx);
-
 class TKqpNewRBOTransformer : public NYql::TGraphTransformerBase {
 public:
-    TKqpNewRBOTransformer(TIntrusivePtr<NOpt::TKqpOptimizeContext>& kqpCtx, NYql::TTypeAnnotationContext& typeCtx, TAutoPtr<NYql::IGraphTransformer>&& rboTypeAnnTransformer,
+    TKqpNewRBOTransformer(TIntrusivePtr<NOpt::TKqpOptimizeContext>& kqpCtx, NYql::TTypeAnnotationContext& typeCtx, TAutoPtr<NYql::IGraphTransformer>&& backendTypeAnnTransformer,
                           NYql::TKikimrTablesData& tables, const TString& cluster, const TString& database,
                           NActors::TActorSystem* actorSystem, const NMiniKQL::IFunctionRegistry& funcRegistry, TIntrusivePtr<TKqlTransformContext> transformCtx);
     // Main method of the transformer
@@ -69,8 +49,7 @@ public:
     TStatus DoApplyAsyncChanges(NYql::TExprNode::TPtr input, NYql::TExprNode::TPtr& output, NYql::TExprContext& ctx) final;
     void AddPlans(std::optional<NJson::TJsonValue> execPlan, std::optional<NJson::TJsonValue> explainPlan);
 
-    // Supply bound, typed native roots before starting the transformer. This
-    // entry bypasses the YQL tree search and PlanConverter entirely.
+    // Supply the checked native roots before starting optimization.
     void SetNativeRoots(TVector<TIntrusivePtr<TOpRoot>> roots);
 
     void Rewind() override;
@@ -91,7 +70,7 @@ private:
 
     NYql::TTypeAnnotationContext& TypeCtx;
     NOpt::TKqpOptimizeContext& KqpCtx;
-    TAutoPtr<NYql::IGraphTransformer> RBOTypeAnnTransformer;
+    TAutoPtr<NYql::IGraphTransformer> BackendTypeAnnTransformer;
     const NMiniKQL::IFunctionRegistry& FuncRegistry;
     TIntrusivePtr<TKqlTransformContext> TransformCtx;
 
@@ -109,9 +88,6 @@ private:
     THashMap<TString, THashSet<TString>> HistColumnsByTableName;
     THashMap<TString, THashMap<TString, TVector<TString>>> EqHeightHistTuplesByTableName;
 
-    // Flag to reset the check of original type for multiple statement queries
-    bool ResetTypes = false;
-    bool NativeRoots = false;
     bool NativeOptimized = false;
 
     TVector<TIntrusivePtr<TOpRoot>> Roots;
@@ -119,7 +95,7 @@ private:
 };
 
 TAutoPtr<NYql::IGraphTransformer> CreateKqpNewRBOTransformer(TIntrusivePtr<NOpt::TKqpOptimizeContext>& kqpCtx, NYql::TTypeAnnotationContext& typeCtx,
-                                                       TAutoPtr<NYql::IGraphTransformer>&& rboTypeAnnTransformer, NYql::TKikimrTablesData& tables,
+                                                       TAutoPtr<NYql::IGraphTransformer>&& backendTypeAnnTransformer, NYql::TKikimrTablesData& tables,
                                                        const TString& cluster, const TString& database, NActors::TActorSystem* actorSystem,
                                                        const NMiniKQL::IFunctionRegistry& funcRegistry, TIntrusivePtr<TKqlTransformContext> transformCtx);
 
@@ -138,11 +114,5 @@ private:
 };
 
 TAutoPtr<NYql::IGraphTransformer> CreateKqpRBOCleanupTransformer(NYql::TTypeAnnotationContext& typeCtx);
-
-TExprNode::TPtr RewriteSelect(const TExprNode::TPtr& node, TExprContext& ctx, const TTypeAnnotationContext& typeCtx, const TKqpOptimizeContext& kqpCtx,
-                              ui64& uniqueSourceIdCounter, ui64& uniqueColumnIdCounter, THashMap<const TExprNode*, TExprNode::TPtr>& translated,
-                              bool generateRoot = false);
-
-TExprNode::TPtr RewriteTableEffect(const TExprNode::TPtr& node, TExprContext& ctx, const TKqpOptimizeContext& kqpCtx);
 
 } // namespace NKikimr::NKqp

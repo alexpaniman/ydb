@@ -139,14 +139,14 @@ bool IsLookupJoinApplicableDetailed(const std::shared_ptr<TRelOptimizerNode>& no
         return false;
     }
 
-    const auto table = TKqpTable(read->GetTable());
-    if (table.PathId().Value().empty()) {
+    const auto table = read->GetTable();
+    if (table.PathId.empty()) {
         return false;
     }
 
-    const auto& tableMeta = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, table.Path().Value()).Metadata;
+    const auto& tableMeta = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, table.Path).Metadata;
     Y_ENSURE(tableMeta);
-    if (!table.SysView().Value().empty() || tableMeta->Kind == EKikimrTableKind::SysView) {
+    if (!table.SysView.empty() || tableMeta->Kind == EKikimrTableKind::SysView) {
         // Can't lookup in system views: a read of one is not a datashard read even though it is
         // described as a row storage read.
         return false;

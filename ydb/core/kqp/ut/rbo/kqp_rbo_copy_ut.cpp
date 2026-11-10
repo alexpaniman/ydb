@@ -1,3 +1,4 @@
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include "kqp_rbo_test_helpers.h"
 
 #include <ydb/core/kqp/opt/rbo/copy_logical_subtree.h>
@@ -19,7 +20,7 @@ void AssertFreshGraph(IOperator& original, IOperator& copy, TPlanProps& props) {
     for (const auto& item : IterateSubtree(&copy)) {
         UNIT_ASSERT(!originals.contains(item.Current));
         UNIT_ASSERT(!originalOutputs.HasAny(item.Current->GetOutputIUs()));
-        UNIT_ASSERT(!item.Current->Type);
+        UNIT_ASSERT(!item.Current->NativeSchema);
         UNIT_ASSERT(!item.Current->Props.StageId);
         UNIT_ASSERT(item.Current->Parents.empty());
     }
@@ -38,18 +39,13 @@ void AssertSortKeys(const TSortIUs& original, const TSortIUs& copy, const TSubst
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpRboCopy) {
-    Y_UNIT_TEST(DuplicationRejectsVolatileExpressionsAndOpaqueFunctions) {
+    Y_UNIT_TEST(NativeConstructionRejectsVolatileExpressionsAndOpaqueFunctions) {
         for (const TString callable : {"Random", "RandomNumber", "RandomUuid", "Now", "CurrentUtcDate",
                 "CurrentUtcDatetime", "CurrentUtcTimestamp", "CurrentTzDate", "CurrentTzDatetime",
                 "CurrentTzTimestamp", "Udf", "ScriptUdf", "SqlCall"}) {
             TIdTestContext f;
-            const auto source = f.Id(), result = f.Id();
-            TMapIUs definitions;
-            definitions.Add(result, MakeUnaryCallable(callable, f.Column(source)));
-            auto map = MakeIntrusive<TOpMap>(f.Read({source}), f.Pos, std::move(definitions));
-            UNIT_ASSERT_C(!CanDuplicateOperator(*map), callable);
-            auto empty = MakeIntrusive<TOpEmptySource>(f.Pos, map->GetMapElements().At(result).GetExpression().Node);
-            UNIT_ASSERT_C(!CanDuplicateOperator(*empty), callable);
+            const auto source = f.Id();
+            UNIT_ASSERT_EXCEPTION(MakeUnaryCallable(callable, f.Column(source)), NFrontend::TUnsupportedFeature);
         }
     }
 
@@ -60,7 +56,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             TIdTestContext f;
             const auto source = f.Id(), result = f.Id();
             auto input = f.Read({source});
-            UNIT_ASSERT(!input->Type);
+            UNIT_ASSERT(!input->NativeSchema);
             TAggregationIUs functions;
             functions.Add(result, TOpAggregationTraits{source, function});
             auto aggregate = MakeIntrusive<TOpAggregate>(input, std::move(functions), TOrderedIUs<>{},
@@ -72,11 +68,10 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
 
     Y_UNIT_TEST(DuplicatingOneOperatorDoesNotRequireDuplicatingItsInputs) {
         TIdTestContext f;
-        const auto source = f.Id(), random = f.Id();
-        TMapIUs definitions;
-        definitions.Add(random, MakeUnaryCallable("RandomNumber", f.Column(source)));
-        auto map = MakeIntrusive<TOpMap>(f.Read({source}), f.Pos, std::move(definitions));
-        auto filter = MakeIntrusive<TOpFilter>(map, f.Pos, MakeBinaryPredicate("==", f.Column(source), f.Constant()));
+        const auto source = f.Id(), result = f.Id();
+        auto aggregate = MakeIntrusive<TOpAggregate>(f.Read({source}),
+            TAggregationIUs{{result, TOpAggregationTraits{source, "some"}}}, TOrderedIUs<>{}, EOpPhase::Undefined, false, f.Pos);
+        auto filter = MakeIntrusive<TOpFilter>(aggregate, f.Pos, MakeBinaryPredicate("==", f.Column(result), f.Constant()));
         UNIT_ASSERT(CanDuplicateOperator(*filter));
         UNIT_ASSERT(!CanDuplicateSubtree(*filter, f.Props.Subplans));
         auto read = f.Read({source});
@@ -85,7 +80,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
         UNIT_ASSERT(!CanDuplicateOperator(*read));
     }
 
-    Y_UNIT_TEST(PushedReadProgramsCannotBeCopied) {
+    Y_UNIT_TEST(PushedNativeReadProgramsCopyAndRebindTheirDependencies) {
         for (const bool savedPredicate : {false, true}) {
             TIdTestContext f;
             const auto source = f.Id();
@@ -94,46 +89,52 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             if (savedPredicate) {
                 read->OriginalPredicate = predicate;
             } else {
-                const auto row = f.ExprCtx.NewArgument(f.Pos, "row");
-                read->OlapProgram.Legacy() = f.ExprCtx.NewLambda(f.Pos,
-                    f.ExprCtx.NewArguments(f.Pos, {row}), TExprNode::TPtr(row));
+                read->OlapProgram = TOlapProgram(predicate);
             }
 
-            UNIT_ASSERT(!CanDuplicateOperator(*read));
-            const auto size = f.Props.InfoUnitRegistry.Size();
+            UNIT_ASSERT(CanDuplicateOperator(*read));
             TSubstitutions renames;
-            UNIT_ASSERT(!read->Copy(f.Props, renames));
-            UNIT_ASSERT_VALUES_EQUAL(f.Props.InfoUnitRegistry.Size(), size);
-            UNIT_ASSERT(renames.Keys().Empty());
+            auto copy = read->Copy(f.Props, renames);
+            UNIT_ASSERT(copy);
+            const auto& copied = CastOperator<TOpRead>(*copy);
+            const auto& rebound = savedPredicate ? *copied.OriginalPredicate : *copied.OlapProgram.Native().Predicate;
+            UNIT_ASSERT(rebound.GetRawInputIUs() == TUnorderedIUs{renames.At(source)});
+            UNIT_ASSERT(predicate.GetRawInputIUs() == TUnorderedIUs{source});
         }
     }
 
-    Y_UNIT_TEST(ReadRangesMustBeRepeatableEvenWithoutAnOlapProgram) {
-        for (const bool points : {false, true}) {
-            TIdTestContext f;
-            auto read = f.Read({f.Id()});
-            read->RangeInfo.emplace();
-            auto& expression = points ? read->RangeInfo->PointPrefixes.emplace_back().Points : read->RangeInfo->ComputeNode;
-            expression = f.Constant().Node;
-            UNIT_ASSERT(CanDuplicateOperator(*read));
-            expression = f.ExprCtx.NewCallable(f.Pos, "RandomNumber", {});
-            UNIT_ASSERT(!CanDuplicateOperator(*read));
-        }
+    Y_UNIT_TEST(NativeReadRangesCopyWithoutBackendGraphs) {
+        TIdTestContext f;
+        auto read = f.Read({f.Id()});
+        read->RangeInfo.emplace();
+        read->RangeInfo->NativeRanges = TVector<TOpRead::TKeyRange>{{{{f.Constant()}, true}, {{f.Constant()}, true}}};
+        UNIT_ASSERT(CanDuplicateOperator(*read));
+        TSubstitutions renames;
+        auto copy = read->Copy(f.Props, renames);
+        UNIT_ASSERT(copy);
+        const auto& bounds = *CastOperator<TOpRead>(*copy).RangeInfo->NativeRanges;
+        UNIT_ASSERT_VALUES_EQUAL(bounds.front().Lower.Values.front().GetUint64Literal().value(), 1);
     }
 
     Y_UNIT_TEST(DuplicationChecksNestedSubplansAndCountsThemInTheBudget) {
-        for (const bool random : {false, true}) {
+        for (const bool unsafeAggregate : {false, true}) {
             TIdTestContext f;
             const auto innerCall = f.Id(), outerCall = f.Id(), value = f.Id(), nested = f.Id(), result = f.Id();
             TMapIUs definitions;
-            definitions.Add(value, random ? MakeUnaryCallable("RandomNumber", f.Constant()) : f.Constant());
-            auto inner = MakeIntrusive<TOpMap>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(definitions));
-            f.Props.Subplans.Add(innerCall, inner, ESubplanType::EXPR, {}, value);
+            definitions.Add(value, f.Constant());
+            TIntrusivePtr<IOperator> inner = MakeIntrusive<TOpMap>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(definitions));
+            auto innerResult = value;
+            if (unsafeAggregate) {
+                innerResult = f.Id("aggregate");
+                inner = MakeIntrusive<TOpAggregate>(inner, TAggregationIUs{{innerResult, TOpAggregationTraits{value, "some"}}},
+                    TOrderedIUs<>{}, EOpPhase::Undefined, false, f.Pos);
+            }
+            f.Props.Subplans.Add(innerCall, inner, ESubplanType::EXPR, {}, innerResult);
             auto outer = f.Copies(MakeIntrusive<TOpEmptySource>(f.Pos), {{nested, innerCall}});
             f.Props.Subplans.Add(outerCall, outer, ESubplanType::EXPR, {}, nested);
             auto producer = f.Copies(MakeIntrusive<TOpEmptySource>(f.Pos), {{result, outerCall}});
 
-            UNIT_ASSERT_VALUES_EQUAL(CanDuplicateSubtree(*producer, f.Props.Subplans, 6), !random);
+            UNIT_ASSERT_VALUES_EQUAL(CanDuplicateSubtree(*producer, f.Props.Subplans, 64), !unsafeAggregate);
             UNIT_ASSERT(!CanDuplicateSubtree(*producer, f.Props.Subplans, 5));
         }
     }
@@ -180,7 +181,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             UNIT_ASSERT_VALUES_EQUAL(copiedRead.Alias, read->Alias);
             UNIT_ASSERT(copiedRead.SortDir == read->SortDir);
             UNIT_ASSERT(copiedRead.Limit == read->Limit);
-            UNIT_ASSERT(copiedRead.TableCallable == read->TableCallable);
+            UNIT_ASSERT(copiedRead.TableRef.Path == read->TableRef.Path && copiedRead.TableRef.PathId == read->TableRef.PathId);
             UNIT_ASSERT(copiedRead.StorageType == read->StorageType);
             UNIT_ASSERT(copiedJoin.JoinKind == "Full");
             UNIT_ASSERT(copiedJoin.JoinKeys.Items()[0].EqualNulls);
@@ -232,8 +233,9 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             const auto wantedKey = f.Id("Key"), wrongValueLabel = f.Id("Alias"), wantedMap = f.Id("renamed_result");
             TIntrusivePtr<IOperator> source;
             if (parameterSource) {
-                const auto rows = f.ExprCtx.NewArgument(f.Pos, "rows");
-                source = MakeIntrusive<TOpEmptySource>(f.Pos, rows, TUnorderedIUs{key, value});
+                TOpEmptySource::TParameterInput rows{"rows", {{key, {"Key", {NFrontend::ETypeKind::Int32}}},
+                    {value, {"Value", {NFrontend::ETypeKind::Int32}}}}};
+                source = MakeIntrusive<TOpEmptySource>(f.Pos, std::move(rows));
             } else {
                 source = f.Read({key, value});
             }
@@ -252,7 +254,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             UNIT_ASSERT(source->GetOutputIUs() == (TUnorderedIUs{key, value}));
             UNIT_ASSERT_VALUES_EQUAL(map->GetMapElements().At(mapped).GetColumnAccess(), value);
             if (parameterSource) {
-                UNIT_ASSERT(CastOperator<TOpEmptySource>(*copiedMap.GetInput()).Input == CastOperator<TOpEmptySource>(*source).Input);
+                UNIT_ASSERT(CastOperator<TOpEmptySource>(*copiedMap.GetInput()).NativeInput->Name == CastOperator<TOpEmptySource>(*source).NativeInput->Name);
             }
             NTests::AssertIdInvariants(*copy, f.Props);
         }
@@ -264,7 +266,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             const auto parameter = f.Id("parameter"), external = f.Id("external"), replacement = f.Id("external_copy");
             const auto domainColumn = explicitDomainColumn ? f.Id("domain") : parameter;
             const auto value = f.Id("value"), local = f.Id("local"), externalLocal = f.Id("external_local"), result = f.Id("result");
-            const auto* type = f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64);
+            const NFrontend::TType type{NFrontend::ETypeKind::Uint64};
             TDependencyIUs captures;
             captures.Add(local, TCapturedIU{parameter, type});
             captures.Add(externalLocal, TCapturedIU{external, type});
@@ -290,7 +292,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             UNIT_ASSERT_VALUES_EQUAL(copiedJoin.GetDomainColumn(copiedParameter), renames.At(domainColumn));
             UNIT_ASSERT_VALUES_EQUAL(copiedCapture.GetDependencies().At(renames.At(local)).Outer, copiedParameter);
             UNIT_ASSERT_VALUES_EQUAL(copiedCapture.GetDependencies().At(renames.At(externalLocal)).Outer, replacement);
-            UNIT_ASSERT(copiedCapture.GetDependencies().At(renames.At(local)).Type == type);
+            UNIT_ASSERT(copiedCapture.GetDependencies().At(renames.At(local)).NativeType == type);
             UNIT_ASSERT_VALUES_EQUAL(copiedMap.GetMapElements().At(renames.At(result)).GetColumnAccess(), renames.At(local));
             UNIT_ASSERT_VALUES_EQUAL(capture->GetDependencies().At(local).Outer, parameter);
             UNIT_ASSERT_VALUES_EQUAL(capture->GetDependencies().At(externalLocal).Outer, external);
@@ -396,7 +398,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
         options.ReturningColumns = TVector<TString>{"Key"};
         options.OnConflict = "revert";
         options.IsBatch = true;
-        auto effect = MakeIntrusive<TOpTableEffect>(read, f.Pos, read->TableCallable, EEffectType::UpsertRows,
+        auto effect = MakeIntrusive<TOpTableEffect>(read, f.Pos, read->TableRef, EEffectType::UpsertRows,
             options, TOrderedIUs<TString>{{source, "Key"}}, TOrderedIUs<TString>{{result, "Key"}, {result, "KeyAgain"}});
 
         TSubstitutions renames;
@@ -404,7 +406,8 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
         UNIT_ASSERT(copy);
         AssertFreshGraph(*effect, *copy, f.Props);
         auto& copiedEffect = CastOperator<TOpTableEffect>(*copy);
-        UNIT_ASSERT(copiedEffect.Table == effect->Table);
+        UNIT_ASSERT_VALUES_EQUAL(copiedEffect.Table.Path, effect->Table.Path);
+        UNIT_ASSERT_VALUES_EQUAL(copiedEffect.Table.PathId, effect->Table.PathId);
         UNIT_ASSERT(copiedEffect.EffectType == effect->EffectType);
         UNIT_ASSERT(copiedEffect.Options.Columns == options.Columns);
         UNIT_ASSERT(copiedEffect.Options.ReturningColumns == options.ReturningColumns);
@@ -426,7 +429,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
         f.Config->_KqpEnableSpilling = false;
         const auto key = f.Id("Key"), result = f.Id("result");
         auto read = f.Read({key});
-        auto effect = MakeIntrusive<TOpTableEffect>(read, f.Pos, read->TableCallable, EEffectType::InsertRows,
+        auto effect = MakeIntrusive<TOpTableEffect>(read, f.Pos, read->TableRef, EEffectType::InsertRows,
             TEffectOptions{}, TOrderedIUs<TString>{{key, "Key"}}, TOrderedIUs<TString>{{result, "Key"}});
         auto hub = TReplicate::Create(effect, f.Pos, f.Props.InfoUnitRegistry);
         auto left = hub->AddOutput(), right = hub->AddOutput();
@@ -448,7 +451,7 @@ Y_UNIT_TEST_SUITE(KqpRboCopy) {
             TIdTestContext f;
             const auto source = f.Id("source"), local = f.Id("local"), call = f.Id("call"), result = f.Id("result");
             TDependencyIUs captures;
-            captures.Add(local, TCapturedIU{source, f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64)});
+            captures.Add(local, TCapturedIU{source, NFrontend::TType{NFrontend::ETypeKind::Uint64}});
             auto producer = MakeIntrusive<TOpAddDependencies>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(captures));
             const auto tuple = kind == ESubplanType::IN_SUBPLAN ? TOrderedIUs<>{source} : TOrderedIUs<>{};
             f.Props.Subplans.Add(call, producer, kind, tuple, kind == ESubplanType::EXISTS ? std::nullopt : std::optional{local});

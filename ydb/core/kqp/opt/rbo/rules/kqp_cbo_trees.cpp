@@ -41,11 +41,11 @@ TOpRead* FindReadThroughMapFilter(IOperator* op) {
 }
 
 TString GetReadTableName(TOpRead* read) {
-    if (!read || !read->TableCallable) {
+    if (!read || !read->TableRef) {
         return {};
     }
 
-    return NYql::NNodes::TKqpTable(read->TableCallable).Path().StringValue();
+    return read->TableRef.Path;
 }
 
 TString GetReadRelationName(TOpRead* read) {

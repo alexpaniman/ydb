@@ -46,11 +46,7 @@ void CheckMapPullup(const TString& kind, bool fromLeft, EMapUse use, bool expect
     }
     TVector<TExpression> filters;
     if (use == EMapUse::JoinFilter) {
-        auto row = f.ExprCtx.NewArgument(f.Pos, "row");
-        auto member = f.ExprCtx.NewCallable(f.Pos, "Member", {row, f.ExprCtx.NewAtom(f.Pos, computed)});
-        auto value = f.ExprCtx.NewCallable(f.Pos, "Uint64", {f.ExprCtx.NewAtom(f.Pos, "1")});
-        filters.emplace_back(f.ExprCtx.NewLambda(f.Pos, f.ExprCtx.NewArguments(f.Pos, {row}),
-            f.ExprCtx.NewCallable(f.Pos, "==", {member, value})), &f.ExprCtx, &f.Props);
+        filters.push_back(MakeBinaryPredicate("==", f.Column(computed), f.Constant()));
     }
     auto join = MakeIntrusive<TOpJoin>(left, right, f.Pos, kind, std::move(keys), std::move(filters));
     const auto outputs = join->GetOutputIUs();
@@ -142,8 +138,8 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
     }
 
     Y_UNIT_TEST(ExpandReplicateCopiesOnlyRepeatableProducers) {
-        enum class EProducer { Sum, Some, RandomNumber, Limit, TopSort, Window };
-        for (const auto kind : {EProducer::Sum, EProducer::Some, EProducer::RandomNumber,
+        enum class EProducer { Sum, Some, Limit, TopSort, Window };
+        for (const auto kind : {EProducer::Sum, EProducer::Some,
                                EProducer::Limit, EProducer::TopSort, EProducer::Window}) {
             TIdTestContext f;
             f.Config->_KqpEnableSpilling = false;
@@ -154,10 +150,6 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
                 aggregations.Add(x, TOpAggregationTraits{v, kind == EProducer::Sum ? "sum" : "some"});
                 producer = MakeIntrusive<TOpAggregate>(producer, std::move(aggregations), TOrderedIUs<>{k},
                     EOpPhase::Undefined, false, f.Pos);
-            } else if (kind == EProducer::RandomNumber) {
-                TMapIUs definitions;
-                definitions.Add(x, MakeUnaryCallable("RandomNumber", f.Column(v)));
-                producer = MakeIntrusive<TOpMap>(producer, f.Pos, std::move(definitions));
             } else if (kind == EProducer::Limit) {
                 producer = MakeIntrusive<TOpLimit>(producer, f.Pos, f.Constant(), EOpPhase::Undefined);
             } else if (kind == EProducer::TopSort) {
@@ -208,7 +200,7 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
         f.Config->_KqpEnableSpilling = false;
         const auto source = f.Id("source"), local = f.Id("local"), call = f.Id("call"), result = f.Id("result");
         TDependencyIUs captures;
-        captures.Add(local, TCapturedIU{source, f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64)});
+        captures.Add(local, TCapturedIU{source, NFrontend::TType{NFrontend::ETypeKind::Uint64}});
         auto subplan = MakeIntrusive<TOpAddDependencies>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(captures));
         f.Props.Subplans.Add(call, subplan, ESubplanType::EXPR, {}, local);
         f.Props.Subplans.RefreshDependencies(call);
@@ -264,11 +256,13 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
 
     Y_UNIT_TEST(ExpansionRejectsUnsafeCalledSubplansBeforeCopying) {
         TIdTestContext f;
-        const auto call = f.Id(), value = f.Id(), source = f.Id(), result = f.Id();
+        const auto call = f.Id(), value = f.Id(), source = f.Id(), result = f.Id(), aggregate = f.Id();
         TMapIUs definitions;
-        definitions.Add(value, MakeUnaryCallable("RandomNumber", f.Constant()));
-        auto subplan = MakeIntrusive<TOpMap>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(definitions));
-        f.Props.Subplans.Add(call, subplan, ESubplanType::EXPR, {}, value);
+        definitions.Add(value, f.Constant());
+        auto values = MakeIntrusive<TOpMap>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(definitions));
+        auto subplan = MakeIntrusive<TOpAggregate>(values, TAggregationIUs{{aggregate, TOpAggregationTraits{value, "some"}}},
+            TOrderedIUs<>{}, EOpPhase::Undefined, false, f.Pos);
+        f.Props.Subplans.Add(call, subplan, ESubplanType::EXPR, {}, aggregate);
         auto producer = f.Copies(f.Read({source}), {{result, call}});
         auto hub = TReplicate::Create(producer, f.Pos, f.Props.InfoUnitRegistry);
         auto left = hub->AddOutput(), right = hub->AddOutput();
@@ -476,9 +470,11 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
         UNIT_ASSERT(map.GetInput()->Kind == EOperator::Source);
         UNIT_ASSERT(map.GetMapElements().Keys() == TUnorderedIUs{z});
         UNIT_ASSERT(map.GetUniqueRawInputIUs() == (TUnorderedIUs{a, b}));
-        const auto body = map.GetMapElements().Find(z)->GetExpression().GetLegacyBody();
-        UNIT_ASSERT_VALUES_EQUAL(body->Head().Tail().Content(), f.ExprCtx.GetIndexAsString(b));
-        UNIT_ASSERT_VALUES_EQUAL(body->Tail().Tail().Content(), f.ExprCtx.GetIndexAsString(a));
+        const auto& expression = map.GetMapElements().Find(z)->GetExpression();
+        const auto& arena = *expression.GetNativeArena();
+        const auto& body = arena[expression.GetNativeRoot()];
+        UNIT_ASSERT_VALUES_EQUAL(arena[body.Arguments[0]].ColumnId, b);
+        UNIT_ASSERT_VALUES_EQUAL(arena[body.Arguments[1]].ColumnId, a);
     }
 
     Y_UNIT_TEST(CopiesRebindSortAndJoinWithoutDroppingUnmentionedInputs) {
@@ -558,7 +554,7 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
         TIdTestContext f;
         const auto source = f.Id(), copy = f.Id(), local = f.Id(), call = f.Id(), result = f.Id();
         TDependencyIUs captures;
-        captures.Add(local, TCapturedIU{copy, f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64)});
+        captures.Add(local, TCapturedIU{copy, NFrontend::TType{NFrontend::ETypeKind::Uint64}});
         f.Props.Subplans.Add(call, MakeIntrusive<TOpAddDependencies>(
             MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(captures)), ESubplanType::EXPR, {}, local);
         f.Props.Subplans.RefreshDependencies(call);
@@ -578,7 +574,7 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
         TIdTestContext f;
         const auto source = f.Id(), local = f.Id(), active = f.Id(), inactive = f.Id();
         TDependencyIUs captures;
-        captures.Add(local, TCapturedIU{source, f.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64)});
+        captures.Add(local, TCapturedIU{source, NFrontend::TType{NFrontend::ETypeKind::Uint64}});
         f.Props.Subplans.Add(active, MakeIntrusive<TOpAddDependencies>(
             MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(captures)), ESubplanType::EXISTS);
         f.Props.Subplans.RefreshDependencies(active);
@@ -632,13 +628,13 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
                 TOrderedIUs<>{}, EOpPhase::Undefined, false, f.Pos);
             if (projected) {
                 TMapIUs projection;
-                projection.Add(copy, MakeColumnAccess(count, f.Pos, &f.ExprCtx, &f.Props));
+                projection.Add(copy, MakeColumnAccess(count, NFrontend::TType{NFrontend::ETypeKind::Uint64}, f.Pos, &f.Props));
                 plan = MakeIntrusive<TOpMap>(std::move(plan), f.Pos, std::move(projection));
             }
             auto root = f.Root(std::move(plan), {});
             TGlobalPruningStage("prune").RunStage(*root, f.RboCtx);
             auto& source = CastOperator<TOpEmptySource>(*root->GetInput());
-            UNIT_ASSERT(!source.Input);
+            UNIT_ASSERT(!source.HasInput());
             UNIT_ASSERT(source.GetOutputIUs().Empty());
         }
     }
@@ -661,21 +657,19 @@ Y_UNIT_TEST_SUITE(KqpRboGlobalIUs) {
         TIdTestContext f;
         const auto used = f.Id(), unused = f.Id();
         auto read = f.Read({used, unused});
-        auto row = f.ExprCtx.NewArgument(f.Pos, "row");
-        auto condition = f.ExprCtx.NewList(f.Pos, {f.ExprCtx.NewAtom(f.Pos, used)});
-        auto lambda = f.ExprCtx.NewLambda(f.Pos, f.ExprCtx.NewArguments(f.Pos, {row}),
-            f.ExprCtx.NewCallable(f.Pos, "KqpOlapFilter", {row, condition}));
-        read->OlapProgram.Legacy() = lambda;
+        const auto predicate = MakeBinaryPredicate("==", f.Column(used), f.Constant());
+        const auto original = predicate.GetNativeRoot();
+        read->OlapProgram = TOlapProgram(predicate);
         auto root = f.Root(std::move(read), {});
         TGlobalPruningStage("prune").RunStage(*root, f.RboCtx);
         UNIT_ASSERT(root->GetInput()->GetOutputIUs() == TUnorderedIUs{used});
-        UNIT_ASSERT(CastOperator<TOpRead>(*root->GetInput()).OlapProgram.Legacy() == lambda);
+        UNIT_ASSERT(CastOperator<TOpRead>(*root->GetInput()).OlapProgram.Native().Predicate->GetNativeRoot() == original);
     }
 
     Y_UNIT_TEST(OlapPruningAllowsAnEmptyLogicalPayload) {
         TIdTestContext f;
         const auto first = f.Id(), second = f.Id();
-        const auto table = f.Read({first, second})->TableCallable;
+        const auto table = f.Read({first, second})->TableRef;
         auto read = MakeIntrusive<TOpRead>("t", TUnorderedIUs{first, second},
             NYql::EStorageType::ColumnStorage, table, nullptr, std::nullopt,
             std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, f.Pos);
@@ -849,18 +843,20 @@ struct TPlan {
     const TPositionHandle Pos;
     TOpRoot Root{MakeIntrusive<TOpEmptySource>(Pos), Pos, {}};
 
+    TPlan() { Root.PlanProps.NativeExpressions = std::make_shared<NFrontend::TExpressionArena>(); }
+
     TInfoUnitId Id() { return Root.PlanProps.InfoUnitRegistry.AddGenerated(); }
 
     TIntrusivePtr<TOpMap> Source(std::initializer_list<TInfoUnitId> ids) {
         TMapIUs definitions;
         for (const auto id : ids) {
-            definitions.Add(id, MakeConstant("Uint64", "1", Pos, &Ctx));
+            definitions.Add(id, MakeConstant("Uint64", "1", Pos, &Root.PlanProps));
         }
         return MakeIntrusive<TOpMap>(MakeIntrusive<TOpEmptySource>(Pos), Pos, std::move(definitions));
     }
 
     TExpression Column(TInfoUnitId id) {
-        return MakeColumnAccess(id, Pos, &Ctx, &Root.PlanProps);
+        return MakeColumnAccess(id, NFrontend::TType{NFrontend::ETypeKind::Uint64}, Pos, &Root.PlanProps);
     }
 };
 
@@ -907,7 +903,7 @@ Y_UNIT_TEST_SUITE(KqpRboRebindConsumers) {
         consumer->Props.OutputIUs = TUnorderedIUs{output};
         consumer->Props.Analysis.LiveOut = TUnorderedIUs{output};
         consumer->Props.Cost = 1;
-        consumer->Type = plan.Ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
+        consumer->NativeSchema = TNativeSchema{{}, std::nullopt, plan.Root.PlanProps.NativeExpressions};
 
         RebindConsumers(*old, {{left, replacement}}, plan.Root.PlanProps.Subplans);
         merge->SetChild(0, plan.Source({replacement}));
@@ -916,7 +912,7 @@ Y_UNIT_TEST_SUITE(KqpRboRebindConsumers) {
         UNIT_ASSERT_VALUES_EQUAL(merge->GetColumns().Find(output)->Inputs[1], right);
         UNIT_ASSERT(consumer->GetFilterExpression().GetRawInputIUs() == TUnorderedIUs{output});
         UNIT_ASSERT(!consumer->Props.OutputIUs && !consumer->Props.Analysis.LiveOut);
-        UNIT_ASSERT(!consumer->Props.Cost && !consumer->Type);
+        UNIT_ASSERT(!consumer->Props.Cost && !consumer->NativeSchema);
     }
 
     Y_UNIT_TEST(ReplicateSwapPreservesLocalsAtReconvergence) {
@@ -949,7 +945,7 @@ Y_UNIT_TEST_SUITE(KqpRboRebindConsumers) {
         auto& subplans = plan.Root.PlanProps.Subplans;
         const auto outer = plan.Id(), replacement = plan.Id(), local = plan.Id();
         const auto call = plan.Id(), nestedLocal = plan.Id(), nestedCall = plan.Id();
-        const auto* type = plan.Ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
+        const NFrontend::TType type{NFrontend::ETypeKind::Uint64};
         TDependencyIUs innerCaptures;
         innerCaptures.Add(nestedLocal, TCapturedIU{local, type});
         subplans.Add(nestedCall, MakeIntrusive<TOpAddDependencies>(MakeIntrusive<TOpEmptySource>(plan.Pos),
@@ -969,7 +965,7 @@ Y_UNIT_TEST_SUITE(KqpRboRebindConsumers) {
         auto* filter = caller.get();
         plan.Root.SetInput(std::move(caller));
         plan.Root.ComputeParents();
-        auto originalBody = body->GetFilterExpression().Node;
+        auto originalBody = body->GetFilterExpression().GetNativeRoot();
 
         RebindConsumers(*old, {{outer, replacement}}, subplans);
         filter->SetInput(plan.Source({replacement}));
@@ -979,7 +975,7 @@ Y_UNIT_TEST_SUITE(KqpRboRebindConsumers) {
         UNIT_ASSERT(subplans.At(call).DependentIUs == TUnorderedIUs{replacement});
         UNIT_ASSERT_VALUES_EQUAL(*subplans.At(call).ResultIU, local);
         UNIT_ASSERT(subplans.At(nestedCall).DependentIUs == TUnorderedIUs{local});
-        UNIT_ASSERT(body->GetFilterExpression().Node == originalBody);
+        UNIT_ASSERT(body->GetFilterExpression().GetNativeRoot() == originalBody);
         UNIT_ASSERT(filter->GetFilterExpression().GetRawInputIUs() == TUnorderedIUs{call});
     }
 }

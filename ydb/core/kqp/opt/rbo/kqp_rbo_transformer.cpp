@@ -1,6 +1,5 @@
 #include "kqp_rbo_transformer.h"
 #include "kqp_operator.h"
-#include "kqp_plan_conversion_utils.h"
 #include "kqp_rbo_rules.h"
 #include "traces/kqp_rbo_trace_output.h"
 
@@ -35,200 +34,33 @@ NJson::TJsonValue MakeNewRBOOptimizerStats(const NOpt::TKqpOptimizeContext& kqpC
     return optimizerStats;
 }
 
-TExprNode::TPtr PushTakeIntoPlan(const TExprNode::TPtr& node, TExprContext& ctx, const TTypeAnnotationContext& typeCtx) {
-    Y_UNUSED(typeCtx);
-    auto take = TCoTake(node);
-    auto takeInput = take.Input();
-    if (takeInput.Maybe<TCoUnordered>()) {
-        takeInput = takeInput.Cast<TCoUnordered>().Input();
-    }
 
-    if (auto root = takeInput.Maybe<TKqpOpRoot>()) {
-        // clang-format off
-        return Build<TKqpOpRoot>(ctx, node->Pos())
-            .Input<TKqpOpLimit>()
-                .Input(root.Cast().Input())
-                .Count(take.Count())
-            .Build()
-            .ColumnOrder(root.Cast().ColumnOrder())
-        .Done().Ptr();
-        // clang-format on
-    } else {
-        return node;
-    }
-}
 
-void CollectTopLevelSelects(TExprNode::TPtr input, THashSet<TExprNode*>& topLevelSelects, THashSet<TExprNode*>& visited) {
-    if (visited.contains(input.Get())) {
-        return;
-    }
 
-    if (input->IsCallable("KqpOpRoot")) {
-        visited.insert(input.Get());
-        return;
-    }
 
-    if (input->IsCallable("YqlSelect")) {
-        topLevelSelects.insert(input.Get());
-        visited.insert(input.Get());
-        return;
-    }
-    for (auto c: input->Children()) {
-        CollectTopLevelSelects(c, topLevelSelects, visited);
-    }
-    return;
-}
 
-bool IsRboTraceLogEnabled() {
-    TMaybe<TString> htmlTracePath = TryGetEnv("NEW_RBO_LOG");
-    return htmlTracePath.Defined() && !htmlTracePath->empty();
-}
 
 } // anonymous namespace
 
-IGraphTransformer::TStatus TKqpRewriteSelectTransformer::DoTransform(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) {
-    if (KqpCtx.Config->OptFallbackToLegacyOptimizer.Get()) {
-        Y_ENSURE(false, "Forced fallback to legacy optimizer");
-    }
-    
-    output = input;
-    TOptimizeExprSettings settings(&TypeCtx);
-    const bool needTraceAst = IsRboTraceLogEnabled();
-    if (needTraceAst) {
-        if (!RboTraceRewriteSelectStarted) {
-            KqpCtx.RboTraceAstBeforeRewriteSelect = input;
-            KqpCtx.RboTraceAstAfterRewriteSelect = nullptr;
-            RboTraceRewriteSelectStarted = true;
-        }
-    } else {
-        KqpCtx.RboTraceAstBeforeRewriteSelect = nullptr;
-        KqpCtx.RboTraceAstAfterRewriteSelect = nullptr;
-        RboTraceRewriteSelectStarted = false;
-    }
 
-    THashSet<TExprNode*> topLevelSelects;
-    THashSet<TExprNode*> visited;
 
-    CollectTopLevelSelects(input, topLevelSelects, visited);
 
-    auto status = OptimizeExpr(
-        output, output,
-        [this, &topLevelSelects](const TExprNode::TPtr &node, TExprContext &ctx) -> TExprNode::TPtr {
-            
-            // YQL AST rewriting
-            if (TCoYqlSelect::Match(node.Get()) && topLevelSelects.contains(node.Get())) {
-                THashMap<const TExprNode*, TExprNode::TPtr> translated;
-                return RewriteSelect(node, ctx, TypeCtx, KqpCtx, UniqueSourceIdCounter, UniqueColumnIdCounter, translated, true);
-            }  else if (TCoTake::Match(node.Get())) {
-                return PushTakeIntoPlan(node, ctx, TypeCtx);
-            } else if (TKqlTableEffect::Match(node.Get())) {
-                return RewriteTableEffect(node, ctx, KqpCtx);
-            } else {
-                return node;
-            }
-        },
-        ctx, settings);
-
-    if (needTraceAst && status == TStatus::Ok) {
-        KqpCtx.RboTraceAstAfterRewriteSelect = output;
-        RboTraceRewriteSelectStarted = false;
-    } else if (status == TStatus::Error) {
-        RboTraceRewriteSelectStarted = false;
-    }
-
-    return status;
-}
-
-void TKqpRewriteSelectTransformer::Rewind() {
-    RboTraceRewriteSelectStarted = false;
-    KqpCtx.RboTraceAstBeforeRewriteSelect = nullptr;
-    KqpCtx.RboTraceAstAfterRewriteSelect = nullptr;
-}
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::DoTransform(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) {
-    output = input;
-    if (NativeRoots) {
-        // Backend annotation can restart the composite pipeline. Native roots
-        // are consumed once: their stage assignments must never enter RBO again.
-        if (NativeOptimized) return TStatus::Ok;
-        for (auto& root : Roots) {
-            root->ComputeParents();
-        }
-        if (IsSuitableToRequestStatistics()) {
-            const auto status = RequestColumnStatistics(ctx);
-            if (status == TStatus::Async || status == TStatus::Error) {
-                return status;
-            }
-        }
-        return ContinueOptimizations(input, output, ctx);
+
+    Y_ENSURE(!Roots.empty(), "New RBO requires native query roots");
+    // Backend annotation can restart the composite pipeline. Native roots
+    // are consumed once: their stage assignments must never enter RBO again.
+    if (NativeOptimized) return TStatus::Ok;
+    for (auto& root : Roots) {
+        root->ComputeParents();
     }
-
-    TOptimizeExprSettings settings(&TypeCtx);
-    settings.VisitTuples = true;
-
-    // At first step convert KqpOps to RBO Ops.
-    auto status = OptimizeExpr(
-        output, output,
-        [this](const TExprNode::TPtr& node, TExprContext& ctx) -> TExprNode::TPtr {
-            Y_UNUSED(ctx);
-
-            // Match whole elements that are tuples (TKqpOpRoot, columns) or (Unordered(TKqpOpRoot), columns)
-            if (node->IsList()) {
-                TVector<std::pair<TExprNode::TPtr, TExprNode::TPtr>> roots;
-                for (const auto& child : node->Children()) {
-                    if (!child->IsList() || child->ChildrenSize()==0) {
-                        continue;
-                    }
-                    TExprNode::TPtr queryColumns;
-                    if (child->ChildrenSize() >=2) {
-                        queryColumns = child->ChildPtr(1);
-                    }
-
-                    if (TCoUnordered::Match(child->ChildPtr(0).Get()) && TKqpOpRoot::Match(child->ChildPtr(0)->ChildPtr(0).Get())) {
-                        roots.push_back(std::make_pair(child->ChildPtr(0)->ChildPtr(0), queryColumns));
-                    }
-                    else if (TKqpOpRoot::Match(child->ChildPtr(0).Get())) {
-                        roots.push_back(std::make_pair(child->ChildPtr(0), queryColumns));
-                    }
-                }
-
-                if (roots.empty()) {
-                    return node;
-                }
-
-                for (const auto& root: roots) {
-                    auto opRoot = PlanConverter(TypeCtx, ctx).ConvertRoot(root.first, root.second);
-                    opRoot->ComputeParents();
-                    Roots.push_back(std::move(opRoot));
-                }
-
-                if (Roots.size() > 1) {
-                    if (KqpCtx.Config->GetEnableFallbackOnMultipleStatements()) {
-                        Y_ENSURE(false, "Fallback due to multiple statements flag");
-                    }
-                    ResetTypes = true;
-                }
-
-                return node;
-            } else {
-                return node;
-            }
-        },
-        ctx, settings);
-
-    if (status != TStatus::Ok) {
-        return status;
-    }
-
     if (IsSuitableToRequestStatistics()) {
-        // Async request for statistics.
-        auto status = RequestColumnStatistics(ctx);
+        const auto status = RequestColumnStatistics(ctx);
         if (status == TStatus::Async || status == TStatus::Error) {
             return status;
         }
     }
-
-    // Continue optimizations without statistics.
     return ContinueOptimizations(input, output, ctx);
 }
 
@@ -272,7 +104,7 @@ void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(const TExpression& expr
         keys.first.push_back(lhsEntry);
         keys.second.push_back(rhsEntry);
     };
-    if (expr.IsNative()) {
+
         const auto usage = CollectNativePredicateStatistics(*expr.GetNativeArena(), expr.GetNativeRoot());
         const auto collectColumns = [&](const TUnorderedIUs& columns, auto& requests) {
             for (const auto column : columns) {
@@ -283,44 +115,7 @@ void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(const TExpression& expr
         collectColumns(usage.CountMinColumns, CMColumnsByTableName);
         collectColumns(usage.HistogramColumns, HistColumnsByTableName);
         for (const auto& [lhs, rhs] : usage.JoinKeys) collectJoinKey(lhs, rhs);
-    } else {
-        auto lambda = TCoLambda(expr.GetLegacyLambda());
 
-        // Request only the statistic each filter predicate actually consumes during selectivity estimation:
-        // equality predicates probe the count-min sketch, while
-        // range/inequality predicates use the equi-width histogram.
-        TPredicateSelectivityComputer computer(nullptr, /*collectColumnsStatUsedMembers=*/true,
-            /*collectMemberEqualities=*/true);
-        computer.Compute(lambda.Body());
-
-        using TUsedMember = TPredicateSelectivityComputer::TColumnStatisticsUsedMembers::TColumnStatisticsUsedMember;
-        for (const auto& item : computer.GetColumnStatsUsedMembers().Data) {
-            if (item.Member.Struct().Raw() != lambda.Args().Arg(0).Raw()) {
-                continue; // Nested struct fields are not IU IDs, even if numeric.
-            }
-            const auto* entry = FindSourceStatistics(input, GetMemberId(item.Member.Ref()), lineage);
-            if (!entry || entry->TableName == "") {
-                continue;
-            }
-            const auto& tableName = entry->TableName;
-            const auto& colName = entry->ColumnName;
-            switch (item.PredicateType) {
-                case TUsedMember::EEquality:
-                    CMColumnsByTableName[tableName].insert(colName);
-                    break;
-                case TUsedMember::EInequality:
-                    HistColumnsByTableName[tableName].insert(colName);
-                    break;
-            }
-        }
-
-        for (const auto& [lhsMember, rhsMember] : computer.GetMemberEqualities()) {
-            if (lhsMember.Struct().Raw() != lambda.Args().Arg(0).Raw() || rhsMember.Struct().Raw() != lambda.Args().Arg(0).Raw()) {
-                continue; // Nested struct fields are not IU IDs, even if numeric.
-            }
-            collectJoinKey(GetMemberId(lhsMember.Ref()), GetMemberId(rhsMember.Ref()));
-        }
-    }
 
     for (const auto& [_, keys] : keysByTablePair) {
         CollectJoinKeysTuple(keys.first);
@@ -416,7 +211,7 @@ std::optional<TVector<TString>> TKqpNewRBOTransformer::FindEqHeightHistogramTupl
 }
 
 void TKqpNewRBOTransformer::CollectTablesAndColumnsNames(TExprContext& ctx) {
-    TRBOContext rboCtx(KqpCtx, ctx, TypeCtx, *RBOTypeAnnTransformer.Get(), FuncRegistry);
+    TRBOContext rboCtx(KqpCtx, ctx, TypeCtx, *BackendTypeAnnTransformer.Get(), FuncRegistry);
     for (auto & root : Roots) {
         root->ComputePlanMetadata(rboCtx);
         for (const auto& it : *root) {
@@ -506,70 +301,18 @@ bool TKqpNewRBOTransformer::IsSuitableToRequestStatistics() {
 }
 
 IGraphTransformer::TStatus TKqpNewRBOTransformer::ContinueOptimizations(TExprNode::TPtr input, TExprNode::TPtr& output, TExprContext& ctx) {
-    if (NativeRoots) {
-        TRBOContext rboCtx(KqpCtx, ctx, TypeCtx, *RBOTypeAnnTransformer.Get(), FuncRegistry);
-        TRBOTraceOutput traceOutput(rboCtx);
-        output = RBO.Optimize(Roots, rboCtx);
-        traceOutput.Flush();
-        if (!output) {
-            return TStatus::Error;
-        }
-        AddPlans(rboCtx.ExecutionJson, rboCtx.ExplainJson);
-        NativeOptimized = true;
-        return TStatus::Ok;
+
+    Y_UNUSED(input);
+    TRBOContext rboCtx(KqpCtx, ctx, TypeCtx, *BackendTypeAnnTransformer.Get(), FuncRegistry);
+    TRBOTraceOutput traceOutput(rboCtx);
+    output = RBO.Optimize(Roots, rboCtx);
+    traceOutput.Flush();
+    if (!output) {
+        return TStatus::Error;
     }
-
-    output = input;
-    TOptimizeExprSettings settings(nullptr);
-    if (!ResetTypes) {
-        settings = TOptimizeExprSettings(&TypeCtx);
-    }
-    settings.VisitTuples = true;
-    Y_ENSURE(Roots.size(), "NEW RBO OpRoot is not initialized.");
-
-    // Apply optimizations.
-    auto status = OptimizeExpr(
-        output, output,
-        [this](const TExprNode::TPtr& node, TExprContext& ctx) -> TExprNode::TPtr {
-
-            // Match whole elements that are tuples (TKqpOpRoot, columns) or (Unordered(TKqpOpRoot), columns)
-            if (node->IsList()) {
-                bool emptyPreamble = false;
-                TVector<TExprNode::TPtr> roots;
-                for (const auto& child : node->Children()) {
-                    if (!child->IsList()) {
-                        continue;
-                    }
-                    if(child->ChildrenSize()==0) {
-                        emptyPreamble = true;
-                        continue;
-                    }
-                    if (TCoUnordered::Match(child->ChildPtr(0).Get()) && TKqpOpRoot::Match(child->ChildPtr(0)->ChildPtr(0).Get())) {
-                        roots.push_back(child->ChildPtr(0));
-                    }
-                    else if (TKqpOpRoot::Match(child->ChildPtr(0).Get())) {
-                        roots.push_back(child->ChildPtr(0));
-                    }
-                }
-
-                if (roots.empty()) {
-                    return node;
-                }
-
-                TRBOContext rboCtx(KqpCtx, ctx, TypeCtx, *RBOTypeAnnTransformer.Get(), FuncRegistry);
-                rboCtx.EmptyPreamble = emptyPreamble;
-                TRBOTraceOutput traceOutput(rboCtx);
-                auto output = RBO.Optimize(Roots, rboCtx);
-                traceOutput.Flush();
-                AddPlans(rboCtx.ExecutionJson, rboCtx.ExplainJson);
-                return output;
-            } else {
-                return node;
-            }
-        },
-        ctx, settings);
-
-    return status;
+    AddPlans(rboCtx.ExecutionJson, rboCtx.ExplainJson);
+    NativeOptimized = true;
+    return TStatus::Ok;
 }
 
 void TKqpNewRBOTransformer::ApplyColumnStatistics() {
@@ -615,7 +358,6 @@ void TKqpNewRBOTransformer::SetNativeRoots(TVector<TIntrusivePtr<TOpRoot>> roots
         Y_ENSURE(!root->PlanProps.WithEffects, "Native frontend does not support effects");
     }
     Roots = std::move(roots);
-    NativeRoots = true;
 }
 
 void TKqpNewRBOTransformer::Rewind() {
@@ -637,12 +379,12 @@ IGraphTransformer::TStatus TKqpRBOCleanupTransformer::DoTransform(TExprNode::TPt
 }
 
 TKqpNewRBOTransformer::TKqpNewRBOTransformer(TIntrusivePtr<TKqpOptimizeContext>& kqpCtx, TTypeAnnotationContext& typeCtx,
-                                             TAutoPtr<IGraphTransformer>&& rboTypeAnnTransformer,
+                                             TAutoPtr<IGraphTransformer>&& backendTypeAnnTransformer,
                                              TKikimrTablesData& tables, const TString& cluster, const TString& database, TActorSystem* actorSystem,
                                              const NMiniKQL::IFunctionRegistry& funcRegistry, TIntrusivePtr<TKqlTransformContext> transformCtx)
     : TypeCtx(typeCtx)
     , KqpCtx(*kqpCtx)
-    , RBOTypeAnnTransformer(std::move(rboTypeAnnTransformer))
+    , BackendTypeAnnTransformer(std::move(backendTypeAnnTransformer))
     , FuncRegistry(funcRegistry)
     , TransformCtx(transformCtx)
     , Tables(tables)
@@ -821,15 +563,13 @@ void TKqpNewRBOTransformer::InitializeRBOOptimizationStages() {
 void TKqpRBOCleanupTransformer::Rewind() {
 }
 
-TAutoPtr<IGraphTransformer> CreateKqpRewriteSelectTransformer(const TIntrusivePtr<TKqpOptimizeContext>& kqpCtx, TTypeAnnotationContext& typeCtx) {
-    return new TKqpRewriteSelectTransformer(kqpCtx, typeCtx);
-}
+
 
 TAutoPtr<IGraphTransformer> CreateKqpNewRBOTransformer(TIntrusivePtr<TKqpOptimizeContext>& kqpCtx, TTypeAnnotationContext& typeCtx,
-                                                       TAutoPtr<IGraphTransformer>&& rboTypeAnnTransformer, TKikimrTablesData& tables,
+                                                       TAutoPtr<IGraphTransformer>&& backendTypeAnnTransformer, TKikimrTablesData& tables,
                                                        const TString& cluster, const TString& database, TActorSystem* actorSystem,
                                                        const NMiniKQL::IFunctionRegistry& funcRegistry, TIntrusivePtr<TKqlTransformContext> transformCtx) {
-    return new TKqpNewRBOTransformer(kqpCtx, typeCtx, std::move(rboTypeAnnTransformer), tables, cluster, database,
+    return new TKqpNewRBOTransformer(kqpCtx, typeCtx, std::move(backendTypeAnnTransformer), tables, cluster, database,
                                      actorSystem, funcRegistry, transformCtx);
 }
 

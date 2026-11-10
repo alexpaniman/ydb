@@ -57,7 +57,7 @@ void Invalidate(IOperator& op) {
     op.Props.Statistics.reset();
     op.Props.Cost.reset();
     op.Props.ClearLogicalAnalysis();
-    op.Type = nullptr;
+    op.NativeSchema.reset();
     // Parents are the traversal's edges. The rule engine rebuilds them after
     // installing the replacement; clearing them here would cut propagation short.
 }

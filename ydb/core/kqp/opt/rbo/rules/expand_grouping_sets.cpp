@@ -11,61 +11,13 @@ using namespace NYql;
 using namespace NYql::NNodes;
 
 // Makes a null column.
-TExpression BuildNullColumn(const TTypeAnnotationNode* columnType, TPositionHandle pos,
-                            TExprContext& ctx, TPlanProps& props) {
-    Y_ENSURE(columnType, "No type for grouping column");
 
-    if (columnType->IsOptionalOrNull()) {
-        columnType = columnType->Cast<TOptionalExprType>()->GetItemType();
-    }
-
-    // clang-format off
-    auto nullColumn = Build<TCoLambda>(ctx, pos)
-        .Args({"null_arg"})
-        .Body<TCoNothing>()
-            .OptionalType<TCoOptionalType>()
-                .ItemType(ExpandType(pos, *columnType, ctx))
-            .Build()
-        .Build()
-    .Done().Ptr();
-    // clang-format on
-
-    return TExpression(nullColumn, &ctx, &props);
-}
 
 // Makes an optional column.
-TExpression BuildOptionalColumn(TInfoUnitId sourceIU, TPositionHandle pos,
-                                TExprContext& ctx, TPlanProps& props) {
-    auto argument = ctx.NewArgument(pos, "optional_arg");
 
-    // clang-format off
-    auto optionalColumn = Build<TCoLambda>(ctx, pos)
-        .Args({argument})
-        .Body<TCoJust>()
-            .Input<TCoMember>()
-                .Struct(argument)
-                .Name<TCoAtom>()
-                    .Value(ctx.GetIndexAsString(sourceIU))
-                .Build()
-            .Build()
-        .Build()
-    .Done().Ptr();
-    // clang-format on
 
-    return TExpression(optionalColumn, &ctx, &props);
-}
-
-TExpression BuildGroupingIndicatorColumn(bool aggregatedAway, TPositionHandle pos, TExprContext& ctx, TPlanProps& props) {
-    // clang-format off
-    auto indicatorColumn = Build<TCoLambda>(ctx, pos)
-        .Args({"grouping_indicator_arg"})
-        .Body<TCoUint64>()
-            .Literal().Build(aggregatedAway ? "1" : "0")
-        .Build()
-    .Done().Ptr();
-    // clang-format on
-
-    return TExpression(indicatorColumn, &ctx, &props);
+TExpression BuildGroupingIndicatorColumn(bool aggregatedAway, TPositionHandle pos, TPlanProps& props) {
+    return MakeConstant("Uint64", aggregatedAway ? "1" : "0", pos, &props);
 }
 
 } // anonymous namespace
@@ -74,13 +26,12 @@ bool TExpandGroupingSetsRule::QuickMatch(const TIntrusivePtr<IOperator>& input) 
     return input->Kind == EOperator::GroupingSets;
 }
 
-TIntrusivePtr<IOperator> TExpandGroupingSetsRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& rboCtx,
+TIntrusivePtr<IOperator> TExpandGroupingSetsRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext&,
                                                                       TPlanProps& props) {
     const auto groupingSetsOp = CastOperator<TOpGroupingSets>(input);
     const auto aggregate = CastOperator<TOpAggregate>(groupingSetsOp->GetInput());
     const auto& groupByKeys = aggregate->GetKeyColumns();
     const auto& groupingSets = groupingSetsOp->GetGroupingSets();
-    auto& ctx = rboCtx.ExprCtx;
     auto& registry = props.InfoUnitRegistry;
     Y_ENSURE(!groupingSets.empty(), "Grouping sets list must not be empty");
 
@@ -143,31 +94,35 @@ TIntrusivePtr<IOperator> TExpandGroupingSetsRule::SimpleMatchAndApply(const TInt
                 values.Add(output, value);
             }
         };
+        const auto nativeOptional = [&](TInfoUnitId source, NFrontend::TType type) {
+            const auto& arena = props.NativeExpressions;
+            auto value = arena->Column(source, type);
+            return TExpression::FromNative(arena, arena->Convert(value, type.Optional()), &props, aggregate->Pos);
+        };
         for (const auto key : groupByKeys.Items()) {
-            const auto* type = sourceInput->GetIUType(key, ctx);
-            Y_ENSURE(type, "No type for grouping key " << key);
-            if (!groupKeys.Contains(key)) {
-                addValue(key, BuildNullColumn(type, aggregate->Pos, ctx, props));
-            } else if (!commonKeys.Contains(key) && !type->IsOptionalOrNull()) {
-                addValue(key, BuildOptionalColumn(values.At(key), aggregate->Pos, ctx, props));
-            }
+
+                const auto type = sourceInput->GetNativeIUType(key);
+                if (!groupKeys.Contains(key)) {
+                    const auto& arena = props.NativeExpressions;
+                    addValue(key, TExpression::FromNative(arena, arena->Literal(type.Optional(), std::monostate{}), &props, aggregate->Pos));
+                } else if (!commonKeys.Contains(key) && !type.OptionalDepth) addValue(key, nativeOptional(values.At(key), type));
+
         }
         if (!groupKeys.Empty()) {
             for (const auto& [output, source] : groupingSetsOp->GetColumns().Items()) {
                 if (!aggregate->GetAggregationTraits().Keys().Contains(source)) {
                     continue;
                 }
-                const auto* sourceType = aggregate->GetIUType(source, ctx);
-                const auto* targetType = groupingSetsOp->GetIUType(output, ctx);
-                Y_ENSURE(sourceType && targetType, "No type for aggregation result " << output);
-                if (!sourceType->IsOptionalOrNull() && targetType->IsOptionalOrNull()) {
-                    addValue(source, BuildOptionalColumn(values.At(source), aggregate->Pos, ctx, props));
-                }
+
+                    const auto sourceType = aggregate->GetNativeIUType(source);
+                    if (!sourceType.OptionalDepth && groupingSetsOp->GetNativeIUType(output).OptionalDepth)
+                        addValue(source, nativeOptional(values.At(source), sourceType));
+
             }
         }
         for (const auto& [output, key] : groupingSetsOp->GetGroupingIndicators().Items()) {
             const auto value = registry.AddCopy(output);
-            computed.Add(value, BuildGroupingIndicatorColumn(!groupKeys.Contains(key), aggregate->Pos, ctx, props));
+            computed.Add(value, BuildGroupingIndicatorColumn(!groupKeys.Contains(key), aggregate->Pos, props));
             inputsByOutput.At(output).Inputs.push_back(value);
         }
         if (!computed.Keys().Empty()) {
@@ -184,7 +139,7 @@ TIntrusivePtr<IOperator> TExpandGroupingSetsRule::SimpleMatchAndApply(const TInt
         TMapIUs bindings;
         for (const auto& [output, row] : inputsByOutput.Items()) {
             if (output != row.Inputs.front()) {
-                bindings.Add(output, MakeColumnAccess(row.Inputs.front(), aggregate->Pos, &ctx, &props));
+                bindings.Add(output, MakeColumnAccess(row.Inputs.front(), *branches.front(), aggregate->Pos, &props));
             }
         }
         if (bindings.Keys().Empty()) {

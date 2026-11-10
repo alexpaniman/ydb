@@ -133,9 +133,15 @@ public:
                 value += current;
             }
             if (!closed) throw TFrontendError(pos, "unterminated quoted value");
+            std::string suffix;
+            if (!identifier && (Peek() == 'u' || Peek() == 'U' || Peek() == 's' || Peek() == 'S') &&
+                !Alpha(Peek(1)) && !Digit(Peek(1))) {
+                suffix = Upper(std::string_view(Text).substr(Position.Offset, 1));
+                Advance();
+            }
             if (!identifier && (Alpha(Peek()) || Peek() == '@'))
                 throw TUnsupportedFeature(EFeature::Syntax, pos, "typed or adjacent string literal requires grammar parser");
-            return {identifier ? EToken::QuotedIdentifier : EToken::String, std::move(value), pos, Position.Offset};
+            return {identifier ? EToken::QuotedIdentifier : EToken::String, std::move(value), pos, Position.Offset, std::move(suffix)};
         }
         if (ch == '@' && Peek(1) == '@') {
             throw TUnsupportedFeature(EFeature::Syntax, pos, "multiline literal requires grammar parser");
@@ -281,7 +287,7 @@ private:
             name += "," + Tokens[Index++].Text + ")";
             Expect(")");
         }
-        if (Take("?")) name += '?';
+        while (Is("?") || Is("??")) name += Tokens[Index++].Text;
         return name;
     }
 
@@ -291,7 +297,11 @@ private:
             TStatement result{EStatementKind::Declaration, pos};
             result.Name = Variable(); Expect("AS");
             if (Take("LIST")) {
-                Expect("<"); Expect("STRUCT"); result.RowFields.emplace();
+                Expect("<");
+                if (!Take("STRUCT")) {
+                    result.ScalarList = true; result.Value = TypeName(); TypeEnd(); return result;
+                }
+                result.RowFields.emplace();
                 if (!Take("<>")) {
                     Expect("<");
                     if (!TakeTypeEnd()) while (true) {
@@ -314,6 +324,8 @@ private:
             if (Take(".")) result.Name += "." + Identifier();
             if (Take("=")) {
                 if (Token().Kind != EToken::Identifier && Token().Kind != EToken::String && Token().Kind != EToken::Number) Fail("expected pragma value");
+                if (Token().Kind == EToken::String && !Token().Word.empty())
+                    throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "typed pragma strings are outside the native profile");
                 result.Value = Tokens[Index++].Text;
             }
             return result;
@@ -565,6 +577,13 @@ private:
                 auto low = Expression(precedence + 1); Expect("AND"); auto high = Expression(precedence + 1);
                 left = Add(ESyntaxKind::Between, pos, {}, {left, low, high});
             } else if (op == "IN") {
+                if (!Is("[") && !Is("(")) {
+                    if (!Is("$")) throw TUnsupportedFeature(EFeature::Syntax, pos, "IN expression requires the grammar parser");
+                    const auto collection = Expression(precedence + 1);
+                    left = Add(ESyntaxKind::In, pos, "collection", {left, collection});
+                    if (negate) left = Add(ESyntaxKind::Unary, pos, "NOT", {left});
+                    continue;
+                }
                 const bool list = Take("[");
                 if (!list) Expect("(");
                 const auto end = list ? "]" : ")";
@@ -609,7 +628,8 @@ private:
         }
         if (token.Kind == EToken::String) {
             ++Index;
-            return Add(ESyntaxKind::String, pos, token.Text);
+            const auto value = Add(ESyntaxKind::String, pos, token.Text);
+            return token.Word == "U" ? Add(ESyntaxKind::Call, pos, "Utf8", {value}) : value;
         }
         if (Take("CAST")) {
             Expect("("); auto arg = Expression(); Expect("AS"); auto type = TypeName(); Expect(")");
@@ -618,6 +638,8 @@ private:
         if (Is("JSON_VALUE") && Is("(", 1)) {
             ++Index; Expect("("); auto input = Expression(); Expect(",");
             if (Token().Kind != EToken::String) Fail("JSON_VALUE requires a literal path");
+            if (!Token().Word.empty())
+                throw TUnsupportedFeature(EFeature::Syntax, Token().Position, "typed JSON paths are outside the native profile");
             auto path = Tokens[Index++].Text;
             // Extended clauses go through the generated grammar and receive
             // an explicit Unsupported result; they are not ordinary call args.

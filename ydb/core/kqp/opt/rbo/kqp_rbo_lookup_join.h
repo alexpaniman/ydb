@@ -40,6 +40,5 @@ std::optional<TLookupJoinTarget> ChooseLookupJoinTarget(const TOpRead& read, con
                                                         const THashSet<TString>& joinKeyColumns, bool innerJoin,
                                                         const NOpt::TKqpOptimizeContext& kqpCtx);
 
-TExprNode::TPtr BuildTableCallable(const NYql::TKikimrTableMetadata& meta, NYql::TPositionHandle pos, NYql::TExprContext& ctx);
 
 } // namespace NKikimr::NKqp

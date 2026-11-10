@@ -46,7 +46,6 @@ using namespace NThreading;
 using namespace NYql;
 using namespace NYql::NDq;
 
-
 class TKqpCompileActor : public TActorBootstrapped<TKqpCompileActor> {
 public:
     using TBase = TActorBootstrapped<TKqpCompileActor>;
@@ -94,8 +93,7 @@ public:
         , CollectFullDiagnostics(collectFullDiagnostics)
         , CompileAction(compileAction)
         , QueryAst(std::move(queryAst))
-        , EnableNewRBO(tableServiceConfig.GetEnableNewRBO() && !queryId.Settings.IsAnalyze)
-        , EnableFallbackToYqlOptimizer(tableServiceConfig.GetEnableFallbackToYqlOptimizer())
+        , EnableNewRBO(tableServiceConfig.GetEnableNewRBO() && !queryId.Settings.IsAnalyze && !queryId.Settings.IsInternalCall)
         , UsePessimisticLocks(usePessimisticLocks)
     {
         Config = BuildConfiguration(tableServiceConfig);
@@ -113,10 +111,10 @@ public:
 
         config->ApplyServiceConfig(tableServiceConfig);
 
-        // ANALYZE scans use UDAF factories unsupported by new RBO. Select the
-        // YQL optimizer on their first attempt, as well as on fallback retries.
+        // Internal scans and metadata writes use the legacy compiler, independent
+        // of the admission policy selected for user queries.
         config->SetEnableNewRBO(EnableNewRBO);
-        if (QueryId.Settings.IsAnalyze) {
+        if (QueryId.Settings.IsAnalyze || QueryId.Settings.IsInternalCall) {
             config->SetNativeFrontendMode(TTableServiceConfig::NATIVE_LEGACY);
         }
 
@@ -197,7 +195,6 @@ private:
             InternalError(e.what());
         }
     }
-
 
 private:
     TVector<TQueryAst> GetAstStatements(const TActorContext &ctx) {
@@ -393,11 +390,9 @@ private:
         prepareSettings.IsInternalCall = QueryId.Settings.IsInternalCall;
         prepareSettings.RuntimeParameterSizeLimit = QueryId.Settings.RuntimeParameterSizeLimit;
         prepareSettings.RuntimeParameterSizeLimitSatisfied = QueryId.Settings.RuntimeParameterSizeLimitSatisfied;
-        // Internal ANALYZE scans require legacy translation; new RBO forces YqlSelect.
-        if (QueryId.Settings.IsAnalyze) {
+        // Internal maintenance queries require legacy translation.
+        if (QueryId.Settings.IsAnalyze || QueryId.Settings.IsInternalCall) {
             prepareSettings.YqlSelect = NSQLTranslation::EYqlSelect::Disable;
-        } else if (EnableNewRBO) {
-            prepareSettings.YqlSelect = NSQLTranslation::EYqlSelect::Force;
         }
         prepareSettings.UsePessimisticLocks = UsePessimisticLocks;
 
@@ -520,7 +515,6 @@ private:
             {"self", SelfId()},
             {"message", message});
 
-
         NYql::TIssue issue(NYql::TPosition(), "Internal error while compiling query.");
         issue.AddSubIssue(MakeIntrusive<TIssue>(NYql::TPosition(), message));
 
@@ -604,23 +598,12 @@ private:
 
         if (kqpResult.NeedToSplit) {
             KqpCompileResult = TKqpCompileResult::Make(
-                Uid, status, CollectIssues(kqpResult.Issues()), ETableReadType::Other, CompileCpuTime, std::move(QueryId), std::move(QueryAst), meta, true);
+                Uid, status, kqpResult.Issues(), ETableReadType::Other, CompileCpuTime, std::move(QueryId), std::move(QueryAst), meta, true);
             Reply();
             return;
         }
 
-        if (IsSuitableToFallbackToYqlOptimizer(status)) {
-            Counters->ReportCompileNewRBOFailed(DbCounters);
-            // Disable compilation with new RBO.
-            EnableNewRBO = false;
-            FallbackToYqlOptimizerIssue = NYql::TIssue(TStringBuilder()
-                                                       << "Compilation with the new RBO failed: "
-                                                       << kqpResult.Issues().ToOneLineString());
-            FallbackToYqlOptimizerIssue->SetCode(NYql::DEFAULT_ERROR, NYql::TSeverityIds::S_INFO);
-            TString logMessage = "Compilation with new RBO failed, retrying with YQL optimizer";
-            RebuildConfigAndStartCompilation(ctx, std::move(logMessage), status, kqpResult.Issues());
-            return;
-        } else if (IsSuitableToReportSuccessOnNewRBO(status)) {
+        if (IsSuitableToReportSuccessOnNewRBO(status)) {
             Counters->ReportCompileNewRBOSuccess(DbCounters);
         } else if (IsSuitableToReportFailOnNewRBO(status)) {
             Counters->ReportCompileNewRBOFailed(DbCounters);
@@ -639,7 +622,7 @@ private:
 
         auto queryType = QueryId.Settings.QueryType;
 
-        KqpCompileResult = TKqpCompileResult::Make(Uid, status, CollectIssues(kqpResult.Issues()), maxReadType, CompileCpuTime, std::move(QueryId), std::move(QueryAst), meta);
+        KqpCompileResult = TKqpCompileResult::Make(Uid, status, kqpResult.Issues(), maxReadType, CompileCpuTime, std::move(QueryId), std::move(QueryAst), meta);
         KqpCompileResult->UsedNewRbo = EnableNewRBO;
         KqpCompileResult->CommandTagName = kqpResult.CommandTagName;
 
@@ -714,40 +697,6 @@ private:
     }
 
 private:
-    NYql::TIssues CollectIssues(const NYql::TIssues& issues) const {
-        if (!FallbackToYqlOptimizerIssue) {
-            return issues;
-        }
-
-        NYql::TIssues result;
-        result.AddIssue(*FallbackToYqlOptimizerIssue);
-        result.AddIssues(issues);
-        return result;
-    }
-
-    void RebuildConfigAndStartCompilation(const TActorContext &ctx, TString&& logMessage,
-                                          Ydb::StatusIds::StatusCode status, const NYql::TIssues& issues) {
-        YDB_LOG_ERROR_CTX(ctx, "Rebuilding compile configuration and restarting compilation",
-            {"logMessage", logMessage},
-            {"self", ctx.SelfID},
-            {"database", QueryId.Database},
-            {"status", Ydb::StatusIds_StatusCode_Name(status)},
-            {"issues", issues},
-            {"queryText", GetQueryTextForLog(QueryId.Text)});
-
-        // Explicitly drop a pointer to result, it holds pointer `TExprNode` allocated from `TExprContext` in KqpHost
-        // and we want rebuild a KqpHost.
-        AsyncCompileResult.Drop();
-        Config = BuildConfiguration(TableServiceConfig);
-        auto prepareSettings = PrepareCompilationSettings(ctx);
-
-        StartCompilationWithSettings(prepareSettings);
-        Continue(ctx);
-    }
-
-    bool IsSuitableToFallbackToYqlOptimizer(Ydb::StatusIds::StatusCode status) {
-        return TableServiceConfig.GetNativeFrontendMode() == TTableServiceConfig::NATIVE_LEGACY && EnableNewRBO && EnableFallbackToYqlOptimizer && status != Ydb::StatusIds::SUCCESS;
-    }
 
     bool IsSuitableToReportSuccessOnNewRBO(Ydb::StatusIds::StatusCode status) {
         return EnableNewRBO && status == Ydb::StatusIds::SUCCESS;
@@ -798,8 +747,6 @@ private:
     ECompileActorAction CompileAction;
     TMaybe<TQueryAst> QueryAst;
     bool EnableNewRBO;
-    TMaybe<NYql::TIssue> FallbackToYqlOptimizerIssue;
-    bool EnableFallbackToYqlOptimizer;
     bool UsePessimisticLocks;
 };
 

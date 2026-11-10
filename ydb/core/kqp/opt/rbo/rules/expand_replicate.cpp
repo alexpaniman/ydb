@@ -7,7 +7,7 @@ namespace NKikimr::NKqp {
 namespace {
 
 // A copy of the producer that defines the IDs of a non-primary port.
-TIntrusivePtr<IOperator> CopyProducer(TOpReplicate& port, TExprContext& ctx, TPlanProps& props) {
+TIntrusivePtr<IOperator> CopyProducer(TOpReplicate& port, TPlanProps& props) {
     auto& producer = *port.GetInput();
     const auto& bindings = port.GetRebindings();
     TSubstitutions renames;
@@ -23,7 +23,7 @@ TIntrusivePtr<IOperator> CopyProducer(TOpReplicate& port, TExprContext& ctx, TPl
     for (const auto source : producer.GetOutputIUs()) {
         const auto output = bindings.At(source);
         if (const auto copied = renames.At(source); copied != output) {
-            copies.Add(output, MakeColumnAccess(source, producer, port.Pos, &ctx, &props).ApplyRenames({{source, copied}}));
+            copies.Add(output, MakeColumnAccess(source, producer, port.Pos, &props).ApplyRenames({{source, copied}}));
         }
     }
     if (copies.Keys().Empty()) {
@@ -51,7 +51,7 @@ bool TExpandReplicateRule::MatchAndApply(TIntrusivePtr<IOperator>& input, TRBOCo
     if (port.IsPrimary() || !CanDuplicateSubtree(*port.GetInput(), props.Subplans)) {
         return false;
     }
-    auto copy = CopyProducer(port, ctx.ExprCtx, props);
+    auto copy = CopyProducer(port, props);
     if (!copy) {
         return false;
     }

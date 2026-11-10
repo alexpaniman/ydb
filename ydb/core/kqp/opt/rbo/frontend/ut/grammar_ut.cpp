@@ -82,7 +82,6 @@ Y_UNIT_TEST_SUITE(KqpNativeGrammar) {
         for (auto sql : {
             "CREATE TABLE t (id Uint64, PRIMARY KEY(id));",
             "UPSERT INTO t (id) VALUES (1);",
-            "SELECT RowNumber() OVER w FROM t WINDOW w AS ();",
             "SELECT id FROM t GROUP COMPACT BY id;",
         }) {
             ValidateGrammar(sql);

@@ -13,6 +13,7 @@
 #include <ydb/core/kqp/opt/peephole/kqp_opt_peephole.h>
 #include <ydb/core/kqp/opt/physical/kqp_opt_phy.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_transformer.h>
+#include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
 #include <ydb/core/kqp/provider/yql_kikimr_provider_impl.h>
 #include <ydb/core/kqp/query_compiler/kqp_query_compiler.h>
 #include <ydb/library/yql/providers/dq/common/yql_dq_settings.h>
@@ -72,49 +73,6 @@ TTransformStage LogStage(const TStringBuf& transformerName, NYql::NLog::ELevel l
     return TTransformStage{ Log(transformerName, level), TStringBuilder() << "Log" << transformerName, TIssuesIds::DEFAULT_ERROR };
 }
 
-struct TNativeQueryMetadata {
-    struct TResult {
-        TPositionHandle Position;
-        TVector<TString> Columns;
-    };
-    struct TTable {
-        TPositionHandle Position;
-        TString Path;
-    };
-    TVector<TResult> Results;
-    TVector<TTable> Tables;
-    ui64 RowsLimit = 0;
-
-    // This is only the post-RBO compiler's result/table metadata envelope. Its
-    // values never participate in translation, typing, or optimization.
-    TKiDataQueryBlocks Export(const TString& cluster, TExprContext& ctx) const {
-        const auto pos = Results.front().Position;
-        TExprNode::TListType results;
-        for (const auto& result : Results) {
-            TExprNode::TListType columns;
-            for (const auto& name : result.Columns) {
-                columns.push_back(ctx.NewAtom(result.Position, name));
-            }
-            results.push_back(ctx.NewList(result.Position, {
-                ctx.NewWorld(result.Position), ctx.NewList(result.Position, std::move(columns)),
-                ctx.NewAtom(result.Position, ToString(RowsLimit)), ctx.NewAtom(result.Position, "0")
-            }));
-        }
-        TExprNode::TListType operations;
-        for (const auto& table : Tables) {
-            operations.push_back(ctx.NewList(table.Position, {
-                ctx.NewAtom(table.Position, cluster), ctx.NewAtom(table.Position, table.Path),
-                ctx.NewAtom(table.Position, "Select")
-            }));
-        }
-        auto block = ctx.NewCallable(pos, "TKiDataQueryBlock", {
-            ctx.NewList(pos, std::move(results)), ctx.NewCallable(pos, "KiEffects", {}),
-            ctx.NewList(pos, std::move(operations)), ctx.NewList(pos, {})
-        });
-        return TKiDataQueryBlocks(ctx.NewCallable(pos, "DataQueryBlocks", {std::move(block)}));
-    }
-};
-
 class TCompilePhysicalQueryTransformer : public TSyncTransformerBase {
 public:
     TCompilePhysicalQueryTransformer(
@@ -125,7 +83,7 @@ public:
         TTypeAnnotationContext& typesCtx,
         const NMiniKQL::IFunctionRegistry& funcRegistry,
         const TKikimrConfiguration::TPtr& config,
-        std::optional<TNativeQueryMetadata> nativeMetadata = std::nullopt
+        std::optional<TQueryExecutionMetadata> nativeMetadata = std::nullopt
     )
         : Cluster(cluster)
         , Database(database)
@@ -146,10 +104,7 @@ public:
             auto& preparedQuery = *TransformCtx.QueryCtx->PreparingQuery;
             TKqpPhysicalQuery physicalQuery(input);
 
-            if (NativeMetadata) {
-                TransformCtx.DataQueryBlocks = NativeMetadata->Export(Cluster, ctx);
-            }
-            YQL_ENSURE(TransformCtx.DataQueryBlocks);
+            YQL_ENSURE(NativeMetadata || TransformCtx.DataQueryBlocks);
             auto compiler = CreateKqpQueryCompiler(Cluster, Database, FuncRegistry, TypesCtx, OptimizeCtx, Config);
             if (!ctx.IssueManager.GetIssues().Empty()) {
                 bool errorFound = false;
@@ -174,7 +129,9 @@ public:
                 }
             }
 
-            auto ret = compiler->CompilePhysicalQuery(physicalQuery, *TransformCtx.DataQueryBlocks, *preparedQuery.MutablePhysicalQuery(), ctx);
+            auto ret = NativeMetadata
+                ? compiler->CompilePhysicalQuery(physicalQuery, *NativeMetadata, *preparedQuery.MutablePhysicalQuery(), ctx)
+                : compiler->CompilePhysicalQuery(physicalQuery, *TransformCtx.DataQueryBlocks, *preparedQuery.MutablePhysicalQuery(), ctx);
             if (!ret) {
                 ctx.AddError(TIssue(ctx.GetPosition(input->Pos()), "Failed to compile physical query."));
                 return TStatus::Error;
@@ -198,7 +155,7 @@ private:
     TTypeAnnotationContext& TypesCtx;
     const NMiniKQL::IFunctionRegistry& FuncRegistry;
     TKikimrConfiguration::TPtr Config;
-    const std::optional<TNativeQueryMetadata> NativeMetadata;
+    const std::optional<TQueryExecutionMetadata> NativeMetadata;
     bool TransformerFinished = false;
 };
 
@@ -250,9 +207,10 @@ public:
     }
 
     TIntrusivePtr<TAsyncQueryResult> PrepareNativeQuery(const TString& cluster,
-        TVector<TIntrusivePtr<TOpRoot>> roots, TExprContext& ctx,
+        TNativeQuery query, TExprContext& ctx,
         const IKikimrQueryExecutor::TExecuteSettings& settings) override
     {
+        auto& roots = query.Roots;
         YQL_ENSURE(cluster == Cluster);
         YQL_ENSURE(!settings.CommitTx && !settings.RollbackTx);
         YQL_ENSURE(TransformCtx->QueryCtx->PrepareOnly && TransformCtx->QueryCtx->PreparingQuery);
@@ -268,36 +226,28 @@ public:
             return MakeKikimrResultHolder(ResultFromErrors<IKqpHost::TQueryResult>(ctx.IssueManager.GetIssues()));
         }
 
-        TNativeQueryMetadata metadata;
-        metadata.RowsLimit = Config->_ResultRowsLimit.Get().GetOrElse(0);
-        THashSet<TString> tables;
+        YQL_ENSURE(query.Execution.DiscardResults.size() == roots.size());
+        bool isOlap = false;
         for (const auto& root : roots) {
-            YQL_ENSURE(root->PlanProps.NativeExpressions && !root->PlanProps.WithEffects);
-            TNativeQueryMetadata::TResult result{root->Pos, {}};
-            for (const auto& [id, name] : root->GetColumns().Items()) {
-                Y_UNUSED(id);
-                result.Columns.push_back(name);
-            }
-            metadata.Results.push_back(std::move(result));
-            for (const auto& item : *root) {
-                if (MatchOperator<TOpRead>(item.Current)) {
-                    const auto* read = CastOperator<TOpRead>(item.Current);
-                    const auto path = TKqpTable(read->GetTable()).Path().StringValue();
-                    if (tables.insert(path).second) {
-                        metadata.Tables.push_back({read->Pos, path});
-                    }
-                }
+            YQL_ENSURE(root && root->PlanProps.NativeExpressions && !root->PlanProps.WithEffects);
+            for (const auto& item : IterateSubtreeWithSubplans(root.Get(), root->PlanProps)) {
+                if (item.Current->Kind == EOperator::Source &&
+                    CastOperator<TOpRead>(*item.Current).GetTableStorageType() == NYql::EStorageType::ColumnStorage)
+                    isOlap = true;
             }
         }
-
+        // Apply the same execution setting at both frontend boundaries. RBO
+        // rules still decide when a particular plan must disable blocks.
+        if (queryType == EKikimrQueryType::Query) ConfigureBlockEngine(isOlap);
         if (queryType == EKikimrQueryType::Dml) {
             auto& prepared = *TransformCtx->QueryCtx->PreparingQuery;
-            for (ui32 i = 0; i < metadata.Results.size(); ++i) {
+            for (ui32 i = 0; i < roots.size(); ++i) {
                 auto& result = *prepared.AddResults();
                 result.SetKqlIndex(0);
                 result.SetResultIndex(i);
-                result.SetRowsLimit(metadata.RowsLimit);
-                for (const auto& name : metadata.Results[i].Columns) {
+                result.SetRowsLimit(Config->_ResultRowsLimit.Get().GetOrElse(0));
+                for (const auto& [id, name] : roots[i]->GetColumns().Items()) {
+                    Y_UNUSED(id);
                     *result.AddColumnHints() = name;
                 }
             }
@@ -316,7 +266,7 @@ public:
         TAutoPtr<IGraphTransformer> nativeRbo(rbo);
         TAutoPtr<IGraphTransformer> compile(new TCompilePhysicalQueryTransformer(Cluster,
             SessionCtx->GetDatabase(), *TransformCtx, *OptimizeCtx, TypesCtx, FunctionRegistry, Config,
-            std::move(metadata)));
+            std::move(query.Execution)));
         // RBO emits fresh transaction/result-binding nodes. The legacy entry
         // re-enters its surrounding annotation pipeline after that rewrite;
         // native entry performs this backend-only step explicitly.
@@ -391,23 +341,7 @@ public:
 
         const auto dataQueryBlocks = TKiDataQueryBlocks(query);
 
-        if (IsOlapQuery(dataQueryBlocks)) {
-            if (TransformCtx->Config->DisableBlockExecution.Get().GetOrElse(false)) {
-                TypesCtx.BlockEngineMode = NYql::EBlockEngineMode::Disable;
-            } else {
-                switch (TransformCtx->Config->GetBlockChannelsMode()) {
-                    case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_SCALAR:
-                    case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_AUTO:
-                        TypesCtx.BlockEngineMode = NYql::EBlockEngineMode::Auto;
-                        break;
-                    case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_FORCE:
-                        TypesCtx.BlockEngineMode = NYql::EBlockEngineMode::Force;
-                        break;
-                    default:
-                        YQL_ENSURE(false);
-                }
-            }
-        }
+        ConfigureBlockEngine(IsOlapQuery(dataQueryBlocks));
 
         return PrepareQueryInternal(cluster, dataQueryBlocks, ctx, settings);
     }
@@ -429,6 +363,26 @@ private:
                     const auto& tableData = SessionCtx->Tables().ExistingTable(operation.Cluster(), operation.Table());
                     return tableData.Metadata->IsOlap();
                 });
+    }
+
+    void ConfigureBlockEngine(bool isOlap) {
+        if (isOlap) {
+            if (TransformCtx->Config->DisableBlockExecution.Get().GetOrElse(false)) {
+                TypesCtx.BlockEngineMode = NYql::EBlockEngineMode::Disable;
+            } else {
+                switch (TransformCtx->Config->GetBlockChannelsMode()) {
+                    case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_SCALAR:
+                    case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_AUTO:
+                        TypesCtx.BlockEngineMode = NYql::EBlockEngineMode::Auto;
+                        break;
+                    case NKikimrConfig::TTableServiceConfig_EBlockChannelsMode_BLOCK_CHANNELS_FORCE:
+                        TypesCtx.BlockEngineMode = NYql::EBlockEngineMode::Force;
+                        break;
+                    default:
+                        YQL_ENSURE(false);
+                }
+            }
+        }
     }
 
     TIntrusivePtr<TAsyncQueryResult> PrepareQueryInternal(const TString& cluster,
@@ -477,15 +431,7 @@ private:
 
         TransformCtx->DataQueryBlocks = dataQueryBlocks;
 
-        if (Config->GetEnableNewRBO()) {
-            YQL_CLOG(INFO, CoreDq) << "Taking the new RBO branch";
-            Y_ENSURE(NewRBOTransformer, "NewRBO composite graph transformer was not initialized.");
-            NewRBOTransformer->Rewind();
-            return MakeIntrusive<TPrepareQueryAsyncResult>(query, *NewRBOTransformer, ctx, *TransformCtx);
-        } else {
-            YQL_CLOG(INFO, CoreDq) << "Taking the old RBO branch";
-            return MakeIntrusive<TPrepareQueryAsyncResult>(query, *Transformer, ctx, *TransformCtx);
-        }
+        return MakeIntrusive<TPrepareQueryAsyncResult>(query, *Transformer, ctx, *TransformCtx);
     }
 
     void CreateGraphTransformer(const TIntrusivePtr<TTypeAnnotationContext>& typesCtx, const TIntrusivePtr<TKikimrSessionContext>& sessionCtx,
@@ -583,75 +529,7 @@ private:
             false
         );
 
-        // Create a NewRBO composite transformer only if the special flag is enabled.
-        if (Config->GetEnableNewRBO()) {
-            
-            auto newRBOPreparedExplainTransformer = CreateKqpRBOExplainPreparedTransformer(
-                Gateway, Cluster, TransformCtx, &funcRegistry, *typesCtx, OptimizeCtx);
 
-            auto rboKqpTypeAnnTransformer = TTransformationPipeline(typesCtx)
-                .Add(TAutoPtr<IGraphTransformer>(new TRboGcTransformer()), "GC")
-                .Add(Log("RBOTypeAnnotator"), "LogRBOTypeAnnotator")
-                .AddTypeAnnotationTransformer()
-                .Build(false);
-
-            // auto newRBOPhysicalBuildQueryTransformer = TTransformationPipeline(typesCtx)
-            //    .AddServiceTransformers()
-            //    .Add(Log("PhysicalBuildQuery"), "LogPhysicalBuildQuery")
-            //    .AddTypeAnnotationTransformer()
-            //    .AddPostTypeAnnotation()
-            //    .Add(CreateKqpBuildPhysicalQueryTransformer(OptimizeCtx, BuildQueryCtx), "BuildPhysicalQuery")
-            //    .Add(CreateKqpStatisticsTransformer(OptimizeCtx, *typesCtx, Config, Pctx), "Statistics")
-            //    .Build(false);
-
-            auto newRBOPhysicalOptimizeTransformer = TTransformationPipeline(typesCtx)
-                .AddServiceTransformers()
-                .Add(Log("NewRBOPhysicalOptimize"), "LogNewRBOPhysicalOptimize")
-                .AddPreTypeAnnotation()
-                //.AddExpressionEvaluation(funcRegistry)
-                .AddIOAnnotation()
-                .AddTypeAnnotationTransformer()
-                //.Add(CreateKqpCheckQueryTransformer(), "CheckKqlQuery")
-                .AddPostTypeAnnotation(/* forSubgraph */ true)
-                //.AddCommonOptimization()
-
-                .Add(CreateKqpRewriteSelectTransformer(OptimizeCtx, *typesCtx), "RewriteSelect")
-                .Add(CreateKqpNewRBOTransformer(OptimizeCtx, *typesCtx, std::move(rboKqpTypeAnnTransformer),
-                    SessionCtx->Tables(), Cluster, sessionCtx->GetDatabase(), ActorSystem, funcRegistry, TransformCtx), "NewRBOTransformer")
-                .Add(CreateKqpRBOCleanupTransformer(*typesCtx), "RBOCleanupTransformer")
-
-                //.Add(CreatePhysicalDataProposalsInspector(*typesCtx), "ProvidersPhysicalOptimize")
-                //.Add(CreateKqpFinalizingOptTransformer(OptimizeCtx), "FinalizingOptimize")
-                //.Add(CreateKqpQueryPhasesTransformer(), "QueryPhases")
-                //.Add(CreateKqpQueryEffectsTransformer(OptimizeCtx), "QueryEffects")
-                //.Add(CreateKqpCheckPhysicalQueryTransformer(), "CheckKqlPhysicalQuery")
-                .Build(false);
-
-            TAutoPtr<IGraphTransformer> newRBOCompilePhysicalQuery(new TCompilePhysicalQueryTransformer(Cluster,
-                SessionCtx->GetDatabase(),
-                *TransformCtx,
-                *OptimizeCtx,
-                *typesCtx,
-                funcRegistry,
-                Config));
-
-            NewRBOTransformer = CreateCompositeGraphTransformer(
-                {
-                    TTransformStage{newRBOPhysicalOptimizeTransformer, "NewRBOPhysicalOptimize", TIssuesIds::DEFAULT_ERROR},
-                    LogStage("NewRBOPhysicalOptimize"),
-                    // TTransformStage{ newRBOPhysicalBuildTxsTransformer, "NewRBOPhysicalBuildTxs", TIssuesIds::DEFAULT_ERROR },
-                    // LogStage("NewRBOPhysicalBuildTxs"),
-                    // TTransformStage{ newRBOPhysicalBuildQueryTransformer, "NewRBOPhysicalBuildQuery", TIssuesIds::DEFAULT_ERROR },
-                    // LogStage("NewRBOPhysicalBuildQuery"),
-                    TTransformStage{CreateSaveExplainTransformerInput(*TransformCtx), "NewRBOSaveExplainTransformerInput", TIssuesIds::DEFAULT_ERROR},
-                    // TTransformStage{ newRBOPhysicalPeepholeTransformer, "NewRBOPhysicalPeephole", TIssuesIds::DEFAULT_ERROR },
-                    // LogStage("NewRBOPhysicalPeephole"),
-                    TTransformStage{newRBOCompilePhysicalQuery, "CompilePhysicalQuery", TIssuesIds::DEFAULT_ERROR},
-                    TTransformStage{newRBOPreparedExplainTransformer, "NewRBOExplainQuery", TIssuesIds::DEFAULT_ERROR}, // TODO(sk): only on stats mode or
-                    // if explain-only
-                },
-                false);
-        }
     }
 
     static bool MergeFlagValue(const TMaybe<bool>& configFlag, const TMaybe<bool>& flag) {
@@ -681,7 +559,6 @@ private:
     TKqpProviderContext Pctx;
 
     TAutoPtr<IGraphTransformer> Transformer;
-    TAutoPtr<IGraphTransformer> NewRBOTransformer;
     TAutoPtr<IGraphTransformer> NativeTransformer;
 
     TActorSystem* ActorSystem;

@@ -8,6 +8,12 @@ using namespace NKikimr;
 using namespace NKikimr::NKqp;
 
 namespace NKikimr::NKqp::NPhysicalConvertionUtils {
+TInfoUnitId GetMemberId(const TExprNode& member) {
+    const auto id = FromString<TInfoUnitId>(member.Tail().Content());
+    Y_ENSURE(id != TUnorderedIUs::InvalidBit, "Invalid IU ID");
+    return id;
+}
+
 TString GetFullName(const TString& name, const TPhysicalNames&) {
     return name;
 }

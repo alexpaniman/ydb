@@ -8,24 +8,16 @@ namespace NKqp {
 namespace {
 
 // Unlike some, min is deterministic, so a shared plan with the subquery can be copied for each consumer.
-TString OnlyValueAggregation(const TTypeAnnotationNode* valueType) {
-    if (!valueType) {
-        return "some";
-    }
-    const auto compare = NYql::CanCompare<false>(valueType, valueType);
-    return compare == NYql::ECompareOptions::Comparable || compare == NYql::ECompareOptions::Optional ? "min" : "some";
-}
+
 
 // Make sure that scalar subquery produce one row for each binding.
 std::pair<TIntrusivePtr<IOperator>, TInfoUnitId> MakeAtMostOneRowPerGroup(const TIntrusivePtr<IOperator>& input, const TOrderedIUs<>& groupKeys,
-                                                                          TInfoUnitId valueIU, const TTypeAnnotationNode* valueType,
-                                                                          TPositionHandle pos, TRBOContext& ctx, TPlanProps& props) {
-    const auto* countType = ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64);
-    const auto* scalarType = valueType && !valueType->IsOptionalOrNull() ?
-        static_cast<const TTypeAnnotationNode*>(ctx.ExprCtx.MakeType<TOptionalExprType>(valueType)) : valueType;
+                                                                          TInfoUnitId valueIU, NFrontend::TType nativeType,
+                                                                          TPositionHandle pos, TRBOContext&, TPlanProps& props) {
+    const NFrontend::TType countType{NFrontend::ETypeKind::Uint64};
     auto rowIU = props.InfoUnitRegistry.AddGenerated("row");
     TMapIUs rowElements;
-    rowElements.Add(rowIU, MakeConstant("Uint64", "1", pos, &ctx.ExprCtx, &props));
+    rowElements.Add(rowIU, MakeConstant("Uint64", "1", pos, &props));
     auto rowMap = MakeIntrusive<TOpMap>(input, pos, rowElements);
 
     auto countIU = props.InfoUnitRegistry.AddGenerated("row_count");
@@ -34,16 +26,16 @@ std::pair<TIntrusivePtr<IOperator>, TInfoUnitId> MakeAtMostOneRowPerGroup(const 
     TAggregationIUs traits;
     traits.Add(countIU, TOpAggregationTraits{rowIU, "count"});
     // This is need to get the actual value, we emit ensure that we get only one row, so its minimum is the value.
-    traits.Add(valueStateIU, TOpAggregationTraits{valueIU, OnlyValueAggregation(valueType)});
+    traits.Add(valueStateIU, TOpAggregationTraits{valueIU, nativeType.IsJson() ? "some" : "min"});
     auto aggregate = MakeIntrusive<TOpAggregate>(rowMap, traits, groupKeys, EOpPhase::Undefined, /*distinctAll=*/false, pos);
 
     auto atMostOne =
-        MakeBinaryPredicate("<=", MakeColumnAccess(countIU, countType, pos, &ctx.ExprCtx, &props), MakeConstant("Uint64", "1", pos, &ctx.ExprCtx, &props));
+        MakeBinaryPredicate("<=", MakeColumnAccess(countIU, countType, pos, &props), MakeConstant("Uint64", "1", pos, &props));
 
     auto checkedIU = props.InfoUnitRegistry.AddGenerated("checked_scalar");
     TMapIUs valueElements;
     // Emit ensure.
-    valueElements.Add(checkedIU, MakeEnsure(MakeColumnAccess(valueStateIU, scalarType, pos, &ctx.ExprCtx, &props), atMostOne,
+    valueElements.Add(checkedIU, MakeEnsure(MakeColumnAccess(valueStateIU, nativeType.Optional(), pos, &props), atMostOne,
                                             "Scalar subquery returned more than one row"));
     return std::make_pair(MakeIntrusive<TOpMap>(aggregate, pos, valueElements), checkedIU);
 }
@@ -86,10 +78,10 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
     auto subplan = CastOperator<IOperator>(subplanEntry.Plan);
     Y_ENSURE(subplanEntry.ResultIU, "Missing scalar result binding");
     auto subplanResIU = *subplanEntry.ResultIU;
-    const auto* subplanResType = subplan->Type ? subplan->GetIUType(subplanResIU, ctx.ExprCtx) : nullptr;
-
-    const auto* scalarType = subplanResType && !subplanResType->IsOptionalOrNull() ?
-        static_cast<const TTypeAnnotationNode*>(ctx.ExprCtx.MakeType<TOptionalExprType>(subplanResType)) : subplanResType;
+    const auto nativeType = subplan->GetNativeIUType(subplanResIU);
+    auto scalarAccess = [&](TInfoUnitId id) {
+        return MakeColumnAccess(id, nativeType.Optional(), subplan->Pos, &props);
+    };
     Y_ENSURE(MatchOperator<IUnaryOperator>(input));
     auto unaryOp = CastOperator<IUnaryOperator>(input);
 
@@ -103,7 +95,7 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
                 outerFilter->SetInput(join);
             } else {
                 TMapIUs renameElements;
-                renameElements.Add(scalarIU, MakeColumnAccess(joinedSubplanResIU, scalarType, subplan->Pos, &ctx.ExprCtx, &props));
+                renameElements.Add(scalarIU, scalarAccess(joinedSubplanResIU));
                 auto rename = MakeIntrusive<TOpMap>(join, subplan->Pos, renameElements);
                 unaryOp->SetInput(rename);
             }
@@ -121,7 +113,7 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
         TJoinIUs joinKeys = domain.Keys;
         auto dependentJoin = std::move(domain).Bind(subplan, subplan->Pos);
 
-        auto [rightInput, rightResIU] = MakeAtMostOneRowPerGroup(dependentJoin, domainColumns, subplanResIU, subplanResType, subplan->Pos, ctx, props);
+        auto [rightInput, rightResIU] = MakeAtMostOneRowPerGroup(dependentJoin, domainColumns, subplanResIU, nativeType, subplan->Pos, ctx, props);
 
         TIntrusivePtr<IOperator> joinLeftInput = child;
         TIntrusivePtr<IOperator> joinRightInput = rightInput;
@@ -133,10 +125,10 @@ bool TInlineScalarSubplanRule::MatchAndApply(TIntrusivePtr<IOperator> &input, TR
     }
     // Otherwise we assume an uncorrelated supbplan
     else {
-        auto [checkedInput, checkedResIU] = MakeAtMostOneRowPerGroup(subplan, {}, subplanResIU, subplanResType, subplan->Pos, ctx, props);
+        auto [checkedInput, checkedResIU] = MakeAtMostOneRowPerGroup(subplan, {}, subplanResIU, nativeType, subplan->Pos, ctx, props);
 
         TMapIUs renameElements;
-        renameElements.Add(scalarIU, MakeColumnAccess(checkedResIU, scalarType, subplan->Pos, &ctx.ExprCtx, &props));
+        renameElements.Add(scalarIU, scalarAccess(checkedResIU));
         auto rename = MakeIntrusive<TOpMap>(checkedInput, subplan->Pos, renameElements);
 
         TJoinIUs joinKeys;

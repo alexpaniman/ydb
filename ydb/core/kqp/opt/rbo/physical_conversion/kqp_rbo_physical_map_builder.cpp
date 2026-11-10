@@ -59,7 +59,7 @@ TExprNode::TPtr TPhysicalMapBuilder::BuildPhysicalOp(TExprNode::TPtr input) {
         TNodeOnNodeOwnedMap replaces;
         auto members = FindNodes(lambdaBody, isMember);
         for (const auto& member : members) {
-            const auto colName = Names.Get(GetMemberId(*member));
+            const auto colName = Names.Get(NPhysicalConvertionUtils::GetMemberId(*member));
             auto it = colNamesToIndices.find(colName);
             Y_ENSURE(it != colNamesToIndices.end(), colName + " column not found.");
             replaces[member.Get()] = lambdaArgs[it->second];

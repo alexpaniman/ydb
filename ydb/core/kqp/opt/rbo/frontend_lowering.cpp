@@ -2,12 +2,46 @@
 #include "kqp_operator.h"
 
 #include <yql/essentials/core/yql_expr_type_annotation.h>
+#include <yql/essentials/core/yql_expr_optimize.h>
 
 #include <map>
 #include <limits>
 #include <unordered_map>
 
 namespace NKikimr::NKqp {
+const NYql::TTypeAnnotationNode* ExportIUType(const IOperator& op, unsigned int id, NYql::TExprContext& ctx) {
+    Y_ENSURE(op.NativeSchema, "Missing operator schema");
+    return ExportNativeType(op.GetNativeIUType(id), ctx, op.NativeSchema->Arena.get());
+}
+
+const NYql::TTypeAnnotationNode* ExportOperatorType(const IOperator& op, NYql::TExprContext& ctx) {
+    Y_ENSURE(op.NativeSchema, "Missing operator schema");
+    using namespace NYql;
+    const auto& schema = *op.NativeSchema;
+    auto row = [&](const TNativeRow& fields) {
+        TVector<const TItemExprType*> items;
+        for (const auto& [id, type] : fields)
+            items.push_back(ctx.MakeType<TItemExprType>(ctx.GetIndexAsString(id), ExportNativeType(type, ctx, schema.Arena.get())));
+        return ctx.MakeType<TStructExprType>(items);
+    };
+    const TTypeAnnotationNode* item = row(schema.Row);
+    if (schema.LookupLeft) {
+        const TVector<const TTypeAnnotationNode*> fields{row(*schema.LookupLeft), ctx.MakeType<TOptionalExprType>(item),
+            ctx.MakeType<TDataExprType>(EDataSlot::Uint64)};
+        item = ctx.MakeType<TTupleExprType>(fields);
+    }
+    return ctx.MakeType<TListExprType>(item);
+}
+
+NYql::TExprNode::TPtr LowerTable(const TRboTable& table, NYql::TExprContext& ctx, NYql::TPositionHandle pos) {
+    return NYql::NNodes::Build<NYql::NNodes::TKqpTable>(ctx, pos)
+        .Path().Build(table.Path)
+        .PathId().Build(table.PathId)
+        .SysView().Build(table.SysView)
+        .Version().Build(table.Version)
+        .Done().Ptr();
+}
+
 namespace {
 using namespace NYql;
 using K = NFrontend::ETypeKind;
@@ -43,7 +77,7 @@ bool OlapIdentityConversion(const NFrontend::TExpressionArena& arena, const NFro
 }
 
 bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend::TExprNode& node) {
-    if (node.Type.IsJson() || node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
+    if (node.Type.IsCollection() || node.Type.OptionalDepth > 1 || node.Type.IsJson() || node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar || node.Type.Kind == K::Null) return false;
     if (OlapIdentityConversion(arena, node)) return true;
     if (node.Op >= O::Add && node.Op <= O::Modulo && !node.Type.IsNumeric()) return false;
     if (!OlapBinaryName(node.Op).empty()) {
@@ -62,6 +96,20 @@ bool OlapNodeSupported(const NFrontend::TExpressionArena& arena, const NFrontend
             return true;
         case O::Negate: case O::Abs: return node.Type.IsNumeric();
         case O::IsNull: case O::IsNotNull: return arena[node.Arguments[0]].Op == O::Column;
+        default: return false;
+    }
+}
+
+bool OlapScalarNodeSupported(const NFrontend::TExprNode& node) {
+    if (node.Type.IsCollection() || node.Type.OptionalDepth > 1 || node.Type.IsJson() ||
+        node.Type.Kind == K::Decimal || node.Type.Kind == K::Calendar) return false;
+    if (!OlapBinaryName(node.Op).empty()) return true;
+    switch (node.Op) {
+        case O::Literal: case O::Column: case O::Parameter: case O::Convert: case O::Cast:
+        case O::Negate: case O::Not: case O::And: case O::Or: case O::If:
+        case O::IsNull: case O::IsNotNull: case O::Abs: case O::Length: case O::OptionalWrap:
+        case O::Find: case O::Substring: case O::Concat:
+            return true;
         default: return false;
     }
 }
@@ -153,8 +201,17 @@ private:
         if (std::holds_alternative<std::monostate>(value)) {
             return type.Kind == K::Null ? Call("Null", {}, type) : Nothing(type);
         }
+        if (type.OptionalDepth > 1) {
+            const auto& inner = *std::get<NFrontend::TOptionalValue>(value);
+            return Call("Just", {Literal(inner.Type, inner.Data)}, type);
+        }
         if (type.Kind == K::Calendar)
             return Lift(CalendarApply("DateTime2.Split", {Literal({K::Timestamp}, value)}, {{K::Timestamp}}, {K::Calendar}), type);
+        if (type.Kind == K::List) {
+            TExprNode::TListType items{Type(type.Required())};
+            for (const auto& item : std::get<NFrontend::TTuple>(value)->Items) items.push_back(Literal(item.Type, item.Data));
+            return Lift(Call("List", std::move(items), type.Required()), type);
+        }
         if (type.Kind == K::Tuple) {
             TExprNode::TListType items;
             for (const auto& item : std::get<NFrontend::TTuple>(value)->Items) items.push_back(Literal(item.Type, item.Data));
@@ -170,17 +227,17 @@ private:
         }
         const auto name = type.Kind == K::Decimal ? std::string("Decimal") : type.Required().ToString();
         auto result = Call(String(name), std::move(args), type.Required());
-        return type.Nullable ? Call("Just", {result}, type) : result;
+        return type.OptionalDepth ? Call("Just", {result}, type) : result;
     }
     TExprNode::TPtr Lift(TExprNode::TPtr value, NFrontend::TType target) {
-        return target.Nullable && value->GetTypeAnn()->GetKind() != ETypeAnnotationKind::Optional ?
+        return target.OptionalDepth && value->GetTypeAnn()->GetKind() != ETypeAnnotationKind::Optional ?
             Call("Just", {value}, target) : value;
     }
     TExprNode::TPtr Present(TExprNode::TListType values, const std::vector<NFrontend::TType>& types,
         NFrontend::TType resultType, const std::function<TExprNode::TPtr(TExprNode::TListType)>& build) {
         TExprNode::TListType optionals, arguments;
         for (std::size_t i = 0; i < values.size(); ++i) {
-            if (!types[i].Nullable) continue;
+            if (!types[i].OptionalDepth) continue;
             optionals.push_back(values[i]);
             auto argument = Ctx.NewArgument(Pos, "present");
             argument->SetTypeAnn(ExportNativeType(types[i].Required(), Ctx, &Arena));
@@ -202,12 +259,12 @@ private:
         if (source == target) return value;
         if (source.Kind == K::Null) return Nothing(target);
         if (source.Required() == target.Required()) {
-            return !source.Nullable && target.Nullable ? Call("Just", {value}, target) : value;
+            return !source.OptionalDepth && target.OptionalDepth ? Call("Just", {value}, target) : value;
         }
         // Native temporal values format their numeric execution payload. Keep
         // formatting independent from YQL's ISO string conversion policy.
         if (target.IsString() && (source.Kind == K::Date || source.Kind == K::Datetime || source.Kind == K::Timestamp || source.Kind == K::Interval)) {
-            NFrontend::TType payload{source.Kind == K::Interval ? K::Int64 : K::Uint64, source.Nullable};
+            NFrontend::TType payload{source.Kind == K::Interval ? K::Int64 : K::Uint64, source.OptionalDepth};
             return Cast(Cast(value, source, payload), payload, target);
         }
         const auto* sourceType = ExportNativeType(source.Required(), Ctx, &Arena);
@@ -220,16 +277,80 @@ private:
         // Emit optional lifting immediately. SafeCast's MiniKQL implementation
         // preserves optionality on total conversions such as integer widening.
         auto actual = target;
-        if (target.Nullable && !source.Nullable && !mayFail) actual = target.Required();
+        if (target.OptionalDepth && !source.OptionalDepth && !mayFail) actual = target.Required();
         auto result = Call("SafeCast", {value, Type(actual)}, actual);
         return actual != target ? Call("Just", {result}, target) : result;
+    }
+
+    TExprNode::TPtr Lambda(TExprNode::TPtr argument, TExprNode::TPtr body) {
+        auto args = Ctx.NewArguments(Pos, {argument});
+        args->SetTypeAnn(Ctx.MakeType<TUnitExprType>());
+        const TTypeAnnotationNode* type = body->GetTypeAnn();
+        auto lambda = Ctx.NewLambda(Pos, std::move(args), std::move(body));
+        lambda->SetTypeAnn(type);
+        return lambda;
+    }
+
+    TExprNode::TPtr InCollection(TExprNode::TPtr lookup, TExprNode::TPtr list,
+        NFrontend::TType source, NFrontend::TType key, NFrontend::TType resultType, bool ansi) {
+        const NFrontend::TType boolean{K::Bool};
+        const auto no = Literal(boolean, false), yes = Literal(boolean, true);
+        const auto hasItems = Call("HasItems", {list}, boolean);
+        auto nullResult = Nothing(resultType);
+        if (ansi) nullResult = Call("If", {hasItems, nullResult, Lift(no, resultType)}, resultType);
+        if (source.Kind == K::Null) return nullResult;
+        if (key.Kind == K::Null) {
+            if (ansi) return nullResult;
+            return source.OptionalDepth ? Call("If", {Call("Exists", {lookup}, boolean), Lift(no, resultType), nullResult}, resultType) : no;
+        }
+
+        auto item = Ctx.NewArgument(Pos, "item");
+        item->SetTypeAnn(ExportNativeType(key, Ctx, &Arena));
+        auto nothing = Ctx.NewCallable(Pos, "Void", {});
+        nothing->SetTypeAnn(Ctx.MakeType<TVoidExprType>());
+        auto settings = Ctx.NewList(Pos, {Atom("Auto"), Atom("One"), Atom("Compact")});
+        AnnotateTypeSyntax(*settings, Ctx);
+        auto payload = Ctx.NewArgument(Pos, "payload");
+        payload->SetTypeAnn(ExportNativeType(key, Ctx, &Arena));
+        auto dict = Ctx.NewCallable(Pos, "ToDict", {list, Lambda(item, item), Lambda(payload, nothing), settings});
+        dict->SetTypeAnn(Ctx.MakeType<TDictExprType>(ExportNativeType(key, Ctx, &Arena), Ctx.MakeType<TVoidExprType>()));
+
+        auto value = lookup;
+        if (source.OptionalDepth) {
+            value = Ctx.NewArgument(Pos, "lookup");
+            value->SetTypeAnn(ExportNativeType(source.Required(), Ctx, &Arena));
+        }
+        auto contains = [&](TExprNode::TPtr casted) { return Call("Contains", {dict, Lift(casted, key)}, boolean); };
+        TExprNode::TPtr found;
+        if (source.Required() == key.Required()) found = contains(value);
+        else {
+            const auto options = CastResult<false>(ExportNativeType(source.Required(), Ctx, &Arena), ExportNativeType(key.Required(), Ctx, &Arena));
+            if (options & NUdf::ECastOptions::Impossible) found = no;
+            else if (options & (NUdf::ECastOptions::MayFail | NUdf::ECastOptions::MayLoseData)) {
+                const auto casted = Cast(value, source.Required(), key.Required().Optional());
+                auto argument = Ctx.NewArgument(Pos, "key");
+                argument->SetTypeAnn(ExportNativeType(key.Required(), Ctx, &Arena));
+                auto body = contains(argument);
+                if (options & NUdf::ECastOptions::MayLoseData)
+                    body = Call("And", {Call("==", {value, argument}, boolean), body}, boolean);
+                found = Call("IfPresent", {casted, Lambda(argument, body), no}, boolean);
+            } else found = contains(Cast(value, source.Required(), key.Required()));
+        }
+        auto result = Lift(found, resultType);
+        if (ansi && key.OptionalDepth) {
+            const auto hasNull = Call("Contains", {dict, Nothing(key)}, boolean);
+            result = Call("If", {found, Lift(yes, resultType),
+                Call("If", {hasNull, Nothing(resultType), Lift(no, resultType)}, resultType)}, resultType);
+        }
+        if (source.OptionalDepth) result = Call("IfPresent", {lookup, Lambda(value, result), nullResult}, resultType);
+        return result;
     }
 
     TExprNode::TPtr CalendarApply(TStringBuf name, TExprNode::TListType values,
         const std::vector<NFrontend::TType>& types, NFrontend::TType resultType) {
         return Present(std::move(values), types, resultType, [&](TExprNode::TListType args) {
             auto returned = resultType.Required();
-            if (name == "DateTime2.ShiftMonths" || name == "DateTime2.ShiftYears") returned.Nullable = true;
+            if (name == "DateTime2.ShiftMonths" || name == "DateTime2.ShiftYears") returned.OptionalDepth = true;
             TVector<const TTypeAnnotationNode*> argumentTypes;
             TVector<TCallableExprType::TArgumentInfo> arguments;
             for (std::size_t i = 0; i < args.size(); ++i) {
@@ -305,7 +426,7 @@ private:
         const auto* jsonNode = Ctx.MakeType<TResourceExprType>("JsonNode");
         const auto* optionalNode = Ctx.MakeType<TOptionalExprType>(jsonNode);
         if (inputType.Kind == K::Json) {
-            if (inputType.Nullable) {
+            if (inputType.OptionalDepth) {
                 auto arg = Ctx.NewArgument(Pos, "native_json"); arg->SetTypeAnn(ExportNativeType(inputType.Required(), Ctx));
                 auto parsed = typed("Just", {apply("Json2.Parse", {arg}, jsonNode, false, true)}, optionalNode);
                 value = typed("IfPresent", {value, lambda(arg, parsed), typed("Nothing", {Type(optionalNode)}, optionalNode)}, optionalNode);
@@ -340,6 +461,16 @@ private:
         if (node.Op >= O::Equal && node.Op <= O::GreaterEqual &&
             (types[0].Kind == K::Null || types[1].Kind == K::Null)) return Nothing(type);
         switch (node.Op) {
+            case O::Collection: {
+                if (type.Kind == K::List) {
+                    args.insert(args.begin(), Type(type));
+                    return Call("List", std::move(args), type);
+                }
+                auto result = Ctx.NewList(Pos, std::move(args));
+                result->SetTypeAnn(ExportNativeType(type, Ctx, &Arena));
+                return result;
+            }
+            case O::InCollection: return InCollection(args[0], args[1], types[0], Arena.ListItem(types[1]), type, node.Name == "ansi");
             case O::JsonValue: return JsonValue(args[0], types[0], node.Name);
             case O::Literal: return Literal(type, node.Value);
             case O::Column: {
@@ -352,11 +483,12 @@ private:
                 args.push_back(Literal({K::String}, node.Name));
                 return Call("Ensure", std::move(args), type);
             case O::StablePickle: return Call("StablePickle", std::move(args), type);
+            case O::OptionalWrap: return Call("Just", std::move(args), type);
             case O::Unwrap: return Call("Unwrap", std::move(args), type);
             case O::Convert: {
                 const auto from = Arena[node.Arguments[0]].Type;
                 if (from.IsNumeric() && type.IsNumeric() && from.Kind != K::Decimal && type.Kind != K::Decimal && from.Kind != type.Kind) {
-                    auto actual = type; actual.Nullable = from.Nullable;
+                    auto actual = type; actual.OptionalDepth = from.OptionalDepth;
                     // Terminal MiniKQL conversion: implicit integer promotion
                     // wraps and preserves NULL; explicit CAST remains checked.
                     return Lift(Call("Convert", {args[0], Type(type.Required())}, actual), type);
@@ -383,26 +515,26 @@ private:
             case O::IsNull: case O::IsNotNull: {
                 const auto inputType = Arena[node.Arguments[0]].Type;
                 if (inputType.Kind == K::Null) return Literal({K::Bool}, node.Op == O::IsNull);
-                if (!inputType.Nullable) return Literal({K::Bool}, node.Op == O::IsNotNull);
+                if (!inputType.OptionalDepth) return Literal({K::Bool}, node.Op == O::IsNotNull);
                 auto exists = Call("Exists", std::move(args), {K::Bool});
                 return node.Op == O::IsNull ? Call("Not", {exists}, {K::Bool}) : exists;
             }
             case O::If: {
-                if (Arena[node.Arguments[0]].Type.Nullable) args[0] = Call("Coalesce", {args[0], Literal({K::Bool}, false)}, {K::Bool});
+                if (Arena[node.Arguments[0]].Type.OptionalDepth) args[0] = Call("Coalesce", {args[0], Literal({K::Bool}, false)}, {K::Bool});
                 return Call("If", std::move(args), type);
             }
             case O::Coalesce: {
                 if (type.Kind == K::Null) return Nothing(type);
-                if (!types[0].Nullable) return Lift(args[0], type);
+                if (!types[0].OptionalDepth) return Lift(args[0], type);
                 auto actual = type.Optional();
                 auto result = args[0];
                 for (std::size_t i = 1; i < args.size(); ++i) result = Call("Coalesce", {result, Lift(args[i], actual)}, actual);
-                return type.Nullable ? result : Call("Unwrap", {result}, type);
+                return type.OptionalDepth ? result : Call("Unwrap", {result}, type);
             }
             case O::Abs: return Call("Abs", std::move(args), type);
             case O::Length: {
-                auto size = Call("Size", std::move(args), {K::Uint32, type.Nullable});
-                return Cast(size, {K::Uint32, type.Nullable}, type);
+                auto size = Call("Size", std::move(args), {K::Uint32, type.OptionalDepth});
+                return Cast(size, {K::Uint32, type.OptionalDepth}, type);
             }
             case O::Contains: return Call("StringContains", std::move(args), type);
             case O::StartsWith: return Call("StartsWith", std::move(args), type);
@@ -436,7 +568,10 @@ const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::T
     const NFrontend::TExpressionArena* arena) {
     const TTypeAnnotationNode* result;
     if (type.Kind == K::Null) return ctx.MakeType<TNullExprType>();
-    if (type.Kind == K::Tuple) {
+    if (type.Kind == K::List) {
+        Y_ENSURE(arena, "List export requires its native arena");
+        result = ctx.MakeType<TListExprType>(ExportNativeType(arena->ListItem(type), ctx, arena));
+    } else if (type.Kind == K::Tuple) {
         Y_ENSURE(arena, "Tuple export requires its native arena");
         TVector<const TTypeAnnotationNode*> items;
         for (const auto item : arena->TupleItems(type)) items.push_back(ExportNativeType(item, ctx));
@@ -448,11 +583,13 @@ const NYql::TTypeAnnotationNode* ExportNativeType(NFrontend::TType type, NYql::T
         const auto slot = NUdf::FindDataSlot(String(type.Required().ToString()));
         Y_ENSURE(slot, "Unknown native type"); result = ctx.MakeType<TDataExprType>(*slot);
     }
-    return type.Nullable ? ctx.MakeType<TOptionalExprType>(result) : result;
+    for (unsigned depth = 0; depth < type.OptionalDepth; ++depth) result = ctx.MakeType<TOptionalExprType>(result);
+    return result;
 }
 
 const NYql::TTypeAnnotationNode* ExportNativeParameterType(const NFrontend::TParameterType& type, NYql::TExprContext& ctx) {
     if (const auto* scalar = type.Scalar()) return ExportNativeType(*scalar, ctx);
+    if (const auto* list = type.ScalarList()) return ctx.MakeType<TListExprType>(ExportNativeType(list->Item, ctx));
     TVector<const TItemExprType*> fields;
     for (const auto& field : *type.Rows()) fields.push_back(ctx.MakeType<TItemExprType>(String(field.Name), ExportNativeType(field.Type, ctx)));
     return ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(fields));
@@ -468,11 +605,16 @@ NYql::TExprNode::TPtr LowerNativeParameter(const TString& name, const NFrontend:
 }
 
 NFrontend::TType ImportNativeType(const NYql::TTypeAnnotationNode& type, NFrontend::TExpressionArena* arena) {
+    if (type.GetKind() == ETypeAnnotationKind::List) {
+        Y_ENSURE(arena, "List import requires a native arena");
+        return arena->ListType(ImportNativeType(*type.Cast<TListExprType>()->GetItemType(), arena));
+    }
     if (type.GetKind() == ETypeAnnotationKind::Optional) {
         const auto* item = type.Cast<TOptionalExprType>()->GetItemType();
-        if (item->GetKind() == ETypeAnnotationKind::Optional)
-            throw NFrontend::TFrontendError({}, "nested optional types are not native types");
-        return ImportNativeType(*item, arena).Optional();
+        auto result = ImportNativeType(*item, arena);
+        if (result.OptionalDepth == 64) throw NFrontend::TResourceLimitError({}, "Optional type nesting exceeds 64");
+        ++result.OptionalDepth;
+        return result;
     }
     if (type.GetKind() == ETypeAnnotationKind::Tuple) {
         Y_ENSURE(arena, "Tuple import requires a native arena");
@@ -503,19 +645,25 @@ NYql::TExprNode::TPtr LowerNativeLambda(const NFrontend::TExpressionArena& arena
 }
 
 NYql::TExprNode::TPtr LowerExpressionLambda(const TExpression& expression, NYql::TExprContext& ctx) {
-    return expression.IsNative() ? LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, expression.Pos())
-        : expression.GetLegacyLambda();
+    return LowerNativeLambda(*expression.GetNativeArena(), expression.GetNativeRoot(), ctx, expression.Pos());
 }
 
-bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root) {
+bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root, bool allowScalarApply) {
     if (arena[root].Type.Kind != K::Bool) return false;
+    const auto& predicate = arena[root];
+    if (predicate.Op >= O::Equal && predicate.Op <= O::GreaterEqual) {
+        // A comparison with a NULL constant cannot select a row; preserve the
+        // existing policy of leaving it out of the storage filter program.
+        for (const auto arg : predicate.Arguments)
+            if (arena[arg].Op == O::Literal && std::holds_alternative<std::monostate>(arena[arg].Value)) return false;
+    }
     std::unordered_map<NFrontend::TExprId, bool> hasColumn;
     std::vector<std::pair<NFrontend::TExprId, bool>> pending{{root, false}};
     while (!pending.empty()) {
         const auto [id, ready] = pending.back(); pending.pop_back();
         if (hasColumn.contains(id)) continue;
         const auto& node = arena[id];
-        if (!OlapNodeSupported(arena, node)) return false;
+        if (!OlapNodeSupported(arena, node) && !(allowScalarApply && OlapScalarNodeSupported(node))) return false;
         if (!ready) {
             pending.emplace_back(id, true);
             for (auto arg : node.Arguments) pending.emplace_back(arg, false);
@@ -525,7 +673,7 @@ bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFron
         for (auto arg : node.Arguments) {
             // Storage streaming logic needs a row count before combining
             // branches. Keep scalar-only Boolean branches in compute.
-            if ((node.Op == O::And || node.Op == O::Or) && !hasColumn.at(arg)) return false;
+            if (!allowScalarApply && (node.Op == O::And || node.Op == O::Or) && !hasColumn.at(arg)) return false;
             column |= hasColumn.at(arg);
         }
         hasColumn.emplace(id, column);
@@ -535,7 +683,42 @@ bool CanLowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFron
 
 NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena& arena, NFrontend::TExprId root,
     NYql::TExprContext& ctx, NYql::TPositionHandle pos) {
-    Y_ENSURE(CanLowerNativeOlapPredicate(arena, root), "Unsupported native OLAP predicate");
+    Y_ENSURE(CanLowerNativeOlapPredicate(arena, root, true), "Unsupported native OLAP predicate");
+    if (!CanLowerNativeOlapPredicate(arena, root)) {
+        // Emit the existing scalar storage kernel only after native optimization.
+        // One argument per column also avoids duplicate storage-kernel inputs.
+        const auto scalar = LowerNativeLambda(arena, root, ctx, pos);
+        const auto row = scalar->Head().HeadPtr();
+        TNodeOnNodeOwnedMap replacements;
+        TExprNode::TListType arguments, values;
+        THashMap<TString, TExprNode::TPtr> columns;
+        for (const auto& node : FindNodes(scalar->TailPtr(), [&](const auto& node) {
+            return node->IsCallable("Parameter") || (node->IsCallable("Member") && node->HeadPtr() == row);
+        })) {
+            if (node->IsCallable("Parameter")) {
+                auto argument = ctx.NewArgument(pos, TStringBuilder() << "parameter_" << arguments.size());
+                argument->SetTypeAnn(node->GetTypeAnn());
+                arguments.push_back(argument); values.push_back(node);
+                replacements.emplace(node.Get(), argument);
+            } else {
+                const TString name(node->Tail().Content());
+                auto& argument = columns[name];
+                if (!argument) {
+                    argument = ctx.NewArgument(pos, TStringBuilder() << "column_" << name);
+                    argument->SetTypeAnn(node->GetTypeAnn());
+                    arguments.push_back(argument);
+                    values.push_back(ctx.NewCallable(pos, "KqpOlapApplyColumnArg", {
+                        ExpandType(pos, *row->GetTypeAnn(), ctx), ctx.NewAtom(pos, name)}));
+                }
+                replacements.emplace(node.Get(), argument);
+            }
+        }
+        auto apply = ctx.NewCallable(pos, "KqpOlapApply", {
+            ctx.NewLambda(pos, ctx.NewArguments(pos, std::move(arguments)), ctx.ReplaceNodes(scalar->TailPtr(), replacements)),
+            ctx.NewList(pos, std::move(values)), ctx.NewAtom(pos, "")});
+        auto input = ctx.NewArgument(pos, "native_olap_rows");
+        return ctx.NewLambda(pos, ctx.NewArguments(pos, {input}), ctx.NewCallable(pos, "KqpOlapFilter", {input, std::move(apply)}));
+    }
     std::unordered_map<NFrontend::TExprId, TExprNode::TPtr> lowered;
     std::vector<std::pair<NFrontend::TExprId, bool>> pending{{root, false}};
     while (!pending.empty()) {
@@ -554,7 +737,7 @@ NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena
         else if (node.Op == O::Column) value = ctx.NewAtom(pos, ctx.GetIndexAsString(node.ColumnId));
         else if (node.Op == O::Literal || node.Op == O::Parameter) {
             value = LowerNativeLambda(arena, id, ctx, pos)->TailPtr();
-            if (node.Op == O::Literal && node.Type.Nullable)
+            if (node.Op == O::Literal && node.Type.OptionalDepth)
                 value = ctx.NewList(pos, {ctx.NewAtom(pos, "just"), value->HeadPtr()});
         }
         else if (const auto name = OlapBinaryName(node.Op); !name.empty()) {
@@ -562,7 +745,7 @@ NYql::TExprNode::TPtr LowerNativeOlapPredicate(const NFrontend::TExpressionArena
             args.push_back(ExpandType(pos, *ExportNativeType(node.Type, ctx, &arena), ctx));
             value = ctx.NewList(pos, std::move(args));
         } else if (node.Op == O::If) {
-            if (arena[node.Arguments[0]].Type.Nullable) {
+            if (arena[node.Arguments[0]].Type.OptionalDepth) {
                 const auto boolean = ExportNativeType({K::Bool}, ctx);
                 auto literal = ctx.NewAtom(pos, "false");
                 literal->SetTypeAnn(ctx.MakeType<TUnitExprType>());

@@ -1,3 +1,4 @@
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include "kqp_rbo_physical_window_builder.h"
 
 #include <yql/essentials/core/yql_expr_type_annotation.h>
@@ -56,63 +57,17 @@ bool HasFrameOffset(const TOpWindowFrame& frame) {
     return isOffset(frame.BeginKind) || isOffset(frame.EndKind);
 }
 
-bool IsRangeOffsetType(const TTypeAnnotationNode* type) {
-    if (type->GetKind() == ETypeAnnotationKind::Optional) {
-        type = type->Cast<TOptionalExprType>()->GetItemType();
-    }
-    if (type->GetKind() != ETypeAnnotationKind::Data) {
-        return false;
-    }
-    const auto slot = type->Cast<TDataExprType>()->GetSlot();
-    return IsDataTypeIntegral(slot) || slot == EDataSlot::Float || slot == EDataSlot::Double;
-}
 
-bool IsRangeComparableType(const TTypeAnnotationNode* type) {
-    if (type->GetKind() == ETypeAnnotationKind::Optional) {
-        type = type->Cast<TOptionalExprType>()->GetItemType();
-    }
-    if (type->GetKind() != ETypeAnnotationKind::Data) {
-        return false;
-    }
 
-    switch (type->Cast<TDataExprType>()->GetSlot()) {
-        case NUdf::EDataSlot::Int8:
-        case NUdf::EDataSlot::Uint8:
-        case NUdf::EDataSlot::Int16:
-        case NUdf::EDataSlot::Uint16:
-        case NUdf::EDataSlot::Int32:
-        case NUdf::EDataSlot::Uint32:
-        case NUdf::EDataSlot::Int64:
-        case NUdf::EDataSlot::Uint64:
-        case NUdf::EDataSlot::Float:
-        case NUdf::EDataSlot::Double:
-        case NUdf::EDataSlot::Decimal:
-        case NUdf::EDataSlot::Interval:
-        case NUdf::EDataSlot::Interval64:
-        case NUdf::EDataSlot::Date:
-        case NUdf::EDataSlot::Datetime:
-        case NUdf::EDataSlot::Timestamp:
-        case NUdf::EDataSlot::TzDate:
-        case NUdf::EDataSlot::TzDatetime:
-        case NUdf::EDataSlot::TzTimestamp:
-        case NUdf::EDataSlot::Date32:
-        case NUdf::EDataSlot::Datetime64:
-        case NUdf::EDataSlot::Timestamp64:
-        case NUdf::EDataSlot::TzDate32:
-        case NUdf::EDataSlot::TzDatetime64:
-        case NUdf::EDataSlot::TzTimestamp64:
-            return true;
-        default:
-            return false;
-    }
-}
 
-const TTypeAnnotationNode* SortColumnType(const TOpWindow& window, TInfoUnitId column) {
-    const auto* inputType = window.GetInput()->Type;
-    Y_ENSURE(inputType, "Window input has no type annotation");
-    const auto* type = inputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>()->FindItemType(ToString(column));
-    Y_ENSURE(type, "Cannot find a type for the window sort column");
-    return type;
+
+
+
+bool NativeRangeKey(const TOpWindow& window, bool offset) {
+    const auto type = window.GetInput()->GetNativeIUType(window.GetSortElements().Items().front().first);
+    using K = NFrontend::ETypeKind;
+    return offset ? type.IsIntegral() || type.Kind == K::Float || type.Kind == K::Double :
+        type.IsNumeric() || type.Kind == K::Date || type.Kind == K::Datetime || type.Kind == K::Timestamp || type.Kind == K::Interval;
 }
 
 bool HasAggregate(const TOpWindow& window) {
@@ -161,7 +116,7 @@ bool TPhysicalWindowBuilder::UsesRangeCarry(const TOpWindow& window) {
         return false;
     }
 
-    if (!IsRangeComparableType(SortColumnType(window, window.GetSortElements().Items().front().first))) {
+    if (!(NativeRangeKey(window, false))) {
         return false;
     }
     return HasAggregate(window);
@@ -173,13 +128,10 @@ bool TPhysicalWindowBuilder::UsesRangePeerGroups(const TOpWindow& window) {
     }
 
     for (const auto& sortElement : window.GetSortElements().Items()) {
-        const auto* type = SortColumnType(window, sortElement.first);
-        if (type->GetKind() == ETypeAnnotationKind::Optional) {
-            type = type->Cast<TOptionalExprType>()->GetItemType();
-        }
-        if (type->GetKind() != ETypeAnnotationKind::Data) {
-            return false;
-        }
+
+            const auto kind = window.GetInput()->GetNativeIUType(sortElement.first).Kind;
+            if (kind == NFrontend::ETypeKind::Tuple || kind == NFrontend::ETypeKind::Null || kind == NFrontend::ETypeKind::Calendar) return false;
+
     }
     return HasAggregate(window);
 }
@@ -198,11 +150,7 @@ bool TPhysicalWindowBuilder::UsesRangeFrames(const TOpWindow& window) {
         return false;
     }
 
-    const auto* sortColumnType = SortColumnType(window, window.GetSortElements().Items().front().first);
-    if (!(HasFrameOffset(frame) ? IsRangeOffsetType(sortColumnType) : IsRangeComparableType(sortColumnType))) {
-        return false;
-    }
-    return HasAggregate(window);
+    return NativeRangeKey(window, HasFrameOffset(frame)) && HasAggregate(window);
 }
 
 bool TPhysicalWindowBuilder::CanBuildWindow(const TOpWindow& window) {
@@ -257,7 +205,7 @@ ui32 TPhysicalWindowBuilder::IndexOf(TInfoUnitId column) const {
 }
 
 const TTypeAnnotationNode* TPhysicalWindowBuilder::InputItemType(TInfoUnitId column) const {
-    const auto* type = Window.GetInput()->GetIUType(column, Ctx);
+    const auto* type = ExportIUType(*Window.GetInput(), column, Ctx);
     Y_ENSURE(type, "Cannot find a type for window column " << Names.Get(column));
     return type;
 }
@@ -266,7 +214,7 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildOutputRowType() const {
     TVector<const TItemExprType*> fields;
     fields.reserve(OutputLayout.size());
     for (const auto id : OutputLayout) {
-        const auto* type = Window.GetIUType(id, Ctx);
+        const auto* type = ExportIUType(Window, id, Ctx);
         Y_ENSURE(type, "Cannot find the window result type for " << Names.Get(id));
         fields.push_back(Ctx.MakeType<TItemExprType>(Names.Get(id), type));
     }
@@ -707,7 +655,7 @@ bool TPhysicalWindowBuilder::IsNonOptionalAggregate(TInfoUnitId column) const {
     if (func.Kind != EWindowFuncKind::Aggregate || func.Function == "count") {
         return false;
     }
-    const auto* type = Window.GetIUType(column, Ctx);
+    const auto* type = ExportIUType(Window, column, Ctx);
     Y_ENSURE(type, "Cannot find the window result type for " << Names.Get(column));
     return !type->IsOptionalOrNull();
 }
@@ -993,7 +941,7 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildPartitionList(TExprNode::TPtr flow)
 }
 
 TExprNode::TPtr TPhysicalWindowBuilder::BuildQueue(TExprNode::TPtr wideFlow) const {
-    Y_ENSURE(Window.Type, "Window has no type annotation");
+    Y_ENSURE(Window.HasSchema(), "Window has no type annotation");
 
     // clang-format off
     return Ctx.Builder(Pos)
@@ -1176,7 +1124,7 @@ TExprNode::TPtr TPhysicalWindowBuilder::BuildRangePeerGroups(TExprNode::TPtr wid
     const auto& sortElements = Window.GetSortElements().Items();
     auto outputs = BuildChainOutputs(wideFlow);
 
-    Y_ENSURE(Window.Type, "Window has no type annotation");
+    Y_ENSURE(Window.HasSchema(), "Window has no type annotation");
     auto rowType = BuildOutputRowType();
     // clang-format off
     auto variantType = Ctx.Builder(Pos)

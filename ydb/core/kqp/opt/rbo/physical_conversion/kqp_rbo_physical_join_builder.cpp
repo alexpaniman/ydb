@@ -49,10 +49,10 @@ bool BadKeyTypeForHashJoin(const TTypeAnnotationNode* type) {
 
 bool BadTypesForBlockJoin(TOpJoin& join, TExprContext& ctx) {
     for (const auto & joinIU : join.JoinKeys.Items()) {
-        if (BadKeyTypeForHashJoin(join.GetLeftInput()->GetIUType(joinIU.first, ctx))) {
+        if (BadKeyTypeForHashJoin(ExportIUType(*join.GetLeftInput(), joinIU.first, ctx))) {
             return true;
         }
-        if (BadKeyTypeForHashJoin(join.GetRightInput()->GetIUType(joinIU.second, ctx))) {
+        if (BadKeyTypeForHashJoin(ExportIUType(*join.GetRightInput(), joinIU.second, ctx))) {
             return true;
         }
     }
@@ -261,8 +261,8 @@ void TPhysicalJoinBuilder::PrepareJoinKeys(TVector<TString>& leftJoinKeys, TVect
         const bool duplicateLeftKey = !seenLeftKeys.insert(leftKey).second;
         const bool duplicateRightKey = !seenRightKeys.insert(rightKey).second;
 
-        const auto leftKeyType = Join.GetLeftInput()->GetIUType(joinKeyPair.first, Ctx);
-        const auto rightKeyType = Join.GetRightInput()->GetIUType(joinKeyPair.second, Ctx);
+        const auto leftKeyType = ExportIUType(*Join.GetLeftInput(), joinKeyPair.first, Ctx);
+        const auto rightKeyType = ExportIUType(*Join.GetRightInput(), joinKeyPair.second, Ctx);
         Y_ENSURE(leftKeyType && rightKeyType, "No types for join keys");
 
         const bool keepOptional = outer || joinKeyPair.EqualNulls;
@@ -405,7 +405,7 @@ void TPhysicalJoinBuilder::PrepareJoinFilters(TExprNode::TPtr& leftLambda, TExpr
     // Block left join adds an optional layer to originally non-optional RHS fields.
     if (joinType == "Left") {
         for (const auto id : rightIds) {
-            if (Join.GetRightInput()->GetIUType(id, Ctx)->GetKind() != ETypeAnnotationKind::Optional) {
+            if (ExportIUType(*Join.GetRightInput(), id, Ctx)->GetKind() != ETypeAnnotationKind::Optional) {
                 unwrapInputs.Add(id);
             }
         }

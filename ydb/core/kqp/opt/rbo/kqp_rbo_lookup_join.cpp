@@ -161,7 +161,7 @@ std::optional<TLookupJoinRightSide> MatchLookupJoinRightSide(const TIntrusivePtr
     auto sourceRead = MakeIntrusive<TOpRead>(read->Alias, sourceLookup->GetColumns(), NYql::EStorageType::RowStorage,
                                              sourceLookup->Table, nullptr, std::nullopt, std::move(rangeInfo), source.Predicate,
                                              ESortDir::None, sourceLookup->Props, sourceLookup->Pos);
-    sourceRead->Type = sourceLookup->Type;
+    sourceRead->NativeSchema = sourceLookup->NativeSchema;
     if (!sourceRead->RangeInfo) {
         // Native ranges are replaced by join-key lookups. Keep their whole predicate
         // as an ordinary filter so both lookup selection and rewriting see it.
@@ -192,17 +192,17 @@ std::optional<TLookupJoinTarget> ChooseLookupJoinTarget(const TOpRead& read, con
         return std::nullopt;
     }
 
-    const auto table = TKqpTable(read.GetTable());
-    if (table.PathId().Value().empty()) {
+    const auto table = read.GetTable();
+    if (table.PathId.empty()) {
         return std::nullopt;
     }
 
-    const auto& tableDesc = kqpCtx.Tables->ExistingTable(kqpCtx.Cluster, table.Path().Value());
+    const auto& tableDesc = kqpCtx.Tables->ExistingTable(kqpCtx.Cluster, table.Path);
     Y_ENSURE(tableDesc.Metadata);
     // A read redirected to an index is not on the main table, but rows found in another index of the main table
     // are still fetched from the main table.
     const bool redirected = read.RangeInfo.has_value() && !read.RangeInfo->MainTable.empty()
-        && read.RangeInfo->MainTable != table.Path().Value();
+        && read.RangeInfo->MainTable != table.Path;
     const auto& mainTableDesc = redirected ? kqpCtx.Tables->ExistingTable(kqpCtx.Cluster, read.RangeInfo->MainTable) : tableDesc;
     Y_ENSURE(mainTableDesc.Metadata);
     const bool autoIndexSelection = kqpCtx.Config->IsAutoIndexSelectionForIndexLookupJoinEnabled();
@@ -259,7 +259,7 @@ std::optional<TLookupJoinTarget> ChooseLookupJoinTarget(const TOpRead& read, con
     TVector<const TOpRead::TPointPrefix*> otherPrefixes;
     if (read.RangeInfo.has_value()) {
         for (const auto& prefix : read.RangeInfo->PointPrefixes) {
-            if (prefix.Table == table.Path().Value()) {
+            if (prefix.Table == table.Path) {
                 consider(tableDesc.Metadata, &prefix);
             } else if (autoIndexSelection && allPointPrefixes) {
                 otherPrefixes.push_back(&prefix);
@@ -284,15 +284,6 @@ std::optional<TLookupJoinTarget> ChooseLookupJoinTarget(const TOpRead& read, con
     return best;
 }
 
-TExprNode::TPtr BuildTableCallable(const TKikimrTableMetadata& meta, TPositionHandle pos, TExprContext& ctx) {
-    // clang-format off
-    return Build<TKqpTable>(ctx, pos)
-        .Path().Build(meta.Name)
-        .PathId().Build(meta.PathId.ToString())
-        .SysView().Build(meta.SysView)
-        .Version().Build(meta.SchemaVersion)
-    .Done().Ptr();
-    // clang-format on
-}
+
 
 } // namespace NKikimr::NKqp

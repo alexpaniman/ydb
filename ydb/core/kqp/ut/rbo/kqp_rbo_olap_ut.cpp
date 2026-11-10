@@ -1144,8 +1144,9 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
             auto result = CollectStreamResult(it);
             auto ast = result.QueryStats->Getquery_ast();
 
-            UNIT_ASSERT_C(ast.find("KqpOlapFilter") != std::string::npos,
-                          TStringBuilder() << "Predicate not pushed down. Query: " << pushQuery);
+            const bool checked = predicate.Contains("Unwrap(");
+            UNIT_ASSERT_VALUES_EQUAL_C(ast.find("KqpOlapFilter") != std::string::npos, !checked,
+                TStringBuilder() << "Checked expressions must retain evaluation order. Query: " << pushQuery);
             UNIT_ASSERT_C(ast.find("NarrowMap") != std::string::npos,
                           TStringBuilder() << "NarrowMap was removed. Query: " << pushQuery);
         }
@@ -1477,13 +1478,10 @@ Y_UNIT_TEST_SUITE(KqpRboOlap) {
 
         auto result = CollectStreamResult(it);
         auto ast = result.QueryStats->Getquery_ast();
-        UNIT_ASSERT_C(ast.find(R"(('eq '"resource_id")") != std::string::npos,
-                          TStringBuilder() << "Subpredicate is not pushed down. Query: " << query);
-        UNIT_ASSERT_C(ast.find(R"(('gt '"level")") != std::string::npos,
-                          TStringBuilder() << "Subpredicate is not pushed down. Query: " << query);
-        //This check is based on an assumpltion, that for pushed down predicates column names are preserved in AST
-        //But for non-pushed down predicates column names are (usually) replaced with a label, started with $. It' not a rule, but a heuristic
-        //So this check may require a correction when some ast optimization rules are changed
+        // Filtering a nullable conjunct in storage can discard NULL before
+        // Unwrap is evaluated and suppress its error. Keep this predicate intact.
+        UNIT_ASSERT_C(ast.find("KqpOlapFilter") == std::string::npos,
+                          TStringBuilder() << "Checked predicate was reordered. Query: " << query);
         UNIT_ASSERT_C(ast.find(R"((Unwrap (/ $)") != std::string::npos,
                           TStringBuilder() << "Unsafe subpredicate is pushed down. Query: " << query);
 

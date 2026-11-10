@@ -382,13 +382,6 @@ class TPushSimpleJoinFilterRule : public IRule {
 /**
  * Peephole predicate.
  */
-class TPeepholePredicate : public ISimplifiedRule {
-  public:
-      TPeepholePredicate() : ISimplifiedRule("Peephole predicate", ERuleProperties::RequireParents | ERuleProperties::RequireTypes) {}
-
-      virtual bool QuickMatch(const TIntrusivePtr<IOperator>& input) const override;
-      virtual TIntrusivePtr<IOperator> SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) override;
-};
 
 /**
  * Push ranges to read.

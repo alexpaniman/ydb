@@ -1,4 +1,3 @@
-#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_rules.h>
 #include <ydb/core/kqp/opt/rbo/rules/decorrelation/dependent_join_pushdown.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
@@ -76,15 +75,15 @@ TIntrusivePtr<IOperator> TExpandWholePartitionWindowRule::SimpleMatchAndApply(co
 
         // A scalar aggregate is optional even where the window aggregate is not, but every
         // row joined to it comes from a non-empty input, so the value is never NULL.
-        const TTypeAnnotationNode* aggregateType = nullptr;
+        NFrontend::TType aggregateType;
         if (props.NativeExpressions) {
-            aggregateType = window->GetIUType(output, ctx);
-            if (func.Function != "count" && !grouped && !aggregateType->IsOptionalOrNull())
-                aggregateType = ctx.MakeType<TOptionalExprType>(aggregateType);
-            if (func.Function == "avg") traits.ResultType = ImportNativeType(*aggregateType, props.NativeExpressions.get());
+            aggregateType = window->GetNativeIUType(output);
+            if (func.Function != "count" && !grouped && !aggregateType.OptionalDepth)
+                aggregateType = aggregateType.Optional();
+            if (func.Function == "avg") traits.ResultType = aggregateType;
         }
         aggregations.Add(aggregated, std::move(traits));
-        auto value = MakeColumnAccess(aggregated, aggregateType, pos, &ctx, &props);
+        auto value = MakeColumnAccess(aggregated, aggregateType, pos, &props);
         if (func.Function != "count" && !grouped && !IsNullableIU(input, output, ctx)) {
             value = MakeUnaryCallable("Unwrap", value);
         }

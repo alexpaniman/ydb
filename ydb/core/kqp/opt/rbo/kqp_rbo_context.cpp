@@ -9,7 +9,7 @@ TRBOContext::TRBOContext(NOpt::TKqpOptimizeContext& kqpCtx, NYql::TExprContext& 
     : KqpCtx(kqpCtx)
     , ExprCtx(ctx)
     , TypeCtx(typeCtx)
-    , TypeAnnTransformer(typeAnnTransformer)
+    , BackendTypeAnnTransformer(typeAnnTransformer)
     , FuncRegistry(funcRegistry)
     , CBOCtx(kqpCtx, 
         kqpCtx.Config->CostBasedOptimizationLevel.Get().GetOrElse(kqpCtx.Config->GetDefaultCostBasedOptimizationLevel()), 

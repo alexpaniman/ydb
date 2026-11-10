@@ -23,16 +23,17 @@ struct TIdTestContext {
         , UserRequestContext(MakeIntrusive<TUserRequestContext>())
         , KqpCtx("ut", Config, QueryCtx, Tables, UserRequestContext)
         , RboCtx(KqpCtx, ExprCtx, TypeCtx, TypeAnnTransformer, *FuncRegistry)
-    {}
+    { Props.NativeExpressions = std::make_shared<NFrontend::TExpressionArena>(); }
 
     TInfoUnitId Id(TString name = "column") {
         return Props.InfoUnitRegistry.Add(TInfoUnit(name));
     }
 
     TIntrusivePtr<TOpRead> Read(TUnorderedIUs columns) {
-        const auto table = NNodes::Build<NNodes::TKqpTable>(ExprCtx, Pos)
-            .Path().Build("/Root/table").PathId().Build("1:1")
-            .SysView().Build("").Version().Build("1").Done().Ptr();
+        TRboTable table{"/Root/table", "1:1", "", "1"};
+        auto types = std::make_shared<TRboTable::TColumns>();
+        for (const auto id : columns) types->emplace(Props.InfoUnitRegistry.Get(id).GetColumnName(), NFrontend::TType{NFrontend::ETypeKind::Int32});
+        table.NativeColumns = std::move(types);
         return MakeIntrusive<TOpRead>("", std::move(columns), NYql::EStorageType::RowStorage,
             table, nullptr, std::nullopt, std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, Pos);
     }
@@ -47,19 +48,19 @@ struct TIdTestContext {
     }
 
     void SetType(IOperator& op, const TUnorderedIUs& nullable = {}) {
-        TVector<const TItemExprType*> fields;
-        for (auto id : op.GetOutputIUs()) {
-            const TTypeAnnotationNode* type = ExprCtx.MakeType<TDataExprType>(EDataSlot::Int32);
-            if (nullable.Contains(id)) {
-                type = ExprCtx.MakeType<TOptionalExprType>(type);
-            }
-            fields.push_back(ExprCtx.MakeType<TItemExprType>(ExprCtx.GetIndexAsString(id), type));
-        }
-        op.Type = ExprCtx.MakeType<TListExprType>(ExprCtx.MakeType<TStructExprType>(fields));
+        TNativeSchema schema{{}, std::nullopt, Props.NativeExpressions};
+        for (auto id : op.GetOutputIUs()) schema.Row.emplace(id, NFrontend::TType{NFrontend::ETypeKind::Int32, nullable.Contains(id)});
+        op.NativeSchema = std::move(schema);
     }
 
-    TExpression Column(TInfoUnitId id) { return MakeColumnAccess(id, Pos, &ExprCtx, &Props); }
-    TExpression Constant() { return MakeConstant("Uint64", "1", Pos, &ExprCtx); }
+    TExpression Column(TInfoUnitId id) {
+        NFrontend::TType type{NFrontend::ETypeKind::Int32};
+        if (const auto* call = Props.Subplans.Find(id); call && call->Type != ESubplanType::EXPR) {
+            type = {NFrontend::ETypeKind::Bool, call->Type == ESubplanType::IN_SUBPLAN};
+        }
+        return MakeColumnAccess(id, type, Pos, &Props);
+    }
+    TExpression Constant() { return MakeConstant("Uint64", "1", Pos, &Props); }
 
     TIntrusivePtr<TOpMap> Copies(TIntrusivePtr<IOperator> input,
         std::initializer_list<std::pair<TInfoUnitId, TInfoUnitId>> copies) {

@@ -1,17 +1,7 @@
 #include "copy_logical_subtree.h"
 
-#include <yql/essentials/core/expr_nodes/yql_expr_nodes.h>
-#include <yql/essentials/core/yql_expr_optimize.h>
-
 namespace NKikimr::NKqp {
 namespace {
-
-bool IsRepeatable(const TExprNode::TPtr& expression) {
-    return !expression || !FindNode(expression, [](const TExprNode::TPtr& node) {
-        return NYql::NNodes::TCoNonDeterministicBase::Match(node.Get())
-            || node->IsCallable({"Udf", "ScriptUdf", "SqlCall"});
-    });
-}
 
 bool CanDuplicateAggregation(const TOpAggregate& aggregate) {
     // Deliberately ignore input types and reduction-order differences.
@@ -27,11 +17,6 @@ bool CanDuplicateAggregation(const TOpAggregate& aggregate) {
 }
 
 bool IsRepeatable(const IOperator& op) {
-    for (const auto& expression : op.GetExpressions()) {
-        if (!expression.get().IsNative() && !IsRepeatable(expression.get().Node)) {
-            return false;
-        }
-    }
     switch (op.Kind) {
         case EOperator::Replicate:
         case EOperator::AddDependencies:
@@ -42,13 +27,10 @@ bool IsRepeatable(const IOperator& op) {
             return true;
         case EOperator::Source: {
             const auto& read = CastOperator<TOpRead>(op);
-            return !read.Limit && (!read.RangeInfo ||
-                (IsRepeatable(read.RangeInfo->ComputeNode) &&
-                 std::all_of(read.RangeInfo->PointPrefixes.begin(), read.RangeInfo->PointPrefixes.end(),
-                             [](const TOpRead::TPointPrefix& prefix) { return IsRepeatable(prefix.Points); })));
+            return !read.Limit;
         }
         case EOperator::EmptySource:
-            return IsRepeatable(CastOperator<TOpEmptySource>(op).Input);
+            return true;
         case EOperator::Aggregate:
             return CanDuplicateAggregation(CastOperator<TOpAggregate>(op));
         case EOperator::Sort:
@@ -60,9 +42,6 @@ bool IsRepeatable(const IOperator& op) {
 }
 
 // Embedded programs need column-ID and row-schema rebinding in CopyImpl.
-bool CanCopyRead(const TOpRead& read) {
-    return (!read.OlapProgram || read.OlapProgram.IsNative()) && (!read.OriginalPredicate || read.OriginalPredicate->IsNative());
-}
 
 TInfoUnitId CopyDefinition(TInfoUnitId id, TInfoUnitRegistry& registry, TSubstitutions& renames) {
     if (const auto* renamed = renames.Find(id)) {
@@ -101,8 +80,7 @@ T CopyDefinitions(const T& definitions, TInfoUnitRegistry& registry, TSubstituti
 } // namespace
 
 bool CanDuplicateOperator(const IOperator& op) {
-    return (op.Kind != EOperator::Source || CanCopyRead(CastOperator<TOpRead>(op)))
-        && IsRepeatable(op);
+    return IsRepeatable(op);
 }
 
 bool CanDuplicateSubtree(const IOperator& root, const TSubplans& subplans, size_t maxOperators) {
@@ -265,13 +243,11 @@ TIntrusivePtr<IOperator> TOpEmptySource::CopyImpl(TInfoUnitRegistry& registry, T
         for (const auto& [id, field] : NativeInput->Fields.Items()) input.Fields.Add(renames.At(id), field);
         return MakeIntrusive<TOpEmptySource>(Pos, std::move(input));
     }
-    return MakeIntrusive<TOpEmptySource>(Pos, Input, std::move(columns));
+    return MakeIntrusive<TOpEmptySource>(Pos);
 }
 
 TIntrusivePtr<IOperator> TOpRead::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {
-    if (!CanCopyRead(*this)) {
-        return nullptr;
-    }
+
     auto columns = CopyColumns(Columns_, registry, renames);
     TOlapProgram program;
     if (OlapProgram.IsNative()) {
@@ -283,7 +259,7 @@ TIntrusivePtr<IOperator> TOpRead::CopyImpl(TInfoUnitRegistry& registry, TSubstit
     }
     const auto predicate = OriginalPredicate ? std::optional<TExpression>{OriginalPredicate->ApplyRenames(renames)} : std::nullopt;
     return MakeIntrusive<TOpRead>(Alias, std::move(columns), StorageType,
-        TableCallable, program, Limit, RangeInfo, predicate, SortDir, TPhysicalOpProps{}, Pos);
+        TableRef, program, Limit, RangeInfo, predicate, SortDir, TPhysicalOpProps{}, Pos);
 }
 
 TIntrusivePtr<IOperator> TOpMap::CopyImpl(TInfoUnitRegistry& registry, TSubstitutions& renames) const {

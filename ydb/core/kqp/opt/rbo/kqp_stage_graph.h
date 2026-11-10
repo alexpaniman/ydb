@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kqp_info_unit.h"
+#include "kqp_rbo_table.h"
 #include <ydb/core/kqp/opt/kqp_opt.h>
 #include <yql/essentials/core/yql_statistics.h>
 
@@ -106,14 +107,8 @@ struct TSourceConnection: public TConnection {
 };
 
 struct TStreamLookupConnection: public TConnection {
-    TStreamLookupConnection(ui32 outputIndex, NYql::TExprNode::TPtr table, NYql::TExprNode::TPtr columns,
-                            NYql::TExprNode::TPtr inputType, NYql::TExprNode::TPtr settings)
-        : TConnection("StreamLookup", outputIndex)
-        , Table(table)
-        , Columns(columns)
-        , InputType(inputType)
-        , Settings(settings) {
-    }
+    TStreamLookupConnection(ui32 outputIndex, TRboTable table, TVector<TString> columns)
+        : TConnection("StreamLookup", outputIndex), Table(std::move(table)), Columns(std::move(columns)) {}
     virtual NYql::TExprNode::TPtr BuildConnection(NYql::TExprNode::TPtr inputStage, NYql::TPositionHandle pos, NYql::TExprContext& ctx, const TPhysicalNames& names) override;
 
     // In join mode the input type describes the tuples that the physical conversion builds at the
@@ -122,10 +117,17 @@ struct TStreamLookupConnection: public TConnection {
         InputType = std::move(inputType);
     }
 
-    NYql::TExprNode::TPtr Table;
-    NYql::TExprNode::TPtr Columns;
+    enum class EStrategy { Rows, JoinRows, SemiJoinRows };
+    using TKeyType = NFrontend::TType;
+    TRboTable Table;
+    TVector<TString> Columns;
+    TVector<std::pair<TString, TKeyType>> Keys;
+    std::shared_ptr<NFrontend::TExpressionArena> Arena;
+    EStrategy Strategy = EStrategy::Rows;
+    size_t AllowNullKeysPrefixSize = 0;
+    // Populated only by physical conversion for the emitted join tuple.
     NYql::TExprNode::TPtr InputType;
-    NYql::TExprNode::TPtr Settings;
+
 };
 
 template <typename T>
@@ -146,8 +148,8 @@ struct TStageGraph {
         NYql::EStorageType StorageType;
     };
     struct TSinkStageTraits {
-        TSinkStageTraits(const NYql::TExprNode::TPtr& sinkSettings) : SinkSettings(sinkSettings) {}
-        NYql::TExprNode::TPtr SinkSettings;
+        TSinkStageTraits(const TTableSinkSettings& sinkSettings) : SinkSettings(sinkSettings) {}
+        TTableSinkSettings SinkSettings;
     };
 
     int StageCounter = 0;
@@ -169,7 +171,7 @@ struct TStageGraph {
         return res;
     }
 
-    ui32 AddSinkStage(const NYql::TExprNode::TPtr& sinkSettings) {
+    ui32 AddSinkStage(const TTableSinkSettings& sinkSettings) {
         ui32 res = AddStage();
 
         SinkStages.insert({res, TSinkStageTraits(sinkSettings)});
@@ -200,7 +202,7 @@ struct TStageGraph {
         return SinkStages.contains(id);
     }
 
-    NYql::TExprNode::TPtr GetSinkSettings(const ui32 id) const {
+    const TTableSinkSettings& GetSinkSettings(const ui32 id) const {
         return SinkStages.at(id).SinkSettings;
     }
 

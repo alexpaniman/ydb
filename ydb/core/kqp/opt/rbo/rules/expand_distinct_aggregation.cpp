@@ -1,5 +1,4 @@
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_rules.h>
-#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <yql/essentials/core/yql_expr_type_annotation.h>
 
 namespace NKikimr::NKqp {
@@ -49,62 +48,30 @@ TIntrusivePtr<IOperator> BuildDistinct(const TIntrusivePtr<IOperator>& input, TO
     return MakeIntrusive<TOpAggregate>(input, TAggregationIUs{}, std::move(distColumns), EOpPhase::Undefined, /*distinctAll=*/false, input->Pos);
 }
 
-bool IsDecimalType(const TTypeAnnotationNode* type) {
-    const auto features = NUdf::GetDataTypeInfo(RemoveOptionality(*type).Cast<TDataExprType>()->GetSlot()).Features;
-    return (features & NUdf::EDataTypeFeatures::DecimalType);
-}
 
-const TTypeAnnotationNode* GetAggregationType(const TTypeAnnotationNode* inputType, const TString& aggFunction, TExprContext& ctx) {
-    Y_ENSURE(inputType, "Type is nullptr");
-    const TTypeAnnotationNode* resultType = inputType;
-    TPositionHandle pos;
 
-    if (aggFunction == "count") {
-        return ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
-    } else if (aggFunction == "sum") {
-        Y_ENSURE(GetSumResultType(pos, *inputType, resultType, ctx), "Unsupported type for sum aggregation function");
-    } else if (aggFunction == "avg") {
-        // Early: (sum, count)
-        std::vector<const TTypeAnnotationNode*> tupleTypes;
-        if (IsDecimalType(inputType)) {
-            auto decimalType = inputType->Cast<TDataExprParamsType>();
-            const auto precision = "35";
-            const auto scale = TString(decimalType->GetParamTwo());
-            tupleTypes = {ctx.MakeType<TDataExprParamsType>(EDataSlot::Decimal, precision, scale), ctx.MakeType<TDataExprType>(EDataSlot::Uint64)};
-        } else {
-            tupleTypes = {ctx.MakeType<TDataExprType>(EDataSlot::Double), ctx.MakeType<TDataExprType>(EDataSlot::Uint64)};
-        }
-        return ctx.MakeType<TTupleExprType>(tupleTypes);
-    } else if (aggFunction == "variance_1_1") {
-        Y_ENSURE(false, "Variacnce not supported for multiple distinct.");
-    }
 
-    return resultType;
-}
 
 // realAggTraits maps results to partial IDs; mapColumns gets each result's branch column.
-TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>& input, const TTypeAnnotationNode* inputType,
+TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>& input, const IOperator& originalInput,
                                                   const TAggregationIUs& aggTraitsList, const TMappedIUs<TInfoUnitId>& realAggTraits,
                                                   TMappedIUs<TInfoUnitId>& mapColumns, TPlanProps& props, TExprContext& ctx) {
-    Y_ENSURE(inputType);
-    auto inputStructType = inputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+    Y_ENSURE(originalInput.HasSchema());
+    Y_UNUSED(ctx);
 
     TMapIUs mapElements;
     for (const auto output : aggTraitsList.Keys()) {
         const auto& aggTraits = aggTraitsList.At(output);
-        const auto originalColName = ctx.GetIndexAsString(aggTraits.Input);
-        TExprNode::TPtr columnExpr;
-        auto fieldType = inputStructType->FindItemType(originalColName);
-        Y_ENSURE(fieldType, "Aggregation column not found in input type:" << output;);
-        if (props.NativeExpressions) {
+
             // Preserve the existing partial/union/final plan, including
             // typed tuple states for AVG.
             const auto& arena = props.NativeExpressions;
-            const auto state = ImportNativeType(*GetAggregationType(&RemoveOptionality(*fieldType), aggTraits.AggFunction, ctx), arena.get());
+            const auto fieldType = originalInput.GetNativeIUType(aggTraits.Input);
+            const auto state = NativeAggregateType(fieldType.Required(), aggTraits, EOpPhase::Intermediate, *arena);
             NFrontend::TExprId expression;
             if (const auto* partial = realAggTraits.Find(output)) {
-                const bool optional = fieldType->IsOptionalOrNull() && aggTraits.AggFunction != "count";
-                if (optional || state.Nullable) {
+                const bool optional = fieldType.OptionalDepth && aggTraits.AggFunction != "count";
+                if (optional || state.OptionalDepth) {
                     mapColumns.Add(output, *partial);
                     continue;
                 }
@@ -114,57 +81,10 @@ TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>
                 expression = arena->Literal(state.Optional(), std::monostate{});
             }
             const auto padding = props.InfoUnitRegistry.AddGenerated("distinct_padding");
-            mapElements.Add(padding, TExpression::FromNative(arena, expression, &ctx, &props, input->Pos));
+            mapElements.Add(padding, TExpression::FromNative(arena, expression, &props, input->Pos));
             mapColumns.Add(output, padding);
             continue;
-        }
-        if (const auto* partialColName = realAggTraits.Find(output)) {
-            const bool needsOptionalWrap = !fieldType->IsOptionalOrNull() || aggTraits.AggFunction == "count";
-            if (!needsOptionalWrap) {
-                mapColumns.Add(output, *partialColName);
-                continue;
-            }
 
-            auto arg = ctx.NewArgument(input->Pos, "arg");
-            // clang-format off
-            auto body = Build<TCoMember>(ctx, input->Pos)
-                .Struct(arg)
-                .Name<TCoAtom>()
-                    .Value(ctx.GetIndexAsString(*partialColName))
-                .Build()
-            .Done().Ptr();
-            // clang-format on
-
-            // Count unwraps optional.
-            // clang-format off
-            body = Build<TCoJust>(ctx, input->Pos)
-                .Input(body)
-            .Done().Ptr();
-            // clang-format on
-
-            // clang-format on
-            columnExpr = Build<TCoLambda>(ctx, input->Pos).Args({arg}).Body(body).Done().Ptr();
-            // clang-format off
-        } else {
-            if (fieldType->IsOptionalOrNull()) {
-                fieldType = fieldType->Cast<TOptionalExprType>()->GetItemType();
-            }
-
-            fieldType = GetAggregationType(fieldType, aggTraits.AggFunction, ctx);
-            // clang-format off
-            columnExpr = Build<TCoLambda>(ctx, input->Pos)
-                .Args({"arg"})
-                .Body<TCoNothing>()
-                    .OptionalType<TCoOptionalType>()
-                        .ItemType(ExpandType(input->Pos, *fieldType, ctx))
-                    .Build()
-                .Build()
-            .Done().Ptr();
-            // clang-format on
-        }
-        const auto mapColName = props.InfoUnitRegistry.AddGenerated("distinct_padding");
-        mapElements.Add(mapColName, TExpression(columnExpr, &ctx, &props));
-        mapColumns.Add(output, mapColName);
     }
 
     if (mapElements.Keys().Empty()) {
@@ -174,23 +94,7 @@ TIntrusivePtr<IOperator> BuildMapWithNullElements(const TIntrusivePtr<IOperator>
     return MakeIntrusive<TOpMap>(input, input->Pos, std::move(mapElements));
 }
 
-bool NeedToUnwrapOptional(const TTypeAnnotationNode* inputType, const TString& aggField, const std::pair<TString, TString>& aggFunctions,
-                          const TOrderedIUs<>& keys) {
-    Y_ENSURE(inputType);
-    auto structType = inputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
-    auto fieldType = structType->FindItemType(aggField);
-    Y_ENSURE(fieldType, "Aggregation field not found " << aggField);
 
-    if (aggFunctions.first == "count" && aggFunctions.second == "sum") {
-        return true;
-    }
-
-    if (!keys.Items().empty()) {
-        return !fieldType->IsOptionalOrNull();
-    }
-
-    return false;
-}
 
 TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& aggregate, TPlanProps& props, TExprContext& ctx) {
     const auto& aggTraitsList = aggregate->GetAggregationTraits();
@@ -250,7 +154,7 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
                                                     /*distinctAll=*/false, pos);
         TMappedIUs<TInfoUnitId> mapColumns;
         partialResult =
-            BuildMapWithNullElements(partialResult, aggregate->GetInput()->Type, aggTraitsList, partialColumns, mapColumns, props, ctx);
+            BuildMapWithNullElements(partialResult, *aggregate->GetInput(), aggTraitsList, partialColumns, mapColumns, props, ctx);
 
         for (const auto& [key, output] : keyReplacements.Items()) {
             rows.At(output).Inputs.push_back(rebind(key));
@@ -272,17 +176,14 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
         const auto intermediateColName = intermediates.At(output);
         auto finalAggTraits = TOpAggregationTraits{
             intermediateColName, aggFunctions.second, false,
-            NeedToUnwrapOptional(aggregate->GetInput()->Type, TString(ctx.GetIndexAsString(aggTraits.Input)), aggFunctions, aggregate->GetKeyColumns()),
+            !aggregate->GetNativeIUType(output).OptionalDepth,
             aggTraits.ResultType};
         auto finalOutput = output;
         if (props.NativeExpressions && finalAggTraits.Unwrap) {
             // Native result types must be correct before terminal lowering.
             // Keep nullable union states in the aggregate and restore required
             // results with executable expressions, rather than a backend flag.
-            const auto* result = aggregate->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>()
-                ->FindItemType(ctx.GetIndexAsString(output));
-            Y_ENSURE(result);
-            const auto type = ImportNativeType(*result, props.NativeExpressions.get()).Required();
+            const auto type = aggregate->GetNativeIUType(output).Required();
             const auto& arena = props.NativeExpressions;
             finalOutput = registry.AddGenerated("distinct_result");
             auto expression = arena->Column(finalOutput, type.Optional());
@@ -292,7 +193,7 @@ TIntrusivePtr<IOperator> ExpandMultiDistinct(const TIntrusivePtr<TOpAggregate>& 
             } else {
                 expression = arena->Unary(NFrontend::EOpcode::Unwrap, expression);
             }
-            nativeResults.Add(output, TExpression::FromNative(arena, expression, &ctx, &props, pos));
+            nativeResults.Add(output, TExpression::FromNative(arena, expression, &props, pos));
             finalAggTraits.Unwrap = false;
             if (finalAggTraits.ResultType) finalAggTraits.ResultType = finalAggTraits.ResultType->Optional();
         }

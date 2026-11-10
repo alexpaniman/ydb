@@ -5,12 +5,10 @@ namespace {
 using namespace NKikimr::NKqp;
 
 bool CheckNonNullKeys(const TIntrusivePtr<IOperator> &input, const TOrderedIUs<>& columns) {
-    auto itemType = input->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
-    for (const auto & column : columns.Items()) {
-        const auto* columnType = itemType->FindItemType(ToString(column));
-        if (!columnType || columnType->IsOptionalOrNull()) {
-            return false;
-        }
+
+    for (auto column : columns.Items()) {
+        auto type = input->GetNativeIUType(column);
+        if (type.OptionalDepth || type.Kind == NFrontend::ETypeKind::Null) return false;
     }
     return true;
 }

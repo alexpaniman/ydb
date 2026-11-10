@@ -1,7 +1,6 @@
 #include "kqp_rbo_rule_trace.h"
 
 #include "kqp_rbo_trace.h"
-#include "kqp_rbo_yql_ast_trace.h"
 
 #include <ydb/core/kqp/common/kqp_yql.h>
 
@@ -48,35 +47,6 @@ void SubmitTextTile(TRBOContext& ctx, optimizer_trace::Trace::Stage& stage, cons
     }
 
     auto& tile = stage.text(title, body);
-    ctx.TraceLog.Submit(tile);
-}
-
-void AddAstInfoTabs(
-    optimizer_trace::Trace::Tile& tile,
-    const std::optional<optimizer_trace::Widget>& linkGraph,
-    const std::string& text)
-{
-    if (linkGraph) {
-        tile.info().tab("dag-links", "DAG links")
-            .widget(*linkGraph);
-    }
-    if (!text.empty()) {
-        tile.info().tab("yql-ast-text", "YQL AST text")
-            .widget(optimizer_trace::Widget::unwrappedText("Regular YQL AST", text, true));
-    }
-}
-
-void SubmitAstTile(TRBOContext& ctx, optimizer_trace::Trace::Stage& stage, const std::string& title, const NYql::TExprNode::TPtr& ast, const std::string& rootId) {
-    if (!ast) {
-        return;
-    }
-
-    auto astTrace = NYqlAstTrace::BuildExprTreeWithInfo(ast, rootId);
-    auto& tile = stage.tree(title, astTrace.Root);
-    AddAstInfoTabs(
-        tile,
-        astTrace.LinkGraph,
-        ToStdString(KqpExprToPrettyString(*ast, ctx.ExprCtx)));
     ctx.TraceLog.Submit(tile);
 }
 
@@ -145,12 +115,6 @@ void SubmitInitialPlanTrace(TOpRoot& root, TRBOContext& ctx) {
     auto& htmlStage = ctx.TraceLog.stage("Plan input");
     if (const auto& queryText = ctx.TraceLog.QueryText()) {
         SubmitTextTile(ctx, htmlStage, "Query text", *queryText);
-    }
-    if (ctx.KqpCtx.RboTraceAstBeforeRewriteSelect) {
-        SubmitAstTile(ctx, htmlStage, "AST before RewriteSelect", ctx.KqpCtx.RboTraceAstBeforeRewriteSelect, "ast-before-rewrite-select");
-    }
-    if (ctx.KqpCtx.RboTraceAstAfterRewriteSelect) {
-        SubmitAstTile(ctx, htmlStage, "AST after RewriteSelect", ctx.KqpCtx.RboTraceAstAfterRewriteSelect, "ast-after-rewrite-select");
     }
 
     DefineHtmlTraceFields(ctx.TraceLog.trace());

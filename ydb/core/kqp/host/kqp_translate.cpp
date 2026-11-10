@@ -272,6 +272,9 @@ NSQLTranslation::TTranslationSettings TKqpTranslationSettingsBuilder::Build(NYql
     settings.GUCSettings = GUCSettings;
     if (YqlSelect) {
         settings.YqlSelect = *YqlSelect;
+        // Whole-query legacy delegation still needs positional INSERT column
+        // metadata, including the synthetic star above a UNION result.
+        settings.Flags.insert("DeriveColumnOrder");
     }
 
     settings.ValidateViewStatement = ValidateViewStatement;

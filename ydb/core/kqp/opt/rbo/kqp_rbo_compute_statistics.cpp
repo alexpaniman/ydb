@@ -201,8 +201,8 @@ void TOpReplicate::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) {
  * Compute metadata for table lookup
  */
 void TOpTableLookup::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
-    auto path = TKqpTable(Table).Path();
-    const auto& tableData = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, path.Value());
+    const auto& path = Table.Path;
+    const auto& tableData = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, path);
 
     Props.Metadata = TRBOMetadata();
     if (IsJoin() && GetInput()->Props.Metadata.has_value()) {
@@ -213,7 +213,7 @@ void TOpTableLookup::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
 
     const auto& registry = planProps.InfoUnitRegistry;
     const TString alias = GetColumns().Empty() ? TString{} : registry.Get(*GetColumns().begin()).GetAlias();
-    const auto bindings = AddSourceLineage(planProps.ColumnLineage, *Props.Metadata, GetColumns(), registry, path.StringValue(), alias);
+    const auto bindings = AddSourceLineage(planProps.ColumnLineage, *Props.Metadata, GetColumns(), registry, path, alias);
     Props.Metadata->SourceStatsColumns.IntersectWith(GetOutputIUs());
     Props.Metadata->HintRelations.RetainKeys(GetOutputIUs());
 
@@ -259,19 +259,18 @@ void TOpEmptySource::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) 
  * This method also fetches Nrows and ByteSize statistics
  */
 void TOpRead::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
-    auto readTable = TKqpTable(TableCallable);
-    auto path = readTable.Path();
+    const auto& path = TableRef.Path;
 
-    if (readTable.PathId() == "") {
+    if (TableRef.PathId.empty()) {
         // CTAS don't have created table during compilation.
         return;
     }
 
     Props.Metadata = TRBOMetadata();
 
-    const auto& tableData = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, path.Value());
+    const auto& tableData = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, path);
     Props.Metadata->ColumnsCount = GetColumns().Size();
-    const auto bindings = AddSourceLineage(planProps.ColumnLineage, *Props.Metadata, GetColumns(), planProps.InfoUnitRegistry, path.StringValue(), Alias);
+    const auto bindings = AddSourceLineage(planProps.ColumnLineage, *Props.Metadata, GetColumns(), planProps.InfoUnitRegistry, path, Alias);
     Props.Metadata->KeyColumns = ResolveStorageColumns(tableData.Metadata->KeyColumnNames, bindings);
 
     EStorageType storageType = EStorageType::NA;
@@ -291,7 +290,7 @@ void TOpRead::ComputeMetadata(TRBOContext& ctx, TPlanProps& planProps) {
         Props.Metadata->ShuffledByColumns = ResolveStorageColumns(tableData.Metadata->PartitionedByColumns, bindings);
     }
 
-    YQL_CLOG(TRACE, CoreDq) << "Inferred metadata for table: " << path.Value();
+    YQL_CLOG(TRACE, CoreDq) << "Inferred metadata for table: " << path;
 }
 
 /***
@@ -302,9 +301,8 @@ void TOpRead::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) {
         return;
     }
 
-    auto readTable = TKqpTable(TableCallable);
-    auto path = readTable.Path();
-    const auto& tableData = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, path.Value());
+    const auto& path = TableRef.Path;
+    const auto& tableData = ctx.KqpCtx.Tables->ExistingTable(ctx.KqpCtx.Cluster, path);
 
     Props.Statistics = TRBOStatistics();
     Props.Statistics->ERows = tableData.Metadata->RecordsCount;
@@ -314,7 +312,7 @@ void TOpRead::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) {
     auto overrideStats = ctx.KqpCtx.GetOverrideStatistics();
     if (overrideStats) {
         auto dbStats = overrideStats->GetMapSafe();
-        if (auto it = dbStats.find(path.Value()); it != dbStats.end()) {
+        if (auto it = dbStats.find(path); it != dbStats.end()) {
             auto tableStats = it->second.GetMapSafe();
             if (auto nrows = tableStats.find("n_rows"); nrows != tableStats.end()) {
                 Props.Statistics->ERows = nrows->second.GetDoubleSafe();
@@ -326,7 +324,7 @@ void TOpRead::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) {
     }
 
     auto hints = ctx.KqpCtx.GetOptimizerHints();
-    auto hintCandidates = BuildTableHintCandidates(Alias, path.StringValue());
+    auto hintCandidates = BuildTableHintCandidates(Alias, path);
     if (hints.CardinalityHints) {
         ApplySingleLabelHint(*hints.CardinalityHints, hintCandidates, Props.Statistics->ERows);
     }
@@ -343,10 +341,7 @@ void TOpRead::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) {
     // Overwrite with selectivity for successfully pushed-down filters within the read operator.
     if (OriginalPredicate.has_value()) {
         auto inputStats = BuildOptimizerStatistics(*this, planProps.ColumnLineage, true, ctx.TypeCtx);
-        const double selectivity = OriginalPredicate->IsNative()
-            ? ComputeNativeSelectivity(*OriginalPredicate->GetNativeArena(), OriginalPredicate->GetNativeRoot(), inputStats)
-            : TPredicateSelectivityComputer(std::make_shared<TOptimizerStatistics>(std::move(inputStats)))
-                .Compute(TCoLambda(OriginalPredicate->Node).Body());
+        const double selectivity = ComputeNativeSelectivity(*OriginalPredicate->GetNativeArena(), OriginalPredicate->GetNativeRoot(), inputStats);
 
         double filterSelectivity = selectivity * Props.Statistics->Selectivity;
         Props.Statistics->EBytes = filterSelectivity * Props.Statistics->EBytes;
@@ -401,10 +396,7 @@ void TOpFilter::ComputeStatistics(TRBOContext& ctx, TPlanProps& planProps) {
     }
 
     auto inputStats = BuildOptimizerStatistics(*GetInput(), planProps.ColumnLineage, true, ctx.TypeCtx);
-    const double selectivity = FilterExpr.IsNative()
-        ? ComputeNativeSelectivity(*FilterExpr.GetNativeArena(), FilterExpr.GetNativeRoot(), inputStats)
-        : TPredicateSelectivityComputer(std::make_shared<TOptimizerStatistics>(std::move(inputStats)))
-            .Compute(TCoLambda(FilterExpr.Node).Body());
+    const double selectivity = ComputeNativeSelectivity(*FilterExpr.GetNativeArena(), FilterExpr.GetNativeRoot(), inputStats);
 
     double filterSelectivity = selectivity * Props.Statistics->Selectivity;
     Props.Statistics->EBytes = filterSelectivity * Props.Statistics->EBytes;

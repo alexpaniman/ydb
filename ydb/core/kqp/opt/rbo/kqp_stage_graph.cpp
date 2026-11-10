@@ -1,5 +1,8 @@
+#include "frontend_lowering.h"
 #include "kqp_stage_graph.h"
+#include <ydb/core/kqp/common/kqp_yql.h>
 
+#include <yql/essentials/core/yql_expr_type_annotation.h>
 #include <yql/essentials/utils/log/log.h>
 
 #include <util/generic/guid.h>
@@ -167,17 +170,33 @@ TExprNode::TPtr TSourceConnection::BuildConnection(TExprNode::TPtr inputStage, T
 }
 
 TExprNode::TPtr TStreamLookupConnection::BuildConnection(TExprNode::TPtr inputStage, TPositionHandle pos, TExprContext& ctx, const TPhysicalNames&) {
-    Y_ENSURE(InputType, "Stream lookup input type has not been set");
+    auto inputType = InputType;
+    if (Strategy == EStrategy::Rows) {
+        TVector<const TItemExprType*> items;
+        for (const auto& [column, type] : Keys) {
+            const auto* backend = ExportNativeType(type, ctx, Arena.get());
+            Y_ENSURE(backend, "Lookup key type is not available");
+            items.push_back(ctx.MakeType<TItemExprType>(column, backend));
+        }
+        inputType = ExpandType(pos, *ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(items)), ctx);
+    }
+    TVector<TCoAtom> columns;
+    for (const auto& column : Columns) columns.push_back(Build<TCoAtom>(ctx, pos).Value(column).Done());
+    TKqpStreamLookupSettings settings;
+    settings.Strategy = Strategy == EStrategy::Rows ? EStreamLookupStrategyType::LookupRows :
+        Strategy == EStrategy::JoinRows ? EStreamLookupStrategyType::LookupJoinRows : EStreamLookupStrategyType::LookupSemiJoinRows;
+    settings.AllowNullKeysPrefixSize = AllowNullKeysPrefixSize;
+    Y_ENSURE(inputType, "Stream lookup input type has not been set");
     // clang-format off
     return Build<TKqpCnStreamLookup>(ctx, pos)
         .Output()
             .Stage(inputStage)
             .Index().Build(ToString(OutputIndex))
         .Build()
-        .Table(Table)
-        .Columns(Columns)
-        .InputType(InputType)
-        .Settings(Settings)
+        .Table(LowerTable(Table, ctx, pos))
+        .Columns(Build<TCoAtomList>(ctx, pos).Add(columns).Done())
+        .InputType(inputType)
+        .Settings(settings.BuildNode(ctx, pos))
     .Done().Ptr();
     // clang-format on
 }

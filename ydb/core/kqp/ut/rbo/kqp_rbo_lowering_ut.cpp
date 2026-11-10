@@ -1,12 +1,14 @@
 #include "kqp_rbo_test_helpers.h"
 
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_aggregation_builder.h>
+#include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_table_effect_builder.h>
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_convertion_utils.h>
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_union_all_builder.h>
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_source_builder.h>
 #include <ydb/core/kqp/opt/rbo/physical_conversion/kqp_rbo_physical_lookup_join_builder.h>
 #include <ydb/core/kqp/opt/rbo/kqp_olap_expr_inspection.h>
-#include <ydb/core/kqp/opt/rbo/kqp_plan_conversion_utils.h>
+#include <ydb/core/kqp/opt/rbo/kqp_native_frontend.h>
+#include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_transformer.h>
 
 #include <yql/essentials/core/yql_expr_optimize.h>
@@ -14,44 +16,28 @@
 #include <library/cpp/testing/unittest/registar.h>
 
 namespace NKikimr::NKqp {
+namespace {
+TNativeTable NoTables(std::string_view, NFrontend::TSourcePosition pos) {
+    throw NFrontend::TFrontendError(pos, "unexpected table lookup");
+}
+}
+
 
 Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
     Y_UNIT_TEST(UpsertKeepsDefaultColumnsThroughLowering) {
         NTests::TIdTestContext f;
-        // Exercise RBO lowering regardless of the DML fallback default.
-        f.Config->SetEnableFallbackOnDML(false);
-        auto& ctx = f.ExprCtx;
-        const auto pos = f.Pos;
-        auto empty = ctx.NewCallable(pos, "KqpOpEmptySource", {});
-        auto constant = MakeConstant("Uint64", "1", pos, &ctx).Node;
-        const auto* type = ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
-        constant->TailPtr()->SetTypeAnn(type);
-        auto columns = ctx.NewList(pos, {ctx.NewAtom(pos, "value")});
-        auto input = ctx.NewCallable(pos, "KqpOpMap", {empty, ctx.NewList(pos, {
-            ctx.NewCallable(pos, "KqpOpMapElementLambda",
-                {empty, ctx.NewAtom(pos, "value"), constant, ctx.NewAtom(pos, "false")})
-        })});
-        input->SetTypeAnn(ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(
-            TVector<const TItemExprType*>{ctx.MakeType<TItemExprType>("value", type)})));
-        auto root = ctx.NewCallable(pos, "KqpOpRoot", {input, columns});
-        const auto table = NNodes::Build<NNodes::TKqpTable>(ctx, pos)
-            .Path().Build("/Root/table").PathId().Build("1:1")
-            .SysView().Build("").Version().Build("1").Done();
-        const auto upsert = NNodes::Build<NNodes::TKqlUpsertRows>(ctx, pos)
-            .Table(table)
-            .Input(root)
-            .Columns(columns)
-            .ReturningColumns().Build()
-            .IsBatch().Build("false")
-            .DefaultColumns(columns)
-            .Settings().Build()
-            .Done();
-
-        const auto rewritten = RewriteTableEffect(upsert.Ptr(), ctx, f.KqpCtx);
-        auto plan = PlanConverter(f.TypeCtx, ctx).ConvertRoot(rewritten, nullptr);
-        auto& effect = CastOperator<TOpTableEffect>(*plan->GetInput());
+        const auto value = f.Id("value");
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        const auto types = f.ExprCtx.TypeNodes.size();
+        const TRboTable table("/Root/table", "1:1", "", "1");
+        TEffectOptions options;
+        options.DefaultColumns = TVector<TString>{"value"};
+        TOpTableEffect effect(f.Read({value}), f.Pos, table, EEffectType::UpsertRows, options, {{value, "value"}}, {});
         UNIT_ASSERT_VALUES_EQUAL(effect.GetExplainName(), "UpsertRows");
-        const NNodes::TKqpTableSinkSettings settings(effect.BuildSettings(ctx));
+        const auto stage = f.Props.StageGraph.AddSinkStage({effect.Table, effect.EffectType, effect.Options});
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+        const NNodes::TKqpTableSinkSettings settings(LowerTableSinkSettings(f.Props.StageGraph.GetSinkSettings(stage), f.ExprCtx, f.Pos));
         UNIT_ASSERT_VALUES_EQUAL(settings.DefaultColumns().Size(), 1);
         UNIT_ASSERT_VALUES_EQUAL(settings.DefaultColumns().Item(0).StringValue(), "value");
     }
@@ -131,7 +117,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
         }
     }
 
-    Y_UNIT_TEST(ErrorScopePreservesLeafIssuesAndNamesBindings) {
+    Y_UNIT_TEST(NativeTypeCheckingNeverCallsTheBackendAnnotator) {
         NTests::TIdTestContext f;
         const auto result = f.Id("before");
         TMapIUs definitions;
@@ -145,80 +131,44 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
             return IGraphTransformer::TStatus::Error;
         });
         TRBOContext ctx(f.KqpCtx, f.ExprCtx, f.TypeCtx, *transformer, *f.FuncRegistry);
-        UNIT_ASSERT_EXCEPTION_CONTAINS(root->ComputeTypes(ctx), yexception, "Cannot type annotate lambda");
-        const auto issues = f.ExprCtx.IssueManager.GetIssues().ToString();
-        UNIT_ASSERT_C(issues.Contains("Original YQL leaf diagnostic"), issues);
-        UNIT_ASSERT_C(issues.Contains("While annotating RBO Map"), issues);
-        UNIT_ASSERT_C(issues.Contains("%0[before]"), issues);
+        UNIT_ASSERT(root->ComputeTypes(ctx) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT(f.ExprCtx.IssueManager.GetIssues().Empty());
+        UNIT_ASSERT(root->GetInput()->GetNativeIUType(result) == NFrontend::TType{NFrontend::ETypeKind::Uint64});
     }
 
-    void CheckSubquerySharing(bool sharedCallNode, bool correlated) {
-        TExprContext ctx;
-        TTypeAnnotationContext typeCtx;
-        const TPositionHandle pos;
-        auto empty = ctx.NewCallable(pos, "KqpOpEmptySource", {});
-        auto constant = MakeConstant("Uint64", "1", pos, &ctx).Node;
-        const auto* type = ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
-        constant->TailPtr()->SetTypeAnn(type);
-        auto source = ctx.NewCallable(pos, "KqpOpMap", {empty, ctx.NewList(pos, {
-            ctx.NewCallable(pos, "KqpOpMapElementLambda",
-                {empty, ctx.NewAtom(pos, "payload"), constant, ctx.NewAtom(pos, "False")})
-        })});
-        source->SetTypeAnn(ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(
-            TVector<const TItemExprType*>{ctx.MakeType<TItemExprType>("payload", type)})));
-        auto outer = ctx.NewCallable(pos, "KqpOpEmptySource", {});
-        if (correlated) {
-            outer = ctx.NewCallable(pos, "KqpOpMap", {outer, ctx.NewList(pos, {
-                ctx.NewCallable(pos, "KqpOpMapElementLambda",
-                    {outer, ctx.NewAtom(pos, "zouter"), constant, ctx.NewAtom(pos, "False")})
-            })});
-            auto typeNode = ctx.NewCallable(pos, "DataType", {ctx.NewAtom(pos, "Uint64")});
-            typeNode->SetTypeAnn(ctx.MakeType<TTypeExprType>(type));
-            source = ctx.NewCallable(pos, "KqpInfuseDependents", {source,
-                ctx.NewList(pos, {ctx.NewAtom(pos, "zouter")}), ctx.NewList(pos, {typeNode})});
-            source->SetTypeAnn(ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(
-                TVector<const TItemExprType*>{ctx.MakeType<TItemExprType>("payload", type),
-                    ctx.MakeType<TItemExprType>("zouter", type)})));
-        }
-        auto sharedCall = ctx.NewCallable(pos, "KqpExprSublink", {source});
-        TExprNode::TListType elements;
-        for (const TString name : {"first", "second"}) {
-            auto call = sharedCallNode ? sharedCall : ctx.NewCallable(pos, "KqpExprSublink", {source});
-            call->SetTypeAnn(type);
-            auto lambda = ctx.NewLambda(pos, ctx.NewArguments(pos, {ctx.NewArgument(pos, "row")}), std::move(call));
-            elements.push_back(ctx.NewCallable(pos, "KqpOpMapElementLambda",
-                {outer, ctx.NewAtom(pos, name), std::move(lambda), ctx.NewAtom(pos, "False")}));
-        }
-        PlanConverter converter(typeCtx, ctx);
-        auto plan = converter.ExprNodeToOperator(ctx.NewCallable(pos, "KqpOpMap", {outer, ctx.NewList(pos, std::move(elements))}));
-        const TReplicate* shared = nullptr;
+    void CheckSubquerySharing(bool secondaryFirst, bool correlated) {
+        NTests::TIdTestContext f;
+        const auto value = f.Id("payload"), outerValue = f.Id("outer");
+        TMapIUs values;
+        values.Add(value, f.Constant());
+        auto producer = MakeIntrusive<TOpMap>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, values);
+        auto hub = TReplicate::Create(producer, f.Pos, f.Props.InfoUnitRegistry);
+        auto first = hub->AddOutput(), second = hub->AddOutput();
+        if (secondaryFirst) std::swap(first, second);
         TUnorderedIUs captures;
-        size_t calls = 0;
-        for (const auto& [id, entry] : converter.PlanProps.Subplans) {
-            IOperator* producer = entry.Plan.get();
+        TMapIUs calls;
+        for (auto port : {first, second}) {
+            TIntrusivePtr<IOperator> plan = port;
             if (correlated) {
-                for (const auto& item : IterateSubtree(producer)) {
-                    if (item.Current->Kind == EOperator::AddDependencies) {
-                        auto& dependencies = CastOperator<TOpAddDependencies>(*item.Current);
-                        UNIT_ASSERT(!captures.HasAny(dependencies.GetDependencies().Keys()));
-                        captures.UnionWith(dependencies.GetDependencies().Keys());
-                        producer = dependencies.GetInput().Get();
-                        break;
-                    }
-                }
+                const auto local = f.Id("capture");
+                captures.Add(local);
+                plan = MakeIntrusive<TOpAddDependencies>(plan, f.Pos,
+                    TDependencyIUs{{local, TCapturedIU{outerValue, NFrontend::TType{NFrontend::ETypeKind::Uint64}}}});
             }
-            auto& port = CastOperator<TOpReplicate>(*producer);
-            if (shared) {
-                UNIT_ASSERT(shared == &port.GetReplicate());
-                UNIT_ASSERT(!port.IsPrimary());
-            } else {
-                shared = &port.GetReplicate();
-            }
-            UNIT_ASSERT(entry.Plan->GetOutputIUs().Contains(*entry.ResultIU));
-            ++calls;
+            const auto result = port->IsPrimary() ? value : port->GetRebindings().At(value);
+            const auto call = f.Id("call"), output = f.Id("output");
+            f.Props.Subplans.Add(call, plan, ESubplanType::EXPR, {}, result);
+            calls.Add(output, f.Column(call));
+            UNIT_ASSERT(plan->GetOutputIUs().Contains(result));
         }
-        UNIT_ASSERT_VALUES_EQUAL(calls, 2);
+        TMapIUs outerValues;
+        outerValues.Add(outerValue, f.Constant());
+        auto outer = MakeIntrusive<TOpMap>(MakeIntrusive<TOpEmptySource>(f.Pos), f.Pos, std::move(outerValues));
+        auto root = f.Root(MakeIntrusive<TOpMap>(outer, f.Pos, calls), {});
+        UNIT_ASSERT(root->ComputeTypes(f.RboCtx) == IGraphTransformer::TStatus::Ok);
         UNIT_ASSERT_VALUES_EQUAL(captures.Size(), correlated ? 2 : 0);
+        UNIT_ASSERT(&first->GetReplicate() == &second->GetReplicate());
+        UNIT_ASSERT(!first->GetOutputIUs().HasAny(second->GetOutputIUs()));
     }
 
     Y_UNIT_TEST(CaptureFreeSubtreesShareTheirProducerAcrossCallSites) {
@@ -229,145 +179,73 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
         }
     }
 
-    Y_UNIT_TEST(AnnotationReferencesDoNotCreateReplicateConsumers) {
-        TExprContext ctx;
-        TTypeAnnotationContext typeCtx;
-        const TPositionHandle pos;
-        auto empty = ctx.NewCallable(pos, "KqpOpEmptySource", {});
-        auto constant = MakeConstant("Uint64", "1", pos, &ctx).Node;
-        constant->TailPtr()->SetTypeAnn(ctx.MakeType<TDataExprType>(EDataSlot::Uint64));
-        auto element = ctx.NewCallable(pos, "KqpOpMapElementLambda",
-            {empty, ctx.NewAtom(pos, "payload"), constant, ctx.NewAtom(pos, "False")});
-        auto map = ctx.NewCallable(pos, "KqpOpMap", {empty, ctx.NewList(pos, {element})});
-        auto row = ctx.NewArgument(pos, "row");
-        auto member = ctx.NewCallable(pos, "Member", {row, ctx.NewAtom(pos, "payload")});
-        auto sortKey = ctx.NewCallable(pos, "KqpOpSortElement", {map, ctx.NewAtom(pos, "asc"),
-            ctx.NewAtom(pos, "first"), ctx.NewLambda(pos, ctx.NewArguments(pos, {row}), std::move(member))});
-        auto sort = ctx.NewCallable(pos, "KqpOpSort", {map, ctx.NewList(pos, {sortKey})});
-        PlanConverter converter(typeCtx, ctx);
-        auto plan = converter.ExprNodeToOperator(sort);
-        UNIT_ASSERT(plan->Kind == EOperator::Sort);
-        UNIT_ASSERT(plan->GetChild(0)->Kind == EOperator::Map);
-        UNIT_ASSERT(plan->GetChild(0)->GetChild(0)->Kind == EOperator::EmptySource);
+    Y_UNIT_TEST(ScalarReferencesDoNotCreateReplicateConsumers) {
+        NTests::TIdTestContext f;
+        auto query = CompileNativeToRbo("SELECT 1 AS payload ORDER BY payload", NoTables, f.ExprCtx);
+        size_t sorts = 0;
+        for (const auto& item : *query.Roots.front()) {
+            UNIT_ASSERT(item.Current->Kind != EOperator::Replicate);
+            sorts += item.Current->Kind == EOperator::Sort;
+        }
+        UNIT_ASSERT_VALUES_EQUAL(sorts, 1);
+        UNIT_ASSERT(query.Roots.front()->ComputeTypes(f.RboCtx) == IGraphTransformer::TStatus::Ok);
     }
 
     Y_UNIT_TEST(RepeatedPlanInputCreatesDisjointReplicatePorts) {
-        TExprContext ctx;
-        TTypeAnnotationContext typeCtx;
-        const TPositionHandle pos;
-        auto empty = ctx.NewCallable(pos, "KqpOpEmptySource", {});
-        auto constant = MakeConstant("Uint64", "1", pos, &ctx).Node;
-        const auto* type = ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
-        constant->TailPtr()->SetTypeAnn(type);
-        auto map = ctx.NewCallable(pos, "KqpOpMap", {empty, ctx.NewList(pos, {
-            ctx.NewCallable(pos, "KqpOpMapElementLambda",
-                {empty, ctx.NewAtom(pos, "payload"), constant, ctx.NewAtom(pos, "false")})
-        })});
-        auto setOp = ctx.NewCallable(pos, "KqpOpSetOp", {map, map, ctx.NewAtom(pos, "union_all")});
-        const auto* row = ctx.MakeType<TStructExprType>(
-            TVector<const TItemExprType*>{ctx.MakeType<TItemExprType>("payload", type)});
-        map->SetTypeAnn(ctx.MakeType<TListExprType>(row));
-        setOp->SetTypeAnn(map->GetTypeAnn());
-        PlanConverter converter(typeCtx, ctx);
-        auto plan = converter.ExprNodeToOperator(setOp);
-        auto& merge = CastOperator<TOpUnionAll>(*plan);
-        auto& left = CastOperator<TOpReplicate>((*merge.GetChild(0)));
-        auto& right = CastOperator<TOpReplicate>((*merge.GetChild(1)));
+        NTests::TIdTestContext f;
+        auto query = CompileNativeToRbo("$q = (SELECT 1 AS payload); SELECT * FROM $q UNION ALL SELECT * FROM $q;", NoTables, f.ExprCtx);
+        TOpUnionAll* unionOp = nullptr;
+        for (const auto& item : *query.Roots.front()) if (item.Current->Kind == EOperator::UnionAll) unionOp = &CastOperator<TOpUnionAll>(*item.Current);
+        UNIT_ASSERT(unionOp);
+        auto& merge = *unionOp;
+        auto port = [](IOperator* op) -> TOpReplicate& {
+            while (op->Kind != EOperator::Replicate) { UNIT_ASSERT_VALUES_EQUAL(op->GetChildCount(), 1); op = op->GetChild(0).Get(); }
+            return CastOperator<TOpReplicate>(*op);
+        };
+        auto& left = port(merge.GetChild(0).Get());
+        auto& right = port(merge.GetChild(1).Get());
         UNIT_ASSERT(&left.GetReplicate() == &right.GetReplicate());
         UNIT_ASSERT(left.IsPrimary());
         UNIT_ASSERT(!right.IsPrimary());
         UNIT_ASSERT(!left.GetOutputIUs().HasAny(right.GetOutputIUs()));
         const auto output = *merge.GetColumns().Keys().begin();
         const auto& inputs = merge.GetColumns().Find(output)->Inputs;
-        UNIT_ASSERT(left.GetOutputIUs().Contains(inputs[0]));
-        UNIT_ASSERT(right.GetOutputIUs().Contains(inputs[1]));
+        UNIT_ASSERT(merge.GetChild(0)->GetOutputIUs().Contains(inputs[0]));
+        UNIT_ASSERT(merge.GetChild(1)->GetOutputIUs().Contains(inputs[1]));
         UNIT_ASSERT(output != inputs[0] && output != inputs[1]);
         UNIT_ASSERT(left.GetReplicate().GetInput()->GetChild(0)->Kind == EOperator::EmptySource);
     }
 
     Y_UNIT_TEST(PositionalRenamePreservesProjectionAcrossSharedInputs) {
-        for (const TString kind : {"union_all", "union"}) {
-            TExprContext ctx;
-            TTypeAnnotationContext typeCtx;
-            const TPositionHandle pos;
-            const auto* type = ctx.MakeType<TDataExprType>(EDataSlot::Uint64);
-            const auto rowType = [&](const TString& prefix) {
-                return ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(
-                    TVector<const TItemExprType*>{ctx.MakeType<TItemExprType>(prefix + "a", type),
-                        ctx.MakeType<TItemExprType>(prefix + "z", type)}));
-            };
-            auto empty = ctx.NewCallable(pos, "KqpOpEmptySource", {});
-            TExprNode::TListType elements;
-            for (const TString name : {"z", "a"}) {
-                auto constant = MakeConstant("Uint64", name == "z" ? "1" : "2", pos, &ctx).Node;
-                constant->TailPtr()->SetTypeAnn(type);
-                elements.push_back(ctx.NewCallable(pos, "KqpOpMapElementLambda",
-                    {empty, ctx.NewAtom(pos, name), constant, ctx.NewAtom(pos, "false")}));
-            }
-            auto map = ctx.NewCallable(pos, "KqpOpMap",
-                {empty, ctx.NewList(pos, std::move(elements)), ctx.NewAtom(pos, "true")});
-            map->SetTypeAnn(rowType(""));
-            auto alias = ctx.NewCallable(pos, "KqpOpReplaceAlias", {map, ctx.NewAtom(pos, "s")});
-            alias->SetTypeAnn(rowType("s."));
-            const auto rename = [&]() {
-                auto result = ctx.NewCallable(pos, "KqpOpReplaceColumns", {alias,
-                    ctx.NewList(pos, {ctx.NewAtom(pos, "z"), ctx.NewAtom(pos, "a")})});
-                result->SetTypeAnn(rowType(""));
-                return result;
-            };
-            auto setOp = ctx.NewCallable(pos, "KqpOpSetOp", {rename(), rename(), ctx.NewAtom(pos, kind)});
-            setOp->SetTypeAnn(rowType(""));
-            auto root = ctx.NewCallable(pos, "KqpOpReplaceColumns", {setOp,
-                ctx.NewList(pos, {ctx.NewAtom(pos, "first"), ctx.NewAtom(pos, "second")})});
-
-            PlanConverter converter(typeCtx, ctx);
-            auto plan = converter.ExprNodeToOperator(root);
-            const auto& registry = converter.PlanProps.InfoUnitRegistry;
-            const auto checkRename = [&](const TOpMap& op, const TString& prefix, bool outer) {
-                for (const auto& [id, element] : op.GetMapElements().Items()) {
-                    const auto input = element.GetColumnAccess();
-                    const auto& name = registry.Get(id).GetColumnName();
-                    const auto expected = outer ? (name == "first" ? "z" : "a") : name;
-                    UNIT_ASSERT_VALUES_EQUAL(registry.Get(input).GetFullName(), prefix + expected);
-                    UNIT_ASSERT(op.GetChild(0)->GetOutputIUs().Contains(input));
+        for (const auto kind : {"UNION ALL", "UNION"}) {
+            NTests::TIdTestContext f;
+            const std::string sql = std::string("$q = (SELECT 1 AS z, 2 AS a); SELECT z AS first, a AS second FROM $q ")
+                + kind + " SELECT z AS first, a AS second FROM $q;";
+            auto query = CompileNativeToRbo(sql, NoTables, f.ExprCtx);
+            auto& root = *query.Roots.front();
+            UNIT_ASSERT_VALUES_EQUAL(root.GetColumns().Items()[0].second, "first");
+            UNIT_ASSERT_VALUES_EQUAL(root.GetColumns().Items()[1].second, "second");
+            UNIT_ASSERT(root.ComputeTypes(f.RboCtx) == IGraphTransformer::TStatus::Ok);
+            NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
+            for (const auto& item : root) if (item.Current->Kind == EOperator::UnionAll) {
+                auto& merge = CastOperator<TOpUnionAll>(*item.Current);
+                UNIT_ASSERT(!merge.GetChild(0)->GetOutputIUs().HasAny(merge.GetChild(1)->GetOutputIUs()));
+                for (const auto& [output, columns] : merge.GetColumns().Items()) {
+                    Y_UNUSED(output);
+                    for (size_t i = 0; i < columns.Inputs.size(); ++i) UNIT_ASSERT(merge.GetChild(i)->GetOutputIUs().Contains(columns.Inputs[i]));
                 }
-            };
-            checkRename(CastOperator<TOpMap>(*plan), "", true);
-            auto* merge = plan->GetChild(0).Get();
-            if (kind == "union") {
-                merge = merge->GetChild(0).Get();
             }
-            UNIT_ASSERT(merge->Kind == EOperator::UnionAll);
-            for (ui32 i = 0; i < 2; ++i) {
-                checkRename(CastOperator<TOpMap>(*merge->GetChild(i)), "s.", false);
-            }
-            UNIT_ASSERT(!merge->GetChild(0)->GetChild(0)->GetOutputIUs().HasAny(
-                merge->GetChild(1)->GetChild(0)->GetOutputIUs()));
         }
     }
 
     Y_UNIT_TEST(RootKeepsOptionalQueryHintsSeparateFromOutputNames) {
-        TExprContext ctx;
-        TTypeAnnotationContext typeCtx;
-        const TPositionHandle pos;
-        auto empty = ctx.NewCallable(pos, "KqpOpEmptySource", {});
-        auto constant = MakeConstant("Uint64", "1", pos, &ctx).Node;
-        constant->TailPtr()->SetTypeAnn(ctx.MakeType<TDataExprType>(EDataSlot::Uint64));
-        auto map = ctx.NewCallable(pos, "KqpOpMap", {empty, ctx.NewList(pos, {
-            ctx.NewCallable(pos, "KqpOpMapElementLambda",
-                {empty, ctx.NewAtom(pos, "payload"), constant, ctx.NewAtom(pos, "false")})
-        })});
-        auto root = ctx.NewCallable(pos, "KqpOpRoot", {map, ctx.NewList(pos, {ctx.NewAtom(pos, "payload")})});
         for (const bool withHints : {false, true}) {
-            PlanConverter converter(typeCtx, ctx);
-            auto hints = ctx.NewList(pos, withHints
-                ? TExprNode::TListType{ctx.NewAtom(pos, "display")} : TExprNode::TListType{});
-            auto plan = converter.ConvertRoot(root, hints);
-            UNIT_ASSERT_VALUES_EQUAL(plan->GetColumns().Items().front().second, "payload");
-            UNIT_ASSERT_VALUES_EQUAL(plan->GetQueryColumns().size(), withHints ? 1 : 0);
-            if (withHints) {
-                UNIT_ASSERT_VALUES_EQUAL(plan->GetQueryColumns().front(), "display");
-            }
+            NTests::TIdTestContext f;
+            const auto payload = f.Id("payload");
+            TOpRoot root(f.Read({payload}), f.Pos, {{payload, "payload"}}, withHints ? TVector<TString>{"display"} : TVector<TString>{});
+            UNIT_ASSERT_VALUES_EQUAL(root.GetColumns().Items().front().second, "payload");
+            UNIT_ASSERT_VALUES_EQUAL(root.GetQueryColumns().size(), withHints ? 1 : 0);
+            if (withHints) UNIT_ASSERT_VALUES_EQUAL(root.GetQueryColumns().front(), "display");
         }
     }
 
@@ -399,12 +277,13 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
         TExprContext ctx;
         const TPositionHandle pos;
         TPlanProps props;
-        auto left = MakeColumnAccess(7, pos, &ctx, &props);
-        auto right = MakeColumnAccess(8, pos, &ctx, &props);
+        props.NativeExpressions = std::make_shared<NFrontend::TExpressionArena>();
+        auto left = MakeColumnAccess(7, NFrontend::TType{NFrontend::ETypeKind::Bool}, pos, &props);
+        auto right = MakeColumnAccess(8, NFrontend::TType{NFrontend::ETypeKind::Bool, true}, pos, &props);
         auto filter = MakeConjunction({left, right});
         // Slots 1 and 3 are cast keys, not logical bindings.
         const auto lowered = NPhysicalConvertionUtils::ConvertToWideJoinFilter(
-            filter.Node, {{7, 0}, {8, 2}}, TUnorderedIUs{8}, 4, ctx);
+            LowerExpressionLambda(filter, ctx), {{7, 0}, {8, 2}}, TUnorderedIUs{8}, 4, ctx);
         UNIT_ASSERT_VALUES_EQUAL(lowered->Head().ChildrenSize(), 4);
         const auto& conjunction = lowered->Tail().Head(); // Coalesce(And(...), false).
         UNIT_ASSERT(conjunction.IsCallable("And"));
@@ -492,20 +371,15 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
         const auto a = registry.Add(TInfoUnit("t", "a"));
         const auto anotherZ = registry.Add(TInfoUnit("other", "z"));
         const TPhysicalNames names(registry);
-        const auto table = Build<TKqpTable>(ctx, pos)
-            .Path().Build("/Root/table").PathId().Build("1:1")
-            .SysView().Build("").Version().Build("1").Done().Ptr();
+        const TRboTable table{"/Root/table", "1:1", "", "1"};
+        auto arena = std::make_shared<NFrontend::TExpressionArena>();
         for (const auto storage : {NYql::EStorageType::RowStorage, NYql::EStorageType::ColumnStorage}) {
             TOpRead read("t", {z, a, anotherZ}, storage, table, nullptr, std::nullopt,
                 std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, pos);
             if (storage == NYql::EStorageType::ColumnStorage) {
-                auto row = ctx.NewArgument(pos, "row");
-                row->SetTypeAnn(ctx.MakeType<TFlowExprType>(ctx.MakeType<TStructExprType>(
-                    TVector<const TItemExprType*>{ctx.MakeType<TItemExprType>(
-                        ctx.GetIndexAsString(z), ctx.MakeType<TDataExprType>(EDataSlot::Uint64))})));
-                auto condition = ctx.NewList(pos, {ctx.NewAtom(pos, z)});
-                auto filter = ctx.NewCallable(pos, "KqpOlapFilter", {row, condition});
-                read.OlapProgram.Legacy() = ctx.NewLambda(pos, ctx.NewArguments(pos, {row}), std::move(filter));
+                const auto value = arena->Column(z, {NFrontend::ETypeKind::Uint64});
+                const auto zero = arena->Literal({NFrontend::ETypeKind::Uint64}, std::uint64_t{0});
+                read.OlapProgram = TOlapProgram(TExpression::FromNative(arena, arena->Binary(NFrontend::EOpcode::Greater, value, zero)));
             }
             const auto result = TPhysicalSourceBuilder(read, ctx, pos, names, registry, "stage").BuildPhysicalOp();
             TExprNode::TPtr storageRead;
@@ -519,8 +393,8 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
             if (storage == NYql::EStorageType::ColumnStorage) {
                 const auto process = TKqpBlockReadOlapTableRanges(storageRead).Process();
                 UNIT_ASSERT(!process.Args().Arg(0).Ref().GetTypeAnn());
-                UNIT_ASSERT(read.OlapProgram.Legacy()->Head().Head().GetTypeAnn());
-                UNIT_ASSERT_VALUES_EQUAL(process.Body().Ref().Tail().Head().Content(), "z");
+                UNIT_ASSERT(read.OlapProgram.Native().Predicate->GetRawInputIUs() == TUnorderedIUs{z});
+                UNIT_ASSERT(FindNode(process.Body().Ptr(), [](const TExprNode::TPtr& node) { return node->IsAtom("z"); }));
             }
             const auto columns = storage == NYql::EStorageType::RowStorage
                 ? TKqpReadRangesSourceSettings(storageRead).Columns()
@@ -547,7 +421,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
 
     Y_UNIT_TEST(EmptyOlapReadUsesOnlyAPhysicalCarrier) {
         NTests::TIdTestContext f;
-        const auto table = f.Read({})->TableCallable;
+        const auto table = f.Read({})->TableRef;
         TOpRead read("t", {}, NYql::EStorageType::ColumnStorage, table, nullptr, std::nullopt,
             std::nullopt, std::nullopt, ESortDir::None, TPhysicalOpProps{}, f.Pos);
         const TPhysicalNames names(f.Props.InfoUnitRegistry);
@@ -611,7 +485,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
         TInfoUnitRegistry registry;
         const auto sourceId = registry.Add(TInfoUnit("key"));
         TMapIUs columns;
-        columns.Add(sourceId, MakeConstant("Uint64", "1", pos, &ctx));
+        columns.Add(sourceId, MakeConstant("Uint64", "1", pos));
         auto hub = TReplicate::Create(MakeIntrusive<TOpMap>(
             MakeIntrusive<TOpEmptySource>(pos), pos, std::move(columns)), pos, registry);
         auto removed = hub->AddOutput();
@@ -637,10 +511,9 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
             UNIT_ASSERT_VALUES_EQUAL(fields.Head().Tail().Tail().Content(), names.Get(sourceId));
         }
 
-        second->Type = ctx.MakeType<TListExprType>(ctx.MakeType<TStructExprType>(
-            TVector<const TItemExprType*>{ctx.MakeType<TItemExprType>(ctx.GetIndexAsString(secondId),
-                ctx.MakeType<TDataExprType>(EDataSlot::Uint64))}));
-        TOpTableLookup lookup(std::move(second), pos, nullptr, {}, {{secondId, "storage_key"}});
+        second->NativeSchema = TNativeSchema{{{secondId, {NFrontend::ETypeKind::Uint64}}}, std::nullopt,
+            std::make_shared<NFrontend::TExpressionArena>()};
+        TOpTableLookup lookup(std::move(second), pos, TRboTable{}, {}, {{secondId, "storage_key"}});
         const auto keys = NLookupJoinBuilder::BuildLookupKeys(lookup, fanout, ctx, names);
         UNIT_ASSERT(keys.InputStage->HeadPtr() == stream);
         UNIT_ASSERT(keys.InputStage->ChildPtr(3) == fanout->ChildPtr(3));
@@ -771,7 +644,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
                 // aggregate is visited in the normal postorder traversal.
                 if (!testCase.SinglePort) {
                     f.SetType(*raw);
-                    TOpTableLookup rawLookup(raw, f.Pos, nullptr, {}, {{rawValue, "raw_storage_key"}});
+                    TOpTableLookup rawLookup(raw, f.Pos, TRboTable{}, {}, {{rawValue, "raw_storage_key"}});
                     stage = NLookupJoinBuilder::BuildLookupKeys(rawLookup, stage, f.ExprCtx, names).InputStage;
                 }
                 const auto before = storage == NYql::EStorageType::RowStorage
@@ -799,7 +672,7 @@ Y_UNIT_TEST_SUITE(KqpRboIdLowering) {
 
                 // Lookup key adaptation follows the aggregate's output index.
                 const auto lookupKey = *partial.GetAggregationTraits().Keys().begin();
-                TOpTableLookup lookup(final.GetInput(), f.Pos, nullptr, {}, {{lookupKey, "storage_key"}});
+                TOpTableLookup lookup(final.GetInput(), f.Pos, TRboTable{}, {}, {{lookupKey, "storage_key"}});
                 const auto keys = NLookupJoinBuilder::BuildLookupKeys(lookup, stage, f.ExprCtx, names);
                 const auto lookupBody = storage == NYql::EStorageType::RowStorage
                     ? TDqPhyStage(keys.InputStage).Program().Body().Ptr() : keys.InputStage;

@@ -40,9 +40,7 @@ std::optional<TExpression> BuildFetchedRowFilter(const TOpRead& read, TOpFilter*
     return MakeConjunction(conjuncts);
 }
 
-const TTypeAnnotationNode* StripOptional(const TTypeAnnotationNode* type) {
-    return type && type->GetKind() == ETypeAnnotationKind::Optional ? type->Cast<TOptionalExprType>()->GetItemType() : type;
-}
+
 
 struct TLookupKey {
     TInfoUnitId LeftIU;
@@ -109,13 +107,9 @@ std::optional<TKeyMatch> MatchKeyPrefix(const TOpJoin& join, const TOpRead& read
 }
 
 bool KeyTypesMatch(const IOperator& leftInput, const IOperator& rightInput, const TVector<TLookupKey>& keys, TExprContext& ctx) {
+    Y_UNUSED(ctx);
     for (const auto& key : keys) {
-        const auto* leftType = StripOptional(leftInput.GetIUType(key.LeftIU, ctx));
-        const auto* rightType = StripOptional(rightInput.GetIUType(key.RightIU, ctx));
-        // TODO: Add support key with different types.
-        if (!leftType || !rightType || leftType != rightType) {
-            return false;
-        }
+        if (leftInput.GetNativeIUType(key.LeftIU).Required() != rightInput.GetNativeIUType(key.RightIU).Required()) return false;
     }
     return true;
 }
@@ -202,16 +196,16 @@ TIntrusivePtr<IOperator> TRewriteJoinToIndexLookupJoinRule::SimpleMatchAndApply(
         return input;
     }
     const auto& tableMeta = target->Metadata;
-    if (TKqpTable(read->GetTable()).Path().Value() != tableMeta->Name) {
-        auto rightOriginalType = read->Type;
+    if (read->GetTable().Path != tableMeta->Name) {
+        auto rightNativeSchema = read->NativeSchema;
         rewrittenRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->GetTableStorageType(),
-                                               BuildTableCallable(*tableMeta, read->Pos, ctx.ExprCtx), nullptr, read->Limit,
+                                               MakeRboTable(*tableMeta), nullptr, read->Limit,
                                                std::nullopt, std::nullopt, ESortDir::None, read->Props, read->Pos);
         read = rewrittenRead.get();
-        read->Type = rightOriginalType;
+        read->NativeSchema = std::move(rightNativeSchema);
     }
 
-    const auto table = TKqpTable(read->GetTable());
+    const auto table = read->GetTable();
     const TOpRead::TPointPrefix* pointPrefix = target->PointPrefix;
     size_t pointPrefixLen = pointPrefix ? pointPrefix->Columns.size() : 0;
 
@@ -252,7 +246,7 @@ TIntrusivePtr<IOperator> TRewriteJoinToIndexLookupJoinRule::SimpleMatchAndApply(
     }
 
     YQL_CLOG(TRACE, ProviderKqp) << "[NEW RBO] Rewriting a " << joinKind << " join into an index lookup join of "
-                                 << table.Path().StringValue();
+                                 << table.Path;
 
     if (target->MainTable) {
         // The index is not covering: the index lookup finds primary keys of the matching rows, and the main table
@@ -278,12 +272,12 @@ TIntrusivePtr<IOperator> TRewriteJoinToIndexLookupJoinRule::SimpleMatchAndApply(
         auto indexLookup = MakeIntrusive<TOpTableLookup>(join->GetLeftInput(), join->Pos, read->GetTable(), std::move(indexOutputs),
                                                          std::move(lookupKeys), joinKind, std::nullopt, prefix);
 
-        const auto mainTableCallable = BuildTableCallable(*target->MainTable, read->Pos, ctx.ExprCtx);
+        const auto mainTableRef = MakeRboTable(*target->MainTable);
         if (mainKeyNotNull) {
             // The index lookup feeds the main table lookup directly, and a single lookup join consumes the result.
             // A row without a match in the index comes with a missing key, which is a key of nulls for the lookup:
             // the primary key has no nulls, so such a key is not looked up.
-            auto mainLookup = MakeIntrusive<TOpTableLookup>(std::move(indexLookup), join->Pos, mainTableCallable,
+            auto mainLookup = MakeIntrusive<TOpTableLookup>(std::move(indexLookup), join->Pos, mainTableRef,
                                                             read->GetColumns(), std::move(mainLookupKeys), joinKind,
                                                             fetchedRowFilter, std::nullopt, std::move(residualJoinKeys));
             mainLookup->KeysFromInputLookup = true;
@@ -297,7 +291,7 @@ TIntrusivePtr<IOperator> TRewriteJoinToIndexLookupJoinRule::SimpleMatchAndApply(
         // not the columns the join keys name, and a key here would be demanded of the index lookup.
         auto indexLookupJoin = MakeIntrusive<TOpIndexLookupJoin>(std::move(indexLookup), join->Pos, joinKind, TJoinIUs{});
 
-        auto mainLookup = MakeIntrusive<TOpTableLookup>(std::move(indexLookupJoin), join->Pos, mainTableCallable,
+        auto mainLookup = MakeIntrusive<TOpTableLookup>(std::move(indexLookupJoin), join->Pos, mainTableRef,
                                                         read->GetColumns(), std::move(mainLookupKeys), joinKind,
                                                         fetchedRowFilter, std::nullopt, std::move(residualJoinKeys));
         mainLookup->AllowNullKeys = true;

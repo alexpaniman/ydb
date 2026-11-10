@@ -1446,7 +1446,8 @@ public:
 
 private:
     bool WantsNativeFrontend() const {
-        return !NativeFallback && Config->GetNativeFrontendMode() != NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY;
+        return !NativeFallback && (Config->GetEnableNewRBO() ||
+            Config->GetNativeFrontendMode() != NKikimrConfig::TTableServiceConfig::NATIVE_LEGACY);
     }
 
     IAsyncQueryResultPtr NativeError(const NFrontend::TFrontendError& error, TExprContext& ctx) {
@@ -1494,13 +1495,19 @@ private:
             options.Binding.AnsiCurrentRow = queryType == EKikimrQueryType::Query;
             options.Binding.TablePathPrefix = std::string(Config->_KqpTablePathPrefix.Get().GetOrElse(SessionCtx->GetDatabase()));
             const auto scalarParameterType = [](const auto& supplied) {
-                const auto& type = supplied.has_optional_type() ? supplied.optional_type().item() : supplied;
+                const auto* item = &supplied;
+                unsigned depth = 0;
+                while (item->has_optional_type()) {
+                    if (++depth > 64) throw F::TResourceLimitError({}, "Optional type nesting exceeds 64");
+                    item = &item->optional_type().item();
+                }
+                const auto& type = *item;
                 if (!type.has_type_id() && !type.has_decimal_type())
                     throw F::TUnsupportedFeature(F::EFeature::Type, {}, "native parameter fields require scalar types");
                 auto native = type.has_decimal_type() ? F::ParseType("Decimal(" +
                     std::to_string(type.decimal_type().precision()) + "," + std::to_string(type.decimal_type().scale()) + ")") :
                     F::ParseType(Ydb::Type_PrimitiveTypeId_Name(type.type_id()));
-                native.Nullable = supplied.has_optional_type();
+                native.OptionalDepth = depth;
                 return native;
             };
             if (query.ParameterTypes) for (const auto& [name, supplied] : *query.ParameterTypes) {
@@ -1510,7 +1517,8 @@ private:
                     for (const auto& field : supplied.list_type().item().struct_type().members())
                         fields.push_back({field.name(), scalarParameterType(field.type())});
                     native = F::TParameterType(std::move(fields));
-                } else native = scalarParameterType(supplied);
+                } else if (supplied.has_list_type()) native = F::TParameterType::TList{scalarParameterType(supplied.list_type().item())};
+                else native = scalarParameterType(supplied);
                 auto key = std::string(name);
                 if (key.starts_with('$')) key.erase(0, 1);
                 options.Binding.ParameterTypes.emplace(std::move(key), native);
@@ -1544,9 +1552,9 @@ private:
                             const auto& meta = loaded.Metadata;
                             YQL_ENSURE(meta);
                             if (!meta->DoesExist) throw F::TFrontendError(requests[i].Position, "table does not exist: " + requests[i].Name);
-                            if ((meta->Kind != EKikimrTableKind::Datashard && meta->Kind != EKikimrTableKind::Olap) ||
-                                meta->Temporary || meta->IsIndexImplTable || !meta->SysView.empty())
-                                throw F::TUnsupportedFeature(F::EFeature::Backend, requests[i].Position, "native profile supports ordinary persistent tables");
+                            if ((meta->Kind != EKikimrTableKind::Datashard && meta->Kind != EKikimrTableKind::Olap &&
+                                 meta->Kind != EKikimrTableKind::SysView) || meta->Temporary || meta->IsIndexImplTable)
+                                throw F::TUnsupportedFeature(F::EFeature::Backend, requests[i].Position, "native profile supports persistent tables and system views");
                             metadata.emplace(requests[i].Name, meta);
                             metadata.emplace(std::string(meta->Name), meta);
                         }
@@ -1556,7 +1564,7 @@ private:
                             auto column = [&](const TString& name) {
                                 const auto& item = meta->Columns.at(name);
                                 auto type = F::ParseType(std::string_view(item.Type.data(), item.Type.size()), pos);
-                                type.Nullable = !item.NotNull;
+                                type.OptionalDepth = !item.NotNull;
                                 table.Columns.push_back({std::string(name), type});
                             };
                             if (!meta->ColumnOrder.empty()) for (const auto& name : meta->ColumnOrder) column(name);
@@ -1565,15 +1573,21 @@ private:
                         };
                         auto program = F::BindNative(*syntax, schema, options.Binding);
                         const auto explain = TString(F::Explain(program.Get()));
-                        const auto nativeParameters = program.Get().Parameters;
 
                         // RBO/backend boundary. Up to here the query was parsed,
                         // resolved and typed using only the native representation.
                         Config->SetEnableNewRBO(true);
                         SetupSession(queryType, /*nativeFrontend=*/true);
                         const auto sqlVersion = SetupQueryParameters(settings, queryType);
-                        auto roots = ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
+                        auto native = ConvertNativeToRbo(std::move(program), [&](std::string_view path, F::TSourcePosition pos) {
                             const auto& meta = metadata.at(std::string(path));
+                            return TNativeTable{schema(path, pos), MakeRboTable(*meta),
+                                meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
+                        }, ctx, SessionCtx->ConfigPtr().Get());
+                        // Runtime catalog annotations belong to backend setup.
+                        // Native binding and RBO conversion use value schemas only.
+                        for (const auto& [name, meta] : metadata) {
+                            if (name != std::string(meta->Name)) continue;
                             auto& desc = SessionCtx->Tables().GetOrAddTable(Cluster, SessionCtx->GetDatabase(), meta->Name);
                             desc.Metadata = meta;
                             YQL_ENSURE(desc.Load(ctx, SessionCtx->Config().SystemColumnsEnabled()));
@@ -1584,15 +1598,12 @@ private:
                                 YQL_ENSURE(index.Load(ctx, SessionCtx->Config().SystemColumnsEnabled()));
                                 impl = impl->Next;
                             }
-                            const auto position = ctx.AppendPosition(TPosition(pos.Column, pos.Line));
-                            return TNativeTable{schema(path, pos), NOpt::BuildTableMeta(*meta, position, ctx).Ptr(),
-                                meta->Kind == EKikimrTableKind::Olap ? NYql::EStorageType::ColumnStorage : NYql::EStorageType::RowStorage};
-                        }, ctx, SessionCtx->ConfigPtr().Get());
+                        }
                         // The first backend initialization happens with native
                         // RBO roots already built. No YQL frontend pipeline is
                         // constructed on this path.
                         Init(queryType, /*nativeBackend=*/true);
-                        for (const auto& [name, type] : nativeParameters) {
+                        for (const auto& [name, type] : native.Parameters) {
                             auto& param = *SessionCtx->Query().PreparingQuery->AddParameters();
                             param.SetName("$" + TString(name));
                             auto allocatorGuard = SessionCtx->Query().QueryData->TypeEnv().BindAllocator();
@@ -1602,7 +1613,7 @@ private:
                             NMiniKQL::ExportTypeToProto(exported, *param.MutableType());
                         }
                         IKikimrQueryExecutor::TExecuteSettings execute;
-                        auto prepared = KqpRunner->PrepareNativeQuery(Cluster, std::move(roots), ctx, execute);
+                        auto prepared = KqpRunner->PrepareNativeQuery(Cluster, std::move(native), ctx, execute);
                         return AsyncApplyResult<TQueryResult, TQueryResult>(prepared,
                             [this, text, explain, sqlVersion, generatedParser = syntax->UsedGeneratedParser](TQueryResult&& result) {
                             if (result.Success()) {
@@ -1657,32 +1668,7 @@ private:
                 result.CommandTagName,
                 &effectiveSettings
             );
-            if (!astRes.IsOk() && isSql && SessionCtx->Config().GetEnableNewRBO()) {
-                // Forced YqlSelect translation rejects table hints before we can
-                // inspect their Read! nodes. Accept legacy translation only for
-                // sampling; other queries retain the original parser diagnostics.
-                TExprContext samplingCtx;
-                auto samplingSqlVersion = sqlVersion;
-                bool samplingDeprecatedSQL = TypesCtx->DeprecatedSQL;
-                bool samplingKeepInCache = false;
-                TMaybe<TString> samplingCommandTag;
-                NSQLTranslation::TTranslationSettings samplingSettings;
-                settingsBuilder.SetYqlSelect(NSQLTranslation::EYqlSelect::Disable);
-                auto samplingAst = ParseQuery(query.Text, isSql, samplingSqlVersion, samplingDeprecatedSQL,
-                    samplingCtx, settingsBuilder, samplingKeepInCache, samplingCommandTag, &samplingSettings);
-                TExprNode::TPtr samplingExpr;
-                if (samplingAst.IsOk() &&
-                    CompileExpr(*samplingAst.Root, samplingExpr, samplingCtx, ModuleResolver.get(), nullptr) &&
-                    HasSamplingRead(samplingExpr))
-                {
-                    astRes = std::move(samplingAst);
-                    sqlVersion = samplingSqlVersion;
-                    TypesCtx->DeprecatedSQL = samplingDeprecatedSQL;
-                    result.KeepInCache = samplingKeepInCache;
-                    result.CommandTagName = std::move(samplingCommandTag);
-                    effectiveSettings = std::move(samplingSettings);
-                }
-            }
+
             SessionCtx->Query().TranslationSettings = std::move(effectiveSettings);
             queryAst = std::make_shared<NYql::TAstParseResult>(std::move(astRes));
         } else {
@@ -1868,7 +1854,7 @@ private:
             return nullptr;
         }
 
-        auto& yqlTransformer = SessionCtx->Config().GetEnableNewRBO() ? *YqlTransformerNewRBO : *YqlTransformer;
+        auto& yqlTransformer = *YqlTransformer;
         return MakeIntrusive<TAsyncPrepareYqlResult>(compileResult.QueryExpr.Get(), ctx, yqlTransformer, SessionCtx->QueryPtr(),
             query.Text, sqlVersion, TransformCtx, compileResult.KeepInCache, compileResult.CommandTagName, DataProvidersFinalizer);
     }
@@ -1961,7 +1947,7 @@ private:
                 if (!compileResult.QueryExpr) {
                     return nullptr;
                 }
-                auto& yqlTransformer = SessionCtx->Config().GetEnableNewRBO() ? *YqlTransformerNewRBO : *YqlTransformer;
+                auto& yqlTransformer = *YqlTransformer;
                 return MakeIntrusive<TAsyncPrepareYqlResult>(compileResult.QueryExpr.Get(), ctx, yqlTransformer, SessionCtx->QueryPtr(),
                     query.Text, sqlVersion, TransformCtx, compileResult.KeepInCache, compileResult.CommandTagName, DataProvidersFinalizer);
             }
@@ -2486,7 +2472,6 @@ private:
 
         if (nativeBackend) {
             YqlTransformer = nullptr;
-            YqlTransformerNewRBO = nullptr;
             DataQueryAstTransformer = nullptr;
             return;
         }
@@ -2509,69 +2494,6 @@ private:
             .AddRun(&NullProgressWriter)
             .Build();
 
-        auto typesCtx = TypesCtx;
-        EYqlIssueCode issueCode = TIssuesIds::CORE_OPTIMIZATION;
-        auto RBOOptimizationTransformer = CreateCompositeGraphTransformer(
-            {
-                TTransformStage(
-                    CreateChoiceGraphTransformer(
-                    [typesCtx](const TExprNode::TPtr&, TExprContext&) {
-                        return typesCtx->EngineType == EEngineType::Ytflow;
-                    },
-                    TTransformStage(
-                        CreateRecaptureDataProposalsInspector(*typesCtx, TString{YtflowProviderName}),
-                        "RecaptureDataProposalsYtflow",
-                        issueCode),
-                    TTransformStage(
-                        CreateRecaptureDataProposalsInspector(*typesCtx, TString{DqProviderName}),
-                        "RecaptureDataProposalsDq",
-                        issueCode)),
-                    "RecaptureDataProposals",
-                    issueCode),
-                TTransformStage(
-                    CreateStatisticsProposalsInspector(*typesCtx, TString{DqProviderName}),
-                    "StatisticsProposals",
-                    issueCode
-                ),
-                TTransformStage(
-                    CreateLogicalDataProposalsInspector(*typesCtx),
-                    "LogicalDataProposals",
-                    issueCode),
-                TTransformStage(
-                    CreatePhysicalDataProposalsInspector(*typesCtx),
-                    "PhysicalDataProposals",
-                    issueCode),
-                TTransformStage(
-                    CreatePhysicalFinalizers(*typesCtx),
-                    "PhysicalFinalizers",
-                    issueCode),
-                TTransformStage(
-                    CreateCheckExecutionTransformer(*typesCtx, true),
-                    "CheckExecution",
-                    issueCode)
-                },
-                false
-            );
-
-        YqlTransformerNewRBO = TTransformationPipeline(TypesCtx)
-            .AddServiceTransformers()
-            .Add(TLogExprTransformer::Sync("YqlTransformerNewRBO", NYql::NLog::EComponent::ProviderKqp,
-                NYql::NLog::ELevel::TRACE), "LogYqlTransformNewRBO")
-            .AddPreTypeAnnotation()
-            .Add(TSecretValueExprTransformer::Sync(SessionCtx->QueryPtr()), "SecretValueExpr")
-            .AddExpressionEvaluation(*FuncRegistry)
-            .Add(new TFailExpressionEvaluation(queryType), "FailExpressionEvaluation")
-            .AddIOAnnotation(false)
-            .AddTypeAnnotation()
-            .Add(TCollectParametersTransformer::Sync(SessionCtx->QueryPtr()), "CollectParameters")
-            .AddPostTypeAnnotation()
-            //.AddOptimization(true, false, TIssuesIds::CORE_OPTIMIZATION)
-            .Add(RBOOptimizationTransformer.Release(), "RBOOptimizationTransformer")
-            .Add(GetDqIntegrationPeepholeTransformer(true, TypesCtx), "DqIntegrationPeephole")
-            .Add(TLogExprTransformer::Sync("Optimized expr"), "LogExpr")
-            .AddRun(&NullProgressWriter)
-            .Build();
-
         DataQueryAstTransformer = TTransformationPipeline(TypesCtx)
             .AddServiceTransformers()
             .AddIntentDeterminationTransformer()
@@ -2588,7 +2510,12 @@ private:
 
         DataProvidersFinalizer = nullptr;
 
-        if (!nativeFrontend) Init(queryType);
+        if (!nativeFrontend) {
+            // A YQL entry is a whole-query legacy compilation. Scalar YQL
+            // graphs are never passed through the native rule optimizer.
+            SessionCtx->Config().SetEnableNewRBO(false);
+            Init(queryType);
+        }
 
         ExprCtx->Reset();
         if (queryType != EKikimrQueryType::Query && queryType != EKikimrQueryType::Script) {
@@ -2606,7 +2533,6 @@ private:
         SetupSession(queryType);
 
         YqlTransformer->Rewind();
-        YqlTransformerNewRBO->Rewind();
 
         ResultProviderConfig->FillSettings = FillSettings;
         ResultProviderConfig->CommittedResults.clear();
@@ -2644,7 +2570,6 @@ private:
     IDataProvider::TFillSettings FillSettings;
     TIntrusivePtr<TResultProviderConfig> ResultProviderConfig;
     TAutoPtr<IGraphTransformer> YqlTransformer;
-    TAutoPtr<IGraphTransformer> YqlTransformerNewRBO;
     TAutoPtr<IGraphTransformer> DataQueryAstTransformer;
     TExprNode::TPtr FakeWorld;
     TKqpAsyncResultBase<IKqpHost::TQueryResult>::TAsyncTransformStatusCallback DataProvidersFinalizer;

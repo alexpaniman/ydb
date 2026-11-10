@@ -8,7 +8,7 @@
 namespace NKikimr {
 namespace NKqp {
 
-class TOpRoot;
+struct TNativeQuery;
 
 Ydb::Table::QueryStatsCollection::Mode GetStatsMode(NYql::EKikimrStatsMode statsMode);
 
@@ -255,7 +255,7 @@ public:
     // tables through the normal catalog/authorization path. Preparation starts
     // at RBO; no SQL/YQL translation or legacy logical-plan conversion runs.
     virtual TIntrusivePtr<TAsyncQueryResult> PrepareNativeQuery(const TString& cluster,
-        TVector<TIntrusivePtr<TOpRoot>> roots, NYql::TExprContext& ctx,
+        TNativeQuery query, NYql::TExprContext& ctx,
         const NYql::IKikimrQueryExecutor::TExecuteSettings& settings) = 0;
 
     virtual TIntrusivePtr<TAsyncQueryResult> PrepareDataQuery(const TString& cluster,

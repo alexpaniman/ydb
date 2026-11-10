@@ -472,7 +472,10 @@ Y_UNIT_TEST_SUITE(KqpRboLookupJoin) {
                 const TString predicateIndexTable = "/Root/" + table + "/" + predicateIndex + "/indexImplTable";
                 UNIT_ASSERT_C(!ast.Contains(predicateIndexTable), table << ": expected no read of " << predicateIndex << ", ast:\n" << ast);
             }
-            UNIT_ASSERT_C(ast.Contains(R"('('"AllowNullKeysPrefixSize" '1))"), table << ": expected a lookup by a point prefix, ast:\n" << ast);
+            const auto lookups = StreamLookupsInto(ast, "/Root/" + table + "/idx_c_b/indexImplTable");
+            UNIT_ASSERT_VALUES_EQUAL_C(lookups.size(), 1, ast);
+            UNIT_ASSERT_C(lookups.front().Contains(R"('"AllowNullKeysPrefixSize" '1))"),
+                table << ": expected a lookup by a point prefix, ast:\n" << ast);
         }
     }
 

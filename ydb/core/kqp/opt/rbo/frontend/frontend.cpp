@@ -316,8 +316,10 @@ struct TExprContext {
     const std::unordered_map<std::string, TExprId>* Arguments = nullptr;
     std::unordered_map<TSyntaxId, TExprId> Cache;
     TExprContext* Outer = nullptr;
+    TExprContext* CaptureOwner = nullptr;
     std::unordered_map<TColumnId, TColumnId> Captured;
     std::vector<TCapture> PendingCaptures;
+    TRelId CaptureRelation = NoRelation;
     std::vector<TDefinition> PendingDefinitions;
     bool AllowSubqueries = true;
     TWindowContext* Windows = nullptr;
@@ -380,7 +382,8 @@ public:
                         TParameterType::TRows fields;
                         for (const auto& [name, value] : *statement.RowFields) fields.push_back({name, ParseType(value, statement.Position)});
                         type = TParameterType(std::move(fields));
-                    } else type = ParseType(statement.Value, statement.Position);
+                    } else if (statement.ScalarList) type = TParameterType::TList{ParseType(statement.Value, statement.Position)};
+                    else type = ParseType(statement.Value, statement.Position);
                     ValidateParameter(type, statement.Position);
                     auto [it, inserted] = Program.Parameters.emplace(statement.Name, type);
                     if (!inserted && it->second != type) throw TFrontendError(statement.Position, "parameter type does not match DECLARE: " + statement.Name);
@@ -405,6 +408,8 @@ public:
                         // This selects relational translation, which is intrinsic here.
                     } else if (name == "ansiimplicitcrossjoin" && statement.Value.empty()) {
                         // Comma joins have one unambiguous cross-product meaning.
+                    } else if (name == "orderedcolumns" && statement.Value.empty()) {
+                        // Native result and subquery schemas retain projection order.
                     } else if ((name == "ansiinforemptyornullableitemscollections" || name == "disableansiinforemptyornullableitemscollections") && statement.Value.empty()) {
                         AnsiIn = name == "ansiinforemptyornullableitemscollections";
                     } else if ((name == "ansicurrentrow" || name == "disableansicurrentrow" ||
@@ -424,6 +429,12 @@ public:
 private:
     void ValidateParameter(const TParameterType& type, TSourcePosition pos) const {
         if (const auto* scalar = type.Scalar()) { Program.Expressions.ValidateType(*scalar, pos); return; }
+        if (const auto* list = type.ScalarList()) {
+            Program.Expressions.ValidateType(list->Item, pos);
+            if (list->Item.IsCollection() || list->Item.Kind == ETypeKind::Calendar || list->Item.IsJson())
+                throw TUnsupportedFeature(EFeature::Type, pos, "list parameter items require ordinary scalar types");
+            return;
+        }
         const auto& rows = *type.Rows();
         if (rows.size() > Settings.MaxNodes) throw TResourceLimitError(pos, "parameter field limit exceeded");
         for (std::size_t i = 0; i < rows.size(); ++i) {
@@ -472,21 +483,37 @@ private:
         if (!outer) return {};
         if (context.Aggregation) throw TUnsupportedFeature(EFeature::Subquery, pos,
             "outer references after aggregation require explicit grouping in the native profile");
-        auto [it, inserted] = context.Captured.try_emplace(outer->Id);
+        auto& captures = context.CaptureOwner ? *context.CaptureOwner : context;
+        auto [it, inserted] = captures.Captured.try_emplace(outer->Id);
         if (inserted) {
             it->second = Column(outer->Name, outer->Qualifier, outer->Type, pos);
-            context.PendingCaptures.push_back({it->second, outer->Id});
+            captures.PendingCaptures.push_back({it->second, outer->Id});
         }
         return ScopeColumn(it->second);
     }
     TRelId BindInput(TRelId input, TExprContext& context, TSourcePosition pos) {
         if (!context.PendingCaptures.empty()) {
-            TRelation capture{ERelation::Capture, pos};
-            capture.Inputs = {input};
-            capture.Columns = Program.Relations[input].Columns;
-            capture.Captures = std::exchange(context.PendingCaptures, {});
-            for (const auto& binding : capture.Captures) capture.Columns.push_back(binding.Local);
-            input = Relation(std::move(capture));
+            if (context.CaptureRelation == NoRelation) {
+                TRelation capture{ERelation::Capture, pos};
+                capture.Inputs = {input};
+                capture.Columns = Program.Relations[input].Columns;
+                context.CaptureRelation = Relation(std::move(capture));
+                input = context.CaptureRelation;
+            }
+            // WHERE, aggregate arguments and projections share the query's
+            // capture scope. Add later references at the same input boundary,
+            // so decorrelation sees one complete set of free variables.
+            for (auto id = input;; id = Program.Relations[id].Inputs.at(0)) {
+                auto& relation = Program.Relations[id];
+                for (const auto& binding : context.PendingCaptures) relation.Columns.push_back(binding.Local);
+                if (id == context.CaptureRelation) {
+                    relation.Captures.insert(relation.Captures.end(), context.PendingCaptures.begin(), context.PendingCaptures.end());
+                    break;
+                }
+                if (relation.Inputs.size() != 1)
+                    throw TFrontendError(pos, "capture scope must have a single input");
+            }
+            context.PendingCaptures.clear();
         }
         // Nested IN lookups can depend on earlier materializations. Each Map
         // sees its input's definitions; sibling Map elements are independent.
@@ -498,7 +525,8 @@ private:
         std::unordered_set<TColumnId> external;
         for (auto* context = outer; context; context = context->Outer) {
             for (const auto& column : context->Scope.Columns) external.insert(column.Id);
-            for (const auto& [source, local] : context->Captured) external.insert(local);
+            const auto& captures = context->CaptureOwner ? *context->CaptureOwner : *context;
+            for (const auto& [source, local] : captures.Captured) external.insert(local);
         }
         for (auto i = firstRelation; i < Program.Relations.size(); ++i)
             for (const auto& capture : Program.Relations[i].Captures)
@@ -562,8 +590,28 @@ private:
         if (!query) if (const auto named = Queries.find(source.Name); named != Queries.end()) query = named->second;
         if (query) {
             if (!ActiveQueries.insert(query.get()).second) throw TFrontendError(source.Position, "recursive query binding is not supported");
-            auto result = Select(*query, outer);
+            // A named, uncorrelated query has one producer and distinct bindings
+            // at its use sites. RBO decides whether to copy or share that producer.
+            const bool reusable = !source.Query && !outer;
+            TQueryResult result;
+            if (const auto found = ReusableQueries.find(query.get()); reusable && found != ReusableQueries.end()) {
+                result = found->second;
+            } else {
+                result = Select(*query, outer);
+                if (reusable) ReusableQueries.emplace(query.get(), result);
+            }
             ActiveQueries.erase(query.get());
+            if (reusable) {
+                TRelation use{ERelation::Reuse, source.Position};
+                use.Inputs = {result.Root};
+                for (auto& column : result.Columns) {
+                    const auto id = Column(column.Name, source.Alias, column.Type, source.Position);
+                    use.Columns.push_back(id);
+                    use.Definitions.push_back({id, Program.Expressions.Column(column.Column, column.Type, source.Position)});
+                    column.Column = id;
+                }
+                result.Root = Relation(std::move(use));
+            }
             TScope scope;
             for (const auto& column : result.Columns) scope.Add({column.Column, column.Name, source.Alias.empty() ? source.Name : source.Alias, column.Type});
             return {result.Root, std::move(scope)};
@@ -574,6 +622,7 @@ private:
         auto table = Catalog(path, source.Position);
         if (table.Name.empty()) throw TFrontendError(source.Position, "catalog returned an unnamed table");
         TRelation read{ERelation::Read, source.Position}; read.Table = table.Name;
+        read.Alias = source.Alias.empty() ? source.Name : source.Alias;
         std::string alias = source.Alias;
         if (alias.empty()) alias = source.Name.substr(source.Name.find_last_of("/.") + 1);
         TScope scope;
@@ -712,8 +761,10 @@ private:
         }
         TExprContext context{aggregate ? grouped : source.Scope, aggregate ? &aggregation : nullptr};
         context.Outer = outer;
+        if (!aggregate) context.CaptureOwner = &sourceContext;
         TExprContext windowInput{context.Scope, context.Aggregation};
         windowInput.Outer = outer;
+        if (!aggregate) windowInput.CaptureOwner = &sourceContext;
         windowInput.AllowSubqueries = false;
         TWindowContext windows;
         windows.Source = &windowInput;
@@ -783,14 +834,14 @@ private:
         for (const auto& key : query.OrderBy) {
             const auto& syntax = Syntax.Expressions[key.Expression];
             const TScopeColumn* alias = syntax.Kind == ESyntaxKind::Column ? outputScope.Find(syntax.Text, syntax.Position) : nullptr;
-            if (alias) sort.push_back({alias->Id, key.Descending, !key.Descending || !alias->Type.Nullable});
+            if (alias) sort.push_back({alias->Id, key.Descending, !key.Descending || !alias->Type.OptionalDepth});
             else {
                 auto expr = Expr(key.Expression, context);
                 auto id = Materialize(expr, sortDefinitions, syntax.Position);
                 if (query.Distinct && std::none_of(outputs.begin(), outputs.end(), [&](const auto& output) { return output.Column == id; })) {
                     throw TFrontendError(syntax.Position, "ORDER BY in SELECT DISTINCT must name a result column");
                 }
-                sort.push_back({id, key.Descending, !key.Descending || !Program.Expressions[expr].Type.Nullable});
+                sort.push_back({id, key.Descending, !key.Descending || !Program.Expressions[expr].Type.OptionalDepth});
             }
         }
         context.AllowSubqueries = true;
@@ -1025,7 +1076,7 @@ private:
                 // Output aliases have distinct IDs but can copy the same
                 // value. Keep only the first ordering of an identical value.
                 if (seen.insert(ColumnOrigins[column]).second)
-                    sort.SortKeys.push_back({column, key.Descending, !key.Descending || !Program.Expressions[expression].Type.Nullable});
+                    sort.SortKeys.push_back({column, key.Descending, !key.Descending || !Program.Expressions[expression].Type.OptionalDepth});
             }
             result.Root = Map(result.Root, std::move(definitions), pos);
             if (!sort.SortKeys.empty()) {
@@ -1038,8 +1089,9 @@ private:
     }
 
     TExprId CheckCount(TExprId expression, TSourcePosition pos) {
+        expression = Program.Expressions.FoldConstants(std::span(&expression, 1)).front();
         const auto& node = Program.Expressions[expression];
-        if (!node.Type.IsIntegral() || node.Type.Nullable) throw TFrontendError(pos, "LIMIT/OFFSET must be a non-null integer");
+        if (!node.Type.IsIntegral() || node.Type.OptionalDepth) throw TFrontendError(pos, "LIMIT/OFFSET must be a non-null integer");
         if (node.Op == EOpcode::Literal && std::holds_alternative<std::int64_t>(node.Value) && std::get<std::int64_t>(node.Value) < 0) {
             throw TFrontendError(pos, "LIMIT/OFFSET must be nonnegative");
         }
@@ -1054,13 +1106,17 @@ private:
 
     TType AggregateType(std::string_view name, TType type, bool mayBeEmpty, TSourcePosition position) {
         if (name == "count") return {ETypeKind::Uint64};
+        if (type.OptionalDepth > 1)
+            throw TUnsupportedFeature(EFeature::Type, position, "nested optional aggregate arguments require an explicit Unwrap");
         if (name == "sum" || name == "avg" || IsSampleStddev(name)) {
-            if (!type.IsNumeric()) throw TFrontendError(position, std::string(name) + " expects a numeric argument");
+            if (!type.IsNumeric() && !(name == "sum" && type.Kind == ETypeKind::Interval))
+                throw TFrontendError(position, std::string(name) + " expects a numeric argument");
             if (IsSampleStddev(name) && type.Kind == ETypeKind::Decimal)
                 throw TUnsupportedFeature(EFeature::Type, position, "sample standard deviation of Decimal is outside the native backend profile");
-            if ((name == "avg" && type.Kind != ETypeKind::Decimal) || IsSampleStddev(name)) type = {ETypeKind::Double, type.Nullable};
+            if ((name == "avg" && type.Kind != ETypeKind::Decimal) || IsSampleStddev(name)) type = {ETypeKind::Double, type.OptionalDepth};
             else if (type.IsIntegral()) type.Kind = type.IsSigned() ? ETypeKind::Int64 : ETypeKind::Uint64;
             if (type.Kind == ETypeKind::Decimal && name == "sum") type.Precision = 35;
+            if (type.Kind == ETypeKind::Interval && name == "sum") type = type.Optional();
         }
         return mayBeEmpty ? type.Optional() : type;
     }
@@ -1155,7 +1211,7 @@ private:
                 if (Syntax.Expressions[key.Expression].Kind == ESyntaxKind::Star) throw TFrontendError(syntax.Position, "star is not a window order key");
                 const auto column = materialize(key.Expression);
                 if (order.insert(column).second)
-                    window.SortKeys.push_back({column, key.Descending, !key.Descending || !context.InputTypes.at(column).Nullable});
+                    window.SortKeys.push_back({column, key.Descending, !key.Descending || !context.InputTypes.at(column).OptionalDepth});
             }
             auto frame = spec.Frame;
             using B = EWindowBound;
@@ -1174,7 +1230,7 @@ private:
                 TExprContext constants{empty}; constants.AllowSubqueries = false;
                 const auto value = Expr(expr, constants);
                 const auto& node = Program.Expressions[value];
-                if (node.Op != EOpcode::Literal || !node.Type.IsIntegral() || node.Type.Nullable)
+                if (node.Op != EOpcode::Literal || !node.Type.IsIntegral() || node.Type.OptionalDepth)
                     throw TUnsupportedFeature(EFeature::Window, syntax.Position, "window offsets require nonnegative integer literals");
                 if (frame.Type != F::Range && node.Type.Kind != ETypeKind::Int32)
                     throw TFrontendError(syntax.Position, "ROWS/GROUPS window offset literals require Int32");
@@ -1208,6 +1264,25 @@ private:
         const auto value = Program.Expressions.Column(output, type, syntax.Position);
         context.Calls.emplace(Canonical[id], value);
         return value;
+    }
+
+    TType TypeConstructor(TSyntaxId id) {
+        const auto& syntax = Syntax.Expressions[id];
+        TDepth depth(*this, syntax.Position);
+        if (syntax.Kind == ESyntaxKind::Column) return ParseType(syntax.Text, syntax.Position);
+        if (syntax.Kind == ESyntaxKind::Call && syntax.Arguments.size() == 1) {
+            const auto name = Lower(syntax.Text);
+            if (name == "optionaltype") {
+                auto type = TypeConstructor(syntax.Arguments[0]);
+                if (type.OptionalDepth == 64) throw TResourceLimitError(syntax.Position, "Optional type nesting exceeds 64");
+                ++type.OptionalDepth;
+                return type;
+            }
+            const auto& argument = Syntax.Expressions[syntax.Arguments[0]];
+            if (name == "datatype" && argument.Kind == ESyntaxKind::String)
+                return ParseType(argument.Text, argument.Position);
+        }
+        throw TUnsupportedFeature(EFeature::Type, syntax.Position, "unsupported native type constructor");
     }
 
     TExprId Integer(const TSyntaxExpr& syntax, bool negative = false) {
@@ -1274,7 +1349,7 @@ private:
         if (arena[input].Type.Kind == ETypeKind::Null)
             return arena.Literal({ETypeKind::Bool, !regexSemantics || !leading}, regexSemantics ? TScalar{false} : TScalar{std::monostate{}}, pos);
         if (!arena[input].Type.IsString()) throw TFrontendError(pos, "LIKE requires a string input");
-        const bool nullable = arena[input].Type.Nullable;
+        const bool nullable = arena[input].Type.OptionalDepth;
         auto result = regexSemantics ? arena.Unary(EOpcode::IsNotNull, arena.Cast(input, {ETypeKind::Utf8}, pos), pos) :
             arena.Literal({ETypeKind::Bool}, true, pos);
         // % consumes any byte sequence. Ordered searches need no regex object,
@@ -1317,11 +1392,11 @@ private:
         auto& arena = Program.Expressions;
         // Legacy SQL treats a NULL lookup as unknown even for an empty set;
         // NULL items alone never make a non-NULL lookup unknown.
-        if (arena[result].Type.Nullable) {
+        if (arena[result].Type.OptionalDepth) {
             const TExprId args[]{result, arena.Literal({ETypeKind::Bool}, false, pos)};
             result = arena.Coalesce(args, pos);
         }
-        if (arena[lookup].Type.Nullable || arena[lookup].Type.Kind == ETypeKind::Null) {
+        if (arena[lookup].Type.OptionalDepth || arena[lookup].Type.Kind == ETypeKind::Null) {
             const auto missing = arena.Unary(EOpcode::IsNull, lookup, pos);
             result = arena.If(missing, arena.Literal({ETypeKind::Bool, true}, std::monostate{}, pos), result, pos);
         }
@@ -1375,9 +1450,10 @@ private:
                         throw TUnsupportedFeature(EFeature::Function, syntax.Position, "lambda argument is not a scalar value: " + syntax.Text);
                     result = context.Arguments->at(syntax.Text);
                 } else if (binding == TGlobalBindings::Parameter) {
-                    const auto* scalar = Program.Parameters.at(syntax.Text).Scalar();
-                    if (!scalar) throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "row-list parameters are relational inputs; use AS_TABLE");
-                    result = arena.Parameter(syntax.Text, *scalar, syntax.Position);
+                    const auto& type = Program.Parameters.at(syntax.Text);
+                    if (const auto* scalar = type.Scalar()) result = arena.Parameter(syntax.Text, *scalar, syntax.Position);
+                    else if (const auto* list = type.ScalarList()) result = arena.Parameter(syntax.Text, arena.ListType(list->Item, syntax.Position), syntax.Position);
+                    else throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "row-list parameters are relational inputs; use AS_TABLE");
                 } else if (binding < Values.size() && Values[binding]) result = *Values[binding];
                 else throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "binding is not a scalar value: $" + syntax.Text);
                 break;
@@ -1438,15 +1514,17 @@ private:
                     auto query = Subquery(*syntax.Query, context);
                     if (query.Columns.size() != 1) throw TFrontendError(syntax.Position, "IN subquery must return exactly one column");
                     const auto output = query.Columns.front();
+                    if (arena[value].Type.OptionalDepth > 1 || output.Type.OptionalDepth > 1)
+                        throw TUnsupportedFeature(EFeature::Type, syntax.Position, "nested optional IN keys require an explicit Unwrap");
                     auto common = CommonType(arena[value].Type, output.Type, syntax.Position);
                     // Both sides may be bare NULL. Use an ordinary nullable key
                     // type so the empty-set case still has a Boolean result.
                     if (common.Kind == ETypeKind::Null) common = {ETypeKind::Bool, true};
-                    const TType type{ETypeKind::Bool, common.Nullable};
-                    common.Nullable = arena[value].Type.Nullable || arena[value].Type.Kind == ETypeKind::Null;
+                    const TType type{ETypeKind::Bool, common.OptionalDepth};
+                    common.OptionalDepth = arena[value].Type.OptionalDepth || arena[value].Type.Kind == ETypeKind::Null;
                     value = arena.Convert(value, common, syntax.Position);
                     const auto lookup = Materialize(value, context.PendingDefinitions, syntax.Position);
-                    common.Nullable = output.Type.Nullable || output.Type.Kind == ETypeKind::Null;
+                    common.OptionalDepth = output.Type.OptionalDepth || output.Type.Kind == ETypeKind::Null;
                     const auto item = arena.Convert(arena.Column(output.Column, output.Type, syntax.Position), common, syntax.Position);
                     std::vector<TDefinition> conversions;
                     const auto resultColumn = Materialize(item, conversions, syntax.Position);
@@ -1454,6 +1532,10 @@ private:
                     const auto binding = Column("in", {}, type, syntax.Position);
                     Program.Subplans.emplace(binding, TSubplan{root, resultColumn, ESubquery::In, lookup});
                     result = InResult(Access(ScopeColumn(lookup), syntax.Position), Access(ScopeColumn(binding), syntax.Position), syntax.Position);
+                    break;
+                }
+                if (syntax.Text == "collection") {
+                    result = arena.InCollection(value, Expr(syntax.Arguments.at(1), context), AnsiIn, syntax.Position);
                     break;
                 }
                 TType itemType;
@@ -1473,7 +1555,7 @@ private:
                 // Empty list values still retain the lookup's optional result
                 // type, even though ANSI membership is always false.
                 if (syntax.Text == "list" && syntax.Arguments.size() == 1 &&
-                    (arena[value].Type.Nullable || arena[value].Type.Kind == ETypeKind::Null))
+                    (arena[value].Type.OptionalDepth || arena[value].Type.Kind == ETypeKind::Null))
                     result = arena.Convert(result, {ETypeKind::Bool, true}, syntax.Position);
                 result = InResult(value, result, syntax.Position);
                 break;
@@ -1490,6 +1572,36 @@ private:
                 }
                 if (name == "grouping") { result = Grouping(syntax, context); break; }
                 if (syntax.Distinct) throw TFrontendError(syntax.Position, "DISTINCT requires an aggregate function");
+                if (name == "nothing") {
+                    if (syntax.Arguments.size() != 1)
+                        throw TUnsupportedFeature(EFeature::Type, syntax.Position, "Nothing requires an explicit optional type");
+                    const auto type = TypeConstructor(syntax.Arguments[0]);
+                    if (!type.OptionalDepth) throw TFrontendError(syntax.Position, "Nothing requires an optional type");
+                    result = arena.Literal(type, {}, syntax.Position);
+                    break;
+                }
+                if (name == "yql::sqlin") {
+                    if (syntax.Arguments.size() != 3) throw TFrontendError(syntax.Position, "SqlIn requires collection, lookup and options");
+                    const auto& options = Syntax.Expressions[syntax.Arguments[2]];
+                    if (options.Kind != ESyntaxKind::Call || Lower(options.Text) != "astuple")
+                        throw TUnsupportedFeature(EFeature::Expression, syntax.Position, "SqlIn options require a literal tuple");
+                    bool ansi = false;
+                    for (auto optionId : options.Arguments) {
+                        const auto& option = Syntax.Expressions[optionId];
+                        if (option.Kind != ESyntaxKind::Call || Lower(option.Text) != "astuple" || option.Arguments.size() != 1)
+                            throw TFrontendError(option.Position, "SqlIn option requires a one-item tuple");
+                        const auto& atom = Syntax.Expressions[option.Arguments[0]];
+                        if (atom.Kind != ESyntaxKind::Call || Lower(atom.Text) != "asatom" || atom.Arguments.size() != 1)
+                            throw TUnsupportedFeature(EFeature::Expression, atom.Position, "SqlIn option requires a literal atom");
+                        const auto& text = Syntax.Expressions[atom.Arguments[0]];
+                        if (text.Kind != ESyntaxKind::String || text.Text != "ansi")
+                            throw TUnsupportedFeature(EFeature::Expression, text.Position, "unsupported SqlIn option");
+                        ansi = true;
+                    }
+                    const auto collection = Expr(syntax.Arguments[0], context), lookup = Expr(syntax.Arguments[1], context);
+                    result = arena.InCollection(lookup, collection, ansi, syntax.Position);
+                    break;
+                }
                 std::vector<TExprId> args;
                 for (auto arg : syntax.Arguments) args.push_back(Expr(arg, context));
                 if (syntax.Text.starts_with('$')) {
@@ -1506,7 +1618,8 @@ private:
                     lambdaContext.AllowSubqueries = false;
                     result = Expr(lambda.Expression, lambdaContext);
                     ActiveLambdas.erase(&lambda);
-                } else result = arena.Call(name, args, syntax.Position);
+                } else if (name == "aslist" || name == "astuple") result = arena.Collection(args, name == "aslist", syntax.Position);
+                else result = arena.Call(name, args, syntax.Position);
                 break;
             }
             case ESyntaxKind::Star: throw TFrontendError(syntax.Position, "star is only valid in projection or COUNT(*)");
@@ -1540,6 +1653,7 @@ private:
     std::vector<bool> ContainsAggregate;
     std::vector<std::optional<TExprId>> Values;
     std::unordered_map<std::string, std::shared_ptr<TSelect>> Queries;
+    std::unordered_map<const TSelect*, TQueryResult> ReusableQueries;
     std::unordered_set<std::string> Declared;
     std::unordered_set<const TSelect*> ActiveQueries;
     std::unordered_set<const TStatement*> ActiveLambdas;
@@ -1557,12 +1671,13 @@ TBoundProgram NDetail::Compile(std::string_view sql, const TTableResolver& catal
 }
 
 std::string Explain(const TBoundProgram& program) {
-    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture", "Window", "Parameter"};
+    constexpr const char* names[]{"Unit", "Read", "Map", "Filter", "Join", "Aggregate", "Sort", "Limit", "UnionAll", "Capture", "Window", "Parameter", "Reuse"};
     std::ostringstream out;
     for (std::size_t i = 0; i < program.Relations.size(); ++i) {
         const auto& relation = program.Relations[i];
         out << i << ": " << names[static_cast<unsigned>(relation.Kind)];
         if (!relation.Table.empty()) out << ' ' << relation.Table;
+        if (!relation.Alias.empty()) out << " alias=" << relation.Alias;
         out << " inputs=[";
         for (std::size_t j = 0; j < relation.Inputs.size(); ++j) out << (j ? "," : "") << relation.Inputs[j];
         out << "] columns=[";
@@ -1635,6 +1750,8 @@ void CheckSyntax(const TParsedQuery& syntax) {
 }
 
 void CheckProgram(const TBoundProgram& program) {
+    for (const auto& column : program.Columns) if (column.Type.IsCollection())
+        throw TUnsupportedFeature(EFeature::Type, {}, "native collections are currently scalar IN operands; collection-valued relational columns are outside the profile");
     for (const auto& column : program.Columns) if (column.Type.Kind == ETypeKind::Calendar)
         throw TUnsupportedFeature(EFeature::Type, {}, "native calendar values must remain inside scalar expressions; use DateTime::MakeDate/MakeDatetime/MakeTimestamp before a relational boundary");
     for (const auto& node : program.Expressions.Nodes()) {
@@ -1877,25 +1994,26 @@ TCompileResult CompileNative(std::string_view sql, const TTableResolver& catalog
 std::string_view SupportManifest() {
     return R"({"profile":"native-read-v1","default_parser":"fast","parser_dispatch":"handwritten subset; shared-grammar-antlr4 for unhandled syntax",
 "statements":["select","declare","scalar-binding","query-binding","scalar-lambda"],
+"scalar_collections":["fixed tuple/list constructors and declared or supplied scalar List parameters for IN; checked dynamic key conversion and ANSI/legacy NULL rules; not relational columns"],
 "row_parameters":["AS_TABLE of declared or supplied List<Struct<scalar fields>> parameters; nullable scalar fields and empty structs; no nested containers or optional row/list containers"],
 "relations":["read","project","filter","on-join","aggregate","window","sort","limit","union-all","union","intersect","except","intersect-all","except-all","scalar-subquery","correlated-scalar-subquery","exists-subquery","in-subquery"],
-"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Json","JsonDocument","Null","single-optional"],
+"types":["Bool","Int8","Int16","Int32","Int64","Uint8","Uint16","Uint32","Uint64","Float","Double","String","Utf8","Date","Datetime","Timestamp","Interval","Decimal","Json","JsonDocument","Null","scalar optionals, including explicit nested optional casts"],
 "aggregates":["count","sum","avg","min","max","some","stddev","stddev_sample","stddev_samp","stddev_s","stddevsample","stddevsamp","stddevs"],
 "math_operations":["Math::IsNaN on typed integer/Float/Double inputs"],
 "grouping":["GROUPING SETS","ROLLUP","CUBE","GROUPING bit mask"],
 "scalar_checks":["Unwrap with an optional non-null String/Utf8 error message"],
 "json_operations":["JSON_VALUE on typed Json/JsonDocument columns or parameters, default Utf8? result and NULL ON EMPTY/ERROR; selector paths with optional lax/strict mode, members, wildcards and nonnegative Uint32 indexes; no escaped member names, path expressions, PASSING, RETURNING, explicit handlers or JSON constructors; JSON grouping/order/comparison, DISTINCT, tuple states, non-COUNT aggregates/windows and correlated JSON captures are unsupported"],
 "unicode_operations":["Unicode::ToUpper","Unicode::ToLower"],
-"windows":["inline OVER","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
+"windows":["inline OVER","named WINDOW definitions without inheritance","count","sum","avg","min","max","rank","denserank","rownumber","ROWS and RANGE with nonnegative Int32 literal offsets"],
 "calendar_operations":["DateTime::Split","DateTime::GetYear","DateTime::MakeDate","DateTime::MakeDatetime","DateTime::MakeTimestamp","DateTime::ShiftMonths","DateTime::ShiftYears","DateTime::IntervalFromDays","DateTime::IntervalFromHours","DateTime::IntervalFromMinutes"],
-"pragmas":["TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
+"pragmas":["OrderedColumns","TablePathPrefix","YqlSelect=force","AnsiImplicitCrossJoin","AnsiInForEmptyOrNullableItemsCollections","DisableAnsiInForEmptyOrNullableItemsCollections","AnsiCurrentRow","DisableAnsiCurrentRow","YqlSelectAllowUnnamedGroupByExpr","DisableYqlSelectAllowUnnamedGroupByExpr"],
 "planner_pragmas":{"prefixes":["ydb","kikimr"],
 "boolean":["OptDisableAutoIndexSelection","EnableAutoIndexSelectionForIndexLookupJoin","OptDisableTopSort","OptEnablePredicateExtract","OptShuffleElimination","OptShuffleEliminationWithMap","OptShuffleEliminationForAggregation","EnableNewRBOPhysicalStagePeephole","WindowFunctionsV2","OptEnableOlapPushdown","OptEnableOlapPushdownAggregate","OptEnableOlapPushdownProjections","OptEnableOlapPushdownRegexp","DqHashOperatorsUseBlocks","UseBlockHashJoin","DisableBlockExecution"],
 "uint32":["CostBasedOptimizationLevel","DqChannelVersion"],
 "string":["CostBasedOptimization=on/off/auto","HashJoinMode","OptimizerHints"],
 "false_only":["OptFallbackToLegacyOptimizer"],
 "rules":["static query settings applied in source order; every occurrence is validated","case-insensitive names; up to four single internal or trailing underscores","empty Boolean values mean true","HashJoinMode and OptimizerHints are validated at the RBO handoff","unknown settings delegate; malformed known values are errors"]},
-"restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing to integers, Bool, Float/Double and Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no named/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; bracket IN lists require scalar literals of one type, optionally with NULL; no tuple IN subqueries, JOIN USING, DML, DDL, arbitrary UDFs, containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal text requires canonical literal digits or inf/nan","no string literals as identifiers, system columns, typed string suffixes or extended string escapes"],
+"restrictions":["sample standard deviation supports integer/Float/Double inputs, ordinary aggregates and sole DISTINCT aggregates; Decimal, windows and mixed DISTINCT combinations delegate","computed GROUP BY keys require aliases or YqlSelectAllowUnnamedGroupByExpr; bare NULL grouping-set keys require a scalar cast; GROUP BY modifiers and hopping windows delegate","CASE requires ELSE","join-star projections require unique output names; duplicate names needing coalescing delegate","FULL JOIN requires only column equality keys; residual predicates delegate to the legacy optimizer","constant LIKE pattern with literal text and % wildcards","casts among integers, Bool, Float/Double, Decimal and String/Utf8; casts to and between Date/Datetime/Timestamp; no Float to 32/64-bit integer; dynamic text parsing to integers, Bool, Float/Double, Decimal and Date","unsigned dynamic LIMIT/OFFSET","integer comparisons preserve signed/unsigned operand types; other numeric operations use SQL rank and wrapping integer conversion","no bare NULL arithmetic; dynamic Substring offsets require Uint8/16/32","Unwrap requires a typed scalar; bare NULL would produce an unsupported Void result","set operands align by name and require unique result names","no correlated INTERSECT ALL/EXCEPT ALL; the backend cannot decorrelate their numbering windows","no subqueries in JOIN ON, GROUP BY keys, ORDER BY expressions, LIMIT/OFFSET, scalar bindings or lambda bodies","outer references after aggregation require explicit grouping","no inherited/DISTINCT windows, correlated window subqueries, GROUPS frames except whole partitions, or frame exclusions; no tuple IN subqueries, JOIN USING, DML, DDL, arbitrary UDFs, general containers or PostgreSQL","UTC narrow calendar operations only; calendar intermediates cannot cross relational boundaries; shifts and interval constructors require Int32 or fitting integer literals","no floating or temporal text formatting","Decimal multiplication allows integer factors and division allows integer divisors; COALESCE allows same-scale precision widening; other Decimal arithmetic requires matching types or explicit casts; Decimal constructors require canonical literal digits or inf/nan; text casts preserve runtime exponent parsing and rounding","no string literals as identifiers, system columns, string suffixes other than s/u or extended string escapes"],
 "fallback":"whole query to legacy YQL optimizer, only on structured unsupported feature",
 "status":"experimental; grammar recognition exceeds execution coverage"})";
 }

@@ -114,7 +114,7 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
             } else if (op->Kind == EOperator::EmptySource) {
                 const auto emptySource = CastOperator<TOpEmptySource>(op);
                 if (emptySource->HasInput()) {
-                    auto input = emptySource->Input;
+                    TExprNode::TPtr input;
                     if (emptySource->NativeInput) {
                         NFrontend::TParameterType::TRows fields;
                         for (const auto& [id, field] : emptySource->NativeInput->Fields.Items()) { Y_UNUSED(id); fields.push_back(field); }
@@ -125,8 +125,7 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
                         .Done().Ptr();
                     TVector<std::pair<TString, TString>> columns;
                     for (const auto id : emptySource->GetOutputIUs()) {
-                        const auto source = emptySource->NativeInput ? TString(emptySource->NativeInput->Fields.At(id).Name) :
-                            root->PlanProps.InfoUnitRegistry.Get(id).GetFullName();
+                        const auto source = TString(emptySource->NativeInput->Fields.At(id).Name);
                         columns.emplace_back(source, names.Get(id));
                     }
                     currentStageBody = NPhysicalConvertionUtils::BuildRenameMap(currentStageBody, columns, ctx);
@@ -148,7 +147,7 @@ TExprNode::TPtr ConvertToPhysical(const TVector<TIntrusivePtr<TOpRoot>>& roots, 
             } else if (op->Kind == EOperator::Source) {
                 auto& opRead = CastOperator<TOpRead>(*op);
                 const auto& table = rboCtx.KqpCtx.Tables->ExistingTable(
-                    rboCtx.KqpCtx.Cluster, TKqpTable(opRead.TableCallable).Path().Value());
+                    rboCtx.KqpCtx.Cluster, opRead.TableRef.Path);
 
                 TString carrierColumn;
                 if (opRead.GetColumns().Empty() && opRead.GetTableStorageType() == NYql::EStorageType::ColumnStorage) {

@@ -3450,7 +3450,14 @@ TStatus AnnotateOpWindow(const TExprNode::TPtr& input, TExprContext& ctx) {
     const auto* structType = inputType->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
     auto opWindow = TKqpOpWindow(input);
     auto pos = input->Pos();
-    const bool frameNeverEmpty = WindowFrameFromNode(opWindow.Frame()).IsNeverEmpty();
+    const auto frameNode = opWindow.Frame();
+    TOpWindowFrame frame;
+    frame.Type = WindowFrameTypeFromString(TString(frameNode.FrameType()));
+    frame.BeginKind = WindowFrameBoundFromString(TString(frameNode.BeginKind()));
+    frame.BeginValue = FromString<ui64>(TString(frameNode.BeginValue()));
+    frame.EndKind = WindowFrameBoundFromString(TString(frameNode.EndKind()));
+    frame.EndValue = FromString<ui64>(TString(frameNode.EndValue()));
+    const bool frameNeverEmpty = frame.IsNeverEmpty();
 
     TVector<const TItemExprType*> newItemTypes(structType->GetItems().begin(), structType->GetItems().end());
 

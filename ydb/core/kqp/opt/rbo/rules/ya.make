@@ -84,7 +84,6 @@ JOIN_SRCS(
 JOIN_SRCS(
     all_misc_2.cpp
     merge_union_all.cpp
-    peephole_predicate.cpp
 )
 
 PEERDIR(

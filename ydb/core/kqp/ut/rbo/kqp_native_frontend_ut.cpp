@@ -27,6 +27,35 @@ TNativeTable NoTables(std::string_view, NFrontend::TSourcePosition pos) {
     throw NFrontend::TFrontendError(pos, "unexpected table lookup");
 }
 
+void SetNativeReadType(NTests::TIdTestContext& f, TOpRead& read, const TUnorderedIUs& nullable = {}) {
+    if (!f.Props.NativeExpressions) f.Props.NativeExpressions = std::make_shared<NFrontend::TExpressionArena>();
+    TNativeSchema schema{{}, std::nullopt, f.Props.NativeExpressions};
+    auto columns = std::make_shared<TRboTable::TColumns>();
+    for (auto id : read.GetColumns()) {
+        NFrontend::TType type{NFrontend::ETypeKind::Int32, nullable.Contains(id)};
+        schema.Row.emplace(id, type);
+        columns->emplace(f.Props.InfoUnitRegistry.Get(id).GetColumnName(), type);
+    }
+    read.NativeSchema = std::move(schema);
+    read.TableRef.NativeColumns = std::move(columns);
+}
+
+IGraphTransformer::TStatus ComputeTypesWithoutBackend(TOpRoot& root, TRBOContext& context) {
+    const auto nodes = context.ExprCtx.NodeAllocationCounter;
+    const auto types = context.ExprCtx.TypeNodes.size();
+    const auto result = root.ComputeTypes(context);
+    UNIT_ASSERT_VALUES_EQUAL(context.ExprCtx.NodeAllocationCounter, nodes);
+    UNIT_ASSERT_VALUES_EQUAL(context.ExprCtx.TypeNodes.size(), types);
+    for (const auto& item : root) {
+        UNIT_ASSERT(item.Current->NativeSchema);
+        for (const auto& expression : item.Current->GetExpressions()) {
+            UNIT_ASSERT(expression.get().IsNative());
+
+        }
+    }
+    return result;
+}
+
 NFrontend::TExprId Projection(const NFrontend::TBoundProgram& program) {
     const auto column = program.Results.at(0).Columns.at(0).Column;
     for (const auto& relation : program.Relations) {
@@ -88,6 +117,7 @@ void CheckScalar(const NFrontend::TExpressionArena& arena, NFrontend::TExprId id
                 for (std::size_t i = 0; i < items.size(); ++i) self(self, value.GetElement(i), items[i]);
                 break;
             }
+            case K::List: UNIT_FAIL("collection values are only IN operands");
             case K::Calendar: UNIT_FAIL("calendar values must be consumed by scalar date operations");
         }
     };
@@ -102,22 +132,142 @@ void CheckScalar(std::string_view sql) {
 } // namespace
 
 Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
+    Y_UNIT_TEST(RuntimeCollectionMembershipEmitsTypedTerminalOperations) {
+        using namespace NFrontend;
+        using K = ETypeKind;
+        for (bool ansi : {false, true}) for (bool empty : {false, true}) for (bool nullable : {false, true}) {
+            TExpressionArena arena;
+            const TType item{K::Int32, nullable};
+            auto values = std::make_shared<TTupleValue>();
+            if (!empty) {
+                values->Items.push_back({item, std::int64_t{2}});
+                if (nullable) values->Items.push_back({item, {}});
+            }
+            const auto list = arena.Literal(arena.ListType(item), TTuple(values));
+            std::vector<TExprId> fixed;
+            for (const auto& value : values->Items) fixed.push_back(arena.Literal(value.Type, value.Data));
+            const auto collection = arena.Collection(fixed, true);
+            for (const auto lookup : {arena.Literal({K::Int64, true}, {}), arena.Literal({K::Int64, true}, std::int64_t{2})})
+                CheckScalar(arena, arena.InCollection(lookup, collection, ansi), "fixed collection with optional lookup");
+            for (const double value : {2.0, 2.5, 2147483648.0})
+                CheckScalar(arena, arena.InCollection(arena.Literal({K::Double}, value), list, ansi), "dynamic list with checked numeric key");
+            CheckScalar(arena, arena.InCollection(arena.Literal({K::Int64, true}, {}), list, ansi), "NULL lookup into runtime list");
+            CheckScalar(arena, arena.InCollection(arena.Literal({K::Int64, true}, std::int64_t{2}), list, ansi), "optional lookup into runtime list");
+        }
+    }
+
+    Y_UNIT_TEST(HandoffOwnsOrderedResultsParametersAndExecutionMetadata) {
+        using namespace NFrontend;
+        NTests::TIdTestContext f;
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        const auto types = f.ExprCtx.TypeNodes.size();
+        auto query = CompileNativeToRbo(R"(
+            DECLARE $p AS Int64;
+            SELECT value AS z, id AS a FROM t WHERE id = $p;
+            SELECT id AS second FROM t;
+        )", [](std::string_view name, TSourcePosition) {
+            UNIT_ASSERT_VALUES_EQUAL(name, "t");
+            return TNativeTable{{"t", {{"id", {ETypeKind::Int64}}, {"value", {ETypeKind::String, true}}}},
+                TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
+        }, f.ExprCtx);
+        UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 2);
+        UNIT_ASSERT_VALUES_EQUAL(query.Execution.TableOperations.size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(query.Execution.TableOperations.front().GetTable(), "/Root/t");
+        UNIT_ASSERT_VALUES_EQUAL(query.Execution.TableOperations.front().GetOperation(), static_cast<ui32>(NYql::TYdbOperation::Select));
+        UNIT_ASSERT(query.Execution.TableOperations.front().HasPosition());
+        UNIT_ASSERT_VALUES_EQUAL(query.Execution.TableOperations.front().GetPosition().GetRow(), 3);
+        UNIT_ASSERT(query.Execution.DiscardResults == (TVector<bool>{false, false}));
+        UNIT_ASSERT(!query.Execution.HasUncommittedChangesRead);
+        UNIT_ASSERT_VALUES_EQUAL(query.Parameters.size(), 1);
+        UNIT_ASSERT(query.Parameters.at("p") == TParameterType(TType{ETypeKind::Int64}));
+        UNIT_ASSERT_VALUES_EQUAL(query.Roots[0]->GetColumns().Items()[0].second, "z");
+        UNIT_ASSERT_VALUES_EQUAL(query.Roots[0]->GetColumns().Items()[1].second, "a");
+        UNIT_ASSERT_VALUES_EQUAL(query.Roots[1]->GetColumns().Items()[0].second, "second");
+        auto moved = std::move(query);
+        for (const auto& root : moved.Roots) {
+            for (const auto& item : *root) for (const auto& expression : item.Current->GetExpressions()) {
+                UNIT_ASSERT(expression.get().IsNative());
+                UNIT_ASSERT(expression.get().PlanProps == &root->PlanProps);
+            }
+            UNIT_ASSERT(ComputeTypesWithoutBackend(*root, f.RboCtx) == IGraphTransformer::TStatus::Ok);
+        }
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+    }
+
+    Y_UNIT_TEST(HandoffIncludesTablesReadOnlyBySubqueries) {
+        NTests::TIdTestContext f;
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        const auto types = f.ExprCtx.TypeNodes.size();
+        auto query = CompileNativeToRbo("SELECT (SELECT MAX(id) FROM t), EXISTS(SELECT id FROM u)",
+            [](std::string_view name, NFrontend::TSourcePosition) {
+                const TString path = TStringBuilder() << "/Root/" << name;
+                return TNativeTable{{std::string(name), {{"id", {NFrontend::ETypeKind::Int64}}}},
+                    TRboTable{path, "1:2", "", "3"}, NYql::EStorageType::ColumnStorage};
+            }, f.ExprCtx);
+        THashSet<TString> tables;
+        for (const auto& operation : query.Execution.TableOperations) tables.insert(operation.GetTable());
+        UNIT_ASSERT(tables == (THashSet<TString>{"/Root/t", "/Root/u"}));
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+    }
+
+    Y_UNIT_TEST(TableLookupStagesRemainNativeUntilEmission) {
+        NTests::TIdTestContext f;
+        const auto nodes = f.ExprCtx.NodeAllocationCounter;
+        const auto types = f.ExprCtx.TypeNodes.size();
+        auto roots = CompileNativeToRbo("SELECT 1ul AS key", NoTables, f.ExprCtx).Roots;
+        auto& source = *roots.front();
+        UNIT_ASSERT(ComputeTypesWithoutBackend(source, f.RboCtx) == IGraphTransformer::TStatus::Ok);
+        const auto key = *source.GetInput()->GetOutputIUs().begin();
+        const auto fetched = source.PlanProps.InfoUnitRegistry.Add(TInfoUnit("value"));
+        TRboTable table("/Root/table", "1:2", "", "3");
+        table.NativeColumns = std::make_shared<TRboTable::TColumns>(TRboTable::TColumns{
+            {"value", {NFrontend::ETypeKind::Int32, true}}});
+        TOpTableLookup::TLookupKeys keys;
+        keys.Append(key, "key");
+        auto lookup = MakeIntrusive<TOpTableLookup>(source.GetInput(), source.Pos, table, TUnorderedIUs{fetched}, std::move(keys));
+        auto root = MakeIntrusive<TOpRoot>(lookup, source.Pos, TOrderedIUs<TString>{{fetched, "value"}});
+        root->PlanProps = std::move(source.PlanProps);
+        for (const auto& item : *root) item.Current->BindExpressionPlanProps(&root->PlanProps);
+        root->ComputeParents();
+        UNIT_ASSERT(ComputeTypesWithoutBackend(*root, f.RboCtx) == IGraphTransformer::TStatus::Ok);
+        TAssignStagesStage().RunStage(*root, f.RboCtx);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, nodes);
+        UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.TypeNodes.size(), types);
+        TIntrusivePtr<TStreamLookupConnection> stream;
+        for (const auto& [edge, connections] : root->PlanProps.StageGraph.Connections)
+            for (const auto& connection : connections) if (IsConnection<TStreamLookupConnection>(connection))
+                stream = static_cast<TStreamLookupConnection*>(connection.Get());
+        UNIT_ASSERT(stream && !stream->InputType);
+        UNIT_ASSERT(stream->Keys.front().second == lookup->GetInput()->GetNativeIUType(key));
+        const TPhysicalNames names(root->PlanProps.InfoUnitRegistry);
+        const auto emitted = stream->BuildConnection(f.ExprCtx.NewCallable(f.Pos, "DqStage", {}), f.Pos, f.ExprCtx, names);
+        const auto backend = NYql::NNodes::TKqpCnStreamLookup(emitted);
+        UNIT_ASSERT_VALUES_EQUAL(backend.Table().Path().Value(), table.Path);
+        UNIT_ASSERT_VALUES_EQUAL(backend.Table().PathId().Value(), table.PathId);
+        UNIT_ASSERT_VALUES_EQUAL(backend.Table().Version().Value(), table.Version);
+        UNIT_ASSERT(f.ExprCtx.NodeAllocationCounter > nodes);
+        UNIT_ASSERT(f.ExprCtx.TypeNodes.size() > types);
+        UNIT_ASSERT(lookup->NativeSchema);
+    }
+
     Y_UNIT_TEST(RowParametersStayNativeThroughTypingAndCopy) {
         using namespace NFrontend;
         NTests::TIdTestContext f;
         const auto allocated = f.ExprCtx.NodeAllocationCounter;
         auto roots = CompileNativeToRbo(
             "DECLARE $p AS List<Struct<value:String?,id:Int32>>; SELECT p.id,p.value FROM AS_TABLE($p) p WHERE p.id > 0",
-            NoTables, f.ExprCtx);
+            NoTables, f.ExprCtx).Roots;
         auto& root = *roots.front();
         UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, allocated);
         TIntrusivePtr<TOpEmptySource> source;
         for (const auto& item : root) if (item.Current->Kind == EOperator::EmptySource) source = CastOperator<TOpEmptySource>(item.Current);
-        UNIT_ASSERT(source && source->NativeInput && !source->Input);
+        UNIT_ASSERT(source && source->NativeInput);
         UNIT_ASSERT_VALUES_EQUAL(source->NativeInput->Name, "$p");
         for (const auto& [id, field] : source->NativeInput->Fields.Items()) {
             UNIT_ASSERT_VALUES_EQUAL(root.PlanProps.InfoUnitRegistry.Get(id).GetAlias(), "p");
-            const auto column = MakeColumnAccess(id, *source, source->Pos, &f.ExprCtx, &root.PlanProps);
+            const auto column = MakeColumnAccess(id, *source, source->Pos, &root.PlanProps);
             UNIT_ASSERT(column.IsNative() && column.GetNativeType() == field.Type);
         }
         auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
@@ -125,14 +275,14 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             return IGraphTransformer::TStatus::Error;
         });
         TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
-        UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
         source->ComputeMetadata(context, root.PlanProps);
         UNIT_ASSERT(source->Props.Metadata->LogicalCard == ELogicalCardinality::ZeroOrMore);
         TSubstitutions renames;
         const auto copy = source->Copy(root.PlanProps, renames);
         UNIT_ASSERT(copy);
         const auto& copied = CastOperator<TOpEmptySource>(*copy);
-        UNIT_ASSERT(copied.NativeInput && !copied.Input);
+        UNIT_ASSERT(copied.NativeInput);
         TParameterType::TRows fields;
         for (const auto& [id, field] : source->NativeInput->Fields.Items()) {
             UNIT_ASSERT(renames.At(id) != id);
@@ -140,7 +290,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             fields.push_back(field);
         }
         for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions())
-            UNIT_ASSERT(expression.get().IsNative() && !expression.get().Node);
+            UNIT_ASSERT(expression.get().IsNative());
         UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, allocated);
         const auto lowered = LowerNativeParameter(copied.NativeInput->Name, TParameterType(std::move(fields)), f.ExprCtx, {});
         UNIT_ASSERT(lowered->IsCallable("Parameter"));
@@ -150,7 +300,6 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         const auto* row = lowered->GetTypeAnn()->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
         UNIT_ASSERT(ImportNativeType(*row->FindItemType("id")) == (TType{ETypeKind::Int32}));
         UNIT_ASSERT(ImportNativeType(*row->FindItemType("value")) == (TType{ETypeKind::String, true}));
-        UNIT_ASSERT(!source->Input && !copied.Input);
     }
 
     Y_UNIT_TEST(NativeScalarInspectionAndRebindingDoNotGenerateBackendNodes) {
@@ -159,7 +308,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         const auto source = f.Id("source"), renamed = f.Id("renamed");
         auto arena = std::make_shared<TExpressionArena>();
         const auto expression = [&](TExprId root) {
-            return TExpression::FromNative(arena, root, &f.ExprCtx, &f.Props);
+            return TExpression::FromNative(arena, root, &f.Props);
         };
         const auto allocated = f.ExprCtx.NodeAllocationCounter;
         const TType integer{ETypeKind::Int32};
@@ -187,8 +336,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT(nullable.GetNativeType() == integer.Optional());
         UNIT_ASSERT(direct.GetNativeType() == integer);
         UNIT_ASSERT_VALUES_EQUAL(lifted.GetColumnId(true).value(), source);
-        UNIT_ASSERT_EXCEPTION_CONTAINS(direct.GetLegacyLambda(), yexception, "explicit backend lowering");
-        UNIT_ASSERT_EXCEPTION_CONTAINS(direct.GetLegacyBody(), yexception, "explicit backend lowering");
+        static_assert(!std::is_constructible_v<TExpression, NYql::TExprNode::TPtr, TExprContext*>);
         UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, allocated);
     }
 
@@ -199,26 +347,24 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         auto arena = std::make_shared<TExpressionArena>();
         const TType type{ETypeKind::Int32};
         const auto input = arena->Column(column, type);
-        const auto native = TExpression::FromNative(arena, arena->Convert(input, type.Optional()), &f.ExprCtx, &f.Props);
+        const auto native = TExpression::FromNative(arena, arena->Convert(input, type.Optional()), &f.Props);
         auto first = LowerExpressionLambda(native, f.ExprCtx);
         UNIT_ASSERT(AreAllNodesTypeAnnotated(*first));
         UNIT_ASSERT(!NeedsRboCompatibilityLowering(first));
-        UNIT_ASSERT_VALUES_EQUAL(TExpression(first, &f.ExprCtx).GetColumnId(true).value(), column);
+        UNIT_ASSERT_VALUES_EQUAL(FromString<TInfoUnitId>(first->Tail().Head().Tail().Content()), column);
         first->SetTypeAnn(nullptr);
         first->Tail().SetTypeAnn(nullptr);
         auto second = LowerExpressionLambda(native, f.ExprCtx);
         UNIT_ASSERT(AreAllNodesTypeAnnotated(*second));
         UNIT_ASSERT(first != second);
         UNIT_ASSERT(first->Head().HeadPtr() != second->Head().HeadPtr());
-        UNIT_ASSERT(!native.Node);
+
         UNIT_ASSERT(native.GetNativeType() == type.Optional());
 
-        const TExpression legacy(second, &f.ExprCtx);
-        UNIT_ASSERT(LowerExpressionLambda(legacy, f.ExprCtx) == legacy.GetLegacyLambda());
         const auto rebound = native.ApplyRenames(TSubstitutions{{column, f.Id("copy")}});
         const auto lowered = LowerExpressionLambda(rebound, f.ExprCtx);
         UNIT_ASSERT(AreAllNodesTypeAnnotated(*lowered));
-        UNIT_ASSERT_VALUES_EQUAL(TExpression(lowered, &f.ExprCtx).GetColumnId(true).value(), rebound.GetColumnId(true).value());
+        UNIT_ASSERT_VALUES_EQUAL(FromString<TInfoUnitId>(lowered->Tail().Head().Tail().Content()), rebound.GetColumnId(true).value());
         UNIT_ASSERT_VALUES_EQUAL(native.GetColumnId(true).value(), column);
     }
 
@@ -298,7 +444,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     Y_UNIT_TEST(PlannerPragmasApplyOnceAtRboHandoffWithoutBeingDropped) {
         NTests::TIdTestContext f;
         auto compile = [&](const TString& sql) {
-            return CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx, {}, {}, f.Config.Get());
+            return CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx, {}, {}, f.Config.Get()).Roots;
         };
         auto checkBool = [&](const char* name, auto& option) {
             for (const bool value : {false, true}) {
@@ -307,7 +453,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 UNIT_ASSERT_VALUES_EQUAL(roots.size(), 1);
                 UNIT_ASSERT(roots.front()->PlanProps.NativeExpressions);
                 for (const auto& item : *roots.front()) for (const auto& expression : item.Current->GetExpressions())
-                    UNIT_ASSERT(expression.get().IsNative() && !expression.get().Node);
+                    UNIT_ASSERT(expression.get().IsNative());
             }
         };
         checkBool("OptDisableAutoIndexSelection", f.Config->OptDisableAutoIndexSelection);
@@ -359,7 +505,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT_EXCEPTION(compile("PRAGMA ydb.OptDisableAutoIndexSelection='true'; PRAGMA ydb.HashJoinMode='unknown'; SELECT 1"),
             NFrontend::TFrontendError);
         UNIT_ASSERT(!f.Config->IsAutoIndexSelectionDisabled());
-        UNIT_ASSERT_EXCEPTION(CompileNativeToRbo("PRAGMA ydb.WindowFunctionsV2='false'; SELECT 1", NoTables, f.ExprCtx),
+        UNIT_ASSERT_EXCEPTION(CompileNativeToRbo("PRAGMA ydb.WindowFunctionsV2='false'; SELECT 1", NoTables, f.ExprCtx).Roots,
             NFrontend::TUnsupportedFeature);
     }
 
@@ -384,14 +530,15 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         estimate(keyEq, 0.001);
         estimate(valEq, 0.1);
         estimate(arena.Binary(O::Equal, parameter, key), 0.001);
-        estimate(arena.Binary(O::Less, key, parameter), 0.4);
+        estimate(arena.Binary(O::Less, key, parameter), 0.001);
         estimate(arena.Binary(O::Equal, key, value), 0.3);
         estimate(arena.Binary(O::And, keyEq, valEq), 0.0001);
-        estimate(arena.Binary(O::NotEqual, key, one), 0.999);
-        estimate(arena.Binary(O::Equal, arena.Cast(key, {K::Int32}), one), 0.5);
+        estimate(arena.Binary(O::Or, keyEq, valEq), 0.101);
+        estimate(arena.Binary(O::NotEqual, key, one), 0.002);
+        estimate(arena.Binary(O::Equal, arena.Cast(key, {K::Int32}), one), 0.001);
         estimate(arena.Unary(O::IsNull, key), 0);
-        estimate(arena.Unary(O::IsNull, value), 0.1);
-        estimate(arena.Unary(O::IsNotNull, value), 0.9);
+        estimate(arena.Unary(O::IsNull, value), 1);
+        estimate(arena.Unary(O::IsNotNull, value), 1);
         estimate(arena.Unary(O::IsNull, arena.Column(40, {K::Null})), 1);
         const auto nil = arena.Literal({K::Bool, true}, {});
         const auto yes = arena.Literal({K::Bool}, true), no = arena.Literal({K::Bool}, false);
@@ -412,7 +559,22 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         // The common defaults match the old estimator; it is used only as a
         // test oracle after direct lowering, never by the native visitor.
         TExprContext context;
-        for (const auto root : {keyEq, valEq, arena.Binary(O::Less, key, one), arena.Binary(O::Equal, key, value)}) {
+        const auto less = arena.Binary(O::Less, key, one);
+        const auto textEq = arena.Binary(O::Equal, text, needle);
+        // The legacy frontend removes optional Boolean lifts before statistics.
+        // Use equally nullable operands for compound oracle predicates so direct
+        // backend lowering does not introduce an unnormalized Just(predicate).
+        const auto requiredValue = arena.Column(20, {K::Int64});
+        const auto requiredEq = arena.Binary(O::Equal, requiredValue, one);
+        const auto optionalKeyEq = arena.Binary(O::Equal, arena.Column(10, {K::Int64, true}), one);
+        for (const auto root : {keyEq, valEq, less, arena.Binary(O::Equal, key, value),
+                arena.Binary(O::And, keyEq, requiredEq), arena.Binary(O::Or, keyEq, requiredEq),
+                arena.Binary(O::And, optionalKeyEq, valEq), arena.Binary(O::Or, optionalKeyEq, valEq),
+                arena.Binary(O::Or, less, requiredEq),
+                arena.Binary(O::And, arena.Binary(O::Or, keyEq, requiredEq), textEq),
+                arena.Binary(O::Or, arena.Binary(O::And, keyEq, requiredEq), textEq),
+                arena.Binary(O::Or, arena.Binary(O::Or, less, arena.Binary(O::Less, requiredValue, one)),
+                    arena.Binary(O::Less, text, needle))}) {
             const auto lambda = LowerNativeLambda(arena, root, context, {});
             const auto legacy = TPredicateSelectivityComputer(std::make_shared<TOptimizerStatistics>(stats))
                 .Compute(NNodes::TCoLambda(lambda).Body());
@@ -423,6 +585,159 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         auto deep = valEq;
         for (size_t i = 0; i < 20000; ++i) deep = arena.Binary(O::And, deep, deep);
         estimate(deep, 0.1);
+    }
+
+    Y_UNIT_TEST(NativeSelectivityMatchesNormalizedLegacyPolicy) {
+        using namespace NFrontend;
+        using O = EOpcode;
+        using K = ETypeKind;
+        TExpressionArena arena;
+        const auto a = arena.Column(10, {K::Int64}), b = arena.Column(20, {K::Int64, true});
+        const auto text = arena.Column(30, {K::String}), unknown = arena.Column(40, {K::Bool});
+        const auto one = arena.Literal({K::Int64}, std::int64_t{1});
+        const auto three = arena.Literal({K::Int64}, std::int64_t{3});
+        const auto parameter = arena.Parameter("p", {K::Int64});
+        const auto needle = arena.Literal({K::String}, std::string("x"));
+        TVector<TExprId> predicates{unknown, arena.Unary(O::IsNull, b), arena.Unary(O::IsNotNull, b),
+            arena.Binary(O::Contains, text, needle), arena.Binary(O::StartsWith, text, needle),
+            arena.Binary(O::Contains, text, arena.Parameter("s", {K::String})),
+            arena.Binary(O::Equal, arena.Cast(a, {K::Int32}), one),
+            arena.Binary(O::Equal, arena.Binary(O::Add, a, b), one)};
+        for (auto op : {O::Equal, O::NotEqual, O::Less, O::LessEqual, O::Greater, O::GreaterEqual}) {
+            for (auto right : {one, three, parameter, b}) predicates.push_back(arena.Binary(op, a, right));
+            predicates.push_back(arena.Binary(op, b, one));
+            predicates.push_back(arena.Binary(op, three, a));
+        }
+        TVector<TExprId> cases = predicates;
+        for (auto predicate : predicates) cases.push_back(arena.Unary(O::Not, predicate));
+        for (auto left : predicates) for (auto right : predicates) {
+            cases.push_back(arena.Binary(O::And, left, right));
+            cases.push_back(arena.Binary(O::Or, left, right));
+            cases.push_back(arena.Unary(O::Not, arena.Binary(O::And, left, right)));
+            cases.push_back(arena.Unary(O::Not, arena.Binary(O::Or, left, right)));
+        }
+        size_t mismatches = 0;
+        TStringStream failures;
+        for (unsigned mode = 0; mode < 3; ++mode) {
+            TOptimizerStatistics stats;
+            stats.Nrows = 1000;
+            stats.KeyColumns = MakeIntrusive<TOptimizerStatistics::TKeyColumns>(TVector<TString>{"10"});
+            if (mode) {
+                stats.ColumnStatistics = MakeIntrusive<TOptimizerStatistics::TColumnStatMap>();
+                for (const auto name : {"10", "20"}) {
+                    auto& source = stats.ColumnStatistics->Data[name];
+                    source.Type = "Int64";
+                    if (mode == 2) {
+                        source.CountMinSketch.reset(TCountMinSketch::Create());
+                        auto histogram = std::make_shared<TEqWidthHistogram>(100, EHistogramValueType::Int64);
+                        histogram->InitializeBuckets(i64{0}, i64{100});
+                        for (i64 i = 0; i < 1000; ++i) {
+                            const i64 value = i % 100;
+                            source.CountMinSketch->Count(reinterpret_cast<const char*>(&value), sizeof(value));
+                            histogram->AddElement(value);
+                        }
+                        source.EqWidthHistogramEstimator = std::make_shared<TEqWidthHistogramEstimator>(histogram);
+                    }
+                }
+                stats.ColumnStatistics->Data["30"].Type = "String";
+                stats.ColumnStatistics->Data["40"].Type = "Bool";
+            }
+            TExprContext context;
+            for (auto root : cases) {
+                const auto size = arena.Size();
+                const auto allocations = context.NodeAllocationCounter;
+                const auto native = ComputeNativeSelectivity(arena, root, stats);
+                UNIT_ASSERT_VALUES_EQUAL(arena.Size(), size);
+                UNIT_ASSERT_VALUES_EQUAL(context.NodeAllocationCounter, allocations);
+                const auto lambda = LowerNativeLambda(arena, root, context, {});
+                // The legacy frontend flattens logical operators and pulls
+                // optional Boolean lifts out before the statistics visitor.
+                // Normalize only those representation details in this oracle.
+                auto normalized = lambda->ChildPtr(1);
+                THashMap<const NYql::TExprNode*, NYql::TExprNode::TPtr> rewritten;
+                TVector<std::pair<NYql::TExprNode::TPtr, bool>> work{{normalized, false}};
+                while (!work.empty()) {
+                    const auto [node, ready] = work.back(); work.pop_back();
+                    if (rewritten.contains(node.Get())) continue;
+                    if (!ready) {
+                        work.emplace_back(node, true);
+                        for (const auto& child : node->Children()) work.emplace_back(child, false);
+                        continue;
+                    }
+                    NYql::TExprNode::TListType children;
+                    for (const auto& child : node->Children()) children.push_back(rewritten.at(child.Get()));
+                    auto result = context.ExactChangeChildren(*node, std::move(children));
+                    if (result->IsCallable("Just") &&
+                        RemoveAllOptionals(result->GetTypeAnn())->GetKind() == ETypeAnnotationKind::Data &&
+                        RemoveAllOptionals(result->GetTypeAnn())->Cast<TDataExprType>()->GetSlot() == EDataSlot::Bool) {
+                        result = result->ChildPtr(0);
+                    } else if (result->IsCallable({"And", "Or"})) {
+                        NYql::TExprNode::TListType terms;
+                        for (const auto& child : result->Children()) {
+                            if (child->IsCallable(result->Content())) terms.insert(terms.end(), child->Children().begin(), child->Children().end());
+                            else terms.push_back(child);
+                        }
+                        result = context.ExactChangeChildren(*result, std::move(terms));
+                    }
+                    rewritten.emplace(node.Get(), std::move(result));
+                }
+                normalized = rewritten.at(normalized.Get());
+                const auto legacy = TPredicateSelectivityComputer(std::make_shared<TOptimizerStatistics>(stats))
+                    .Compute(NNodes::TExprBase(normalized));
+                if (std::abs(native - legacy) > 1e-12) {
+                    if (mismatches++ < 20) failures << "statistics mode=" << mode << " root=" << root
+                        << " native=" << native << " legacy=" << legacy << " " << normalized->Dump() << Endl;
+                }
+            }
+        }
+        UNIT_ASSERT_VALUES_EQUAL_C(mismatches, 0, failures.Str());
+    }
+
+    Y_UNIT_TEST(NativeOuterJoinFilterKeepsExistingRewriteScope) {
+        using namespace NFrontend;
+        using O = EOpcode;
+        using K = ETypeKind;
+        NTests::TIdTestContext f;
+        const auto leftId = f.Id("left"), rightId = f.Id("right");
+        auto arena = std::make_shared<TExpressionArena>();
+        f.Props.NativeExpressions = arena;
+        const auto value = arena->Column(rightId, {K::Int32, true});
+        const auto zero = arena->Literal({K::Int32}, std::int64_t{0});
+        const auto positive = arena->Binary(O::Greater, value, zero);
+        const TExprId alternatives[]{positive, arena->Literal({K::Bool}, false)};
+        for (const auto& [predicate, rewrites] : std::initializer_list<std::pair<TExprId, bool>>{
+                {positive, true}, {arena->Unary(O::Not, positive), true},
+                {arena->Binary(O::Equal, zero, value), true},
+                {arena->Unary(O::IsNotNull, value), false},
+                {arena->Binary(O::Greater, arena->Binary(O::Add, value, zero), zero), false},
+                {arena->Binary(O::Greater, value, arena->Parameter("p", {K::Int32})), false},
+                {arena->Binary(O::Equal, value, arena->Literal({K::Int32, true}, std::int64_t{0})), false},
+                {arena->Coalesce(alternatives), false}}) {
+            auto left = f.Read({leftId}), right = f.Read({rightId});
+            SetNativeReadType(f, *left);
+            SetNativeReadType(f, *right, {rightId});
+            auto join = MakeIntrusive<TOpJoin>(left, right, f.Pos, "Left", TJoinIUs{});
+            auto filter = MakeIntrusive<TOpFilter>(join, f.Pos, TExpression::FromNative(arena, predicate, &f.Props));
+            const auto allocations = f.ExprCtx.NodeAllocationCounter;
+            const auto result = TPushFilterIntoJoinRule().SimpleMatchAndApply(filter, f.RboCtx, f.Props);
+            UNIT_ASSERT_VALUES_EQUAL_C(join->JoinKind, rewrites ? "Inner" : "Left", predicate);
+            UNIT_ASSERT_VALUES_EQUAL(f.ExprCtx.NodeAllocationCounter, allocations);
+            UNIT_ASSERT_VALUES_EQUAL(result->Kind == EOperator::Join, rewrites);
+        }
+    }
+
+    Y_UNIT_TEST(NativeSelectivityTraversesSharedBooleanDagWithoutExpansion) {
+        using namespace NFrontend;
+        TExpressionArena arena;
+        const auto column = arena.Column(7, {ETypeKind::Int32});
+        auto predicate = arena.Binary(EOpcode::Less, column, arena.Literal({ETypeKind::Int32}, std::int64_t{4}));
+        for (size_t i = 0; i < 20000; ++i) predicate = arena.Binary(EOpcode::And, predicate, predicate);
+        TOptimizerStatistics stats;
+        stats.Nrows = 1000;
+        stats.KeyColumns = MakeIntrusive<TOptimizerStatistics::TKeyColumns>(TVector<TString>{"7"});
+        const auto size = arena.Size();
+        UNIT_ASSERT_DOUBLES_EQUAL(ComputeNativeSelectivity(arena, predicate, stats), 0.001, 1e-12);
+        UNIT_ASSERT_VALUES_EQUAL(arena.Size(), size);
     }
 
     Y_UNIT_TEST(NativeSelectivityProbesExactStorageWidths) {
@@ -446,7 +761,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto equal = arena.Binary(EOpcode::Equal, column, literal);
             UNIT_ASSERT_DOUBLES_EQUAL_C(ComputeNativeSelectivity(arena, equal, stats), 0.3, 1e-12, type.ToString());
             const auto notEqual = arena.Binary(EOpcode::NotEqual, literal, column);
-            UNIT_ASSERT_DOUBLES_EQUAL_C(ComputeNativeSelectivity(arena, notEqual, stats), 0.7, 1e-12, type.ToString());
+            UNIT_ASSERT_DOUBLES_EQUAL_C(ComputeNativeSelectivity(arena, notEqual, stats), 0.8, 1e-12, type.ToString());
             // Stale or different source types must not reinterpret storage bytes.
             columnStats.Type = "unsupported";
             UNIT_ASSERT_DOUBLES_EQUAL(ComputeNativeSelectivity(arena, equal, stats), 0.1, 1e-12);
@@ -500,7 +815,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         check(range(40, 20), 0);
         check(range(20, 20), 0);
         check(arena.Binary(O::And, range(20, 40), range(30, 50)), 0.1);
-        check(arena.Binary(O::Or, range(20, 40), range(30, 50)), 0.3);
+        check(arena.Binary(O::Or, range(20, 40), range(30, 50)), 0.4);
         check(arena.Binary(O::Or, range(10, 20), range(30, 40)), 0.2);
         check(arena.Binary(O::Or, range(40, 20), range(70, 80)), 0.1);
         check(arena.Binary(O::Or, range(10, 20), range(20, 30)), 0.2);
@@ -525,8 +840,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT(usage.HistogramColumns == TUnorderedIUs{2});
         UNIT_ASSERT(usage.JoinKeys.empty());
         usage = CollectNativePredicateStatistics(arena, arena.Binary(O::NotEqual, a, one));
-        UNIT_ASSERT(usage.CountMinColumns == TUnorderedIUs{1});
-        UNIT_ASSERT(usage.HistogramColumns.Empty());
+        UNIT_ASSERT(usage.CountMinColumns.Empty());
+        UNIT_ASSERT(usage.HistogramColumns == TUnorderedIUs{1});
 
         // Intersecting two inequalities into a point needs the equality sketch
         // as well as the individual range estimates, using the same visitor.
@@ -536,13 +851,17 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT(usage.HistogramColumns == TUnorderedIUs{1});
         for (const auto predicate : {
             arena.Binary(O::Equal, a, arena.Parameter("p", {K::Int64})),
-            arena.Binary(O::Equal, arena.Cast(a, {K::Int32}), one),
             arena.Binary(O::Less, arena.Column(3, {K::String}), arena.Literal({K::String}, std::string("x")))}) {
             usage = CollectNativePredicateStatistics(arena, predicate);
             UNIT_ASSERT(usage.CountMinColumns.Empty());
             UNIT_ASSERT(usage.HistogramColumns.Empty());
             UNIT_ASSERT(usage.JoinKeys.empty());
         }
+
+        // The established estimator recognizes attributes through scalar casts.
+        usage = CollectNativePredicateStatistics(arena, arena.Binary(O::Equal, arena.Cast(a, {K::Int32}), one));
+        UNIT_ASSERT(usage.CountMinColumns == TUnorderedIUs{1});
+        UNIT_ASSERT(usage.HistogramColumns.Empty());
 
         const TExprId nullAsFalse[]{keyEquality, arena.Literal({K::Bool}, false)};
         for (const auto predicate : {keyEquality, arena.Binary(O::And, equality, keyEquality), arena.Coalesce(nullAsFalse)}) {
@@ -563,7 +882,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         auto arena = std::make_shared<TExpressionArena>();
         const auto root = arena->Binary(EOpcode::Equal, arena->Column(id, {ETypeKind::Int64}),
             arena->Literal({ETypeKind::Int64}, std::int64_t{42}));
-        const auto expression = TExpression::FromNative(arena, root, &f.ExprCtx, &f.Props);
+        const auto expression = TExpression::FromNative(arena, root, &f.Props);
         auto read = f.Read({id});
         read->Props.Metadata.emplace();
         read->Props.Metadata->ColumnsCount = 1;
@@ -594,8 +913,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         read->ComputeStatistics(f.RboCtx, f.Props);
         UNIT_ASSERT_DOUBLES_EQUAL(read->Props.Statistics->ERows, filter->Props.Statistics->ERows, 1e-12);
         UNIT_ASSERT_DOUBLES_EQUAL(read->Props.Statistics->Selectivity, filter->Props.Statistics->Selectivity, 1e-12);
-        UNIT_ASSERT(!filter->GetFilterExpression().Node);
-        UNIT_ASSERT(!read->OriginalPredicate->Node);
+
+
     }
 
     Y_UNIT_TEST(TupleStatesLowerDirectlyAndRoundTripThroughBackendTypes) {
@@ -619,7 +938,9 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         const auto* nestedTuple = ctx.MakeType<TTupleExprType>(TVector<const TTypeAnnotationNode*>{ExportNativeType(state.Optional(), ctx, &arena)});
         UNIT_ASSERT_EXCEPTION(ImportNativeType(*nestedTuple, &imported), TFrontendError);
         const auto* nestedOptional = ctx.MakeType<TOptionalExprType>(ctx.MakeType<TOptionalExprType>(ctx.MakeType<TDataExprType>(EDataSlot::Uint64)));
-        UNIT_ASSERT_EXCEPTION(ImportNativeType(*nestedOptional, &imported), TFrontendError);
+        const auto nativeOptional = ImportNativeType(*nestedOptional, &imported);
+        UNIT_ASSERT_VALUES_EQUAL(nativeOptional.OptionalDepth, 2);
+        UNIT_ASSERT(IsSameAnnotation(*nestedOptional, *ExportNativeType(nativeOptional, ctx, &imported)));
     }
 
     Y_UNIT_TEST(UnicodeCaseLowersDirectlyToRuntime) {
@@ -646,7 +967,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 NTests::TIdTestContext f;
                 const TString sql = TStringBuilder() << "SELECT k, v, GROUPING(k,v), " << measures
                     << " FROM (SELECT 1 AS k, CAST(2 AS Int32?) AS v) AS q GROUP BY " << clause;
-                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx);
+                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx).Roots;
                 auto& root = *roots.front();
                 for (const auto& item : root) UNIT_ASSERT(item.Current->Kind != EOperator::GroupingSets);
                 auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
@@ -655,19 +976,19 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 });
                 TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
                 TGlobalPruningStage("native grouping sets pruning").RunStage(root, context);
-                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
-                const auto* expected = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+                const auto* expected = ExportOperatorType(*root.GetInput(), f.ExprCtx)->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
                 TVector<std::unique_ptr<IRule>> rules;
                 rules.emplace_back(std::make_unique<TExpandGroupingSetsRule>());
                 rules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
                 TRuleBasedStage("native grouping sets expansion", std::move(rules)).RunStage(root, context);
-                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
                 TGlobalPruningStage("native grouping sets padding pruning").RunStage(root, context);
                 TVector<std::unique_ptr<IRule>> copies;
                 copies.emplace_back(std::make_unique<TExpandReplicateRule>());
                 TRuleBasedStage("native grouping sets copies", std::move(copies)).RunStage(root, context);
-                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
-                const auto* actual = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+                const auto* actual = ExportOperatorType(*root.GetInput(), f.ExprCtx)->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
                 for (const auto& [id, label] : root.GetColumns().Items()) {
                     const auto name = f.ExprCtx.GetIndexAsString(id);
                     UNIT_ASSERT_C(IsSameAnnotation(*expected->FindItemType(name), *actual->FindItemType(name)), sql);
@@ -677,7 +998,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     UNIT_ASSERT(item.Current->Kind != EOperator::GroupingSets);
                     for (const auto& expression : item.Current->GetExpressions()) {
                         UNIT_ASSERT(expression.get().IsNative());
-                        UNIT_ASSERT(!expression.get().Node);
+
                     }
                 }
             }
@@ -692,7 +1013,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     const TString sql = TStringBuilder() << "SELECT " << (*grouping ? "k, " : "")
                         << "STDDEV_SAMPLE(v) AS s, AVG(v) AS a, AVG(Decimal('1.25',8,2)) AS d "
                         << "FROM (SELECT 1 AS k, CAST(" << kind << "('2') AS " << kind << (nullable ? "?" : "") << ") AS v) AS q" << grouping;
-                    auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx);
+                    auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx).Roots;
                     auto& root = *roots.front();
                     auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
                         UNIT_FAIL("native aggregate phases invoked YQL annotation");
@@ -700,8 +1021,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     });
                     TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
                     TGlobalPruningStage("native aggregate pruning").RunStage(root, context);
-                    UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
-                    const auto* expected = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                    UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+                    const auto* expected = ExportOperatorType(*root.GetInput(), f.ExprCtx)->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
                     TVector<std::pair<IOperator*, size_t>> edges;
                     for (const auto& item : root) if (item.Current->Kind == EOperator::Aggregate)
                         edges.emplace_back(item.Parent ? item.Parent : &root, item.Parent ? item.ChildIndex : 0);
@@ -711,7 +1032,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     }
                     root.RecomputeOutputIUsSubtree();
                     root.ComputeParents();
-                    UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                    UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
                     // Forward actual partial states through native scalar maps,
                     // so their tuple type must survive ID substitution and binding.
                     size_t partials = 0;
@@ -725,7 +1046,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                         for (const auto& [output, traits] : partial->GetAggregationTraits().Items()) {
                             if (traits.AggFunction != "variance_1_1") continue;
                             ++partials;
-                            const auto* type = partial->GetIUType(output, f.ExprCtx);
+                            const auto* type = ExportIUType(*partial, output, f.ExprCtx);
                             UNIT_ASSERT_VALUES_EQUAL(type->IsOptionalOrNull(), nullable);
                             const auto& required = RemoveOptionality(*type);
                             UNIT_ASSERT(required.GetKind() == ETypeAnnotationKind::Tuple);
@@ -734,7 +1055,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                             for (const auto* item : items) UNIT_ASSERT(item->GetKind() == ETypeAnnotationKind::Data &&
                                 item->Cast<TDataExprType>()->GetSlot() == EDataSlot::Double);
                             const auto copy = root.PlanProps.InfoUnitRegistry.AddCopy(output);
-                            fields.Add(copy, MakeColumnAccess(output, *partial, partial->Pos, &f.ExprCtx, &root.PlanProps));
+                            fields.Add(copy, MakeColumnAccess(output, *partial, partial->Pos, &root.PlanProps));
                             copies.Add(output, copy);
                         }
                         auto map = MakeIntrusive<TOpMap>(final->GetInput(), final->Pos, std::move(fields));
@@ -744,13 +1065,13 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     UNIT_ASSERT_VALUES_EQUAL(partials, edges.size());
                     root.RecomputeOutputIUsSubtree();
                     root.ComputeParents();
-                    UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                    UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
                     TGlobalPruningStage("native state forwarding pruning").RunStage(root, context);
                     TVector<std::unique_ptr<IRule>> copies;
                     copies.emplace_back(std::make_unique<TExpandReplicateRule>());
                     TRuleBasedStage("native state forwarding copies", std::move(copies)).RunStage(root, context);
-                    UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
-                    const auto* actual = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                    UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+                    const auto* actual = ExportOperatorType(*root.GetInput(), f.ExprCtx)->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
                     for (const auto& [id, label] : root.GetColumns().Items()) {
                         const auto name = f.ExprCtx.GetIndexAsString(id);
                         UNIT_ASSERT_C(IsSameAnnotation(*expected->FindItemType(name), *actual->FindItemType(name)), sql);
@@ -758,7 +1079,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
                     for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
                         UNIT_ASSERT(expression.get().IsNative());
-                        UNIT_ASSERT(!expression.get().Node);
+
                     }
                 }
             }
@@ -778,7 +1099,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 const TString sql = TStringBuilder() << "SELECT " << projection
                     << " FROM (SELECT 1 AS k, CAST(2 AS Int32?) AS v, Decimal('1.25',8,2) AS d) AS q"
                     << (grouped ? " GROUP BY k" : "");
-                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx);
+                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx).Roots;
                 auto& root = *roots.front();
                 auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
                     UNIT_FAIL("native DISTINCT expansion invoked YQL annotation");
@@ -786,18 +1107,18 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 });
                 TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
                 TGlobalPruningStage("native distinct pruning").RunStage(root, context);
-                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
-                const auto* expected = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+                const auto* expected = ExportOperatorType(*root.GetInput(), f.ExprCtx)->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
                 TVector<std::unique_ptr<IRule>> rules;
                 rules.emplace_back(std::make_unique<TExpandDistinctAggregationRule>());
                 TRuleBasedStage("native distinct expansion", std::move(rules)).RunStage(root, context);
-                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
                 TGlobalPruningStage("native distinct padding pruning").RunStage(root, context);
                 TVector<std::unique_ptr<IRule>> copies;
                 copies.emplace_back(std::make_unique<TExpandReplicateRule>());
                 TRuleBasedStage("native distinct copies", std::move(copies)).RunStage(root, context);
-                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
-                const auto* actual = root.GetInput()->Type->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
+                UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+                const auto* actual = ExportOperatorType(*root.GetInput(), f.ExprCtx)->Cast<TListExprType>()->GetItemType()->Cast<TStructExprType>();
                 for (const auto& [id, label] : root.GetColumns().Items()) {
                     const auto name = f.ExprCtx.GetIndexAsString(id);
                     UNIT_ASSERT(IsSameAnnotation(*expected->FindItemType(name), *actual->FindItemType(name)));
@@ -810,14 +1131,14 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                             UNIT_ASSERT(!traits.Distinct);
                             if (traits.AggFunction != "avg") continue;
                             UNIT_ASSERT(traits.ResultType);
-                            const auto* type = aggregate.GetIUType(output, f.ExprCtx);
+                            const auto* type = ExportIUType(aggregate, output, f.ExprCtx);
                             const auto& required = RemoveOptionality(*type);
                             if (aggregate.GetAggregationPhase() == EOpPhase::Intermediate) {
                                 UNIT_ASSERT(required.GetKind() == ETypeAnnotationKind::Tuple);
                                 const auto& fields = required.Cast<TTupleExprType>()->GetItems();
                                 UNIT_ASSERT_VALUES_EQUAL(fields.size(), 2);
                                 UNIT_ASSERT(fields[1]->Cast<TDataExprType>()->GetSlot() == EDataSlot::Uint64);
-                                const auto* input = aggregate.GetInput()->GetIUType(traits.Input, f.ExprCtx);
+                                const auto* input = ExportIUType(*aggregate.GetInput(), traits.Input, f.ExprCtx);
                                 UNIT_ASSERT_VALUES_EQUAL(type->IsOptionalOrNull(), input->IsOptionalOrNull());
                                 if (traits.ResultType->Kind == NFrontend::ETypeKind::Decimal) {
                                     const auto* decimal = fields[0]->Cast<TDataExprParamsType>();
@@ -832,7 +1153,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     }
                     for (const auto& expression : item.Current->GetExpressions()) {
                         UNIT_ASSERT(expression.get().IsNative());
-                        UNIT_ASSERT(!expression.get().Node);
+
                     }
                 }
             }
@@ -860,8 +1181,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto rootId = arena->Binary(O::And, arena->Binary(O::And, equal, upper), residual);
             auto read = f.Read({key, suffix, payload, unused});
             read->StorageType = storage;
-            f.SetType(*read, {suffix});
-            const auto expression = TExpression::FromNative(arena, rootId, &f.ExprCtx, &f.Props);
+            SetNativeReadType(f, *read, {suffix});
+            const auto expression = TExpression::FromNative(arena, rootId, &f.Props);
             auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, expression);
             auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
                 UNIT_FAIL("native key ranges invoked YQL annotation");
@@ -875,7 +1196,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             UNIT_ASSERT_VALUES_EQUAL(remaining.GetFilterExpression().GetNativeRoot(), residual);
             auto& source = CastOperator<TOpRead>(*remaining.GetInput());
             UNIT_ASSERT(source.RangeInfo && source.RangeInfo->NativeRanges);
-            UNIT_ASSERT(!source.GetRanges() && !source.GetLiteralRange());
+
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->UsedPrefixLen, 2);
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->PointPrefixLen, 1);
             UNIT_ASSERT_VALUES_EQUAL(*source.RangeInfo->ExpectedMaxRanges, 1);
@@ -893,7 +1214,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             UNIT_ASSERT_VALUES_EQUAL(source.OriginalPredicate->GetNativeRoot(), rootId);
             UNIT_ASSERT(rule.SimpleMatchAndApply(pushed, context, f.Props) == pushed);
             for (const auto& term : source.GetExpressions()) {
-                UNIT_ASSERT(term.get().IsNative() && !term.get().Node);
+                UNIT_ASSERT(term.get().IsNative());
                 UNIT_ASSERT(term.get().GetRawInputIUs().Empty());
             }
             TSubstitutions renames;
@@ -928,7 +1249,9 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             metadata->DoesExist = true;
             metadata->Kind = EKikimrTableKind::Datashard;
             metadata->KeyColumnNames = {"id"};
-            for (const auto* name : {"id", "g", "x", "payload"}) metadata->Columns.emplace(name, TKikimrColumnMetadata{});
+            for (const auto* name : {"id", "g", "x", "payload"}) {
+                auto& column = metadata->Columns[name]; column.Type = "Int32"; column.NotNull = TStringBuf(name) != "g";
+            }
             f.Tables->GetOrAddTable("ut", "/Root", metadata->Name).Metadata = metadata;
             for (const char* name : reverse ? TVector<const char*>{"B", "A", "0_async", "0_unready", "0_vector", "0_fulltext"}
                                            : TVector<const char*>{"0_fulltext", "0_vector", "0_unready", "0_async", "A", "B"}) {
@@ -937,8 +1260,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 index->DoesExist = true;
                 index->Kind = EKikimrTableKind::Datashard;
                 index->KeyColumnNames = {"g", "id"};
-                for (const char* column : {"g", "id", "x"}) index->Columns.emplace(column, TKikimrColumnMetadata{});
-                if (covering) index->Columns.emplace("payload", TKikimrColumnMetadata{});
+                for (const char* column : {"g", "id", "x"}) index->Columns.emplace(column, metadata->Columns.at(column));
+                if (covering) index->Columns.emplace("payload", metadata->Columns.at("payload"));
                 const auto indexType = TStringBuf(name) == "0_async" ? TIndexDescription::EType::GlobalAsync
                     : TStringBuf(name) == "0_vector" ? TIndexDescription::EType::GlobalSyncVectorKMeansTree
                     : TStringBuf(name) == "0_fulltext" ? TIndexDescription::EType::GlobalFulltextPlain
@@ -957,8 +1280,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 arena->Literal({K::Int32}, std::int64_t{0}));
             const auto predicate = arena->Binary(O::And, equal, residual);
             auto read = f.Read({pk, group, extra, payload});
-            f.SetType(*read, {group});
-            auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(arena, predicate, &f.ExprCtx, &f.Props));
+            SetNativeReadType(f, *read, {group});
+            auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(arena, predicate, &f.Props));
             auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
                 UNIT_FAIL("native index selection invoked YQL annotation");
                 return IGraphTransformer::TStatus::Error;
@@ -974,15 +1297,14 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             UNIT_ASSERT(indexFilter->Kind == EOperator::Filter);
             const auto& remaining = CastOperator<TOpFilter>(*indexFilter).GetFilterExpression();
             auto& source = CastOperator<TOpRead>(*indexFilter->GetChildren().front());
-            UNIT_ASSERT_VALUES_EQUAL(NNodes::TKqpTable(source.TableCallable).Path().Value(), "/Root/table/A/indexImplTable");
+            UNIT_ASSERT_VALUES_EQUAL(source.TableRef.Path, "/Root/table/A/indexImplTable");
             UNIT_ASSERT(source.RangeInfo && source.RangeInfo->NativeRanges);
-            UNIT_ASSERT(!source.RangeInfo->ComputeNode && !source.RangeInfo->LiteralRange);
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->MainTable, "/Root/table");
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->PointPrefixLen, 1);
             UNIT_ASSERT_VALUES_EQUAL(source.RangeInfo->UsedPrefixLen, 1);
             UNIT_ASSERT_VALUES_EQUAL(std::get<std::int64_t>(Evaluate(*arena,
                 source.RangeInfo->NativeRanges->front().Lower.Values.front().GetNativeRoot()).Data), 2);
-            UNIT_ASSERT(remaining.IsNative() && !remaining.Node);
+            UNIT_ASSERT(remaining.IsNative());
             UNIT_ASSERT(source.OriginalPredicate && source.OriginalPredicate->IsNative());
             UNIT_ASSERT(remaining.GetRawInputIUs().IsSubsetOf(source.GetColumns()));
             UNIT_ASSERT(source.OriginalPredicate->GetRawInputIUs().IsSubsetOf(source.GetColumns()));
@@ -999,7 +1321,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             auto root = f.Root(pushed, {{payload, "payload"}});
             NTests::AssertIdInvariants(*root, root->PlanProps);
             for (const auto& item : *root) for (const auto& expression : item.Current->GetExpressions())
-                UNIT_ASSERT(expression.get().IsNative() && !expression.get().Node);
+                UNIT_ASSERT(expression.get().IsNative());
             if (covering) {
                 TSubstitutions renames;
                 const auto copy = source.Copy(root->PlanProps, renames);
@@ -1009,13 +1331,13 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 auto& lookup = CastOperator<TOpTableLookup>(*pushed);
                 const auto restored = MatchLookupJoinRightSide(pushed);
                 UNIT_ASSERT(restored && !restored->Filter && restored->Read->RangeInfo);
-                UNIT_ASSERT(!restored->Read->RangeInfo->ComputeNode && !restored->Read->RangeInfo->NativeRanges);
+                UNIT_ASSERT(!restored->Read->RangeInfo->NativeRanges);
                 UNIT_ASSERT_VALUES_EQUAL(restored->Read->RangeInfo->PointPrefixes.size(), 1);
                 UNIT_ASSERT(restored->Read->RangeInfo->PointPrefixes.front().NativePoints);
                 UNIT_ASSERT(restored->Read->GetColumns() == lookup.GetColumns());
                 UNIT_ASSERT(restored->Read->OriginalPredicate->IsNative());
                 UNIT_ASSERT_VALUES_EQUAL(restored->Read->OriginalPredicate->GetNativeRoot(), predicate);
-                UNIT_ASSERT_VALUES_EQUAL(NNodes::TKqpTable(restored->Read->TableCallable).Path().Value(), "/Root/table");
+                UNIT_ASSERT_VALUES_EQUAL(restored->Read->TableRef.Path, "/Root/table");
                 TSubstitutions renames;
                 const auto renamed = root->PlanProps.InfoUnitRegistry.Add(TInfoUnit("renamed"));
                 renames.Add(group, renamed);
@@ -1026,7 +1348,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 // values are exposed to rewriting and have no row dependencies.
                 UNIT_ASSERT(!lookup.GetExpressions().empty());
                 for (const auto& value : lookup.GetExpressions()) {
-                    UNIT_ASSERT(value.get().IsNative() && !value.get().Node);
+                    UNIT_ASSERT(value.get().IsNative());
                     UNIT_ASSERT(value.get().GetRawInputIUs().Empty());
                 }
             }
@@ -1090,9 +1412,9 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 f.Config->SetIdxLookupJoinPointsLimit(test.PointLimit);
                 auto read = f.Read({key, suffix, payload});
                 read->StorageType = storage;
-                f.SetType(*read, {key, suffix});
+                SetNativeReadType(f, *read, {key, suffix});
                 auto filter = MakeIntrusive<TOpFilter>(read, f.Pos,
-                    TExpression::FromNative(arena, test.Predicate, &f.ExprCtx, &f.Props));
+                    TExpression::FromNative(arena, test.Predicate, &f.Props));
                 auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
                     UNIT_FAIL("native interval unions invoked YQL annotation");
                     return IGraphTransformer::TStatus::Error;
@@ -1110,19 +1432,19 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 UNIT_ASSERT_VALUES_EQUAL(extracted.RangeInfo->PointPrefixes.size(), pointCount ? 1 : 0);
                 if (pointCount) {
                     const auto& prefix = extracted.RangeInfo->PointPrefixes.front();
-                    UNIT_ASSERT(prefix.HasPoints() && prefix.NativePoints && !prefix.Points && !prefix.PointsItemType);
+                    UNIT_ASSERT(prefix.HasPoints() && prefix.NativePoints && prefix.NativePoints.has_value());
                     UNIT_ASSERT_VALUES_EQUAL(prefix.Table, metadata->Name);
                     UNIT_ASSERT(prefix.Columns == TVector<TString>{"key"});
                     UNIT_ASSERT(prefix.NativePoints->Types == (TVector<TType>{{K::Int32, true}}));
                     UNIT_ASSERT_VALUES_EQUAL(prefix.NativePoints->Rows.size(), pointCount);
                     UNIT_ASSERT_VALUES_EQUAL(*prefix.ExpectedMaxPoints, pointCount);
                 }
-                UNIT_ASSERT(!extracted.GetRanges() && !extracted.GetLiteralRange());
+
                 UNIT_ASSERT_VALUES_EQUAL(extracted.OriginalPredicate->GetNativeRoot(), test.Predicate);
                 if (test.Predicate == residual)
                     UNIT_ASSERT_VALUES_EQUAL(CastOperator<TOpFilter>(*result).GetFilterExpression().GetNativeRoot(), residual);
                 for (const auto& expression : extracted.GetExpressions()) {
-                    UNIT_ASSERT(expression.get().IsNative() && !expression.get().Node);
+                    UNIT_ASSERT(expression.get().IsNative());
                     UNIT_ASSERT(expression.get().GetRawInputIUs().Empty());
                 }
                 TSubstitutions renames;
@@ -1137,7 +1459,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                     copied->RewriteExpressions([&](const TExpression& expression) {
                         const auto& node = (*arena)[expression.GetNativeRoot()];
                         if (node.Op == O::Literal && node.Type == TType{K::Int32} && std::get<std::int64_t>(node.Value) == 1)
-                            return TExpression::FromNative(arena, arena->Literal(node.Type, std::int64_t{3}), &f.ExprCtx, &f.Props);
+                            return TExpression::FromNative(arena, arena->Literal(node.Type, std::int64_t{3}), &f.Props);
                         return expression;
                     });
                     for (size_t i = 0; i < pointCount; ++i) {
@@ -1176,9 +1498,9 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             points.Types = {{K::Uint64, nullable}};
             if (composite) points.Types.push_back({K::String, nullable});
             const auto add = [&](TExprId key, std::string suffix) {
-                TVector<TExpression> row{TExpression::FromNative(arena, key, &f.ExprCtx, &f.Props)};
+                TVector<TExpression> row{TExpression::FromNative(arena, key, &f.Props)};
                 if (composite) row.push_back(TExpression::FromNative(arena,
-                    arena->Literal({K::String}, suffix), &f.ExprCtx, &f.Props));
+                    arena->Literal({K::String}, suffix), &f.Props));
                 points.Rows.push_back(std::move(row));
             };
             add(arena->Parameter("p", {K::Uint64}), binary);
@@ -1239,7 +1561,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 const auto key = f.Id("key");
                 auto read = f.Read({key});
                 read->StorageType = storage;
-                f.SetType(*read, nullable ? TUnorderedIUs{key} : TUnorderedIUs{});
+                SetNativeReadType(f, *read, nullable ? TUnorderedIUs{key} : TUnorderedIUs{});
                 TVector<const TItemExprType*> fields{
                     f.ExprCtx.MakeType<TItemExprType>("key", ExportNativeType({K::Int32, nullable}, f.ExprCtx))};
                 if (composite) fields.push_back(f.ExprCtx.MakeType<TItemExprType>("suffix", ExportNativeType({K::Int32, nullable}, f.ExprCtx)));
@@ -1250,7 +1572,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 if (composite) info.KeyColumns.push_back("suffix");
                 info.NativeRanges.emplace();
                 const auto value = [&](i32 number) {
-                    return TExpression::FromNative(arena, arena->Literal({K::Int32}, std::int64_t{number}), &f.ExprCtx, &f.Props);
+                    return TExpression::FromNative(arena, arena->Literal({K::Int32}, std::int64_t{number}), &f.Props);
                 };
                 for (const auto& [lo, hi, inclusive] : TVector<std::tuple<i32, i32, bool>>{
                         {3, 7, true}, {9, 10, true}, {1, 5, true}, {3, 7, true}, {8, 0, true}, {8, 8, false}}) {
@@ -1322,7 +1644,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 const auto* schema = f.ExprCtx.MakeType<TStructExprType>(fields);
                 auto arena = std::make_shared<TExpressionArena>();
                 const auto literal = [&](TType type, TScalar value) {
-                    return TExpression::FromNative(arena, arena->Literal(type, std::move(value)), &f.ExprCtx, &f.Props);
+                    return TExpression::FromNative(arena, arena->Literal(type, std::move(value)), &f.Props);
                 };
                 const auto key = literal({K::Uint64}, std::uint64_t{keyValue});
                 TOpRead::TRangeInfo info;
@@ -1379,7 +1701,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 }
                 UNIT_ASSERT(!from.GetElement(2) && !to.GetElement(2));
                 UNIT_ASSERT(!iterator.Next(item));
-                UNIT_ASSERT(read->RangeInfo->NativeRanges && !read->GetRanges() && !read->GetLiteralRange());
+                UNIT_ASSERT(read->RangeInfo->NativeRanges);
             }
         }
     }
@@ -1406,7 +1728,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         TPushRangesRule rule(NYql::EStorageType::RowStorage);
         const auto check = [&](TExprId predicate, bool pushed) {
             auto read = f.Read({key});
-            auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(arena, predicate, &f.ExprCtx, &f.Props));
+            auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, TExpression::FromNative(arena, predicate, &f.Props));
             const auto result = rule.SimpleMatchAndApply(filter, context, f.Props);
             UNIT_ASSERT_VALUES_EQUAL(result != filter, pushed);
             return result;
@@ -1475,8 +1797,9 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             auto value = json;
             if (scenario == 0) value = arena->Cast(json, {K::Double});
             if (scenario == 5) value = arena->If(arena->Unary(EOpcode::IsNull, input), json, arena->Literal({K::Utf8}, std::string("fallback")));
-            const auto expression = [&](TExprId id) { return TExpression::FromNative(arena, id, &f.ExprCtx, &f.Props); };
+            const auto expression = [&](TExprId id) { return TExpression::FromNative(arena, id, &f.Props); };
             auto read = f.Read({key, doc, unused}); read->StorageType = NYql::EStorageType::ColumnStorage;
+            read->TableRef = MakeRboTable(*metadata);
             const auto alias = scenario == 6 ? f.Id("doc") : doc;
             if (scenario == 6) read->GetColumns().Add(alias);
             const auto predicate = arena->Binary(EOpcode::Greater, arena->Column(key, {K::Int32, true}), arena->Literal({K::Int32}, std::int64_t{0}));
@@ -1496,20 +1819,20 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 return IGraphTransformer::TStatus::Error;
             });
             TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
-            UNIT_ASSERT(root->ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(ComputeTypesWithoutBackend(*root, context) == IGraphTransformer::TStatus::Ok);
             ComputePlanLiveness(*root);
             TPushOlapProjectionRule rule;
             const auto pushed = rule.SimpleMatchAndApply(map, context, root->PlanProps);
             const bool eligible = scenario == 0 || scenario == 4 || scenario == 8 || scenario == 9;
             UNIT_ASSERT_VALUES_EQUAL_C(pushed != map, eligible, scenario);
             root->SetChild(0, pushed); root->RecomputeOutputIUsSubtree(); root->ComputeParents();
-            UNIT_ASSERT(root->ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(ComputeTypesWithoutBackend(*root, context) == IGraphTransformer::TStatus::Ok);
             TGlobalPruningStage("native projections").RunStage(*root, context);
             auto& source = CastOperator<TOpRead>(*CastOperator<TOpMap>(*root->GetInput()).GetInput());
             UNIT_ASSERT(source.GetColumns() == (TUnorderedIUs{key, doc, alias}));
             UNIT_ASSERT_VALUES_EQUAL(source.OlapProgram.Native().Projections.Items().size(), eligible ? 1 : 0);
             for (const auto& op : *root) for (const auto& expr : op.Current->GetExpressions())
-                UNIT_ASSERT(expr.get().IsNative() && !expr.get().Node);
+                UNIT_ASSERT(expr.get().IsNative());
             if (!eligible) continue;
             const auto& projected = source.OlapProgram.Native().Projections.At(doc);
             UNIT_ASSERT(projected.GetNativeArena() == arena);
@@ -1532,14 +1855,15 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
     Y_UNIT_TEST(OlapPredicatesStayNativeThroughPushdownPruningAndCopy) {
         using namespace NFrontend;
         NTests::TIdTestContext f;
+        f.Config->SetEnableOlapScalarApply(false);
         const auto key = f.Id("key"), payload = f.Id("payload"), unused = f.Id("unused");
         auto read = f.Read({key, payload, unused});
         read->StorageType = NYql::EStorageType::ColumnStorage;
-        f.SetType(*read, {key});
+        SetNativeReadType(f, *read, {key});
         auto arena = std::make_shared<TExpressionArena>();
         const auto value = arena->Column(key, {ETypeKind::Int32, true});
         const auto positive = arena->Binary(EOpcode::Greater, value, arena->Literal({ETypeKind::Int32}, std::int64_t{0}));
-        auto expression = TExpression::FromNative(arena, positive, &f.ExprCtx, &f.Props);
+        auto expression = TExpression::FromNative(arena, positive, &f.Props);
         auto filter = MakeIntrusive<TOpFilter>(read, f.Pos, expression);
         auto forbidden = CreateFunctorTransformer([](NYql::TExprNode::TPtr, NYql::TExprNode::TPtr&, TExprContext&) {
             UNIT_FAIL("native OLAP pushdown invoked YQL annotation");
@@ -1551,7 +1875,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT(pushed->Kind == EOperator::Source);
         auto& source = CastOperator<TOpRead>(*pushed);
         UNIT_ASSERT(source.OlapProgram.IsNative());
-        UNIT_ASSERT(!source.OlapProgram.Native().Predicate->Node);
+
         UNIT_ASSERT(source.GetRequiredColumns(f.ExprCtx) == TUnorderedIUs{key});
         TSubstitutions renames;
         const auto copied = source.Copy(f.Props, renames);
@@ -1560,11 +1884,6 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         UNIT_ASSERT(copy.OlapProgram.IsNative());
         UNIT_ASSERT(copy.OlapProgram.Native().Predicate->GetNativeArena() == arena);
         UNIT_ASSERT(copy.GetRequiredColumns(f.ExprCtx) == TUnorderedIUs{*renames.Find(key)});
-        auto root = f.Root(pushed, {{payload, "payload"}});
-        TGlobalPruningStage("prune").RunStage(*root, context);
-        UNIT_ASSERT(source.GetColumns() == (TUnorderedIUs{key, payload}));
-        UNIT_ASSERT(!source.OlapProgram.Native().Predicate->Node);
-
         // Discarding NULL before a checked expression could suppress an error.
         const auto checked = arena->Ensure(value, arena->Literal({ETypeKind::Bool}, false), "checked");
         const auto failure = arena->Binary(EOpcode::Greater, checked, arena->Literal({ETypeKind::Int32}, std::int64_t{0}));
@@ -1574,20 +1893,20 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const auto remaining = canFail ? failure : length;
             const auto predicate = arena->Binary(EOpcode::And, first ? positive : remaining, first ? remaining : positive);
             auto fresh = f.Read({key, payload}); fresh->StorageType = NYql::EStorageType::ColumnStorage;
-            auto original = MakeIntrusive<TOpFilter>(fresh, f.Pos, TExpression::FromNative(arena, predicate, &f.ExprCtx, &f.Props));
+            auto original = MakeIntrusive<TOpFilter>(fresh, f.Pos, TExpression::FromNative(arena, predicate, &f.Props));
             const auto result = rule.SimpleMatchAndApply(original, context, f.Props);
             UNIT_ASSERT(result->Kind == EOperator::Filter);
             const auto& input = CastOperator<TOpRead>(*CastOperator<TOpFilter>(*result).GetInput());
-            UNIT_ASSERT_VALUES_EQUAL(bool(input.OlapProgram), first && !canFail);
+            UNIT_ASSERT_VALUES_EQUAL(bool(input.OlapProgram), !canFail);
         }
         const auto external = arena->Column(unused, {ETypeKind::Int32});
         auto fresh = f.Read({key, payload}); fresh->StorageType = NYql::EStorageType::ColumnStorage;
         const auto externalFilter = MakeIntrusive<TOpFilter>(fresh, f.Pos,
-            TExpression::FromNative(arena, arena->Binary(EOpcode::Greater, value, external), &f.ExprCtx, &f.Props));
+            TExpression::FromNative(arena, arena->Binary(EOpcode::Greater, value, external), &f.Props));
         UNIT_ASSERT(rule.SimpleMatchAndApply(externalFilter, context, f.Props) == externalFilter);
         const auto mixedExternal = MakeIntrusive<TOpFilter>(fresh, f.Pos,
             TExpression::FromNative(arena, arena->Binary(EOpcode::And, positive,
-                externalFilter->GetFilterExpression().GetNativeRoot()), &f.ExprCtx, &f.Props));
+                externalFilter->GetFilterExpression().GetNativeRoot()), &f.Props));
         UNIT_ASSERT(rule.SimpleMatchAndApply(mixedExternal, context, f.Props) == mixedExternal);
         const auto parameter = arena->Parameter("flag", {ETypeKind::Bool, true});
         for (const bool first : {false, true}) {
@@ -1595,6 +1914,10 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             UNIT_ASSERT(!CanLowerNativeOlapPredicate(*arena, logical));
         }
         UNIT_ASSERT(!CanLowerNativeOlapPredicate(*arena, parameter));
+        // Root takes ownership of the fixture's plan properties.
+        auto root = f.Root(pushed, {{payload, "payload"}});
+        TGlobalPruningStage("prune").RunStage(*root, context);
+        UNIT_ASSERT(source.GetColumns() == (TUnorderedIUs{key, payload}));
     }
 
     Y_UNIT_TEST(IntegerOperationsLowerDirectlyForEveryWidth) {
@@ -1658,10 +1981,10 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         };
         const auto a = arena->Binary(EOpcode::And, equality(), arena->Column(first, {ETypeKind::Bool, true}));
         const auto b = arena->Binary(EOpcode::And, equality(), arena->Column(second, {ETypeKind::Bool, true}));
-        const auto expression = TExpression::FromNative(arena, arena->Binary(EOpcode::Or, a, b), &f.ExprCtx, &f.Props);
+        const auto expression = TExpression::FromNative(arena, arena->Binary(EOpcode::Or, a, b), &f.Props);
         const auto nodes = f.ExprCtx.NodeAllocationCounter;
         const auto factored = expression.TryExtractCommonConjuncts();
-        UNIT_ASSERT(factored && factored->IsNative() && !factored->Node);
+        UNIT_ASSERT(factored && factored->IsNative());
         UNIT_ASSERT(factored->GetNativeType() == expression.GetNativeType());
         const auto conjuncts = factored->SplitConjunct();
         UNIT_ASSERT_VALUES_EQUAL(conjuncts.size(), 2);
@@ -1682,12 +2005,12 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         const auto one = arena->Literal({ETypeKind::Int32}, std::int64_t{1});
         const auto sum = arena->Binary(EOpcode::Add, a, one);
         const auto predicate = arena->Binary(EOpcode::Equal, sum, b);
-        const auto expression = TExpression::FromNative(arena, predicate, &f.ExprCtx, &f.Props);
+        const auto expression = TExpression::FromNative(arena, predicate, &f.Props);
         UNIT_ASSERT(!expression.MaybeEquiJoinCondition());
         UNIT_ASSERT(expression.MaybeExprEquiJoinCondition());
         const auto nodes = f.ExprCtx.NodeAllocationCounter;
         TMappedIUs<TExpression> definitions;
-        const auto rewritten = TEquiJoinCondition(expression).ExtractExpressions(definitions, f.RboCtx);
+        const auto rewritten = TEquiJoinCondition(expression).ExtractExpressions(definitions);
         UNIT_ASSERT(rewritten && rewritten->IsNative() && rewritten->MaybeEquiJoinCondition());
         UNIT_ASSERT_VALUES_EQUAL(definitions.Keys().Size(), 1);
         const auto id = *definitions.Keys().begin();
@@ -1717,18 +2040,32 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 const bool where = TStringBuf(kind) == "WHERE";
                 const bool filteredCross = TStringBuf(kind) == "FILTERED CROSS";
                 const TString sql = TStringBuilder() << "SELECT 1 AS result FROM "
-                    << "(SELECT 1 AS x, CAST(2 AS Int32?) AS y) AS a " << (where ? "CROSS" : filteredCross ? "INNER" : kind)
-                    << " JOIN (SELECT 2 AS x, CAST(3 AS Int32?) AS y) AS b " << (where ? "WHERE " : "ON ") << predicate;
-                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx);
+                    << "(SELECT 1 AS x, CAST(2 AS Int32?) AS y) AS a " << (where || filteredCross ? "CROSS" : kind)
+                    << " JOIN (SELECT 2 AS x, CAST(3 AS Int32?) AS y) AS b " << (where || filteredCross ? "WHERE " : "ON ") << predicate;
+                auto roots = CompileNativeToRbo(std::string_view(sql.data(), sql.size()), NoTables, f.ExprCtx).Roots;
                 auto& root = *roots.front();
-                if (filteredCross) for (const auto& item : root) if (item.Current->Kind == EOperator::Join)
-                    CastOperator<TOpJoin>(*item.Current).JoinKind = "Cross";
+                // ON normalization belongs to construction, before any RBO stage.
+                if (!where && !filteredCross) for (const auto& item : root) if (item.Current->Kind == EOperator::Join) {
+                    UNIT_ASSERT_VALUES_EQUAL_C(CastOperator<TOpJoin>(*item.Current).JoinKeys.Items().size(),
+                        TStringBuf(predicate).Contains("a.y + 2") ? 2 : 1, sql);
+                }
+                // Reproduce a rewrite that stores a computed predicate inside
+                // a Cross join. The shared normalizer must still handle it.
+                if (filteredCross) for (const auto& item : root) if (item.Current->Kind == EOperator::Filter) {
+                    auto& filter = CastOperator<TOpFilter>(*item.Current);
+                    if (filter.GetInput()->Kind != EOperator::Join) continue;
+                    auto& join = CastOperator<TOpJoin>(*filter.GetInput());
+                    join.JoinFilters = filter.GetFilterExpression().SplitConjunct();
+                    const auto& arena = root.PlanProps.NativeExpressions;
+                    filter.SetFilterExpression(TExpression::FromNative(arena,
+                        arena->Literal({NFrontend::ETypeKind::Bool}, true), &root.PlanProps));
+                }
                 auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
                     UNIT_FAIL("computed native join keys invoked YQL annotation");
                     return IGraphTransformer::TStatus::Error;
                 });
                 TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
-                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
                 TVector<std::unique_ptr<IRule>> rules;
                 rules.emplace_back(std::make_unique<TExtractJoinExpressionsRule>());
                 rules.emplace_back(std::make_unique<TPushMapElementsThroughInputRule>());
@@ -1736,7 +2073,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 rules.emplace_back(std::make_unique<TPushFilterUnderMapRule>());
                 rules.emplace_back(std::make_unique<TPushFilterIntoJoinRule>());
                 TRuleBasedStage("native computed keys", std::move(rules)).RunStage(root, context);
-                UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+                UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
                 bool found = false;
                 for (const auto& item : root) if (item.Current->Kind == EOperator::Join) {
                     const auto& join = CastOperator<TOpJoin>(*item.Current);
@@ -1752,7 +2089,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
                 for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
                     UNIT_ASSERT(expression.get().IsNative());
-                    UNIT_ASSERT(!expression.get().Node);
+
                 }
             }
         }
@@ -1766,7 +2103,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             const std::string sql = std::string("SELECT a.id, b.id AS right_id FROM ") +
                 "(SELECT 1 AS id, 2 AS x, CAST(3 AS Int32?) AS y) AS a FULL JOIN " +
                 "(SELECT 1 AS id, 2 AS x, CAST(3 AS Int32?) AS y) AS b ON " + condition;
-            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx);
+            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx).Roots;
             auto& root = *roots.front();
             bool found = false;
             for (const auto& item : root) if (item.Current->Kind == EOperator::Join) {
@@ -1778,7 +2115,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             UNIT_ASSERT(found);
             auto arena = root.PlanProps.NativeExpressions;
             const auto equal = arena->Binary(EOpcode::Equal, arena->Column(0, {ETypeKind::Int32}), arena->Column(1, {ETypeKind::Int32}));
-            const auto lifted = TExpression::FromNative(arena, arena->Convert(equal, {ETypeKind::Bool, true}), &f.ExprCtx, &root.PlanProps);
+            const auto lifted = TExpression::FromNative(arena, arena->Convert(equal, {ETypeKind::Bool, true}), &root.PlanProps);
             UNIT_ASSERT(lifted.MaybeEquiJoinCondition());
             const TEquiJoinCondition equality(lifted);
             UNIT_ASSERT_VALUES_EQUAL(equality.GetLeftIU(), 0);
@@ -1820,25 +2157,25 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT SUM(x) OVER() + 1 IN (SELECT CAST(4 AS Int64)) FROM (SELECT 1 AS x UNION ALL SELECT 2) AS t"}) {
             NTests::TIdTestContext f;
             f.Config->SetEnableWindowFunctionsV2(true);
-            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx);
+            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx).Roots;
             auto& root = *roots.front();
             auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
                 UNIT_FAIL("native window invoked YQL expression annotation");
                 return IGraphTransformer::TStatus::Error;
             });
             TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
-            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
             TVector<std::unique_ptr<IRule>> windows;
             windows.emplace_back(std::make_unique<TExpandWholePartitionWindowRule>());
             TRuleBasedStage("native whole-partition windows", std::move(windows)).RunStage(root, context);
-            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
             TVector<std::unique_ptr<IRule>> copies;
             copies.emplace_back(std::make_unique<TExpandReplicateRule>());
             TRuleBasedStage("native window copies", std::move(copies)).RunStage(root, context);
-            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
             for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
                 UNIT_ASSERT(expression.get().IsNative());
-                UNIT_ASSERT(!expression.get().Node);
+
             }
             NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
         }
@@ -1863,10 +2200,14 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             "SELECT EXISTS(SELECT 1 WHERE EXISTS(SELECT 1 WHERE o.id = 1)) AS yes FROM (SELECT 1 AS id) AS o",
             "SELECT (SELECT COUNT(*) FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id > o.id) AS n FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
             "SELECT (SELECT MAX(i.id) FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id = o.id) AS n FROM (SELECT 1 AS id UNION ALL SELECT CAST(NULL AS Int32) AS id) AS o",
+            "SELECT (SELECT MAX(i.id - o.v) FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id <= o.id) AS n FROM (SELECT 1 AS id, 2 AS v) AS o",
+            "SELECT (SELECT i.id + o.v FROM (SELECT 1 AS id) AS i WHERE i.id = o.id) AS n FROM (SELECT 1 AS id, 2 AS v) AS o",
             "SELECT (SELECT (SELECT o.id)) AS n FROM (SELECT 1 AS id) AS o",
             "SELECT (SELECT i.id FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS i WHERE i.id > o.id ORDER BY i.id DESC LIMIT 1) AS n FROM (SELECT 1 AS id) AS o"}) {
             NTests::TIdTestContext f;
-            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx);
+            const auto nodes = f.ExprCtx.NodeAllocationCounter;
+            const auto types = f.ExprCtx.TypeNodes.size();
+            auto roots = CompileNativeToRbo(sql, NoTables, f.ExprCtx).Roots;
             auto& root = *roots.front();
             auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
                 UNIT_FAIL("native correlation invoked YQL annotation");
@@ -1874,13 +2215,13 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             });
             TRBOContext context(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
             TGlobalPruningStage("native capture pruning").RunStage(root, context);
-            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
             TVector<std::unique_ptr<IRule>> inlineRules;
             inlineRules.emplace_back(std::make_unique<TInlineSimpleInExistsSubplanRule>());
             inlineRules.emplace_back(std::make_unique<TInlineGenericInExistsSubplanRule>());
             inlineRules.emplace_back(std::make_unique<TInlineScalarSubplanRule>());
             TRuleBasedStage("native scalar inlining", std::move(inlineRules)).RunStage(root, context);
-            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
             TConstantFoldingStage().RunStage(root, context);
             TVector<std::unique_ptr<IRule>> rules;
             rules.emplace_back(std::make_unique<TRewriteDependentJoinToCrossJoinNoFreeVarsRule>());
@@ -1900,7 +2241,9 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             TVector<std::unique_ptr<IRule>> copies;
             copies.emplace_back(std::make_unique<TExpandReplicateRule>());
             TRuleBasedStage("native replicate expansion", std::move(copies)).RunStage(root, context);
-            UNIT_ASSERT(root.ComputeTypes(context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT(ComputeTypesWithoutBackend(root, context) == IGraphTransformer::TStatus::Ok);
+            UNIT_ASSERT_VALUES_EQUAL_C(f.ExprCtx.NodeAllocationCounter, nodes, sql);
+            UNIT_ASSERT_VALUES_EQUAL_C(f.ExprCtx.TypeNodes.size(), types, sql);
             UNIT_ASSERT(root.PlanProps.Subplans.Empty());
             NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
             for (const auto& item : root) {
@@ -1908,7 +2251,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 UNIT_ASSERT(item.Current->Kind != EOperator::AddDependencies);
                 for (const auto& expression : item.Current->GetExpressions()) {
                     UNIT_ASSERT(expression.get().IsNative());
-                    UNIT_ASSERT(!expression.get().Node);
+
                 }
             }
         }
@@ -1978,7 +2321,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
 
     Y_UNIT_TEST(ScalarSubplansRemainNativeThroughTyping) {
         NTests::TIdTestContext f;
-        auto roots = CompileNativeToRbo("SELECT (SELECT (SELECT 1) + 2) AS x, (SELECT 7) AS y", NoTables, f.ExprCtx);
+        auto roots = CompileNativeToRbo("SELECT (SELECT (SELECT 1) + 2) AS x, (SELECT 7) AS y", NoTables, f.ExprCtx).Roots;
         auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
             UNIT_FAIL("native scalar subquery invoked YQL annotation");
             return IGraphTransformer::TStatus::Error;
@@ -1986,11 +2329,11 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         TRBOContext nativeContext(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
         auto& root = *roots.front();
         UNIT_ASSERT(!root.PlanProps.Subplans.Empty());
-        UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT(ComputeTypesWithoutBackend(root, nativeContext) == IGraphTransformer::TStatus::Ok);
         for (const auto& item : IterateSubtreeWithSubplans(&root, root.PlanProps)) {
             for (const auto& expression : item.Current->GetExpressions()) {
                 UNIT_ASSERT(expression.get().IsNative());
-                UNIT_ASSERT(!expression.get().Node);
+
                 UNIT_ASSERT(expression.get().PlanProps == &root.PlanProps);
             }
         }
@@ -2018,19 +2361,19 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
 
     Y_UNIT_TEST(ConstantFoldingRemainsNative) {
         NTests::TIdTestContext f;
-        auto roots = CompileNativeToRbo("SELECT 1 + 2 AS answer WHERE 2 + 3 = 5 LIMIT 1ul + 1ul", NoTables, f.ExprCtx);
+        auto roots = CompileNativeToRbo("SELECT 1 + 2 AS answer WHERE 2 + 3 = 5 LIMIT 1ul + 1ul", NoTables, f.ExprCtx).Roots;
         auto forbidden = CreateFunctorTransformer([](TExprNode::TPtr, TExprNode::TPtr&, TExprContext&) {
             UNIT_FAIL("native constant folding invoked YQL annotation");
             return IGraphTransformer::TStatus::Error;
         });
         TRBOContext nativeContext(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
         auto& root = *roots.front();
-        UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT(ComputeTypesWithoutBackend(root, nativeContext) == IGraphTransformer::TStatus::Ok);
         TConstantFoldingStage().RunStage(root, nativeContext);
         bool folded = false, filterFolded = false, limitFolded = false;
         for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
             UNIT_ASSERT(expression.get().IsNative());
-            UNIT_ASSERT(!expression.get().Node);
+
             const auto& node = (*expression.get().GetNativeArena())[expression.get().GetNativeRoot()];
             folded |= node.Op == NFrontend::EOpcode::Literal && NFrontend::FormatValue({node.Type, node.Value}) == "3";
             if (item.Current->Kind == EOperator::Filter) {
@@ -2043,7 +2386,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             }
         }
         UNIT_ASSERT(folded && filterFolded && limitFolded);
-        UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT(ComputeTypesWithoutBackend(root, nativeContext) == IGraphTransformer::TStatus::Ok);
     }
 
     Y_UNIT_TEST(DecimalIntegerOperationsMatchRuntimeArithmetic) {
@@ -2250,7 +2593,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             FROM (SELECT 1 AS id) AS a
             LEFT JOIN (SELECT CAST(1L AS Int32) AS id) AS b ON a.id == b.id
             WHERE a.id > 0 ORDER BY next LIMIT 5
-        )", NoTables, f.ExprCtx);
+        )", NoTables, f.ExprCtx).Roots;
         UNIT_ASSERT_VALUES_EQUAL(roots.size(), 1);
         auto& root = *roots.front();
         UNIT_ASSERT(root.PlanProps.NativeExpressions);
@@ -2258,7 +2601,7 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
         for (const auto& item : root) {
             for (const auto& expression : item.Current->GetExpressions()) {
                 UNIT_ASSERT(expression.get().IsNative());
-                UNIT_ASSERT(!expression.get().Node);
+
             }
             if (item.Current->Kind == EOperator::Join) {
                 const auto& join = CastOperator<TOpJoin>(*item.Current);
@@ -2273,16 +2616,16 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             return IGraphTransformer::TStatus::Error;
         });
         TRBOContext nativeContext(f.KqpCtx, f.ExprCtx, f.TypeCtx, *forbidden, *f.FuncRegistry);
-        UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT(ComputeTypesWithoutBackend(root, nativeContext) == IGraphTransformer::TStatus::Ok);
         NTests::AssertIdInvariants(*root.GetInput(), root.PlanProps);
         TGlobalInliningStage inlining("native inlining");
         inlining.RunStage(root, nativeContext);
         TGlobalPruningStage pruning("native pruning");
         pruning.RunStage(root, nativeContext);
-        UNIT_ASSERT(root.ComputeTypes(nativeContext) == IGraphTransformer::TStatus::Ok);
+        UNIT_ASSERT(ComputeTypesWithoutBackend(root, nativeContext) == IGraphTransformer::TStatus::Ok);
         for (const auto& item : root) for (const auto& expression : item.Current->GetExpressions()) {
             UNIT_ASSERT(expression.get().IsNative());
-            UNIT_ASSERT(!expression.get().Node);
+
         }
     }
 
@@ -2292,8 +2635,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
             SELECT SUM(x) AS total, COUNT(*) AS n
             FROM (SELECT 1 AS x UNION ALL SELECT 2L AS x) AS q
             HAVING SUM(x) > 0
-        )", NoTables, f.ExprCtx);
-        UNIT_ASSERT(roots[0]->ComputeTypes(f.RboCtx) == IGraphTransformer::TStatus::Ok);
+        )", NoTables, f.ExprCtx).Roots;
+        UNIT_ASSERT(ComputeTypesWithoutBackend(*roots[0], f.RboCtx) == IGraphTransformer::TStatus::Ok);
         NTests::AssertIdInvariants(*roots[0]->GetInput(), roots[0]->PlanProps);
     }
 

@@ -15,18 +15,18 @@ struct TPlan {
 
     explicit TPlan(TOrderedIUs<TString> outputs = {})
         : Root(MakeIntrusive<TOpEmptySource>(Pos), Pos, std::move(outputs))
-    {}
+    { Root.PlanProps.NativeExpressions = std::make_shared<NFrontend::TExpressionArena>(); }
 
     TInfoUnitId Id() { return Root.PlanProps.InfoUnitRegistry.AddGenerated(); }
 
     TExpression Column(TInfoUnitId id) {
-        return MakeColumnAccess(id, Pos, &Ctx, &Root.PlanProps);
+        return MakeColumnAccess(id, NFrontend::TType{NFrontend::ETypeKind::Uint64}, Pos, &Root.PlanProps);
     }
 
     TIntrusivePtr<IOperator> Source(TUnorderedIUs ids) {
         TMapIUs values;
         for (const auto id : ids) {
-            values.Add(id, MakeConstant("Uint64", "1", Pos, &Ctx));
+            values.Add(id, MakeConstant("Uint64", "1", Pos, &Root.PlanProps));
         }
         return MakeIntrusive<TOpMap>(MakeIntrusive<TOpEmptySource>(Pos), Pos, std::move(values));
     }
@@ -36,7 +36,7 @@ struct TPlan {
     {
         TDependencyIUs captures;
         for (const auto& [local, outer] : bindings) {
-            captures.Add(local, TCapturedIU{outer, Ctx.MakeType<TDataExprType>(EDataSlot::Uint64)});
+            captures.Add(local, TCapturedIU{outer, NFrontend::TType{NFrontend::ETypeKind::Uint64}});
         }
         return MakeIntrusive<TOpAddDependencies>(std::move(input), Pos, std::move(captures));
     }
@@ -199,12 +199,12 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
         UNIT_ASSERT_VALUES_EQUAL(join.JoinKind, "Inner");
         UNIT_ASSERT_VALUES_EQUAL(join.JoinKeys.Items().size(), 1);
         UNIT_ASSERT_VALUES_EQUAL(join.JoinFilters.size(), 1);
-        UNIT_ASSERT(join.JoinFilters.front().GetLegacyBody()->IsCallable(">"));
+        UNIT_ASSERT((*join.JoinFilters.front().GetNativeArena())[join.JoinFilters.front().GetNativeRoot()].Op == NFrontend::EOpcode::Greater);
         for (auto* side : join.GetChildren()) {
             const auto& map = CastOperator<TOpMap>(*side);
             UNIT_ASSERT_VALUES_EQUAL(map.GetMapElements().Keys().Size(), 1);
             const auto& entry = *map.GetMapElements().Items().begin();
-            UNIT_ASSERT(entry.second.GetExpression().GetLegacyBody()->IsCallable("StablePickle"));
+            UNIT_ASSERT((*entry.second.GetExpression().GetNativeArena())[entry.second.GetExpression().GetNativeRoot()].Op == NFrontend::EOpcode::StablePickle);
         }
         UNIT_ASSERT(!HasFreeCorrelation(plan.Root.GetInput(), {parameter}));
     }
@@ -228,7 +228,7 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
         for (const auto& item : IterateSubtree(&plan.Root)) {
             if (item.Current->Kind == EOperator::Map) {
                 for (const auto& [id, definition] : CastOperator<TOpMap>(*item.Current).GetMapElements().Items()) {
-                    if (definition.GetExpression().GetLegacyBody()->IsCallable("Coalesce")) {
+                    if ((*definition.GetExpression().GetNativeArena())[definition.GetExpression().GetNativeRoot()].Op == NFrontend::EOpcode::Coalesce) {
                         restored.Add(id);
                     }
                 }
@@ -285,7 +285,7 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
                 UNIT_ASSERT_VALUES_EQUAL(plan.CountKind(EOperator::Join), 0);
                 UNIT_ASSERT_VALUES_EQUAL(plan.CountKind(EOperator::Replicate), 0);
                 auto& filter = CastOperator<TOpFilter>(*plan.Root.GetInput());
-                UNIT_ASSERT(filter.GetFilterExpression().GetLegacyBody()->IsCallable("Exists"));
+                UNIT_ASSERT((*filter.GetFilterExpression().GetNativeArena())[filter.GetFilterExpression().GetNativeRoot()].Op == NFrontend::EOpcode::IsNotNull);
                 auto& bindings = CastOperator<TOpMap>(*filter.GetInput());
                 UNIT_ASSERT_VALUES_EQUAL(bindings.FindOutputElement(local)->GetColumnAccess(), value);
             }
@@ -348,8 +348,8 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
     }
 
     Y_UNIT_TEST(CorrelatedReplicateRejectsUnsafeCopiesBeforeChangingInputs) {
-        enum class EBlocker { Average, Random, SubplanCall };
-        for (const auto blocker : {EBlocker::Average, EBlocker::Random, EBlocker::SubplanCall}) {
+        enum class EBlocker { Average, Some, SubplanCall };
+        for (const auto blocker : {EBlocker::Average, EBlocker::Some, EBlocker::SubplanCall}) {
             TPlan plan;
             const auto parameter = plan.Id(), local = plan.Id(), value = plan.Id(), result = plan.Id();
             TIntrusivePtr<IOperator> producer = plan.Producer(parameter, local, value);
@@ -358,9 +358,10 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
                 functions.Add(result, TOpAggregationTraits{value, "avg"});
                 producer = MakeIntrusive<TOpAggregate>(producer, std::move(functions), TOrderedIUs<>{},
                     EOpPhase::Undefined, false, plan.Pos);
-            } else if (blocker == EBlocker::Random) {
-                producer = MakeIntrusive<TOpFilter>(producer, plan.Pos,
-                    MakeBinaryPredicate(">", MakeUnaryCallable("RandomNumber", plan.Column(value)), plan.Column(local)));
+            } else if (blocker == EBlocker::Some) {
+                TAggregationIUs functions{{result, TOpAggregationTraits{value, "some"}}};
+                producer = MakeIntrusive<TOpAggregate>(producer, std::move(functions), TOrderedIUs<>{},
+                    EOpPhase::Undefined, false, plan.Pos);
             } else {
                 const auto call = plan.Id(), inner = plan.Id();
                 plan.Root.PlanProps.Subplans.Add(call, plan.Source({inner}), ESubplanType::EXPR, {}, inner);
@@ -400,7 +401,7 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
         auto dependent = plan.DependentJoin(inside, {parameter});
         plan.Root.SetInput(MakeIntrusive<TOpJoin>(dependent, outside, plan.Pos, "Cross", TJoinIUs{}));
         plan.Root.ComputeParents();
-        UNIT_ASSERT(!input->Type);
+        UNIT_ASSERT(!input->NativeSchema);
 
         auto rewritten = TPushDependentJoinThroughReplicateRule().SimpleMatchAndApply(
             dependent, plan.Test.RboCtx, plan.Root.PlanProps);
@@ -427,7 +428,7 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
             auto predicate = f.Column(call);
             if (repeated) {
                 predicate = MakeBinaryPredicate("And", predicate, MakeBinaryPredicate("==", predicate,
-                    MakeConstant("Bool", "true", f.Pos, &f.ExprCtx)));
+                    MakeConstant("Bool", "true", f.Pos)));
             }
             auto filter = MakeIntrusive<TOpFilter>(std::move(left), f.Pos, predicate);
             const auto* original = filter.get();
@@ -459,7 +460,7 @@ Y_UNIT_TEST_SUITE(KqpRboDecorrelation) {
             TIntrusivePtr<IOperator> right = f.Read({value});
             if (correlated) {
                 TDependencyIUs captures;
-                captures.Add(f.Id(), TCapturedIU{lookup, left->GetIUType(lookup, f.ExprCtx)});
+                captures.Add(f.Id(), TCapturedIU{lookup, left->GetNativeIUType(lookup)});
                 right = MakeIntrusive<TOpAddDependencies>(std::move(right), f.Pos, std::move(captures));
             }
             f.SetType(*right, {value});

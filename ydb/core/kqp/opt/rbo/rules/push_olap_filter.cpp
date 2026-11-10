@@ -1,11 +1,6 @@
-#include <ydb/core/kqp/opt/physical/kqp_opt_phy_olap_filter.h>
-#include <ydb/core/kqp/opt/physical/predicate_collector.h>
 #include <ydb/core/kqp/opt/rbo/kqp_rbo_rules.h>
 #include <ydb/core/kqp/opt/rbo/frontend_lowering.h>
 #include <ydb/core/kqp/provider/yql_kikimr_settings.h>
-
-#include <yql/essentials/core/peephole_opt/yql_opt_peephole_physical.h>
-#include <yql/essentials/core/yql_expr_type_annotation.h>
 
 namespace NKikimr::NKqp {
 
@@ -21,10 +16,6 @@ bool IsSuitableToPushPredicateToColumnTables(IOperator* input) {
     }
 
     const auto filter = CastOperator<TOpFilter>(input);
-    if (!filter->GetFilterExpression().IsNative()) {
-        const auto predicate = TCoLambda(filter->GetFilterExpression().Node).Body();
-        if (predicate.Ptr()->GetTypeAnn()->GetKind() == ETypeAnnotationKind::Pg) return false;
-    }
 
     const auto maybeRead = filter->GetInput().Get();
     if (maybeRead->Kind != EOperator::Source){
@@ -35,55 +26,6 @@ bool IsSuitableToPushPredicateToColumnTables(IOperator* input) {
     return read->GetTableStorageType() == NYql::EStorageType::ColumnStorage && !read->OlapProgram;
 }
 
-bool IsValidPredicateToKeep(TMaybeNode<TExprBase> node) {
-    if (!node.IsValid()) {
-        return false;
-    }
-
-    if (auto predicate = node.Cast().Maybe<TCoBool>()) {
-        return predicate.Cast().Literal().StringValue() != "true";
-    }
-    return true;
-}
-
-TExprNode::TPtr ApplyPeephole(TExprNode::TPtr input, TExprNode::TPtr lambdaArg, TRBOContext& ctx) {
-    Y_ENSURE(lambdaArg->GetTypeAnn());
-    auto newArg = Build<TCoArgument>(ctx.ExprCtx, input->Pos())
-        .Name("new_arg").Done().Ptr();
-    newArg->SetTypeAnn(lambdaArg->GetTypeAnn());
-    lambdaArg->CopyConstraints(*newArg);
-
-    // clang-format off
-    TVector<const TTypeAnnotationNode *> argTypes{lambdaArg->GetTypeAnn()};
-    auto olapPredicateClosure = Build<TKqpPredicateClosure>(ctx.ExprCtx, input->Pos())
-        .Lambda<TCoLambda>()
-            .Args({newArg})
-            .Body<TExprApplier>()
-                .Apply(TExprBase(input))
-                .With(TExprBase(lambdaArg), TExprBase(newArg))
-            .Build()
-        .Build()
-        .ArgsType(ExpandType(input->Pos(), *ctx.ExprCtx.MakeType<TTupleExprType>(argTypes), ctx.ExprCtx))
-    .Done();
-    // clang-format on
-
-    YQL_CLOG(TRACE, ProviderKqp) << "[NEW RBO OLAP FILTER] Before peephole: " << KqpExprToPrettyString(olapPredicateClosure, ctx.ExprCtx);
-
-    TPeepholeSettings peepholeSettings;
-    peepholeSettings.WithFinalStageRules = false;
-    TExprNode::TPtr afterPeephole;
-    bool hasNonDeterministicFunctions;
-    if (const auto status = PeepHoleOptimizeNode(olapPredicateClosure.Ptr(), afterPeephole, ctx.ExprCtx, ctx.TypeCtx, nullptr,
-                                                 hasNonDeterministicFunctions);
-        status != IGraphTransformer::TStatus::Ok) {
-        YQL_CLOG(ERROR, ProviderKqp) << "[NEW RBO OLAP FILTER] Peephole failed with status: " << status << Endl;
-        Y_ENSURE(false, "Peephole failed.");
-    }
-    Y_ENSURE(afterPeephole);
-    YQL_CLOG(TRACE, ProviderKqp) << "[NEW RBO OLAP FILTER] After peephole: " << KqpExprToPrettyString(TExprBase(afterPeephole), ctx.ExprCtx);
-    return TExprBase(afterPeephole).Cast<TKqpPredicateClosure>().Lambda().Ptr();
-}
-
 } // anonymous namespace
 
 bool TPushOlapFilterRule::QuickMatch(const TIntrusivePtr<IOperator>& input) const {
@@ -91,172 +33,49 @@ bool TPushOlapFilterRule::QuickMatch(const TIntrusivePtr<IOperator>& input) cons
         input->GetChildren().front()->Kind == EOperator::Source;
 }
 
-TIntrusivePtr<IOperator> TPushOlapFilterRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps& props) {
+TIntrusivePtr<IOperator> TPushOlapFilterRule::SimpleMatchAndApply(const TIntrusivePtr<IOperator>& input, TRBOContext& ctx, TPlanProps&) {
     if (!ctx.KqpCtx.Config->HasOptEnableOlapPushdown()) {
         return input;
     }
 
-    // Input expressions and their row schemas must already use IU IDs. Keep
-    // those spellings when constructing OLAP, including its embedded schemas.
-    const TPushdownOptions pushdownOptions(ctx.KqpCtx.Config->GetEnableOlapScalarApply(), ctx.KqpCtx.Config->GetEnableOlapSubstringPushdown(),
-                                           /*StripAliasPrefixForColumnName=*/false, ctx.KqpCtx.Config->GetEnableOlapPushdownRegexp(),
-                                           ctx.KqpCtx.Config->GetEnableOlapFastAsciiIgnoreCase());
     if (!IsSuitableToPushPredicateToColumnTables(input.get())) {
         return input;
     }
 
     const auto filter = CastOperator<TOpFilter>(input);
     const auto read = CastOperator<TOpRead>(filter->GetInput().Get());
-    if (filter->GetFilterExpression().IsNative()) {
-        const auto& expression = filter->GetFilterExpression();
-        // Both the executable program and its saved statistics predicate must
-        // bind entirely to this read's row.
-        if (!expression.GetRawInputIUs().IsSubsetOf(read->GetColumns())) return input;
-        const auto& arena = *expression.GetNativeArena();
-        THashSet<NFrontend::TExprId> seen;
-        TVector<NFrontend::TExprId> pending{expression.GetNativeRoot()};
-        while (!pending.empty()) {
-            const auto id = pending.back(); pending.pop_back();
-            if (!seen.insert(id).second) continue;
-            const auto& node = arena[id];
-            // A storage filter discards NULL. A nullable conjunct followed by
-            // a checked expression still evaluates that expression in SQL,
-            // so even pushing a leading conjunct could suppress its error.
-            if (node.Op == NFrontend::EOpcode::Ensure || node.Op == NFrontend::EOpcode::Unwrap) return input;
-            pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
-        }
-        TVector<TExpression> pushed, remaining;
-        for (const auto& term : filter->GetFilterExpression().SplitConjunct()) {
-            // Preserve the remaining terms' order and their lazy branches.
-            if (remaining.empty() && CanLowerNativeOlapPredicate(*term.GetNativeArena(), term.GetNativeRoot())) pushed.push_back(term);
-            else remaining.push_back(term);
-        }
-        if (pushed.empty()) return input;
-        const auto predicate = MakeConjunction(pushed);
-        auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->StorageType, read->TableCallable,
-            TOlapProgram(predicate), read->Limit, read->RangeInfo,
-            read->OriginalPredicate ? read->OriginalPredicate : std::optional{filter->GetFilterExpression()},
-            read->SortDir, read->Props, read->Pos);
-        if (remaining.empty()) return newRead;
-        return MakeIntrusive<TOpFilter>(newRead, filter->Pos, filter->Props, MakeConjunction(remaining), true);
+
+    const auto& expression = filter->GetFilterExpression();
+    // Both the executable program and its saved statistics predicate must
+    // bind entirely to this read's row.
+    if (!expression.GetRawInputIUs().IsSubsetOf(read->GetColumns())) return input;
+    const auto& arena = *expression.GetNativeArena();
+    THashSet<NFrontend::TExprId> seen;
+    TVector<NFrontend::TExprId> pending{expression.GetNativeRoot()};
+    while (!pending.empty()) {
+        const auto id = pending.back(); pending.pop_back();
+        if (!seen.insert(id).second) continue;
+        const auto& node = arena[id];
+        // A storage filter discards NULL. A nullable conjunct followed by
+        // a checked expression still evaluates that expression in SQL,
+        // so even pushing a leading conjunct could suppress its error.
+        if (node.Op == NFrontend::EOpcode::Ensure || node.Op == NFrontend::EOpcode::Unwrap) return input;
+        pending.insert(pending.end(), node.Arguments.begin(), node.Arguments.end());
     }
-    const auto lambda = TCoLambda(filter->GetFilterExpression().Node);
-    auto predicate = lambda.Body();
-    auto lambdaArg = lambda.Args().Arg(0).Ptr();
-
-    // Here we want to apply coalesce and propagate it to optional predicates.
-    // clang-format off
-    predicate = Build<TCoCoalesce>(ctx.ExprCtx, input->Pos)
-        .Predicate(predicate)
-        .Value<TCoBool>()
-            .Literal().Value("false").Build()
-        .Build()
-    .Done();
-    // clang-format on
-
-    auto lambdaAfterRewrite = TExprBase(ApplyPeephole(predicate.Ptr(), lambda.Args().Arg(0).Ptr(), ctx)).Cast<TCoLambda>();
-    lambdaArg = lambdaAfterRewrite.Args().Arg(0).Ptr();
-    predicate = lambdaAfterRewrite.Body();
-
-    TOLAPPredicateNode predicateTree;
-    predicateTree.ExprNode = predicate.Ptr();
-    CollectPredicates(predicate, predicateTree, lambdaArg.Get(), lambdaArg->GetTypeAnn(), pushdownOptions);
-    YQL_ENSURE(predicateTree.IsValid(), "Collected OLAP predicates are invalid");
-
-    auto [pushable, remaining] = SplitForPartialPushdown(predicateTree, false);
-    TVector<TFilterOpsLevels> pushedPredicates;
-    for (const auto& predicate : pushable) {
-        pushedPredicates.emplace_back(PredicatePushdown(TExprBase(predicate.ExprNode), *lambdaArg, ctx.ExprCtx, input->Pos, pushdownOptions));
+    TVector<TExpression> pushed, remaining;
+    for (const auto& term : filter->GetFilterExpression().SplitConjunct()) {
+        // The checked-expression guard above makes reordering these total
+        // conjuncts safe, including a pushable term after a compute term.
+        if (CanLowerNativeOlapPredicate(*term.GetNativeArena(), term.GetNativeRoot(), ctx.KqpCtx.Config->GetEnableOlapScalarApply())) pushed.push_back(term);
+        else remaining.push_back(term);
     }
-
-    if (pushdownOptions.AllowOlapApply) {
-        TVector<TOLAPPredicateNode> remainingAfterApply;
-        for (const auto& predicateExprHolder : remaining) {
-            auto lambdaAfterPeephole = TExprBase(ApplyPeephole(predicateExprHolder.ExprNode, lambdaArg, ctx)).Cast<TCoLambda>();
-            auto lArg = lambdaAfterPeephole.Args().Arg(0);
-            auto predicate = lambdaAfterPeephole.Body();
-            TOLAPPredicateNode predicateTree;
-            predicateTree.ExprNode = predicate.Ptr();
-            CollectPredicates(predicate, predicateTree, &lArg.Ref(), lArg.Ptr()->GetTypeAnn(),
-                pushdownOptions.WithAllowOlapApply(true));
-
-            YQL_ENSURE(predicateTree.IsValid(), "Collected OLAP predicates are invalid");
-            auto [pushable, remaining] = SplitForPartialPushdown(predicateTree, true);
-            for (const auto& predicate : pushable) {
-                if (predicate.CanBePushed) {
-                    auto pred = PredicatePushdown(TExprBase(predicate.ExprNode), lArg.Ref(), ctx.ExprCtx, input->Pos, pushdownOptions);
-                    pushedPredicates.emplace_back(pred);
-                } else {
-                    auto expr = YqlApplyPushdown(TExprBase(predicate.ExprNode), lArg.Ref(), ctx.ExprCtx, pushdownOptions);
-                    TFilterOpsLevels pred(expr);
-                    pushedPredicates.emplace_back(pred);
-                }
-            }
-            if (remaining.size()) {
-                Y_ENSURE(remaining.size() == 1);
-                // Use an original expr node if we cannot push to cs.
-                remainingAfterApply.push_back(predicateExprHolder);
-            }
-        }
-        remaining = std::move(remainingAfterApply);
-    }
-
-    if (pushedPredicates.empty()) {
-        return input;
-    }
-
-    const auto pushedFilter = TFilterOpsLevels::Merge(pushedPredicates, ctx.ExprCtx, input->Pos);
-    const auto remainingFilter = CombinePredicatesWithAnd(remaining, ctx.ExprCtx, input->Pos, false, true);
-
-    TMaybeNode<TExprBase> olapFilter;
-    if (pushedFilter.FirstLevelOps.IsValid()) {
-        // clang-format off
-        olapFilter = Build<TKqpOlapFilter>(ctx.ExprCtx, input->Pos)
-            .Input(lambda.Args().Arg(0))
-            .Condition(pushedFilter.FirstLevelOps.Cast())
-        .Done();
-        // clang-format on
-    }
-
-    if (pushedFilter.SecondLevelOps.IsValid()) {
-        // clang-format off
-        olapFilter = Build<TKqpOlapFilter>(ctx.ExprCtx, input->Pos)
-            .Input(olapFilter.IsValid() ? olapFilter.Cast() : lambda.Args().Arg(0))
-            .Condition(pushedFilter.SecondLevelOps.Cast())
-        .Done();
-        // clang-format on
-    }
-
-    if (!olapFilter.IsValid()) {
-        YQL_CLOG(TRACE, ProviderKqp) << "KqpOlapFilter was not constructed";
-        return input;
-    }
-
-    // clang-format off
-    auto newOlapProgram = Build<TCoLambda>(ctx.ExprCtx, input->Pos)
-        .Args({"olap_filter_row"})
-        .Body<TExprApplier>()
-            .Apply(olapFilter.Cast())
-            .With(lambda.Args().Arg(0), "olap_filter_row")
-            .Build()
-        .Done();
-    // clang-format on
-    YQL_CLOG(TRACE, ProviderKqp) << "Pushed OLAP lambda: " << KqpExprToPrettyString(newOlapProgram, ctx.ExprCtx);
-
-    // Preserve the original ID-bound predicate for statistics.
-    auto originalPredicate = read->OriginalPredicate;
-    if (!originalPredicate) {
-        originalPredicate = filter->GetFilterExpression();
-    }
-    auto newRead =
-        MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->StorageType, read->TableCallable, newOlapProgram.Ptr(), read->Limit,
-                               read->RangeInfo, originalPredicate, read->SortDir, read->Props, read->Pos);
-    if (IsValidPredicateToKeep(remainingFilter)) {
-        // Part of the predicate could not be pushed down and the remaining TOpFilter survives.
-        return MakeIntrusive<TOpFilter>(newRead, filter->Pos, filter->Props, TExpression(remainingFilter.Cast().Ptr(), &ctx.ExprCtx, &props), true);
-    }
-
-    // The whole predicate was pushed in and no TOpFilter remains.
-    return newRead;
+    if (pushed.empty()) return input;
+    const auto predicate = MakeConjunction(pushed);
+    auto newRead = MakeIntrusive<TOpRead>(read->Alias, read->GetColumns(), read->StorageType, read->TableRef,
+        TOlapProgram(predicate), read->Limit, read->RangeInfo,
+        read->OriginalPredicate ? read->OriginalPredicate : std::optional{filter->GetFilterExpression()},
+        read->SortDir, read->Props, read->Pos);
+    if (remaining.empty()) return newRead;
+    return MakeIntrusive<TOpFilter>(newRead, filter->Pos, filter->Props, MakeConjunction(remaining), true);
 }
 } // namespace NKikimr::NKqp

@@ -8,10 +8,7 @@ using namespace NKikimr::NKqp;
 
 // The null of the Bool type, which the three valued result of an IN needs as a value and not only
 // as the absence of a row.
-TExprNode::TPtr MakeNullBoolNode(TPositionHandle pos, TExprContext& ctx) {
-    auto boolType = ctx.NewCallable(pos, "DataType", {ctx.NewAtom(pos, "Bool")});
-    return ctx.NewCallable(pos, "Nothing", {ctx.NewCallable(pos, "OptionalType", {boolType})});
-}
+
 
 void AddDomainColumn(TUnorderedIUs& domain, TInfoUnitId iu) {
     if (!domain.Contains(iu)) {
@@ -178,7 +175,7 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
         // So as result we will get true for columns which survive dependent join and false for rest.
         auto markIU = props.InfoUnitRegistry.AddGenerated("in_mark");
         TMapIUs markElements;
-        markElements.Add(markIU, MakeConstant("Bool", "true", consumer->Pos, &ctx.ExprCtx, &props));
+        markElements.Add(markIU, MakeConstant("Bool", "true", consumer->Pos, &props));
         auto markMap = MakeIntrusive<TOpMap>(matchedDomain, consumer->Pos, markElements);
         TIntrusivePtr<IOperator> markRight = markMap;
         auto markJoinKeys = useDependentJoin ? MakeNullSafeJoinKeys(leftInput, markRight, domainJoinKeys, consumer->Pos, ctx, props) : domainJoinKeys;
@@ -190,8 +187,8 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
             MakeIntrusive<TOpJoin>(leftInput, markRight, consumer->Pos, "Left", markJoinKeys);
 
         TIntrusivePtr<IOperator> resultInput = markJoin;
-        auto column = [&](TInfoUnitId iu) { return MakeColumnAccess(iu, *resultInput, consumer->Pos, &ctx.ExprCtx, &props); };
-        auto falseConst = MakeConstant("Bool", "false", consumer->Pos, &ctx.ExprCtx, &props);
+        auto column = [&](TInfoUnitId iu) { return MakeColumnAccess(iu, *resultInput, consumer->Pos, &props); };
+        auto falseConst = MakeConstant("Bool", "false", consumer->Pos, &props);
         auto matched = MakeBinaryPredicate("Coalesce", column(markIU), falseConst);
 
         TMapIUs resultElements;
@@ -204,7 +201,7 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
             // Has null if (num_rows > num_rows_not_null).
             auto rowIU = props.InfoUnitRegistry.AddGenerated("row");
             TMapIUs rowElements;
-            rowElements.Add(rowIU, MakeConstant("Uint64", "1", consumer->Pos, &ctx.ExprCtx, &props));
+            rowElements.Add(rowIU, MakeConstant("Uint64", "1", consumer->Pos, &props));
             auto rowMap = MakeIntrusive<TOpMap>(statsSource, consumer->Pos, rowElements);
 
             auto valueCountIU = props.InfoUnitRegistry.AddGenerated("value_count");
@@ -220,13 +217,13 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
             auto nonEmptyIU = props.InfoUnitRegistry.AddGenerated("in_non_empty");
             TMapIUs statsElements;
             // Does it have null columns?.
-            statsElements.Add(hasNullIU, MakeBinaryPredicate(">", MakeColumnAccess(rowCountIU, ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64), consumer->Pos, &ctx.ExprCtx, &props),
-                MakeColumnAccess(valueCountIU, ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64), consumer->Pos, &ctx.ExprCtx, &props)));
+            statsElements.Add(hasNullIU, MakeBinaryPredicate(">", MakeColumnAccess(rowCountIU, NFrontend::TType{NFrontend::ETypeKind::Uint64}, consumer->Pos, &props),
+                MakeColumnAccess(valueCountIU, NFrontend::TType{NFrontend::ETypeKind::Uint64}, consumer->Pos, &props)));
             if (statsKeys.Empty()) {
-                statsElements.Add(nonEmptyIU, MakeBinaryPredicate(">", MakeColumnAccess(rowCountIU, ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64), consumer->Pos, &ctx.ExprCtx, &props), MakeConstant("Uint64", "0", consumer->Pos, &ctx.ExprCtx, &props)));
+                statsElements.Add(nonEmptyIU, MakeBinaryPredicate(">", MakeColumnAccess(rowCountIU, NFrontend::TType{NFrontend::ETypeKind::Uint64}, consumer->Pos, &props), MakeConstant("Uint64", "0", consumer->Pos, &props)));
             } else {
                 // Always has some rows.
-                statsElements.Add(nonEmptyIU, MakeConstant("Bool", "true", consumer->Pos, &ctx.ExprCtx, &props));
+                statsElements.Add(nonEmptyIU, MakeConstant("Bool", "true", consumer->Pos, &props));
             }
             auto statsMap = MakeIntrusive<TOpMap>(statsAggregate, consumer->Pos, statsElements);
 
@@ -251,10 +248,7 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
                 unknown = MakeBinaryPredicate("Or", unknown, unknownTerms[i]);
             }
 
-            auto nullBool = props.NativeExpressions ?
-                TExpression::FromNative(props.NativeExpressions, props.NativeExpressions->Literal({NFrontend::ETypeKind::Bool, true}, std::monostate{}),
-                    &ctx.ExprCtx, &props, consumer->Pos) :
-                TExpression(MakeNullBoolNode(consumer->Pos, ctx.ExprCtx), &ctx.ExprCtx, &props);
+            auto nullBool = TExpression::FromNative(props.NativeExpressions, props.NativeExpressions->Literal({NFrontend::ETypeKind::Bool, true}, std::monostate{}), &props, consumer->Pos);
             resultElements.Add(subplanIU, MakeBinaryPredicate("Or", matched, MakeBinaryPredicate("And", unknown, nullBool)));
         } else {
             resultElements.Add(subplanIU, column(markIU));
@@ -264,8 +258,8 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
     }
     // uncorrelated EXISTS
     else {
-        auto zero = MakeConstant("Uint64", "0", consumer->Pos, &ctx.ExprCtx, &props);
-        auto limit = MakeIntrusive<TOpLimit>(subplan, consumer->Pos, MakeConstant("Uint64", "1", consumer->Pos, &ctx.ExprCtx, &props), EOpPhase::Undefined);
+        auto zero = MakeConstant("Uint64", "0", consumer->Pos, &props);
+        auto limit = MakeIntrusive<TOpLimit>(subplan, consumer->Pos, MakeConstant("Uint64", "1", consumer->Pos, &props), EOpPhase::Undefined);
 
         // The counted rows and their count are distinct IUs.
         auto countInput = props.InfoUnitRegistry.AddGenerated("row");
@@ -280,7 +274,7 @@ TIntrusivePtr<IOperator> TInlineGenericInExistsSubplanRule::SimpleMatchAndApply(
 
         auto agg = MakeIntrusive<TOpAggregate>(countMap, aggs, keyColumns, EOpPhase::Final, false, consumer->Pos);
 
-        auto comparePredicate = MakeBinaryPredicate("!=", MakeColumnAccess(countResult, ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64), consumer->Pos, &ctx.ExprCtx, &props), zero);
+        auto comparePredicate = MakeBinaryPredicate("!=", MakeColumnAccess(countResult, NFrontend::TType{NFrontend::ETypeKind::Uint64}, consumer->Pos, &props), zero);
         TMapIUs mapElements;
         mapElements.Add(subplanIU, comparePredicate);
 

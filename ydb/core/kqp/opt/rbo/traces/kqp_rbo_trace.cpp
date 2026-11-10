@@ -23,25 +23,20 @@ TString FormatSortElements(const TSortIUs& columns, const TInfoUnitRegistry& reg
 }
 
 std::string FormatTypeForInfoUnit(const IOperator& op, TInfoUnitId unit) {
-    if (!op.Type || op.Type->GetKind() != ETypeAnnotationKind::List) {
-        return "type unknown";
-    }
-
-    const auto* itemType = op.Type->Cast<TListExprType>()->GetItemType();
-    if (!itemType || itemType->GetKind() != ETypeAnnotationKind::Struct) {
-        return "type unknown";
-    }
-
-    const auto* columnType = itemType->Cast<TStructExprType>()->FindItemType(::ToString(unit));
-    return columnType ? ToStdString(FormatType(columnType)) : "type unknown";
+    return op.NativeSchema ? op.GetNativeIUType(unit).ToString() : "type unknown";
 }
 
 std::string FormatOutputType(const IOperator& op) {
-    if (!op.Type) {
-        return {};
+    if (op.NativeSchema) {
+        TStringBuilder text;
+        text << (op.NativeSchema->LookupLeft ? "LookupPair{" : "Row{");
+        TUnorderedIUs ids;
+        for (const auto& [id, type] : op.NativeSchema->Row) ids.Add(id);
+        for (auto id : ids) text << id << ":" << op.GetNativeIUType(id).ToString() << ";";
+        text << "}";
+        return ToStdString(text);
     }
-
-    return ToStdString(FormatType(op.Type));
+    return {};
 }
 
 template <class TRange>
@@ -463,8 +458,8 @@ optimizer_trace::Widget BuildPlanOverviewWidget(const TTraceBuildState& state) {
 }
 
 std::string FormatReadNameForJoinOrder(const TOpRead& read) {
-    if (read.TableCallable) {
-        const auto path = NYql::NNodes::TKqpTable(read.TableCallable).Path().StringValue();
+    if (read.TableRef) {
+        const auto path = read.TableRef.Path;
         const auto slash = path.rfind('/');
         return ToStdString((slash == TString::npos) ? path : path.substr(slash + 1));
     }

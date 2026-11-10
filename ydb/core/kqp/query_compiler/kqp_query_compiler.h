@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ydb/core/kqp/common/kqp_query_metadata.h>
 #include <ydb/core/kqp/expr_nodes/kqp_expr_nodes.h>
 #include <ydb/core/kqp/opt/kqp_opt.h>
 #include <ydb/core/kqp/provider/yql_kikimr_expr_nodes.h>
@@ -14,6 +15,10 @@ class IKqpQueryCompiler : public TThrRefBase {
 public:
     virtual bool CompilePhysicalQuery(const NYql::NNodes::TKqpPhysicalQuery& query,
         const NYql::NNodes::TKiDataQueryBlocks& dataQueryBlocks, NKqpProto::TKqpPhyQuery& queryProto,
+        NYql::TExprContext& ctx) = 0;
+
+    virtual bool CompilePhysicalQuery(const NYql::NNodes::TKqpPhysicalQuery& query,
+        const TQueryExecutionMetadata& metadata, NKqpProto::TKqpPhyQuery& queryProto,
         NYql::TExprContext& ctx) = 0;
 };
 

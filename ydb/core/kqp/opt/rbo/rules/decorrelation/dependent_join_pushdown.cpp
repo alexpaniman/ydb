@@ -56,8 +56,8 @@ TOrderedIUs<> MissingDomainColumns(const TUnorderedIUs& dependencies, const TUno
 bool NeedsNullSafeEncoding(const TIntrusivePtr<IOperator>& leftInput, TInfoUnitId leftKey,
                            const TIntrusivePtr<IOperator>& rightInput, TInfoUnitId rightKey, TExprContext& ctx) {
     // Only ok if the keys are domain keys, which always carry the same values.
-    const auto* leftInputType = leftInput->Type;
-    const auto* rightInputType = rightInput->Type;
+    const bool leftInputType = leftInput->HasSchema();
+    const bool rightInputType = rightInput->HasSchema();
 
     if (leftInputType && rightInputType) {
         return IsNullableIU(leftInput, leftKey, ctx) || IsNullableIU(rightInput, rightKey, ctx);
@@ -163,10 +163,10 @@ TIntrusivePtr<IOperator> RestoreEmptyGroupCounts(const TIntrusivePtr<TOpDependen
     auto join = MakeIntrusive<TOpJoin>(leftInput, rightInput, pos, "Left", joinKeys);
 
     TMapIUs resultElements;
-    const auto* optionalCount = ctx.ExprCtx.MakeType<TOptionalExprType>(ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64));
+    const NFrontend::TType optionalCount{NFrontend::ETypeKind::Uint64, true};
     for (const auto& [resultIU, renamedIU] : renamedCounts.Items()) {
         resultElements.Add(
-            renamedIU, MakeBinaryPredicate("Coalesce", MakeColumnAccess(resultIU, optionalCount, pos, &ctx.ExprCtx, &props), MakeConstant("Uint64", "0", pos, &ctx.ExprCtx, &props)));
+            renamedIU, MakeBinaryPredicate("Coalesce", MakeColumnAccess(resultIU, optionalCount, pos, &props), MakeConstant("Uint64", "0", pos, &props)));
     }
 
     // Consumers read the domain from the left side and the restored counts.
@@ -204,7 +204,7 @@ TSortIUs FindLimitOrdering(const TIntrusivePtr<IOperator>& input) {
 // D ⋈ limit(k, o, sort(T)) = filter(o < rn <= o + k, window(rn: row_number() over (partition by D order by sort), D ⋈ T)).
 TIntrusivePtr<IOperator> LimitPerDomainValue(const TIntrusivePtr<TOpDependentJoin>& dependentJoin, const TIntrusivePtr<IOperator>& input,
                                              const TSortIUs& sortKeys, const TExpression& limit, const std::optional<TExpression>& offset,
-                                             TPositionHandle pos, TRBOContext& ctx, TPlanProps& props) {
+                                             TPositionHandle pos, TRBOContext&, TPlanProps& props) {
     const auto rowNumber = props.InfoUnitRegistry.AddGenerated("row_number");
     TWindowIUs functions;
     functions.Add(rowNumber, TOpWindowFunc{"rownumber", EWindowFuncKind::Native, {}});
@@ -212,7 +212,7 @@ TIntrusivePtr<IOperator> LimitPerDomainValue(const TIntrusivePtr<TOpDependentJoi
     auto window = MakeIntrusive<TOpWindow>(PushInto(dependentJoin, input), pos, std::move(functions),
                                            TOrderedIUs<>(domainColumns.begin(), domainColumns.end()), sortKeys, TOpWindowFrame{});
 
-    auto position = MakeColumnAccess(rowNumber, ctx.ExprCtx.MakeType<TDataExprType>(EDataSlot::Uint64), pos, &ctx.ExprCtx, &props);
+    auto position = MakeColumnAccess(rowNumber, NFrontend::TType{NFrontend::ETypeKind::Uint64}, pos, &props);
     TVector<TExpression> conjuncts;
     if (offset) {
         conjuncts.push_back(MakeBinaryPredicate(">", position, *offset));
@@ -233,11 +233,10 @@ TIntrusivePtr<TOpAggregate> MakeDomainProjection(const TIntrusivePtr<IOperator>&
 }
 
 bool IsNullableIU(const TIntrusivePtr<IOperator>& input, TInfoUnitId iu, TExprContext& ctx) {
-    if (!input->Type) {
-        return true;
-    }
-    const auto* columnType = input->GetIUType(iu, ctx);
-    return !columnType || columnType->IsOptionalOrNull();
+    Y_UNUSED(ctx);
+    if (!input->NativeSchema) return true;
+    const auto type = input->GetNativeIUType(iu);
+    return type.OptionalDepth || type.Kind == NFrontend::ETypeKind::Null;
 }
 
 TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr<IOperator>& rightInput,
@@ -253,7 +252,7 @@ TJoinIUs MakeNullSafeJoinKeys(TIntrusivePtr<IOperator>& leftInput, TIntrusivePtr
     auto encode = [&](TInfoUnitId iu, IOperator& input, TMapIUs& elements) {
         auto encodedIU = props.InfoUnitRegistry.AddGenerated("null_safe_key");
         // Emulates null == null.
-        elements.Add(encodedIU, MakeUnaryCallable("StablePickle", MakeColumnAccess(iu, input, pos, &ctx.ExprCtx, &props)));
+        elements.Add(encodedIU, MakeUnaryCallable("StablePickle", MakeColumnAccess(iu, input, pos, &props)));
         return encodedIU;
     };
 
@@ -419,7 +418,7 @@ TIntrusivePtr<IOperator> TEliminateDependentJoinDomainRule::SimpleMatchAndApply(
     TMapIUs bindingElements;
     for (const auto iu : captures.Keys()) {
         const auto& source = bindings.at(iu);
-        const auto value = MakeColumnAccess(source, *correlatedInput, filter->Pos, &ctx.ExprCtx, &props);
+        const auto value = MakeColumnAccess(source, *correlatedInput, filter->Pos, &props);
         bindingElements.Add(iu, value);
 
         // Special case for optional column.

@@ -6,10 +6,11 @@ SRCS(
     global_pruning.cpp
     frontend_lowering.cpp
     kqp_native_frontend.cpp
+    kqp_native_types.cpp
+    kqp_rbo_table.cpp
     kqp_expression.cpp
     kqp_olap_expr_inspection.cpp
     kqp_operator.cpp
-    kqp_plan_conversion_utils.cpp
     kqp_plan_props.cpp
     kqp_plan_to_json.cpp
     kqp_rbo_compute_statistics.cpp
@@ -21,7 +22,6 @@ SRCS(
     kqp_rbo.cpp
     kqp_rbo_cbo.cpp
     kqp_rbo_lookup_join.cpp
-    kqp_rewrite_select.cpp
     kqp_stage_graph.cpp
     analysis/logical_liveness.cpp
     logical_renames.cpp
