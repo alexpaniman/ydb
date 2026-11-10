@@ -8,6 +8,16 @@
 namespace NKikimr::NKqp {
 namespace {
 
+bool IsSelectableIndex(const TIndexDescription& index) {
+    return index.Type != TIndexDescription::EType::GlobalAsync
+        && index.Type != TIndexDescription::EType::GlobalJson
+        && index.Type != TIndexDescription::EType::GlobalJsonCompact
+        && index.Type != TIndexDescription::EType::LocalMinMax
+        && index.Type != TIndexDescription::EType::LocalBloomFilter
+        && index.Type != TIndexDescription::EType::LocalBloomNgramFilter
+        && index.State == TIndexDescription::EIndexState::Ready;
+}
+
 bool IsSuitableToExtractAndPushRanges(IOperator* input, const NYql::EStorageType applicableTableType) {
     if (input->Kind != EOperator::Filter) {
         return false;
@@ -481,9 +491,7 @@ TIntrusivePtr<IOperator> PushNativeRanges(const TIntrusivePtr<IOperator>& input,
     if (!ctx.KqpCtx.Config->IsAutoIndexSelectionDisabled() && !bestScore.PointCoversKey) {
         filterColumns = FilterPhysicalColumns(*filter, *read, props);
         for (const auto& index : table.Indexes) {
-            // Specialized text/vector indexes are not ordinary row-range sources.
-            if ((index.Type != TIndexDescription::EType::GlobalSync && index.Type != TIndexDescription::EType::GlobalSyncUnique) ||
-                index.State != TIndexDescription::EIndexState::Ready) continue;
+            if (!IsSelectableIndex(index)) continue;
             const auto metadata = table.GetIndexMetadata(index.Name).first;
             if (!metadata || IsUselessIndex(metadata->KeyColumnNames, table.KeyColumnNames) || !FindTable(ctx.KqpCtx, metadata->Name)) continue;
             auto candidate = build(*metadata);

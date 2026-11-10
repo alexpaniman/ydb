@@ -1701,8 +1701,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 auto& column = metadata->Columns[name]; column.Type = "Int32"; column.NotNull = TStringBuf(name) != "g";
             }
             f.Tables->GetOrAddTable("ut", "/Root", metadata->Name).Metadata = metadata;
-            for (const char* name : reverse ? TVector<const char*>{"B", "A", "0_async", "0_unready", "0_vector", "0_fulltext"}
-                                           : TVector<const char*>{"0_fulltext", "0_vector", "0_unready", "0_async", "A", "B"}) {
+            for (const char* name : reverse ? TVector<const char*>{"B", "A", "0_async", "0_unready", "0_json", "0_json_compact"}
+                                           : TVector<const char*>{"0_json_compact", "0_json", "0_unready", "0_async", "A", "B"}) {
                 auto index = MakeIntrusive<TKikimrTableMetadata>();
                 index->Name = TStringBuilder() << metadata->Name << '/' << name << "/indexImplTable";
                 index->DoesExist = true;
@@ -1711,8 +1711,8 @@ Y_UNIT_TEST_SUITE(KqpNativeFrontend) {
                 for (const char* column : {"g", "id", "x"}) index->Columns.emplace(column, metadata->Columns.at(column));
                 if (covering) index->Columns.emplace("payload", metadata->Columns.at("payload"));
                 const auto indexType = TStringBuf(name) == "0_async" ? TIndexDescription::EType::GlobalAsync
-                    : TStringBuf(name) == "0_vector" ? TIndexDescription::EType::GlobalSyncVectorKMeansTree
-                    : TStringBuf(name) == "0_fulltext" ? TIndexDescription::EType::GlobalFulltextPlain
+                    : TStringBuf(name) == "0_json" ? TIndexDescription::EType::GlobalJson
+                    : TStringBuf(name) == "0_json_compact" ? TIndexDescription::EType::GlobalJsonCompact
                     : TIndexDescription::EType::GlobalSync;
                 metadata->Indexes.emplace_back(name, TVector<TString>{"g"}, TVector<TString>{},
                     indexType,
