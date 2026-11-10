@@ -69,11 +69,12 @@ TExecutionPlan PrepareExecution(TCompiledProgram compiled) {
     TExecutionPlan plan{std::move(compiled).Release(), {}};
     auto& program = plan.Program;
     const auto relationCount = program.Relations.size();
-    // Most statements have no named producers. Preserve that common path.
-    if (std::none_of(program.Relations.begin(), program.Relations.end(),
+    // A single statement without named producers needs no scheduling graph.
+    if (program.Results.size() == 1 && std::none_of(program.Relations.begin(), program.Relations.end(),
             [](const auto& relation) { return relation.Kind == ERelation::Reuse; })) {
-        for (auto& result : program.Results)
-            plan.Roots.push_back({std::move(result), program.Relations[result.Root].Effect ? 1u : 0u, {}});
+        auto& result = program.Results.front();
+        const auto phase = program.Relations[result.Root].Effect ? 1u : 0u;
+        plan.Roots.push_back({std::move(result), phase, {}});
         program.Results.clear();
         return plan;
     }
@@ -111,11 +112,6 @@ TExecutionPlan PrepareExecution(TCompiledProgram compiled) {
         for (auto input : nodes[id].Inputs) merge(input, owners[id]);
     }
 
-    std::vector<std::uint64_t> phases(nodes.size());
-    for (auto id : order) {
-        for (auto input : nodes[id].Inputs)
-            phases[id] = std::max(phases[id], phases[input] + (materialized.contains(input) ? 1 : 0));
-    }
     for (TRelId i = 0; i < relationCount; ++i) {
         if (program.Relations[i].Kind != ERelation::Reuse) continue;
         const auto producer = program.Relations[i].Inputs.at(0);
@@ -144,19 +140,59 @@ TExecutionPlan PrepareExecution(TCompiledProgram compiled) {
         consumer.Inputs = {static_cast<TRelId>(program.Relations.size())};
         program.Relations.push_back(std::move(parameter));
     }
-    for (auto id : order) {
-        const auto found = materialized.find(id);
-        if (found == materialized.end()) continue;
-        TQueryResult result{static_cast<TRelId>(id), {}};
-        for (auto column : found->second.Columns)
-            result.Columns.push_back({column, "_c" + std::to_string(column), program.Columns[column].Type});
-        plan.Roots.push_back({std::move(result), phases[id], found->second.Name});
-    }
-    std::uint64_t publicPhase = 0;
-    for (const auto& result : program.Results) publicPhase = std::max(publicPhase, phases[result.Root]);
+    // Emit a shared producer at its first use, after preceding statements.
+    // The original graph retains the producer edges removed by parameterization.
+    // Visit each node once; its phase is the earliest phase of its consumers.
+    std::vector<std::uint64_t> phases(nodes.size());
+    std::vector<bool> visited(nodes.size());
+    std::unordered_map<std::string, std::uint64_t> lastWrite;
+    std::uint64_t currentPhase = 0;
+    bool currentEffects = false;
+    const auto emit = [&](TQueryResult result, std::uint64_t minimum, std::optional<std::string> name) {
+        const auto& relation = program.Relations[result.Root];
+        const bool effects = bool(relation.Effect);
+        auto phase = std::max(currentPhase, minimum);
+        if (phase == currentPhase && effects != currentEffects) ++phase;
+        if (effects) {
+            // Consecutive writes to one table can depend on rows read by
+            // effect expansion (conflict checks and RETURNING, for example).
+            if (const auto previous = lastWrite.find(relation.Table); previous != lastWrite.end())
+                phase = std::max(phase, previous->second + 1);
+            lastWrite[relation.Table] = phase;
+        }
+        currentPhase = phase;
+        currentEffects = effects;
+        plan.Roots.push_back({std::move(result), phase, std::move(name)});
+        return phase;
+    };
+    std::vector<std::pair<std::size_t, bool>> pending;
     for (auto& result : program.Results) {
-        const auto phase = publicPhase + (program.Relations[result.Root].Effect ? 1 : 0);
-        plan.Roots.push_back({std::move(result), phase, {}});
+        pending.emplace_back(result.Root, false);
+        while (!pending.empty()) {
+            const auto [id, ready] = pending.back(); pending.pop_back();
+            if (visited[id]) continue;
+            if (!ready) {
+                pending.emplace_back(id, true);
+                for (auto input = nodes[id].Inputs.rbegin(); input != nodes[id].Inputs.rend(); ++input)
+                    pending.emplace_back(*input, false);
+                continue;
+            }
+            visited[id] = true;
+            for (auto input : nodes[id].Inputs)
+                phases[id] = std::max(phases[id], phases[input] + (materialized.contains(input) ? 1 : 0));
+            if (id < relationCount && program.Relations[id].Kind == ERelation::Read) {
+                if (const auto previous = lastWrite.find(program.Relations[id].Table); previous != lastWrite.end())
+                    phases[id] = std::max(phases[id], previous->second + 1);
+            }
+            if (const auto found = materialized.find(id); found != materialized.end()) {
+                TQueryResult producer{static_cast<TRelId>(id), {}};
+                for (auto column : found->second.Columns)
+                    producer.Columns.push_back({column, "_c" + std::to_string(column), program.Columns[column].Type});
+                phases[id] = emit(std::move(producer), phases[id], found->second.Name);
+            }
+        }
+        const auto minimum = phases[result.Root];
+        emit(std::move(result), minimum, {});
     }
     program.Results.clear();
     return plan;

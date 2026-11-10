@@ -453,8 +453,8 @@ TNativeQuery ConvertNativeToRbo(NFrontend::TCompiledProgram compiled,
         operation.SetTable(tables.at(relation.Table).Table.Path);
         operation.SetOperation(static_cast<ui32>(kind));
     }
-    // A SQL block observes one pre-write snapshot. Result order remains source
-    // order even though reads precede effects in the physical transaction list.
+    // Execution preparation assigns statement and materialization dependencies.
+    // Result indices preserve public source order across physical phases.
     std::stable_sort(roots.begin(), roots.end(), [](const auto& a, const auto& b) {
         return a->PlanProps.PhysicalTxGroup < b->PlanProps.PhysicalTxGroup;
     });

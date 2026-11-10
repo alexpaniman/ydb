@@ -57,10 +57,23 @@ TVector<TString> WriteResults(bool native, bool peephole) {
     execute(R"(
         SELECT COUNT(*) AS before_count FROM Target;
         UPSERT INTO Target (id, value) VALUES (6ul, 60) RETURNING value, id;
-        SELECT COUNT(*) AS same_snapshot_count FROM Target;
+        SELECT COUNT(*) AS after_count FROM Target;
         UPSERT INTO Target (id, value) VALUES (7ul, 70);
     )", empty);
     execute("SELECT id, value, name FROM Target ORDER BY id", empty);
+    execute(R"(
+        UPSERT INTO Target (id, value) VALUES (8ul, 80);
+        UPDATE Target SET value = value + 1 WHERE id = 8ul RETURNING id, value;
+        SELECT id, value FROM Target WHERE id = 8ul;
+        DELETE FROM Target WHERE id = 8ul RETURNING id, value;
+        SELECT COUNT(*) AS after_delete FROM Target WHERE id = 8ul;
+    )", empty);
+    execute(R"(
+        UPSERT INTO Target (id, value) VALUES (9ul, 90);
+        $q = SELECT id, value FROM Target WHERE id = 9ul;
+        SELECT id, value FROM $q;
+        SELECT id, value FROM $q;
+    )", empty);
     return snapshots;
 }
 }
@@ -88,9 +101,9 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
                 TWriteSchema{{"id"}, {}, true}}, TRboTable{"/Root/t", "1:2", "", "3"}, NYql::EStorageType::RowStorage};
         }, fixture.ExprCtx);
         UNIT_ASSERT_VALUES_EQUAL(query.Roots.size(), 4);
-        UNIT_ASSERT(!query.Roots[0]->PlanProps.WithEffects);
-        UNIT_ASSERT_VALUES_EQUAL(*query.Roots[0]->PlanProps.ResultIndex, 1);
-        UNIT_ASSERT_VALUES_EQUAL(*query.Roots[1]->PlanProps.ResultIndex, 0);
+        UNIT_ASSERT(query.Roots[0]->PlanProps.WithEffects);
+        UNIT_ASSERT_VALUES_EQUAL(*query.Roots[0]->PlanProps.ResultIndex, 0);
+        UNIT_ASSERT_VALUES_EQUAL(*query.Roots[1]->PlanProps.ResultIndex, 1);
         UNIT_ASSERT(!query.Roots[2]->PlanProps.ResultIndex);
         UNIT_ASSERT_VALUES_EQUAL(*query.Roots[3]->PlanProps.ResultIndex, 2);
         UNIT_ASSERT(query.Execution.DiscardResults == (TVector<bool>{false, false, false}));
@@ -102,7 +115,7 @@ Y_UNIT_TEST_SUITE(KqpNativeEffects) {
                 for (const auto& expression : item.Current->GetExpressions()) UNIT_ASSERT(expression.get().IsNative());
             }
         }
-        const auto& effect = CastOperator<TOpTableEffect>(*query.Roots[1]->GetInput());
+        const auto& effect = CastOperator<TOpTableEffect>(*query.Roots[0]->GetInput());
         UNIT_ASSERT(effect.EffectType == EEffectType::UpsertRowsIndex);
         UNIT_ASSERT_VALUES_EQUAL(effect.GetColumns().Items().size(), 2);
         UNIT_ASSERT_VALUES_EQUAL(effect.GetReturningColumns().Items()[0].second, "value");

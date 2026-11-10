@@ -890,7 +890,8 @@ private:
                 if (!labels.insert(name).second) throw TFrontendError(pos, "duplicate write column: " + name);
             }
             TRelation values{ERelation::UnionAll, pos};
-            for (const auto& name : write.Columns) values.Columns.push_back(Column(name, {}, columnType(name), pos));
+            if (write.Rows.size() > 1)
+                for (const auto& name : write.Columns) values.Columns.push_back(Column(name, {}, columnType(name), pos));
             const TScope empty;
             for (const auto& row : write.Rows) {
                 if (row.size() != write.Columns.size()) throw TFrontendError(pos, "write column count does not match VALUES row");
@@ -908,11 +909,14 @@ private:
                 values.Inputs.push_back(Map(Relation({ERelation::Unit, pos}), std::move(fields), pos));
                 values.UnionInputs.push_back(std::move(columns));
             }
+            // A single VALUES row already has the required typed bindings.
+            // UnionAll remains an actual multi-input relation at the handoff.
+            if (values.Inputs.size() == 1) values.Columns = values.UnionInputs.front();
             for (std::size_t i = 0; i < write.Columns.size(); ++i) {
                 written.insert(write.Columns[i]);
                 effect.Columns.emplace_back(values.Columns[i], write.Columns[i]);
             }
-            input = Relation(std::move(values));
+            input = values.Inputs.size() == 1 ? values.Inputs.front() : Relation(std::move(values));
         } else {
             auto source = ReadTable(write.Target, table);
             TExprContext context{source.Scope};

@@ -19,13 +19,31 @@ std::vector<const TExecutionRoot*> Materializations(const TExecutionPlan& plan) 
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeExecution) {
-    Y_UNIT_TEST(OrdinaryRootsKeepReadSnapshotAndWriteOrder) {
+    Y_UNIT_TEST(OrdinaryRootsObservePrecedingWrites) {
         const auto plan = Prepare("INSERT INTO t (id) VALUES (1ul); SELECT id FROM t; DELETE FROM t WHERE id = 1ul");
         UNIT_ASSERT(Materializations(plan).empty());
         UNIT_ASSERT_VALUES_EQUAL(plan.Roots.size(), 3);
         UNIT_ASSERT_VALUES_EQUAL(plan.Roots[0].Phase, 1);
-        UNIT_ASSERT_VALUES_EQUAL(plan.Roots[1].Phase, 0);
-        UNIT_ASSERT_VALUES_EQUAL(plan.Roots[2].Phase, 1);
+        UNIT_ASSERT_VALUES_EQUAL(plan.Roots[1].Phase, 2);
+        UNIT_ASSERT_VALUES_EQUAL(plan.Roots[2].Phase, 3);
+    }
+
+    Y_UNIT_TEST(ConsecutiveEffectsKeepTableDependencies) {
+        const auto plan = Prepare("UPSERT INTO t (id) VALUES (1ul); INSERT INTO u SELECT id FROM t; "
+            "DELETE FROM u WHERE id = 1ul; SELECT id FROM u");
+        UNIT_ASSERT_VALUES_EQUAL(plan.Roots.size(), 4);
+        for (std::size_t i = 0; i < plan.Roots.size(); ++i) UNIT_ASSERT_VALUES_EQUAL(plan.Roots[i].Phase, i + 1);
+    }
+
+    Y_UNIT_TEST(SharedProducerIsEvaluatedAtFirstUseAfterWrites) {
+        const auto plan = Prepare("UPSERT INTO t (id) VALUES (1ul); $q = SELECT id FROM t; "
+            "SELECT id FROM $q; SELECT id FROM $q");
+        const auto materialized = Materializations(plan);
+        UNIT_ASSERT_VALUES_EQUAL(materialized.size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(plan.Roots[0].Phase, 1);
+        UNIT_ASSERT_VALUES_EQUAL(materialized[0]->Phase, 2);
+        UNIT_ASSERT_VALUES_EQUAL(plan.Roots[2].Phase, 3);
+        UNIT_ASSERT_VALUES_EQUAL(plan.Roots[3].Phase, 3);
     }
 
     Y_UNIT_TEST(PureQuerySharingWithinOneRootRemainsForRbo) {

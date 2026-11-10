@@ -1,6 +1,7 @@
 #include <ydb/core/kqp/opt/rbo/frontend/frontend.h>
 
 #include <library/cpp/testing/unittest/registar.h>
+#include <algorithm>
 
 using namespace NKikimr::NKqp::NFrontend;
 
@@ -47,6 +48,26 @@ Y_UNIT_TEST_SUITE(KqpNativeWrites) {
         for (const auto* sql : {"INSERT INTO t (id) VALUES (1),,", "UPDATE t SET", "DELETE FROM", "INSERT INTO t VALUES ()"}) {
             UNIT_ASSERT_EXCEPTION_C(Parse(sql), TFrontendError, sql);
             UNIT_ASSERT_EXCEPTION_C(ParseGrammar(sql), TFrontendError, sql);
+        }
+    }
+
+    Y_UNIT_TEST(SingleValuesRowIsNotAUnion) {
+        for (const auto parser : {EParser::Handwritten, EParser::Grammar}) {
+            TCompilerSettings settings; settings.Parser = parser;
+            for (const auto* rows : {"(1ul, 2)", "(1ul, 2), (3ul, NULL)"}) {
+                const auto result = CompileNative(std::string("UPSERT INTO t (id, value) VALUES ") + rows, WriteCatalog, settings);
+                const auto& program = result.Program->Get();
+                const auto& effect = program.Relations[program.Results[0].Root];
+                const auto& input = program.Relations[effect.Inputs[0]];
+                if (std::string_view(rows) == "(1ul, 2)") UNIT_ASSERT(input.Kind == ERelation::Map);
+                else { UNIT_ASSERT(input.Kind == ERelation::UnionAll); UNIT_ASSERT_VALUES_EQUAL(input.Inputs.size(), 2); }
+                for (const auto& relation : program.Relations)
+                    if (relation.Kind == ERelation::UnionAll) UNIT_ASSERT(relation.Inputs.size() > 1);
+                for (const auto& [column, name] : effect.Effect->Columns) {
+                    UNIT_ASSERT_VALUES_EQUAL(program.Columns[column].Name, name);
+                    UNIT_ASSERT(std::find(input.Columns.begin(), input.Columns.end(), column) != input.Columns.end());
+                }
+            }
         }
     }
 
@@ -165,7 +186,7 @@ Y_UNIT_TEST_SUITE(KqpNativeWrites) {
             UNIT_ASSERT_VALUES_EQUAL(Effect(program).Columns.size(), 3);
             UNIT_ASSERT(Effect(program).Returning.empty());
             const auto& values = program.Relations.at(program.Relations.at(program.Results[0].Root).Inputs[0]);
-            UNIT_ASSERT(values.Kind == ERelation::UnionAll);
+            UNIT_ASSERT(values.Kind == ERelation::Map);
             UNIT_ASSERT(program.Columns[values.Columns[0]].Type == (TType{ETypeKind::Uint64}));
             UNIT_ASSERT(program.Columns[values.Columns[1]].Type == (TType{ETypeKind::Int32, true}));
             UNIT_ASSERT(program.Columns[values.Columns[2]].Type == (TType{ETypeKind::Utf8, true}));
