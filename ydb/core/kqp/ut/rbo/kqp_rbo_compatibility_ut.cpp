@@ -92,6 +92,47 @@ Y_UNIT_TEST_SUITE(KqpRboCompatibility) {
     Y_UNIT_TEST_TWIN(SafeCastOptionalResults, PhysicalStagePeephole) { RunSafeCastOptionalResults(PhysicalStagePeephole, false); }
     Y_UNIT_TEST_TWIN(NativeSafeCastOptionalResults, PhysicalStagePeephole) { RunSafeCastOptionalResults(PhysicalStagePeephole, true); }
 
+    Y_UNIT_TEST(NativeNullableDecimalBoundsPreserveTypeParameters) {
+        for (const bool indexed : {false, true}) {
+            NKikimrConfig::TAppConfig appConfig;
+            auto* config = appConfig.MutableTableServiceConfig();
+            config->SetEnableNewRBO(true);
+            config->SetNativeFrontendMode(NKikimrConfig::TTableServiceConfig::NATIVE_REQUIRED);
+            config->SetEnableFallbackToYqlOptimizer(false);
+            config->SetEnableNewRBOPhysicalStagePeephole(false);
+            TKikimrRunner kikimr(TKikimrSettings(appConfig).SetWithSampleTables(false));
+            auto session = kikimr.GetTableClient().CreateSession().GetValueSync().GetSession();
+            const TString schema = indexed
+                ? "CREATE TABLE `/Root/decimal_keys` (id Uint64 NOT NULL, d Decimal(9,2), m String NOT NULL, payload String, "
+                  "INDEX by_d GLOBAL UNIQUE SYNC ON (d, m), PRIMARY KEY(id));"
+                : "CREATE TABLE `/Root/decimal_keys` (id Uint64 NOT NULL, d Decimal(9,2), m String NOT NULL, payload String, PRIMARY KEY(d,id));";
+            const auto created = session.ExecuteSchemeQuery(schema).GetValueSync();
+            UNIT_ASSERT_C(created.IsSuccess(), created.GetIssues().ToString());
+            auto client = kikimr.GetQueryClient();
+            const auto inserted = client.ExecuteQuery(R"(
+                UPSERT INTO `/Root/decimal_keys` (id,d,m,payload) VALUES
+                    (1ul,NULL,'a','null-a'), (2ul,CAST('1.25' AS Decimal(9,2)),'a','finite'),
+                    (3ul,NULL,'b','null-b'), (4ul,CAST('0.50' AS Decimal(9,2)),'b','lower');
+            )", NQuery::TTxControl::BeginTx().CommitTx()).GetValueSync();
+            UNIT_ASSERT_C(inserted.IsSuccess(), inserted.GetIssues().ToString());
+            const TVector<std::pair<TString, TVector<ui64>>> cases{
+                {"d IS NULL", {1,3}}, {"d IS NULL AND m = 'a'", {1}},
+                {"d < CAST('1.25' AS Decimal(9,2))", {4}},
+                {"d = CAST('1.25' AS Decimal(9,2))", {2}},
+                {"d IS NULL OR d = CAST('1.25' AS Decimal(9,2))", {1,2,3}}};
+            for (const auto& [predicate, expected] : cases) {
+                const auto query = TStringBuilder() << "SELECT id,payload FROM `/Root/decimal_keys` WHERE " << predicate << " ORDER BY id;";
+                const auto result = client.ExecuteQuery(query, NQuery::TTxControl::NoTx()).GetValueSync();
+                UNIT_ASSERT_C(result.IsSuccess(), query << ": " << result.GetIssues().ToString());
+                UNIT_ASSERT(result.GetIssues().ToString().find("[native_frontend_fallback]") == std::string::npos);
+                TResultSetParser rows(result.GetResultSet(0));
+                TVector<ui64> actual;
+                while (rows.TryNextRow()) actual.push_back(rows.ColumnParser("id").GetUint64());
+                UNIT_ASSERT_VALUES_EQUAL(actual, expected);
+            }
+        }
+    }
+
     void RunManyJoinsWithDecimalRanges(bool native) {
         NKikimrConfig::TAppConfig appConfig;
         appConfig.MutableTableServiceConfig()->SetEnableNewRBO(true);
