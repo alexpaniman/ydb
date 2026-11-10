@@ -9,6 +9,7 @@ RUN_PYTHON3(
 
 SRCS(
     frontend.cpp
+    execution.cpp
     expression.cpp
     like.cpp
     parser.cpp

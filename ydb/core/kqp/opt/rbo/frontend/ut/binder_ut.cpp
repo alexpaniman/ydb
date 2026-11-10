@@ -19,6 +19,17 @@ const TRelation& Find(const TBoundProgram& program, ERelation kind) {
 }
 
 Y_UNIT_TEST_SUITE(KqpNativeBinder) {
+    Y_UNIT_TEST(NamedSourcesDoNotAcquireConsumerColumnCaptures) {
+        TCompilerSettings settings; settings.Parser = EParser::Verify;
+        for (const auto* sql : {
+            "$q = SELECT id; SELECT (SELECT id FROM $q) FROM a",
+            "WITH c AS (SELECT id) SELECT (SELECT id FROM c) FROM a",
+        }) UNIT_ASSERT_EXCEPTION_C(CompileNative(sql, Catalog, settings), TFrontendError, sql);
+        const auto valid = CompileNative("SELECT (WITH c AS (SELECT a.id AS x) SELECT x FROM c) FROM a", Catalog, settings);
+        UNIT_ASSERT_VALUES_EQUAL(valid.Program->Get().Subplans.size(), 1);
+        UNIT_ASSERT_VALUES_EQUAL(Find(valid.Program->Get(), ERelation::Capture).Captures.size(), 1);
+    }
+
     Y_UNIT_TEST(TableDiscoveryAndBindingUseDeclarationScope) {
         TCompilerSettings settings; settings.Parser = EParser::Verify;
         const std::vector<std::pair<std::string, std::vector<std::string>>> cases{

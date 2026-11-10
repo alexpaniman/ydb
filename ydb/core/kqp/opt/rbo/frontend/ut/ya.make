@@ -1,6 +1,7 @@
 UNITTEST()
 
 SRCS(
+    execution_ut.cpp
     binder_ut.cpp
     writes_ut.cpp
     expression_ut.cpp

@@ -688,12 +688,15 @@ private:
             if (!ActiveQueries.insert(query.get()).second) throw TFrontendError(source.Position, "recursive query binding is not supported");
             // A named, uncorrelated query has one producer and distinct bindings
             // at its use sites. RBO decides whether to copy or share that producer.
-            const bool reusable = !source.Query && !outer;
+            // Named statements are closed over their declaration scope. A CTE
+            // can capture columns only from the query that declared it.
+            auto* queryOuter = source.Name.starts_with('$') ? nullptr : cte ? CteContexts.at(cte) : outer;
+            const bool reusable = !source.Query && !queryOuter;
             TQueryResult result;
             if (const auto found = ReusableQueries.find(query.get()); reusable && found != ReusableQueries.end()) {
                 result = found->second;
             } else {
-                result = Select(*query, outer);
+                result = Select(*query, queryOuter);
                 if (reusable) ReusableQueries.emplace(query.get(), result);
             }
             ActiveQueries.erase(query.get());
@@ -924,6 +927,24 @@ private:
 
     TQueryResult Select(const TSelect& query, TExprContext* outer = nullptr) {
         TDepth depth(*this, query.Position);
+        struct TDeclarationScope {
+            std::unordered_map<const TCteBinding*, TExprContext*>& Contexts;
+            std::vector<std::pair<const TCteBinding*, std::optional<TExprContext*>>> Saved;
+            TDeclarationScope(decltype(Contexts) contexts, const TSelect& query, TExprContext* outer)
+                : Contexts(contexts) {
+                for (const auto& cte : query.Ctes) {
+                    const auto it = Contexts.find(&cte);
+                    Saved.emplace_back(&cte, it == Contexts.end() ? std::nullopt : std::optional{it->second});
+                    Contexts[&cte] = outer;
+                }
+            }
+            ~TDeclarationScope() {
+                for (const auto& [cte, previous] : Saved) {
+                    if (previous) Contexts[cte] = *previous;
+                    else Contexts.erase(cte);
+                }
+            }
+        } scope(CteContexts, query, outer);
         if (!query.SetInputs.empty()) {
             auto result = SetQuery(query, outer);
             return result;
@@ -1856,6 +1877,7 @@ private:
     std::vector<bool> ContainsAggregate;
     std::vector<std::optional<TExprId>> Values;
     std::unordered_map<const TSelect*, TQueryResult> ReusableQueries;
+    std::unordered_map<const TCteBinding*, TExprContext*> CteContexts;
     std::unordered_set<std::string> Declared;
     std::unordered_set<const TSelect*> ActiveQueries;
     std::unordered_set<const TStatement*> ActiveLambdas;
